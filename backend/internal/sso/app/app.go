@@ -32,7 +32,7 @@ func New(port int, dbURL string, jwtSecret string, accessTTL, refreshTTL time.Du
 
 	repo := repository.NewUserRepository(db)
 	tokenProvider := jwt.NewProvider(jwtSecret, accessTTL, refreshTTL)
-	authService := service.NewAuth(repo, tokenProvider)
+	authService := service.NewAuthService(repo, tokenProvider)
 
 	gRPCServer := grpc.NewServer()
 	authgrpc.Register(gRPCServer, authService)

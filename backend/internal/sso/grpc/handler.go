@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
 )
 
 type AuthService interface {
@@ -35,7 +35,7 @@ func (h *Handler) Register(ctx context.Context, req *sso.RegisterRequest) (*sso.
 
 	uid, err := h.auth.Register(ctx, req.GetUsername(), req.GetEmail(), req.GetPassword())
 	if err != nil {
-		if errors.Is(err, domain.ErrUserAlreadyExists) {
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return nil, status.Error(codes.AlreadyExists, "user already exists")
 		}
 		return nil, status.Error(codes.Internal, "internal error")
@@ -53,7 +53,7 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 
 	accessToken, refreshToken, err := h.auth.Login(ctx, req.GetUsername(), req.GetPassword())
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidCredentials) {
+		if errors.Is(err, apperrors.ErrInvalidCredentials) {
 			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 		}
 		return nil, status.Error(codes.Internal, "internal error")
@@ -72,7 +72,7 @@ func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.Re
 
 	accessToken, refreshToken, err := h.auth.Refresh(ctx, req.GetRefreshToken())
 	if err != nil {
-		if errors.Is(err, domain.ErrInvalidToken) {
+		if errors.Is(err, apperrors.ErrInvalidToken) {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
 		return nil, status.Error(codes.Internal, "internal error")

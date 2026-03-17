@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
@@ -28,7 +29,7 @@ func (r *UserRepository) SaveUser(ctx context.Context, user domain.User) error {
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return domain.ErrUserAlreadyExists
+			return apperrors.ErrAlreadyExists
 		}
 		return err
 	}
@@ -54,7 +55,7 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.User{}, domain.ErrUserNotFound
+			return domain.User{}, apperrors.ErrNotFound
 		}
 		return domain.User{}, err
 	}
@@ -80,7 +81,7 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.User{}, domain.ErrUserNotFound
+			return domain.User{}, apperrors.ErrNotFound
 		}
 		return domain.User{}, err
 	}

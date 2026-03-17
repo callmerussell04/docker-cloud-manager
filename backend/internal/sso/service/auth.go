@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -20,22 +21,22 @@ type TokenProvider interface {
 	ValidateRefreshToken(token string) (uuid.UUID, error)
 }
 
-type Auth struct {
+type AuthService struct {
 	repo          UserRepository
 	tokenProvider TokenProvider
 }
 
-func NewAuth(repo UserRepository, tokenProvider TokenProvider) *Auth {
-	return &Auth{
+func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthService {
+	return &AuthService{
 		repo:          repo,
 		tokenProvider: tokenProvider,
 	}
 }
 
-func (s *Auth) Register(ctx context.Context, username, email, password string) (uuid.UUID, error) {
+func (s *AuthService) Register(ctx context.Context, username, email, password string) (uuid.UUID, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		return uuid.Nil, domain.ErrInternal
+		return uuid.Nil, apperrors.ErrInternal
 	}
 
 	user := domain.User{
@@ -48,51 +49,51 @@ func (s *Auth) Register(ctx context.Context, username, email, password string) (
 
 	err = s.repo.SaveUser(ctx, user)
 	if err != nil {
-		if errors.Is(err, domain.ErrUserAlreadyExists) {
-			return uuid.Nil, domain.ErrUserAlreadyExists
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return uuid.Nil, apperrors.ErrAlreadyExists
 		}
-		return uuid.Nil, domain.ErrInternal
+		return uuid.Nil, apperrors.ErrInternal
 	}
 
 	return user.ID, nil
 }
 
-func (s *Auth) Login(ctx context.Context, username, password string) (string, string, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string) (string, string, error) {
 	user, err := s.repo.GetUserByUsername(ctx, username)
 	if err != nil {
-		if errors.Is(err, domain.ErrUserNotFound) {
-			return "", "", domain.ErrInvalidCredentials
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return "", "", apperrors.ErrInvalidCredentials
 		}
-		return "", "", domain.ErrInternal
+		return "", "", apperrors.ErrInternal
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
-		return "", "", domain.ErrInvalidCredentials
+		return "", "", apperrors.ErrInvalidCredentials
 	}
 
 	accessToken, refreshToken, err := s.tokenProvider.GenerateTokens(user)
 	if err != nil {
-		return "", "", domain.ErrInternal
+		return "", "", apperrors.ErrInternal
 	}
 
 	return accessToken, refreshToken, nil
 }
 
-func (s *Auth) Refresh(ctx context.Context, refreshToken string) (string, string, error) {
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string, string, error) {
 	userID, err := s.tokenProvider.ValidateRefreshToken(refreshToken)
 	if err != nil {
-		return "", "", domain.ErrInvalidToken
+		return "", "", apperrors.ErrInvalidToken
 	}
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return "", "", domain.ErrInvalidToken
+		return "", "", apperrors.ErrInvalidToken
 	}
 
 	accessToken, newRefreshToken, err := s.tokenProvider.GenerateTokens(user)
 	if err != nil {
-		return "", "", domain.ErrInternal
+		return "", "", apperrors.ErrInternal
 	}
 
 	return accessToken, newRefreshToken, nil

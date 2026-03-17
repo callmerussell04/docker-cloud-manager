@@ -4,9 +4,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/jwtutils"
 )
 
 type Provider struct {
@@ -24,23 +26,29 @@ func NewProvider(secretKey string, accessTTL, refreshTTL time.Duration) *Provide
 }
 
 func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
-	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":      user.ID.String(),
-		"username": user.Username,
-		"role":     user.Role,
-		"exp":      time.Now().Add(p.accessTTL).Unix(),
-	})
+	accessClaims := jwtutils.UserClaims{
+		UserID:   user.ID,
+		Username: user.Username,
+		Role:     user.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(p.accessTTL)),
+		},
+	}
 
+	accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
 	accessTokenStr, err := accessToken.SignedString(p.secretKey)
 	if err != nil {
 		return "", "", err
 	}
 
-	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": user.ID.String(),
-		"exp": time.Now().Add(p.refreshTTL).Unix(),
-	})
+	refreshClaims := jwtutils.UserClaims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(p.refreshTTL)),
+		},
+	}
 
+	refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
 	refreshTokenStr, err := refreshToken.SignedString(p.secretKey)
 	if err != nil {
 		return "", "", err
@@ -50,7 +58,7 @@ func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
 }
 
 func (p *Provider) ValidateRefreshToken(tokenStr string) (uuid.UUID, error) {
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &jwtutils.UserClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
@@ -61,20 +69,10 @@ func (p *Provider) ValidateRefreshToken(tokenStr string) (uuid.UUID, error) {
 		return uuid.Nil, errors.New("invalid token")
 	}
 
-	claims, ok := token.Claims.(jwt.MapClaims)
+	claims, ok := token.Claims.(*jwtutils.UserClaims)
 	if !ok {
 		return uuid.Nil, errors.New("invalid claims")
 	}
 
-	sub, ok := claims["sub"].(string)
-	if !ok {
-		return uuid.Nil, errors.New("missing sub claim")
-	}
-
-	userID, err := uuid.Parse(sub)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
-	return userID, nil
+	return claims.UserID, nil
 }
