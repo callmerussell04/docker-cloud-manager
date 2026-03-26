@@ -1,0 +1,8 @@
+CREATE TABLE builds (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    image_id UUID NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL,
+    log_file_path TEXT NOT NULL,
+    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    finished_at TIMESTAMP WITH TIME ZONE
+);

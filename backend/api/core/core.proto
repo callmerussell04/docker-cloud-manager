@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package core;
+
+option go_package = "github.com/callmerussell04/docker-cloud-manager/backend/api/core;core";
+
+service ContainerAPI {
+  rpc CreateContainer (CreateContainerRequest) returns (CreateContainerResponse);
+  rpc StartContainer (ContainerActionRequest) returns (Empty);
+  rpc StopContainer (ContainerActionRequest) returns (Empty);
+  rpc DeleteContainer (ContainerActionRequest) returns (Empty);
+  rpc GetUserContainers (GetUserRequest) returns (ContainerListResponse);
+}
+
+service ImageAPI {
+  rpc GetUserImages (GetUserRequest) returns (ImageListResponse);
+  rpc DeleteImage (ImageActionRequest) returns (Empty);
+  rpc RegisterCustomImage (RegisterImageRequest) returns (RegisterImageResponse);
+}
+
+service VolumeAPI {
+  rpc CreateVolume (CreateVolumeRequest) returns (CreateVolumeResponse);
+  rpc DeleteVolume (VolumeActionRequest) returns (Empty);
+  rpc GetUserVolumes (GetUserRequest) returns (VolumeListResponse);
+}
+
+message Empty {}
+
+message GetUserRequest {
+  string owner_id = 1;
+}
+
+message VolumeMount {
+  string volume_id = 1;
+  string mount_path = 2;
+  bool is_readonly = 3;
+}
+
+message CreateContainerRequest {
+  string owner_id = 1;
+  string name = 2;
+  string image_tag = 3;
+  int32 internal_port = 4;
+  map<string, string> env_vars = 5;
+  repeated VolumeMount volume_mounts = 6;
+}
+
+message CreateContainerResponse {
+  string container_id = 1;
+}
+
+message ContainerActionRequest {
+  string owner_id = 1;
+  string container_id = 2;
+}
+
+message ContainerData {
+  string id = 1;
+  string docker_id = 2;
+  string name = 3;
+  string image_tag = 4;
+  int32 internal_port = 5;
+  string status = 6;
+  int64 created_at = 7;
+}
+
+message ContainerListResponse {
+  repeated ContainerData containers = 1;
+}
+
+message ImageActionRequest {
+  string owner_id = 1;
+  string image_id = 2;
+}
+
+message RegisterImageRequest {
+  string owner_id = 1;
+  string tag = 2;
+  int32 size_mb = 3;
+}
+
+message RegisterImageResponse {
+  string image_id = 1;
+}
+
+message ImageData {
+  string id = 1;
+  string tag = 2;
+  int32 size_mb = 3;
+  bool is_custom = 4;
+  int64 created_at = 5;
+}
+
+message ImageListResponse {
+  repeated ImageData images = 1;
+}
+
+message CreateVolumeRequest {
+  string owner_id = 1;
+  string name = 2;
+  string driver = 3;
+  map<string, string> driver_opts = 4;
+}
+
+message CreateVolumeResponse {
+  string volume_id = 1;
+}
+
+message VolumeActionRequest {
+  string owner_id = 1;
+  string volume_id = 2;
+}
+
+message VolumeData {
+  string id = 1;
+  string docker_name = 2;
+  string driver = 3;
+  int64 created_at = 4;
+}
+
+message VolumeListResponse {
+  repeated VolumeData volumes = 1;
+}
