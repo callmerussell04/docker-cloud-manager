@@ -25,7 +25,7 @@ type App struct {
 	cancel     context.CancelFunc
 }
 
-func New(port int, dbURL string, baseDomain string) (*App, error) {
+func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func New(port int, dbURL string, baseDomain string) (*App, error) {
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, dockerAdapter, metricsProvider, baseDomain)
+	contService := service.NewContainerService(contRepo, volRepo, dockerAdapter, metricsProvider, cfg)
 	volService := service.NewVolumeService(volRepo, dockerAdapter)
 	imgService := service.NewImageService(imgRepo, dockerAdapter)
 

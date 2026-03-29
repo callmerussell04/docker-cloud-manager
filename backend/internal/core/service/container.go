@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
@@ -11,8 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// TODO: pull out into a config
-const maxContainersPerUser = 10
+type ContainerConfig struct {
+	MaxContainersPerUser  int
+	ReservedSystemMemory  int64
+	OvercommitFactor      float64
+	BaseMemoryReservation int64
+	MaxBurstMemoryLimit   int64
+	BaseDomain            string
+}
 
 type ContainerRepository interface {
 	Save(ctx context.Context, c domain.Container) error
@@ -21,6 +28,9 @@ type ContainerRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CountRunning(ctx context.Context) (int, error)
+	GetRunning(ctx context.Context) ([]domain.Container, error)
+	UpdateResourcesConfig(ctx context.Context, id uuid.UUID, configJSON []byte) error
 }
 
 type ContainerVolumeRepository interface {
@@ -35,10 +45,12 @@ type ContainerDockerAPI interface {
 	StartContainer(ctx context.Context, dockerID string) error
 	StopContainer(ctx context.Context, dockerID string, timeout int) error
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
+	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
 }
 
 type HostMetricsProvider interface {
-	GetFreeMemory() int64
+	GetTotalMemory() (int64, error)
+	GetFreeMemory() (int64, error)
 }
 
 type ContainerService struct {
@@ -46,7 +58,7 @@ type ContainerService struct {
 	volumeRepo ContainerVolumeRepository
 	dockerAPI  ContainerDockerAPI
 	metrics    HostMetricsProvider
-	baseDomain string
+	config     ContainerConfig
 }
 
 func NewContainerService(
@@ -54,14 +66,14 @@ func NewContainerService(
 	volumeRepo ContainerVolumeRepository,
 	dockerAPI ContainerDockerAPI,
 	metrics HostMetricsProvider,
-	baseDomain string,
+	config ContainerConfig,
 ) *ContainerService {
 	return &ContainerService{
 		repo:       repo,
 		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
 		metrics:    metrics,
-		baseDomain: baseDomain,
+		config:     config,
 	}
 }
 
@@ -70,7 +82,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if count >= maxContainersPerUser {
+	if count >= s.config.MaxContainersPerUser {
 		return uuid.Nil, apperrors.ErrAlreadyExists
 	}
 
@@ -85,25 +97,23 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
-	memLimit, memRes, cpuShares := s.calculateDynamicQuotas()
-
 	envBytes, err := json.Marshal(params.EnvVars)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
-	resConfig := map[string]interface{}{
-		"memory_limit":       memLimit,
-		"memory_reservation": memRes,
-		"cpu_shares":         cpuShares,
+	initialResConfig := map[string]interface{}{
+		"memory_limit":       s.config.BaseMemoryReservation,
+		"memory_reservation": s.config.BaseMemoryReservation,
+		"cpu_shares":         512,
 	}
-	resBytes, err := json.Marshal(resConfig)
+	resBytes, err := json.Marshal(initialResConfig)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	containerID := uuid.New()
-	hostDomain := fmt.Sprintf("%s-%s.%s", params.Name, ownerID.String()[:8], s.baseDomain)
+	hostDomain := fmt.Sprintf("%s-%s.%s", params.Name, ownerID.String()[:8], s.config.BaseDomain)
 
 	var dockerMounts []docker.MountParam
 	var dbMounts []domain.VolumeMount
@@ -143,9 +153,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		Domain:            hostDomain,
 		InternalPort:      params.InternalPort,
 		EnvVars:           envList,
-		MemoryLimitBytes:  memLimit,
-		MemoryReservation: memRes,
-		CPUShares:         cpuShares,
+		MemoryLimitBytes:  s.config.BaseMemoryReservation,
+		MemoryReservation: s.config.BaseMemoryReservation,
+		CPUShares:         512,
 		VolumeMounts:      dockerMounts,
 	}
 
@@ -189,11 +199,20 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 		return apperrors.ErrNotFound
 	}
 
+	if err := s.checkAdmissionCapacity(ctx); err != nil {
+		return err
+	}
+
 	if err := s.dockerAPI.StartContainer(ctx, container.DockerID); err != nil {
 		return err
 	}
 
-	return s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusRunning)
+	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusRunning)
+	if err == nil {
+		go s.RebalanceResources(context.Background())
+	}
+
+	return err
 }
 
 func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.UUID) error {
@@ -209,7 +228,12 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 		return err
 	}
 
-	return s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusExited)
+	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusExited)
+	if err == nil {
+		go s.RebalanceResources(context.Background())
+	}
+
+	return err
 }
 
 func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid.UUID) error {
@@ -233,23 +257,81 @@ func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
-// TODO: change dynamic quota calculation algorithm
-func (s *ContainerService) calculateDynamicQuotas() (int64, int64, int64) {
-	freeMemory := s.metrics.GetFreeMemory()
+func (s *ContainerService) checkAdmissionCapacity(ctx context.Context) error {
+	runningCount, err := s.repo.CountRunning(ctx)
+	if err != nil {
+		return err
+	}
 
-	var memoryLimit int64
-	var memoryReservation int64
-	var cpuShares int64
+	totalMem, err := s.metrics.GetTotalMemory()
+	if err != nil {
+		log.Printf("[AdmissionControl] Failed to get system memory: %v", err)
+		return apperrors.ErrInternal
+	}
 
-	if freeMemory > 8*1024*1024*1024 {
-		memoryLimit = 2048 * 1024 * 1024
-		memoryReservation = 512 * 1024 * 1024
-		cpuShares = 1024
+	availablePool := float64(totalMem-s.config.ReservedSystemMemory) * s.config.OvercommitFactor
+
+	if availablePool <= 0 {
+		return apperrors.ErrResourceExhausted
+	}
+
+	projectedRequiredMem := int64(runningCount+1) * s.config.BaseMemoryReservation
+	if projectedRequiredMem > int64(availablePool) {
+		return apperrors.ErrResourceExhausted
+	}
+
+	return nil
+}
+
+func (s *ContainerService) RebalanceResources(ctx context.Context) {
+	runningContainers, err := s.repo.GetRunning(ctx)
+	if err != nil || len(runningContainers) == 0 {
+		return
+	}
+
+	totalMem, err := s.metrics.GetTotalMemory()
+	if err != nil {
+		log.Printf("[Rebalancer] Failed to get total memory: %v. Aborting rebalance.", err)
+		return
+	}
+
+	availableMem := totalMem - s.config.ReservedSystemMemory
+	if availableMem <= 0 {
+		availableMem = s.config.BaseMemoryReservation * int64(len(runningContainers))
+	}
+
+	fairShareMem := availableMem / int64(len(runningContainers))
+
+	var newMemoryLimit int64
+	if fairShareMem > s.config.MaxBurstMemoryLimit {
+		newMemoryLimit = s.config.MaxBurstMemoryLimit
+	} else if fairShareMem < s.config.BaseMemoryReservation {
+		newMemoryLimit = s.config.BaseMemoryReservation
 	} else {
-		memoryLimit = 512 * 1024 * 1024
-		memoryReservation = 256 * 1024 * 1024
+		newMemoryLimit = fairShareMem
+	}
+
+	var cpuShares int64 = 1024
+	if len(runningContainers) > 10 {
 		cpuShares = 512
 	}
 
-	return memoryLimit, memoryReservation, cpuShares
+	for _, c := range runningContainers {
+		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, s.config.BaseMemoryReservation, cpuShares)
+		if err != nil {
+			log.Printf("[Rebalancer] failed to update resources for container %s: %v", c.ID, err)
+			continue
+		}
+
+		resConfig := map[string]interface{}{
+			"memory_limit":       newMemoryLimit,
+			"memory_reservation": s.config.BaseMemoryReservation,
+			"cpu_shares":         cpuShares,
+		}
+
+		resBytes, err := json.Marshal(resConfig)
+		if err == nil {
+			s.repo.UpdateResourcesConfig(ctx, c.ID, resBytes)
+		}
+	}
 }

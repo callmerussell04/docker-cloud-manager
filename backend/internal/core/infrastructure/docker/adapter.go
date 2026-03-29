@@ -41,7 +41,7 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 	resp, err := a.cli.NetworkCreate(ctx, networkName, network.CreateOptions{
 		Driver: "bridge",
 		Labels: map[string]string{
-			"managed_by": "university-cloud",
+			"managed_by": "docker-cloud-manager",
 		},
 	})
 	if err != nil {
@@ -53,13 +53,11 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 
 func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerParams) (string, error) {
 	labels := map[string]string{
-		"managed_by": "docker-cloud-manager",
+		"traefik.enable": "true",
+		"traefik.http.routers." + params.ContainerName + ".rule":                      "Host(`" + params.Domain + "`)",
+		"traefik.http.services." + params.ContainerName + ".loadbalancer.server.port": strconv.Itoa(params.InternalPort),
+		"managed_by": "university-cloud",
 	}
-
-	envVars := append(params.EnvVars,
-		"VIRTUAL_HOST="+params.Domain,
-		"VIRTUAL_PORT="+strconv.Itoa(params.InternalPort),
-	)
 
 	var mounts []mount.Mount
 	for _, m := range params.VolumeMounts {
@@ -71,6 +69,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		})
 	}
 
+	// TODO: look into this config ts might be a problem for dynamic quotas
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		Resources: container.Resources{
@@ -89,7 +88,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 
 	containerConfig := &container.Config{
 		Image:  params.ImageName,
-		Env:    envVars,
+		Env:    params.EnvVars,
 		Labels: labels,
 	}
 
@@ -137,7 +136,7 @@ func (a *Adapter) CreateVolume(ctx context.Context, params CreateVolumeParams) (
 		Driver:     driver,
 		DriverOpts: params.DriverOpts,
 		Labels: map[string]string{
-			"managed_by": "university-cloud",
+			"managed_by": "docker-cloud-manager",
 		},
 	})
 	if err != nil {
@@ -196,5 +195,18 @@ func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) e
 		Force:         force,
 		PruneChildren: true,
 	})
+	return err
+}
+
+func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error {
+	updateConfig := container.UpdateConfig{
+		Resources: container.Resources{
+			Memory:            memoryLimit,
+			MemoryReservation: memoryReservation,
+			CPUShares:         cpuShares,
+		},
+	}
+
+	_, err := a.cli.ContainerUpdate(ctx, dockerID, updateConfig)
 	return err
 }

@@ -8,15 +8,39 @@ import (
 	"syscall"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	_ "github.com/lib/pq"
 )
 
-func main() {
-	portStr := os.Getenv("CORE_GRPC_PORT")
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		port = 50052
+func getEnvInt(key string, fallback int) int {
+	if value, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.Atoi(value); err == nil {
+			return i
+		}
 	}
+	return fallback
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	if value, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return i
+		}
+	}
+	return fallback
+}
+
+func getEnvFloat(key string, fallback float64) float64 {
+	if value, ok := os.LookupEnv(key); ok {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
+func main() {
+	port := getEnvInt("CORE_GRPC_PORT", 50052)
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -28,7 +52,16 @@ func main() {
 		log.Fatal("BASE_DOMAIN environment variable is not set")
 	}
 
-	application, err := app.New(port, dbURL, baseDomain)
+	cfg := service.ContainerConfig{
+		MaxContainersPerUser:  getEnvInt("MAX_CONTAINERS_PER_USER", 5),
+		ReservedSystemMemory:  getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),
+		OvercommitFactor:      getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
+		BaseMemoryReservation: getEnvInt64("BASE_MEMORY_RESERVATION_BYTES", 256*1024*1024),
+		MaxBurstMemoryLimit:   getEnvInt64("MAX_BURST_MEMORY_LIMIT_BYTES", 2*1024*1024*1024),
+		BaseDomain:            baseDomain,
+	}
+
+	application, err := app.New(port, dbURL, cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

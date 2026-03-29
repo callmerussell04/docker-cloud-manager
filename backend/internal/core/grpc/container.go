@@ -70,7 +70,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "related resource not found")
 		}
-		return nil, status.Error(codes.Internal, "failed to create container")
+		return nil, status.Error(codes.Internal, err.Error())
 	}
 
 	return &coreapi.CreateContainerResponse{

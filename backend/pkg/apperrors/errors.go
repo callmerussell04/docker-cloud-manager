@@ -10,4 +10,5 @@ var (
 	ErrInvalidToken       = errors.New("invalid token")
 	ErrBadRequest         = errors.New("bad request")
 	ErrInternal           = errors.New("internal server error")
+	ErrResourceExhausted  = errors.New("server capacity reached, cannot allocate resources")
 )
