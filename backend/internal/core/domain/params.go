@@ -3,11 +3,12 @@ package domain
 import "github.com/google/uuid"
 
 type ContainerCreateParams struct {
-	Name         string
-	ImageTag     string
-	InternalPort int
-	EnvVars      map[string]string
-	VolumeMounts []VolumeMountParams
+	Name              string
+	ImageTag          string
+	InternalPort      int
+	EnvVars           map[string]string
+	VolumeMounts      []VolumeMountParams
+	RequestedMemoryMB int64
 }
 
 type VolumeMountParams struct {

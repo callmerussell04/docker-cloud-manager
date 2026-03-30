@@ -6,6 +6,8 @@ CREATE TABLE users (
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role user_role NOT NULL DEFAULT 'user',
+    quota_cpu DECIMAL(3,1) DEFAULT 1.0,
+    quota_ram_mb INTEGER DEFAULT 2048,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

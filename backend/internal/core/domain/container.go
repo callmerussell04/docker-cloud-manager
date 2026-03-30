@@ -14,15 +14,15 @@ const (
 )
 
 type Container struct {
-	ID              uuid.UUID
-	OwnerID         uuid.UUID
-	DockerID        string
-	Name            string
-	ImageTag        string
-	InternalPort    int
-	Status          string
-	TTLDeadline     *time.Time
-	EnvVars         []byte
-	ResourcesConfig []byte
-	CreatedAt       time.Time
+	ID                    uuid.UUID
+	OwnerID               uuid.UUID
+	DockerID              string
+	Name                  string
+	ImageTag              string
+	InternalPort          int
+	Status                string
+	TTLDeadline           *time.Time
+	EnvVars               []byte
+	BaseMemoryReservation int64
+	CreatedAt             time.Time
 }

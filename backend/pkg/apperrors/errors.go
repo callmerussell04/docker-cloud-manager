@@ -11,4 +11,6 @@ var (
 	ErrBadRequest         = errors.New("bad request")
 	ErrInternal           = errors.New("internal server error")
 	ErrResourceExhausted  = errors.New("server capacity reached, cannot allocate resources")
+	ErrQuotaExceeded      = errors.New("user memory quota exceeded")
+	ErrHostExhausted      = errors.New("host server is out of memory")
 )

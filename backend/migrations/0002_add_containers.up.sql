@@ -8,6 +8,6 @@ CREATE TABLE containers (
     status VARCHAR(20) NOT NULL,
     ttl_deadline TIMESTAMP WITH TIME ZONE,
     env_vars JSONB,
-    resources_config JSONB,
+    base_memory_reservation BIGINT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
