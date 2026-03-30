@@ -12,19 +12,22 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	// Системные константы (лучше вынести в Config, как делали ранее)
-	DefaultMemoryReservationBytes = 256 * 1024 * 1024      // 256 MB
-	ReservedSystemMemoryBytes     = 2 * 1024 * 1024 * 1024 // 2 GB для ОС и БД
-)
-
 type ContainerConfig struct {
-	BaseDomain string
+	BaseDomain               string
+	DefaultMemoryReservation int64
+	ReservedSystemMemory     int64
+	OvercommitFactor         float64
+	MaxBurstMultiplier       int64
+	DefaultCPUShares         int64
+	HighLoadCPUShares        int64
+	HighLoadContainerCount   int
+	ContainerStopTimeout     int
 }
 
 type ContainerRepository interface {
 	Save(ctx context.Context, c domain.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -80,7 +83,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	// 1. Определение запрашиваемой памяти (Гарантии)
 	reqMem := params.RequestedMemoryMB * 1024 * 1024
 	if reqMem <= 0 {
-		reqMem = DefaultMemoryReservationBytes
+		reqMem = s.config.DefaultMemoryReservation
 	}
 
 	// 2. Admission Control: Проверка квоты пользователя
@@ -154,9 +157,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		Domain:            hostDomain,
 		InternalPort:      params.InternalPort,
 		EnvVars:           envList,
-		MemoryLimitBytes:  reqMem, // Стартовый жесткий лимит
-		MemoryReservation: reqMem, // Гарантия (Soft limit)
-		CPUShares:         512,    // Базовый приоритет
+		MemoryLimitBytes:  reqMem,                    // Стартовый жесткий лимит
+		MemoryReservation: reqMem,                    // Гарантия (Soft limit)
+		CPUShares:         s.config.DefaultCPUShares, // Базовый приоритет
 		VolumeMounts:      dockerMounts,
 	}
 
@@ -231,7 +234,7 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 		return apperrors.ErrNotFound
 	}
 
-	if err := s.dockerAPI.StopContainer(ctx, container.DockerID, 10); err != nil {
+	if err := s.dockerAPI.StopContainer(ctx, container.DockerID, s.config.ContainerStopTimeout); err != nil {
 		return err
 	}
 
@@ -243,6 +246,27 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 	}
 
 	return err
+}
+
+func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid.UUID) error {
+	container, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if container.OwnerID != ownerID {
+		return apperrors.ErrNotFound
+	}
+
+	err = s.dockerAPI.RemoveContainer(ctx, container.DockerID, true)
+	if err != nil {
+		return err
+	}
+
+	return s.repo.Delete(ctx, containerID)
+}
+
+func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
+	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
 // --- Admission Control ---
@@ -272,7 +296,7 @@ func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 
 	// Мы позволяем резервировать (overcommit) до 150% памяти хоста
 	// Но если даже 150% исчерпано, мы отклоняем новые запуски
-	maxAllowedReservations := int64(float64(totalMem-ReservedSystemMemoryBytes) * 1.5)
+	maxAllowedReservations := int64(float64(totalMem-s.config.ReservedSystemMemory) * s.config.OvercommitFactor)
 
 	// В идеале здесь должен быть SQL SUM всех running контейнеров,
 	// но для упрощения (и скорости) можно опустить эту жесткую проверку,
@@ -298,7 +322,7 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 	}
 
 	// Свободная память на сервере для "Burst" режима
-	availableForBurst := totalMem - ReservedSystemMemoryBytes
+	availableForBurst := totalMem - s.config.ReservedSystemMemory
 
 	// Сколько памяти гарантированно забрали все текущие запущенные контейнеры
 	var totalReserved int64 = 0
@@ -319,15 +343,15 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 		newMemoryLimit := int64(float64(c.BaseMemoryReservation) * burstFactor)
 
 		// Ограничиваем сверху, чтобы один контейнер не съел весь хост (например, не больше 4x от базы)
-		maxAllowedBurst := c.BaseMemoryReservation * 4
+		maxAllowedBurst := c.BaseMemoryReservation * s.config.MaxBurstMultiplier
 		if newMemoryLimit > maxAllowedBurst {
 			newMemoryLimit = maxAllowedBurst
 		}
 
 		// Выдаем CpuShares: если мало контейнеров - высокий приоритет, если много - стандартный
-		var cpuShares int64 = 1024
-		if len(runningContainers) > 5 {
-			cpuShares = 512
+		cpuShares := s.config.DefaultCPUShares
+		if len(runningContainers) > s.config.HighLoadContainerCount {
+			cpuShares = s.config.HighLoadCPUShares
 		}
 
 		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, c.BaseMemoryReservation, cpuShares)
@@ -335,6 +359,4 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 			log.Printf("[Rebalancer] failed to update %s: %v", c.ID, err)
 		}
 	}
-
-	log.Printf("[Rebalancer] Rebalanced %d containers. Burst Factor: %.2f", len(runningContainers), burstFactor)
 }

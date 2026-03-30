@@ -52,13 +52,17 @@ func main() {
 		log.Fatal("BASE_DOMAIN environment variable is not set")
 	}
 
+	// Сборка конфигурации для бизнес-логики из переменных окружения
 	cfg := service.ContainerConfig{
-		MaxContainersPerUser:  getEnvInt("MAX_CONTAINERS_PER_USER", 5),
-		ReservedSystemMemory:  getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),
-		OvercommitFactor:      getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
-		BaseMemoryReservation: getEnvInt64("BASE_MEMORY_RESERVATION_BYTES", 256*1024*1024),
-		MaxBurstMemoryLimit:   getEnvInt64("MAX_BURST_MEMORY_LIMIT_BYTES", 2*1024*1024*1024),
-		BaseDomain:            baseDomain,
+		BaseDomain:               baseDomain,
+		DefaultMemoryReservation: getEnvInt64("DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
+		ReservedSystemMemory:     getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
+		OvercommitFactor:         getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
+		MaxBurstMultiplier:       getEnvInt64("MAX_BURST_MULTIPLIER", 4),
+		DefaultCPUShares:         getEnvInt64("DEFAULT_CPU_SHARES", 1024),
+		HighLoadCPUShares:        getEnvInt64("HIGH_LOAD_CPU_SHARES", 512),
+		HighLoadContainerCount:   getEnvInt("HIGH_LOAD_CONTAINER_COUNT", 5),
+		ContainerStopTimeout:     getEnvInt("CONTAINER_STOP_TIMEOUT", 10),
 	}
 
 	application, err := app.New(port, dbURL, cfg)
