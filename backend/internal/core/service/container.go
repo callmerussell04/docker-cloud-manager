@@ -359,4 +359,5 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 			log.Printf("[Rebalancer] failed to update %s: %v", c.ID, err)
 		}
 	}
+	log.Printf("[Rebalancer] Rebalanced %d containers. Burst Factor: %.2f", len(runningContainers), burstFactor)
 }

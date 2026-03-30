@@ -74,6 +74,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		Resources: container.Resources{
 			Memory:            params.MemoryLimitBytes,
+			MemorySwap:        params.MemoryLimitBytes * 2,
 			MemoryReservation: params.MemoryReservation,
 			CPUShares:         params.CPUShares,
 		},
@@ -202,6 +203,7 @@ func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string,
 	updateConfig := container.UpdateConfig{
 		Resources: container.Resources{
 			Memory:            memoryLimit,
+			MemorySwap:        memoryLimit * 2,
 			MemoryReservation: memoryReservation,
 			CPUShares:         cpuShares,
 		},
