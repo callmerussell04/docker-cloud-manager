@@ -10,6 +10,7 @@ service ContainerAPI {
   rpc StopContainer (ContainerActionRequest) returns (Empty);
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
   rpc GetUserContainers (GetUserRequest) returns (ContainerListResponse);
+  rpc ExposeContainer (ExposeRequest) returns (Empty);
 }
 
 service ImageAPI {
@@ -43,6 +44,7 @@ message CreateContainerRequest {
   int32 internal_port = 4;
   map<string, string> env_vars = 5;
   repeated VolumeMount volume_mounts = 6;
+  string domain = 7;
 }
 
 message CreateContainerResponse {
@@ -52,6 +54,12 @@ message CreateContainerResponse {
 message ContainerActionRequest {
   string owner_id = 1;
   string container_id = 2;
+}
+
+message ExposeRequest {
+  string owner_id = 1;
+  string container_id = 2;
+  string domain = 3;
 }
 
 message ContainerData {

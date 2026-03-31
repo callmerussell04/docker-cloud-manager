@@ -65,6 +65,22 @@ func (r *ContainerRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 	return nil
 }
 
+func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error {
+	query := `UPDATE containers SET docker_id = $1 WHERE id = $2`
+	res, err := r.db.ExecContext(ctx, query, dockerID, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 

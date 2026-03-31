@@ -7,7 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 )
 
-func NewRouter(authHandler *handler.AuthHandler, tokenParser middleware.TokenParser) *gin.Engine {
+func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, tokenParser middleware.TokenParser) *gin.Engine {
 	router := gin.Default()
 
 	v1 := router.Group("/api/v1")
@@ -23,10 +23,26 @@ func NewRouter(authHandler *handler.AuthHandler, tokenParser middleware.TokenPar
 		protected := v1.Group("/")
 		protected.Use(middleware.Auth(tokenParser))
 		{
-			protected.GET("/ping", func(c *gin.Context) {
-				userID := c.GetString("user_id")
-				c.JSON(200, gin.H{"message": "pong", "user_id": userID})
-			})
+			containers := protected.Group("/containers")
+			{
+				containers.POST("", coreHandler.CreateContainer)
+				containers.GET("", coreHandler.GetContainers)
+				containers.POST("/:id/action/:action", coreHandler.ActionContainer)
+				containers.POST("/:id/expose", coreHandler.ExposeContainer)
+			}
+
+			volumes := protected.Group("/volumes")
+			{
+				volumes.POST("", coreHandler.CreateVolume)
+				volumes.GET("", coreHandler.GetVolumes)
+				volumes.DELETE("/:id", coreHandler.DeleteVolume)
+			}
+
+			images := protected.Group("/images")
+			{
+				images.GET("", coreHandler.GetImages)
+				images.DELETE("/:id", coreHandler.DeleteImage)
+			}
 		}
 	}
 

@@ -20,6 +20,7 @@ type ContainerLogic interface {
 	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
+	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainName string) error
 }
 
 type ContainerHandler struct {
@@ -60,6 +61,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		InternalPort: int(req.GetInternalPort()),
 		EnvVars:      req.GetEnvVars(),
 		VolumeMounts: mounts,
+		Domain:       req.GetDomain(),
 	}
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
@@ -70,7 +72,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "related resource not found")
 		}
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, status.Error(codes.Internal, "failed to create container")
 	}
 
 	return &coreapi.CreateContainerResponse{
@@ -171,4 +173,30 @@ func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.G
 	return &coreapi.ContainerListResponse{
 		Containers: pbContainers,
 	}, nil
+}
+
+func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
+	}
+
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	if req.GetDomain() == "" {
+		return nil, status.Error(codes.InvalidArgument, "domain name is required")
+	}
+
+	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomain())
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to expose container")
+	}
+
+	return &coreapi.Empty{}, nil
 }

@@ -24,6 +24,7 @@ const (
 	ContainerAPI_StopContainer_FullMethodName     = "/core.ContainerAPI/StopContainer"
 	ContainerAPI_DeleteContainer_FullMethodName   = "/core.ContainerAPI/DeleteContainer"
 	ContainerAPI_GetUserContainers_FullMethodName = "/core.ContainerAPI/GetUserContainers"
+	ContainerAPI_ExposeContainer_FullMethodName   = "/core.ContainerAPI/ExposeContainer"
 )
 
 // ContainerAPIClient is the client API for ContainerAPI service.
@@ -35,6 +36,7 @@ type ContainerAPIClient interface {
 	StopContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetUserContainers(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ContainerListResponse, error)
+	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type containerAPIClient struct {
@@ -95,6 +97,16 @@ func (c *containerAPIClient) GetUserContainers(ctx context.Context, in *GetUserR
 	return out, nil
 }
 
+func (c *containerAPIClient) ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ContainerAPI_ExposeContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContainerAPIServer is the server API for ContainerAPI service.
 // All implementations must embed UnimplementedContainerAPIServer
 // for forward compatibility.
@@ -104,6 +116,7 @@ type ContainerAPIServer interface {
 	StopContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	GetUserContainers(context.Context, *GetUserRequest) (*ContainerListResponse, error)
+	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	mustEmbedUnimplementedContainerAPIServer()
 }
 
@@ -128,6 +141,9 @@ func (UnimplementedContainerAPIServer) DeleteContainer(context.Context, *Contain
 }
 func (UnimplementedContainerAPIServer) GetUserContainers(context.Context, *GetUserRequest) (*ContainerListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUserContainers not implemented")
+}
+func (UnimplementedContainerAPIServer) ExposeContainer(context.Context, *ExposeRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method ExposeContainer not implemented")
 }
 func (UnimplementedContainerAPIServer) mustEmbedUnimplementedContainerAPIServer() {}
 func (UnimplementedContainerAPIServer) testEmbeddedByValue()                      {}
@@ -240,6 +256,24 @@ func _ContainerAPI_GetUserContainers_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContainerAPI_ExposeContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExposeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).ExposeContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_ExposeContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).ExposeContainer(ctx, req.(*ExposeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContainerAPI_ServiceDesc is the grpc.ServiceDesc for ContainerAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -266,6 +300,10 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUserContainers",
 			Handler:    _ContainerAPI_GetUserContainers_Handler,
+		},
+		{
+			MethodName: "ExposeContainer",
+			Handler:    _ContainerAPI_ExposeContainer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

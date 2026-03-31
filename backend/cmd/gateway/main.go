@@ -20,12 +20,17 @@ func main() {
 		log.Fatal("SSO_GRPC_TARGET environment variable is not set")
 	}
 
+	coreTarget := os.Getenv("CORE_GRPC_TARGET")
+	if coreTarget == "" {
+		log.Fatal("CORE_GRPC_TARGET environment variable is not set")
+	}
+
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		log.Fatal("JWT_SECRET environment variable is not set")
 	}
 
-	application, err := app.New(port, ssoTarget, jwtSecret)
+	application, err := app.New(port, ssoTarget, coreTarget, jwtSecret)
 	if err != nil {
 		log.Fatalf("failed to initialize gateway app: %v", err)
 	}

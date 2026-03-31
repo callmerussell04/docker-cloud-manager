@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/google/uuid"
 )
 
@@ -29,6 +32,7 @@ type ContainerRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error)
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -48,6 +52,7 @@ type ContainerDockerAPI interface {
 	StopContainer(ctx context.Context, dockerID string, timeout int) error
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
 	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
+	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
 }
 
 type HostMetricsProvider interface {
@@ -114,7 +119,6 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	}
 
 	containerID := uuid.New()
-	hostDomain := fmt.Sprintf("%s-%s.%s", params.Name, ownerID.String()[:8], s.config.BaseDomain)
 
 	// Подготовка томов
 	var dockerMounts []docker.MountParam
@@ -154,7 +158,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
 		ImageName:         params.ImageTag,
 		NetworkName:       networkName,
-		Domain:            hostDomain,
+		Domain:            params.Domain,
 		InternalPort:      params.InternalPort,
 		EnvVars:           envList,
 		MemoryLimitBytes:  reqMem,                    // Стартовый жесткий лимит
@@ -168,7 +172,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
-	container := domain.Container{
+	c := domain.Container{
 		ID:                    containerID,
 		OwnerID:               ownerID,
 		DockerID:              dockerID,
@@ -180,7 +184,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		BaseMemoryReservation: reqMem,
 	}
 
-	if err := s.repo.Save(ctx, container); err != nil {
+	if err := s.repo.Save(ctx, c); err != nil {
 		s.dockerAPI.RemoveContainer(context.Background(), dockerID, true)
 		return uuid.Nil, err
 	}
@@ -191,27 +195,100 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		}
 	}
 
-	return container.ID, nil
+	return containerID, nil
 }
 
-func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.UUID) error {
-	container, err := s.repo.GetByID(ctx, containerID)
+func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainName string) error {
+	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if container.OwnerID != ownerID {
+	if c.OwnerID != ownerID {
+		return apperrors.ErrNotFound
+	}
+
+	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
+	if err != nil {
+		return err
+	}
+
+	err = s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.ContainerStopTimeout)
+	if err != nil {
+		return err
+	}
+
+	err = s.dockerAPI.RemoveContainer(ctx, c.DockerID, false)
+	if err != nil {
+		return err
+	}
+
+	var envList []string
+	envList = append(envList, inspect.Config.Env...)
+
+	var dockerMounts []docker.MountParam
+	for _, m := range inspect.Mounts {
+		if m.Type == mount.TypeVolume {
+			dockerMounts = append(dockerMounts, docker.MountParam{
+				VolumeName: m.Name,
+				Target:     m.Destination,
+				ReadOnly:   !m.RW,
+			})
+		}
+	}
+
+	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
+
+	dockerParams := docker.CreateContainerParams{
+		ContainerName:     strings.TrimPrefix(inspect.Name, "/"),
+		ImageName:         inspect.Config.Image,
+		NetworkName:       networkName,
+		Domain:            domainName,
+		InternalPort:      c.InternalPort,
+		EnvVars:           envList,
+		MemoryLimitBytes:  inspect.HostConfig.Memory,
+		MemoryReservation: inspect.HostConfig.MemoryReservation,
+		CPUShares:         inspect.HostConfig.CpuShares,
+		VolumeMounts:      dockerMounts,
+	}
+
+	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
+	if err != nil {
+		return err
+	}
+
+	err = s.repo.UpdateDockerID(ctx, containerID, newDockerID)
+	if err != nil {
+		return err
+	}
+
+	if c.Status == domain.ContainerStatusRunning {
+		err = s.dockerAPI.StartContainer(ctx, newDockerID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.UUID) error {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
 
 	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
-	if err := s.checkUserQuota(ctx, ownerID, container.BaseMemoryReservation); err != nil {
+	if err := s.checkUserQuota(ctx, ownerID, c.BaseMemoryReservation); err != nil {
 		return err
 	}
-	if err := s.checkHostCapacity(container.BaseMemoryReservation); err != nil {
+	if err := s.checkHostCapacity(c.BaseMemoryReservation); err != nil {
 		return err
 	}
 
-	if err := s.dockerAPI.StartContainer(ctx, container.DockerID); err != nil {
+	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		return err
 	}
 
@@ -226,15 +303,15 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 }
 
 func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.UUID) error {
-	container, err := s.repo.GetByID(ctx, containerID)
+	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if container.OwnerID != ownerID {
+	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
 
-	if err := s.dockerAPI.StopContainer(ctx, container.DockerID, s.config.ContainerStopTimeout); err != nil {
+	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.ContainerStopTimeout); err != nil {
 		return err
 	}
 
@@ -249,15 +326,15 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 }
 
 func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid.UUID) error {
-	container, err := s.repo.GetByID(ctx, containerID)
+	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if container.OwnerID != ownerID {
+	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
 
-	err = s.dockerAPI.RemoveContainer(ctx, container.DockerID, true)
+	err = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
 	if err != nil {
 		return err
 	}

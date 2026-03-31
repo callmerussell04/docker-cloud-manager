@@ -53,10 +53,13 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 
 func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerParams) (string, error) {
 	labels := map[string]string{
-		"traefik.enable": "true",
-		"traefik.http.routers." + params.ContainerName + ".rule":                      "Host(`" + params.Domain + "`)",
-		"traefik.http.services." + params.ContainerName + ".loadbalancer.server.port": strconv.Itoa(params.InternalPort),
-		"managed_by": "university-cloud",
+		"managed_by": "docker-cloud-manager",
+	}
+
+	if params.Domain != "" {
+		labels["traefik.enable"] = "true"
+		labels["traefik.http.routers."+params.ContainerName+".rule"] = "Host(`" + params.Domain + "`)"
+		labels["traefik.http.services."+params.ContainerName+".loadbalancer.server.port"] = strconv.Itoa(params.InternalPort)
 	}
 
 	var mounts []mount.Mount
@@ -69,7 +72,6 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		})
 	}
 
-	// TODO: look into this config ts might be a problem for dynamic quotas
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		Resources: container.Resources{
@@ -170,7 +172,6 @@ func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
 	}
 	defer out.Close()
 
-	// Читаем поток до конца, чтобы дождаться завершения скачивания
 	_, err = io.Copy(io.Discard, out)
 	return err
 }
