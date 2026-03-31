@@ -247,7 +247,7 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		EnvVars:           envList,
 		MemoryLimitBytes:  inspect.HostConfig.Memory,
 		MemoryReservation: inspect.HostConfig.MemoryReservation,
-		CPUShares:         inspect.HostConfig.CpuShares,
+		CPUShares:         inspect.HostConfig.CPUShares,
 		VolumeMounts:      dockerMounts,
 	}
 

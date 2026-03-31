@@ -60,6 +60,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		labels["traefik.enable"] = "true"
 		labels["traefik.http.routers."+params.ContainerName+".rule"] = "Host(`" + params.Domain + "`)"
 		labels["traefik.http.services."+params.ContainerName+".loadbalancer.server.port"] = strconv.Itoa(params.InternalPort)
+		labels["traefik.docker.network"] = "proxy_net"
 	}
 
 	var mounts []mount.Mount
@@ -105,6 +106,15 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 	)
 	if err != nil {
 		return "", err
+	}
+
+	if params.Domain != "" {
+		err = a.cli.NetworkConnect(ctx, "proxy_net", resp.ID, nil)
+		if err != nil {
+			// TODO: idk about this, probably remove this line
+			a.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+			return "", err
+		}
 	}
 
 	return resp.ID, nil

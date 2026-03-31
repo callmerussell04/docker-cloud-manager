@@ -21,3 +21,23 @@ services:
     volumes:
       - ./migrations:/migrations
     command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable", "up"]
+
+  traefik:
+    image: traefik:v3.6
+    container_name: dcm_traefik
+    user: root
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - proxy_net
+
+networks:
+  proxy_net:
