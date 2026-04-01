@@ -66,11 +66,11 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.ResourceExhausted, "container limit reached")
-		}
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "related resource not found")
+		}
+		if errors.Is(err, apperrors.ErrLimitExceeded) {
+			return nil, status.Error(codes.ResourceExhausted, "maximum number of resources reached")
 		}
 		return nil, status.Error(codes.Internal, "failed to create container")
 	}

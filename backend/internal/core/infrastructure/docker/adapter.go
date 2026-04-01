@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
@@ -58,7 +59,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		"managed_by": "docker-cloud-manager",
 	}
 
-	if params.Domain != "" {
+	if params.Domain != "" && params.InternalPort != 0 {
 		labels["traefik.enable"] = "true"
 		labels["traefik.http.routers."+params.ContainerName+".rule"] = "Host(`" + params.Domain + "`)"
 		labels["traefik.http.services."+params.ContainerName+".loadbalancer.server.port"] = strconv.Itoa(params.InternalPort)
@@ -84,6 +85,19 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 			CPUShares:         params.CPUShares,
 		},
 		Mounts: mounts,
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				"max-size": params.MaxLogSize,
+				"max-file": params.MaxLogFiles,
+			},
+		},
+	}
+
+	if params.StorageQuota != "" {
+		hostConfig.StorageOpt = map[string]string{
+			"size": params.StorageQuota,
+		}
 	}
 
 	netConfig := &network.NetworkingConfig{
@@ -110,11 +124,11 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		return "", err
 	}
 
-	if params.Domain != "" {
+	if params.Domain != "" && params.InternalPort != 0 {
 		err = a.cli.NetworkConnect(ctx, "proxy_net", resp.ID, nil)
 		if err != nil {
 			// TODO: idk about this, probably remove this line
-			a.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+			//a.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 			return "", err
 		}
 	}
@@ -244,4 +258,15 @@ func (a *Adapter) ListenEvents(ctx context.Context) (<-chan events.Message, <-ch
 		),
 	}
 	return a.cli.Events(ctx, options)
+}
+
+func (a *Adapter) PruneSystem(ctx context.Context) error {
+	_, err := a.cli.ImagesPrune(ctx, filters.Args{})
+	if err != nil {
+		return err
+	}
+
+	opts := build.CachePruneOptions{All: false}
+	_, err = a.cli.BuildCachePrune(ctx, opts)
+	return err
 }

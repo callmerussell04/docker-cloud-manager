@@ -39,6 +39,13 @@ func getEnvFloat(key string, fallback float64) float64 {
 	return fallback
 }
 
+func getEnvString(key string, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
+}
+
 func main() {
 	port := getEnvInt("CORE_GRPC_PORT", 50052)
 
@@ -63,6 +70,11 @@ func main() {
 		HighLoadCPUShares:        getEnvInt64("HIGH_LOAD_CPU_SHARES", 512),
 		HighLoadContainerCount:   getEnvInt("HIGH_LOAD_CONTAINER_COUNT", 5),
 		ContainerStopTimeout:     getEnvInt("CONTAINER_STOP_TIMEOUT", 10),
+		MaxLogSize:               getEnvString("MAX_LOG_SIZE", "10m"),
+		MaxLogFiles:              getEnvString("MAX_LOG_FILES", "3"),
+		ContainerDiskQuota:       getEnvString("CONTAINER_DISK_QUOTA", "1G"),
+		MaxVolumesPerUser:        getEnvInt("MAX_VOLUMES_PER_USER", 5),
+		MaxContainersPerUser:     getEnvInt("MAX_CONTAINERS_PER_USER", 10),
 	}
 
 	application, err := app.New(port, dbURL, cfg)

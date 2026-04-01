@@ -169,7 +169,7 @@ func mapCoreError(err error) error {
 	case codes.AlreadyExists:
 		return apperrors.ErrAlreadyExists
 	case codes.ResourceExhausted:
-		return apperrors.ErrInternal
+		return apperrors.ErrLimitExceeded
 	case codes.InvalidArgument:
 		return apperrors.ErrBadRequest
 	default:

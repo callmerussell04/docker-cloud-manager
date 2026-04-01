@@ -16,6 +16,7 @@ type VolumeRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Volume, error)
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) // <-- НОВЫЙ МЕТОД
 }
 
 type VolumeDockerAPI interface {
@@ -24,18 +25,29 @@ type VolumeDockerAPI interface {
 }
 
 type VolumeService struct {
-	repo      VolumeRepository
-	dockerAPI VolumeDockerAPI
+	repo              VolumeRepository
+	dockerAPI         VolumeDockerAPI
+	maxVolumesPerUser int
 }
 
-func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI) *VolumeService {
+func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, maxVolumesPerUser int) *VolumeService {
 	return &VolumeService{
-		repo:      repo,
-		dockerAPI: dockerAPI,
+		repo:              repo,
+		dockerAPI:         dockerAPI,
+		maxVolumesPerUser: maxVolumesPerUser,
 	}
 }
 
 func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error) {
+	// Проверка лимита на количество томов
+	count, err := s.repo.CountByOwnerID(ctx, ownerID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if count >= s.maxVolumesPerUser {
+		return uuid.Nil, apperrors.ErrLimitExceeded
+	}
+
 	volID := uuid.New()
 	dockerName := fmt.Sprintf("vol_%s_%s", ownerID.String()[:8], params.Name)
 

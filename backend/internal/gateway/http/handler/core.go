@@ -185,6 +185,10 @@ func (h *CoreHandler) handleError(c *gin.Context, err error) {
 		apperrors.Respond(c, http.StatusConflict, apperrors.ErrAlreadyExists)
 		return
 	}
+	if errors.Is(err, apperrors.ErrLimitExceeded) {
+		apperrors.Respond(c, http.StatusConflict, apperrors.ErrLimitExceeded)
+		return
+	}
 	if errors.Is(err, apperrors.ErrBadRequest) {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return

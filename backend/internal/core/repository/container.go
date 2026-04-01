@@ -255,3 +255,10 @@ func (r *ContainerRepository) GetExpired(ctx context.Context) ([]domain.Containe
 	}
 	return containers, rows.Err()
 }
+
+func (r *ContainerRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM containers WHERE owner_id = $1`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count)
+	return count, err
+}

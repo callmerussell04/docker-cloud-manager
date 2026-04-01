@@ -8,6 +8,7 @@ CREATE TABLE users (
     role user_role NOT NULL DEFAULT 'user',
     quota_cpu DECIMAL(3,1) DEFAULT 1.0,
     quota_ram_mb INTEGER DEFAULT 2048,
+    quota_disk_mb INTEGER DEFAULT 5120,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

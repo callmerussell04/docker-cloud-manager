@@ -47,7 +47,7 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, dockerAdapter, metricsProvider, cfg)
-	volService := service.NewVolumeService(volRepo, dockerAdapter)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
 	imgService := service.NewImageService(imgRepo, dockerAdapter)
 
 	gRPCServer := grpc.NewServer()
@@ -63,6 +63,9 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
 	go eventWorker.Run(ctx)
+
+	gcWorker := service.NewGCWorker(dockerAdapter, 1*time.Hour)
+	go gcWorker.Run(ctx)
 
 	return &App{
 		gRPCServer: gRPCServer,

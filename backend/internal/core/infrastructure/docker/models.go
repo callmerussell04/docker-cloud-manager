@@ -11,6 +11,9 @@ type CreateContainerParams struct {
 	MemoryReservation int64
 	CPUShares         int64
 	VolumeMounts      []MountParam
+	MaxLogSize        string
+	MaxLogFiles       string
+	StorageQuota      string
 }
 
 type MountParam struct {

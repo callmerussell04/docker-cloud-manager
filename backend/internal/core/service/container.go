@@ -25,6 +25,11 @@ type ContainerConfig struct {
 	HighLoadCPUShares        int64
 	HighLoadContainerCount   int
 	ContainerStopTimeout     int
+	MaxLogSize               string
+	MaxLogFiles              string
+	ContainerDiskQuota       string
+	MaxVolumesPerUser        int
+	MaxContainersPerUser     int
 }
 
 type ContainerRepository interface {
@@ -38,6 +43,7 @@ type ContainerRepository interface {
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetRunning(ctx context.Context) ([]domain.Container, error)
+	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 }
 
 type ContainerVolumeRepository interface {
@@ -87,6 +93,14 @@ func NewContainerService(
 }
 
 func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error) {
+	count, err := s.repo.CountByOwnerID(ctx, ownerID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if count >= s.config.MaxContainersPerUser {
+		return uuid.Nil, apperrors.ErrLimitExceeded
+	}
+
 	var fullDomain string
 	if params.DomainPrefix != "" {
 		if params.InternalPort <= 0 {
@@ -113,7 +127,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	// 4. Изоляция сети
 	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
-	_, err := s.dockerAPI.EnsureUserNetwork(ctx, networkName)
+	_, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -182,6 +196,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		MemoryReservation: reqMem,                    // Гарантия (Soft limit)
 		CPUShares:         s.config.DefaultCPUShares, // Базовый приоритет
 		VolumeMounts:      dockerMounts,
+		MaxLogSize:        s.config.MaxLogSize,
+		MaxLogFiles:       s.config.MaxLogFiles,
+		StorageQuota:      s.config.ContainerDiskQuota,
 	}
 
 	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
@@ -272,6 +289,9 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		MemoryReservation: inspect.HostConfig.MemoryReservation,
 		CPUShares:         inspect.HostConfig.CPUShares,
 		VolumeMounts:      dockerMounts,
+		MaxLogSize:        s.config.MaxLogSize,
+		MaxLogFiles:       s.config.MaxLogFiles,
+		StorageQuota:      s.config.ContainerDiskQuota,
 	}
 
 	// Создаем новый контейнер с лейблами Traefik
@@ -395,6 +415,7 @@ func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID
 	return nil
 }
 
+// TODO: написать нормальную реализацию
 func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 	totalMem, err := s.metrics.GetTotalMemory()
 	if err != nil {

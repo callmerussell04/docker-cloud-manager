@@ -130,3 +130,10 @@ func (r *VolumeRepository) SaveMounts(ctx context.Context, mounts []domain.Volum
 
 	return tx.Commit()
 }
+
+func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM volumes WHERE owner_id = $1`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count)
+	return count, err
+}
