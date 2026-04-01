@@ -53,6 +53,7 @@ type ContainerDockerAPI interface {
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
 	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
 	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
+	ImageExists(ctx context.Context, imageTag string) (bool, error)
 }
 
 type HostMetricsProvider interface {
@@ -108,9 +109,16 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
-	err = s.dockerAPI.PullImage(ctx, params.ImageTag)
+	imageExists, err := s.dockerAPI.ImageExists(ctx, params.ImageTag)
 	if err != nil {
 		return uuid.Nil, err
+	}
+
+	if !imageExists {
+		err = s.dockerAPI.PullImage(ctx, params.ImageTag)
+		if err != nil {
+			return uuid.Nil, err
+		}
 	}
 
 	envBytes, err := json.Marshal(params.EnvVars)

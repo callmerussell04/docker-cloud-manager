@@ -223,3 +223,14 @@ func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string,
 	_, err := a.cli.ContainerUpdate(ctx, dockerID, updateConfig)
 	return err
 }
+
+func (a *Adapter) ImageExists(ctx context.Context, imageTag string) (bool, error) {
+	_, _, err := a.cli.ImageInspectWithRaw(ctx, imageTag)
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}

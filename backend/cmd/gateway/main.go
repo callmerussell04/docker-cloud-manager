@@ -12,7 +12,7 @@ func main() {
 	portStr := os.Getenv("GATEWAY_PORT")
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		port = 8080
+		port = 8081
 	}
 
 	ssoTarget := os.Getenv("SSO_GRPC_TARGET")
