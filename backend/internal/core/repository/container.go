@@ -81,6 +81,22 @@ func (r *ContainerRepository) UpdateStatus(ctx context.Context, id uuid.UUID, st
 	return nil
 }
 
+func (r *ContainerRepository) UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error {
+	query := `UPDATE containers SET status = $1 WHERE docker_id = $2`
+	res, err := r.db.ExecContext(ctx, query, status, dockerID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error {
 	query := `UPDATE containers SET docker_id = $1 WHERE id = $2`
 	res, err := r.db.ExecContext(ctx, query, dockerID, id)

@@ -7,6 +7,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
@@ -234,4 +235,13 @@ func (a *Adapter) ImageExists(ctx context.Context, imageTag string) (bool, error
 		return false, err
 	}
 	return true, nil
+}
+
+func (a *Adapter) ListenEvents(ctx context.Context) (<-chan events.Message, <-chan error) {
+	options := events.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("type", "container"),
+		),
+	}
+	return a.cli.Events(ctx, options)
 }

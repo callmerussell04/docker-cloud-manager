@@ -61,6 +61,9 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute)
 	go ttlWorker.Run(ctx)
 
+	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
+	go eventWorker.Run(ctx)
+
 	return &App{
 		gRPCServer: gRPCServer,
 		db:         db,
