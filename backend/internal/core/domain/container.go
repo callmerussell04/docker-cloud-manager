@@ -20,6 +20,7 @@ type Container struct {
 	Name                  string
 	ImageTag              string
 	InternalPort          int
+	DomainPrefix          string
 	Status                string
 	TTLDeadline           *time.Time
 	EnvVars               []byte

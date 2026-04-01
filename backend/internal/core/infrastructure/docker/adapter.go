@@ -5,6 +5,7 @@ import (
 	"io"
 	"strconv"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -225,9 +226,9 @@ func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string,
 }
 
 func (a *Adapter) ImageExists(ctx context.Context, imageTag string) (bool, error) {
-	_, _, err := a.cli.ImageInspectWithRaw(ctx, imageTag)
+	_, err := a.cli.ImageInspect(ctx, imageTag)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if cerrdefs.IsNotFound(err) {
 			return false, nil
 		}
 		return false, err

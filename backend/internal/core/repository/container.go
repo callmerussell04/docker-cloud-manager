@@ -21,8 +21,8 @@ func NewContainerRepository(db *sql.DB) *ContainerRepository {
 
 func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) error {
 	query := `
-		INSERT INTO containers (id, owner_id, docker_id, name, image_tag, internal_port, status, ttl_deadline, env_vars, base_memory_reservation)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO containers (id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, ttl_deadline, env_vars, base_memory_reservation)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
 	var ttl sql.NullTime
 	if c.TTLDeadline != nil {
@@ -37,7 +37,7 @@ func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) erro
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		c.ID, c.OwnerID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.Status, ttl, c.EnvVars, c.BaseMemoryReservation,
+		c.ID, c.OwnerID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.DomainPrefix, c.Status, ttl, c.EnvVars, c.BaseMemoryReservation,
 	)
 	if err != nil {
 		var pgErr *pq.Error
@@ -45,6 +45,22 @@ func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) erro
 			return apperrors.ErrAlreadyExists
 		}
 		return err
+	}
+	return nil
+}
+
+func (r *ContainerRepository) UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error {
+	query := `UPDATE containers SET domain_prefix = $1, internal_port = $2 WHERE id = $3`
+	res, err := r.db.ExecContext(ctx, query, domainPrefix, internalPort, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
 	}
 	return nil
 }
@@ -134,14 +150,14 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]domain.Containe
 
 func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error) {
 	query := `
-		SELECT id, owner_id, docker_id, name, image_tag, internal_port, status, base_memory_reservation
+		SELECT id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE id = $1
 	`
 	var c domain.Container
 	var dockerID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.Status, &c.BaseMemoryReservation,
+		&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -174,7 +190,7 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
 	query := `
-		SELECT id, owner_id, docker_id, name, image_tag, internal_port, status, base_memory_reservation
+		SELECT id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE owner_id = $1
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -187,7 +203,7 @@ func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUI
 	for rows.Next() {
 		var c domain.Container
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.Status, &c.BaseMemoryReservation); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation); err != nil {
 			return nil, err
 		}
 		if dockerID.Valid {

@@ -169,7 +169,7 @@ type CreateContainerRequest struct {
 	InternalPort  int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
 	EnvVars       map[string]string      `protobuf:"bytes,5,rep,name=env_vars,json=envVars,proto3" json:"env_vars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	VolumeMounts  []*VolumeMount         `protobuf:"bytes,6,rep,name=volume_mounts,json=volumeMounts,proto3" json:"volume_mounts,omitempty"`
-	Domain        string                 `protobuf:"bytes,7,opt,name=domain,proto3" json:"domain,omitempty"`
+	DomainPrefix  string                 `protobuf:"bytes,7,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -246,9 +246,9 @@ func (x *CreateContainerRequest) GetVolumeMounts() []*VolumeMount {
 	return nil
 }
 
-func (x *CreateContainerRequest) GetDomain() string {
+func (x *CreateContainerRequest) GetDomainPrefix() string {
 	if x != nil {
-		return x.Domain
+		return x.DomainPrefix
 	}
 	return ""
 }
@@ -353,7 +353,8 @@ type ExposeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	ContainerId   string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	Domain        string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
+	DomainPrefix  string                 `protobuf:"bytes,3,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
+	InternalPort  int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -402,11 +403,18 @@ func (x *ExposeRequest) GetContainerId() string {
 	return ""
 }
 
-func (x *ExposeRequest) GetDomain() string {
+func (x *ExposeRequest) GetDomainPrefix() string {
 	if x != nil {
-		return x.Domain
+		return x.DomainPrefix
 	}
 	return ""
+}
+
+func (x *ExposeRequest) GetInternalPort() int32 {
+	if x != nil {
+		return x.InternalPort
+	}
+	return 0
 }
 
 type ContainerData struct {
@@ -416,8 +424,9 @@ type ContainerData struct {
 	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	ImageTag      string                 `protobuf:"bytes,4,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
 	InternalPort  int32                  `protobuf:"varint,5,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
-	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	DomainPrefix  string                 `protobuf:"bytes,6,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
+	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -485,6 +494,13 @@ func (x *ContainerData) GetInternalPort() int32 {
 		return x.InternalPort
 	}
 	return 0
+}
+
+func (x *ContainerData) GetDomainPrefix() string {
+	if x != nil {
+		return x.DomainPrefix
+	}
+	return ""
 }
 
 func (x *ContainerData) GetStatus() string {
@@ -1111,15 +1127,15 @@ const file_core_proto_rawDesc = "" +
 	"\n" +
 	"mount_path\x18\x02 \x01(\tR\tmountPath\x12\x1f\n" +
 	"\vis_readonly\x18\x03 \x01(\bR\n" +
-	"isReadonly\"\xdb\x02\n" +
+	"isReadonly\"\xe8\x02\n" +
 	"\x16CreateContainerRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
 	"\timage_tag\x18\x03 \x01(\tR\bimageTag\x12#\n" +
 	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\x12D\n" +
 	"\benv_vars\x18\x05 \x03(\v2).core.CreateContainerRequest.EnvVarsEntryR\aenvVars\x126\n" +
-	"\rvolume_mounts\x18\x06 \x03(\v2\x11.core.VolumeMountR\fvolumeMounts\x12\x16\n" +
-	"\x06domain\x18\a \x01(\tR\x06domain\x1a:\n" +
+	"\rvolume_mounts\x18\x06 \x03(\v2\x11.core.VolumeMountR\fvolumeMounts\x12#\n" +
+	"\rdomain_prefix\x18\a \x01(\tR\fdomainPrefix\x1a:\n" +
 	"\fEnvVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"<\n" +
@@ -1127,20 +1143,22 @@ const file_core_proto_rawDesc = "" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"V\n" +
 	"\x16ContainerActionRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12!\n" +
-	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\"e\n" +
+	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\"\x97\x01\n" +
 	"\rExposeRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12!\n" +
-	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
-	"\x06domain\x18\x03 \x01(\tR\x06domain\"\xc9\x01\n" +
+	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
+	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\"\xee\x01\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12\x1b\n" +
 	"\timage_tag\x18\x04 \x01(\tR\bimageTag\x12#\n" +
-	"\rinternal_port\x18\x05 \x01(\x05R\finternalPort\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1d\n" +
+	"\rinternal_port\x18\x05 \x01(\x05R\finternalPort\x12#\n" +
+	"\rdomain_prefix\x18\x06 \x01(\tR\fdomainPrefix\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\x03R\tcreatedAt\"L\n" +
+	"created_at\x18\b \x01(\x03R\tcreatedAt\"L\n" +
 	"\x15ContainerListResponse\x123\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\v2\x13.core.ContainerDataR\n" +

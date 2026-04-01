@@ -9,7 +9,7 @@ type ContainerCreateParams struct {
 	EnvVars           map[string]string
 	VolumeMounts      []VolumeMountParams
 	RequestedMemoryMB int64
-	Domain            string
+	DomainPrefix      string
 }
 
 type VolumeMountParams struct {

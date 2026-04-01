@@ -3,47 +3,47 @@ package grpcclient
 import (
 	"context"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	core "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/dto"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type CoreClient struct {
-	containerAPI core.ContainerAPIClient
-	imageAPI     core.ImageAPIClient
-	volumeAPI    core.VolumeAPIClient
+	containerAPI coreapi.ContainerAPIClient
+	imageAPI     coreapi.ImageAPIClient
+	volumeAPI    coreapi.VolumeAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 	return &CoreClient{
-		containerAPI: core.NewContainerAPIClient(cc),
-		imageAPI:     core.NewImageAPIClient(cc),
-		volumeAPI:    core.NewVolumeAPIClient(cc),
+		containerAPI: coreapi.NewContainerAPIClient(cc),
+		imageAPI:     coreapi.NewImageAPIClient(cc),
+		volumeAPI:    coreapi.NewVolumeAPIClient(cc),
 	}
 }
 
-func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, dto dto.CreateContainerDTO) (string, error) {
-	var mounts []*core.VolumeMount
-	for _, m := range dto.VolumeMounts {
-		mounts = append(mounts, &core.VolumeMount{
+func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error) {
+	var mounts []*coreapi.VolumeMount
+	for _, m := range createContainerDTO.VolumeMounts {
+		mounts = append(mounts, &coreapi.VolumeMount{
 			VolumeId:   m.VolumeID,
 			MountPath:  m.MountPath,
 			IsReadonly: m.IsReadOnly,
 		})
 	}
 
-	req := &core.CreateContainerRequest{
+	req := &coreapi.CreateContainerRequest{
 		OwnerId:      ownerID,
-		Name:         dto.Name,
-		ImageTag:     dto.ImageTag,
-		InternalPort: int32(dto.InternalPort),
-		EnvVars:      dto.EnvVars,
+		Name:         createContainerDTO.Name,
+		ImageTag:     createContainerDTO.ImageTag,
+		InternalPort: int32(createContainerDTO.InternalPort),
+		EnvVars:      createContainerDTO.EnvVars,
 		VolumeMounts: mounts,
-		Domain:       dto.Domain,
+		DomainPrefix: createContainerDTO.DomainPrefix,
 	}
 
 	resp, err := c.containerAPI.CreateContainer(ctx, req)
@@ -54,8 +54,8 @@ func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, dto dt
 	return resp.GetContainerId(), nil
 }
 
-func (c *CoreClient) GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error) {
-	req := &core.GetUserRequest{OwnerId: ownerID}
+func (c *CoreClient) GetUserContainers(ctx context.Context, ownerID string) ([]*coreapi.ContainerData, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.containerAPI.GetUserContainers(ctx, req)
 	if err != nil {
 		return nil, mapCoreError(err)
@@ -64,7 +64,7 @@ func (c *CoreClient) GetUserContainers(ctx context.Context, ownerID string) ([]*
 }
 
 func (c *CoreClient) ActionContainer(ctx context.Context, ownerID, containerID, action string) error {
-	req := &core.ContainerActionRequest{
+	req := &coreapi.ContainerActionRequest{
 		OwnerId:     ownerID,
 		ContainerId: containerID,
 	}
@@ -87,11 +87,12 @@ func (c *CoreClient) ActionContainer(ctx context.Context, ownerID, containerID, 
 	return nil
 }
 
-func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, domainName string) error {
-	req := &core.ExposeRequest{
-		OwnerId:     ownerID,
-		ContainerId: containerID,
-		Domain:      domainName,
+func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error {
+	req := &coreapi.ExposeRequest{
+		OwnerId:      ownerID,
+		ContainerId:  containerID,
+		DomainPrefix: domainPrefix,
+		InternalPort: int32(internalPort),
 	}
 	_, err := c.containerAPI.ExposeContainer(ctx, req)
 	if err != nil {
@@ -100,12 +101,12 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, 
 	return nil
 }
 
-func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, dto dto.CreateVolumeDTO) (string, error) {
-	req := &core.CreateVolumeRequest{
+func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error) {
+	req := &coreapi.CreateVolumeRequest{
 		OwnerId:    ownerID,
-		Name:       dto.Name,
-		Driver:     dto.Driver,
-		DriverOpts: dto.DriverOpts,
+		Name:       createVolumeDTO.Name,
+		Driver:     createVolumeDTO.Driver,
+		DriverOpts: createVolumeDTO.DriverOpts,
 	}
 	resp, err := c.volumeAPI.CreateVolume(ctx, req)
 	if err != nil {
@@ -115,7 +116,7 @@ func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, dto dto.C
 }
 
 func (c *CoreClient) DeleteVolume(ctx context.Context, ownerID, volumeID string) error {
-	req := &core.VolumeActionRequest{
+	req := &coreapi.VolumeActionRequest{
 		OwnerId:  ownerID,
 		VolumeId: volumeID,
 	}
@@ -126,8 +127,8 @@ func (c *CoreClient) DeleteVolume(ctx context.Context, ownerID, volumeID string)
 	return nil
 }
 
-func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]*core.VolumeData, error) {
-	req := &core.GetUserRequest{OwnerId: ownerID}
+func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]*coreapi.VolumeData, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.volumeAPI.GetUserVolumes(ctx, req)
 	if err != nil {
 		return nil, mapCoreError(err)
@@ -135,8 +136,8 @@ func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]*cor
 	return resp.GetVolumes(), nil
 }
 
-func (c *CoreClient) GetUserImages(ctx context.Context, ownerID string) ([]*core.ImageData, error) {
-	req := &core.GetUserRequest{OwnerId: ownerID}
+func (c *CoreClient) GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.imageAPI.GetUserImages(ctx, req)
 	if err != nil {
 		return nil, mapCoreError(err)
@@ -145,7 +146,7 @@ func (c *CoreClient) GetUserImages(ctx context.Context, ownerID string) ([]*core
 }
 
 func (c *CoreClient) DeleteImage(ctx context.Context, ownerID, imageID string) error {
-	req := &core.ImageActionRequest{
+	req := &coreapi.ImageActionRequest{
 		OwnerId: ownerID,
 		ImageId: imageID,
 	}

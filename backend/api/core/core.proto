@@ -44,7 +44,7 @@ message CreateContainerRequest {
   int32 internal_port = 4;
   map<string, string> env_vars = 5;
   repeated VolumeMount volume_mounts = 6;
-  string domain = 7;
+  string domain_prefix = 7;
 }
 
 message CreateContainerResponse {
@@ -59,7 +59,8 @@ message ContainerActionRequest {
 message ExposeRequest {
   string owner_id = 1;
   string container_id = 2;
-  string domain = 3;
+  string domain_prefix = 3;
+  int32 internal_port = 4;
 }
 
 message ContainerData {
@@ -68,8 +69,9 @@ message ContainerData {
   string name = 3;
   string image_tag = 4;
   int32 internal_port = 5;
-  string status = 6;
-  int64 created_at = 7;
+  string domain_prefix = 6;
+  string status = 7;
+  int64 created_at = 8;
 }
 
 message ContainerListResponse {

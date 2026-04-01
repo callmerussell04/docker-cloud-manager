@@ -33,6 +33,7 @@ type ContainerRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
+	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -86,6 +87,14 @@ func NewContainerService(
 }
 
 func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error) {
+	var fullDomain string
+	if params.DomainPrefix != "" {
+		if params.InternalPort <= 0 {
+			return uuid.Nil, apperrors.ErrBadRequest
+		}
+		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, s.config.BaseDomain)
+	}
+
 	// 1. Определение запрашиваемой памяти (Гарантии)
 	reqMem := params.RequestedMemoryMB * 1024 * 1024
 	if reqMem <= 0 {
@@ -166,7 +175,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
 		ImageName:         params.ImageTag,
 		NetworkName:       networkName,
-		Domain:            params.Domain,
+		Domain:            fullDomain,
 		InternalPort:      params.InternalPort,
 		EnvVars:           envList,
 		MemoryLimitBytes:  reqMem,                    // Стартовый жесткий лимит
@@ -187,6 +196,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		Name:                  params.Name,
 		ImageTag:              params.ImageTag,
 		InternalPort:          params.InternalPort,
+		DomainPrefix:          params.DomainPrefix,
 		Status:                domain.ContainerStatusCreated,
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
@@ -206,13 +216,17 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	return containerID, nil
 }
 
-func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainName string) error {
+func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
 	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
+	}
+
+	if domainPrefix == "" || internalPort <= 0 {
+		return apperrors.ErrBadRequest
 	}
 
 	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
@@ -245,13 +259,14 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	}
 
 	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
+	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.BaseDomain)
 
 	dockerParams := docker.CreateContainerParams{
 		ContainerName:     strings.TrimPrefix(inspect.Name, "/"),
 		ImageName:         inspect.Config.Image,
 		NetworkName:       networkName,
-		Domain:            domainName,
-		InternalPort:      c.InternalPort,
+		Domain:            fullDomain,
+		InternalPort:      internalPort,
 		EnvVars:           envList,
 		MemoryLimitBytes:  inspect.HostConfig.Memory,
 		MemoryReservation: inspect.HostConfig.MemoryReservation,
@@ -259,16 +274,23 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		VolumeMounts:      dockerMounts,
 	}
 
+	// Создаем новый контейнер с лейблами Traefik
 	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
 	if err != nil {
 		return err
 	}
 
+	// Обновляем DockerID, домен и порт в базе данных
 	err = s.repo.UpdateDockerID(ctx, containerID, newDockerID)
 	if err != nil {
 		return err
 	}
+	err = s.repo.UpdateRouting(ctx, containerID, domainPrefix, internalPort)
+	if err != nil {
+		return err
+	}
 
+	// Если до пересоздания контейнер был запущен — запускаем новый
 	if c.Status == domain.ContainerStatusRunning {
 		err = s.dockerAPI.StartContainer(ctx, newDockerID)
 		if err != nil {

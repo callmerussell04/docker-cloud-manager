@@ -20,7 +20,7 @@ type ContainerLogic interface {
 	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
-	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainName string) error
+	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error
 }
 
 type ContainerHandler struct {
@@ -61,7 +61,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		InternalPort: int(req.GetInternalPort()),
 		EnvVars:      req.GetEnvVars(),
 		VolumeMounts: mounts,
-		Domain:       req.GetDomain(),
+		DomainPrefix: req.GetDomainPrefix(),
 	}
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
@@ -165,6 +165,7 @@ func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.G
 			Name:         c.Name,
 			ImageTag:     c.ImageTag,
 			InternalPort: int32(c.InternalPort),
+			DomainPrefix: c.DomainPrefix,
 			Status:       c.Status,
 			CreatedAt:    c.CreatedAt.Unix(),
 		})
@@ -186,11 +187,11 @@ func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.Exp
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
 	}
 
-	if req.GetDomain() == "" {
-		return nil, status.Error(codes.InvalidArgument, "domain name is required")
+	if req.GetDomainPrefix() == "" || req.GetInternalPort() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "domain_prefix and internal_port are required")
 	}
 
-	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomain())
+	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "container not found")

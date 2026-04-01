@@ -4,15 +4,15 @@ import (
 	"context"
 
 	"github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
 )
 
 type CoreProvider interface {
-	CreateContainer(ctx context.Context, ownerID string, dto dto.CreateContainerDTO) (string, error)
+	CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error)
 	GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error)
 	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
-	ExposeContainer(ctx context.Context, ownerID, containerID, domainName string) error
-	CreateVolume(ctx context.Context, ownerID string, dto dto.CreateVolumeDTO) (string, error)
+	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
+	CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error)
 	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
 	GetUserVolumes(ctx context.Context, ownerID string) ([]*core.VolumeData, error)
 	GetUserImages(ctx context.Context, ownerID string) ([]*core.ImageData, error)
@@ -29,8 +29,8 @@ func NewCore(provider CoreProvider) *Core {
 	}
 }
 
-func (s *Core) CreateContainer(ctx context.Context, ownerID string, dto dto.CreateContainerDTO) (string, error) {
-	return s.provider.CreateContainer(ctx, ownerID, dto)
+func (s *Core) CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error) {
+	return s.provider.CreateContainer(ctx, ownerID, createContainerDTO)
 }
 
 func (s *Core) GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error) {
@@ -41,12 +41,12 @@ func (s *Core) ActionContainer(ctx context.Context, ownerID, containerID, action
 	return s.provider.ActionContainer(ctx, ownerID, containerID, action)
 }
 
-func (s *Core) ExposeContainer(ctx context.Context, ownerID, containerID, domainName string) error {
-	return s.provider.ExposeContainer(ctx, ownerID, containerID, domainName)
+func (s *Core) ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error {
+	return s.provider.ExposeContainer(ctx, ownerID, containerID, domainPrefix, internalPort)
 }
 
-func (s *Core) CreateVolume(ctx context.Context, ownerID string, dto dto.CreateVolumeDTO) (string, error) {
-	return s.provider.CreateVolume(ctx, ownerID, dto)
+func (s *Core) CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error) {
+	return s.provider.CreateVolume(ctx, ownerID, createVolumeDTO)
 }
 
 func (s *Core) DeleteVolume(ctx context.Context, ownerID, volumeID string) error {

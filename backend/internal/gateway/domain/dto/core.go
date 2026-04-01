@@ -7,17 +7,17 @@ type VolumeMountDTO struct {
 }
 
 type CreateContainerDTO struct {
-	Name     string `json:"name" binding:"required"`
-	ImageTag string `json:"image_tag" binding:"required"`
-	// TODO: убрать необходимость задавать его
-	InternalPort int               `json:"internal_port" binding:"required"`
+	Name         string            `json:"name" binding:"required"`
+	ImageTag     string            `json:"image_tag" binding:"required"`
+	InternalPort int               `json:"internal_port"`
 	EnvVars      map[string]string `json:"env_vars"`
 	VolumeMounts []VolumeMountDTO  `json:"volume_mounts"`
-	Domain       string            `json:"domain"`
+	DomainPrefix string            `json:"domain_prefix"`
 }
 
 type ExposeContainerDTO struct {
-	Domain string `json:"domain" binding:"required"`
+	DomainPrefix string `json:"domain_prefix" binding:"required"`
+	InternalPort int    `json:"internal_port" binding:"required,min=1"`
 }
 
 type CreateVolumeDTO struct {

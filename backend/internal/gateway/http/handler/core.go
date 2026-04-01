@@ -6,17 +6,17 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
 
 type CoreService interface {
-	CreateContainer(ctx context.Context, ownerID string, dto dto.CreateContainerDTO) (string, error)
+	CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error)
 	GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error)
 	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
-	ExposeContainer(ctx context.Context, ownerID, containerID, dtoName string) error
-	CreateVolume(ctx context.Context, ownerID string, dto dto.CreateVolumeDTO) (string, error)
+	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
+	CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error)
 	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
 	GetUserVolumes(ctx context.Context, ownerID string) ([]*core.VolumeData, error)
 	GetUserImages(ctx context.Context, ownerID string) ([]*core.ImageData, error)
@@ -35,14 +35,14 @@ func NewCoreHandler(service CoreService) *CoreHandler {
 
 func (h *CoreHandler) CreateContainer(c *gin.Context) {
 	userID := c.GetString("user_id")
-	var dto dto.CreateContainerDTO
+	var createContainerDTO dto.CreateContainerDTO
 
-	if err := c.ShouldBindJSON(&dto); err != nil {
+	if err := c.ShouldBindJSON(&createContainerDTO); err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	containerID, err := h.service.CreateContainer(c.Request.Context(), userID, dto)
+	containerID, err := h.service.CreateContainer(c.Request.Context(), userID, createContainerDTO)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -85,31 +85,31 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 	userID := c.GetString("user_id")
 	containerID := c.Param("id")
 
-	var dto dto.ExposeContainerDTO
-	if err := c.ShouldBindJSON(&dto); err != nil {
+	var exposeContainerDTO dto.ExposeContainerDTO
+	if err := c.ShouldBindJSON(&exposeContainerDTO); err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	err := h.service.ExposeContainer(c.Request.Context(), userID, containerID, dto.Domain)
+	err := h.service.ExposeContainer(c.Request.Context(), userID, containerID, exposeContainerDTO.DomainPrefix, exposeContainerDTO.InternalPort)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "container exposed on dto " + dto.Domain})
+	c.JSON(http.StatusOK, gin.H{"message": "container exposed on prefix: " + exposeContainerDTO.DomainPrefix})
 }
 
 func (h *CoreHandler) CreateVolume(c *gin.Context) {
 	userID := c.GetString("user_id")
-	var dto dto.CreateVolumeDTO
+	var createVolumeDTO dto.CreateVolumeDTO
 
-	if err := c.ShouldBindJSON(&dto); err != nil {
+	if err := c.ShouldBindJSON(&createVolumeDTO); err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	volumeID, err := h.service.CreateVolume(c.Request.Context(), userID, dto)
+	volumeID, err := h.service.CreateVolume(c.Request.Context(), userID, createVolumeDTO)
 	if err != nil {
 		h.handleError(c, err)
 		return

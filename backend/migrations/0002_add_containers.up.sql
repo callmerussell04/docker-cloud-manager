@@ -5,6 +5,7 @@ CREATE TABLE containers (
     name VARCHAR(100) NOT NULL,
     image_tag VARCHAR(150) NOT NULL,
     internal_port INTEGER,
+    domain_prefix VARCHAR(255) DEFAULT '',
     status VARCHAR(20) NOT NULL,
     ttl_deadline TIMESTAMP WITH TIME ZONE,
     env_vars JSONB,
