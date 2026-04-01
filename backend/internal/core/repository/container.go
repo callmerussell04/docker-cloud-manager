@@ -262,3 +262,14 @@ func (r *ContainerRepository) CountByOwnerID(ctx context.Context, ownerID uuid.U
 	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count)
 	return count, err
 }
+
+func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(base_memory_reservation), 0) 
+		FROM containers 
+		WHERE status = $1
+	`
+	var totalReserved int64
+	err := r.db.QueryRowContext(ctx, query, domain.ContainerStatusRunning).Scan(&totalReserved)
+	return totalReserved, err
+}

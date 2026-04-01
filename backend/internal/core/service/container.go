@@ -44,6 +44,7 @@ type ContainerRepository interface {
 	GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetRunning(ctx context.Context) ([]domain.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
+	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 }
 
 type ContainerVolumeRepository interface {
@@ -415,23 +416,38 @@ func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID
 	return nil
 }
 
-// TODO: написать нормальную реализацию
 func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 	totalMem, err := s.metrics.GetTotalMemory()
 	if err != nil {
+		log.Printf("[AdmissionControl] Failed to get system memory: %v", err)
 		return apperrors.ErrInternal
 	}
 
-	// Мы позволяем резервировать (overcommit) до 150% памяти хоста
-	// Но если даже 150% исчерпано, мы отклоняем новые запуски
-	maxAllowedReservations := int64(float64(totalMem-s.config.ReservedSystemMemory) * s.config.OvercommitFactor)
+	// 1. Calculate the maximum allowed memory pool (considering overcommit)
+	// Example: Total Mem 16GB, Reserved 2GB -> 14GB available.
+	// Overcommit 1.5 -> Max Pool = 21GB.
+	availablePool := float64(totalMem-s.config.ReservedSystemMemory) * s.config.OvercommitFactor
 
-	// В идеале здесь должен быть SQL SUM всех running контейнеров,
-	// но для упрощения (и скорости) можно опустить эту жесткую проверку,
-	// т.к. OOM Killer хоста нас подстрахует.
-	// Для диплома можно оставить заглушку или реализовать кэш.
+	// If the system is so constrained that the pool is zero or negative
+	if availablePool <= 0 {
+		return apperrors.ErrHostExhausted
+	}
 
-	_ = maxAllowedReservations
+	// 2. Calculate the currently reserved RAM by ALL running containers across the entire system.
+	// We need a repository method to get the total reserved RAM for ALL users, not just one.
+	totalRunningReserved, err := s.repo.GetTotalSystemReservedMemory(context.Background())
+	if err != nil {
+		log.Printf("[AdmissionControl] Failed to calculate total system reserved memory: %v", err)
+		return apperrors.ErrInternal
+	}
+
+	// 3. Admission Check: Will adding this new container push us over the overcommit limit?
+	projectedRequiredMem := totalRunningReserved + requestedRam
+	if projectedRequiredMem > int64(availablePool) {
+		log.Printf("[AdmissionControl] Request rejected. Projected: %d MB, Max Pool: %d MB", projectedRequiredMem/1024/1024, int64(availablePool)/1024/1024)
+		return apperrors.ErrHostExhausted
+	}
+
 	return nil
 }
 
