@@ -22,6 +22,7 @@ type CoreService interface {
 	GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error)
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
 	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
+	DeleteBuild(ctx context.Context, ownerID, buildID string) error
 }
 
 type CoreHandler struct {
@@ -191,6 +192,19 @@ func (h *CoreHandler) GetBuilds(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"builds": builds})
+}
+
+func (h *CoreHandler) DeleteBuild(c *gin.Context) {
+	userID := c.GetString("user_id")
+	buildID := c.Param("id")
+
+	err := h.service.DeleteBuild(c.Request.Context(), userID, buildID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "build record deleted"})
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {

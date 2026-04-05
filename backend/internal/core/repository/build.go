@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
@@ -122,4 +123,45 @@ func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) 
 		builds = append(builds, b)
 	}
 	return builds, rows.Err()
+}
+
+func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error) {
+	query := `
+		SELECT id, image_id, status, log_file_path, started_at, finished_at 
+		FROM builds 
+		WHERE id = $1
+	`
+	var b domain.Build
+	var finishedAt sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return domain.Build{}, apperrors.ErrNotFound
+		}
+		return domain.Build{}, err
+	}
+
+	if finishedAt.Valid {
+		b.FinishedAt = &finishedAt.Time
+	}
+	return b, nil
+}
+
+func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM builds WHERE id = $1`
+	res, err := r.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }

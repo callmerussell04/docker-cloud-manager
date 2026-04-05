@@ -18,6 +18,7 @@ type CoreProvider interface {
 	GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error)
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
 	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
+	DeleteBuild(ctx context.Context, ownerID, buildID string) error
 }
 
 type Core struct {
@@ -68,4 +69,8 @@ func (s *Core) DeleteImage(ctx context.Context, ownerID, imageID string) error {
 
 func (s *Core) GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error) {
 	return s.provider.GetUserBuilds(ctx, ownerID)
+}
+
+func (s *Core) DeleteBuild(ctx context.Context, ownerID, buildID string) error {
+	return s.provider.DeleteBuild(ctx, ownerID, buildID)
 }

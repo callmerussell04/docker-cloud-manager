@@ -20,6 +20,7 @@ type ImageLogic interface {
 	InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
+	DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error
 }
 
 type ImageHandler struct {
@@ -147,15 +148,38 @@ func (h *ImageHandler) GetUserBuilds(ctx context.Context, req *coreapi.GetUserRe
 			finishedAt = b.FinishedAt.Unix()
 		}
 		pbBuilds = append(pbBuilds, &coreapi.BuildData{
-			Id:         b.ID.String(),
-			ImageId:    b.ImageID.String(),
-			Status:     b.Status,
-			StartedAt:  b.StartedAt.Unix(),
-			FinishedAt: finishedAt,
+			Id:          b.ID.String(),
+			ImageId:     b.ImageID.String(),
+			Status:      b.Status,
+			StartedAt:   b.StartedAt.Unix(),
+			FinishedAt:  finishedAt,
+			LogFilePath: b.LogFilePath,
 		})
 	}
 
 	return &coreapi.BuildListResponse{
 		Builds: pbBuilds,
 	}, nil
+}
+
+func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
+	}
+
+	buildID, err := uuid.Parse(req.GetBuildId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
+	}
+
+	err = h.logic.DeleteBuild(ctx, ownerID, buildID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "build not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to delete build")
+	}
+
+	return &coreapi.Empty{}, nil
 }

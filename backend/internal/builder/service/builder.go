@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"mime/multipart"
-	"path/filepath"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
@@ -86,20 +85,18 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 		return "", err
 	}
 
-	logFilePath := filepath.Join(s.config.LogsDirPath, fileID+".log")
-
-	buildID, imageID, err := s.coreClient.InitBuildRecord(ctx, job.OwnerID, job.Tag, logFilePath)
+	buildID, imageID, err := s.coreClient.InitBuildRecord(ctx, job.OwnerID, job.Tag, "")
 	if err != nil {
 		_ = s.fileManager.CleanUp(filePath)
 		return "", err
 	}
 
-	go s.processBuild(filePath, buildID, imageID, job.Tag, fileID)
+	go s.processBuild(filePath, buildID, imageID, job.Tag)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID string) {
+func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag string) {
 	s.semaphore <- struct{}{}
 	defer func() { <-s.semaphore }()
 	defer s.fileManager.CleanUp(archivePath)
@@ -124,7 +121,7 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID
 		if buildErr == nil {
 			defer dockerStream.Close()
 
-			_, logErr := s.logManager.SaveLogs(fileID, dockerStream)
+			_, logErr := s.logManager.SaveLogs(buildID, dockerStream)
 			if logErr == nil && ctx.Err() == nil {
 				status = "success"
 				sizeBytes, insErr := s.dockerAPI.InspectImage(ctx, tag)

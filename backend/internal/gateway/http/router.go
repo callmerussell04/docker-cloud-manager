@@ -48,6 +48,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			builds := protected.Group("/builds")
 			{
 				builds.GET("", coreHandler.GetBuilds)
+				builds.DELETE("/:id", coreHandler.DeleteBuild)
 				builds.GET("/:id/logs", builderProxy)
 			}
 		}

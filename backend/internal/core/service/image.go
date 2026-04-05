@@ -25,6 +25,8 @@ type BuildRepository interface {
 	Save(ctx context.Context, b domain.Build) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
+	GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 type ImageDockerAPI interface {
@@ -170,4 +172,22 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 
 func (s *ImageService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {
 	return s.buildRepo.GetUserBuilds(ctx, ownerID)
+}
+
+func (s *ImageService) DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error {
+	b, err := s.buildRepo.GetByID(ctx, buildID)
+	if err != nil {
+		return err
+	}
+
+	img, err := s.repo.GetByID(ctx, b.ImageID)
+	if err != nil {
+		return err
+	}
+
+	if img.OwnerID != ownerID {
+		return apperrors.ErrNotFound
+	}
+
+	return s.buildRepo.Delete(ctx, buildID)
 }

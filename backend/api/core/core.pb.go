@@ -1189,6 +1189,58 @@ func (x *VolumeListResponse) GetVolumes() []*VolumeData {
 	return nil
 }
 
+type BuildActionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BuildActionRequest) Reset() {
+	*x = BuildActionRequest{}
+	mi := &file_core_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BuildActionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BuildActionRequest) ProtoMessage() {}
+
+func (x *BuildActionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BuildActionRequest.ProtoReflect.Descriptor instead.
+func (*BuildActionRequest) Descriptor() ([]byte, []int) {
+	return file_core_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *BuildActionRequest) GetOwnerId() string {
+	if x != nil {
+		return x.OwnerId
+	}
+	return ""
+}
+
+func (x *BuildActionRequest) GetBuildId() string {
+	if x != nil {
+		return x.BuildId
+	}
+	return ""
+}
+
 type BuildData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1196,13 +1248,14 @@ type BuildData struct {
 	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	StartedAt     int64                  `protobuf:"varint,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	FinishedAt    int64                  `protobuf:"varint,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	LogFilePath   string                 `protobuf:"bytes,6,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildData) Reset() {
 	*x = BuildData{}
-	mi := &file_core_proto_msgTypes[20]
+	mi := &file_core_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1214,7 +1267,7 @@ func (x *BuildData) String() string {
 func (*BuildData) ProtoMessage() {}
 
 func (x *BuildData) ProtoReflect() protoreflect.Message {
-	mi := &file_core_proto_msgTypes[20]
+	mi := &file_core_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1227,7 +1280,7 @@ func (x *BuildData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildData.ProtoReflect.Descriptor instead.
 func (*BuildData) Descriptor() ([]byte, []int) {
-	return file_core_proto_rawDescGZIP(), []int{20}
+	return file_core_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BuildData) GetId() string {
@@ -1265,6 +1318,13 @@ func (x *BuildData) GetFinishedAt() int64 {
 	return 0
 }
 
+func (x *BuildData) GetLogFilePath() string {
+	if x != nil {
+		return x.LogFilePath
+	}
+	return ""
+}
+
 type BuildListResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Builds        []*BuildData           `protobuf:"bytes,1,rep,name=builds,proto3" json:"builds,omitempty"`
@@ -1274,7 +1334,7 @@ type BuildListResponse struct {
 
 func (x *BuildListResponse) Reset() {
 	*x = BuildListResponse{}
-	mi := &file_core_proto_msgTypes[21]
+	mi := &file_core_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1286,7 +1346,7 @@ func (x *BuildListResponse) String() string {
 func (*BuildListResponse) ProtoMessage() {}
 
 func (x *BuildListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_core_proto_msgTypes[21]
+	mi := &file_core_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1299,7 +1359,7 @@ func (x *BuildListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildListResponse.ProtoReflect.Descriptor instead.
 func (*BuildListResponse) Descriptor() ([]byte, []int) {
-	return file_core_proto_rawDescGZIP(), []int{21}
+	return file_core_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BuildListResponse) GetBuilds() []*BuildData {
@@ -1406,7 +1466,10 @@ const file_core_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\x03R\tcreatedAt\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
-	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"\x8e\x01\n" +
+	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"J\n" +
+	"\x12BuildActionRequest\x12\x19\n" +
+	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x19\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildId\"\xb2\x01\n" +
 	"\tBuildData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
@@ -1414,7 +1477,8 @@ const file_core_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x04 \x01(\x03R\tstartedAt\x12\x1f\n" +
 	"\vfinished_at\x18\x05 \x01(\x03R\n" +
-	"finishedAt\"<\n" +
+	"finishedAt\x12\"\n" +
+	"\rlog_file_path\x18\x06 \x01(\tR\vlogFilePath\"<\n" +
 	"\x11BuildListResponse\x12'\n" +
 	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds2\x92\x03\n" +
 	"\fContainerAPI\x12N\n" +
@@ -1423,13 +1487,14 @@ const file_core_proto_rawDesc = "" +
 	"\rStopContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12<\n" +
 	"\x0fDeleteContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12F\n" +
 	"\x11GetUserContainers\x12\x14.core.GetUserRequest\x1a\x1b.core.ContainerListResponse\x123\n" +
-	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty2\xc4\x02\n" +
+	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty2\xfa\x02\n" +
 	"\bImageAPI\x12>\n" +
 	"\rGetUserImages\x12\x14.core.GetUserRequest\x1a\x17.core.ImageListResponse\x124\n" +
 	"\vDeleteImage\x12\x18.core.ImageActionRequest\x1a\v.core.Empty\x12B\n" +
 	"\x0fInitBuildRecord\x12\x16.core.InitBuildRequest\x1a\x17.core.InitBuildResponse\x12>\n" +
 	"\x13CompleteBuildRecord\x12\x1a.core.CompleteBuildRequest\x1a\v.core.Empty\x12>\n" +
-	"\rGetUserBuilds\x12\x14.core.GetUserRequest\x1a\x17.core.BuildListResponse2\xcc\x01\n" +
+	"\rGetUserBuilds\x12\x14.core.GetUserRequest\x1a\x17.core.BuildListResponse\x124\n" +
+	"\vDeleteBuild\x12\x18.core.BuildActionRequest\x1a\v.core.Empty2\xcc\x01\n" +
 	"\tVolumeAPI\x12E\n" +
 	"\fCreateVolume\x12\x19.core.CreateVolumeRequest\x1a\x1a.core.CreateVolumeResponse\x126\n" +
 	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12@\n" +
@@ -1447,7 +1512,7 @@ func file_core_proto_rawDescGZIP() []byte {
 	return file_core_proto_rawDescData
 }
 
-var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_core_proto_goTypes = []any{
 	(*Empty)(nil),                   // 0: core.Empty
 	(*GetUserRequest)(nil),          // 1: core.GetUserRequest
@@ -1469,19 +1534,20 @@ var file_core_proto_goTypes = []any{
 	(*VolumeActionRequest)(nil),     // 17: core.VolumeActionRequest
 	(*VolumeData)(nil),              // 18: core.VolumeData
 	(*VolumeListResponse)(nil),      // 19: core.VolumeListResponse
-	(*BuildData)(nil),               // 20: core.BuildData
-	(*BuildListResponse)(nil),       // 21: core.BuildListResponse
-	nil,                             // 22: core.CreateContainerRequest.EnvVarsEntry
-	nil,                             // 23: core.CreateVolumeRequest.DriverOptsEntry
+	(*BuildActionRequest)(nil),      // 20: core.BuildActionRequest
+	(*BuildData)(nil),               // 21: core.BuildData
+	(*BuildListResponse)(nil),       // 22: core.BuildListResponse
+	nil,                             // 23: core.CreateContainerRequest.EnvVarsEntry
+	nil,                             // 24: core.CreateVolumeRequest.DriverOptsEntry
 }
 var file_core_proto_depIdxs = []int32{
-	22, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
+	23, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
 	2,  // 1: core.CreateContainerRequest.volume_mounts:type_name -> core.VolumeMount
 	7,  // 2: core.ContainerListResponse.containers:type_name -> core.ContainerData
 	13, // 3: core.ImageListResponse.images:type_name -> core.ImageData
-	23, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
+	24, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
 	18, // 5: core.VolumeListResponse.volumes:type_name -> core.VolumeData
-	20, // 6: core.BuildListResponse.builds:type_name -> core.BuildData
+	21, // 6: core.BuildListResponse.builds:type_name -> core.BuildData
 	3,  // 7: core.ContainerAPI.CreateContainer:input_type -> core.CreateContainerRequest
 	5,  // 8: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
 	5,  // 9: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
@@ -1493,25 +1559,27 @@ var file_core_proto_depIdxs = []int32{
 	10, // 15: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
 	12, // 16: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
 	1,  // 17: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
-	15, // 18: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	17, // 19: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	1,  // 20: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
-	4,  // 21: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	0,  // 22: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	0,  // 23: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	0,  // 24: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	8,  // 25: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	0,  // 26: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	14, // 27: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	0,  // 28: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	11, // 29: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	0,  // 30: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	21, // 31: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	16, // 32: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	0,  // 33: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	19, // 34: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	21, // [21:35] is the sub-list for method output_type
-	7,  // [7:21] is the sub-list for method input_type
+	20, // 18: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	15, // 19: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	17, // 20: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	1,  // 21: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
+	4,  // 22: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	0,  // 23: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	0,  // 24: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	0,  // 25: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	8,  // 26: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
+	0,  // 27: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	14, // 28: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
+	0,  // 29: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	11, // 30: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	0,  // 31: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	22, // 32: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
+	0,  // 33: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	16, // 34: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	0,  // 35: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	19, // 36: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
+	22, // [22:37] is the sub-list for method output_type
+	7,  // [7:22] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name
@@ -1528,7 +1596,7 @@ func file_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_proto_rawDesc), len(file_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   24,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   3,
 		},
