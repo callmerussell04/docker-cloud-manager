@@ -3,12 +3,15 @@ package handler
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
 
+// TODO: put into a config
 const maxUploadSize = 50 << 20
 
 type BuilderService interface {
@@ -17,11 +20,13 @@ type BuilderService interface {
 
 type BuildHandler struct {
 	service BuilderService
+	logsDir string
 }
 
-func NewBuildHandler(service BuilderService) *BuildHandler {
+func NewBuildHandler(service BuilderService, logsDir string) *BuildHandler {
 	return &BuildHandler{
 		service: service,
+		logsDir: logsDir,
 	}
 }
 
@@ -66,4 +71,20 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		"build_id": buildID,
 		"message":  "build initialized",
 	})
+}
+
+func (h *BuildHandler) GetLogs(c *gin.Context) {
+	buildID := c.Param("id")
+	if buildID == "" {
+		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+
+	logPath := filepath.Join(h.logsDir, buildID+".log")
+	if _, err := os.Stat(logPath); os.IsNotExist(err) {
+		apperrors.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+		return
+	}
+
+	c.File(logPath)
 }

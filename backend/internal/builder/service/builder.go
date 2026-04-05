@@ -5,6 +5,7 @@ import (
 	"io"
 	"mime/multipart"
 	"path/filepath"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
@@ -36,9 +37,11 @@ type CoreClient interface {
 }
 
 type BuilderConfig struct {
-	BuildMemoryBytes int64
-	BuildCPUQuota    int64
-	LogsDirPath      string
+	BuildMemoryBytes    int64
+	BuildCPUQuota       int64
+	LogsDirPath         string
+	MaxBuildTime        time.Duration
+	MaxConcurrentBuilds int
 }
 
 type BuilderService struct {
@@ -48,6 +51,7 @@ type BuilderService struct {
 	logManager  LogManager
 	coreClient  CoreClient
 	config      BuilderConfig
+	semaphore   chan struct{}
 }
 
 func NewBuilderService(
@@ -65,6 +69,7 @@ func NewBuilderService(
 		logManager:  logManager,
 		coreClient:  coreClient,
 		config:      config,
+		semaphore:   make(chan struct{}, config.MaxConcurrentBuilds),
 	}
 }
 
@@ -95,9 +100,13 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 }
 
 func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID string) {
+	s.semaphore <- struct{}{}
+	defer func() { <-s.semaphore }()
 	defer s.fileManager.CleanUp(archivePath)
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
+	defer cancel()
+
 	status := "failed"
 	var sizeMB int
 
@@ -116,9 +125,8 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID
 			defer dockerStream.Close()
 
 			_, logErr := s.logManager.SaveLogs(fileID, dockerStream)
-			if logErr == nil {
+			if logErr == nil && ctx.Err() == nil {
 				status = "success"
-
 				sizeBytes, insErr := s.dockerAPI.InspectImage(ctx, tag)
 				if insErr == nil {
 					sizeMB = int(sizeBytes / (1024 * 1024))
@@ -127,5 +135,9 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID
 		}
 	}
 
-	_ = s.coreClient.CompleteBuildRecord(ctx, buildID, imageID, status, sizeMB)
+	if ctx.Err() == context.DeadlineExceeded {
+		status = "failed_timeout"
+	}
+
+	_ = s.coreClient.CompleteBuildRecord(context.Background(), buildID, imageID, status, sizeMB)
 }

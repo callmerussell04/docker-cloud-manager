@@ -1,143 +1,61 @@
-package service
+package app
 
 import (
-	"context"
-	"io"
-	"mime/multipart"
-	"path/filepath"
-	"time"
+	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
+	deliveryhttp "github.com/callmerussell04/docker-cloud-manager/internal/builder/http"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/archive"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/google/uuid"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
+	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-type FileManager interface {
-	SaveArchive(file *multipart.FileHeader, fileID string) (string, error)
-	ValidateArchive(filePath string) error
-	CleanUp(filePath string) error
+type App struct {
+	router *gin.Engine
+	port   int
 }
 
-type ArchiveConverter interface {
-	ToTarStream(filePath string) (io.ReadCloser, error)
-}
-
-type DockerAPI interface {
-	BuildImage(ctx context.Context, tarStream io.Reader, params docker.BuildParams) (io.ReadCloser, error)
-	InspectImage(ctx context.Context, imageTag string) (int64, error)
-}
-
-type LogManager interface {
-	SaveLogs(logID string, dockerStream io.Reader) (string, error)
-}
-
-type CoreClient interface {
-	InitBuildRecord(ctx context.Context, ownerID, tag, logFilePath string) (string, string, error)
-	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
-}
-
-type BuilderConfig struct {
-	BuildMemoryBytes    int64
-	BuildCPUQuota       int64
-	LogsDirPath         string
-	MaxBuildTime        time.Duration
-	MaxConcurrentBuilds int
-}
-
-type BuilderService struct {
-	fileManager FileManager
-	converter   ArchiveConverter
-	dockerAPI   DockerAPI
-	logManager  LogManager
-	coreClient  CoreClient
-	config      BuilderConfig
-	semaphore   chan struct{}
-}
-
-func NewBuilderService(
-	fileManager FileManager,
-	converter ArchiveConverter,
-	dockerAPI DockerAPI,
-	logManager LogManager,
-	coreClient CoreClient,
-	config BuilderConfig,
-) *BuilderService {
-	return &BuilderService{
-		fileManager: fileManager,
-		converter:   converter,
-		dockerAPI:   dockerAPI,
-		logManager:  logManager,
-		coreClient:  coreClient,
-		config:      config,
-		semaphore:   make(chan struct{}, config.MaxConcurrentBuilds),
-	}
-}
-
-func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (string, error) {
-	fileID := uuid.New().String()
-
-	filePath, err := s.fileManager.SaveArchive(job.File, fileID)
+func New(port int, coreTarget string, config service.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
+	coreConn, err := grpc.NewClient(coreTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("core conn fail: %w", err)
 	}
 
-	if err := s.fileManager.ValidateArchive(filePath); err != nil {
-		_ = s.fileManager.CleanUp(filePath)
-		return "", err
-	}
+	coreClient := grpcclient.NewCoreClient(coreConn)
 
-	logFilePath := filepath.Join(s.config.LogsDirPath, fileID+".log")
-
-	buildID, imageID, err := s.coreClient.InitBuildRecord(ctx, job.OwnerID, job.Tag, logFilePath)
+	fileManager, err := storage.NewFileManager(storagePath)
 	if err != nil {
-		_ = s.fileManager.CleanUp(filePath)
-		return "", err
+		return nil, err
 	}
 
-	go s.processBuild(filePath, buildID, imageID, job.Tag, fileID)
+	logManager, err := storage.NewLogManager(config.LogsDirPath, maxLogSize)
+	if err != nil {
+		return nil, err
+	}
 
-	return buildID, nil
+	converter := archive.NewConverter(maxUnpackedSize)
+
+	dockerAdapter, err := docker.NewAdapter()
+	if err != nil {
+		return nil, err
+	}
+
+	builderService := service.NewBuilderService(fileManager, converter, dockerAdapter, logManager, coreClient, config)
+	buildHandler := handler.NewBuildHandler(builderService, config.LogsDirPath)
+
+	router := deliveryhttp.NewRouter(buildHandler)
+
+	return &App{
+		router: router,
+		port:   port,
+	}, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag, fileID string) {
-	s.semaphore <- struct{}{}
-	defer func() { <-s.semaphore }()
-	defer s.fileManager.CleanUp(archivePath)
-
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
-	defer cancel()
-
-	status := "failed"
-	var sizeMB int
-
-	tarStream, err := s.converter.ToTarStream(archivePath)
-	if err == nil {
-		defer tarStream.Close()
-
-		params := docker.BuildParams{
-			Tag:         tag,
-			MemoryBytes: s.config.BuildMemoryBytes,
-			CPUQuota:    s.config.BuildCPUQuota,
-		}
-
-		dockerStream, buildErr := s.dockerAPI.BuildImage(ctx, tarStream, params)
-		if buildErr == nil {
-			defer dockerStream.Close()
-
-			_, logErr := s.logManager.SaveLogs(fileID, dockerStream)
-			if logErr == nil && ctx.Err() == nil {
-				status = "success"
-				sizeBytes, insErr := s.dockerAPI.InspectImage(ctx, tag)
-				if insErr == nil {
-					sizeMB = int(sizeBytes / (1024 * 1024))
-				}
-			}
-		}
-	}
-
-	if ctx.Err() == context.DeadlineExceeded {
-		status = "failed_timeout"
-	}
-
-	_ = s.coreClient.CompleteBuildRecord(context.Background(), buildID, imageID, status, sizeMB)
+func (a *App) Run() error {
+	return a.router.Run(fmt.Sprintf(":%d", a.port))
 }

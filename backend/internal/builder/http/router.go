@@ -13,6 +13,7 @@ func NewRouter(buildHandler *handler.BuildHandler) *gin.Engine {
 		images := v1.Group("/images")
 		{
 			images.POST("/build", buildHandler.BuildImage)
+			images.GET("/build/:id/logs", buildHandler.GetLogs)
 		}
 	}
 
