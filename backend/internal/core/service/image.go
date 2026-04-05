@@ -106,6 +106,11 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 
 	// 3. Создаем запись о начале сборки
 	buildID := uuid.New()
+
+	if logFilePath == "" {
+		logFilePath = buildID.String() + ".log"
+	}
+
 	build := domain.Build{
 		ID:          buildID,
 		ImageID:     imageID,

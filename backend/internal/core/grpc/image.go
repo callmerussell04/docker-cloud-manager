@@ -87,8 +87,8 @@ func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBui
 		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
 	}
 
-	if req.GetTag() == "" || req.GetLogFilePath() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tag and log_file_path are required")
+	if req.GetTag() == "" {
+		return nil, status.Error(codes.InvalidArgument, "image tag is required")
 	}
 
 	buildID, imageID, err := h.logic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
