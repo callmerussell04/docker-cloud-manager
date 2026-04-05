@@ -43,12 +43,13 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	contRepo := repository.NewContainerRepository(db)
 	volRepo := repository.NewVolumeRepository(db)
 	imgRepo := repository.NewImageRepository(db)
+	buildRepo := repository.NewBuildRepository(db)
 
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, dockerAdapter, metricsProvider, cfg)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
-	imgService := service.NewImageService(imgRepo, dockerAdapter)
+	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter)
 
 	gRPCServer := grpc.NewServer()
 

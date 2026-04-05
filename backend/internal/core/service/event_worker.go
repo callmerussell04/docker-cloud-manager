@@ -33,6 +33,7 @@ func NewEventWorker(repo EventContainerRepo, dockerAPI EventDockerAPI, rebalance
 	}
 }
 
+// TODO: update so that it also manually checks the status once per some time
 func (w *EventWorker) Run(ctx context.Context) {
 	msgCh, errCh := w.dockerAPI.ListenEvents(ctx)
 

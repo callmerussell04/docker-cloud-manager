@@ -10,15 +10,15 @@ import (
 	"github.com/google/uuid"
 )
 
-type BuildRepo struct {
+type BuildRepository struct {
 	db *sql.DB
 }
 
-func NewBuildRepo(db *sql.DB) *BuildRepo {
-	return &BuildRepo{db: db}
+func NewBuildRepository(db *sql.DB) *BuildRepository {
+	return &BuildRepository{db: db}
 }
 
-func (r *BuildRepo) Save(ctx context.Context, b domain.Build) error {
+func (r *BuildRepository) Save(ctx context.Context, b domain.Build) error {
 	query := `
 		INSERT INTO builds (id, image_id, status, log_file_path, started_at, finished_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -33,7 +33,7 @@ func (r *BuildRepo) Save(ctx context.Context, b domain.Build) error {
 	return err
 }
 
-func (r *BuildRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	query := `
 		UPDATE builds 
 		SET status = $1, finished_at = $2 
@@ -62,7 +62,7 @@ func (r *BuildRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status strin
 	return nil
 }
 
-func (r *BuildRepo) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]domain.Build, error) {
+func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]domain.Build, error) {
 	query := `
 		SELECT id, image_id, status, log_file_path, started_at, finished_at 
 		FROM builds 
