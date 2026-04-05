@@ -112,3 +112,17 @@ func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeMB i
 	}
 	return nil
 }
+
+func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE owner_id = $1`
+	var usedMB int64
+	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&usedMB)
+	return usedMB, err
+}
+
+func (r *ImageRepository) GetUserDiskQuota(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `SELECT quota_disk_mb FROM users WHERE id = $1`
+	var quotaMB int64
+	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&quotaMB)
+	return quotaMB, err
+}

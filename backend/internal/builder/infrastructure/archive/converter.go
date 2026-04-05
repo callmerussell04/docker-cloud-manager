@@ -11,10 +11,14 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
-type Converter struct{}
+type Converter struct {
+	maxUnpackedSize int64
+}
 
-func NewConverter() *Converter {
-	return &Converter{}
+func NewConverter(maxUnpackedSize int64) *Converter {
+	return &Converter{
+		maxUnpackedSize: maxUnpackedSize,
+	}
 }
 
 func (c *Converter) ToTarStream(filePath string) (io.ReadCloser, error) {
@@ -49,8 +53,10 @@ func (c *Converter) streamZipAsTar(zipPath string) (io.ReadCloser, error) {
 		tw := tar.NewWriter(pw)
 		defer tw.Close()
 
+		remainingBytes := c.maxUnpackedSize
+
 		for _, f := range zr.File {
-			if err := c.writeZipFileToTar(tw, f); err != nil {
+			if err := c.writeZipFileToTar(tw, f, &remainingBytes); err != nil {
 				pw.CloseWithError(err)
 				return
 			}
@@ -60,7 +66,7 @@ func (c *Converter) streamZipAsTar(zipPath string) (io.ReadCloser, error) {
 	return pr, nil
 }
 
-func (c *Converter) writeZipFileToTar(tw *tar.Writer, f *zip.File) error {
+func (c *Converter) writeZipFileToTar(tw *tar.Writer, f *zip.File, remainingBytes *int64) error {
 	rc, err := f.Open()
 	if err != nil {
 		return err
@@ -68,6 +74,11 @@ func (c *Converter) writeZipFileToTar(tw *tar.Writer, f *zip.File) error {
 	defer rc.Close()
 
 	info := f.FileInfo()
+
+	if !info.IsDir() && info.Size() > *remainingBytes {
+		return apperrors.ErrResourceExhausted
+	}
+
 	header, err := tar.FileInfoHeader(info, info.Name())
 	if err != nil {
 		return err
@@ -79,7 +90,16 @@ func (c *Converter) writeZipFileToTar(tw *tar.Writer, f *zip.File) error {
 	}
 
 	if !info.IsDir() {
-		_, err = io.Copy(tw, rc)
+		lr := io.LimitReader(rc, *remainingBytes)
+		written, err := io.Copy(tw, lr)
+		if err != nil {
+			return err
+		}
+		*remainingBytes -= written
+
+		if *remainingBytes <= 0 {
+			return apperrors.ErrResourceExhausted
+		}
 	}
-	return err
+	return nil
 }

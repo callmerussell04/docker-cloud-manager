@@ -17,8 +17,8 @@ import (
 type ImageLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
 	Delete(ctx context.Context, ownerID, imageID uuid.UUID) error
-	InitBuild(ctx context.Context, ownerID uuid.UUID, tag, logFilePath string) (uuid.UUID, uuid.UUID, error)
-	CompleteBuild(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
+	InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
+	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 }
 
 type ImageHandler struct {
@@ -86,20 +86,20 @@ func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBui
 	}
 
 	if req.GetTag() == "" || req.GetLogFilePath() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tag and log file path are required")
+		return nil, status.Error(codes.InvalidArgument, "tag and log_file_path are required")
 	}
 
-	imageID, buildID, err := h.logic.InitBuild(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
+	buildID, imageID, err := h.logic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
 	if err != nil {
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "image tag already exists")
+		if errors.Is(err, apperrors.ErrQuotaExceeded) {
+			return nil, status.Error(codes.ResourceExhausted, "disk quota exceeded")
 		}
 		return nil, status.Error(codes.Internal, "failed to initialize build record")
 	}
 
 	return &coreapi.InitBuildResponse{
-		ImageId: imageID.String(),
 		BuildId: buildID.String(),
+		ImageId: imageID.String(),
 	}, nil
 }
 
@@ -114,14 +114,13 @@ func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.Com
 		return nil, status.Error(codes.InvalidArgument, "invalid image_id format")
 	}
 
-	if req.GetStatus() != domain.BuildStatusSuccess && req.GetStatus() != domain.BuildStatusFailed {
-		return nil, status.Error(codes.InvalidArgument, "invalid build status")
-	}
-
-	err = h.logic.CompleteBuild(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
+	err = h.logic.CompleteBuildRecord(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "build or image not found")
+		}
+		if errors.Is(err, apperrors.ErrQuotaExceeded) {
+			return nil, status.Error(codes.ResourceExhausted, "image size exceeds user quota, image removed")
 		}
 		return nil, status.Error(codes.Internal, "failed to complete build record")
 	}
