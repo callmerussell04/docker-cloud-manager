@@ -14,4 +14,5 @@ var (
 	ErrQuotaExceeded      = errors.New("user memory quota exceeded")
 	ErrLimitExceeded      = errors.New("maximum number of resources reached")
 	ErrHostExhausted      = errors.New("host server is out of memory")
+	ErrInvalidFileFormat  = errors.New("invalid file format, allowed: .zip, .tar, .tar.gz")
 )

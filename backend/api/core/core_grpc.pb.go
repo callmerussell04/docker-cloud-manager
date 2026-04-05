@@ -313,7 +313,8 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 const (
 	ImageAPI_GetUserImages_FullMethodName       = "/core.ImageAPI/GetUserImages"
 	ImageAPI_DeleteImage_FullMethodName         = "/core.ImageAPI/DeleteImage"
-	ImageAPI_RegisterCustomImage_FullMethodName = "/core.ImageAPI/RegisterCustomImage"
+	ImageAPI_InitBuildRecord_FullMethodName     = "/core.ImageAPI/InitBuildRecord"
+	ImageAPI_CompleteBuildRecord_FullMethodName = "/core.ImageAPI/CompleteBuildRecord"
 )
 
 // ImageAPIClient is the client API for ImageAPI service.
@@ -322,7 +323,8 @@ const (
 type ImageAPIClient interface {
 	GetUserImages(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ImageListResponse, error)
 	DeleteImage(ctx context.Context, in *ImageActionRequest, opts ...grpc.CallOption) (*Empty, error)
-	RegisterCustomImage(ctx context.Context, in *RegisterImageRequest, opts ...grpc.CallOption) (*RegisterImageResponse, error)
+	InitBuildRecord(ctx context.Context, in *InitBuildRequest, opts ...grpc.CallOption) (*InitBuildResponse, error)
+	CompleteBuildRecord(ctx context.Context, in *CompleteBuildRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type imageAPIClient struct {
@@ -353,10 +355,20 @@ func (c *imageAPIClient) DeleteImage(ctx context.Context, in *ImageActionRequest
 	return out, nil
 }
 
-func (c *imageAPIClient) RegisterCustomImage(ctx context.Context, in *RegisterImageRequest, opts ...grpc.CallOption) (*RegisterImageResponse, error) {
+func (c *imageAPIClient) InitBuildRecord(ctx context.Context, in *InitBuildRequest, opts ...grpc.CallOption) (*InitBuildResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RegisterImageResponse)
-	err := c.cc.Invoke(ctx, ImageAPI_RegisterCustomImage_FullMethodName, in, out, cOpts...)
+	out := new(InitBuildResponse)
+	err := c.cc.Invoke(ctx, ImageAPI_InitBuildRecord_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageAPIClient) CompleteBuildRecord(ctx context.Context, in *CompleteBuildRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageAPI_CompleteBuildRecord_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +381,8 @@ func (c *imageAPIClient) RegisterCustomImage(ctx context.Context, in *RegisterIm
 type ImageAPIServer interface {
 	GetUserImages(context.Context, *GetUserRequest) (*ImageListResponse, error)
 	DeleteImage(context.Context, *ImageActionRequest) (*Empty, error)
-	RegisterCustomImage(context.Context, *RegisterImageRequest) (*RegisterImageResponse, error)
+	InitBuildRecord(context.Context, *InitBuildRequest) (*InitBuildResponse, error)
+	CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error)
 	mustEmbedUnimplementedImageAPIServer()
 }
 
@@ -386,8 +399,11 @@ func (UnimplementedImageAPIServer) GetUserImages(context.Context, *GetUserReques
 func (UnimplementedImageAPIServer) DeleteImage(context.Context, *ImageActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteImage not implemented")
 }
-func (UnimplementedImageAPIServer) RegisterCustomImage(context.Context, *RegisterImageRequest) (*RegisterImageResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RegisterCustomImage not implemented")
+func (UnimplementedImageAPIServer) InitBuildRecord(context.Context, *InitBuildRequest) (*InitBuildResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitBuildRecord not implemented")
+}
+func (UnimplementedImageAPIServer) CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompleteBuildRecord not implemented")
 }
 func (UnimplementedImageAPIServer) mustEmbedUnimplementedImageAPIServer() {}
 func (UnimplementedImageAPIServer) testEmbeddedByValue()                  {}
@@ -446,20 +462,38 @@ func _ImageAPI_DeleteImage_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ImageAPI_RegisterCustomImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RegisterImageRequest)
+func _ImageAPI_InitBuildRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitBuildRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ImageAPIServer).RegisterCustomImage(ctx, in)
+		return srv.(ImageAPIServer).InitBuildRecord(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ImageAPI_RegisterCustomImage_FullMethodName,
+		FullMethod: ImageAPI_InitBuildRecord_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ImageAPIServer).RegisterCustomImage(ctx, req.(*RegisterImageRequest))
+		return srv.(ImageAPIServer).InitBuildRecord(ctx, req.(*InitBuildRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageAPI_CompleteBuildRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteBuildRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).CompleteBuildRecord(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_CompleteBuildRecord_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).CompleteBuildRecord(ctx, req.(*CompleteBuildRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -480,8 +514,12 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ImageAPI_DeleteImage_Handler,
 		},
 		{
-			MethodName: "RegisterCustomImage",
-			Handler:    _ImageAPI_RegisterCustomImage_Handler,
+			MethodName: "InitBuildRecord",
+			Handler:    _ImageAPI_InitBuildRecord_Handler,
+		},
+		{
+			MethodName: "CompleteBuildRecord",
+			Handler:    _ImageAPI_CompleteBuildRecord_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -16,7 +16,8 @@ service ContainerAPI {
 service ImageAPI {
   rpc GetUserImages (GetUserRequest) returns (ImageListResponse);
   rpc DeleteImage (ImageActionRequest) returns (Empty);
-  rpc RegisterCustomImage (RegisterImageRequest) returns (RegisterImageResponse);
+  rpc InitBuildRecord (InitBuildRequest) returns (InitBuildResponse);
+  rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
 }
 
 service VolumeAPI {
@@ -83,14 +84,22 @@ message ImageActionRequest {
   string image_id = 2;
 }
 
-message RegisterImageRequest {
+message InitBuildRequest {
   string owner_id = 1;
   string tag = 2;
-  int32 size_mb = 3;
+  string log_file_path = 3;
 }
 
-message RegisterImageResponse {
+message InitBuildResponse {
   string image_id = 1;
+  string build_id = 2;
+}
+
+message CompleteBuildRequest {
+  string build_id = 1;
+  string image_id = 2;
+  string status = 3;
+  int32 size_mb = 4;
 }
 
 message ImageData {

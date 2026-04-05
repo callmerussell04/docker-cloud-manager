@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/google/uuid"
 )
 
 type ImageRepository interface {
@@ -14,6 +16,12 @@ type ImageRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	Save(ctx context.Context, img domain.Image) error
+	UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error
+}
+
+type BuildRepository interface {
+	Save(ctx context.Context, b domain.Build) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 }
 
 type ImageDockerAPI interface {
@@ -22,12 +30,14 @@ type ImageDockerAPI interface {
 
 type ImageService struct {
 	repo      ImageRepository
+	buildRepo BuildRepository
 	dockerAPI ImageDockerAPI
 }
 
-func NewImageService(repo ImageRepository, dockerAPI ImageDockerAPI) *ImageService {
+func NewImageService(repo ImageRepository, buildRepo BuildRepository, dockerAPI ImageDockerAPI) *ImageService {
 	return &ImageService{
 		repo:      repo,
+		buildRepo: buildRepo,
 		dockerAPI: dockerAPI,
 	}
 }
@@ -58,18 +68,48 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	return s.repo.Delete(ctx, imageID)
 }
 
-func (s *ImageService) RegisterCustomImage(ctx context.Context, ownerID uuid.UUID, tag string, sizeMB int) (uuid.UUID, error) {
+func (s *ImageService) InitBuild(ctx context.Context, ownerID uuid.UUID, tag, logFilePath string) (uuid.UUID, uuid.UUID, error) {
+	imageID := uuid.New()
+	buildID := uuid.New()
+
 	img := domain.Image{
-		ID:       uuid.New(),
-		OwnerID:  ownerID,
-		Tag:      tag,
-		SizeMB:   sizeMB,
-		IsCustom: true,
+		ID:        imageID,
+		OwnerID:   ownerID,
+		Tag:       tag,
+		SizeMB:    0,
+		IsCustom:  true,
+		CreatedAt: time.Now(),
 	}
 
 	if err := s.repo.Save(ctx, img); err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, uuid.Nil, err
 	}
 
-	return img.ID, nil
+	build := domain.Build{
+		ID:          buildID,
+		ImageID:     imageID,
+		Status:      domain.BuildStatusRunning,
+		LogFilePath: logFilePath,
+		StartedAt:   time.Now(),
+	}
+
+	if err := s.buildRepo.Save(ctx, build); err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+
+	return imageID, buildID, nil
+}
+
+func (s *ImageService) CompleteBuild(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
+	if err := s.buildRepo.UpdateStatus(ctx, buildID, status); err != nil {
+		return err
+	}
+
+	if status == domain.BuildStatusSuccess {
+		if err := s.repo.UpdateSize(ctx, imageID, sizeMB); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

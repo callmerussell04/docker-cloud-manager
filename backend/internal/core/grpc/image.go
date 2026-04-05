@@ -17,7 +17,8 @@ import (
 type ImageLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
 	Delete(ctx context.Context, ownerID, imageID uuid.UUID) error
-	RegisterCustomImage(ctx context.Context, ownerID uuid.UUID, tag string, sizeMB int) (uuid.UUID, error)
+	InitBuild(ctx context.Context, ownerID uuid.UUID, tag, logFilePath string) (uuid.UUID, uuid.UUID, error)
+	CompleteBuild(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 }
 
 type ImageHandler struct {
@@ -78,25 +79,52 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 	return &coreapi.Empty{}, nil
 }
 
-func (h *ImageHandler) RegisterCustomImage(ctx context.Context, req *coreapi.RegisterImageRequest) (*coreapi.RegisterImageResponse, error) {
+func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBuildRequest) (*coreapi.InitBuildResponse, error) {
 	ownerID, err := uuid.Parse(req.GetOwnerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
 	}
 
-	if req.GetTag() == "" {
-		return nil, status.Error(codes.InvalidArgument, "tag is required")
+	if req.GetTag() == "" || req.GetLogFilePath() == "" {
+		return nil, status.Error(codes.InvalidArgument, "tag and log file path are required")
 	}
 
-	imageID, err := h.logic.RegisterCustomImage(ctx, ownerID, req.GetTag(), int(req.GetSizeMb()))
+	imageID, buildID, err := h.logic.InitBuild(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
 	if err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return nil, status.Error(codes.AlreadyExists, "image tag already exists")
 		}
-		return nil, status.Error(codes.Internal, "failed to register image")
+		return nil, status.Error(codes.Internal, "failed to initialize build record")
 	}
 
-	return &coreapi.RegisterImageResponse{
+	return &coreapi.InitBuildResponse{
 		ImageId: imageID.String(),
+		BuildId: buildID.String(),
 	}, nil
+}
+
+func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.CompleteBuildRequest) (*coreapi.Empty, error) {
+	buildID, err := uuid.Parse(req.GetBuildId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
+	}
+
+	imageID, err := uuid.Parse(req.GetImageId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid image_id format")
+	}
+
+	if req.GetStatus() != domain.BuildStatusSuccess && req.GetStatus() != domain.BuildStatusFailed {
+		return nil, status.Error(codes.InvalidArgument, "invalid build status")
+	}
+
+	err = h.logic.CompleteBuild(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "build or image not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to complete build record")
+	}
+
+	return &coreapi.Empty{}, nil
 }
