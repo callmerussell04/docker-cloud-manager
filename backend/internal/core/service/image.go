@@ -19,6 +19,8 @@ type ImageRepository interface {
 	UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserDiskQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
+	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
 type BuildRepository interface {
@@ -136,9 +138,7 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	}
 
 	if status != domain.BuildStatusSuccess {
-		// Если сборка упала (ошибка или таймаут), пустой образ нам больше не нужен
-		_ = s.repo.Delete(ctx, imageID)
-		return nil
+		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
 	}
 
 	// 2. Если сборка успешна, проверяем финальный размер
@@ -163,16 +163,12 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		// Квота превышена! Откатываем операцию:
 		// А) Удаляем физический образ из Докера (чтобы не забивал диск)
 		_ = s.dockerAPI.RemoveImage(context.Background(), img.Tag, true)
-		// Б) Удаляем метаданные из БД
-		_ = s.repo.Delete(ctx, imageID)
-		// В) Обновляем статус сборки на специфичную ошибку
-		_ = s.buildRepo.UpdateStatus(ctx, buildID, "failed_quota_exceeded")
+		_ = s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
 
 		return apperrors.ErrQuotaExceeded
 	}
 
-	// 4. Если всё хорошо, фиксируем реальный размер образа в БД
-	return s.repo.UpdateSize(ctx, imageID, sizeMB)
+	return s.repo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB)
 }
 
 func (s *ImageService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {

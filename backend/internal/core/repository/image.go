@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -125,4 +126,56 @@ func (r *ImageRepository) GetUserDiskQuota(ctx context.Context, ownerID uuid.UUI
 	var quotaMB int64
 	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&quotaMB)
 	return quotaMB, err
+}
+
+func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var finishedAt sql.NullTime
+	if status == domain.BuildStatusSuccess || status == domain.BuildStatusFailed || status == "failed_timeout" || status == "failed_quota_exceeded" {
+		finishedAt.Time = time.Now()
+		finishedAt.Valid = true
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE builds SET status = $1, finished_at = $2 WHERE id = $3", status, finishedAt, buildID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1 WHERE id = $2", sizeMB, imageID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var finishedAt sql.NullTime
+	if status == domain.BuildStatusSuccess || status == domain.BuildStatusFailed || status == "failed_timeout" || status == "failed_quota_exceeded" {
+		finishedAt.Time = time.Now()
+		finishedAt.Valid = true
+	}
+
+	_, err = tx.ExecContext(ctx, "UPDATE builds SET status = $1, finished_at = $2 WHERE id = $3", status, finishedAt, buildID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1 AND is_custom = true", imageID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }

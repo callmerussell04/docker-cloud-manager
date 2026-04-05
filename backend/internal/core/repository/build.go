@@ -165,3 +165,26 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	return nil
 }
+
+func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]domain.Build, error) {
+	query := `
+		SELECT id, image_id, status, log_file_path, started_at 
+		FROM builds 
+		WHERE status IN ($1, $2) AND started_at < $3
+	`
+	rows, err := r.db.QueryContext(ctx, query, domain.BuildStatusPending, domain.BuildStatusRunning, threshold)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var builds []domain.Build
+	for rows.Next() {
+		var b domain.Build
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt); err != nil {
+			return nil, err
+		}
+		builds = append(builds, b)
+	}
+	return builds, rows.Err()
+}

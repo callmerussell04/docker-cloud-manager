@@ -65,7 +65,7 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
 	go eventWorker.Run(ctx)
 
-	gcWorker := service.NewGCWorker(dockerAdapter, 1*time.Hour)
+	gcWorker := service.NewGCWorker(dockerAdapter, imgService, buildRepo, 1*time.Hour, 30*time.Minute)
 	go gcWorker.Run(ctx)
 
 	return &App{

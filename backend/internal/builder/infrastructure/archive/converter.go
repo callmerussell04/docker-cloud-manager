@@ -48,16 +48,29 @@ func (c *Converter) streamZipAsTar(zipPath string) (io.ReadCloser, error) {
 
 	go func() {
 		defer zr.Close()
-		defer pw.Close()
+
+		var err error
+		defer func() {
+			if p := recover(); p != nil {
+				pw.CloseWithError(apperrors.ErrInternal)
+			} else if err != nil {
+				pw.CloseWithError(err)
+			} else {
+				pw.Close()
+			}
+		}()
 
 		tw := tar.NewWriter(pw)
-		defer tw.Close()
+		defer func() {
+			if closeErr := tw.Close(); closeErr != nil && err == nil {
+				err = closeErr
+			}
+		}()
 
 		remainingBytes := c.maxUnpackedSize
 
 		for _, f := range zr.File {
-			if err := c.writeZipFileToTar(tw, f, &remainingBytes); err != nil {
-				pw.CloseWithError(err)
+			if err = c.writeZipFileToTar(tw, f, &remainingBytes); err != nil {
 				return
 			}
 		}
