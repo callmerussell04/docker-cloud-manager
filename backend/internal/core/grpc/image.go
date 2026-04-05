@@ -19,6 +19,7 @@ type ImageLogic interface {
 	Delete(ctx context.Context, ownerID, imageID uuid.UUID) error
 	InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
+	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
 }
 
 type ImageHandler struct {
@@ -126,4 +127,35 @@ func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.Com
 	}
 
 	return &coreapi.Empty{}, nil
+}
+
+func (h *ImageHandler) GetUserBuilds(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.BuildListResponse, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
+	}
+
+	builds, err := h.logic.GetUserBuilds(ctx, ownerID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to retrieve builds")
+	}
+
+	var pbBuilds []*coreapi.BuildData
+	for _, b := range builds {
+		var finishedAt int64
+		if b.FinishedAt != nil {
+			finishedAt = b.FinishedAt.Unix()
+		}
+		pbBuilds = append(pbBuilds, &coreapi.BuildData{
+			Id:         b.ID.String(),
+			ImageId:    b.ImageID.String(),
+			Status:     b.Status,
+			StartedAt:  b.StartedAt.Unix(),
+			FinishedAt: finishedAt,
+		})
+	}
+
+	return &coreapi.BuildListResponse{
+		Builds: pbBuilds,
+	}, nil
 }

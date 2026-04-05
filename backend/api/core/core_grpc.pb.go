@@ -315,6 +315,7 @@ const (
 	ImageAPI_DeleteImage_FullMethodName         = "/core.ImageAPI/DeleteImage"
 	ImageAPI_InitBuildRecord_FullMethodName     = "/core.ImageAPI/InitBuildRecord"
 	ImageAPI_CompleteBuildRecord_FullMethodName = "/core.ImageAPI/CompleteBuildRecord"
+	ImageAPI_GetUserBuilds_FullMethodName       = "/core.ImageAPI/GetUserBuilds"
 )
 
 // ImageAPIClient is the client API for ImageAPI service.
@@ -325,6 +326,7 @@ type ImageAPIClient interface {
 	DeleteImage(ctx context.Context, in *ImageActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	InitBuildRecord(ctx context.Context, in *InitBuildRequest, opts ...grpc.CallOption) (*InitBuildResponse, error)
 	CompleteBuildRecord(ctx context.Context, in *CompleteBuildRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetUserBuilds(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*BuildListResponse, error)
 }
 
 type imageAPIClient struct {
@@ -375,6 +377,16 @@ func (c *imageAPIClient) CompleteBuildRecord(ctx context.Context, in *CompleteBu
 	return out, nil
 }
 
+func (c *imageAPIClient) GetUserBuilds(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*BuildListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BuildListResponse)
+	err := c.cc.Invoke(ctx, ImageAPI_GetUserBuilds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImageAPIServer is the server API for ImageAPI service.
 // All implementations must embed UnimplementedImageAPIServer
 // for forward compatibility.
@@ -383,6 +395,7 @@ type ImageAPIServer interface {
 	DeleteImage(context.Context, *ImageActionRequest) (*Empty, error)
 	InitBuildRecord(context.Context, *InitBuildRequest) (*InitBuildResponse, error)
 	CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error)
+	GetUserBuilds(context.Context, *GetUserRequest) (*BuildListResponse, error)
 	mustEmbedUnimplementedImageAPIServer()
 }
 
@@ -404,6 +417,9 @@ func (UnimplementedImageAPIServer) InitBuildRecord(context.Context, *InitBuildRe
 }
 func (UnimplementedImageAPIServer) CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompleteBuildRecord not implemented")
+}
+func (UnimplementedImageAPIServer) GetUserBuilds(context.Context, *GetUserRequest) (*BuildListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserBuilds not implemented")
 }
 func (UnimplementedImageAPIServer) mustEmbedUnimplementedImageAPIServer() {}
 func (UnimplementedImageAPIServer) testEmbeddedByValue()                  {}
@@ -498,6 +514,24 @@ func _ImageAPI_CompleteBuildRecord_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImageAPI_GetUserBuilds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).GetUserBuilds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_GetUserBuilds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).GetUserBuilds(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ImageAPI_ServiceDesc is the grpc.ServiceDesc for ImageAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -520,6 +554,10 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompleteBuildRecord",
 			Handler:    _ImageAPI_CompleteBuildRecord_Handler,
+		},
+		{
+			MethodName: "GetUserBuilds",
+			Handler:    _ImageAPI_GetUserBuilds_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

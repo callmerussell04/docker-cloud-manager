@@ -3,20 +3,21 @@ package service
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/api/core"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
 )
 
 type CoreProvider interface {
 	CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error)
-	GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error)
+	GetUserContainers(ctx context.Context, ownerID string) ([]*coreapi.ContainerData, error)
 	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
 	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
 	CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error)
 	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
-	GetUserVolumes(ctx context.Context, ownerID string) ([]*core.VolumeData, error)
-	GetUserImages(ctx context.Context, ownerID string) ([]*core.ImageData, error)
+	GetUserVolumes(ctx context.Context, ownerID string) ([]*coreapi.VolumeData, error)
+	GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error)
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
+	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
 }
 
 type Core struct {
@@ -33,7 +34,7 @@ func (s *Core) CreateContainer(ctx context.Context, ownerID string, createContai
 	return s.provider.CreateContainer(ctx, ownerID, createContainerDTO)
 }
 
-func (s *Core) GetUserContainers(ctx context.Context, ownerID string) ([]*core.ContainerData, error) {
+func (s *Core) GetUserContainers(ctx context.Context, ownerID string) ([]*coreapi.ContainerData, error) {
 	return s.provider.GetUserContainers(ctx, ownerID)
 }
 
@@ -53,14 +54,18 @@ func (s *Core) DeleteVolume(ctx context.Context, ownerID, volumeID string) error
 	return s.provider.DeleteVolume(ctx, ownerID, volumeID)
 }
 
-func (s *Core) GetUserVolumes(ctx context.Context, ownerID string) ([]*core.VolumeData, error) {
+func (s *Core) GetUserVolumes(ctx context.Context, ownerID string) ([]*coreapi.VolumeData, error) {
 	return s.provider.GetUserVolumes(ctx, ownerID)
 }
 
-func (s *Core) GetUserImages(ctx context.Context, ownerID string) ([]*core.ImageData, error) {
+func (s *Core) GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error) {
 	return s.provider.GetUserImages(ctx, ownerID)
 }
 
 func (s *Core) DeleteImage(ctx context.Context, ownerID, imageID string) error {
 	return s.provider.DeleteImage(ctx, ownerID, imageID)
+}
+
+func (s *Core) GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error) {
+	return s.provider.GetUserBuilds(ctx, ownerID)
 }

@@ -43,7 +43,12 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 				images.GET("", coreHandler.GetImages)
 				images.DELETE("/:id", coreHandler.DeleteImage)
 				images.POST("/build", builderProxy)
-				images.GET("/build/:id/logs", builderProxy)
+			}
+
+			builds := protected.Group("/builds")
+			{
+				builds.GET("", coreHandler.GetBuilds)
+				builds.GET("/:id/logs", builderProxy)
 			}
 		}
 	}

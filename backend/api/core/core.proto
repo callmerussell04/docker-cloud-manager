@@ -18,6 +18,7 @@ service ImageAPI {
   rpc DeleteImage (ImageActionRequest) returns (Empty);
   rpc InitBuildRecord (InitBuildRequest) returns (InitBuildResponse);
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
+  rpc GetUserBuilds (GetUserRequest) returns (BuildListResponse);
 }
 
 service VolumeAPI {
@@ -139,4 +140,16 @@ message VolumeData {
 
 message VolumeListResponse {
   repeated VolumeData volumes = 1;
+}
+
+message BuildData {
+  string id = 1;
+  string image_id = 2;
+  string status = 3;
+  int64 started_at = 4;
+  int64 finished_at = 5;
+}
+
+message BuildListResponse {
+  repeated BuildData builds = 1;
 }

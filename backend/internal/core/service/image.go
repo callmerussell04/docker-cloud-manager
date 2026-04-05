@@ -24,6 +24,7 @@ type ImageRepository interface {
 type BuildRepository interface {
 	Save(ctx context.Context, b domain.Build) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
 }
 
 type ImageDockerAPI interface {
@@ -165,4 +166,8 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 
 	// 4. Если всё хорошо, фиксируем реальный размер образа в БД
 	return s.repo.UpdateSize(ctx, imageID, sizeMB)
+}
+
+func (s *ImageService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {
+	return s.buildRepo.GetUserBuilds(ctx, ownerID)
 }

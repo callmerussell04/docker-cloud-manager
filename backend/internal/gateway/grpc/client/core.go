@@ -157,6 +157,15 @@ func (c *CoreClient) DeleteImage(ctx context.Context, ownerID, imageID string) e
 	return nil
 }
 
+func (c *CoreClient) GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
+	resp, err := c.imageAPI.GetUserBuilds(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp.GetBuilds(), nil
+}
+
 // TODO: maybe pull out for sso grpc client
 func mapCoreError(err error) error {
 	st, ok := status.FromError(err)

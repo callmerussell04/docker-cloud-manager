@@ -92,3 +92,34 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	}
 	return builds, rows.Err()
 }
+
+func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {
+	query := `
+		SELECT b.id, b.image_id, b.status, b.log_file_path, b.started_at, b.finished_at 
+		FROM builds b
+		JOIN images i ON b.image_id = i.id
+		WHERE i.owner_id = $1 
+		ORDER BY b.started_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var builds []domain.Build
+	for rows.Next() {
+		var b domain.Build
+		var finishedAt sql.NullTime
+
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
+			return nil, err
+		}
+
+		if finishedAt.Valid {
+			b.FinishedAt = &finishedAt.Time
+		}
+		builds = append(builds, b)
+	}
+	return builds, rows.Err()
+}
