@@ -779,3 +779,143 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "core.proto",
 }
+
+const (
+	ProjectAPI_GetUserProjects_FullMethodName = "/core.ProjectAPI/GetUserProjects"
+	ProjectAPI_DeleteProject_FullMethodName   = "/core.ProjectAPI/DeleteProject"
+)
+
+// ProjectAPIClient is the client API for ProjectAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ProjectAPIClient interface {
+	GetUserProjects(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ProjectListResponse, error)
+	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+}
+
+type projectAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewProjectAPIClient(cc grpc.ClientConnInterface) ProjectAPIClient {
+	return &projectAPIClient{cc}
+}
+
+func (c *projectAPIClient) GetUserProjects(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ProjectListResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectListResponse)
+	err := c.cc.Invoke(ctx, ProjectAPI_GetUserProjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_DeleteProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ProjectAPIServer is the server API for ProjectAPI service.
+// All implementations must embed UnimplementedProjectAPIServer
+// for forward compatibility.
+type ProjectAPIServer interface {
+	GetUserProjects(context.Context, *GetUserRequest) (*ProjectListResponse, error)
+	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	mustEmbedUnimplementedProjectAPIServer()
+}
+
+// UnimplementedProjectAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedProjectAPIServer struct{}
+
+func (UnimplementedProjectAPIServer) GetUserProjects(context.Context, *GetUserRequest) (*ProjectListResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserProjects not implemented")
+}
+func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+}
+func (UnimplementedProjectAPIServer) mustEmbedUnimplementedProjectAPIServer() {}
+func (UnimplementedProjectAPIServer) testEmbeddedByValue()                    {}
+
+// UnsafeProjectAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ProjectAPIServer will
+// result in compilation errors.
+type UnsafeProjectAPIServer interface {
+	mustEmbedUnimplementedProjectAPIServer()
+}
+
+func RegisterProjectAPIServer(s grpc.ServiceRegistrar, srv ProjectAPIServer) {
+	// If the following call panics, it indicates UnimplementedProjectAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ProjectAPI_ServiceDesc, srv)
+}
+
+func _ProjectAPI_GetUserProjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).GetUserProjects(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_GetUserProjects_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).GetUserProjects(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectAPI_DeleteProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).DeleteProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_DeleteProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).DeleteProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ProjectAPI_ServiceDesc is the grpc.ServiceDesc for ProjectAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.ProjectAPI",
+	HandlerType: (*ProjectAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetUserProjects",
+			Handler:    _ProjectAPI_GetUserProjects_Handler,
+		},
+		{
+			MethodName: "DeleteProject",
+			Handler:    _ProjectAPI_DeleteProject_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "core.proto",
+}

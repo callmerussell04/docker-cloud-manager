@@ -28,6 +28,11 @@ service VolumeAPI {
   rpc GetUserVolumes (GetUserRequest) returns (VolumeListResponse);
 }
 
+service ProjectAPI {
+  rpc GetUserProjects (GetUserRequest) returns (ProjectListResponse);
+  rpc DeleteProject (ProjectActionRequest) returns (Empty);
+}
+
 message Empty {}
 
 message GetUserRequest {
@@ -159,4 +164,21 @@ message BuildData {
 
 message BuildListResponse {
   repeated BuildData builds = 1;
+}
+
+message ProjectData {
+  string id = 1;
+  string name = 2;
+  string status = 3;
+  string error_message = 4;
+  int64 created_at = 5;
+}
+
+message ProjectListResponse {
+  repeated ProjectData projects = 1;
+}
+
+message ProjectActionRequest {
+  string owner_id = 1;
+  string project_id = 2;
 }

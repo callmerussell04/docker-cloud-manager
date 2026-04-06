@@ -9,6 +9,7 @@ import (
 type Volume struct {
 	ID         uuid.UUID
 	OwnerID    uuid.UUID
+	ProjectID  *uuid.UUID
 	DockerName string
 	Driver     string
 	DriverOpts []byte

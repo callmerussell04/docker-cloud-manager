@@ -16,6 +16,7 @@ const (
 type Container struct {
 	ID                    uuid.UUID
 	OwnerID               uuid.UUID
+	ProjectID             *uuid.UUID
 	DockerID              string
 	Name                  string
 	ImageTag              string

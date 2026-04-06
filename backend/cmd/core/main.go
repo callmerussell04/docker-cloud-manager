@@ -48,6 +48,7 @@ func getEnvString(key string, fallback string) string {
 
 func main() {
 	port := getEnvInt("CORE_GRPC_PORT", 50052)
+	httpPort := getEnvInt("CORE_HTTP_PORT", 8083)
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -58,6 +59,12 @@ func main() {
 	if baseDomain == "" {
 		log.Fatal("BASE_DOMAIN environment variable is not set")
 	}
+
+	builderHTTPUrl := os.Getenv("BUILDER_HTTP_TARGET")
+	if builderHTTPUrl == "" {
+		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
+	}
+
 	registryURL := getEnvString("REGISTRY_URL", "localhost:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
@@ -80,7 +87,7 @@ func main() {
 		MaxContainersPerUser:     getEnvInt("MAX_CONTAINERS_PER_USER", 10),
 	}
 
-	application, err := app.New(port, dbURL, registryURL, registryContainerName, cfg)
+	application, err := app.New(port, httpPort, dbURL, registryURL, registryContainerName, builderHTTPUrl, cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

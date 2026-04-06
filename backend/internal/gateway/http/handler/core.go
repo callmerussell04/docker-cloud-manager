@@ -23,6 +23,8 @@ type CoreService interface {
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
 	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
+	GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error)
+	DeleteProject(ctx context.Context, ownerID, projectID string) error
 }
 
 type CoreHandler struct {
@@ -205,6 +207,35 @@ func (h *CoreHandler) DeleteBuild(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "build record deleted"})
+}
+
+func (h *CoreHandler) GetProjects(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	projects, err := h.service.GetUserProjects(c.Request.Context(), userID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	if projects == nil {
+		projects = make([]*coreapi.ProjectData, 0)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"projects": projects})
+}
+
+func (h *CoreHandler) DeleteProject(c *gin.Context) {
+	userID := c.GetString("user_id")
+	projectID := c.Param("id")
+
+	err := h.service.DeleteProject(c.Request.Context(), userID, projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "project deleted"})
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {

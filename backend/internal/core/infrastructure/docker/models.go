@@ -2,6 +2,7 @@ package docker
 
 type CreateContainerParams struct {
 	ContainerName     string
+	NetworkAlias      string
 	ImageName         string
 	NetworkName       string
 	Domain            string

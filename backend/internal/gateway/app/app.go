@@ -20,7 +20,7 @@ type App struct {
 	port   int
 }
 
-func New(port int, ssoTarget, coreTarget, builderHttpTarget, jwtSecret string) (*App, error) {
+func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwtSecret string) (*App, error) {
 	//TODO: fix insecure connection and overall grpc client execution
 	ssoConn, err := grpc.NewClient(ssoTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -46,9 +46,14 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, jwtSecret string) (
 		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
 	}
 
+	coreProxy, err := handler.NewBuilderProxyHandler(coreHttpTarget)
+	if err != nil {
+		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
+	}
+
 	tokenParser := jwt.NewParser(jwtSecret)
 
-	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, tokenParser)
+	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, coreProxy, tokenParser)
 
 	return &App{
 		router: router,

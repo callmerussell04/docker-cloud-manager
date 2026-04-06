@@ -16,6 +16,7 @@ type CoreClient struct {
 	containerAPI coreapi.ContainerAPIClient
 	imageAPI     coreapi.ImageAPIClient
 	volumeAPI    coreapi.VolumeAPIClient
+	projectAPI   coreapi.ProjectAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -23,6 +24,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		containerAPI: coreapi.NewContainerAPIClient(cc),
 		imageAPI:     coreapi.NewImageAPIClient(cc),
 		volumeAPI:    coreapi.NewVolumeAPIClient(cc),
+		projectAPI:   coreapi.NewProjectAPIClient(cc),
 	}
 }
 
@@ -172,6 +174,24 @@ func (c *CoreClient) DeleteBuild(ctx context.Context, ownerID, buildID string) e
 		BuildId: buildID,
 	}
 	_, err := c.imageAPI.DeleteBuild(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
+	resp, err := c.projectAPI.GetUserProjects(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp.GetProjects(), nil
+}
+
+func (c *CoreClient) DeleteProject(ctx context.Context, ownerID, projectID string) error {
+	req := &coreapi.ProjectActionRequest{OwnerId: ownerID, ProjectId: projectID}
+	_, err := c.projectAPI.DeleteProject(ctx, req)
 	if err != nil {
 		return mapCoreError(err)
 	}

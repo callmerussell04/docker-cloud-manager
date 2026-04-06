@@ -21,9 +21,16 @@ func NewContainerRepository(db *sql.DB) *ContainerRepository {
 
 func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) error {
 	query := `
-		INSERT INTO containers (id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, ttl_deadline, env_vars, base_memory_reservation)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO containers (id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, ttl_deadline, env_vars, base_memory_reservation)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
+
+	var projectID sql.NullString
+	if c.ProjectID != nil {
+		projectID.String = c.ProjectID.String()
+		projectID.Valid = true
+	}
+
 	var ttl sql.NullTime
 	if c.TTLDeadline != nil {
 		ttl.Time = *c.TTLDeadline
@@ -37,7 +44,7 @@ func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) erro
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		c.ID, c.OwnerID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.DomainPrefix, c.Status, ttl, c.EnvVars, c.BaseMemoryReservation,
+		c.ID, c.OwnerID, projectID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.DomainPrefix, c.Status, ttl, c.EnvVars, c.BaseMemoryReservation,
 	)
 	if err != nil {
 		var pgErr *pq.Error
@@ -166,14 +173,15 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]domain.Containe
 
 func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error) {
 	query := `
-		SELECT id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
+		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE id = $1
 	`
 	var c domain.Container
+	var projectID sql.NullString
 	var dockerID sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation,
+		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -182,6 +190,10 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (domain
 		return domain.Container{}, err
 	}
 
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		c.ProjectID = &parsed
+	}
 	if dockerID.Valid {
 		c.DockerID = dockerID.String
 	}
@@ -206,7 +218,7 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
 	query := `
-		SELECT id, owner_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
+		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE owner_id = $1
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -218,9 +230,14 @@ func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUI
 	var containers []domain.Container
 	for rows.Next() {
 		var c domain.Container
+		var projectID sql.NullString
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation); err != nil {
 			return nil, err
+		}
+		if projectID.Valid {
+			parsed, _ := uuid.Parse(projectID.String)
+			c.ProjectID = &parsed
 		}
 		if dockerID.Valid {
 			c.DockerID = dockerID.String

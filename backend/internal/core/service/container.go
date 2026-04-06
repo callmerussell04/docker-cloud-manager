@@ -226,6 +226,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	// Ребалансировщик потом его увеличит (Burst).
 	dockerParams := docker.CreateContainerParams{
 		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
+		NetworkAlias:      params.NetworkAlias,
 		ImageName:         actualImageTag,
 		NetworkName:       networkName,
 		Domain:            fullDomain,

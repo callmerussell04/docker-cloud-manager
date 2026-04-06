@@ -21,10 +21,17 @@ func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 
 func (r *VolumeRepository) Save(ctx context.Context, vol domain.Volume) error {
 	query := `
-		INSERT INTO volumes (id, owner_id, docker_name, driver, driver_opts)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO volumes (id, owner_id, project_id, docker_name, driver, driver_opts)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
-	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, vol.DockerName, vol.Driver, vol.DriverOpts)
+
+	var projectID sql.NullString
+	if vol.ProjectID != nil {
+		projectID.String = vol.ProjectID.String()
+		projectID.Valid = true
+	}
+
+	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, vol.Driver, vol.DriverOpts)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -37,13 +44,15 @@ func (r *VolumeRepository) Save(ctx context.Context, vol domain.Volume) error {
 
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Volume, error) {
 	query := `
-		SELECT id, owner_id, docker_name, driver, driver_opts, created_at 
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
 		FROM volumes WHERE id = $1
 	`
 
 	var v domain.Volume
+	var projectID sql.NullString
+
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&v.ID, &v.OwnerID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt,
+		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -52,12 +61,17 @@ func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Vo
 		return domain.Volume{}, err
 	}
 
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		v.ProjectID = &parsed
+	}
+
 	return v, nil
 }
 
 func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error) {
 	query := `
-		SELECT id, owner_id, docker_name, driver, driver_opts, created_at 
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
 		FROM volumes WHERE owner_id = $1
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -69,9 +83,17 @@ func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) 
 	var volumes []domain.Volume
 	for rows.Next() {
 		var v domain.Volume
-		if err := rows.Scan(&v.ID, &v.OwnerID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+		var projectID sql.NullString
+
+		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
 			return nil, err
 		}
+
+		if projectID.Valid {
+			parsed, _ := uuid.Parse(projectID.String)
+			v.ProjectID = &parsed
+		}
+
 		volumes = append(volumes, v)
 	}
 	return volumes, rows.Err()

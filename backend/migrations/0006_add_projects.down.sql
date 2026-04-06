@@ -1,0 +1,3 @@
+ALTER TABLE volumes DROP COLUMN IF EXISTS project_id;
+ALTER TABLE containers DROP COLUMN IF EXISTS project_id;
+DROP TABLE IF EXISTS projects;

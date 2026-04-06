@@ -5,12 +5,17 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
+	"net/http"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
-	coredelivery "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
+	coregrpc "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
+	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/metrics"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
@@ -19,6 +24,7 @@ import (
 
 type App struct {
 	gRPCServer *grpc.Server
+	httpServer *http.Server
 	db         *sql.DB
 	dockerCli  *docker.Adapter
 	port       int
@@ -26,7 +32,19 @@ type App struct {
 	cancel     context.CancelFunc
 }
 
-func New(port int, dbURL string, registryURL string, registryContainerName string, cfg service.ContainerConfig) (*App, error) {
+type projectResourceRepo struct {
+	contRepo *repository.ContainerRepository
+	volRepo  *repository.VolumeRepository
+}
+
+func (p *projectResourceRepo) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
+	return p.contRepo.GetByOwnerID(ctx, ownerID)
+}
+func (p *projectResourceRepo) GetVolumesByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error) {
+	return p.volRepo.GetByOwnerID(ctx, ownerID)
+}
+
+func New(port int, httpPort int, dbURL string, registryURL string, registryContainerName string, builderHTTPUrl string, cfg service.ContainerConfig) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -47,18 +65,29 @@ func New(port int, dbURL string, registryURL string, registryContainerName strin
 	volRepo := repository.NewVolumeRepository(db)
 	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db)
+	projRepo := repository.NewProjectRepository(db)
 
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
 	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, registryURL)
-
+	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	gRPCServer := grpc.NewServer()
 
-	coredelivery.RegisterContainerAPI(gRPCServer, contService)
-	coredelivery.RegisterVolumeAPI(gRPCServer, volService)
-	coredelivery.RegisterImageAPI(gRPCServer, imgService)
+	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, builderHTTPUrl)
+	composeHandler := corehttp.NewComposeHandler(orchestrator)
+	router := corehttp.SetupRouter(composeHandler)
+
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", httpPort),
+		Handler: router,
+	}
+
+	coregrpc.RegisterContainerAPI(gRPCServer, contService)
+	coregrpc.RegisterVolumeAPI(gRPCServer, volService)
+	coregrpc.RegisterImageAPI(gRPCServer, imgService)
+	coregrpc.RegisterProjectAPI(gRPCServer, projService)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -73,6 +102,7 @@ func New(port int, dbURL string, registryURL string, registryContainerName strin
 
 	return &App{
 		gRPCServer: gRPCServer,
+		httpServer: httpServer,
 		db:         db,
 		dockerCli:  dockerAdapter,
 		port:       port,
@@ -82,6 +112,10 @@ func New(port int, dbURL string, registryURL string, registryContainerName strin
 }
 
 func (a *App) Run() error {
+	go func() {
+		_ = a.httpServer.ListenAndServe()
+	}()
+
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", a.port))
 	if err != nil {
 		return err
@@ -98,5 +132,8 @@ func (a *App) Stop() {
 	}
 	if a.dockerCli != nil {
 		a.dockerCli.Close()
+	}
+	if a.httpServer != nil {
+		_ = a.httpServer.Shutdown(context.Background())
 	}
 }

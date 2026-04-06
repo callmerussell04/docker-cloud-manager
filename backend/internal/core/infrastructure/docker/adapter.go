@@ -102,9 +102,17 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		}
 	}
 
+	// Настройка сети
+	endpointSettings := &network.EndpointSettings{}
+
+	// Если передан алиас (из Compose), добавляем его
+	if params.NetworkAlias != "" {
+		endpointSettings.Aliases = []string{params.NetworkAlias}
+	}
+
 	netConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			params.NetworkName: {},
+			params.NetworkName: endpointSettings, // Подключаем к сети пользователя с алиасами
 		},
 	}
 

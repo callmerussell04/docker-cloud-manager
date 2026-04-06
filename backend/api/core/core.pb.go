@@ -1369,6 +1369,178 @@ func (x *BuildListResponse) GetBuilds() []*BuildData {
 	return nil
 }
 
+type ProjectData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	ErrorMessage  string                 `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
+	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectData) Reset() {
+	*x = ProjectData{}
+	mi := &file_core_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectData) ProtoMessage() {}
+
+func (x *ProjectData) ProtoReflect() protoreflect.Message {
+	mi := &file_core_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectData.ProtoReflect.Descriptor instead.
+func (*ProjectData) Descriptor() ([]byte, []int) {
+	return file_core_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *ProjectData) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ProjectData) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ProjectData) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ProjectData) GetErrorMessage() string {
+	if x != nil {
+		return x.ErrorMessage
+	}
+	return ""
+}
+
+func (x *ProjectData) GetCreatedAt() int64 {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return 0
+}
+
+type ProjectListResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Projects      []*ProjectData         `protobuf:"bytes,1,rep,name=projects,proto3" json:"projects,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectListResponse) Reset() {
+	*x = ProjectListResponse{}
+	mi := &file_core_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectListResponse) ProtoMessage() {}
+
+func (x *ProjectListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectListResponse.ProtoReflect.Descriptor instead.
+func (*ProjectListResponse) Descriptor() ([]byte, []int) {
+	return file_core_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *ProjectListResponse) GetProjects() []*ProjectData {
+	if x != nil {
+		return x.Projects
+	}
+	return nil
+}
+
+type ProjectActionRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProjectActionRequest) Reset() {
+	*x = ProjectActionRequest{}
+	mi := &file_core_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProjectActionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProjectActionRequest) ProtoMessage() {}
+
+func (x *ProjectActionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_core_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProjectActionRequest.ProtoReflect.Descriptor instead.
+func (*ProjectActionRequest) Descriptor() ([]byte, []int) {
+	return file_core_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ProjectActionRequest) GetOwnerId() string {
+	if x != nil {
+		return x.OwnerId
+	}
+	return ""
+}
+
+func (x *ProjectActionRequest) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
+}
+
 var File_core_proto protoreflect.FileDescriptor
 
 const file_core_proto_rawDesc = "" +
@@ -1480,7 +1652,20 @@ const file_core_proto_rawDesc = "" +
 	"finishedAt\x12\"\n" +
 	"\rlog_file_path\x18\x06 \x01(\tR\vlogFilePath\"<\n" +
 	"\x11BuildListResponse\x12'\n" +
-	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds2\x92\x03\n" +
+	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds\"\x8d\x01\n" +
+	"\vProjectData\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06status\x18\x03 \x01(\tR\x06status\x12#\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\x05 \x01(\x03R\tcreatedAt\"D\n" +
+	"\x13ProjectListResponse\x12-\n" +
+	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\"P\n" +
+	"\x14ProjectActionRequest\x12\x19\n" +
+	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x02 \x01(\tR\tprojectId2\x92\x03\n" +
 	"\fContainerAPI\x12N\n" +
 	"\x0fCreateContainer\x12\x1c.core.CreateContainerRequest\x1a\x1d.core.CreateContainerResponse\x12;\n" +
 	"\x0eStartContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12:\n" +
@@ -1498,7 +1683,11 @@ const file_core_proto_rawDesc = "" +
 	"\tVolumeAPI\x12E\n" +
 	"\fCreateVolume\x12\x19.core.CreateVolumeRequest\x1a\x1a.core.CreateVolumeResponse\x126\n" +
 	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12@\n" +
-	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponseBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
+	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponse2\x8a\x01\n" +
+	"\n" +
+	"ProjectAPI\x12B\n" +
+	"\x0fGetUserProjects\x12\x14.core.GetUserRequest\x1a\x19.core.ProjectListResponse\x128\n" +
+	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.EmptyBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
 
 var (
 	file_core_proto_rawDescOnce sync.Once
@@ -1512,7 +1701,7 @@ func file_core_proto_rawDescGZIP() []byte {
 	return file_core_proto_rawDescData
 }
 
-var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_core_proto_goTypes = []any{
 	(*Empty)(nil),                   // 0: core.Empty
 	(*GetUserRequest)(nil),          // 1: core.GetUserRequest
@@ -1537,52 +1726,60 @@ var file_core_proto_goTypes = []any{
 	(*BuildActionRequest)(nil),      // 20: core.BuildActionRequest
 	(*BuildData)(nil),               // 21: core.BuildData
 	(*BuildListResponse)(nil),       // 22: core.BuildListResponse
-	nil,                             // 23: core.CreateContainerRequest.EnvVarsEntry
-	nil,                             // 24: core.CreateVolumeRequest.DriverOptsEntry
+	(*ProjectData)(nil),             // 23: core.ProjectData
+	(*ProjectListResponse)(nil),     // 24: core.ProjectListResponse
+	(*ProjectActionRequest)(nil),    // 25: core.ProjectActionRequest
+	nil,                             // 26: core.CreateContainerRequest.EnvVarsEntry
+	nil,                             // 27: core.CreateVolumeRequest.DriverOptsEntry
 }
 var file_core_proto_depIdxs = []int32{
-	23, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
+	26, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
 	2,  // 1: core.CreateContainerRequest.volume_mounts:type_name -> core.VolumeMount
 	7,  // 2: core.ContainerListResponse.containers:type_name -> core.ContainerData
 	13, // 3: core.ImageListResponse.images:type_name -> core.ImageData
-	24, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
+	27, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
 	18, // 5: core.VolumeListResponse.volumes:type_name -> core.VolumeData
 	21, // 6: core.BuildListResponse.builds:type_name -> core.BuildData
-	3,  // 7: core.ContainerAPI.CreateContainer:input_type -> core.CreateContainerRequest
-	5,  // 8: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
-	5,  // 9: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
-	5,  // 10: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
-	1,  // 11: core.ContainerAPI.GetUserContainers:input_type -> core.GetUserRequest
-	6,  // 12: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
-	1,  // 13: core.ImageAPI.GetUserImages:input_type -> core.GetUserRequest
-	9,  // 14: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
-	10, // 15: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
-	12, // 16: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
-	1,  // 17: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
-	20, // 18: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
-	15, // 19: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	17, // 20: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	1,  // 21: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
-	4,  // 22: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	0,  // 23: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	0,  // 24: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	0,  // 25: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	8,  // 26: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	0,  // 27: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	14, // 28: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	0,  // 29: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	11, // 30: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	0,  // 31: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	22, // 32: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	0,  // 33: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	16, // 34: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	0,  // 35: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	19, // 36: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	22, // [22:37] is the sub-list for method output_type
-	7,  // [7:22] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	23, // 7: core.ProjectListResponse.projects:type_name -> core.ProjectData
+	3,  // 8: core.ContainerAPI.CreateContainer:input_type -> core.CreateContainerRequest
+	5,  // 9: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
+	5,  // 10: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
+	5,  // 11: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
+	1,  // 12: core.ContainerAPI.GetUserContainers:input_type -> core.GetUserRequest
+	6,  // 13: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
+	1,  // 14: core.ImageAPI.GetUserImages:input_type -> core.GetUserRequest
+	9,  // 15: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
+	10, // 16: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
+	12, // 17: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
+	1,  // 18: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
+	20, // 19: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	15, // 20: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	17, // 21: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	1,  // 22: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
+	1,  // 23: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
+	25, // 24: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
+	4,  // 25: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	0,  // 26: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	0,  // 27: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	0,  // 28: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	8,  // 29: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
+	0,  // 30: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	14, // 31: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
+	0,  // 32: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	11, // 33: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	0,  // 34: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	22, // 35: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
+	0,  // 36: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	16, // 37: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	0,  // 38: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	19, // 39: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
+	24, // 40: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
+	0,  // 41: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	25, // [25:42] is the sub-list for method output_type
+	8,  // [8:25] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_core_proto_init() }
@@ -1596,9 +1793,9 @@ func file_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_proto_rawDesc), len(file_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   28,
 			NumExtensions: 0,
-			NumServices:   3,
+			NumServices:   4,
 		},
 		GoTypes:           file_core_proto_goTypes,
 		DependencyIndexes: file_core_proto_depIdxs,
