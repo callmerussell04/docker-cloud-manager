@@ -141,22 +141,26 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
+	baseName, version := parseImageTag(params.ImageTag)
+	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
+
 	isCustom := false
 	userImages, err := s.imageRepo.GetByOwnerID(ctx, ownerID)
 	if err == nil {
 		for _, img := range userImages {
-			if img.Tag == params.ImageTag && img.IsCustom {
+			// Сравниваем с нормализованным тегом из БД
+			if img.Tag == normalizedInputTag && img.IsCustom {
 				isCustom = true
 				break
 			}
 		}
 	}
 
-	actualImageTag := params.ImageTag
+	actualImageTag := normalizedInputTag
 	if isCustom {
-		// Формируем тег для локального Registry
-		repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID.String(), params.ImageTag))
-		actualImageTag = fmt.Sprintf("%s/%s:latest", s.config.RegistryURL, repoName)
+		// Формируем полный тег для пулла из Registry
+		repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID.String(), baseName))
+		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
 	}
 
 	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
@@ -246,7 +250,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		OwnerID:               ownerID,
 		DockerID:              dockerID,
 		Name:                  params.Name,
-		ImageTag:              params.ImageTag,
+		ImageTag:              normalizedInputTag,
 		InternalPort:          params.InternalPort,
 		DomainPrefix:          params.DomainPrefix,
 		Status:                domain.ContainerStatusCreated,

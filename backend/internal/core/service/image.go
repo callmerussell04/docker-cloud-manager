@@ -76,16 +76,17 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 		return errors.New("cannot delete system image")
 	}
 
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), img.Tag))
+	baseName, version := parseImageTag(img.Tag)
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
 
 	// 1. Удаляем манифест из локального Registry
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, "latest")
+	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err == nil && digest != "" {
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 	}
 
 	// 2. Удаляем кэш образа из Docker Engine (если он пуллился)
-	fullTag := fmt.Sprintf("%s/%s:latest", s.registryURL, repoName)
+	fullTag := fmt.Sprintf("%s/%s:%s", s.registryURL, repoName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	return s.repo.Delete(ctx, imageID)
@@ -108,13 +109,16 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		return uuid.Nil, uuid.Nil, apperrors.ErrQuotaExceeded
 	}
 
+	baseName, version := parseImageTag(tag)
+	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
+
 	// 2. Резервируем "пустой" образ в БД
 	imageID := uuid.New()
 	img := domain.Image{
 		ID:       imageID,
 		OwnerID:  ownerID,
-		Tag:      tag,
-		SizeMB:   0, // Размер пока неизвестен
+		Tag:      normalizedTag,
+		SizeMB:   0,
 		IsCustom: true,
 	}
 
@@ -156,10 +160,11 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return err
 	}
 
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), img.Tag))
+	baseName, version := parseImageTag(img.Tag)
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
 
 	// Запрашиваем реальный размер образа из Registry API
-	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, "latest")
+	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_registry_error")
 	}
@@ -211,4 +216,12 @@ func (s *ImageService) DeleteBuild(ctx context.Context, ownerID, buildID uuid.UU
 	}
 
 	return s.buildRepo.Delete(ctx, buildID)
+}
+
+func parseImageTag(rawTag string) (baseName, version string) {
+	parts := strings.SplitN(rawTag, ":", 2)
+	if len(parts) == 1 || parts[1] == "" {
+		return parts[0], "latest"
+	}
+	return parts[0], parts[1]
 }
