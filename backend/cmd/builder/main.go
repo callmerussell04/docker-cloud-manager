@@ -45,6 +45,7 @@ func main() {
 
 	storagePath := getEnvString("BUILD_STORAGE_PATH", "/tmp/builds")
 	logsDirPath := getEnvString("BUILD_LOGS_PATH", "/tmp/build_logs")
+	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
 	maxUnpackedSize := getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024)
 	maxLogSize := getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)
 
@@ -52,6 +53,8 @@ func main() {
 		BuildMemoryBytes:    getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
 		BuildCPUQuota:       getEnvInt64("BUILD_CPU_QUOTA", 100000),
 		LogsDirPath:         logsDirPath,
+		StoragePath:         storagePath,
+		RegistryURL:         registryURL,
 		MaxBuildTime:        time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
 		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 	}

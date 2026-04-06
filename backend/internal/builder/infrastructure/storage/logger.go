@@ -2,20 +2,11 @@ package storage
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
 )
-
-type buildOutput struct {
-	Stream      string `json:"stream"`
-	Error       string `json:"error"`
-	ErrorDetail struct {
-		Message string `json:"message"`
-	} `json:"errorDetail"`
-}
 
 type LogManager struct {
 	logDir     string
@@ -32,7 +23,7 @@ func NewLogManager(logDir string, maxLogSize int64) (*LogManager, error) {
 	}, nil
 }
 
-func (m *LogManager) SaveLogs(buildID string, dockerStream io.Reader) (string, error) {
+func (m *LogManager) SaveLogs(buildID string, logStream io.Reader) (string, error) {
 	logFilePath := filepath.Join(m.logDir, buildID+".log")
 	file, err := os.Create(logFilePath)
 	if err != nil {
@@ -40,34 +31,18 @@ func (m *LogManager) SaveLogs(buildID string, dockerStream io.Reader) (string, e
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(dockerStream)
-	var buildErr error
+	scanner := bufio.NewScanner(logStream)
 	var totalBytes int64
 
 	for scanner.Scan() {
-		line := scanner.Text()
-		var output buildOutput
+		line := scanner.Text() + "\n"
 
-		var logStr string
-		if err := json.Unmarshal([]byte(line), &output); err == nil {
-			if output.Error != "" {
-				buildErr = errors.New(output.Error)
-				logStr = "[ERROR] " + output.Error + "\n"
-			} else if output.Stream != "" {
-				logStr = output.Stream
-			}
-		} else {
-			logStr = line + "\n"
-		}
+		n, _ := file.WriteString(line)
+		totalBytes += int64(n)
 
-		if logStr != "" {
-			n, _ := file.WriteString(logStr)
-			totalBytes += int64(n)
-
-			if totalBytes > m.maxLogSize {
-				file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
-				return logFilePath, errors.New("log size limit exceeded")
-			}
+		if totalBytes > m.maxLogSize {
+			file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
+			return logFilePath, errors.New("log size limit exceeded")
 		}
 	}
 
@@ -75,5 +50,5 @@ func (m *LogManager) SaveLogs(buildID string, dockerStream io.Reader) (string, e
 		return logFilePath, err
 	}
 
-	return logFilePath, buildErr
+	return logFilePath, nil
 }

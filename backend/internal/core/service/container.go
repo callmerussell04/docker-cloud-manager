@@ -30,6 +30,7 @@ type ContainerConfig struct {
 	ContainerDiskQuota       string
 	MaxVolumesPerUser        int
 	MaxContainersPerUser     int
+	RegistryURL              string
 }
 
 type ContainerRepository interface {
@@ -69,9 +70,14 @@ type HostMetricsProvider interface {
 	GetFreeMemory() (int64, error)
 }
 
+type ContainerImageRepository interface {
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
+}
+
 type ContainerService struct {
 	repo       ContainerRepository
 	volumeRepo ContainerVolumeRepository
+	imageRepo  ContainerImageRepository
 	dockerAPI  ContainerDockerAPI
 	metrics    HostMetricsProvider
 	config     ContainerConfig
@@ -80,6 +86,7 @@ type ContainerService struct {
 func NewContainerService(
 	repo ContainerRepository,
 	volumeRepo ContainerVolumeRepository,
+	imageRepo ContainerImageRepository,
 	dockerAPI ContainerDockerAPI,
 	metrics HostMetricsProvider,
 	config ContainerConfig,
@@ -87,6 +94,7 @@ func NewContainerService(
 	return &ContainerService{
 		repo:       repo,
 		volumeRepo: volumeRepo,
+		imageRepo:  imageRepo,
 		dockerAPI:  dockerAPI,
 		metrics:    metrics,
 		config:     config,
@@ -133,15 +141,41 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
-	imageExists, err := s.dockerAPI.ImageExists(ctx, params.ImageTag)
-	if err != nil {
-		return uuid.Nil, err
+	isCustom := false
+	userImages, err := s.imageRepo.GetByOwnerID(ctx, ownerID)
+	if err == nil {
+		for _, img := range userImages {
+			if img.Tag == params.ImageTag && img.IsCustom {
+				isCustom = true
+				break
+			}
+		}
 	}
 
-	if !imageExists {
-		err = s.dockerAPI.PullImage(ctx, params.ImageTag)
+	actualImageTag := params.ImageTag
+	if isCustom {
+		// Формируем тег для локального Registry
+		repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID.String(), params.ImageTag))
+		actualImageTag = fmt.Sprintf("%s/%s:latest", s.config.RegistryURL, repoName)
+	}
+
+	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
+	// Если публичный — пуллим только если его нет на хосте
+	if isCustom {
+		err = s.dockerAPI.PullImage(ctx, actualImageTag)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("failed to pull custom image: %v", err)
+		}
+	} else {
+		imageExists, err := s.dockerAPI.ImageExists(ctx, actualImageTag)
 		if err != nil {
 			return uuid.Nil, err
+		}
+		if !imageExists {
+			err = s.dockerAPI.PullImage(ctx, actualImageTag)
+			if err != nil {
+				return uuid.Nil, err
+			}
 		}
 	}
 
@@ -188,7 +222,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	// Ребалансировщик потом его увеличит (Burst).
 	dockerParams := docker.CreateContainerParams{
 		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
-		ImageName:         params.ImageTag,
+		ImageName:         actualImageTag,
 		NetworkName:       networkName,
 		Domain:            fullDomain,
 		InternalPort:      params.InternalPort,

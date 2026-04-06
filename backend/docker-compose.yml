@@ -39,6 +39,14 @@ services:
     networks:
       - proxy_net
 
+  registry:
+    image: registry:3
+    container_name: registry
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true" # ОЧЕНЬ ВАЖНО! Иначе API DELETE не будет работать
+    volumes:
+      - registry_data:/var/lib/registry
+
 networks:
   proxy_net:
     external: true

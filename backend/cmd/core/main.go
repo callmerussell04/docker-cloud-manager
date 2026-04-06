@@ -58,10 +58,13 @@ func main() {
 	if baseDomain == "" {
 		log.Fatal("BASE_DOMAIN environment variable is not set")
 	}
+	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
+	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
 	// Сборка конфигурации для бизнес-логики из переменных окружения
 	cfg := service.ContainerConfig{
 		BaseDomain:               baseDomain,
+		RegistryURL:              registryURL,
 		DefaultMemoryReservation: getEnvInt64("DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
 		ReservedSystemMemory:     getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
 		OvercommitFactor:         getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
@@ -77,7 +80,7 @@ func main() {
 		MaxContainersPerUser:     getEnvInt("MAX_CONTAINERS_PER_USER", 10),
 	}
 
-	application, err := app.New(port, dbURL, cfg)
+	application, err := app.New(port, dbURL, registryURL, registryContainerName, cfg)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

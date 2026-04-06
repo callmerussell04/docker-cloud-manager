@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -35,17 +37,26 @@ type ImageDockerAPI interface {
 	RemoveImage(ctx context.Context, imageID string, force bool) error
 }
 
-type ImageService struct {
-	repo      ImageRepository
-	buildRepo BuildRepository
-	dockerAPI ImageDockerAPI
+type ImageRegistryAPI interface {
+	GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error)
+	DeleteManifest(ctx context.Context, repo, digest string) error
 }
 
-func NewImageService(repo ImageRepository, buildRepo BuildRepository, dockerAPI ImageDockerAPI) *ImageService {
+type ImageService struct {
+	repo        ImageRepository
+	buildRepo   BuildRepository
+	dockerAPI   ImageDockerAPI
+	registryAPI ImageRegistryAPI
+	registryURL string
+}
+
+func NewImageService(repo ImageRepository, buildRepo BuildRepository, dockerAPI ImageDockerAPI, registryAPI ImageRegistryAPI, registryURL string) *ImageService {
 	return &ImageService{
-		repo:      repo,
-		buildRepo: buildRepo,
-		dockerAPI: dockerAPI,
+		repo:        repo,
+		buildRepo:   buildRepo,
+		dockerAPI:   dockerAPI,
+		registryAPI: registryAPI,
+		registryURL: registryURL,
 	}
 }
 
@@ -58,19 +69,24 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	if err != nil {
 		return err
 	}
-
 	if img.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
-
 	if !img.IsCustom {
 		return errors.New("cannot delete system image")
 	}
 
-	err = s.dockerAPI.RemoveImage(ctx, img.Tag, false)
-	if err != nil {
-		return err
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), img.Tag))
+
+	// 1. Удаляем манифест из локального Registry
+	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, "latest")
+	if err == nil && digest != "" {
+		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 	}
+
+	// 2. Удаляем кэш образа из Docker Engine (если он пуллился)
+	fullTag := fmt.Sprintf("%s/%s:latest", s.registryURL, repoName)
+	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	return s.repo.Delete(ctx, imageID)
 }
@@ -130,21 +146,27 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 	return buildID, imageID, nil
 }
 
-func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
-	// 1. Обновляем статус самой сборки (логгер закончил работу)
-	err := s.buildRepo.UpdateStatus(ctx, buildID, status)
-	if err != nil {
-		return err
-	}
-
+func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
 	if status != domain.BuildStatusSuccess {
 		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
 	}
 
-	// 2. Если сборка успешна, проверяем финальный размер
 	img, err := s.repo.GetByID(ctx, imageID)
 	if err != nil {
 		return err
+	}
+
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), img.Tag))
+
+	// Запрашиваем реальный размер образа из Registry API
+	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, "latest")
+	if err != nil {
+		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_registry_error")
+	}
+
+	sizeMB := int(sizeBytes / (1024 * 1024))
+	if sizeMB == 0 {
+		sizeMB = 1 // Минимальный размер 1 МБ
 	}
 
 	quotaMB, err := s.repo.GetUserDiskQuota(ctx, img.OwnerID)
@@ -157,14 +179,12 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return err
 	}
 
-	// 3. Пост-проверка (Admission Control 2)
-	// usedMB уже включает старые образы. Проверяем, влезает ли новый.
+	// Admission Control 2: Проверка квоты по реальному размеру
 	if usedMB+int64(sizeMB) > quotaMB {
-		// Квота превышена! Откатываем операцию:
-		// А) Удаляем физический образ из Докера (чтобы не забивал диск)
-		_ = s.dockerAPI.RemoveImage(context.Background(), img.Tag, true)
-		_ = s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
+		// Удаляем из Registry
+		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 
+		_ = s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
 		return apperrors.ErrQuotaExceeded
 	}
 

@@ -2,8 +2,10 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strconv"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
@@ -269,4 +271,47 @@ func (a *Adapter) PruneSystem(ctx context.Context) error {
 	opts := build.CachePruneOptions{All: false}
 	_, err = a.cli.BuildCachePrune(ctx, opts)
 	return err
+}
+
+func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContainerName string) error {
+	execConfig := container.ExecOptions{
+		Cmd: []string{
+			"/bin/registry",
+			"garbage-collect",
+			"/etc/docker/registry/config.yml",
+			"--delete-untagged=true", // Удалять слои, на которые больше нет ссылок
+		},
+		AttachStdout: false,
+		AttachStderr: false,
+	}
+
+	execID, err := a.cli.ContainerExecCreate(ctx, registryContainerName, execConfig)
+	if err != nil {
+		return err
+	}
+
+	err = a.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{})
+	if err != nil {
+		return err
+	}
+
+	// Ждем завершения выполнения команды
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			inspect, err := a.cli.ContainerExecInspect(ctx, execID.ID)
+			if err != nil {
+				return err
+			}
+			if !inspect.Running {
+				if inspect.ExitCode != 0 {
+					return errors.New("registry gc exited with non-zero code")
+				}
+				return nil
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
 }

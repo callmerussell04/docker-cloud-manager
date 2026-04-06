@@ -2,8 +2,12 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"mime/multipart"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
@@ -17,13 +21,14 @@ type FileManager interface {
 	CleanUp(filePath string) error
 }
 
-type ArchiveConverter interface {
-	ToTarStream(filePath string) (io.ReadCloser, error)
+type ArchiveExtractor interface {
+	Extract(archivePath string, destDir string) error
 }
 
 type DockerAPI interface {
-	BuildImage(ctx context.Context, tarStream io.Reader, params docker.BuildParams) (io.ReadCloser, error)
-	InspectImage(ctx context.Context, imageTag string) (int64, error)
+	RunBuildContainer(ctx context.Context, params docker.BuildContainerParams) (string, io.ReadCloser, error)
+	WaitForBuild(ctx context.Context, containerID string) error
+	CleanBuildContainer(ctx context.Context, containerID string) error
 }
 
 type LogManager interface {
@@ -39,13 +44,15 @@ type BuilderConfig struct {
 	BuildMemoryBytes    int64
 	BuildCPUQuota       int64
 	LogsDirPath         string
+	StoragePath         string // Путь для временных файлов
+	RegistryURL         string // Адрес локального Registry (напр. registry:5000)
 	MaxBuildTime        time.Duration
 	MaxConcurrentBuilds int
 }
 
 type BuilderService struct {
 	fileManager FileManager
-	converter   ArchiveConverter
+	extractor   ArchiveExtractor
 	dockerAPI   DockerAPI
 	logManager  LogManager
 	coreClient  CoreClient
@@ -55,7 +62,7 @@ type BuilderService struct {
 
 func NewBuilderService(
 	fileManager FileManager,
-	converter ArchiveConverter,
+	extractor ArchiveExtractor,
 	dockerAPI DockerAPI,
 	logManager LogManager,
 	coreClient CoreClient,
@@ -63,7 +70,7 @@ func NewBuilderService(
 ) *BuilderService {
 	return &BuilderService{
 		fileManager: fileManager,
-		converter:   converter,
+		extractor:   extractor,
 		dockerAPI:   dockerAPI,
 		logManager:  logManager,
 		coreClient:  coreClient,
@@ -91,14 +98,16 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 		return "", err
 	}
 
-	go s.processBuild(filePath, buildID, imageID, job.Tag)
+	go s.processBuild(filePath, buildID, imageID, job.OwnerID, job.Tag)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag string) {
+func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, tag string) {
 	s.semaphore <- struct{}{}
 	defer func() { <-s.semaphore }()
+
+	// Очищаем архив после сборки
 	defer s.fileManager.CleanUp(archivePath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
@@ -107,26 +116,41 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, tag string)
 	status := "failed"
 	var sizeMB int
 
-	tarStream, err := s.converter.ToTarStream(archivePath)
-	if err == nil {
-		defer tarStream.Close()
+	// Создаем рабочую директорию (workspace) для Kaniko
+	workspaceDir := filepath.Join(s.config.StoragePath, buildID+"_workspace")
+	if err := os.MkdirAll(workspaceDir, 0755); err == nil {
+		defer os.RemoveAll(workspaceDir) // Очищаем workspace после сборки
 
-		params := docker.BuildParams{
-			Tag:         tag,
-			MemoryBytes: s.config.BuildMemoryBytes,
-			CPUQuota:    s.config.BuildCPUQuota,
-		}
+		// Распаковываем архив пользователя
+		if err := s.extractor.Extract(archivePath, workspaceDir); err == nil {
 
-		dockerStream, buildErr := s.dockerAPI.BuildImage(ctx, tarStream, params)
-		if buildErr == nil {
-			defer dockerStream.Close()
+			// Формируем полный тег для пуша в локальный Registry
+			// Формат: registry:5000/<owner_id>_<tag>:latest
+			destinationTag := fmt.Sprintf("%s/%s_%s:latest", s.config.RegistryURL, strings.ToLower(ownerID+"_"+tag))
 
-			_, logErr := s.logManager.SaveLogs(buildID, dockerStream)
-			if logErr == nil && ctx.Err() == nil {
-				status = "success"
-				sizeBytes, insErr := s.dockerAPI.InspectImage(ctx, tag)
-				if insErr == nil {
-					sizeMB = int(sizeBytes / (1024 * 1024))
+			params := docker.BuildContainerParams{
+				WorkspaceDir:   workspaceDir,
+				DestinationTag: destinationTag,
+				MemoryBytes:    s.config.BuildMemoryBytes,
+				CPUQuota:       s.config.BuildCPUQuota,
+			}
+
+			// Запускаем контейнер Kaniko
+			containerID, logStream, buildErr := s.dockerAPI.RunBuildContainer(ctx, params)
+			if buildErr == nil {
+				defer logStream.Close()
+				defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+
+				// Сохраняем логи
+				_, logErr := s.logManager.SaveLogs(buildID, logStream)
+
+				// Ждем завершения контейнера (успех или ошибка)
+				waitErr := s.dockerAPI.WaitForBuild(ctx, containerID)
+
+				if logErr == nil && waitErr == nil && ctx.Err() == nil {
+					status = "success"
+					// TODO: Получение реального размера из Registry API реализуем на Этапе 4
+					sizeMB = 0
 				}
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"google.golang.org/grpc"
 
 	coredelivery "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
@@ -25,7 +26,7 @@ type App struct {
 	cancel     context.CancelFunc
 }
 
-func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
+func New(port int, dbURL string, registryURL string, registryContainerName string, cfg service.ContainerConfig) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -40,6 +41,8 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 		return nil, err
 	}
 
+	registryAdapter := registry.NewAdapter(registryURL)
+
 	contRepo := repository.NewContainerRepository(db)
 	volRepo := repository.NewVolumeRepository(db)
 	imgRepo := repository.NewImageRepository(db)
@@ -47,9 +50,9 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, dockerAdapter, metricsProvider, cfg)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
-	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter)
+	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, registryURL)
 
 	gRPCServer := grpc.NewServer()
 
@@ -65,7 +68,7 @@ func New(port int, dbURL string, cfg service.ContainerConfig) (*App, error) {
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
 	go eventWorker.Run(ctx)
 
-	gcWorker := service.NewGCWorker(dockerAdapter, imgService, buildRepo, 1*time.Hour, 30*time.Minute)
+	gcWorker := service.NewGCWorker(dockerAdapter, imgService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName)
 	go gcWorker.Run(ctx)
 
 	return &App{
