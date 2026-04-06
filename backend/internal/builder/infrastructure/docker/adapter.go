@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 )
@@ -34,7 +35,10 @@ func NewAdapter() (*Adapter, error) {
 func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerParams) (string, io.ReadCloser, error) {
 	// 1. Убеждаемся, что образ Kaniko есть на хосте
 	kanikoImage := "gcr.io/kaniko-project/executor:latest"
-	_, _ = a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})
+	_, err := a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})
+	if err != nil {
+		return "", nil, err
+	}
 
 	// 2. Настраиваем контейнер Kaniko
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
@@ -43,7 +47,9 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 			"--context=dir:///workspace",
 			"--dockerfile=/workspace/Dockerfile",
 			"--destination=" + params.DestinationTag,
-			"--cache=true", // Включаем кэширование слоев для скорости
+			"--cache=true",
+			"--insecure",
+			"--skip-tls-verify",
 		},
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
@@ -59,7 +65,11 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 			CPUQuota:   params.CPUQuota,
 			CPUPeriod:  100000,
 		},
-	}, nil, nil, "")
+	}, &network.NetworkingConfig{
+		EndpointsConfig: map[string]*network.EndpointSettings{
+			"dcm_net": {}, // Указываем ту же сеть, в которой находится Registry
+		},
+	}, nil, "")
 
 	if err != nil {
 		return "", nil, err

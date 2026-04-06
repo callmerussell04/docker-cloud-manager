@@ -19,6 +19,7 @@ func NewAdapter(registryURL string) *Adapter {
 	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
 		baseURL = "http://" + baseURL
 	}
+	baseURL = strings.TrimRight(baseURL, "/")
 	return &Adapter{
 		baseURL:    baseURL,
 		httpClient: &http.Client{},
@@ -41,8 +42,14 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 		return 0, "", err
 	}
 
-	// Обязательный заголовок для получения Manifest V2, где есть размеры слоев и Digest
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	// НОВОЕ: Указываем, что мы готовы принять как старый формат Docker, так и новый OCI
+	acceptHeaders := []string{
+		"application/vnd.docker.distribution.manifest.v2+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+		"application/vnd.oci.image.manifest.v1+json",
+		"application/vnd.oci.image.index.v1+json",
+	}
+	req.Header.Set("Accept", strings.Join(acceptHeaders, ", "))
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {

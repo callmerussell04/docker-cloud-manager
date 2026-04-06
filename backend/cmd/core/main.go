@@ -58,7 +58,7 @@ func main() {
 	if baseDomain == "" {
 		log.Fatal("BASE_DOMAIN environment variable is not set")
 	}
-	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
+	registryURL := getEnvString("REGISTRY_URL", "localhost:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
 	// Сборка конфигурации для бизнес-логики из переменных окружения

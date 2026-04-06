@@ -38,14 +38,14 @@ func New(port int, coreTarget string, config service.BuilderConfig, maxUnpackedS
 		return nil, err
 	}
 
-	converter := archive.NewConverter(maxUnpackedSize)
+	extractor := archive.NewExtractor(maxUnpackedSize)
 
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
 		return nil, err
 	}
 
-	builderService := service.NewBuilderService(fileManager, converter, dockerAdapter, logManager, coreClient, config)
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, config)
 	buildHandler := handler.NewBuildHandler(builderService, config.LogsDirPath)
 
 	router := deliveryhttp.NewRouter(buildHandler)

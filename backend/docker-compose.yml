@@ -12,6 +12,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - dcm_net
 
   migrate:
     image: migrate/migrate
@@ -21,6 +23,8 @@ services:
     volumes:
       - ./migrations:/migrations
     command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable", "up"]
+    networks:
+      - dcm_net
 
   traefik:
     image: traefik:v3.6
@@ -38,15 +42,22 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - proxy_net
+      - dcm_net
 
   registry:
-    image: registry:3
+    image: registry:2
     container_name: registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true" # ОЧЕНЬ ВАЖНО! Иначе API DELETE не будет работать
+    ports:
+      - "5000:5000"
     volumes:
-      - registry_data:/var/lib/registry
+      - ./registry_data:/var/lib/registry
+    networks:
+      - dcm_net
 
 networks:
   proxy_net:
     external: true
+  dcm_net:
+    name: dcm_net

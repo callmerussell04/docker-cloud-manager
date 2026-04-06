@@ -126,7 +126,7 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ta
 
 			// Формируем полный тег для пуша в локальный Registry
 			// Формат: registry:5000/<owner_id>_<tag>:latest
-			destinationTag := fmt.Sprintf("%s/%s_%s:latest", s.config.RegistryURL, strings.ToLower(ownerID+"_"+tag))
+			destinationTag := fmt.Sprintf("%s/%s:latest", s.config.RegistryURL, strings.ToLower(ownerID+"_"+tag))
 
 			params := docker.BuildContainerParams{
 				WorkspaceDir:   workspaceDir,
@@ -149,7 +149,6 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ta
 
 				if logErr == nil && waitErr == nil && ctx.Err() == nil {
 					status = "success"
-					// TODO: Получение реального размера из Registry API реализуем на Этапе 4
 					sizeMB = 0
 				}
 			}
