@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type ComposeProject struct {
 	Name     string
 	Services []ComposeService
@@ -13,9 +15,22 @@ type ComposeService struct {
 	Dockerfile   string
 	EnvVars      map[string]string
 	VolumeMounts []VolumeMountParams
-	DependsOn    []string
+	DependsOn    map[string]string
+	Command      []string
+	Entrypoint   []string
+	BuildArgs    map[string]string
+	Restart      string
+	Healthcheck  *Healthcheck
 
 	// Роутинг (заполняется только если есть кастомные лейблы)
 	DomainPrefix string
 	InternalPort int
+}
+
+type Healthcheck struct {
+	Test        []string
+	Interval    time.Duration
+	Timeout     time.Duration
+	StartPeriod time.Duration
+	Retries     int
 }

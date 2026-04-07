@@ -12,6 +12,11 @@ type ContainerCreateParams struct {
 	VolumeMounts      []VolumeMountParams
 	RequestedMemoryMB int64
 	DomainPrefix      string
+
+	Command     []string
+	Entrypoint  []string
+	Restart     string
+	Healthcheck *Healthcheck
 }
 
 type VolumeMountParams struct {

@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/docker/docker/api/types/container"
@@ -20,6 +21,7 @@ type BuildContainerParams struct {
 	DestinationTag string
 	MemoryBytes    int64
 	CPUQuota       int64
+	BuildArgs      map[string]string
 }
 
 type Adapter struct {
@@ -42,17 +44,24 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 		return "", nil, err
 	}
 
+	cmd := []string{
+		"--context=dir://" + params.ContextDir,
+		"--dockerfile=" + params.Dockerfile,
+		"--destination=" + params.DestinationTag,
+		"--cache=true",
+		"--insecure",
+		"--skip-tls-verify",
+	}
+
+	// Добавляем Build Args для Kaniko
+	for k, v := range params.BuildArgs {
+		cmd = append(cmd, fmt.Sprintf("--build-arg=%s=%s", k, v))
+	}
+
 	// 2. Настраиваем контейнер Kaniko
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
-		Cmd: []string{
-			"--context=dir://" + params.ContextDir,
-			"--dockerfile=" + params.Dockerfile,
-			"--destination=" + params.DestinationTag,
-			"--cache=true",
-			"--insecure",
-			"--skip-tls-verify",
-		},
+		Cmd:   cmd,
 	}, &container.HostConfig{
 		Mounts: []mount.Mount{
 			{

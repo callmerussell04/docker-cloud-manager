@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,12 +56,19 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		return
 	}
 
+	buildArgs := make(map[string]string)
+	argsStr := c.PostForm("build_args")
+	if argsStr != "" {
+		_ = json.Unmarshal([]byte(argsStr), &buildArgs)
+	}
+
 	job := domain.BuildJob{
 		OwnerID:    ownerID,
 		Tag:        tag,
 		ContextDir: contextDir,
 		Dockerfile: dockerfile,
 		File:       file,
+		BuildArgs:  buildArgs,
 	}
 
 	buildID, err := h.service.InitBuild(c.Request.Context(), job)

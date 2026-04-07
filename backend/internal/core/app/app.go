@@ -75,7 +75,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	gRPCServer := grpc.NewServer()
 
-	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, builderHTTPUrl)
+	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl)
 	composeHandler := corehttp.NewComposeHandler(orchestrator)
 	router := corehttp.SetupRouter(composeHandler)
 

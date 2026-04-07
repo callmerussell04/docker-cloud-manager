@@ -436,6 +436,10 @@ func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
+func (s *ContainerService) GetByID(ctx context.Context, ownerID uuid.UUID) (domain.Container, error) {
+	return s.repo.GetByID(ctx, ownerID)
+}
+
 // --- Admission Control ---
 
 func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID, requestedRam int64) error {

@@ -104,12 +104,12 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 	}
 
 	// Передаем распарсенные baseName и version
-	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile)
+	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string) {
+func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string) {
 	s.semaphore <- struct{}{}
 	defer func() { <-s.semaphore }()
 
@@ -153,6 +153,7 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 				DestinationTag: destinationTag,
 				MemoryBytes:    s.config.BuildMemoryBytes,
 				CPUQuota:       s.config.BuildCPUQuota,
+				BuildArgs:      buildArgs,
 			}
 
 			// Запускаем контейнер Kaniko

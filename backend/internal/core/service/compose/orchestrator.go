@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
 )
 
@@ -32,8 +33,13 @@ type VolumeService interface {
 
 type ContainerService interface {
 	Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error)
-	Start(ctx context.Context, ownerID, containerID uuid.UUID) error // НОВЫЙ МЕТОД ДЛЯ АВТОЗАПУСКА
+	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
+	GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error)
+}
+
+type ComposeDockerAPI interface {
+	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
 }
 
 type Orchestrator struct {
@@ -42,6 +48,7 @@ type Orchestrator struct {
 	buildRepo      BuildRepository
 	volumeService  VolumeService
 	contService    ContainerService
+	dockerAPI      ComposeDockerAPI
 	builderHTTPUrl string
 	httpClient     *http.Client
 }
@@ -51,6 +58,7 @@ func NewOrchestrator(
 	buildRepo BuildRepository,
 	volumeService VolumeService,
 	contService ContainerService,
+	dockerAPI ComposeDockerAPI,
 	builderHTTPUrl string,
 ) *Orchestrator {
 	return &Orchestrator{
@@ -59,6 +67,7 @@ func NewOrchestrator(
 		buildRepo:      buildRepo,
 		volumeService:  volumeService,
 		contService:    contService,
+		dockerAPI:      dockerAPI,
 		builderHTTPUrl: builderHTTPUrl,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
 	}
@@ -168,6 +177,8 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		volumeNameMap[volParams.Name] = volID
 	}
 
+	serviceToContainerID := make(map[string]uuid.UUID)
+
 	// Создаем Контейнеры (Services)
 	for _, srv := range parsedProject.Services {
 		// Подготавливаем Mounts (меняем строковое имя из YAML на сгенерированный UUID тома)
@@ -184,15 +195,18 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 
 		// Формируем параметры
 		createParams := domain.ContainerCreateParams{
-			ProjectID:         &projectID,
-			Name:              fmt.Sprintf("%s_%s", projectName, srv.Name), // Визуальное имя для юзера
-			NetworkAlias:      srv.Name,                                    // DNS алиас из compose
-			ImageTag:          srv.ImageTag,
-			InternalPort:      srv.InternalPort,
-			DomainPrefix:      srv.DomainPrefix,
-			EnvVars:           srv.EnvVars,
-			VolumeMounts:      resolvedMounts,
-			RequestedMemoryMB: 0, // 0 = использует DefaultMemoryReservation из конфига
+			ProjectID:    &projectID,
+			Name:         fmt.Sprintf("%s_%s", projectName, srv.Name), // Визуальное имя для юзера
+			NetworkAlias: srv.Name,                                    // DNS алиас из compose
+			ImageTag:     srv.ImageTag,
+			InternalPort: srv.InternalPort,
+			DomainPrefix: srv.DomainPrefix,
+			EnvVars:      srv.EnvVars,
+			VolumeMounts: resolvedMounts,
+			Command:      srv.Command,
+			Entrypoint:   srv.Entrypoint,
+			Restart:      srv.Restart,
+			Healthcheck:  srv.Healthcheck,
 		}
 
 		contID, err := o.contService.Create(ctx, ownerID, createParams)
@@ -202,14 +216,40 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 			return
 		}
 		createdContainers = append(createdContainers, contID)
+		serviceToContainerID[srv.Name] = contID
 	}
 
 	// 3.3 Запуск контейнеров (Авто-старт после создания)
-	for _, cid := range createdContainers {
-		err := o.contService.Start(ctx, ownerID, cid)
+	for _, srv := range parsedProject.Services {
+		contID := serviceToContainerID[srv.Name]
+
+		// 1. Ждем выполнения условий зависимостей
+		for depName, condition := range srv.DependsOn {
+			depContID, ok := serviceToContainerID[depName]
+			if !ok {
+				rollback(fmt.Errorf("dependency %s not found for service %s", depName, srv.Name))
+				return
+			}
+
+			// Получаем DockerID зависимости из БД
+			depContInfo, err := o.contService.GetByID(ctx, depContID)
+			if err != nil {
+				rollback(err)
+				return
+			}
+
+			// Блокирующий поллинг состояния
+			err = o.waitForCondition(ctx, depContInfo.DockerID, condition)
+			if err != nil {
+				rollback(fmt.Errorf("dependency %s failed condition %s: %w", depName, condition, err))
+				return
+			}
+		}
+
+		// 2. Все зависимости готовы, запускаем сам сервис
+		err := o.contService.Start(ctx, ownerID, contID)
 		if err != nil {
-			// Если Docker не смог запустить (например, Entrypoint крашнулся)
-			rollback(fmt.Errorf("failed to start container: %w", err))
+			rollback(fmt.Errorf("failed to start service %s: %w", srv.Name, err))
 			return
 		}
 	}
@@ -226,6 +266,10 @@ func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv domain.ComposeService
 	_ = writer.WriteField("tag", srv.ImageTag)
 	_ = writer.WriteField("context", srv.BuildContext)
 	_ = writer.WriteField("dockerfile", srv.Dockerfile)
+	if len(srv.BuildArgs) > 0 {
+		argsJSON, _ := json.Marshal(srv.BuildArgs)
+		_ = writer.WriteField("build_args", string(argsJSON))
+	}
 
 	part, err := writer.CreateFormFile("archive", "compose.zip")
 	if err == nil {
@@ -305,4 +349,60 @@ func extractComposeFile(archiveBytes []byte) ([]byte, error) {
 		}
 	}
 	return nil, fmt.Errorf("docker-compose.yml not found in archive root")
+}
+
+func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, condition string) error {
+	timeout := time.After(5 * time.Minute) // Максимальное время ожидания поднятия зависимости
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for dependency state")
+		case <-ticker.C:
+			inspect, err := o.dockerAPI.InspectContainer(ctx, dockerID)
+			if err != nil {
+				continue // Контейнер мог еще не успеть появиться, ждем дальше
+			}
+
+			state := inspect.State
+			switch condition {
+			case "service_healthy":
+				if state.Health == nil {
+					return fmt.Errorf("service_healthy requested, but no healthcheck defined for container")
+				}
+				if state.Health.Status == "healthy" {
+					return nil // Зависимость здорова, идем дальше!
+				}
+				if state.Health.Status == "unhealthy" {
+					return fmt.Errorf("dependency became unhealthy")
+				}
+				if !state.Running && state.ExitCode != 0 {
+					return fmt.Errorf("dependency exited with code %d before becoming healthy", state.ExitCode)
+				}
+			case "service_completed_successfully":
+				if !state.Running {
+					if state.ExitCode == 0 {
+						return nil // Успешно завершил работу (идеально для migrate)
+					}
+					return fmt.Errorf("dependency exited with non-zero code %d", state.ExitCode)
+				}
+			case "service_started":
+				if state.Running {
+					return nil // Просто запустился
+				}
+				if !state.Running && state.ExitCode != 0 {
+					return fmt.Errorf("dependency failed to start")
+				}
+			default:
+				// По дефолту (если condition пустой) ведем себя как service_started
+				if state.Running {
+					return nil
+				}
+			}
+		}
+	}
 }

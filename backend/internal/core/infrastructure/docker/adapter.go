@@ -116,10 +116,26 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		},
 	}
 
+	if params.Restart != "" {
+		hostConfig.RestartPolicy = container.RestartPolicy{Name: container.RestartPolicyMode(params.Restart)}
+	}
+
 	containerConfig := &container.Config{
-		Image:  params.ImageName,
-		Env:    params.EnvVars,
-		Labels: labels,
+		Image:      params.ImageName,
+		Env:        params.EnvVars,
+		Labels:     labels,
+		Cmd:        params.Command,
+		Entrypoint: params.Entrypoint,
+	}
+
+	if params.Healthcheck != nil {
+		containerConfig.Healthcheck = &container.HealthConfig{
+			Test:        params.Healthcheck.Test,
+			Interval:    params.Healthcheck.Interval,
+			Timeout:     params.Healthcheck.Timeout,
+			StartPeriod: params.Healthcheck.StartPeriod,
+			Retries:     params.Healthcheck.Retries,
+		}
 	}
 
 	resp, err := a.cli.ContainerCreate(

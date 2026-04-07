@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -22,7 +23,6 @@ func NewParser() *Parser {
 func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*domain.ComposeProject, error) {
 	header := fmt.Sprintf("name: %s\n", projectName)
 	fullContent := append([]byte(header), yamlContent...)
-	// Исправленный способ загрузки YAML через compose-go/v2
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir: ".",
 		ConfigFiles: []types.ConfigFile{
@@ -51,12 +51,12 @@ func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlC
 // validateSecurity блокирует опасные директивы, чтобы защитить хост-систему
 func (p *Parser) validateSecurity(project *types.Project) error {
 	// Пользователям запрещено создавать свои сети. Они всегда изолированы в рамках одной сети владельца.
-	if _, ok := project.Networks["default"]; ok == true {
-		project.Networks = nil
-	}
-	if len(project.Networks) > 0 {
-		return fmt.Errorf("%w: custom networks are not allowed in this PaaS", apperrors.ErrBadRequest)
-	}
+	//delete(project.Networks, "default")
+	//if len(project.Networks) > 0 {
+	//	return fmt.Errorf("%w: custom networks are not allowed in this PaaS", apperrors.ErrBadRequest)
+	//}
+	// или
+	project.Networks = nil
 
 	for _, service := range project.Services {
 		// Запрещаем режим хостовой сети (доступ ко всем портам сервера)
@@ -107,11 +107,20 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 		volumeMap[volName] = volName
 	}
 
-	// 2. Обрабатываем каждый сервис
-	for _, srv := range project.Services {
+	// 2. Обрабатываем каждый сервис, используя встроенный топологический обход compose-go
+	// Получаем список всех имен сервисов в проекте
+	allServiceNames := make([]string, 0, len(project.Services))
+	for name := range project.Services {
+		allServiceNames = append(allServiceNames, name)
+	}
+
+	// ForEachService гарантирует вызов колбэка в правильном порядке (с учетом depends_on)
+	err := project.ForEachService(allServiceNames, func(serviceName string, srv *types.ServiceConfig) error {
 		domainSrv := domain.ComposeService{
-			Name:    srv.Name,
-			EnvVars: make(map[string]string),
+			Name:      srv.Name,
+			EnvVars:   make(map[string]string),
+			BuildArgs: make(map[string]string),
+			DependsOn: make(map[string]string),
 		}
 
 		// Обработка сборки (build)
@@ -127,9 +136,15 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			if domainSrv.ImageTag == "" {
 				domainSrv.ImageTag = fmt.Sprintf("%s_%s:latest", projectName, srv.Name)
 			}
+			// Сохраняем Build Args
+			for k, v := range srv.Build.Args {
+				if v != nil {
+					domainSrv.BuildArgs[k] = *v
+				}
+			}
 		} else {
 			if srv.Image == "" {
-				return nil, fmt.Errorf("%w: service %s must have either image or build", apperrors.ErrBadRequest, srv.Name)
+				return fmt.Errorf("%w: service %s must have either image or build", apperrors.ErrBadRequest, srv.Name)
 			}
 			domainSrv.ImageTag = srv.Image
 		}
@@ -141,13 +156,39 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			}
 		}
 
-		// (Блок парсинга srv.Ports полностью удален)
+		// Команды и перезапуск
+		if len(srv.Command) > 0 {
+			domainSrv.Command = srv.Command
+		}
+		if len(srv.Entrypoint) > 0 {
+			domainSrv.Entrypoint = srv.Entrypoint
+		}
+		if srv.Restart != "" {
+			domainSrv.Restart = srv.Restart
+		}
+
+		// Healthcheck
+		if srv.HealthCheck != nil && !srv.HealthCheck.Disable {
+			domainSrv.Healthcheck = &domain.Healthcheck{
+				Test:    srv.HealthCheck.Test,
+				Retries: int(*srv.HealthCheck.Retries),
+			}
+			if srv.HealthCheck.Interval != nil {
+				domainSrv.Healthcheck.Interval = time.Duration(*srv.HealthCheck.Interval)
+			}
+			if srv.HealthCheck.Timeout != nil {
+				domainSrv.Healthcheck.Timeout = time.Duration(*srv.HealthCheck.Timeout)
+			}
+			if srv.HealthCheck.StartPeriod != nil {
+				domainSrv.Healthcheck.StartPeriod = time.Duration(*srv.HealthCheck.StartPeriod)
+			}
+		}
 
 		// Копируем маунты томов
 		for _, vol := range srv.Volumes {
 			if vol.Type == types.VolumeTypeVolume {
 				if _, exists := volumeMap[vol.Source]; !exists {
-					return nil, fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
+					return fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
 				}
 				domainSrv.VolumeMounts = append(domainSrv.VolumeMounts, domain.VolumeMountParams{
 					VolumeName: vol.Source,
@@ -155,35 +196,38 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 					IsReadOnly: vol.ReadOnly,
 				})
 			} else if vol.Type == types.VolumeTypeBind {
-				return nil, fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS for path: %s", apperrors.ErrBadRequest, vol.Source)
+				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS for path: %s", apperrors.ErrBadRequest, vol.Source)
 			}
 		}
 
-		// Сохраняем зависимости
-		for depName := range srv.DependsOn {
-			domainSrv.DependsOn = append(domainSrv.DependsOn, depName)
+		// Сохраняем зависимости (depends_on condition)
+		for depName, depConfig := range srv.DependsOn {
+			domainSrv.DependsOn[depName] = depConfig.Condition
 		}
 
-		// Парсим ТОЛЬКО наши кастомные лейблы для экспоуза
+		// Парсим кастомные лейблы для экспоуза
 		prefixStr, hasPrefix := srv.Labels["dcm.domain_prefix"]
 		portStr, hasPort := srv.Labels["dcm.internal_port"]
 
 		if hasPrefix || hasPort {
 			// Если указан один лейбл, второй обязателен
 			if !hasPrefix || !hasPort {
-				return nil, fmt.Errorf("%w: service %s must have BOTH dcm.domain_prefix and dcm.internal_port labels to be exposed", apperrors.ErrBadRequest, srv.Name)
+				return fmt.Errorf("%w: service %s must have BOTH dcm.domain_prefix and dcm.internal_port labels to be exposed", apperrors.ErrBadRequest, srv.Name)
 			}
-
 			portInt, err := strconv.Atoi(portStr)
 			if err != nil || portInt <= 0 {
-				return nil, fmt.Errorf("%w: invalid dcm.internal_port for service %s", apperrors.ErrBadRequest, srv.Name)
+				return fmt.Errorf("%w: invalid dcm.internal_port for service %s", apperrors.ErrBadRequest, srv.Name)
 			}
-
 			domainSrv.DomainPrefix = prefixStr
 			domainSrv.InternalPort = portInt
 		}
 
 		result.Services = append(result.Services, domainSrv)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil

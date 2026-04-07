@@ -1,5 +1,7 @@
 package docker
 
+import "github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+
 type CreateContainerParams struct {
 	ContainerName     string
 	NetworkAlias      string
@@ -15,6 +17,10 @@ type CreateContainerParams struct {
 	MaxLogSize        string
 	MaxLogFiles       string
 	StorageQuota      string
+	Command           []string
+	Entrypoint        []string
+	Restart           string
+	Healthcheck       *domain.Healthcheck
 }
 
 type MountParam struct {
