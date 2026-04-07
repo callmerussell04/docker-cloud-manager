@@ -290,3 +290,18 @@ func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) 
 	err := r.db.QueryRowContext(ctx, query, domain.ContainerStatusRunning).Scan(&totalReserved)
 	return totalReserved, err
 }
+
+func (r *ContainerRepository) IsImageInUse(ctx context.Context, ownerID uuid.UUID, imageTag string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM containers 
+			WHERE owner_id = $1 AND image_tag = $2
+		)
+	`
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, ownerID, imageTag).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}

@@ -71,7 +71,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
-	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, registryURL)
+	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, registryURL)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	gRPCServer := grpc.NewServer()
 

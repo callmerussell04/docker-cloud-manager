@@ -25,6 +25,10 @@ type ImageRepository interface {
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
+type ImageContainerRepository interface {
+	IsImageInUse(ctx context.Context, ownerID uuid.UUID, imageTag string) (bool, error)
+}
+
 type BuildRepository interface {
 	Save(ctx context.Context, b domain.Build) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -47,15 +51,24 @@ type ImageService struct {
 	buildRepo   BuildRepository
 	dockerAPI   ImageDockerAPI
 	registryAPI ImageRegistryAPI
+	contRepo    ImageContainerRepository
 	registryURL string
 }
 
-func NewImageService(repo ImageRepository, buildRepo BuildRepository, dockerAPI ImageDockerAPI, registryAPI ImageRegistryAPI, registryURL string) *ImageService {
+func NewImageService(
+	repo ImageRepository,
+	buildRepo BuildRepository,
+	dockerAPI ImageDockerAPI,
+	registryAPI ImageRegistryAPI,
+	contRepo ImageContainerRepository,
+	registryURL string,
+) *ImageService {
 	return &ImageService{
 		repo:        repo,
 		buildRepo:   buildRepo,
 		dockerAPI:   dockerAPI,
 		registryAPI: registryAPI,
+		contRepo:    contRepo,
 		registryURL: registryURL,
 	}
 }
@@ -69,26 +82,37 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	if err != nil {
 		return err
 	}
+
 	if img.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
+
 	if !img.IsCustom {
 		return errors.New("cannot delete system image")
+	}
+
+	inUse, err := s.contRepo.IsImageInUse(ctx, ownerID, img.Tag)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("conflict: unable to remove image, it is currently in use by a container")
 	}
 
 	baseName, version := parseImageTag(img.Tag)
 	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
 
-	// 1. Удаляем манифест из локального Registry
+	// Удаление из Registry (Soft Delete)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err == nil && digest != "" {
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 	}
 
-	// 2. Удаляем кэш образа из Docker Engine (если он пуллился)
+	// Удаление из локального кэша Docker Engine
 	fullTag := fmt.Sprintf("%s/%s:%s", s.registryURL, repoName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
+	// Удаление записи из бд
 	return s.repo.Delete(ctx, imageID)
 }
 
