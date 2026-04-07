@@ -239,6 +239,10 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		MaxLogSize:        s.config.MaxLogSize,
 		MaxLogFiles:       s.config.MaxLogFiles,
 		StorageQuota:      s.config.ContainerDiskQuota,
+		Command:           params.Command,
+		Entrypoint:        params.Entrypoint,
+		Restart:           params.Restart,
+		Healthcheck:       params.Healthcheck,
 	}
 
 	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
@@ -315,6 +319,17 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		}
 	}
 
+	var healthcheck *domain.Healthcheck
+	if inspect.Config.Healthcheck != nil {
+		healthcheck = &domain.Healthcheck{
+			Test:        inspect.Config.Healthcheck.Test,
+			Interval:    inspect.Config.Healthcheck.Interval,
+			Timeout:     inspect.Config.Healthcheck.Timeout,
+			StartPeriod: inspect.Config.Healthcheck.StartPeriod,
+			Retries:     inspect.Config.Healthcheck.Retries,
+		}
+	}
+
 	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
 	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.BaseDomain)
 
@@ -332,6 +347,10 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		MaxLogSize:        s.config.MaxLogSize,
 		MaxLogFiles:       s.config.MaxLogFiles,
 		StorageQuota:      s.config.ContainerDiskQuota,
+		Command:           inspect.Config.Cmd,
+		Entrypoint:        inspect.Config.Entrypoint,
+		Restart:           string(inspect.HostConfig.RestartPolicy.Name),
+		Healthcheck:       healthcheck,
 	}
 
 	// Создаем новый контейнер с лейблами Traefik
@@ -436,8 +455,8 @@ func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
-func (s *ContainerService) GetByID(ctx context.Context, ownerID uuid.UUID) (domain.Container, error) {
-	return s.repo.GetByID(ctx, ownerID)
+func (s *ContainerService) GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error) {
+	return s.repo.GetByID(ctx, id)
 }
 
 // --- Admission Control ---
