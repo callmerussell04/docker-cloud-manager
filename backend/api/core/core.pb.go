@@ -1683,11 +1683,12 @@ const file_core_proto_rawDesc = "" +
 	"\tVolumeAPI\x12E\n" +
 	"\fCreateVolume\x12\x19.core.CreateVolumeRequest\x1a\x1a.core.CreateVolumeResponse\x126\n" +
 	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12@\n" +
-	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponse2\x8a\x01\n" +
+	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponse2\xc2\x01\n" +
 	"\n" +
 	"ProjectAPI\x12B\n" +
 	"\x0fGetUserProjects\x12\x14.core.GetUserRequest\x1a\x19.core.ProjectListResponse\x128\n" +
-	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.EmptyBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
+	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x126\n" +
+	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.EmptyBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
 
 var (
 	file_core_proto_rawDescOnce sync.Once
@@ -1758,25 +1759,27 @@ var file_core_proto_depIdxs = []int32{
 	1,  // 22: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
 	1,  // 23: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
 	25, // 24: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	4,  // 25: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	0,  // 26: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	0,  // 27: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	0,  // 28: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	8,  // 29: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	0,  // 30: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	14, // 31: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	0,  // 32: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	11, // 33: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	0,  // 34: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	22, // 35: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	0,  // 36: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	16, // 37: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	0,  // 38: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	19, // 39: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	24, // 40: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
-	0,  // 41: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	25, // [25:42] is the sub-list for method output_type
-	8,  // [8:25] is the sub-list for method input_type
+	25, // 25: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	4,  // 26: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	0,  // 27: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	0,  // 28: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	0,  // 29: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	8,  // 30: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
+	0,  // 31: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	14, // 32: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
+	0,  // 33: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	11, // 34: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	0,  // 35: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	22, // 36: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
+	0,  // 37: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	16, // 38: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	0,  // 39: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	19, // 40: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
+	24, // 41: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
+	0,  // 42: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	0,  // 43: core.ProjectAPI.StopProject:output_type -> core.Empty
+	26, // [26:44] is the sub-list for method output_type
+	8,  // [8:26] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name
 	8,  // [8:8] is the sub-list for extension extendee
 	0,  // [0:8] is the sub-list for field type_name

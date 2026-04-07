@@ -16,6 +16,7 @@ import (
 type ProjectLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error)
 	Delete(ctx context.Context, ownerID, projectID uuid.UUID) error
+	Stop(ctx context.Context, ownerID, projectID uuid.UUID) error // НОВОЕ
 }
 
 type ProjectHandler struct {
@@ -75,6 +76,28 @@ func (h *ProjectHandler) DeleteProject(ctx context.Context, req *coreapi.Project
 			return nil, status.Error(codes.NotFound, "project not found")
 		}
 		return nil, status.Error(codes.Internal, "failed to delete project")
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
+	}
+
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+	}
+
+	err = h.logic.Stop(ctx, ownerID, projectID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "project not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to stop project")
 	}
 
 	return &coreapi.Empty{}, nil

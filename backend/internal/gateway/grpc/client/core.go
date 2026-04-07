@@ -198,6 +198,15 @@ func (c *CoreClient) DeleteProject(ctx context.Context, ownerID, projectID strin
 	return nil
 }
 
+func (c *CoreClient) StopProject(ctx context.Context, ownerID, projectID string) error {
+	req := &coreapi.ProjectActionRequest{OwnerId: ownerID, ProjectId: projectID}
+	_, err := c.projectAPI.StopProject(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
 // TODO: maybe pull out for sso grpc client
 func mapCoreError(err error) error {
 	st, ok := status.FromError(err)

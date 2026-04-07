@@ -247,6 +247,39 @@ func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUI
 	return containers, rows.Err()
 }
 
+func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Container, error) {
+	query := `
+		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
+		FROM containers 
+		WHERE project_id = $1
+	`
+	rows, err := r.db.QueryContext(ctx, query, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var containers []domain.Container
+	for rows.Next() {
+		var c domain.Container
+		var pID sql.NullString
+		var dID sql.NullString
+
+		if err := rows.Scan(&c.ID, &c.OwnerID, &pID, &dID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation); err != nil {
+			return nil, err
+		}
+		if pID.Valid {
+			parsed, _ := uuid.Parse(pID.String)
+			c.ProjectID = &parsed
+		}
+		if dID.Valid {
+			c.DockerID = dID.String
+		}
+		containers = append(containers, c)
+	}
+	return containers, rows.Err()
+}
+
 func (r *ContainerRepository) GetExpired(ctx context.Context) ([]domain.Container, error) {
 	query := `
 		SELECT id, docker_id FROM containers 

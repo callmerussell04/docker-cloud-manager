@@ -31,6 +31,7 @@ service VolumeAPI {
 service ProjectAPI {
   rpc GetUserProjects (GetUserRequest) returns (ProjectListResponse);
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
+  rpc StopProject (ProjectActionRequest) returns (Empty);
 }
 
 message Empty {}

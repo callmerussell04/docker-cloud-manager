@@ -16,7 +16,8 @@ type VolumeRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Volume, error)
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) // <-- НОВЫЙ МЕТОД
+	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
+	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
 }
 
 type VolumeDockerAPI interface {
@@ -91,6 +92,14 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 
 	if vol.OwnerID != ownerID {
 		return apperrors.ErrNotFound
+	}
+
+	inUse, err := s.repo.IsVolumeInUse(ctx, volumeID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("conflict: unable to remove volume, it is currently in use by a container")
 	}
 
 	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {

@@ -783,6 +783,7 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 const (
 	ProjectAPI_GetUserProjects_FullMethodName = "/core.ProjectAPI/GetUserProjects"
 	ProjectAPI_DeleteProject_FullMethodName   = "/core.ProjectAPI/DeleteProject"
+	ProjectAPI_StopProject_FullMethodName     = "/core.ProjectAPI/StopProject"
 )
 
 // ProjectAPIClient is the client API for ProjectAPI service.
@@ -791,6 +792,7 @@ const (
 type ProjectAPIClient interface {
 	GetUserProjects(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ProjectListResponse, error)
 	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type projectAPIClient struct {
@@ -821,12 +823,23 @@ func (c *projectAPIClient) DeleteProject(ctx context.Context, in *ProjectActionR
 	return out, nil
 }
 
+func (c *projectAPIClient) StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_StopProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProjectAPIServer is the server API for ProjectAPI service.
 // All implementations must embed UnimplementedProjectAPIServer
 // for forward compatibility.
 type ProjectAPIServer interface {
 	GetUserProjects(context.Context, *GetUserRequest) (*ProjectListResponse, error)
 	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	StopProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	mustEmbedUnimplementedProjectAPIServer()
 }
 
@@ -842,6 +855,9 @@ func (UnimplementedProjectAPIServer) GetUserProjects(context.Context, *GetUserRe
 }
 func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
+}
+func (UnimplementedProjectAPIServer) StopProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method StopProject not implemented")
 }
 func (UnimplementedProjectAPIServer) mustEmbedUnimplementedProjectAPIServer() {}
 func (UnimplementedProjectAPIServer) testEmbeddedByValue()                    {}
@@ -900,6 +916,24 @@ func _ProjectAPI_DeleteProject_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectAPI_StopProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).StopProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_StopProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).StopProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProjectAPI_ServiceDesc is the grpc.ServiceDesc for ProjectAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -914,6 +948,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteProject",
 			Handler:    _ProjectAPI_DeleteProject_Handler,
+		},
+		{
+			MethodName: "StopProject",
+			Handler:    _ProjectAPI_StopProject_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

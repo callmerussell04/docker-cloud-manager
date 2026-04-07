@@ -21,6 +21,7 @@ type CoreProvider interface {
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
 	GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
+	StopProject(ctx context.Context, ownerID, projectID string) error
 }
 
 type Core struct {
@@ -83,4 +84,8 @@ func (s *Core) GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.
 
 func (s *Core) DeleteProject(ctx context.Context, ownerID, projectID string) error {
 	return s.provider.DeleteProject(ctx, ownerID, projectID)
+}
+
+func (s *Core) StopProject(ctx context.Context, ownerID, projectID string) error {
+	return s.provider.StopProject(ctx, ownerID, projectID)
 }

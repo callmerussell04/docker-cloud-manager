@@ -25,6 +25,7 @@ type CoreService interface {
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
 	GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
+	StopProject(ctx context.Context, ownerID, projectID string) error
 }
 
 type CoreHandler struct {
@@ -236,6 +237,19 @@ func (h *CoreHandler) DeleteProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "project deleted"})
+}
+
+func (h *CoreHandler) StopProject(c *gin.Context) {
+	userID := c.GetString("user_id")
+	projectID := c.Param("id")
+
+	err := h.service.StopProject(c.Request.Context(), userID, projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "project stopped successfully"})
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {

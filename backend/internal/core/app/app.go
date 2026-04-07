@@ -37,11 +37,12 @@ type projectResourceRepo struct {
 	volRepo  *repository.VolumeRepository
 }
 
-func (p *projectResourceRepo) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
-	return p.contRepo.GetByOwnerID(ctx, ownerID)
+func (p *projectResourceRepo) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Container, error) {
+	return p.contRepo.GetByProjectID(ctx, projectID)
 }
-func (p *projectResourceRepo) GetVolumesByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error) {
-	return p.volRepo.GetByOwnerID(ctx, ownerID)
+
+func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Volume, error) {
+	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
 func New(port int, httpPort int, dbURL string, registryURL string, registryContainerName string, builderHTTPUrl string, cfg service.ContainerConfig) (*App, error) {

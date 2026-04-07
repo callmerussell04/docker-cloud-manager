@@ -159,3 +159,47 @@ func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID
 	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count)
 	return count, err
 }
+
+func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM volume_mounts 
+			WHERE volume_id = $1
+		)
+	`
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, volumeID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Volume, error) {
+	query := `
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
+		FROM volumes 
+		WHERE project_id = $1
+	`
+	rows, err := r.db.QueryContext(ctx, query, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var volumes []domain.Volume
+	for rows.Next() {
+		var v domain.Volume
+		var pID sql.NullString
+
+		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		if pID.Valid {
+			parsed, _ := uuid.Parse(pID.String)
+			v.ProjectID = &parsed
+		}
+		volumes = append(volumes, v)
+	}
+	return volumes, rows.Err()
+}

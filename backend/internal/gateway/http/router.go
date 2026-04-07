@@ -56,6 +56,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			{
 				projects.GET("", coreHandler.GetProjects)
 				projects.DELETE("/:id", coreHandler.DeleteProject)
+				projects.POST("/:id/stop", coreHandler.StopProject)
 				projects.POST("/compose", coreHttpProxy)
 			}
 		}
