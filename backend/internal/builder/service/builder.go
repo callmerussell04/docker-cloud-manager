@@ -104,12 +104,12 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 	}
 
 	// Передаем распарсенные baseName и version
-	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version)
+	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version string) {
+func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string) {
 	s.semaphore <- struct{}{}
 	defer func() { <-s.semaphore }()
 
@@ -130,12 +130,26 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 		// Распаковываем архив пользователя
 		if err := s.extractor.Extract(archivePath, workspaceDir); err == nil {
 
-			// Формируем тег
+			// 1. Формируем пути внутри контейнера Kaniko
+			buildContextPath := "/workspace"
+			if contextDir != "" && contextDir != "." {
+				// Защита от выхода за пределы директории
+				cleanContext := filepath.Clean(contextDir)
+				buildContextPath = filepath.Join("/workspace", cleanContext)
+			}
+
+			dfPath := "Dockerfile"
+			if dockerfile != "" {
+				dfPath = filepath.Clean(dockerfile)
+			}
+
 			repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID, baseName))
 			destinationTag := fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
 
 			params := docker.BuildContainerParams{
 				WorkspaceDir:   workspaceDir,
+				ContextDir:     buildContextPath,                        // НОВОЕ
+				Dockerfile:     filepath.Join(buildContextPath, dfPath), // НОВОЕ
 				DestinationTag: destinationTag,
 				MemoryBytes:    s.config.BuildMemoryBytes,
 				CPUQuota:       s.config.BuildCPUQuota,

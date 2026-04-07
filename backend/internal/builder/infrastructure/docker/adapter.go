@@ -15,6 +15,8 @@ import (
 
 type BuildContainerParams struct {
 	WorkspaceDir   string
+	ContextDir     string
+	Dockerfile     string
 	DestinationTag string
 	MemoryBytes    int64
 	CPUQuota       int64
@@ -44,8 +46,8 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
 		Cmd: []string{
-			"--context=dir:///workspace",
-			"--dockerfile=/workspace/Dockerfile",
+			"--context=dir://" + params.ContextDir,
+			"--dockerfile=" + params.Dockerfile,
 			"--destination=" + params.DestinationTag,
 			"--cache=true",
 			"--insecure",

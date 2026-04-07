@@ -67,6 +67,6 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 
 func SetupRouter(handler *ComposeHandler) *gin.Engine {
 	r := gin.Default()
-	r.POST("/api/v1/internal/compose", handler.DeployCompose)
+	r.POST("/api/v1/projects/compose", handler.DeployCompose)
 	return r
 }

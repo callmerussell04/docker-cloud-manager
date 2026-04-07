@@ -45,6 +45,10 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		return
 	}
 
+	// TODO: handle if empty
+	contextDir := c.PostForm("context")
+	dockerfile := c.PostForm("dockerfile")
+
 	file, err := c.FormFile("archive")
 	if err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
@@ -52,9 +56,11 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 	}
 
 	job := domain.BuildJob{
-		OwnerID: ownerID,
-		Tag:     tag,
-		File:    file,
+		OwnerID:    ownerID,
+		Tag:        tag,
+		ContextDir: contextDir,
+		Dockerfile: dockerfile,
+		File:       file,
 	}
 
 	buildID, err := h.service.InitBuild(c.Request.Context(), job)

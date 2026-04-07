@@ -20,13 +20,15 @@ func NewParser() *Parser {
 
 // ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
 func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*domain.ComposeProject, error) {
+	header := fmt.Sprintf("name: %s\n", projectName)
+	fullContent := append([]byte(header), yamlContent...)
 	// Исправленный способ загрузки YAML через compose-go/v2
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
 		WorkingDir: ".",
 		ConfigFiles: []types.ConfigFile{
 			{
 				Filename: "docker-compose.yml", // Фейковое имя для логов/ошибок
-				Content:  yamlContent,          // Передаем байты напрямую
+				Content:  fullContent,          // Передаем байты напрямую
 			},
 		},
 		Environment: map[string]string{}, // Игнорируем внешние переменные окружения хоста
@@ -49,6 +51,9 @@ func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlC
 // validateSecurity блокирует опасные директивы, чтобы защитить хост-систему
 func (p *Parser) validateSecurity(project *types.Project) error {
 	// Пользователям запрещено создавать свои сети. Они всегда изолированы в рамках одной сети владельца.
+	if _, ok := project.Networks["default"]; ok == true {
+		project.Networks = nil
+	}
 	if len(project.Networks) > 0 {
 		return fmt.Errorf("%w: custom networks are not allowed in this PaaS", apperrors.ErrBadRequest)
 	}

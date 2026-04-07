@@ -46,9 +46,9 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwt
 		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
 	}
 
-	coreProxy, err := handler.NewBuilderProxyHandler(coreHttpTarget)
+	coreProxy, err := handler.NewCoreProxyHandler(coreHttpTarget)
 	if err != nil {
-		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
+		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
 	tokenParser := jwt.NewParser(jwtSecret)
