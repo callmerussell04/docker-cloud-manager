@@ -39,6 +39,7 @@ type ContainerRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
+	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -46,6 +47,7 @@ type ContainerRepository interface {
 	GetRunning(ctx context.Context) ([]domain.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+	GetNonExited(ctx context.Context) ([]domain.Container, error)
 }
 
 type ContainerVolumeRepository interface {
@@ -222,6 +224,22 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	c := domain.Container{
+		ID:                    containerID,
+		OwnerID:               ownerID,
+		Name:                  params.Name,
+		ImageTag:              normalizedInputTag,
+		InternalPort:          params.InternalPort,
+		DomainPrefix:          params.DomainPrefix,
+		Status:                domain.ContainerStatusCreating,
+		EnvVars:               envBytes,
+		BaseMemoryReservation: reqMem,
+	}
+
+	if err := s.repo.Save(ctx, c); err != nil {
+		return uuid.Nil, err
+	}
+
 	// 5. Конфигурация Docker. Изначально ставим жесткий лимит равным мягкому.
 	// Ребалансировщик потом его увеличит (Burst).
 	dockerParams := docker.CreateContainerParams{
@@ -247,31 +265,23 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
 	if err != nil {
-		return uuid.Nil, err
-	}
-
-	c := domain.Container{
-		ID:                    containerID,
-		OwnerID:               ownerID,
-		DockerID:              dockerID,
-		Name:                  params.Name,
-		ImageTag:              normalizedInputTag,
-		InternalPort:          params.InternalPort,
-		DomainPrefix:          params.DomainPrefix,
-		Status:                domain.ContainerStatusCreated,
-		EnvVars:               envBytes,
-		BaseMemoryReservation: reqMem,
-	}
-
-	if err := s.repo.Save(ctx, c); err != nil {
-		s.dockerAPI.RemoveContainer(context.Background(), dockerID, true)
+		_ = s.repo.Delete(ctx, containerID)
 		return uuid.Nil, err
 	}
 
 	if len(dbMounts) > 0 {
 		if err := s.volumeRepo.SaveMounts(ctx, dbMounts); err != nil {
+			s.dockerAPI.RemoveContainer(context.Background(), dockerID, true)
+			_ = s.repo.Delete(ctx, containerID)
 			return uuid.Nil, err
 		}
+	}
+
+	err = s.repo.UpdateDockerIDAndStatus(ctx, containerID, dockerID, domain.ContainerStatusCreated)
+	if err != nil {
+		s.dockerAPI.RemoveContainer(context.Background(), dockerID, true)
+		_ = s.repo.Delete(ctx, containerID)
+		return uuid.Nil, err
 	}
 
 	return containerID, nil

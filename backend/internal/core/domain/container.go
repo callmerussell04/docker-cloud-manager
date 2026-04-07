@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	ContainerStatusCreated = "created"
-	ContainerStatusRunning = "running"
-	ContainerStatusExited  = "exited"
-	ContainerStatusError   = "error"
+	ContainerStatusCreating = "creating"
+	ContainerStatusCreated  = "created"
+	ContainerStatusRunning  = "running"
+	ContainerStatusExited   = "exited"
+	ContainerStatusError    = "error"
 )
 
 type Container struct {

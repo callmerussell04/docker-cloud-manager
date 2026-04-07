@@ -120,6 +120,22 @@ func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, 
 	return nil
 }
 
+func (r *ContainerRepository) UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error {
+	query := `UPDATE containers SET docker_id = $1, status = $2 WHERE id = $3`
+	res, err := r.db.ExecContext(ctx, query, dockerID, status, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 
@@ -337,4 +353,31 @@ func (r *ContainerRepository) IsImageInUse(ctx context.Context, ownerID uuid.UUI
 		return false, err
 	}
 	return exists, nil
+}
+
+func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]domain.Container, error) {
+	query := `
+		SELECT id, docker_id, status
+		FROM containers
+		WHERE status IN ($1, $2, $3)
+	`
+	rows, err := r.db.QueryContext(ctx, query, domain.ContainerStatusCreating, domain.ContainerStatusCreated, domain.ContainerStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var containers []domain.Container
+	for rows.Next() {
+		var c domain.Container
+		var dockerID sql.NullString
+		if err := rows.Scan(&c.ID, &dockerID, &c.Status); err != nil {
+			return nil, err
+		}
+		if dockerID.Valid {
+			c.DockerID = dockerID.String
+		}
+		containers = append(containers, c)
+	}
+	return containers, rows.Err()
 }
