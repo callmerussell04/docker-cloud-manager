@@ -17,6 +17,7 @@ func NewBuilderProxyHandler(targetURL string) (gin.HandlerFunc, error) {
 
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
+		c.Request.Header.Del("X-User-Id")
 		c.Request.Header.Set("X-User-Id", userID)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
@@ -27,9 +28,12 @@ func NewCoreProxyHandler(targetURL string) (gin.HandlerFunc, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	proxy := httputil.NewSingleHostReverseProxy(target)
+
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
+		c.Request.Header.Del("X-User-Id")
 		c.Request.Header.Set("X-User-Id", userID)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil

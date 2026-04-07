@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
@@ -30,6 +31,7 @@ type App struct {
 	port       int
 	ctx        context.Context
 	cancel     context.CancelFunc
+	wg         *sync.WaitGroup
 }
 
 type projectResourceRepo struct {
@@ -91,15 +93,25 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 	coregrpc.RegisterProjectAPI(gRPCServer, projService)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute)
-	go ttlWorker.Run(ctx)
-
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
-	go eventWorker.Run(ctx)
-
 	gcWorker := service.NewGCWorker(dockerAdapter, imgService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName)
-	go gcWorker.Run(ctx)
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		ttlWorker.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		eventWorker.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		gcWorker.Run(ctx)
+	}()
 
 	return &App{
 		gRPCServer: gRPCServer,
@@ -109,6 +121,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 		port:       port,
 		ctx:        ctx,
 		cancel:     cancel,
+		wg:         wg,
 	}, nil
 }
 
@@ -127,6 +140,7 @@ func (a *App) Run() error {
 
 func (a *App) Stop() {
 	a.cancel()
+	a.wg.Wait()
 	a.gRPCServer.GracefulStop()
 	if a.db != nil {
 		a.db.Close()

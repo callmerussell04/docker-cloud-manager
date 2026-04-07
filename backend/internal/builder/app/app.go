@@ -28,7 +28,9 @@ func New(port int, coreTarget string, config service.BuilderConfig, maxUnpackedS
 
 	coreClient := grpcclient.NewCoreClient(coreConn)
 
-	fileManager, err := storage.NewFileManager(storagePath)
+	//TODO: make it an env
+	maxArchiveSize := int64(50 << 20) // 50 MB
+	fileManager, err := storage.NewFileManager(storagePath, maxArchiveSize)
 	if err != nil {
 		return nil, err
 	}

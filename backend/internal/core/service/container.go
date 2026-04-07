@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
@@ -31,6 +32,7 @@ type ContainerConfig struct {
 	MaxVolumesPerUser        int
 	MaxContainersPerUser     int
 	RegistryURL              string
+	ContainerTTL             time.Duration
 }
 
 type ContainerRepository interface {
@@ -48,6 +50,7 @@ type ContainerRepository interface {
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]domain.Container, error)
+	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
 }
 
 type ContainerVolumeRepository interface {
@@ -57,6 +60,7 @@ type ContainerVolumeRepository interface {
 
 type ContainerDockerAPI interface {
 	EnsureUserNetwork(ctx context.Context, networkName string) (string, error)
+	RemoveNetwork(ctx context.Context, networkName string) error
 	PullImage(ctx context.Context, imageName string) error
 	CreateContainer(ctx context.Context, params docker.CreateContainerParams) (string, error)
 	StartContainer(ctx context.Context, dockerID string) error
@@ -117,6 +121,18 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		if params.InternalPort <= 0 {
 			return uuid.Nil, apperrors.ErrBadRequest
 		}
+		if len(params.DomainPrefix) > 30 {
+			return uuid.Nil, fmt.Errorf("%w: domain prefix must be 30 characters or less", apperrors.ErrBadRequest)
+		}
+
+		exists, err := s.repo.CheckDomainPrefixExists(ctx, params.DomainPrefix)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if exists {
+			return uuid.Nil, fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
+		}
+
 		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, s.config.BaseDomain)
 	}
 
@@ -224,6 +240,12 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	var ttlDeadline *time.Time
+	if s.config.ContainerTTL > 0 {
+		t := time.Now().Add(s.config.ContainerTTL)
+		ttlDeadline = &t
+	}
+
 	c := domain.Container{
 		ID:                    containerID,
 		OwnerID:               ownerID,
@@ -232,6 +254,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		InternalPort:          params.InternalPort,
 		DomainPrefix:          params.DomainPrefix,
 		Status:                domain.ContainerStatusCreating,
+		TTLDeadline:           ttlDeadline,
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
 	}
@@ -298,6 +321,20 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 
 	if domainPrefix == "" || internalPort <= 0 {
 		return apperrors.ErrBadRequest
+	}
+
+	if len(domainPrefix) > 30 {
+		return fmt.Errorf("%w: domain prefix must be 30 characters or less", apperrors.ErrBadRequest)
+	}
+
+	if c.DomainPrefix != domainPrefix {
+		exists, err := s.repo.CheckDomainPrefixExists(ctx, domainPrefix)
+		if err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
+		}
 	}
 
 	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
@@ -458,7 +495,18 @@ func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid
 		return err
 	}
 
-	return s.repo.Delete(ctx, containerID)
+	err = s.repo.Delete(ctx, containerID)
+	if err != nil {
+		return err
+	}
+
+	count, _ := s.repo.CountByOwnerID(ctx, ownerID)
+	if count == 0 {
+		networkName := fmt.Sprintf("net_user_%s", ownerID.String())
+		_ = s.dockerAPI.RemoveNetwork(ctx, networkName)
+	}
+
+	return nil
 }
 
 func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {

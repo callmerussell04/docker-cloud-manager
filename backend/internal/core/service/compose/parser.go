@@ -170,15 +170,27 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 		// Healthcheck
 		if srv.HealthCheck != nil && !srv.HealthCheck.Disable {
 			domainSrv.Healthcheck = &domain.Healthcheck{
-				Test:    srv.HealthCheck.Test,
-				Retries: int(*srv.HealthCheck.Retries),
+				Test: srv.HealthCheck.Test,
 			}
+
+			if srv.HealthCheck.Retries != nil {
+				domainSrv.Healthcheck.Retries = int(*srv.HealthCheck.Retries)
+			}
+
 			if srv.HealthCheck.Interval != nil {
 				domainSrv.Healthcheck.Interval = time.Duration(*srv.HealthCheck.Interval)
+				if domainSrv.Healthcheck.Interval < 5*time.Second {
+					return fmt.Errorf("%w: healthcheck interval must be at least 5s", apperrors.ErrBadRequest)
+				}
 			}
+
 			if srv.HealthCheck.Timeout != nil {
 				domainSrv.Healthcheck.Timeout = time.Duration(*srv.HealthCheck.Timeout)
+				if domainSrv.Healthcheck.Timeout < 2*time.Second {
+					return fmt.Errorf("%w: healthcheck timeout must be at least 2s", apperrors.ErrBadRequest)
+				}
 			}
+
 			if srv.HealthCheck.StartPeriod != nil {
 				domainSrv.Healthcheck.StartPeriod = time.Duration(*srv.HealthCheck.StartPeriod)
 			}
@@ -213,6 +225,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			// Если указан один лейбл, второй обязателен
 			if !hasPrefix || !hasPort {
 				return fmt.Errorf("%w: service %s must have BOTH dcm.domain_prefix and dcm.internal_port labels to be exposed", apperrors.ErrBadRequest, srv.Name)
+			}
+			if len(prefixStr) > 30 {
+				return fmt.Errorf("%w: domain prefix for service %s must be 30 characters or less", apperrors.ErrBadRequest, srv.Name)
 			}
 			portInt, err := strconv.Atoi(portStr)
 			if err != nil || portInt <= 0 {

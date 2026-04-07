@@ -287,12 +287,14 @@ func (a *Adapter) ListenEvents(ctx context.Context) (<-chan events.Message, <-ch
 }
 
 func (a *Adapter) PruneSystem(ctx context.Context) error {
-	_, err := a.cli.ImagesPrune(ctx, filters.Args{})
+	pruneArgs := filters.NewArgs(filters.Arg("until", "24h"))
+
+	_, err := a.cli.ImagesPrune(ctx, pruneArgs)
 	if err != nil {
 		return err
 	}
 
-	opts := build.CachePruneOptions{All: false}
+	opts := build.CachePruneOptions{All: false, Filters: pruneArgs}
 	_, err = a.cli.BuildCachePrune(ctx, opts)
 	return err
 }
@@ -338,4 +340,8 @@ func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContain
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
+}
+
+func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
+	return a.cli.NetworkRemove(ctx, networkName)
 }

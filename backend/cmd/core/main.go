@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
@@ -85,6 +86,7 @@ func main() {
 		ContainerDiskQuota:       getEnvString("CONTAINER_DISK_QUOTA", "1G"),
 		MaxVolumesPerUser:        getEnvInt("MAX_VOLUMES_PER_USER", 5),
 		MaxContainersPerUser:     getEnvInt("MAX_CONTAINERS_PER_USER", 10),
+		ContainerTTL:             time.Duration(getEnvInt("CONTAINER_TTL_HOURS", 24)) * time.Hour,
 	}
 
 	application, err := app.New(port, httpPort, dbURL, registryURL, registryContainerName, builderHTTPUrl, cfg)

@@ -14,14 +14,18 @@ import (
 )
 
 type FileManager struct {
-	baseDir string
+	baseDir        string
+	maxArchiveSize int64
 }
 
-func NewFileManager(baseDir string) (*FileManager, error) {
+func NewFileManager(baseDir string, maxArchiveSize int64) (*FileManager, error) {
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
 	}
-	return &FileManager{baseDir: baseDir}, nil
+	return &FileManager{
+		baseDir:        baseDir,
+		maxArchiveSize: maxArchiveSize,
+	}, nil
 }
 
 func (fm *FileManager) SaveArchive(file *multipart.FileHeader, buildID string) (string, error) {
@@ -42,10 +46,19 @@ func (fm *FileManager) SaveArchive(file *multipart.FileHeader, buildID string) (
 	if err != nil {
 		return "", err
 	}
-	defer dst.Close()
 
-	if _, err := io.Copy(dst, src); err != nil {
+	lr := io.LimitReader(src, fm.maxArchiveSize+1)
+	written, err := io.Copy(dst, lr)
+	dst.Close()
+
+	if err != nil {
+		os.Remove(filePath)
 		return "", err
+	}
+
+	if written > fm.maxArchiveSize {
+		os.Remove(filePath)
+		return "", apperrors.ErrBadRequest
 	}
 
 	return filePath, nil

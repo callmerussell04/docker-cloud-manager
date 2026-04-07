@@ -12,11 +12,11 @@ type CreateContainerDTO struct {
 	InternalPort int               `json:"internal_port"`
 	EnvVars      map[string]string `json:"env_vars"`
 	VolumeMounts []VolumeMountDTO  `json:"volume_mounts"`
-	DomainPrefix string            `json:"domain_prefix"`
+	DomainPrefix string            `json:"domain_prefix" binding:"omitempty,max=30"`
 }
 
 type ExposeContainerDTO struct {
-	DomainPrefix string `json:"domain_prefix" binding:"required"`
+	DomainPrefix string `json:"domain_prefix" binding:"required,max=30"`
 	InternalPort int    `json:"internal_port" binding:"required,min=1"`
 }
 

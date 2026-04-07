@@ -381,3 +381,10 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]domain.Contai
 	}
 	return containers, rows.Err()
 }
+
+func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM containers WHERE domain_prefix = $1 AND domain_prefix != '')`
+	var exists bool
+	err := r.db.QueryRowContext(ctx, query, prefix).Scan(&exists)
+	return exists, err
+}
