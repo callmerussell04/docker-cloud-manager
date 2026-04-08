@@ -18,6 +18,7 @@ type VolumeRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error)
 }
 
 type VolumeDockerAPI interface {
@@ -111,4 +112,29 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 
 func (s *VolumeService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
+}
+
+func (s *VolumeService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error) {
+	return s.repo.GetAllPaginated(ctx, limit, offset)
+}
+
+func (s *VolumeService) AdminDelete(ctx context.Context, volumeID uuid.UUID) error {
+	vol, err := s.repo.GetByID(ctx, volumeID)
+	if err != nil {
+		return err
+	}
+
+	inUse, err := s.repo.IsVolumeInUse(ctx, volumeID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("conflict: unable to remove volume, it is currently in use")
+	}
+
+	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {
+		return err
+	}
+
+	return s.repo.Delete(ctx, volumeID)
 }

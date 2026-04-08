@@ -388,3 +388,41 @@ func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefi
 	err := r.db.QueryRowContext(ctx, query, prefix).Scan(&exists)
 	return exists, err
 }
+
+func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM containers`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation, created_at
+		FROM containers 
+		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var containers []domain.Container
+	for rows.Next() {
+		var c domain.Container
+		var projectID sql.NullString
+		var dockerID sql.NullString
+		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		if projectID.Valid {
+			parsed, _ := uuid.Parse(projectID.String)
+			c.ProjectID = &parsed
+		}
+		if dockerID.Valid {
+			c.DockerID = dockerID.String
+		}
+		containers = append(containers, c)
+	}
+	return containers, total, rows.Err()
+}

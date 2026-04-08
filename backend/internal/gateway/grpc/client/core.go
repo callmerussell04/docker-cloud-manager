@@ -17,6 +17,7 @@ type CoreClient struct {
 	imageAPI     coreapi.ImageAPIClient
 	volumeAPI    coreapi.VolumeAPIClient
 	projectAPI   coreapi.ProjectAPIClient
+	systemAPI    coreapi.SystemAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -25,6 +26,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		imageAPI:     coreapi.NewImageAPIClient(cc),
 		volumeAPI:    coreapi.NewVolumeAPIClient(cc),
 		projectAPI:   coreapi.NewProjectAPIClient(cc),
+		systemAPI:    coreapi.NewSystemAPIClient(cc),
 	}
 }
 
@@ -201,6 +203,126 @@ func (c *CoreClient) DeleteProject(ctx context.Context, ownerID, projectID strin
 func (c *CoreClient) StopProject(ctx context.Context, ownerID, projectID string) error {
 	req := &coreapi.ProjectActionRequest{OwnerId: ownerID, ProjectId: projectID}
 	_, err := c.projectAPI.StopProject(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetAllContainers(ctx context.Context, page, limit int) (*coreapi.PaginatedContainerResponse, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+	resp, err := c.containerAPI.GetAllContainers(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminActionContainer(ctx context.Context, containerID, action string) error {
+	req := &coreapi.ContainerActionRequest{
+		ContainerId: containerID,
+		Action:      action,
+	}
+
+	_, err := c.containerAPI.AdminActionContainer(ctx, req)
+
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetAllVolumes(ctx context.Context, page, limit int) (*coreapi.PaginatedVolumeResponse, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+	resp, err := c.volumeAPI.GetAllVolumes(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminDeleteVolume(ctx context.Context, volumeID string) error {
+	req := &coreapi.VolumeActionRequest{VolumeId: volumeID}
+	_, err := c.volumeAPI.AdminDeleteVolume(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetAllImages(ctx context.Context, page, limit int) (*coreapi.PaginatedImageResponse, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+	resp, err := c.imageAPI.GetAllImages(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminDeleteImage(ctx context.Context, imageID string) error {
+	req := &coreapi.ImageActionRequest{ImageId: imageID}
+	_, err := c.imageAPI.AdminDeleteImage(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetAllBuilds(ctx context.Context, page, limit int) (*coreapi.PaginatedBuildResponse, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+	resp, err := c.imageAPI.GetAllBuilds(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminDeleteBuild(ctx context.Context, buildID string) error {
+	req := &coreapi.BuildActionRequest{BuildId: buildID}
+	_, err := c.imageAPI.AdminDeleteBuild(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetAllProjects(ctx context.Context, page, limit int) (*coreapi.PaginatedProjectResponse, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+	resp, err := c.projectAPI.GetAllProjects(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminDeleteProject(ctx context.Context, projectID string) error {
+	req := &coreapi.ProjectActionRequest{ProjectId: projectID}
+	_, err := c.projectAPI.AdminDeleteProject(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) AdminStopProject(ctx context.Context, projectID string) error {
+	req := &coreapi.ProjectActionRequest{ProjectId: projectID}
+	_, err := c.projectAPI.AdminStopProject(ctx, req)
+	if err != nil {
+		return mapCoreError(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) GetSystemConfig(ctx context.Context) (*coreapi.SystemConfigData, error) {
+	resp, err := c.systemAPI.GetConfig(ctx, &coreapi.Empty{})
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error {
+	_, err := c.systemAPI.UpdateConfig(ctx, req)
 	if err != nil {
 		return mapCoreError(err)
 	}

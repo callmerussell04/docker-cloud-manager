@@ -19,12 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContainerAPI_CreateContainer_FullMethodName   = "/core.ContainerAPI/CreateContainer"
-	ContainerAPI_StartContainer_FullMethodName    = "/core.ContainerAPI/StartContainer"
-	ContainerAPI_StopContainer_FullMethodName     = "/core.ContainerAPI/StopContainer"
-	ContainerAPI_DeleteContainer_FullMethodName   = "/core.ContainerAPI/DeleteContainer"
-	ContainerAPI_GetUserContainers_FullMethodName = "/core.ContainerAPI/GetUserContainers"
-	ContainerAPI_ExposeContainer_FullMethodName   = "/core.ContainerAPI/ExposeContainer"
+	ContainerAPI_CreateContainer_FullMethodName      = "/core.ContainerAPI/CreateContainer"
+	ContainerAPI_StartContainer_FullMethodName       = "/core.ContainerAPI/StartContainer"
+	ContainerAPI_StopContainer_FullMethodName        = "/core.ContainerAPI/StopContainer"
+	ContainerAPI_DeleteContainer_FullMethodName      = "/core.ContainerAPI/DeleteContainer"
+	ContainerAPI_GetUserContainers_FullMethodName    = "/core.ContainerAPI/GetUserContainers"
+	ContainerAPI_ExposeContainer_FullMethodName      = "/core.ContainerAPI/ExposeContainer"
+	ContainerAPI_GetAllContainers_FullMethodName     = "/core.ContainerAPI/GetAllContainers"
+	ContainerAPI_AdminActionContainer_FullMethodName = "/core.ContainerAPI/AdminActionContainer"
 )
 
 // ContainerAPIClient is the client API for ContainerAPI service.
@@ -37,6 +39,8 @@ type ContainerAPIClient interface {
 	DeleteContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetUserContainers(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ContainerListResponse, error)
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetAllContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
+	AdminActionContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type containerAPIClient struct {
@@ -107,6 +111,26 @@ func (c *containerAPIClient) ExposeContainer(ctx context.Context, in *ExposeRequ
 	return out, nil
 }
 
+func (c *containerAPIClient) GetAllContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedContainerResponse)
+	err := c.cc.Invoke(ctx, ContainerAPI_GetAllContainers_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *containerAPIClient) AdminActionContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ContainerAPI_AdminActionContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContainerAPIServer is the server API for ContainerAPI service.
 // All implementations must embed UnimplementedContainerAPIServer
 // for forward compatibility.
@@ -117,6 +141,8 @@ type ContainerAPIServer interface {
 	DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	GetUserContainers(context.Context, *GetUserRequest) (*ContainerListResponse, error)
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
+	GetAllContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
+	AdminActionContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	mustEmbedUnimplementedContainerAPIServer()
 }
 
@@ -144,6 +170,12 @@ func (UnimplementedContainerAPIServer) GetUserContainers(context.Context, *GetUs
 }
 func (UnimplementedContainerAPIServer) ExposeContainer(context.Context, *ExposeRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExposeContainer not implemented")
+}
+func (UnimplementedContainerAPIServer) GetAllContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAllContainers not implemented")
+}
+func (UnimplementedContainerAPIServer) AdminActionContainer(context.Context, *ContainerActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminActionContainer not implemented")
 }
 func (UnimplementedContainerAPIServer) mustEmbedUnimplementedContainerAPIServer() {}
 func (UnimplementedContainerAPIServer) testEmbeddedByValue()                      {}
@@ -274,6 +306,42 @@ func _ContainerAPI_ExposeContainer_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContainerAPI_GetAllContainers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PaginationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).GetAllContainers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_GetAllContainers_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).GetAllContainers(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContainerAPI_AdminActionContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).AdminActionContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_AdminActionContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).AdminActionContainer(ctx, req.(*ContainerActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContainerAPI_ServiceDesc is the grpc.ServiceDesc for ContainerAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -305,6 +373,14 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "ExposeContainer",
 			Handler:    _ContainerAPI_ExposeContainer_Handler,
 		},
+		{
+			MethodName: "GetAllContainers",
+			Handler:    _ContainerAPI_GetAllContainers_Handler,
+		},
+		{
+			MethodName: "AdminActionContainer",
+			Handler:    _ContainerAPI_AdminActionContainer_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "core.proto",
@@ -317,6 +393,10 @@ const (
 	ImageAPI_CompleteBuildRecord_FullMethodName = "/core.ImageAPI/CompleteBuildRecord"
 	ImageAPI_GetUserBuilds_FullMethodName       = "/core.ImageAPI/GetUserBuilds"
 	ImageAPI_DeleteBuild_FullMethodName         = "/core.ImageAPI/DeleteBuild"
+	ImageAPI_GetAllImages_FullMethodName        = "/core.ImageAPI/GetAllImages"
+	ImageAPI_AdminDeleteImage_FullMethodName    = "/core.ImageAPI/AdminDeleteImage"
+	ImageAPI_GetAllBuilds_FullMethodName        = "/core.ImageAPI/GetAllBuilds"
+	ImageAPI_AdminDeleteBuild_FullMethodName    = "/core.ImageAPI/AdminDeleteBuild"
 )
 
 // ImageAPIClient is the client API for ImageAPI service.
@@ -329,6 +409,10 @@ type ImageAPIClient interface {
 	CompleteBuildRecord(ctx context.Context, in *CompleteBuildRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetUserBuilds(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*BuildListResponse, error)
 	DeleteBuild(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetAllImages(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedImageResponse, error)
+	AdminDeleteImage(ctx context.Context, in *ImageActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetAllBuilds(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedBuildResponse, error)
+	AdminDeleteBuild(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type imageAPIClient struct {
@@ -399,6 +483,46 @@ func (c *imageAPIClient) DeleteBuild(ctx context.Context, in *BuildActionRequest
 	return out, nil
 }
 
+func (c *imageAPIClient) GetAllImages(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedImageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedImageResponse)
+	err := c.cc.Invoke(ctx, ImageAPI_GetAllImages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageAPIClient) AdminDeleteImage(ctx context.Context, in *ImageActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageAPI_AdminDeleteImage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageAPIClient) GetAllBuilds(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedBuildResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedBuildResponse)
+	err := c.cc.Invoke(ctx, ImageAPI_GetAllBuilds_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *imageAPIClient) AdminDeleteBuild(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ImageAPI_AdminDeleteBuild_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ImageAPIServer is the server API for ImageAPI service.
 // All implementations must embed UnimplementedImageAPIServer
 // for forward compatibility.
@@ -409,6 +533,10 @@ type ImageAPIServer interface {
 	CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error)
 	GetUserBuilds(context.Context, *GetUserRequest) (*BuildListResponse, error)
 	DeleteBuild(context.Context, *BuildActionRequest) (*Empty, error)
+	GetAllImages(context.Context, *PaginationRequest) (*PaginatedImageResponse, error)
+	AdminDeleteImage(context.Context, *ImageActionRequest) (*Empty, error)
+	GetAllBuilds(context.Context, *PaginationRequest) (*PaginatedBuildResponse, error)
+	AdminDeleteBuild(context.Context, *BuildActionRequest) (*Empty, error)
 	mustEmbedUnimplementedImageAPIServer()
 }
 
@@ -436,6 +564,18 @@ func (UnimplementedImageAPIServer) GetUserBuilds(context.Context, *GetUserReques
 }
 func (UnimplementedImageAPIServer) DeleteBuild(context.Context, *BuildActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteBuild not implemented")
+}
+func (UnimplementedImageAPIServer) GetAllImages(context.Context, *PaginationRequest) (*PaginatedImageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAllImages not implemented")
+}
+func (UnimplementedImageAPIServer) AdminDeleteImage(context.Context, *ImageActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminDeleteImage not implemented")
+}
+func (UnimplementedImageAPIServer) GetAllBuilds(context.Context, *PaginationRequest) (*PaginatedBuildResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAllBuilds not implemented")
+}
+func (UnimplementedImageAPIServer) AdminDeleteBuild(context.Context, *BuildActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminDeleteBuild not implemented")
 }
 func (UnimplementedImageAPIServer) mustEmbedUnimplementedImageAPIServer() {}
 func (UnimplementedImageAPIServer) testEmbeddedByValue()                  {}
@@ -566,6 +706,78 @@ func _ImageAPI_DeleteBuild_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImageAPI_GetAllImages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PaginationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).GetAllImages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_GetAllImages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).GetAllImages(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageAPI_AdminDeleteImage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImageActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).AdminDeleteImage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_AdminDeleteImage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).AdminDeleteImage(ctx, req.(*ImageActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageAPI_GetAllBuilds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PaginationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).GetAllBuilds(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_GetAllBuilds_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).GetAllBuilds(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ImageAPI_AdminDeleteBuild_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BuildActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).AdminDeleteBuild(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_AdminDeleteBuild_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).AdminDeleteBuild(ctx, req.(*BuildActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ImageAPI_ServiceDesc is the grpc.ServiceDesc for ImageAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -597,15 +809,33 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "DeleteBuild",
 			Handler:    _ImageAPI_DeleteBuild_Handler,
 		},
+		{
+			MethodName: "GetAllImages",
+			Handler:    _ImageAPI_GetAllImages_Handler,
+		},
+		{
+			MethodName: "AdminDeleteImage",
+			Handler:    _ImageAPI_AdminDeleteImage_Handler,
+		},
+		{
+			MethodName: "GetAllBuilds",
+			Handler:    _ImageAPI_GetAllBuilds_Handler,
+		},
+		{
+			MethodName: "AdminDeleteBuild",
+			Handler:    _ImageAPI_AdminDeleteBuild_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "core.proto",
 }
 
 const (
-	VolumeAPI_CreateVolume_FullMethodName   = "/core.VolumeAPI/CreateVolume"
-	VolumeAPI_DeleteVolume_FullMethodName   = "/core.VolumeAPI/DeleteVolume"
-	VolumeAPI_GetUserVolumes_FullMethodName = "/core.VolumeAPI/GetUserVolumes"
+	VolumeAPI_CreateVolume_FullMethodName      = "/core.VolumeAPI/CreateVolume"
+	VolumeAPI_DeleteVolume_FullMethodName      = "/core.VolumeAPI/DeleteVolume"
+	VolumeAPI_GetUserVolumes_FullMethodName    = "/core.VolumeAPI/GetUserVolumes"
+	VolumeAPI_GetAllVolumes_FullMethodName     = "/core.VolumeAPI/GetAllVolumes"
+	VolumeAPI_AdminDeleteVolume_FullMethodName = "/core.VolumeAPI/AdminDeleteVolume"
 )
 
 // VolumeAPIClient is the client API for VolumeAPI service.
@@ -615,6 +845,8 @@ type VolumeAPIClient interface {
 	CreateVolume(ctx context.Context, in *CreateVolumeRequest, opts ...grpc.CallOption) (*CreateVolumeResponse, error)
 	DeleteVolume(ctx context.Context, in *VolumeActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetUserVolumes(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*VolumeListResponse, error)
+	GetAllVolumes(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedVolumeResponse, error)
+	AdminDeleteVolume(ctx context.Context, in *VolumeActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type volumeAPIClient struct {
@@ -655,6 +887,26 @@ func (c *volumeAPIClient) GetUserVolumes(ctx context.Context, in *GetUserRequest
 	return out, nil
 }
 
+func (c *volumeAPIClient) GetAllVolumes(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedVolumeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedVolumeResponse)
+	err := c.cc.Invoke(ctx, VolumeAPI_GetAllVolumes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *volumeAPIClient) AdminDeleteVolume(ctx context.Context, in *VolumeActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, VolumeAPI_AdminDeleteVolume_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VolumeAPIServer is the server API for VolumeAPI service.
 // All implementations must embed UnimplementedVolumeAPIServer
 // for forward compatibility.
@@ -662,6 +914,8 @@ type VolumeAPIServer interface {
 	CreateVolume(context.Context, *CreateVolumeRequest) (*CreateVolumeResponse, error)
 	DeleteVolume(context.Context, *VolumeActionRequest) (*Empty, error)
 	GetUserVolumes(context.Context, *GetUserRequest) (*VolumeListResponse, error)
+	GetAllVolumes(context.Context, *PaginationRequest) (*PaginatedVolumeResponse, error)
+	AdminDeleteVolume(context.Context, *VolumeActionRequest) (*Empty, error)
 	mustEmbedUnimplementedVolumeAPIServer()
 }
 
@@ -680,6 +934,12 @@ func (UnimplementedVolumeAPIServer) DeleteVolume(context.Context, *VolumeActionR
 }
 func (UnimplementedVolumeAPIServer) GetUserVolumes(context.Context, *GetUserRequest) (*VolumeListResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetUserVolumes not implemented")
+}
+func (UnimplementedVolumeAPIServer) GetAllVolumes(context.Context, *PaginationRequest) (*PaginatedVolumeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAllVolumes not implemented")
+}
+func (UnimplementedVolumeAPIServer) AdminDeleteVolume(context.Context, *VolumeActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminDeleteVolume not implemented")
 }
 func (UnimplementedVolumeAPIServer) mustEmbedUnimplementedVolumeAPIServer() {}
 func (UnimplementedVolumeAPIServer) testEmbeddedByValue()                   {}
@@ -756,6 +1016,42 @@ func _VolumeAPI_GetUserVolumes_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VolumeAPI_GetAllVolumes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PaginationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeAPIServer).GetAllVolumes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VolumeAPI_GetAllVolumes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeAPIServer).GetAllVolumes(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VolumeAPI_AdminDeleteVolume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VolumeActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VolumeAPIServer).AdminDeleteVolume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VolumeAPI_AdminDeleteVolume_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VolumeAPIServer).AdminDeleteVolume(ctx, req.(*VolumeActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VolumeAPI_ServiceDesc is the grpc.ServiceDesc for VolumeAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -775,15 +1071,26 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetUserVolumes",
 			Handler:    _VolumeAPI_GetUserVolumes_Handler,
 		},
+		{
+			MethodName: "GetAllVolumes",
+			Handler:    _VolumeAPI_GetAllVolumes_Handler,
+		},
+		{
+			MethodName: "AdminDeleteVolume",
+			Handler:    _VolumeAPI_AdminDeleteVolume_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "core.proto",
 }
 
 const (
-	ProjectAPI_GetUserProjects_FullMethodName = "/core.ProjectAPI/GetUserProjects"
-	ProjectAPI_DeleteProject_FullMethodName   = "/core.ProjectAPI/DeleteProject"
-	ProjectAPI_StopProject_FullMethodName     = "/core.ProjectAPI/StopProject"
+	ProjectAPI_GetUserProjects_FullMethodName    = "/core.ProjectAPI/GetUserProjects"
+	ProjectAPI_DeleteProject_FullMethodName      = "/core.ProjectAPI/DeleteProject"
+	ProjectAPI_StopProject_FullMethodName        = "/core.ProjectAPI/StopProject"
+	ProjectAPI_GetAllProjects_FullMethodName     = "/core.ProjectAPI/GetAllProjects"
+	ProjectAPI_AdminDeleteProject_FullMethodName = "/core.ProjectAPI/AdminDeleteProject"
+	ProjectAPI_AdminStopProject_FullMethodName   = "/core.ProjectAPI/AdminStopProject"
 )
 
 // ProjectAPIClient is the client API for ProjectAPI service.
@@ -793,6 +1100,9 @@ type ProjectAPIClient interface {
 	GetUserProjects(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ProjectListResponse, error)
 	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetAllProjects(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedProjectResponse, error)
+	AdminDeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	AdminStopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type projectAPIClient struct {
@@ -833,6 +1143,36 @@ func (c *projectAPIClient) StopProject(ctx context.Context, in *ProjectActionReq
 	return out, nil
 }
 
+func (c *projectAPIClient) GetAllProjects(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedProjectResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedProjectResponse)
+	err := c.cc.Invoke(ctx, ProjectAPI_GetAllProjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) AdminDeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_AdminDeleteProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) AdminStopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_AdminStopProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProjectAPIServer is the server API for ProjectAPI service.
 // All implementations must embed UnimplementedProjectAPIServer
 // for forward compatibility.
@@ -840,6 +1180,9 @@ type ProjectAPIServer interface {
 	GetUserProjects(context.Context, *GetUserRequest) (*ProjectListResponse, error)
 	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StopProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	GetAllProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error)
+	AdminDeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	AdminStopProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	mustEmbedUnimplementedProjectAPIServer()
 }
 
@@ -858,6 +1201,15 @@ func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActi
 }
 func (UnimplementedProjectAPIServer) StopProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopProject not implemented")
+}
+func (UnimplementedProjectAPIServer) GetAllProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetAllProjects not implemented")
+}
+func (UnimplementedProjectAPIServer) AdminDeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminDeleteProject not implemented")
+}
+func (UnimplementedProjectAPIServer) AdminStopProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminStopProject not implemented")
 }
 func (UnimplementedProjectAPIServer) mustEmbedUnimplementedProjectAPIServer() {}
 func (UnimplementedProjectAPIServer) testEmbeddedByValue()                    {}
@@ -934,6 +1286,60 @@ func _ProjectAPI_StopProject_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectAPI_GetAllProjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PaginationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).GetAllProjects(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_GetAllProjects_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).GetAllProjects(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectAPI_AdminDeleteProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).AdminDeleteProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_AdminDeleteProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).AdminDeleteProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectAPI_AdminStopProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).AdminStopProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_AdminStopProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).AdminStopProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProjectAPI_ServiceDesc is the grpc.ServiceDesc for ProjectAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -952,6 +1358,158 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "StopProject",
 			Handler:    _ProjectAPI_StopProject_Handler,
+		},
+		{
+			MethodName: "GetAllProjects",
+			Handler:    _ProjectAPI_GetAllProjects_Handler,
+		},
+		{
+			MethodName: "AdminDeleteProject",
+			Handler:    _ProjectAPI_AdminDeleteProject_Handler,
+		},
+		{
+			MethodName: "AdminStopProject",
+			Handler:    _ProjectAPI_AdminStopProject_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "core.proto",
+}
+
+const (
+	SystemAPI_GetConfig_FullMethodName    = "/core.SystemAPI/GetConfig"
+	SystemAPI_UpdateConfig_FullMethodName = "/core.SystemAPI/UpdateConfig"
+)
+
+// SystemAPIClient is the client API for SystemAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type SystemAPIClient interface {
+	GetConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemConfigData, error)
+	UpdateConfig(ctx context.Context, in *SystemConfigData, opts ...grpc.CallOption) (*Empty, error)
+}
+
+type systemAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewSystemAPIClient(cc grpc.ClientConnInterface) SystemAPIClient {
+	return &systemAPIClient{cc}
+}
+
+func (c *systemAPIClient) GetConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemConfigData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SystemConfigData)
+	err := c.cc.Invoke(ctx, SystemAPI_GetConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemAPIClient) UpdateConfig(ctx context.Context, in *SystemConfigData, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, SystemAPI_UpdateConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SystemAPIServer is the server API for SystemAPI service.
+// All implementations must embed UnimplementedSystemAPIServer
+// for forward compatibility.
+type SystemAPIServer interface {
+	GetConfig(context.Context, *Empty) (*SystemConfigData, error)
+	UpdateConfig(context.Context, *SystemConfigData) (*Empty, error)
+	mustEmbedUnimplementedSystemAPIServer()
+}
+
+// UnimplementedSystemAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedSystemAPIServer struct{}
+
+func (UnimplementedSystemAPIServer) GetConfig(context.Context, *Empty) (*SystemConfigData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetConfig not implemented")
+}
+func (UnimplementedSystemAPIServer) UpdateConfig(context.Context, *SystemConfigData) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateConfig not implemented")
+}
+func (UnimplementedSystemAPIServer) mustEmbedUnimplementedSystemAPIServer() {}
+func (UnimplementedSystemAPIServer) testEmbeddedByValue()                   {}
+
+// UnsafeSystemAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SystemAPIServer will
+// result in compilation errors.
+type UnsafeSystemAPIServer interface {
+	mustEmbedUnimplementedSystemAPIServer()
+}
+
+func RegisterSystemAPIServer(s grpc.ServiceRegistrar, srv SystemAPIServer) {
+	// If the following call panics, it indicates UnimplementedSystemAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&SystemAPI_ServiceDesc, srv)
+}
+
+func _SystemAPI_GetConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemAPIServer).GetConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemAPI_GetConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemAPIServer).GetConfig(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemAPI_UpdateConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SystemConfigData)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemAPIServer).UpdateConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemAPI_UpdateConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemAPIServer).UpdateConfig(ctx, req.(*SystemConfigData))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// SystemAPI_ServiceDesc is the grpc.ServiceDesc for SystemAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var SystemAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.SystemAPI",
+	HandlerType: (*SystemAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetConfig",
+			Handler:    _SystemAPI_GetConfig_Handler,
+		},
+		{
+			MethodName: "UpdateConfig",
+			Handler:    _SystemAPI_UpdateConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

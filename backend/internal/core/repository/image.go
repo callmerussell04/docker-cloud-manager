@@ -179,3 +179,32 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 
 	return tx.Commit()
 }
+
+func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Image, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM images`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, owner_id, tag, size_mb, is_custom, metadata, created_at 
+		FROM images 
+		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var images []domain.Image
+	for rows.Next() {
+		var img domain.Image
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		images = append(images, img)
+	}
+	return images, total, rows.Err()
+}

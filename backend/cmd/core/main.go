@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	_ "github.com/lib/pq"
 )
 
@@ -69,8 +69,7 @@ func main() {
 	registryURL := getEnvString("REGISTRY_URL", "localhost:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
-	// Сборка конфигурации для бизнес-логики из переменных окружения
-	cfg := service.ContainerConfig{
+	defaultCfg := config.SystemConfig{
 		BaseDomain:               baseDomain,
 		RegistryURL:              registryURL,
 		DefaultMemoryReservation: getEnvInt64("DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
@@ -89,7 +88,9 @@ func main() {
 		ContainerTTL:             time.Duration(getEnvInt("CONTAINER_TTL_HOURS", 24)) * time.Hour,
 	}
 
-	application, err := app.New(port, httpPort, dbURL, registryURL, registryContainerName, builderHTTPUrl, cfg)
+	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)
+
+	application, err := app.New(port, httpPort, dbURL, registryURL, registryContainerName, builderHTTPUrl, cfgManager)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

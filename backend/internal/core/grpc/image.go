@@ -21,6 +21,10 @@ type ImageLogic interface {
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error
+	GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]domain.Image, int, error)
+	AdminDeleteImage(ctx context.Context, imageID uuid.UUID) error
+	GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]domain.Build, int, error)
+	AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
 type ImageHandler struct {
@@ -181,5 +185,98 @@ func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildAction
 		return nil, status.Error(codes.Internal, "failed to delete build")
 	}
 
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedImageResponse, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (int(req.GetPage()) - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	images, total, err := h.logic.GetAllPaginatedImages(ctx, limit, offset)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get images")
+	}
+
+	var pbImages []*coreapi.ImageData
+	for _, img := range images {
+		pbImages = append(pbImages, &coreapi.ImageData{
+			Id:        img.ID.String(),
+			Tag:       img.Tag,
+			SizeMb:    int32(img.SizeMB),
+			IsCustom:  img.IsCustom,
+			CreatedAt: img.CreatedAt.Unix(),
+		})
+	}
+
+	return &coreapi.PaginatedImageResponse{
+		Images:     pbImages,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *ImageHandler) AdminDeleteImage(ctx context.Context, req *coreapi.ImageActionRequest) (*coreapi.Empty, error) {
+	imageID, err := uuid.Parse(req.GetImageId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid image_id")
+	}
+
+	if err := h.logic.AdminDeleteImage(ctx, imageID); err != nil {
+		return nil, status.Error(codes.Internal, "failed to delete image")
+	}
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedBuildResponse, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (int(req.GetPage()) - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	builds, total, err := h.logic.GetAllPaginatedBuilds(ctx, limit, offset)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get builds")
+	}
+
+	var pbBuilds []*coreapi.BuildData
+	for _, b := range builds {
+		var finishedAt int64
+		if b.FinishedAt != nil {
+			finishedAt = b.FinishedAt.Unix()
+		}
+		pbBuilds = append(pbBuilds, &coreapi.BuildData{
+			Id:          b.ID.String(),
+			ImageId:     b.ImageID.String(),
+			Status:      b.Status,
+			StartedAt:   b.StartedAt.Unix(),
+			FinishedAt:  finishedAt,
+			LogFilePath: b.LogFilePath,
+		})
+	}
+
+	return &coreapi.PaginatedBuildResponse{
+		Builds:     pbBuilds,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *ImageHandler) AdminDeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
+	buildID, err := uuid.Parse(req.GetBuildId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid build_id")
+	}
+
+	if err := h.logic.AdminDeleteBuild(ctx, buildID); err != nil {
+		return nil, status.Error(codes.Internal, "failed to delete build")
+	}
 	return &coreapi.Empty{}, nil
 }

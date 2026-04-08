@@ -18,6 +18,8 @@ type VolumeLogic interface {
 	Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error)
 	Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error)
+	AdminDelete(ctx context.Context, volumeID uuid.UUID) error
 }
 
 type VolumeHandler struct {
@@ -105,4 +107,52 @@ func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUser
 	return &coreapi.VolumeListResponse{
 		Volumes: pbVolumes,
 	}, nil
+}
+
+func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (int(req.GetPage()) - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	volumes, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get volumes")
+	}
+
+	var pbVolumes []*coreapi.VolumeData
+	for _, v := range volumes {
+		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
+			Id:         v.ID.String(),
+			DockerName: v.DockerName,
+			Driver:     v.Driver,
+			CreatedAt:  v.CreatedAt.Unix(),
+		})
+	}
+
+	return &coreapi.PaginatedVolumeResponse{
+		Volumes:    pbVolumes,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *VolumeHandler) AdminDeleteVolume(ctx context.Context, req *coreapi.VolumeActionRequest) (*coreapi.Empty, error) {
+	volumeID, err := uuid.Parse(req.GetVolumeId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
+	}
+
+	err = h.logic.AdminDelete(ctx, volumeID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "volume not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to delete volume")
+	}
+
+	return &coreapi.Empty{}, nil
 }

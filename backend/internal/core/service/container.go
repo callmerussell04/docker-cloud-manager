@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -51,6 +52,7 @@ type ContainerRepository interface {
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]domain.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error)
 }
 
 type ContainerVolumeRepository interface {
@@ -80,13 +82,17 @@ type ContainerImageRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
 }
 
+type ConfigManager interface {
+	Get() config.SystemConfig
+}
+
 type ContainerService struct {
 	repo       ContainerRepository
 	volumeRepo ContainerVolumeRepository
 	imageRepo  ContainerImageRepository
 	dockerAPI  ContainerDockerAPI
 	metrics    HostMetricsProvider
-	config     ContainerConfig
+	config     ConfigManager
 }
 
 func NewContainerService(
@@ -95,7 +101,7 @@ func NewContainerService(
 	imageRepo ContainerImageRepository,
 	dockerAPI ContainerDockerAPI,
 	metrics HostMetricsProvider,
-	config ContainerConfig,
+	config ConfigManager,
 ) *ContainerService {
 	return &ContainerService{
 		repo:       repo,
@@ -112,7 +118,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if count >= s.config.MaxContainersPerUser {
+	if count >= s.config.Get().MaxContainersPerUser {
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
 
@@ -133,13 +139,13 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 			return uuid.Nil, fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
 		}
 
-		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, s.config.BaseDomain)
+		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, s.config.Get().BaseDomain)
 	}
 
 	// 1. Определение запрашиваемой памяти (Гарантии)
 	reqMem := params.RequestedMemoryMB * 1024 * 1024
 	if reqMem <= 0 {
-		reqMem = s.config.DefaultMemoryReservation
+		reqMem = s.config.Get().DefaultMemoryReservation
 	}
 
 	// 2. Admission Control: Проверка квоты пользователя
@@ -178,7 +184,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if isCustom {
 		// Формируем полный тег для пулла из Registry
 		repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID.String(), baseName))
-		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
+		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.Get().RegistryURL, repoName, version)
 	}
 
 	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
@@ -241,13 +247,14 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	}
 
 	var ttlDeadline *time.Time
-	if s.config.ContainerTTL > 0 {
-		t := time.Now().Add(s.config.ContainerTTL)
+	if s.config.Get().ContainerTTL > 0 {
+		t := time.Now().Add(s.config.Get().ContainerTTL)
 		ttlDeadline = &t
 	}
 
 	c := domain.Container{
 		ID:                    containerID,
+		ProjectID:             params.ProjectID,
 		OwnerID:               ownerID,
 		Name:                  params.Name,
 		ImageTag:              normalizedInputTag,
@@ -273,13 +280,13 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		Domain:            fullDomain,
 		InternalPort:      params.InternalPort,
 		EnvVars:           envList,
-		MemoryLimitBytes:  reqMem,                    // Стартовый жесткий лимит
-		MemoryReservation: reqMem,                    // Гарантия (Soft limit)
-		CPUShares:         s.config.DefaultCPUShares, // Базовый приоритет
+		MemoryLimitBytes:  reqMem,                          // Стартовый жесткий лимит
+		MemoryReservation: reqMem,                          // Гарантия (Soft limit)
+		CPUShares:         s.config.Get().DefaultCPUShares, // Базовый приоритет
 		VolumeMounts:      dockerMounts,
-		MaxLogSize:        s.config.MaxLogSize,
-		MaxLogFiles:       s.config.MaxLogFiles,
-		StorageQuota:      s.config.ContainerDiskQuota,
+		MaxLogSize:        s.config.Get().MaxLogSize,
+		MaxLogFiles:       s.config.Get().MaxLogFiles,
+		StorageQuota:      s.config.Get().ContainerDiskQuota,
 		Command:           params.Command,
 		Entrypoint:        params.Entrypoint,
 		Restart:           params.Restart,
@@ -342,7 +349,7 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		return err
 	}
 
-	err = s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.ContainerStopTimeout)
+	err = s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout)
 	if err != nil {
 		return err
 	}
@@ -378,7 +385,7 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	}
 
 	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
-	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.BaseDomain)
+	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.Get().BaseDomain)
 
 	dockerParams := docker.CreateContainerParams{
 		ContainerName:     strings.TrimPrefix(inspect.Name, "/"),
@@ -391,9 +398,9 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		MemoryReservation: inspect.HostConfig.MemoryReservation,
 		CPUShares:         inspect.HostConfig.CPUShares,
 		VolumeMounts:      dockerMounts,
-		MaxLogSize:        s.config.MaxLogSize,
-		MaxLogFiles:       s.config.MaxLogFiles,
-		StorageQuota:      s.config.ContainerDiskQuota,
+		MaxLogSize:        s.config.Get().MaxLogSize,
+		MaxLogFiles:       s.config.Get().MaxLogFiles,
+		StorageQuota:      s.config.Get().ContainerDiskQuota,
 		Command:           inspect.Config.Cmd,
 		Entrypoint:        inspect.Config.Entrypoint,
 		Restart:           string(inspect.HostConfig.RestartPolicy.Name),
@@ -467,7 +474,7 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 		return apperrors.ErrNotFound
 	}
 
-	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.ContainerStopTimeout); err != nil {
+	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
 		return err
 	}
 
@@ -546,7 +553,7 @@ func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 	// 1. Calculate the maximum allowed memory pool (considering overcommit)
 	// Example: Total Mem 16GB, Reserved 2GB -> 14GB available.
 	// Overcommit 1.5 -> Max Pool = 21GB.
-	availablePool := float64(totalMem-s.config.ReservedSystemMemory) * s.config.OvercommitFactor
+	availablePool := float64(totalMem-s.config.Get().ReservedSystemMemory) * s.config.Get().OvercommitFactor
 
 	// If the system is so constrained that the pool is zero or negative
 	if availablePool <= 0 {
@@ -586,7 +593,7 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 	}
 
 	// Свободная память на сервере для "Burst" режима
-	availableForBurst := totalMem - s.config.ReservedSystemMemory
+	availableForBurst := totalMem - s.config.Get().ReservedSystemMemory
 
 	// Сколько памяти гарантированно забрали все текущие запущенные контейнеры
 	var totalReserved int64 = 0
@@ -607,15 +614,15 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 		newMemoryLimit := int64(float64(c.BaseMemoryReservation) * burstFactor)
 
 		// Ограничиваем сверху, чтобы один контейнер не съел весь хост (например, не больше 4x от базы)
-		maxAllowedBurst := c.BaseMemoryReservation * s.config.MaxBurstMultiplier
+		maxAllowedBurst := c.BaseMemoryReservation * s.config.Get().MaxBurstMultiplier
 		if newMemoryLimit > maxAllowedBurst {
 			newMemoryLimit = maxAllowedBurst
 		}
 
 		// Выдаем CpuShares: если мало контейнеров - высокий приоритет, если много - стандартный
-		cpuShares := s.config.DefaultCPUShares
-		if len(runningContainers) > s.config.HighLoadContainerCount {
-			cpuShares = s.config.HighLoadCPUShares
+		cpuShares := s.config.Get().DefaultCPUShares
+		if len(runningContainers) > s.config.Get().HighLoadContainerCount {
+			cpuShares = s.config.Get().HighLoadCPUShares
 		}
 
 		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, c.BaseMemoryReservation, cpuShares)
@@ -624,4 +631,47 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 		}
 	}
 	log.Printf("[Rebalancer] Rebalanced %d containers. Burst Factor: %.2f", len(runningContainers), burstFactor)
+}
+
+func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error) {
+	return s.repo.GetAllPaginated(ctx, limit, offset)
+}
+
+func (s *ContainerService) AdminDelete(ctx context.Context, containerID uuid.UUID) error {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	_ = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
+	return s.repo.Delete(ctx, containerID)
+}
+
+func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID) error {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
+		return err
+	}
+	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusRunning)
+	if err == nil {
+		go s.RebalanceResources(context.Background())
+	}
+	return err
+}
+
+func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID) error {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return err
+	}
+	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
+		return err
+	}
+	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusExited)
+	if err == nil {
+		go s.RebalanceResources(context.Background())
+	}
+	return err
 }

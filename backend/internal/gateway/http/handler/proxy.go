@@ -19,6 +19,7 @@ func NewBuilderProxyHandler(targetURL string) (gin.HandlerFunc, error) {
 		userID := c.GetString("user_id")
 		c.Request.Header.Del("X-User-Id")
 		c.Request.Header.Set("X-User-Id", userID)
+		c.Request.Header.Set("X-User-Role", c.GetString("role"))
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }

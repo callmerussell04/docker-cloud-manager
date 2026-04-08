@@ -21,6 +21,10 @@ type ContainerLogic interface {
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
 	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error)
+	AdminDelete(ctx context.Context, containerID uuid.UUID) error
+	AdminStart(ctx context.Context, containerID uuid.UUID) error
+	AdminStop(ctx context.Context, containerID uuid.UUID) error
 }
 
 type ContainerHandler struct {
@@ -197,6 +201,70 @@ func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.Exp
 			return nil, status.Error(codes.NotFound, "container not found")
 		}
 		return nil, status.Error(codes.Internal, "failed to expose container")
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (int(req.GetPage()) - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	containers, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get containers")
+	}
+
+	var pbContainers []*coreapi.ContainerData
+	for _, c := range containers {
+		pbContainers = append(pbContainers, &coreapi.ContainerData{
+			Id:           c.ID.String(),
+			DockerId:     c.DockerID,
+			Name:         c.Name,
+			ImageTag:     c.ImageTag,
+			InternalPort: int32(c.InternalPort),
+			DomainPrefix: c.DomainPrefix,
+			Status:       c.Status,
+			CreatedAt:    c.CreatedAt.Unix(),
+		})
+	}
+
+	return &coreapi.PaginatedContainerResponse{
+		Containers: pbContainers,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	action := req.GetAction()
+
+	switch action {
+	case "start":
+		err = h.logic.AdminStart(ctx, containerID)
+	case "stop":
+		err = h.logic.AdminStop(ctx, containerID)
+	case "delete":
+		err = h.logic.AdminDelete(ctx, containerID)
+	default:
+		return nil, status.Error(codes.InvalidArgument, "invalid action, expected start, stop, or delete")
+	}
+
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to execute admin action on container")
 	}
 
 	return &coreapi.Empty{}, nil

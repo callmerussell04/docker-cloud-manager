@@ -188,3 +188,36 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	}
 	return builds, rows.Err()
 }
+
+func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Build, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, image_id, status, log_file_path, started_at, finished_at 
+		FROM builds 
+		ORDER BY started_at DESC LIMIT $1 OFFSET $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var builds []domain.Build
+	for rows.Next() {
+		var b domain.Build
+		var finishedAt sql.NullTime
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
+			return nil, 0, err
+		}
+		if finishedAt.Valid {
+			b.FinishedAt = &finishedAt.Time
+		}
+		builds = append(builds, b)
+	}
+	return builds, total, rows.Err()
+}

@@ -14,6 +14,7 @@ type ProjectRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Project, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error)
 }
 
 type ProjectResourceRepository interface {
@@ -102,5 +103,59 @@ func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUI
 	}
 
 	// 3. Удаляем запись проекта из БД (Сработает ON DELETE CASCADE для контейнеров и томов в БД)
+	return s.repo.Delete(ctx, projectID)
+}
+
+func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error) {
+	return s.repo.GetAllPaginated(ctx, limit, offset)
+}
+
+func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) error {
+	_, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	var stopErrors []error
+	for _, c := range containers {
+		if c.Status == domain.ContainerStatusRunning {
+			err := s.dockerAPI.StopContainer(ctx, c.DockerID, 10)
+			if err != nil {
+				stopErrors = append(stopErrors, fmt.Errorf("failed to stop %s: %v", c.Name, err))
+			}
+		}
+	}
+
+	if len(stopErrors) > 0 {
+		return fmt.Errorf("errors occurred while stopping project: %v", stopErrors)
+	}
+	return nil
+}
+
+func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) error {
+	_, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+
+	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
+	if err == nil {
+		for _, c := range containers {
+			_ = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
+		}
+	}
+
+	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, projectID)
+	if err == nil {
+		for _, v := range volumes {
+			_ = s.dockerAPI.RemoveVolume(ctx, v.DockerName, true)
+		}
+	}
+
 	return s.repo.Delete(ctx, projectID)
 }

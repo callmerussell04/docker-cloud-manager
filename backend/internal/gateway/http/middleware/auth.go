@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -26,6 +27,17 @@ func Auth(parser TokenParser) gin.HandlerFunc {
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
 
+		c.Next()
+	}
+}
+
+func RequireRole(requiredRole string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role := c.GetString("role")
+		if role != requiredRole {
+			apperrors.Respond(c, http.StatusForbidden, errors.New("forbidden: insufficient permissions"))
+			return
+		}
 		c.Next()
 	}
 }

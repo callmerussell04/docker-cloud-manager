@@ -203,3 +203,37 @@ func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UU
 	}
 	return volumes, rows.Err()
 }
+
+func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM volumes`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
+		FROM volumes 
+		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var volumes []domain.Volume
+	for rows.Next() {
+		var v domain.Volume
+		var pID sql.NullString
+		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		if pID.Valid {
+			parsed, _ := uuid.Parse(pID.String)
+			v.ProjectID = &parsed
+		}
+		volumes = append(volumes, v)
+	}
+	return volumes, total, rows.Err()
+}

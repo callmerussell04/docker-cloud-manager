@@ -23,6 +23,7 @@ type ImageRepository interface {
 	GetUserDiskQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Image, int, error)
 }
 
 type ImageContainerRepository interface {
@@ -35,6 +36,7 @@ type BuildRepository interface {
 	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
 	GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Build, int, error)
 }
 
 type ImageDockerAPI interface {
@@ -248,4 +250,52 @@ func parseImageTag(rawTag string) (baseName, version string) {
 		return parts[0], "latest"
 	}
 	return parts[0], parts[1]
+}
+
+func (s *ImageService) GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]domain.Image, int, error) {
+	return s.repo.GetAllPaginated(ctx, limit, offset)
+}
+
+func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) error {
+	img, err := s.repo.GetByID(ctx, imageID)
+	if err != nil {
+		return err
+	}
+
+	if !img.IsCustom {
+		return errors.New("cannot delete system image")
+	}
+
+	inUse, err := s.contRepo.IsImageInUse(ctx, img.OwnerID, img.Tag)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return fmt.Errorf("conflict: unable to remove image, it is currently in use")
+	}
+
+	baseName, version := parseImageTag(img.Tag)
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+
+	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	if err == nil && digest != "" {
+		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+	}
+
+	fullTag := fmt.Sprintf("%s/%s:%s", s.registryURL, repoName, version)
+	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
+
+	return s.repo.Delete(ctx, imageID)
+}
+
+func (s *ImageService) GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]domain.Build, int, error) {
+	return s.buildRepo.GetAllPaginated(ctx, limit, offset)
+}
+
+func (s *ImageService) AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) error {
+	_, err := s.buildRepo.GetByID(ctx, buildID)
+	if err != nil {
+		return err
+	}
+	return s.buildRepo.Delete(ctx, buildID)
 }

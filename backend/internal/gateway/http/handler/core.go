@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
@@ -26,6 +27,19 @@ type CoreService interface {
 	GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
 	StopProject(ctx context.Context, ownerID, projectID string) error
+	GetAllContainers(ctx context.Context, page, limit int) (*coreapi.PaginatedContainerResponse, error)
+	AdminActionContainer(ctx context.Context, containerID, action string) error
+	GetAllVolumes(ctx context.Context, page, limit int) (*coreapi.PaginatedVolumeResponse, error)
+	AdminDeleteVolume(ctx context.Context, volumeID string) error
+	GetAllImages(ctx context.Context, page, limit int) (*coreapi.PaginatedImageResponse, error)
+	AdminDeleteImage(ctx context.Context, imageID string) error
+	GetAllBuilds(ctx context.Context, page, limit int) (*coreapi.PaginatedBuildResponse, error)
+	AdminDeleteBuild(ctx context.Context, buildID string) error
+	GetAllProjects(ctx context.Context, page, limit int) (*coreapi.PaginatedProjectResponse, error)
+	AdminDeleteProject(ctx context.Context, projectID string) error
+	AdminStopProject(ctx context.Context, projectID string) error
+	GetSystemConfig(ctx context.Context) (*coreapi.SystemConfigData, error)
+	UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error
 }
 
 type CoreHandler struct {
@@ -250,6 +264,190 @@ func (h *CoreHandler) StopProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "project stopped successfully"})
+}
+
+func getPaginationParams(c *gin.Context) (int, int) {
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 20
+	}
+	return page, limit
+}
+
+// === ADMIN HANDLERS ===
+
+func (h *CoreHandler) GetAllContainers(c *gin.Context) {
+	page, limit := getPaginationParams(c)
+	resp, err := h.service.GetAllContainers(c.Request.Context(), page, limit)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"containers":  resp.GetContainers(),
+		"total_count": resp.GetTotalCount(),
+	})
+}
+
+func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
+	containerID := c.Param("id")
+	action := c.Param("action")
+
+	err := h.service.AdminActionContainer(c.Request.Context(), containerID, action)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "admin action " + action + " successful"})
+}
+
+func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
+	page, limit := getPaginationParams(c)
+	resp, err := h.service.GetAllVolumes(c.Request.Context(), page, limit)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"volumes":     resp.GetVolumes(),
+		"total_count": resp.GetTotalCount(),
+	})
+}
+
+func (h *CoreHandler) AdminDeleteVolume(c *gin.Context) {
+	volumeID := c.Param("id")
+	err := h.service.AdminDeleteVolume(c.Request.Context(), volumeID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "volume deleted by admin"})
+}
+
+func (h *CoreHandler) GetAllImages(c *gin.Context) {
+	page, limit := getPaginationParams(c)
+	resp, err := h.service.GetAllImages(c.Request.Context(), page, limit)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"images":      resp.GetImages(),
+		"total_count": resp.GetTotalCount(),
+	})
+}
+
+func (h *CoreHandler) AdminDeleteImage(c *gin.Context) {
+	imageID := c.Param("id")
+	err := h.service.AdminDeleteImage(c.Request.Context(), imageID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "image deleted by admin"})
+}
+
+func (h *CoreHandler) GetAllBuilds(c *gin.Context) {
+	page, limit := getPaginationParams(c)
+	resp, err := h.service.GetAllBuilds(c.Request.Context(), page, limit)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"builds":      resp.GetBuilds(),
+		"total_count": resp.GetTotalCount(),
+	})
+}
+
+func (h *CoreHandler) AdminDeleteBuild(c *gin.Context) {
+	buildID := c.Param("id")
+	err := h.service.AdminDeleteBuild(c.Request.Context(), buildID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "build deleted by admin"})
+}
+
+func (h *CoreHandler) GetAllProjects(c *gin.Context) {
+	page, limit := getPaginationParams(c)
+	resp, err := h.service.GetAllProjects(c.Request.Context(), page, limit)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"projects":    resp.GetProjects(),
+		"total_count": resp.GetTotalCount(),
+	})
+}
+
+func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
+	projectID := c.Param("id")
+	err := h.service.AdminDeleteProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "project deleted by admin"})
+}
+
+func (h *CoreHandler) AdminStopProject(c *gin.Context) {
+	projectID := c.Param("id")
+	err := h.service.AdminStopProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "project stopped by admin"})
+}
+
+func (h *CoreHandler) GetSystemConfig(c *gin.Context) {
+	resp, err := h.service.GetSystemConfig(c.Request.Context())
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+func (h *CoreHandler) UpdateSystemConfig(c *gin.Context) {
+	var systemConfigDTO dto.SystemConfigDTO
+	if err := c.ShouldBindJSON(&systemConfigDTO); err != nil {
+		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+
+	req := &coreapi.SystemConfigData{
+		BaseDomain:                    systemConfigDTO.BaseDomain,
+		DefaultMemoryReservationBytes: systemConfigDTO.DefaultMemoryReservationBytes,
+		ReservedSystemMemoryBytes:     systemConfigDTO.ReservedSystemMemoryBytes,
+		OvercommitFactor:              systemConfigDTO.OvercommitFactor,
+		MaxBurstMultiplier:            systemConfigDTO.MaxBurstMultiplier,
+		DefaultCpuShares:              systemConfigDTO.DefaultCpuShares,
+		HighLoadCpuShares:             systemConfigDTO.HighLoadCpuShares,
+		HighLoadContainerCount:        int32(systemConfigDTO.HighLoadContainerCount),
+		ContainerStopTimeout:          int32(systemConfigDTO.ContainerStopTimeout),
+		MaxLogSize:                    systemConfigDTO.MaxLogSize,
+		MaxLogFiles:                   systemConfigDTO.MaxLogFiles,
+		ContainerDiskQuota:            systemConfigDTO.ContainerDiskQuota,
+		MaxVolumesPerUser:             int32(systemConfigDTO.MaxVolumesPerUser),
+		MaxContainersPerUser:          int32(systemConfigDTO.MaxContainersPerUser),
+		RegistryUrl:                   systemConfigDTO.RegistryUrl,
+		ContainerTtlHours:             systemConfigDTO.ContainerTtlHours,
+	}
+
+	err := h.service.UpdateSystemConfig(c.Request.Context(), req)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "config updated"})
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {

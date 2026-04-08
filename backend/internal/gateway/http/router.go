@@ -62,6 +62,28 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 				projects.POST("/compose", coreHttpProxy)
 			}
 		}
+		admin := protected.Group("/admin")
+		admin.Use(middleware.RequireRole("admin"))
+		{
+			admin.GET("/config", coreHandler.GetSystemConfig)
+			admin.PUT("/config", coreHandler.UpdateSystemConfig)
+
+			admin.GET("/containers", coreHandler.GetAllContainers)
+			admin.POST("/containers/:id/action/:action", coreHandler.AdminActionContainer)
+
+			admin.GET("/volumes", coreHandler.GetAllVolumes)
+			admin.DELETE("/volumes/:id", coreHandler.AdminDeleteVolume)
+
+			admin.GET("/images", coreHandler.GetAllImages)
+			admin.DELETE("/images/:id", coreHandler.AdminDeleteImage)
+
+			admin.GET("/builds", coreHandler.GetAllBuilds)
+			admin.DELETE("/builds/:id", coreHandler.AdminDeleteBuild)
+
+			admin.GET("/projects", coreHandler.GetAllProjects)
+			admin.DELETE("/projects/:id", coreHandler.AdminDeleteProject)
+			admin.POST("/projects/:id/stop", coreHandler.AdminStopProject)
+		}
 	}
 
 	return router

@@ -146,3 +146,36 @@ func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 	return nil
 }
+
+func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error) {
+	var total int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, owner_id, name, status, error_message, created_at 
+		FROM projects 
+		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+	`
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var projects []domain.Project
+	for rows.Next() {
+		var p domain.Project
+		var errMsg sql.NullString
+		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
+			return nil, 0, err
+		}
+		if errMsg.Valid {
+			p.ErrorMessage = &errMsg.String
+		}
+		projects = append(projects, p)
+	}
+	return projects, total, rows.Err()
+}

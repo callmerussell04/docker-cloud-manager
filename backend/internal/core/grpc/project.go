@@ -16,7 +16,10 @@ import (
 type ProjectLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error)
 	Delete(ctx context.Context, ownerID, projectID uuid.UUID) error
-	Stop(ctx context.Context, ownerID, projectID uuid.UUID) error // НОВОЕ
+	Stop(ctx context.Context, ownerID, projectID uuid.UUID) error
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error)
+	AdminStop(ctx context.Context, projectID uuid.UUID) error
+	AdminDelete(ctx context.Context, projectID uuid.UUID) error
 }
 
 type ProjectHandler struct {
@@ -100,5 +103,65 @@ func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectAc
 		return nil, status.Error(codes.Internal, "failed to stop project")
 	}
 
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedProjectResponse, error) {
+	limit := int(req.GetLimit())
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	offset := (int(req.GetPage()) - 1) * limit
+	if offset < 0 {
+		offset = 0
+	}
+
+	projects, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get projects")
+	}
+
+	var pbProjects []*coreapi.ProjectData
+	for _, p := range projects {
+		errMsg := ""
+		if p.ErrorMessage != nil {
+			errMsg = *p.ErrorMessage
+		}
+		pbProjects = append(pbProjects, &coreapi.ProjectData{
+			Id:           p.ID.String(),
+			Name:         p.Name,
+			Status:       p.Status,
+			ErrorMessage: errMsg,
+			CreatedAt:    p.CreatedAt.Unix(),
+		})
+	}
+
+	return &coreapi.PaginatedProjectResponse{
+		Projects:   pbProjects,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *ProjectHandler) AdminDeleteProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id")
+	}
+
+	if err := h.logic.AdminDelete(ctx, projectID); err != nil {
+		return nil, status.Error(codes.Internal, "failed to delete project")
+	}
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) AdminStopProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id")
+	}
+
+	if err := h.logic.AdminStop(ctx, projectID); err != nil {
+		return nil, status.Error(codes.Internal, "failed to stop project")
+	}
 	return &coreapi.Empty{}, nil
 }

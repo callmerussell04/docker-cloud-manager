@@ -11,6 +11,8 @@ service ContainerAPI {
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
   rpc GetUserContainers (GetUserRequest) returns (ContainerListResponse);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
+  rpc GetAllContainers (PaginationRequest) returns (PaginatedContainerResponse);
+  rpc AdminActionContainer (ContainerActionRequest) returns (Empty);
 }
 
 service ImageAPI {
@@ -20,18 +22,33 @@ service ImageAPI {
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
   rpc GetUserBuilds (GetUserRequest) returns (BuildListResponse);
   rpc DeleteBuild (BuildActionRequest) returns (Empty);
+  rpc GetAllImages (PaginationRequest) returns (PaginatedImageResponse);
+  rpc AdminDeleteImage (ImageActionRequest) returns (Empty);
+  rpc GetAllBuilds (PaginationRequest) returns (PaginatedBuildResponse);
+  rpc AdminDeleteBuild (BuildActionRequest) returns (Empty);
 }
 
 service VolumeAPI {
   rpc CreateVolume (CreateVolumeRequest) returns (CreateVolumeResponse);
   rpc DeleteVolume (VolumeActionRequest) returns (Empty);
   rpc GetUserVolumes (GetUserRequest) returns (VolumeListResponse);
+  rpc GetAllVolumes (PaginationRequest) returns (PaginatedVolumeResponse);
+  rpc AdminDeleteVolume (VolumeActionRequest) returns (Empty);
 }
 
 service ProjectAPI {
   rpc GetUserProjects (GetUserRequest) returns (ProjectListResponse);
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
   rpc StopProject (ProjectActionRequest) returns (Empty);
+  rpc GetAllProjects (PaginationRequest) returns (PaginatedProjectResponse);
+  rpc AdminDeleteProject (ProjectActionRequest) returns (Empty);
+  rpc AdminStopProject (ProjectActionRequest) returns (Empty);
+
+}
+
+service SystemAPI {
+  rpc GetConfig (Empty) returns (SystemConfigData);
+  rpc UpdateConfig (SystemConfigData) returns (Empty);
 }
 
 message Empty {}
@@ -63,6 +80,7 @@ message CreateContainerResponse {
 message ContainerActionRequest {
   string owner_id = 1;
   string container_id = 2;
+  string action = 3;
 }
 
 message ExposeRequest {
@@ -182,4 +200,53 @@ message ProjectListResponse {
 message ProjectActionRequest {
   string owner_id = 1;
   string project_id = 2;
+}
+
+message PaginationRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message PaginatedContainerResponse {
+  repeated ContainerData containers = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedVolumeResponse {
+  repeated VolumeData volumes = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedImageResponse {
+  repeated ImageData images = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedBuildResponse {
+  repeated BuildData builds = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedProjectResponse {
+  repeated ProjectData projects = 1;
+  int32 total_count = 2;
+}
+
+message SystemConfigData {
+  string base_domain = 1;
+  int64 default_memory_reservation_bytes = 2;
+  int64 reserved_system_memory_bytes = 3;
+  double overcommit_factor = 4;
+  int64 max_burst_multiplier = 5;
+  int64 default_cpu_shares = 6;
+  int64 high_load_cpu_shares = 7;
+  int32 high_load_container_count = 8;
+  int32 container_stop_timeout = 9;
+  string max_log_size = 10;
+  string max_log_files = 11;
+  string container_disk_quota = 12;
+  int32 max_volumes_per_user = 13;
+  int32 max_containers_per_user = 14;
+  string registry_url = 15;
+  int64 container_ttl_hours = 16;
 }

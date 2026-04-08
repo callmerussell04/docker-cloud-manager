@@ -88,6 +88,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 }
 
 func (h *BuildHandler) GetLogs(c *gin.Context) {
+	//role := c.GetHeader("X-User-Role")
 	buildID := c.Param("id")
 	if buildID == "" {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)

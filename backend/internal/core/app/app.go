@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
@@ -47,7 +48,7 @@ func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, project
 	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
-func New(port int, httpPort int, dbURL string, registryURL string, registryContainerName string, builderHTTPUrl string, cfg service.ContainerConfig) (*App, error) {
+func New(port int, httpPort int, dbURL string, registryURL string, registryContainerName string, builderHTTPUrl string, configManager *config.Manager) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -72,10 +73,12 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg)
-	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.MaxVolumesPerUser)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager.Get().MaxVolumesPerUser)
 	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, registryURL)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
+	systemService := service.NewSystemService(configManager)
+
 	gRPCServer := grpc.NewServer()
 
 	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl)
@@ -91,6 +94,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 	coregrpc.RegisterVolumeAPI(gRPCServer, volService)
 	coregrpc.RegisterImageAPI(gRPCServer, imgService)
 	coregrpc.RegisterProjectAPI(gRPCServer, projService)
+	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
