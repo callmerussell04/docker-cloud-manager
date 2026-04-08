@@ -10,6 +10,8 @@ import (
 func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenParser middleware.TokenParser) *gin.Engine {
 	router := gin.Default()
 
+	router.Use(middleware.CORSMiddleware())
+
 	v1 := router.Group("/api/v1")
 	{
 		auth := v1.Group("/auth")
