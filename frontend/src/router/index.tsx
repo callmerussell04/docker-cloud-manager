@@ -3,6 +3,7 @@ import { ProtectedRoute } from './ProtectedRoute';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ContainersPage } from '@/pages/containers/ContainersPage';
+import { ImagesPage } from '@/pages/images/ImagesPage';
 
 export const router = createBrowserRouter([
   {
@@ -28,7 +29,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'images',
-        element: <div>Образы и Сборка</div>,
+        element: <ImagesPage />,
       },
       {
         path: 'volumes',
