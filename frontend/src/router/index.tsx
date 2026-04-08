@@ -4,6 +4,8 @@ import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ContainersPage } from '@/pages/containers/ContainersPage';
 import { ImagesPage } from '@/pages/images/ImagesPage';
+import { VolumesPage } from '@/pages/volumes/VolumesPage';
+import { ProjectsPage } from '@/pages/projects/ProjectsPage';
 
 export const router = createBrowserRouter([
   {
@@ -33,11 +35,11 @@ export const router = createBrowserRouter([
       },
       {
         path: 'volumes',
-        element: <div>Тома</div>,
+        element: <VolumesPage />,
       },
       {
         path: 'projects',
-        element: <div>Docker Compose</div>,
+        element: <ProjectsPage />,
       },
     ],
   },
