@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Modal } from '@/components/ui/Modal';
@@ -10,17 +11,20 @@ import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { exposeContainerFn } from '../api';
 import { type ExposeContainerDTO, exposeContainerSchema, type ContainerData } from '../types';
+import { BASE_DOMAIN } from '@/config';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;
   onClose: () => void;
 }
 
+type ExposeContainerFormValues = z.input<typeof exposeContainerSchema>;
+
 export function ExposeContainerModal({ container, onClose }: ExposeContainerModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ExposeContainerDTO>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<ExposeContainerFormValues>({
     resolver: zodResolver(exposeContainerSchema),
   });
 
@@ -48,10 +52,10 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
     },
   });
 
-  const onSubmit = (data: ExposeContainerDTO) => {
+  const onSubmit = (data: ExposeContainerFormValues) => {
     mutation.mutate({
-      domain_prefix: data.domain_prefix,
-      internal_port: Number(data.internal_port),
+      ...data,
+      internal_port: data.internal_port !== undefined ? Number(data.internal_port) : undefined,
     });
   };
 
@@ -67,7 +71,7 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
               error={!!errors.domain_prefix}
               {...register('domain_prefix')}
             />
-            <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.yourdomain.com</span>
+            <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.{BASE_DOMAIN}</span>
           </div>
           {errors.domain_prefix && <p className="text-sm text-red-500">{errors.domain_prefix.message}</p>}
         </div>
@@ -79,7 +83,7 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
             type="number"
             placeholder="80"
             error={!!errors.internal_port}
-            {...register('internal_port', { valueAsNumber: true })}
+            {...register('internal_port')}
           />
           <p className="text-xs text-slate-500">Порт, на котором приложение слушает внутри контейнера</p>
           {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port.message}</p>}

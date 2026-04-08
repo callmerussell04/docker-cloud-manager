@@ -13,9 +13,9 @@ export interface ContainerData {
 
 export const createContainerSchema = z.object({
   name: z.string().min(1, 'Имя обязательно'),
-  image_tag: z.string().min(1, 'Выберите образ'),
-  internal_port: z.number().optional(),
-  domain_prefix: z.string().max(30, 'Максимум 30 символов').optional(),
+  image_tag: z.string().min(1, 'Укажите образ'),
+  internal_port: z.union([z.string(), z.number()]).optional().transform(v => v === '' ? undefined : Number(v)),
+  domain_prefix: z.string().max(30, 'Максимум 30 символов').optional().transform(v => v === '' ? undefined : v),
   env_vars: z.array(z.object({
     key: z.string().min(1, 'Ключ обязателен'),
     value: z.string()
@@ -27,7 +27,7 @@ export const createContainerSchema = z.object({
   })).optional()
 });
 
-export type CreateContainerForm = z.infer<typeof createContainerSchema>;
+export type CreateContainerForm = z.input<typeof createContainerSchema>;
 
 export interface CreateContainerDTO {
   name: string;
@@ -44,7 +44,7 @@ export interface CreateContainerDTO {
 
 export const exposeContainerSchema = z.object({
   domain_prefix: z.string().min(1, 'Префикс обязателен').max(30, 'Максимум 30 символов'),
-  internal_port: z.number().min(1, 'Порт обязателен'),
+  internal_port: z.union([z.string(), z.number()]).transform(v => Number(v)),
 });
 
 export type ExposeContainerDTO = z.infer<typeof exposeContainerSchema>;

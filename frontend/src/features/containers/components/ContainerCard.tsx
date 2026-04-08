@@ -1,10 +1,11 @@
-import { Play, Square, Trash2, Globe } from 'lucide-react';
+import { Play, Square, Trash2, Globe, ExternalLink } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import type { ContainerData } from '../types';
+import { type ContainerData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { actionContainerFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
+import { BASE_DOMAIN } from '@/config';
 
 interface ContainerCardProps {
   container: ContainerData;
@@ -55,15 +56,20 @@ export function ContainerCard({ container, onExpose }: ContainerCardProps) {
 
         <div className="space-y-2 flex-1 text-sm text-slate-600 dark:text-slate-300">
           {container.domain_prefix ? (
-            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-md border border-indigo-100 dark:border-indigo-800">
-              <Globe className="w-4 h-4" />
-              <span className="truncate">{container.domain_prefix}</span>
-              <span className="text-xs opacity-70 ml-auto">:{container.internal_port}</span>
-            </div>
+            <a 
+              href={`http://${container.domain_prefix}.${BASE_DOMAIN}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 px-2 py-1 rounded-md border border-indigo-100 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors w-full"
+            >
+              <Globe className="w-4 h-4 shrink-0" />
+              <span className="truncate">{container.domain_prefix}.{BASE_DOMAIN}</span>
+              <ExternalLink className="w-3 h-3 ml-auto opacity-70 shrink-0" />
+            </a>
           ) : (
             <div className="flex items-center gap-2 text-slate-400 px-2 py-1">
-              <Globe className="w-4 h-4" />
-              <span>Не маршрутизируется</span>
+              <Globe className="w-4 h-4 shrink-0" />
+              <span className="truncate">Не маршрутизируется</span>
             </div>
           )}
         </div>
@@ -91,7 +97,7 @@ export function ContainerCard({ container, onExpose }: ContainerCardProps) {
             onClick={() => onExpose(container)}
             disabled={actionMutation.isPending}
             className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
-            title="Опубликовать в интернет"
+            title="Настройки маршрутизации"
           >
             <Globe className="w-4 h-4" />
           </button>

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +14,7 @@ import { getImagesFn } from '@/features/images/api';
 import { getVolumesFn } from '@/features/volumes/api';
 import { createContainerFn } from '../api';
 import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
+import { BASE_DOMAIN } from '@/config';
 
 interface CreateContainerModalProps {
   isOpen: boolean;
@@ -40,6 +42,8 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     defaultValues: {
       env_vars: [],
       volume_mounts: [],
+      domain_prefix: '',
+      internal_port: '',
     }
   });
 
@@ -66,23 +70,23 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     },
   });
 
-  const onSubmit = (data: CreateContainerForm) => {
+  const onSubmit = (data: any) => {
     const dto: CreateContainerDTO = {
       name: data.name,
       image_tag: data.image_tag,
-      internal_port: data.internal_port ? Number(data.internal_port) : undefined,
-      domain_prefix: data.domain_prefix || undefined,
+      internal_port: data.internal_port,
+      domain_prefix: data.domain_prefix,
     };
 
     if (data.env_vars && data.env_vars.length > 0) {
-      dto.env_vars = data.env_vars.reduce((acc, curr) => {
+      dto.env_vars = data.env_vars.reduce((acc: Record<string, string>, curr: any) => {
         if (curr.key) acc[curr.key] = curr.value || '';
         return acc;
-      }, {} as Record<string, string>);
+      }, {});
     }
 
     if (data.volume_mounts && data.volume_mounts.length > 0) {
-      dto.volume_mounts = data.volume_mounts.map(v => ({
+      dto.volume_mounts = data.volume_mounts.map((v: any) => ({
         volume_id: v.volume_id,
         mount_path: v.mount_path,
         is_readonly: v.is_readonly
@@ -93,24 +97,51 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Создать контейнер" className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={isOpen} onClose={onClose} title="Создать контейнер" className="max-w-3xl max-h-[90vh] overflow-y-auto">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="name">Имя контейнера</Label>
             <Input id="name" placeholder="my-app" error={!!errors.name} {...register('name')} />
-            {errors.name && <p className="text-sm text-red-500">{errors.name.message}</p>}
+            {errors.name && <p className="text-sm text-red-500">{errors.name?.message as string}</p>}
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="image_tag">Образ</Label>
-            <Select id="image_tag" error={!!errors.image_tag} {...register('image_tag')}>
-              <option value="">Выберите образ</option>
+            <Input 
+              id="image_tag" 
+              list="image-suggestions" 
+              placeholder="nginx:latest" 
+              error={!!errors.image_tag} 
+              {...register('image_tag')} 
+            />
+            <datalist id="image-suggestions">
               {images.map(img => (
-                <option key={img.id} value={img.tag}>{img.tag}</option>
+                <option key={img.id} value={img.tag} />
               ))}
-            </Select>
-            {errors.image_tag && <p className="text-sm text-red-500">{errors.image_tag.message}</p>}
+            </datalist>
+            <p className="text-xs text-slate-500">Выберите из списка или введите тег из DockerHub</p>
+            {errors.image_tag && <p className="text-sm text-red-500">{errors.image_tag?.message as string}</p>}
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
+          <h4 className="font-medium">Маршрутизация (опционально)</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="domain_prefix">Доменный префикс</Label>
+              <div className="flex items-center gap-2">
+                <Input id="domain_prefix" placeholder="my-app" error={!!errors.domain_prefix} {...register('domain_prefix')} />
+                <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.{BASE_DOMAIN}</span>
+              </div>
+              {errors.domain_prefix && <p className="text-sm text-red-500">{errors.domain_prefix?.message as string}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="internal_port">Внутренний порт</Label>
+              <Input id="internal_port" type="number" placeholder="80" error={!!errors.internal_port} {...register('internal_port')} />
+              {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port?.message as string}</p>}
+            </div>
           </div>
         </div>
 
