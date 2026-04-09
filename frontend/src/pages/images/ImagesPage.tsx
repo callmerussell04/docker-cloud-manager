@@ -106,7 +106,7 @@ export function ImagesPage() {
           <div className={activeTab === 'images' ? 'min-w-[800px]' : 'min-w-[800px]'}>
             {activeTab === 'images' ? (
               <div className="grid grid-cols-[2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
-                <div>Тег</div>
+                <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Тег</div></div>
                 <div>Размер</div>
                 <div>Тип</div>
                 <div>Дата создания</div>

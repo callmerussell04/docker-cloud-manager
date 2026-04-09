@@ -59,7 +59,8 @@ export function AllResourcesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
       addToast('Действие выполнено', 'success');
-    }
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
   });
 
   const delVolMut = useMutation({
@@ -67,7 +68,8 @@ export function AllResourcesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_volumes'] });
       addToast('Том удален', 'success');
-    }
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
   });
 
   const delImgMut = useMutation({
@@ -75,7 +77,8 @@ export function AllResourcesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_images'] });
       addToast('Образ удален', 'success');
-    }
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
   });
 
   const actionProjMut = useMutation({
@@ -83,7 +86,8 @@ export function AllResourcesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_projects'] });
       addToast('Действие выполнено', 'success');
-    }
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
   });
 
   const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj;
@@ -133,7 +137,7 @@ export function AllResourcesPage() {
             
             {activeTab === 'containers' && (
               <div className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
-                <div className="pl-1">Контейнер / ID</div>
+                <div className="pl-2">Контейнер / ID</div>
                 <div>Статус</div>
                 <div>User ID / Docker ID</div>
                 <div className="text-right pr-2">Управление</div>
@@ -141,7 +145,7 @@ export function AllResourcesPage() {
             )}
             {activeTab === 'volumes' && (
               <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
-                <div className="pl-1">Имя тома</div>
+                <div className="pl-2">Имя тома</div>
                 <div>Драйвер</div>
                 <div>Дата / User ID</div>
                 <div className="text-right pr-2">Управление</div>
@@ -149,7 +153,7 @@ export function AllResourcesPage() {
             )}
             {activeTab === 'images' && (
               <div className="grid grid-cols-[2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
-                <div className="pl-1">Тег</div>
+                <div className="pl-2">Тег</div>
                 <div>Размер</div>
                 <div>Тип</div>
                 <div>User ID</div>
@@ -158,7 +162,7 @@ export function AllResourcesPage() {
             )}
             {activeTab === 'projects' && (
               <div className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
-                <div className="pl-1">Проект</div>
+                <div className="pl-2">Проект</div>
                 <div>Статус</div>
                 <div>User ID</div>
                 <div className="text-right pr-2">Управление</div>
@@ -172,18 +176,18 @@ export function AllResourcesPage() {
                 <>
                   {activeTab === 'containers' && containersData?.items.map((c) => (
                     <div key={c.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
-                      <div className="min-w-0">
-                        <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="font-medium truncate hover:underline text-slate-900 dark:text-slate-100">{c.name}</Link>
-                        <div className="text-xs text-slate-500 truncate font-mono">{c.id}</div>
+                      <div className="min-w-0 pr-4 pl-2">
+                        <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="font-medium block truncate hover:underline text-slate-900 dark:text-slate-100">{c.name}</Link>
+                        <div className="text-xs text-slate-500 block truncate font-mono">{c.id}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Badge variant={c.status === 'running' ? 'success' : 'default'}>{c.status}</Badge>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div className="truncate">User: {c.owner_username || 'unknown'}</div>
-                        <div className="truncate text-slate-400">Doc: {c.docker_id?.slice(0, 12) || 'N/A'}</div>
+                        <div className="block truncate" title={c.owner_username}>User: {c.owner_username || 'unknown'}</div>
+                        <div className="block truncate text-slate-400">Doc: {c.docker_id?.slice(0, 12) || 'N/A'}</div>
                       </div>
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end shrink-0">
                         <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
                           <Activity className="w-4 h-4" />
                         </Link>
@@ -196,18 +200,18 @@ export function AllResourcesPage() {
 
                   {activeTab === 'volumes' && volumesData?.items.map((v) => (
                     <div key={v.id} className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate font-mono">{v.docker_name}</div>
-                        <div className="text-xs text-slate-500 truncate font-mono">{v.id}</div>
+                      <div className="min-w-0 pr-4 pl-2">
+                        <div className="font-medium block truncate font-mono">{v.docker_name}</div>
+                        <div className="text-xs text-slate-500 block truncate font-mono">{v.id}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Badge variant="info">{v.driver}</Badge>
                       </div>
-                      <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div>{format(v.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
-                        <div className="truncate">User: {v.owner_username || 'unknown'}</div>
+                      <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
+                        <div className="block truncate">{format(v.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <div className="block truncate" title={v.owner_username}>User: {v.owner_username || 'unknown'}</div>
                       </div>
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end shrink-0">
                         <Button variant="danger" className="h-8 px-2" disabled={delVolMut.isPending} onClick={() => delVolMut.mutate(v.id)}><Trash2 className="w-4 h-4"/></Button>
                       </div>
                     </div>
@@ -215,19 +219,19 @@ export function AllResourcesPage() {
 
                   {activeTab === 'images' && imagesData?.items.map((img) => (
                     <div key={img.id} className="grid grid-cols-[2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{img.tag}</div>
+                      <div className="min-w-0 pr-4 pl-2">
+                        <div className="font-medium block truncate" title={img.tag}>{img.tag}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Badge variant="info">{img.size_mb} MB</Badge>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Badge variant={img.is_custom ? 'warning' : 'default'}>{img.is_custom ? 'Custom' : 'System'}</Badge>
                       </div>
-                      <div className="min-w-0 text-xs font-mono text-slate-500">
-                        <div className="truncate">User: {img.owner_username || 'unknown'}</div>
+                      <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
+                        <div className="block truncate" title={img.owner_username}>User: {img.owner_username || 'unknown'}</div>
                       </div>
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end shrink-0">
                         {img.is_custom && (
                           <Button variant="danger" className="h-8 px-2" disabled={delImgMut.isPending} onClick={() => delImgMut.mutate(img.id)}><Trash2 className="w-4 h-4"/></Button>
                         )}
@@ -237,20 +241,20 @@ export function AllResourcesPage() {
 
                   {activeTab === 'projects' && projectsData?.items.map((p) => (
                     <div key={p.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{p.name}</div>
-                        <div className="text-xs text-slate-500 truncate font-mono">{p.id}</div>
+                      <div className="min-w-0 pr-4 pl-2">
+                        <div className="font-medium block truncate" title={p.name}>{p.name}</div>
+                        <div className="text-xs text-slate-500 block truncate font-mono">{p.id}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Badge variant={p.status === 'running' ? 'success' : p.status === 'failed' ? 'error' : 'default'}>
                           {p.status === 'stopped' ? 'Остановлен' : p.status}
                         </Badge>
                       </div>
-                      <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div>{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
-                        <div className="truncate">User: {p.owner_username || 'unknown'}</div>
+                      <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
+                        <div className="block truncate">{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <div className="block truncate" title={p.owner_username}>User: {p.owner_username || 'unknown'}</div>
                       </div>
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end shrink-0">
                         <Button 
                           variant="secondary" 
                           className="h-8 px-2" 
@@ -259,14 +263,7 @@ export function AllResourcesPage() {
                         >
                           <Square className="w-4 h-4 text-yellow-500"/>
                         </Button>
-                        <Button 
-                          variant="danger" 
-                          className="h-8 px-2" 
-                          disabled={actionProjMut.isPending} 
-                          onClick={() => actionProjMut.mutate({id: p.id, action: 'delete'})}
-                        >
-                          <Trash2 className="w-4 h-4"/>
-                        </Button>
+                        <Button variant="danger" className="h-8 px-2" disabled={actionProjMut.isPending} onClick={() => actionProjMut.mutate({id: p.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
                       </div>
                     </div>
                   ))}

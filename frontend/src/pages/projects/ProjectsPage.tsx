@@ -54,7 +54,7 @@ export function ProjectsPage() {
         <div className="overflow-x-auto">
           <div className="min-w-[900px]">
             <div className="grid grid-cols-[1.5fr_1fr_2fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
-              <div className="pl-1">Имя проекта</div>
+              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Имя проекта</div></div>
               <div>Статус</div>
               <div>Ошибки</div>
               <div>Дата создания</div>

@@ -53,7 +53,7 @@ export function VolumesPage() {
         <div className="overflow-x-auto">
           <div className="min-w-[700px]">
             <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
-              <div>Имя тома</div>
+              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Имя тома</div></div>
               <div>Драйвер</div>
               <div>Дата создания</div>
               <div className="text-right pr-2">Действия</div>

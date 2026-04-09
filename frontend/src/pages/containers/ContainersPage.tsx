@@ -54,10 +54,10 @@ export function ContainersPage() {
       </div>
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto flex-1">
           <div className="min-w-[900px]">
             <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
-              <div>Контейнер</div>
+              <div className="flex items-center gap-4"><div className="w-10 shrink-0" /><div>Контейнер</div></div>
               <div>Статус</div>
               <div>Маршрутизация</div>
               <div className="text-right pr-2">Действия</div>
