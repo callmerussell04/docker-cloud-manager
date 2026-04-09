@@ -242,15 +242,31 @@ export function AllResourcesPage() {
                         <div className="text-xs text-slate-500 truncate font-mono">{p.id}</div>
                       </div>
                       <div>
-                        <Badge variant={p.status === 'running' ? 'success' : p.status === 'failed' ? 'error' : 'default'}>{p.status}</Badge>
+                        <Badge variant={p.status === 'running' ? 'success' : p.status === 'failed' ? 'error' : 'default'}>
+                          {p.status === 'stopped' ? 'Остановлен' : p.status}
+                        </Badge>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
                         <div>{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
                         <div className="truncate">User: {(p as any).owner_id || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
-                        <Button variant="secondary" className="h-8 px-2" disabled={actionProjMut.isPending} onClick={() => actionProjMut.mutate({id: p.id, action: 'stop'})}><Square className="w-4 h-4 text-yellow-500"/></Button>
-                        <Button variant="danger" className="h-8 px-2" disabled={actionProjMut.isPending} onClick={() => actionProjMut.mutate({id: p.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
+                        <Button 
+                          variant="secondary" 
+                          className="h-8 px-2" 
+                          disabled={actionProjMut.isPending || p.status === 'stopped'} 
+                          onClick={() => actionProjMut.mutate({id: p.id, action: 'stop'})}
+                        >
+                          <Square className="w-4 h-4 text-yellow-500"/>
+                        </Button>
+                        <Button 
+                          variant="danger" 
+                          className="h-8 px-2" 
+                          disabled={actionProjMut.isPending} 
+                          onClick={() => actionProjMut.mutate({id: p.id, action: 'delete'})}
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </Button>
                       </div>
                     </div>
                   ))}

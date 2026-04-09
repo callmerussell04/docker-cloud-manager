@@ -38,6 +38,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'running': return <Badge variant="success">Запущен</Badge>;
+      case 'stopped': return <Badge variant="default">Остановлен</Badge>;
       case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Сборка</Badge>;
       case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Развертывание</Badge>;
       case 'pending': return <Badge variant="default">В очереди</Badge>;
@@ -92,7 +93,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
           onClick={() => stopMutation.mutate(project.id)}
-          disabled={stopMutation.isPending || isWorking || project.status === 'failed'}
+          disabled={stopMutation.isPending || isWorking || project.status === 'failed' || project.status === 'stopped'}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title="Остановить сервисы"
         >

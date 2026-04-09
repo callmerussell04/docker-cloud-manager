@@ -178,7 +178,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             )}
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50 sticky bottom-0 bg-white dark:bg-slate-950 pb-2">
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
             <Button type="button" variant="ghost" onClick={handleClose}>Отмена</Button>
             <Button type="submit" isLoading={mutation.isPending}>Развернуть</Button>
           </div>
