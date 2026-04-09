@@ -2,15 +2,15 @@ import { create } from 'zustand';
 
 interface AuthState {
   accessToken: string | null;
-  role: 'admin' | 'user' | null; // НОВОЕ
+  role: 'admin' | 'user' | null;
+  username: string | null;
   isInitialized: boolean;
   setAccessToken: (token: string | null) => void;
   setInitialized: (status: boolean) => void;
   logout: () => void;
 }
 
-// Простая функция для декодирования JWT на клиенте
-function parseJwtRole(token: string): 'admin' | 'user' | null {
+function parseJwtPayload(token: string): { role: 'admin' | 'user' | null, username: string | null } {
   try {
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -19,24 +19,26 @@ function parseJwtRole(token: string): 'admin' | 'user' | null {
     }).join(''));
 
     const payload = JSON.parse(jsonPayload);
-    return payload.role || 'user';
+    return { role: payload.role || 'user', username: payload.username || null };
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   } catch (e) {
-    return null;
+    return { role: null, username: null };
   }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   role: null,
+  username: null,
   isInitialized: false,
   setAccessToken: (token) => {
     if (token) {
-      set({ accessToken: token, role: parseJwtRole(token) });
+      const { role, username } = parseJwtPayload(token);
+      set({ accessToken: token, role, username });
     } else {
-      set({ accessToken: null, role: null });
+      set({ accessToken: null, role: null, username: null });
     }
   },
   setInitialized: (status) => set({ isInitialized: status }),
-  logout: () => set({ accessToken: null, role: null }),
+  logout: () => set({ accessToken: null, role: null, username: null }),
 }));

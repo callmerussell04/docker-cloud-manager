@@ -9,6 +9,8 @@ export interface ContainerData {
   domain_prefix: string;
   status: string;
   created_at: number;
+  owner_id?: string;
+  owner_username?: string;
 }
 
 export interface ContainerStats {

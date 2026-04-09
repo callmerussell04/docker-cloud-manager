@@ -6,8 +6,9 @@ export interface ProjectData {
   status: string;
   error_message: string;
   created_at: number;
+  owner_id?: string;
+  owner_username?: string;
 }
-
 export const createProjectSchema = z.object({
   project_name: z.string().min(1, 'Имя проекта обязательно'),
 });

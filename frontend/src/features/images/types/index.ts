@@ -6,6 +6,8 @@ export interface ImageData {
   size_mb: number;
   is_custom: boolean;
   created_at: number;
+  owner_id?: string;
+  owner_username?: string;
 }
 
 export interface BuildData {
@@ -15,6 +17,8 @@ export interface BuildData {
   started_at: number;
   finished_at: number;
   log_file_path: string;
+  owner_id?: string;
+  owner_username?: string;
 }
 
 export const createBuildSchema = z.object({

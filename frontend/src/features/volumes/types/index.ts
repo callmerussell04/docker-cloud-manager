@@ -5,6 +5,8 @@ export interface VolumeData {
   docker_name: string;
   driver: string;
   created_at: number;
+  owner_id?: string;
+  owner_username?: string;
 }
 
 export const createVolumeSchema = z.object({

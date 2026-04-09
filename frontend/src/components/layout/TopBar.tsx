@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 
 export function TopBar() {
   const { theme, toggleTheme } = useThemeStore();
-  const { logout } = useAuthStore();
+  const { logout, username } = useAuthStore();
   const addToast = useToastStore((state) => state.addToast);
   const navigate = useNavigate();
 
@@ -40,8 +40,8 @@ export function TopBar() {
           <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
             <User className="w-4 h-4" />
           </div>
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 hidden sm:block">
-            Пользователь
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 hidden sm:block truncate max-w-[150px]">
+            {username || 'Пользователь'}
           </span>
         </div>
 

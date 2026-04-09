@@ -180,7 +180,7 @@ export function AllResourcesPage() {
                         <Badge variant={c.status === 'running' ? 'success' : 'default'}>{c.status}</Badge>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div className="truncate">User: {(c as any).owner_id || 'unknown'}</div>
+                        <div className="truncate">User: {c.owner_username || 'unknown'}</div>
                         <div className="truncate text-slate-400">Doc: {c.docker_id?.slice(0, 12) || 'N/A'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
@@ -205,7 +205,7 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
                         <div>{format(v.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
-                        <div className="truncate">User: {(v as any).owner_id || 'unknown'}</div>
+                        <div className="truncate">User: {v.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
                         <Button variant="danger" className="h-8 px-2" disabled={delVolMut.isPending} onClick={() => delVolMut.mutate(v.id)}><Trash2 className="w-4 h-4"/></Button>
@@ -225,7 +225,7 @@ export function AllResourcesPage() {
                         <Badge variant={img.is_custom ? 'warning' : 'default'}>{img.is_custom ? 'Custom' : 'System'}</Badge>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500">
-                        <div className="truncate">User: {(img as any).owner_id || 'unknown'}</div>
+                        <div className="truncate">User: {img.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
                         {img.is_custom && (
@@ -248,7 +248,7 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
                         <div>{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
-                        <div className="truncate">User: {(p as any).owner_id || 'unknown'}</div>
+                        <div className="truncate">User: {p.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
                         <Button 
