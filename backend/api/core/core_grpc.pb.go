@@ -1591,3 +1591,105 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "core.proto",
 }
+
+const (
+	StatsAPI_GetUserStats_FullMethodName = "/core.StatsAPI/GetUserStats"
+)
+
+// StatsAPIClient is the client API for StatsAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type StatsAPIClient interface {
+	GetUserStats(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*UserStatsResponse, error)
+}
+
+type statsAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewStatsAPIClient(cc grpc.ClientConnInterface) StatsAPIClient {
+	return &statsAPIClient{cc}
+}
+
+func (c *statsAPIClient) GetUserStats(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*UserStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserStatsResponse)
+	err := c.cc.Invoke(ctx, StatsAPI_GetUserStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// StatsAPIServer is the server API for StatsAPI service.
+// All implementations must embed UnimplementedStatsAPIServer
+// for forward compatibility.
+type StatsAPIServer interface {
+	GetUserStats(context.Context, *GetUserRequest) (*UserStatsResponse, error)
+	mustEmbedUnimplementedStatsAPIServer()
+}
+
+// UnimplementedStatsAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedStatsAPIServer struct{}
+
+func (UnimplementedStatsAPIServer) GetUserStats(context.Context, *GetUserRequest) (*UserStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserStats not implemented")
+}
+func (UnimplementedStatsAPIServer) mustEmbedUnimplementedStatsAPIServer() {}
+func (UnimplementedStatsAPIServer) testEmbeddedByValue()                  {}
+
+// UnsafeStatsAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to StatsAPIServer will
+// result in compilation errors.
+type UnsafeStatsAPIServer interface {
+	mustEmbedUnimplementedStatsAPIServer()
+}
+
+func RegisterStatsAPIServer(s grpc.ServiceRegistrar, srv StatsAPIServer) {
+	// If the following call panics, it indicates UnimplementedStatsAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&StatsAPI_ServiceDesc, srv)
+}
+
+func _StatsAPI_GetUserStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StatsAPIServer).GetUserStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StatsAPI_GetUserStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StatsAPIServer).GetUserStats(ctx, req.(*GetUserRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// StatsAPI_ServiceDesc is the grpc.ServiceDesc for StatsAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var StatsAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.StatsAPI",
+	HandlerType: (*StatsAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetUserStats",
+			Handler:    _StatsAPI_GetUserStats_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "core.proto",
+}

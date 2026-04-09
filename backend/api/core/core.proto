@@ -53,6 +53,24 @@ service SystemAPI {
   rpc UpdateConfig (SystemConfigData) returns (Empty);
 }
 
+service StatsAPI {
+  rpc GetUserStats (GetUserRequest) returns (UserStatsResponse);
+}
+
+message UserStatsResponse {
+  int32 containers_total = 1;
+  int32 containers_running = 2;
+  int32 containers_quota = 3;
+  int64 ram_used_bytes = 4;
+  int64 ram_quota_bytes = 5;
+  int32 disk_used_mb = 6;
+  int32 disk_quota_mb = 7;
+  int32 volumes_total = 8;
+  int32 volumes_quota = 9;
+  int32 images_total = 10;
+  int32 projects_total = 11;
+}
+
 message Empty {}
 
 message GetUserRequest {

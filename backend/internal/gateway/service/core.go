@@ -37,6 +37,7 @@ type CoreProvider interface {
 	UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error
 	GetContainerStats(ctx context.Context, ownerID, containerID string) (*coreapi.ContainerStatsResponse, error)
 	AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error)
+	GetUserStats(ctx context.Context, ownerID string) (*coreapi.UserStatsResponse, error)
 }
 
 type Core struct {
@@ -163,4 +164,8 @@ func (s *Core) GetContainerStats(ctx context.Context, ownerID, containerID strin
 
 func (s *Core) AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error) {
 	return s.provider.AdminGetContainerStats(ctx, containerID)
+}
+
+func (s *Core) GetUserStats(ctx context.Context, ownerID string) (*coreapi.UserStatsResponse, error) {
+	return s.provider.GetUserStats(ctx, ownerID)
 }

@@ -78,6 +78,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, registryURL)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
+	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager)
 
 	gRPCServer := grpc.NewServer()
 
@@ -95,6 +96,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 	coregrpc.RegisterImageAPI(gRPCServer, imgService)
 	coregrpc.RegisterProjectAPI(gRPCServer, projService)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
+	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}

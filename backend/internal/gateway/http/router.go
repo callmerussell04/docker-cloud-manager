@@ -86,6 +86,10 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			admin.DELETE("/projects/:id", coreHandler.AdminDeleteProject)
 			admin.POST("/projects/:id/stop", coreHandler.AdminStopProject)
 		}
+		stats := protected.Group("/stats")
+		{
+			stats.GET("", coreHandler.GetUserStats)
+		}
 	}
 
 	return router

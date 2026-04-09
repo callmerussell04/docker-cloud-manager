@@ -42,6 +42,7 @@ type CoreService interface {
 	UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error
 	GetContainerStats(ctx context.Context, ownerID, containerID string) (*coreapi.ContainerStatsResponse, error)
 	AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error)
+	GetUserStats(ctx context.Context, ownerID string) (*coreapi.UserStatsResponse, error)
 }
 
 type CoreHandler struct {
@@ -469,6 +470,18 @@ func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
 	containerID := c.Param("id")
 
 	stats, err := h.service.AdminGetContainerStats(c.Request.Context(), containerID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+func (h *CoreHandler) GetUserStats(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	stats, err := h.service.GetUserStats(c.Request.Context(), userID)
 	if err != nil {
 		h.handleError(c, err)
 		return

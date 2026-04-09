@@ -18,6 +18,7 @@ type CoreClient struct {
 	volumeAPI    coreapi.VolumeAPIClient
 	projectAPI   coreapi.ProjectAPIClient
 	systemAPI    coreapi.SystemAPIClient
+	statsAPI     coreapi.StatsAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -27,6 +28,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		volumeAPI:    coreapi.NewVolumeAPIClient(cc),
 		projectAPI:   coreapi.NewProjectAPIClient(cc),
 		systemAPI:    coreapi.NewSystemAPIClient(cc),
+		statsAPI:     coreapi.NewStatsAPIClient(cc),
 	}
 }
 
@@ -370,4 +372,13 @@ func mapCoreError(err error) error {
 	default:
 		return apperrors.ErrInternal
 	}
+}
+
+func (c *CoreClient) GetUserStats(ctx context.Context, ownerID string) (*coreapi.UserStatsResponse, error) {
+	req := &coreapi.GetUserRequest{OwnerId: ownerID}
+	resp, err := c.statsAPI.GetUserStats(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
 }
