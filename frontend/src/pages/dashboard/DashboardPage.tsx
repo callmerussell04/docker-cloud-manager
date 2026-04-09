@@ -18,9 +18,11 @@ export function DashboardPage() {
   };
 
   const renderProgressBar = (used: number, total: number, formatFn?: (val: number) => string) => {
-    const percent = total > 0 ? (used / total) * 100 : 0;
-    const formattedUsed = formatFn ? formatFn(used) : used;
-    const formattedTotal = formatFn ? formatFn(total) : total;
+    const safeUsed = used || 0;
+    const safeTotal = total || 0;
+    const percent = safeTotal > 0 ? (safeUsed / safeTotal) * 100 : 0;
+    const formattedUsed = formatFn ? formatFn(safeUsed) : safeUsed;
+    const formattedTotal = formatFn ? formatFn(safeTotal) : safeTotal;
 
     return (
       <div className="space-y-3 mt-4">
@@ -39,6 +41,20 @@ export function DashboardPage() {
         </div>
       </div>
     );
+  };
+
+  const safeStats = {
+    ram_used_bytes: stats?.ram_used_bytes || 0,
+    ram_quota_bytes: stats?.ram_quota_bytes || 0,
+    disk_used_mb: stats?.disk_used_mb || 0,
+    disk_quota_mb: stats?.disk_quota_mb || 0,
+    containers_total: stats?.containers_total || 0,
+    containers_quota: stats?.containers_quota || 0,
+    volumes_total: stats?.volumes_total || 0,
+    volumes_quota: stats?.volumes_quota || 0,
+    containers_running: stats?.containers_running || 0,
+    images_total: stats?.images_total || 0,
+    projects_total: stats?.projects_total || 0,
   };
 
   return (
@@ -70,7 +86,7 @@ export function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderProgressBar(stats.ram_used_bytes, stats.ram_quota_bytes, formatBytes)}
+                {renderProgressBar(safeStats.ram_used_bytes, safeStats.ram_quota_bytes, formatBytes)}
               </CardContent>
             </Card>
 
@@ -82,7 +98,7 @@ export function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderProgressBar(stats.disk_used_mb, stats.disk_quota_mb, (val) => `${val} MB`)}
+                {renderProgressBar(safeStats.disk_used_mb, safeStats.disk_quota_mb, (val) => `${val} MB`)}
               </CardContent>
             </Card>
 
@@ -94,7 +110,7 @@ export function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderProgressBar(stats.containers_total, stats.containers_quota)}
+                {renderProgressBar(safeStats.containers_total, safeStats.containers_quota)}
               </CardContent>
             </Card>
 
@@ -106,7 +122,7 @@ export function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {renderProgressBar(stats.volumes_total, stats.volumes_quota)}
+                {renderProgressBar(safeStats.volumes_total, safeStats.volumes_quota)}
               </CardContent>
             </Card>
           </div>
@@ -119,7 +135,7 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Запущенные контейнеры</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stats.containers_running}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.containers_running}</h3>
                 </div>
               </CardContent>
             </Card>
@@ -131,7 +147,7 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Собственные образы</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stats.images_total}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.images_total}</h3>
                 </div>
               </CardContent>
             </Card>
@@ -143,7 +159,7 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Проекты Compose</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{stats.projects_total}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.projects_total}</h3>
                 </div>
               </CardContent>
             </Card>
