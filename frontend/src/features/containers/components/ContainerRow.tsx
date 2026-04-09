@@ -1,10 +1,11 @@
-import { Play, Square, Trash2, Globe, ExternalLink, Box } from 'lucide-react';
+import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ContainerData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { actionContainerFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
 import { BASE_DOMAIN } from '@/config';
+import { Link } from 'react-router-dom';
 
 interface ContainerRowProps {
   container: ContainerData;
@@ -47,7 +48,9 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
           <Box className="w-5 h-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-base truncate" title={container.name}>{container.name}</h3>
+          <Link to={`/containers/${container.id}`} state={{ container }} className="font-semibold text-base truncate hover:underline text-slate-900 dark:text-slate-100" title={container.name}>
+            {container.name}
+          </Link>
           <p className="text-xs text-slate-500 dark:text-slate-400 truncate" title={container.image_tag}>
             {container.image_tag}
           </p>
@@ -80,10 +83,19 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
       </div>
 
       <div className="flex items-center gap-2 justify-end shrink-0">
+        <Link
+          to={`/containers/${container.id}`}
+          state={{ container }}
+          className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors"
+          title="Статистика"
+        >
+          <Activity className="w-4 h-4" />
+        </Link>
+
         <button
           onClick={() => handleAction('start')}
           disabled={container.status === 'running' || actionMutation.isPending}
-          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
+          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Запустить"
         >
           <Play className="w-4 h-4" />
@@ -110,7 +122,7 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
         <button
           onClick={() => handleAction('delete')}
           disabled={actionMutation.isPending}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-4"
+          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить"
         >
           <Trash2 className="w-4 h-4" />

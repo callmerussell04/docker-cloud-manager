@@ -1,9 +1,9 @@
 import { privateApi } from '@/api/axios';
-import { type SystemConfig } from '../types';
-import { type ContainerData } from '@/features/containers/types';
-import { type VolumeData } from '@/features/volumes/types';
-import { type ImageData, type BuildData } from '@/features/images/types';
-import { type ProjectData } from '@/features/projects/types';
+import type { SystemConfig } from '../types';
+import type { ContainerData, ContainerStats } from '@/features/containers/types';
+import type { VolumeData } from '@/features/volumes/types';
+import type { ImageData, BuildData } from '@/features/images/types';
+import type { ProjectData } from '@/features/projects/types';
 
 export const getSystemConfigFn = async (): Promise<SystemConfig> => {
   const response = await privateApi.get<SystemConfig>('/admin/config');
@@ -13,8 +13,6 @@ export const getSystemConfigFn = async (): Promise<SystemConfig> => {
 export const updateSystemConfigFn = async (data: SystemConfig): Promise<void> => {
   await privateApi.put('/admin/config', data);
 };
-
-// --- API для получения всех ресурсов (пагинация) ---
 
 export const getAllContainersFn = async (page: number, limit: number) => {
   const response = await privateApi.get<{ containers: ContainerData[], total_count: number }>(`/admin/containers?page=${page}&limit=${limit}`);
@@ -41,8 +39,6 @@ export const getAllProjectsFn = async (page: number, limit: number) => {
   return { items: response.data.projects || [], total_count: response.data.total_count || 0 };
 };
 
-// --- API для управления (Админские экшены) ---
-
 export const adminActionContainerFn = async ({ id, action }: { id: string; action: 'start' | 'stop' | 'delete' }): Promise<void> => {
   await privateApi.post(`/admin/containers/${id}/action/${action}`);
 };
@@ -65,4 +61,9 @@ export const adminActionProjectFn = async ({ id, action }: { id: string; action:
   } else {
     await privateApi.post(`/admin/projects/${id}/stop`);
   }
+};
+
+export const adminGetContainerStatsFn = async (id: string): Promise<ContainerStats> => {
+  const response = await privateApi.get<ContainerStats>(`/admin/containers/${id}/stats`);
+  return response.data;
 };

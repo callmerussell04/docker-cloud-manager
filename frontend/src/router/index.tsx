@@ -3,16 +3,14 @@ import { ProtectedRoute } from './ProtectedRoute';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
 import { ContainersPage } from '@/pages/containers/ContainersPage';
+import { ContainerDetailsPage } from '@/pages/containers/ContainerDetailsPage';
 import { ImagesPage } from '@/pages/images/ImagesPage';
 import { VolumesPage } from '@/pages/volumes/VolumesPage';
 import { ProjectsPage } from '@/pages/projects/ProjectsPage';
-
-// Импорты страниц администратора
 import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
 import { AllResourcesPage } from '@/pages/admin/AllResourcesPage';
 import { useAuthStore } from '@/store/authStore';
 
-// Защита админских роутов на клиенте
 // eslint-disable-next-line react-refresh/only-export-components
 function AdminRoute() {
   const role = useAuthStore(state => state.role);
@@ -41,17 +39,18 @@ export const router = createBrowserRouter([
         ),
       },
       { path: 'containers', element: <ContainersPage /> },
+      { path: 'containers/:id', element: <ContainerDetailsPage /> },
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesPage /> },
       { path: 'projects', element: <ProjectsPage /> },
       
-      // Админские роуты
       {
         path: 'admin',
         element: <AdminRoute />,
         children: [
           { path: 'resources', element: <AllResourcesPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
+          { path: 'containers/:id', element: <ContainerDetailsPage /> },
         ]
       }
     ],

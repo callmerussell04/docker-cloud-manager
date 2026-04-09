@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play } from 'lucide-react';
+import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity } from 'lucide-react';
 import { format } from 'date-fns';
+import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
@@ -24,13 +25,11 @@ export function AllResourcesPage() {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
 
-  // Сброс страницы при смене таба
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
     setPage(1);
   };
 
-  // --- QUERIES ---
   const { data: containersData, isFetching: isFetchingCont } = useQuery({
     queryKey: ['admin_containers', page],
     queryFn: () => getAllContainersFn(page, limit),
@@ -55,7 +54,6 @@ export function AllResourcesPage() {
     enabled: activeTab === 'projects',
   });
 
-  // --- MUTATIONS ---
   const actionContainerMut = useMutation({
     mutationFn: adminActionContainerFn,
     onSuccess: () => {
@@ -88,7 +86,6 @@ export function AllResourcesPage() {
     }
   });
 
-  // --- HELPERS ---
   const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj;
 
   return (
@@ -134,7 +131,6 @@ export function AllResourcesPage() {
         <div className="overflow-x-auto flex-1">
           <div className="min-w-[900px] flex flex-col h-full">
             
-            {/* Headers */}
             {activeTab === 'containers' && (
               <div className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
                 <div className="pl-1">Контейнер / ID</div>
@@ -169,7 +165,6 @@ export function AllResourcesPage() {
               </div>
             )}
 
-            {/* List Body */}
             <div className="flex flex-col flex-1">
               {isFetching ? (
                 <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
@@ -178,7 +173,7 @@ export function AllResourcesPage() {
                   {activeTab === 'containers' && containersData?.items.map((c) => (
                     <div key={c.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
                       <div className="min-w-0">
-                        <div className="font-medium truncate">{c.name}</div>
+                        <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="font-medium truncate hover:underline text-slate-900 dark:text-slate-100">{c.name}</Link>
                         <div className="text-xs text-slate-500 truncate font-mono">{c.id}</div>
                       </div>
                       <div>
@@ -189,6 +184,9 @@ export function AllResourcesPage() {
                         <div className="truncate text-slate-400">Doc: {c.docker_id?.slice(0, 12) || 'N/A'}</div>
                       </div>
                       <div className="flex gap-2 justify-end">
+                        <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
+                          <Activity className="w-4 h-4" />
+                        </Link>
                         <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'start'})}><Play className="w-4 h-4 text-green-500"/></Button>
                         <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'stop'})}><Square className="w-4 h-4 text-yellow-500"/></Button>
                         <Button variant="danger" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
@@ -260,7 +258,6 @@ export function AllResourcesPage() {
               )}
             </div>
 
-            {/* Pagination Box */}
             <div className="mt-auto shrink-0 bg-slate-50/50 dark:bg-slate-800/50 rounded-b-2xl">
               {activeTab === 'containers' && containersData && <Pagination currentPage={page} pageSize={limit} totalItems={containersData.total_count} onPageChange={setPage} />}
               {activeTab === 'volumes' && volumesData && <Pagination currentPage={page} pageSize={limit} totalItems={volumesData.total_count} onPageChange={setPage} />}

@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { ContainerData, CreateContainerDTO, ExposeContainerDTO } from '../types';
+import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats } from '../types';
 
 export const getContainersFn = async (): Promise<ContainerData[]> => {
   const response = await privateApi.get<{ containers: ContainerData[] }>('/containers');
@@ -17,4 +17,9 @@ export const actionContainerFn = async ({ id, action }: { id: string; action: 's
 
 export const exposeContainerFn = async ({ id, data }: { id: string; data: ExposeContainerDTO }): Promise<void> => {
   await privateApi.post(`/containers/${id}/expose`, data);
+};
+
+export const getContainerStatsFn = async (id: string): Promise<ContainerStats> => {
+  const response = await privateApi.get<ContainerStats>(`/containers/${id}/stats`);
+  return response.data;
 };

@@ -11,6 +11,14 @@ export interface ContainerData {
   created_at: number;
 }
 
+export interface ContainerStats {
+  cpu_percentage: number;
+  memory_usage_bytes: number;
+  memory_limit_bytes: number;
+  network_rx_bytes: number;
+  network_tx_bytes: number;
+}
+
 export const createContainerSchema = z.object({
   name: z.string().min(1, 'Имя обязательно'),
   image_tag: z.string().min(1, 'Укажите образ'),
