@@ -128,11 +128,13 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 			errMsg = *p.ErrorMessage
 		}
 		pbProjects = append(pbProjects, &coreapi.ProjectData{
-			Id:           p.ID.String(),
-			Name:         p.Name,
-			Status:       p.Status,
-			ErrorMessage: errMsg,
-			CreatedAt:    p.CreatedAt.Unix(),
+			Id:            p.ID.String(),
+			Name:          p.Name,
+			Status:        p.Status,
+			ErrorMessage:  errMsg,
+			CreatedAt:     p.CreatedAt.Unix(),
+			OwnerId:       p.OwnerID.String(),
+			OwnerUsername: p.OwnerUsername,
 		})
 	}
 

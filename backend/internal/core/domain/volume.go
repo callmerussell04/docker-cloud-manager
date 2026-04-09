@@ -7,13 +7,14 @@ import (
 )
 
 type Volume struct {
-	ID         uuid.UUID
-	OwnerID    uuid.UUID
-	ProjectID  *uuid.UUID
-	DockerName string
-	Driver     string
-	DriverOpts []byte
-	CreatedAt  time.Time
+	ID            uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	ProjectID     *uuid.UUID
+	DockerName    string
+	Driver        string
+	DriverOpts    []byte
+	CreatedAt     time.Time
 }
 
 type VolumeMount struct {

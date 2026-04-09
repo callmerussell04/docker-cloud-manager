@@ -212,9 +212,10 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 	}
 
 	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
-		FROM volumes 
-		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+		SELECT v.id, v.owner_id, u.username, v.project_id, v.docker_name, v.driver, v.driver_opts, v.created_at 
+		FROM volumes v
+		JOIN users u ON v.owner_id = u.id
+		ORDER BY v.created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -226,7 +227,7 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 	for rows.Next() {
 		var v domain.Volume
 		var pID sql.NullString
-		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.OwnerID, &v.OwnerUsername, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if pID.Valid {

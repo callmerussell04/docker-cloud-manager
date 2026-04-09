@@ -14,10 +14,12 @@ const (
 )
 
 type Build struct {
-	ID          uuid.UUID
-	ImageID     uuid.UUID
-	Status      string
-	LogFilePath string
-	StartedAt   time.Time
-	FinishedAt  *time.Time
+	ID            uuid.UUID
+	ImageID       uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	Status        string
+	LogFilePath   string
+	StartedAt     time.Time
+	FinishedAt    *time.Time
 }

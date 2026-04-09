@@ -7,11 +7,12 @@ import (
 )
 
 type Image struct {
-	ID        uuid.UUID
-	OwnerID   uuid.UUID
-	Tag       string
-	SizeMB    int
-	IsCustom  bool
-	Metadata  []byte
-	CreatedAt time.Time
+	ID            uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	Tag           string
+	SizeMB        int
+	IsCustom      bool
+	Metadata      []byte
+	CreatedAt     time.Time
 }

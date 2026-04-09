@@ -206,11 +206,13 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 	var pbImages []*coreapi.ImageData
 	for _, img := range images {
 		pbImages = append(pbImages, &coreapi.ImageData{
-			Id:        img.ID.String(),
-			Tag:       img.Tag,
-			SizeMb:    int32(img.SizeMB),
-			IsCustom:  img.IsCustom,
-			CreatedAt: img.CreatedAt.Unix(),
+			Id:            img.ID.String(),
+			Tag:           img.Tag,
+			SizeMb:        int32(img.SizeMB),
+			IsCustom:      img.IsCustom,
+			CreatedAt:     img.CreatedAt.Unix(),
+			OwnerId:       img.OwnerID.String(),
+			OwnerUsername: img.OwnerUsername,
 		})
 	}
 
@@ -254,12 +256,14 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 			finishedAt = b.FinishedAt.Unix()
 		}
 		pbBuilds = append(pbBuilds, &coreapi.BuildData{
-			Id:          b.ID.String(),
-			ImageId:     b.ImageID.String(),
-			Status:      b.Status,
-			StartedAt:   b.StartedAt.Unix(),
-			FinishedAt:  finishedAt,
-			LogFilePath: b.LogFilePath,
+			Id:            b.ID.String(),
+			ImageId:       b.ImageID.String(),
+			Status:        b.Status,
+			StartedAt:     b.StartedAt.Unix(),
+			FinishedAt:    finishedAt,
+			LogFilePath:   b.LogFilePath,
+			OwnerId:       b.OwnerID.String(),
+			OwnerUsername: b.OwnerUsername,
 		})
 	}
 

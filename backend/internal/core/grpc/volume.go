@@ -127,10 +127,12 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 	var pbVolumes []*coreapi.VolumeData
 	for _, v := range volumes {
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
-			Id:         v.ID.String(),
-			DockerName: v.DockerName,
-			Driver:     v.Driver,
-			CreatedAt:  v.CreatedAt.Unix(),
+			Id:            v.ID.String(),
+			DockerName:    v.DockerName,
+			Driver:        v.Driver,
+			CreatedAt:     v.CreatedAt.Unix(),
+			OwnerId:       v.OwnerID.String(),
+			OwnerUsername: v.OwnerUsername,
 		})
 	}
 

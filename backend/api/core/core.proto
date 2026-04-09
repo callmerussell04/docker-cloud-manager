@@ -101,6 +101,8 @@ message ContainerData {
   string domain_prefix = 6;
   string status = 7;
   int64 created_at = 8;
+  string owner_id = 9;
+  string owner_username = 10;
 }
 
 message ContainerListResponse {
@@ -136,6 +138,8 @@ message ImageData {
   int32 size_mb = 3;
   bool is_custom = 4;
   int64 created_at = 5;
+  string owner_id = 6;
+  string owner_username = 7;
 }
 
 message ImageListResponse {
@@ -163,6 +167,8 @@ message VolumeData {
   string docker_name = 2;
   string driver = 3;
   int64 created_at = 4;
+  string owner_id = 5;
+  string owner_username = 6;
 }
 
 message VolumeListResponse {
@@ -181,6 +187,8 @@ message BuildData {
   int64 started_at = 4;
   int64 finished_at = 5;
   string log_file_path = 6;
+  string owner_id = 7;
+  string owner_username = 8;
 }
 
 message BuildListResponse {
@@ -193,6 +201,8 @@ message ProjectData {
   string status = 3;
   string error_message = 4;
   int64 created_at = 5;
+  string owner_id = 6;
+  string owner_username = 7;
 }
 
 message ProjectListResponse {

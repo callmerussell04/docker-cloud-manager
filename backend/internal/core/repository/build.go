@@ -197,9 +197,11 @@ func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	}
 
 	query := `
-		SELECT id, image_id, status, log_file_path, started_at, finished_at 
-		FROM builds 
-		ORDER BY started_at DESC LIMIT $1 OFFSET $2
+		SELECT b.id, b.image_id, i.owner_id, u.username, b.status, b.log_file_path, b.started_at, b.finished_at 
+		FROM builds b
+		JOIN images i ON b.image_id = i.id
+		JOIN users u ON i.owner_id = u.id
+		ORDER BY b.started_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -211,7 +213,7 @@ func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	for rows.Next() {
 		var b domain.Build
 		var finishedAt sql.NullTime
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.OwnerUsername, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
 			return nil, 0, err
 		}
 		if finishedAt.Valid {

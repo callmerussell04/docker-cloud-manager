@@ -397,9 +397,10 @@ func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset
 	}
 
 	query := `
-		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation, created_at
-		FROM containers 
-		ORDER BY created_at DESC LIMIT $1 OFFSET $2
+		SELECT c.id, c.owner_id, u.username, c.project_id, c.docker_id, c.name, c.image_tag, c.internal_port, c.domain_prefix, c.status, c.base_memory_reservation, c.created_at
+		FROM containers c
+		JOIN users u ON c.owner_id = u.id
+		ORDER BY c.created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -412,7 +413,7 @@ func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset
 		var c domain.Container
 		var projectID sql.NullString
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &c.OwnerUsername, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if projectID.Valid {

@@ -16,10 +16,11 @@ const (
 )
 
 type Project struct {
-	ID           uuid.UUID
-	OwnerID      uuid.UUID
-	Name         string
-	Status       string
-	ErrorMessage *string
-	CreatedAt    time.Time
+	ID            uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	Name          string
+	Status        string
+	ErrorMessage  *string
+	CreatedAt     time.Time
 }
