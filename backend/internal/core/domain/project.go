@@ -11,6 +11,7 @@ const (
 	ProjectStatusBuilding  = "building"
 	ProjectStatusDeploying = "deploying"
 	ProjectStatusRunning   = "running"
+	ProjectStatusStopped   = "stopped"
 	ProjectStatusFailed    = "failed"
 )
 
