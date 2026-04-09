@@ -2025,6 +2025,82 @@ func (x *SystemConfigData) GetContainerTtlHours() int64 {
 	return 0
 }
 
+type ContainerStatsResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	CpuPercentage    float64                `protobuf:"fixed64,1,opt,name=cpu_percentage,json=cpuPercentage,proto3" json:"cpu_percentage,omitempty"`
+	MemoryUsageBytes int64                  `protobuf:"varint,2,opt,name=memory_usage_bytes,json=memoryUsageBytes,proto3" json:"memory_usage_bytes,omitempty"`
+	MemoryLimitBytes int64                  `protobuf:"varint,3,opt,name=memory_limit_bytes,json=memoryLimitBytes,proto3" json:"memory_limit_bytes,omitempty"`
+	NetworkRxBytes   int64                  `protobuf:"varint,4,opt,name=network_rx_bytes,json=networkRxBytes,proto3" json:"network_rx_bytes,omitempty"`
+	NetworkTxBytes   int64                  `protobuf:"varint,5,opt,name=network_tx_bytes,json=networkTxBytes,proto3" json:"network_tx_bytes,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ContainerStatsResponse) Reset() {
+	*x = ContainerStatsResponse{}
+	mi := &file_core_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContainerStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContainerStatsResponse) ProtoMessage() {}
+
+func (x *ContainerStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_core_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContainerStatsResponse.ProtoReflect.Descriptor instead.
+func (*ContainerStatsResponse) Descriptor() ([]byte, []int) {
+	return file_core_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ContainerStatsResponse) GetCpuPercentage() float64 {
+	if x != nil {
+		return x.CpuPercentage
+	}
+	return 0
+}
+
+func (x *ContainerStatsResponse) GetMemoryUsageBytes() int64 {
+	if x != nil {
+		return x.MemoryUsageBytes
+	}
+	return 0
+}
+
+func (x *ContainerStatsResponse) GetMemoryLimitBytes() int64 {
+	if x != nil {
+		return x.MemoryLimitBytes
+	}
+	return 0
+}
+
+func (x *ContainerStatsResponse) GetNetworkRxBytes() int64 {
+	if x != nil {
+		return x.NetworkRxBytes
+	}
+	return 0
+}
+
+func (x *ContainerStatsResponse) GetNetworkTxBytes() int64 {
+	if x != nil {
+		return x.NetworkTxBytes
+	}
+	return 0
+}
+
 var File_core_proto protoreflect.FileDescriptor
 
 const file_core_proto_rawDesc = "" +
@@ -2195,7 +2271,13 @@ const file_core_proto_rawDesc = "" +
 	"\x14max_volumes_per_user\x18\r \x01(\x05R\x11maxVolumesPerUser\x125\n" +
 	"\x17max_containers_per_user\x18\x0e \x01(\x05R\x14maxContainersPerUser\x12!\n" +
 	"\fregistry_url\x18\x0f \x01(\tR\vregistryUrl\x12.\n" +
-	"\x13container_ttl_hours\x18\x10 \x01(\x03R\x11containerTtlHours2\xa4\x04\n" +
+	"\x13container_ttl_hours\x18\x10 \x01(\x03R\x11containerTtlHours\"\xef\x01\n" +
+	"\x16ContainerStatsResponse\x12%\n" +
+	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
+	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +
+	"\x12memory_limit_bytes\x18\x03 \x01(\x03R\x10memoryLimitBytes\x12(\n" +
+	"\x10network_rx_bytes\x18\x04 \x01(\x03R\x0enetworkRxBytes\x12(\n" +
+	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes2\xcb\x05\n" +
 	"\fContainerAPI\x12N\n" +
 	"\x0fCreateContainer\x12\x1c.core.CreateContainerRequest\x1a\x1d.core.CreateContainerResponse\x12;\n" +
 	"\x0eStartContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12:\n" +
@@ -2204,7 +2286,9 @@ const file_core_proto_rawDesc = "" +
 	"\x11GetUserContainers\x12\x14.core.GetUserRequest\x1a\x1b.core.ContainerListResponse\x123\n" +
 	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty\x12M\n" +
 	"\x10GetAllContainers\x12\x17.core.PaginationRequest\x1a .core.PaginatedContainerResponse\x12A\n" +
-	"\x14AdminActionContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty2\xfe\x04\n" +
+	"\x14AdminActionContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12O\n" +
+	"\x11GetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse\x12T\n" +
+	"\x16AdminGetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse2\xfe\x04\n" +
 	"\bImageAPI\x12>\n" +
 	"\rGetUserImages\x12\x14.core.GetUserRequest\x1a\x17.core.ImageListResponse\x124\n" +
 	"\vDeleteImage\x12\x18.core.ImageActionRequest\x1a\v.core.Empty\x12B\n" +
@@ -2246,7 +2330,7 @@ func file_core_proto_rawDescGZIP() []byte {
 	return file_core_proto_rawDescData
 }
 
-var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 35)
+var file_core_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
 var file_core_proto_goTypes = []any{
 	(*Empty)(nil),                      // 0: core.Empty
 	(*GetUserRequest)(nil),             // 1: core.GetUserRequest
@@ -2281,15 +2365,16 @@ var file_core_proto_goTypes = []any{
 	(*PaginatedBuildResponse)(nil),     // 30: core.PaginatedBuildResponse
 	(*PaginatedProjectResponse)(nil),   // 31: core.PaginatedProjectResponse
 	(*SystemConfigData)(nil),           // 32: core.SystemConfigData
-	nil,                                // 33: core.CreateContainerRequest.EnvVarsEntry
-	nil,                                // 34: core.CreateVolumeRequest.DriverOptsEntry
+	(*ContainerStatsResponse)(nil),     // 33: core.ContainerStatsResponse
+	nil,                                // 34: core.CreateContainerRequest.EnvVarsEntry
+	nil,                                // 35: core.CreateVolumeRequest.DriverOptsEntry
 }
 var file_core_proto_depIdxs = []int32{
-	33, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
+	34, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
 	2,  // 1: core.CreateContainerRequest.volume_mounts:type_name -> core.VolumeMount
 	7,  // 2: core.ContainerListResponse.containers:type_name -> core.ContainerData
 	13, // 3: core.ImageListResponse.images:type_name -> core.ImageData
-	34, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
+	35, // 4: core.CreateVolumeRequest.driver_opts:type_name -> core.CreateVolumeRequest.DriverOptsEntry
 	18, // 5: core.VolumeListResponse.volumes:type_name -> core.VolumeData
 	21, // 6: core.BuildListResponse.builds:type_name -> core.BuildData
 	23, // 7: core.ProjectListResponse.projects:type_name -> core.ProjectData
@@ -2306,62 +2391,66 @@ var file_core_proto_depIdxs = []int32{
 	6,  // 18: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
 	26, // 19: core.ContainerAPI.GetAllContainers:input_type -> core.PaginationRequest
 	5,  // 20: core.ContainerAPI.AdminActionContainer:input_type -> core.ContainerActionRequest
-	1,  // 21: core.ImageAPI.GetUserImages:input_type -> core.GetUserRequest
-	9,  // 22: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
-	10, // 23: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
-	12, // 24: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
-	1,  // 25: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
-	20, // 26: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
-	26, // 27: core.ImageAPI.GetAllImages:input_type -> core.PaginationRequest
-	9,  // 28: core.ImageAPI.AdminDeleteImage:input_type -> core.ImageActionRequest
-	26, // 29: core.ImageAPI.GetAllBuilds:input_type -> core.PaginationRequest
-	20, // 30: core.ImageAPI.AdminDeleteBuild:input_type -> core.BuildActionRequest
-	15, // 31: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	17, // 32: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	1,  // 33: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
-	26, // 34: core.VolumeAPI.GetAllVolumes:input_type -> core.PaginationRequest
-	17, // 35: core.VolumeAPI.AdminDeleteVolume:input_type -> core.VolumeActionRequest
-	1,  // 36: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
-	25, // 37: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	25, // 38: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	26, // 39: core.ProjectAPI.GetAllProjects:input_type -> core.PaginationRequest
-	25, // 40: core.ProjectAPI.AdminDeleteProject:input_type -> core.ProjectActionRequest
-	25, // 41: core.ProjectAPI.AdminStopProject:input_type -> core.ProjectActionRequest
-	0,  // 42: core.SystemAPI.GetConfig:input_type -> core.Empty
-	32, // 43: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	4,  // 44: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	0,  // 45: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	0,  // 46: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	0,  // 47: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	8,  // 48: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	0,  // 49: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	27, // 50: core.ContainerAPI.GetAllContainers:output_type -> core.PaginatedContainerResponse
-	0,  // 51: core.ContainerAPI.AdminActionContainer:output_type -> core.Empty
-	14, // 52: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	0,  // 53: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	11, // 54: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	0,  // 55: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	22, // 56: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	0,  // 57: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	29, // 58: core.ImageAPI.GetAllImages:output_type -> core.PaginatedImageResponse
-	0,  // 59: core.ImageAPI.AdminDeleteImage:output_type -> core.Empty
-	30, // 60: core.ImageAPI.GetAllBuilds:output_type -> core.PaginatedBuildResponse
-	0,  // 61: core.ImageAPI.AdminDeleteBuild:output_type -> core.Empty
-	16, // 62: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	0,  // 63: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	19, // 64: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	28, // 65: core.VolumeAPI.GetAllVolumes:output_type -> core.PaginatedVolumeResponse
-	0,  // 66: core.VolumeAPI.AdminDeleteVolume:output_type -> core.Empty
-	24, // 67: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
-	0,  // 68: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	0,  // 69: core.ProjectAPI.StopProject:output_type -> core.Empty
-	31, // 70: core.ProjectAPI.GetAllProjects:output_type -> core.PaginatedProjectResponse
-	0,  // 71: core.ProjectAPI.AdminDeleteProject:output_type -> core.Empty
-	0,  // 72: core.ProjectAPI.AdminStopProject:output_type -> core.Empty
-	32, // 73: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	0,  // 74: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	44, // [44:75] is the sub-list for method output_type
-	13, // [13:44] is the sub-list for method input_type
+	5,  // 21: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
+	5,  // 22: core.ContainerAPI.AdminGetContainerStats:input_type -> core.ContainerActionRequest
+	1,  // 23: core.ImageAPI.GetUserImages:input_type -> core.GetUserRequest
+	9,  // 24: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
+	10, // 25: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
+	12, // 26: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
+	1,  // 27: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
+	20, // 28: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	26, // 29: core.ImageAPI.GetAllImages:input_type -> core.PaginationRequest
+	9,  // 30: core.ImageAPI.AdminDeleteImage:input_type -> core.ImageActionRequest
+	26, // 31: core.ImageAPI.GetAllBuilds:input_type -> core.PaginationRequest
+	20, // 32: core.ImageAPI.AdminDeleteBuild:input_type -> core.BuildActionRequest
+	15, // 33: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	17, // 34: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	1,  // 35: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
+	26, // 36: core.VolumeAPI.GetAllVolumes:input_type -> core.PaginationRequest
+	17, // 37: core.VolumeAPI.AdminDeleteVolume:input_type -> core.VolumeActionRequest
+	1,  // 38: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
+	25, // 39: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
+	25, // 40: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	26, // 41: core.ProjectAPI.GetAllProjects:input_type -> core.PaginationRequest
+	25, // 42: core.ProjectAPI.AdminDeleteProject:input_type -> core.ProjectActionRequest
+	25, // 43: core.ProjectAPI.AdminStopProject:input_type -> core.ProjectActionRequest
+	0,  // 44: core.SystemAPI.GetConfig:input_type -> core.Empty
+	32, // 45: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	4,  // 46: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	0,  // 47: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	0,  // 48: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	0,  // 49: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	8,  // 50: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
+	0,  // 51: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	27, // 52: core.ContainerAPI.GetAllContainers:output_type -> core.PaginatedContainerResponse
+	0,  // 53: core.ContainerAPI.AdminActionContainer:output_type -> core.Empty
+	33, // 54: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	33, // 55: core.ContainerAPI.AdminGetContainerStats:output_type -> core.ContainerStatsResponse
+	14, // 56: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
+	0,  // 57: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	11, // 58: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	0,  // 59: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	22, // 60: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
+	0,  // 61: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	29, // 62: core.ImageAPI.GetAllImages:output_type -> core.PaginatedImageResponse
+	0,  // 63: core.ImageAPI.AdminDeleteImage:output_type -> core.Empty
+	30, // 64: core.ImageAPI.GetAllBuilds:output_type -> core.PaginatedBuildResponse
+	0,  // 65: core.ImageAPI.AdminDeleteBuild:output_type -> core.Empty
+	16, // 66: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	0,  // 67: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	19, // 68: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
+	28, // 69: core.VolumeAPI.GetAllVolumes:output_type -> core.PaginatedVolumeResponse
+	0,  // 70: core.VolumeAPI.AdminDeleteVolume:output_type -> core.Empty
+	24, // 71: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
+	0,  // 72: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	0,  // 73: core.ProjectAPI.StopProject:output_type -> core.Empty
+	31, // 74: core.ProjectAPI.GetAllProjects:output_type -> core.PaginatedProjectResponse
+	0,  // 75: core.ProjectAPI.AdminDeleteProject:output_type -> core.Empty
+	0,  // 76: core.ProjectAPI.AdminStopProject:output_type -> core.Empty
+	32, // 77: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	0,  // 78: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	46, // [46:79] is the sub-list for method output_type
+	13, // [13:46] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
@@ -2378,7 +2467,7 @@ func file_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_proto_rawDesc), len(file_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   35,
+			NumMessages:   36,
 			NumExtensions: 0,
 			NumServices:   5,
 		},

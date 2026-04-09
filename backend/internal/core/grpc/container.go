@@ -25,6 +25,8 @@ type ContainerLogic interface {
 	AdminDelete(ctx context.Context, containerID uuid.UUID) error
 	AdminStart(ctx context.Context, containerID uuid.UUID) error
 	AdminStop(ctx context.Context, containerID uuid.UUID) error
+	GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (domain.ContainerStats, error)
+	AdminGetStats(ctx context.Context, containerID uuid.UUID) (domain.ContainerStats, error)
 }
 
 type ContainerHandler struct {
@@ -268,4 +270,54 @@ func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreap
 	}
 
 	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id")
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
+	}
+
+	stats, err := h.logic.GetStats(ctx, ownerID, containerID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get stats")
+	}
+
+	return &coreapi.ContainerStatsResponse{
+		CpuPercentage:    stats.CPUPercentage,
+		MemoryUsageBytes: stats.MemoryUsageBytes,
+		MemoryLimitBytes: stats.MemoryLimitBytes,
+		NetworkRxBytes:   stats.NetworkRxBytes,
+		NetworkTxBytes:   stats.NetworkTxBytes,
+	}, nil
+}
+
+func (h *ContainerHandler) AdminGetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
+	}
+
+	stats, err := h.logic.AdminGetStats(ctx, containerID)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get stats")
+	}
+
+	return &coreapi.ContainerStatsResponse{
+		CpuPercentage:    stats.CPUPercentage,
+		MemoryUsageBytes: stats.MemoryUsageBytes,
+		MemoryLimitBytes: stats.MemoryLimitBytes,
+		NetworkRxBytes:   stats.NetworkRxBytes,
+		NetworkTxBytes:   stats.NetworkTxBytes,
+	}, nil
 }

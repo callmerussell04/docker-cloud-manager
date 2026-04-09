@@ -71,6 +71,7 @@ type ContainerDockerAPI interface {
 	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
 	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
+	GetContainerStats(ctx context.Context, dockerID string) (domain.ContainerStats, error)
 }
 
 type HostMetricsProvider interface {
@@ -674,4 +675,29 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 		go s.RebalanceResources(context.Background())
 	}
 	return err
+}
+
+func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (domain.ContainerStats, error) {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return domain.ContainerStats{}, err
+	}
+	if c.OwnerID != ownerID {
+		return domain.ContainerStats{}, apperrors.ErrNotFound
+	}
+	if c.Status != domain.ContainerStatusRunning {
+		return domain.ContainerStats{}, nil
+	}
+	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
+}
+
+func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.UUID) (domain.ContainerStats, error) {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return domain.ContainerStats{}, err
+	}
+	if c.Status != domain.ContainerStatusRunning {
+		return domain.ContainerStats{}, nil
+	}
+	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
 }

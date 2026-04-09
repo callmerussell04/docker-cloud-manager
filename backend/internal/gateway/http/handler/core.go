@@ -40,6 +40,8 @@ type CoreService interface {
 	AdminStopProject(ctx context.Context, projectID string) error
 	GetSystemConfig(ctx context.Context) (*coreapi.SystemConfigData, error)
 	UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error
+	GetContainerStats(ctx context.Context, ownerID, containerID string) (*coreapi.ContainerStatsResponse, error)
+	AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error)
 }
 
 type CoreHandler struct {
@@ -448,6 +450,31 @@ func (h *CoreHandler) UpdateSystemConfig(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "config updated"})
+}
+
+func (h *CoreHandler) GetContainerStats(c *gin.Context) {
+	userID := c.GetString("user_id")
+	containerID := c.Param("id")
+
+	stats, err := h.service.GetContainerStats(c.Request.Context(), userID, containerID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
+	containerID := c.Param("id")
+
+	stats, err := h.service.AdminGetContainerStats(c.Request.Context(), containerID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {

@@ -19,14 +19,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContainerAPI_CreateContainer_FullMethodName      = "/core.ContainerAPI/CreateContainer"
-	ContainerAPI_StartContainer_FullMethodName       = "/core.ContainerAPI/StartContainer"
-	ContainerAPI_StopContainer_FullMethodName        = "/core.ContainerAPI/StopContainer"
-	ContainerAPI_DeleteContainer_FullMethodName      = "/core.ContainerAPI/DeleteContainer"
-	ContainerAPI_GetUserContainers_FullMethodName    = "/core.ContainerAPI/GetUserContainers"
-	ContainerAPI_ExposeContainer_FullMethodName      = "/core.ContainerAPI/ExposeContainer"
-	ContainerAPI_GetAllContainers_FullMethodName     = "/core.ContainerAPI/GetAllContainers"
-	ContainerAPI_AdminActionContainer_FullMethodName = "/core.ContainerAPI/AdminActionContainer"
+	ContainerAPI_CreateContainer_FullMethodName        = "/core.ContainerAPI/CreateContainer"
+	ContainerAPI_StartContainer_FullMethodName         = "/core.ContainerAPI/StartContainer"
+	ContainerAPI_StopContainer_FullMethodName          = "/core.ContainerAPI/StopContainer"
+	ContainerAPI_DeleteContainer_FullMethodName        = "/core.ContainerAPI/DeleteContainer"
+	ContainerAPI_GetUserContainers_FullMethodName      = "/core.ContainerAPI/GetUserContainers"
+	ContainerAPI_ExposeContainer_FullMethodName        = "/core.ContainerAPI/ExposeContainer"
+	ContainerAPI_GetAllContainers_FullMethodName       = "/core.ContainerAPI/GetAllContainers"
+	ContainerAPI_AdminActionContainer_FullMethodName   = "/core.ContainerAPI/AdminActionContainer"
+	ContainerAPI_GetContainerStats_FullMethodName      = "/core.ContainerAPI/GetContainerStats"
+	ContainerAPI_AdminGetContainerStats_FullMethodName = "/core.ContainerAPI/AdminGetContainerStats"
 )
 
 // ContainerAPIClient is the client API for ContainerAPI service.
@@ -41,6 +43,8 @@ type ContainerAPIClient interface {
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetAllContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
 	AdminActionContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
+	AdminGetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
 }
 
 type containerAPIClient struct {
@@ -131,6 +135,26 @@ func (c *containerAPIClient) AdminActionContainer(ctx context.Context, in *Conta
 	return out, nil
 }
 
+func (c *containerAPIClient) GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContainerStatsResponse)
+	err := c.cc.Invoke(ctx, ContainerAPI_GetContainerStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *containerAPIClient) AdminGetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContainerStatsResponse)
+	err := c.cc.Invoke(ctx, ContainerAPI_AdminGetContainerStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ContainerAPIServer is the server API for ContainerAPI service.
 // All implementations must embed UnimplementedContainerAPIServer
 // for forward compatibility.
@@ -143,6 +167,8 @@ type ContainerAPIServer interface {
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	GetAllContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
 	AdminActionContainer(context.Context, *ContainerActionRequest) (*Empty, error)
+	GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
+	AdminGetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
 	mustEmbedUnimplementedContainerAPIServer()
 }
 
@@ -176,6 +202,12 @@ func (UnimplementedContainerAPIServer) GetAllContainers(context.Context, *Pagina
 }
 func (UnimplementedContainerAPIServer) AdminActionContainer(context.Context, *ContainerActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method AdminActionContainer not implemented")
+}
+func (UnimplementedContainerAPIServer) GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainerStats not implemented")
+}
+func (UnimplementedContainerAPIServer) AdminGetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AdminGetContainerStats not implemented")
 }
 func (UnimplementedContainerAPIServer) mustEmbedUnimplementedContainerAPIServer() {}
 func (UnimplementedContainerAPIServer) testEmbeddedByValue()                      {}
@@ -342,6 +374,42 @@ func _ContainerAPI_AdminActionContainer_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContainerAPI_GetContainerStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).GetContainerStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_GetContainerStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).GetContainerStats(ctx, req.(*ContainerActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ContainerAPI_AdminGetContainerStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).AdminGetContainerStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_AdminGetContainerStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).AdminGetContainerStats(ctx, req.(*ContainerActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ContainerAPI_ServiceDesc is the grpc.ServiceDesc for ContainerAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -380,6 +448,14 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminActionContainer",
 			Handler:    _ContainerAPI_AdminActionContainer_Handler,
+		},
+		{
+			MethodName: "GetContainerStats",
+			Handler:    _ContainerAPI_GetContainerStats_Handler,
+		},
+		{
+			MethodName: "AdminGetContainerStats",
+			Handler:    _ContainerAPI_AdminGetContainerStats_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

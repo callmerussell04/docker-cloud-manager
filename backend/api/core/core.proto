@@ -13,6 +13,8 @@ service ContainerAPI {
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetAllContainers (PaginationRequest) returns (PaginatedContainerResponse);
   rpc AdminActionContainer (ContainerActionRequest) returns (Empty);
+  rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
+  rpc AdminGetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
 }
 
 service ImageAPI {
@@ -249,4 +251,12 @@ message SystemConfigData {
   int32 max_containers_per_user = 14;
   string registry_url = 15;
   int64 container_ttl_hours = 16;
+}
+
+message ContainerStatsResponse {
+  double cpu_percentage = 1;
+  int64 memory_usage_bytes = 2;
+  int64 memory_limit_bytes = 3;
+  int64 network_rx_bytes = 4;
+  int64 network_tx_bytes = 5;
 }

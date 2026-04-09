@@ -2,11 +2,13 @@ package docker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strconv"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
@@ -344,4 +346,67 @@ func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContain
 
 func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
 	return a.cli.NetworkRemove(ctx, networkName)
+}
+
+func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (domain.ContainerStats, error) {
+	statsResp, err := a.cli.ContainerStats(ctx, dockerID, false)
+	if err != nil {
+		return domain.ContainerStats{}, err
+	}
+	defer statsResp.Body.Close()
+
+	var v struct {
+		MemoryStats struct {
+			Usage int64 `json:"usage"`
+			Limit int64 `json:"limit"`
+		} `json:"memory_stats"`
+		CPUStats struct {
+			CPUUsage struct {
+				TotalUsage  uint64   `json:"total_usage"`
+				PercpuUsage []uint64 `json:"percpu_usage"`
+			} `json:"cpu_usage"`
+			SystemUsage uint64 `json:"system_cpu_usage"`
+			OnlineCPUs  uint32 `json:"online_cpus"`
+		} `json:"cpu_stats"`
+		PreCPUStats struct {
+			CPUUsage struct {
+				TotalUsage uint64 `json:"total_usage"`
+			} `json:"cpu_usage"`
+			SystemUsage uint64 `json:"system_cpu_usage"`
+		} `json:"precpu_stats"`
+		Networks map[string]struct {
+			RxBytes int64 `json:"rx_bytes"`
+			TxBytes int64 `json:"tx_bytes"`
+		} `json:"networks"`
+	}
+
+	if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
+		return domain.ContainerStats{}, err
+	}
+
+	var cpuPercent float64
+	cpuDelta := float64(v.CPUStats.CPUUsage.TotalUsage - v.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(v.CPUStats.SystemUsage - v.PreCPUStats.SystemUsage)
+
+	if systemDelta > 0.0 && cpuDelta > 0.0 {
+		if len(v.CPUStats.CPUUsage.PercpuUsage) > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(len(v.CPUStats.CPUUsage.PercpuUsage)) * 100.0
+		} else if v.CPUStats.OnlineCPUs > 0 {
+			cpuPercent = (cpuDelta / systemDelta) * float64(v.CPUStats.OnlineCPUs) * 100.0
+		}
+	}
+
+	var netRx, netTx int64
+	for _, net := range v.Networks {
+		netRx += net.RxBytes
+		netTx += net.TxBytes
+	}
+
+	return domain.ContainerStats{
+		CPUPercentage:    cpuPercent,
+		MemoryUsageBytes: v.MemoryStats.Usage,
+		MemoryLimitBytes: v.MemoryStats.Limit,
+		NetworkRxBytes:   netRx,
+		NetworkTxBytes:   netTx,
+	}, nil
 }

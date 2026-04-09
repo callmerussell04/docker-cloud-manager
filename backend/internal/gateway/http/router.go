@@ -31,6 +31,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 				containers.GET("", coreHandler.GetContainers)
 				containers.POST("/:id/action/:action", coreHandler.ActionContainer)
 				containers.POST("/:id/expose", coreHandler.ExposeContainer)
+				containers.GET("/:id/stats", coreHandler.GetContainerStats)
 			}
 
 			volumes := protected.Group("/volumes")
@@ -70,6 +71,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 
 			admin.GET("/containers", coreHandler.GetAllContainers)
 			admin.POST("/containers/:id/action/:action", coreHandler.AdminActionContainer)
+			admin.GET("/containers/:id/stats", coreHandler.AdminGetContainerStats)
 
 			admin.GET("/volumes", coreHandler.GetAllVolumes)
 			admin.DELETE("/volumes/:id", coreHandler.AdminDeleteVolume)

@@ -28,7 +28,7 @@ type GCWorker struct {
 	buildRepo             GCBuildRepo
 	interval              time.Duration
 	buildTimeout          time.Duration
-	registryContainerName string // НОВОЕ ПОЛЕ
+	registryContainerName string
 }
 
 func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, interval, buildTimeout time.Duration, registryContainerName string) *GCWorker {

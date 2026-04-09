@@ -29,3 +29,11 @@ type Container struct {
 	BaseMemoryReservation int64
 	CreatedAt             time.Time
 }
+
+type ContainerStats struct {
+	CPUPercentage    float64
+	MemoryUsageBytes int64
+	MemoryLimitBytes int64
+	NetworkRxBytes   int64
+	NetworkTxBytes   int64
+}

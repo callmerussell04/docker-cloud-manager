@@ -329,6 +329,29 @@ func (c *CoreClient) UpdateSystemConfig(ctx context.Context, req *coreapi.System
 	return nil
 }
 
+func (c *CoreClient) GetContainerStats(ctx context.Context, ownerID, containerID string) (*coreapi.ContainerStatsResponse, error) {
+	req := &coreapi.ContainerActionRequest{
+		OwnerId:     ownerID,
+		ContainerId: containerID,
+	}
+	resp, err := c.containerAPI.GetContainerStats(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
+func (c *CoreClient) AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error) {
+	req := &coreapi.ContainerActionRequest{
+		ContainerId: containerID,
+	}
+	resp, err := c.containerAPI.AdminGetContainerStats(ctx, req)
+	if err != nil {
+		return nil, mapCoreError(err)
+	}
+	return resp, nil
+}
+
 // TODO: maybe pull out for sso grpc client
 func mapCoreError(err error) error {
 	st, ok := status.FromError(err)
