@@ -10,6 +10,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
@@ -334,21 +335,30 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 }
 
 func extractComposeFile(archiveBytes []byte) ([]byte, error) {
+	// 1. Попытка прочитать как ZIP архив
 	r, err := zip.NewReader(bytes.NewReader(archiveBytes), int64(len(archiveBytes)))
-	if err != nil {
-		return nil, err
-	}
-	for _, f := range r.File {
-		if f.Name == "docker-compose.yml" || f.Name == "docker-compose.yaml" {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, err
+	if err == nil {
+		for _, f := range r.File {
+			if f.Name == "docker-compose.yml" || f.Name == "docker-compose.yaml" {
+				rc, err := f.Open()
+				if err != nil {
+					return nil, err
+				}
+				defer rc.Close()
+				return io.ReadAll(rc)
 			}
-			defer rc.Close()
-			return io.ReadAll(rc)
 		}
+		return nil, fmt.Errorf("docker-compose.yml not found in zip archive")
 	}
-	return nil, fmt.Errorf("docker-compose.yml not found in archive root")
+
+	// 2. Если это не ZIP, проверяем, не является ли это просто сырым YAML файлом
+	// (Например, если файл содержит строку 'version:' или 'services:')
+	contentStr := string(archiveBytes)
+	if strings.Contains(contentStr, "services:") {
+		return archiveBytes, nil
+	}
+
+	return nil, fmt.Errorf("invalid file format: not a valid zip archive or raw docker-compose.yml")
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, condition string) error {
