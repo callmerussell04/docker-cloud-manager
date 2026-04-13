@@ -45,7 +45,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
 
   const onSubmit = (data: any) => {
     if (!file) {
-      addToast('Пожалуйста, выберите архив с docker-compose.yml', 'error');
+      addToast('Пожалуйста, выберите файл', 'error');
       return;
     }
 
@@ -66,13 +66,13 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selected = e.target.files[0];
-      const validTypes = ['application/zip', 'application/gzip', 'application/x-tar'];
-      const validExtensions = ['.zip', '.tar.gz', '.tgz', '.tar'];
+      const validTypes = ['application/zip', 'application/gzip', 'application/x-tar', 'application/x-yaml', 'text/yaml'];
+      const validExtensions = ['.zip', '.tar.gz', '.tgz', '.tar', '.yml', '.yaml'];
       
       const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
       
       if (!validTypes.includes(selected.type) && !isValidExt) {
-        addToast('Допустимы только архивы .zip, .tar, .tar.gz', 'error');
+        addToast('Допустимы только архивы (.zip, .tar.gz) или файлы .yml', 'error');
         return;
       }
       
@@ -97,7 +97,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
               ref={fileInputRef} 
               onChange={handleFileChange} 
               className="hidden" 
-              accept=".zip,.tar,.tar.gz,.tgz"
+              accept=".zip,.tar,.tar.gz,.tgz,.yml,.yaml"
             />
             
             {file ? (
@@ -116,8 +116,9 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                 <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full flex items-center justify-center mb-3 cursor-pointer">
                   <UploadCloud className="w-6 h-6" />
                 </div>
-                <p className="font-medium cursor-pointer">Нажмите для загрузки архива</p>
-                <p className="text-xs text-slate-500 mt-1">Архив должен содержать docker-compose.yml в корне</p>
+                <p className="font-medium cursor-pointer">Нажмите для загрузки файла</p>
+                <p className="text-xs text-slate-500 mt-1">Архив (.zip, .tar.gz), если требуется сборка образов (содержит docker-compose.yml + Dockerfile)</p>
+                <p className="text-xs text-slate-500">Или файл .yml, если сборка не требуется</p>
               </div>
             )}
           </div>
