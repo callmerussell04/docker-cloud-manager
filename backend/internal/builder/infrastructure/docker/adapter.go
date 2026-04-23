@@ -5,18 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/moby/go-archive"
 )
 
 type BuildContainerParams struct {
 	WorkspaceDir   string
-	ContextDir     string
+	ContextSubDir  string
 	Dockerfile     string
 	DestinationTag string
 	MemoryBytes    int64
@@ -44,9 +45,15 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 		return "", nil, err
 	}
 
+	kanikoContext := "dir:///workspace"
+	if params.ContextSubDir != "" && params.ContextSubDir != "." {
+		kanikoContext = "dir:///workspace/" + params.ContextSubDir
+	}
+	kanikoDockerfile := filepath.Join("/workspace", params.ContextSubDir, params.Dockerfile)
+
 	cmd := []string{
-		"--context=dir://" + params.ContextDir,
-		"--dockerfile=" + params.Dockerfile,
+		"--context=" + kanikoContext,
+		"--dockerfile=" + kanikoDockerfile,
 		"--destination=" + params.DestinationTag,
 		"--cache=true",
 		"--insecure",
@@ -63,13 +70,6 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 		Image: kanikoImage,
 		Cmd:   cmd,
 	}, &container.HostConfig{
-		Mounts: []mount.Mount{
-			{
-				Type:   mount.TypeBind,
-				Source: params.WorkspaceDir,
-				Target: "/workspace",
-			},
-		},
 		Resources: container.Resources{
 			Memory:     params.MemoryBytes,
 			MemorySwap: params.MemoryBytes * 2,
@@ -84,6 +84,20 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 
 	if err != nil {
 		return "", nil, err
+	}
+
+	// 2. Копируем исходный код прямо внутрь созданного контейнера в /workspace
+	tarStream, err := archive.TarWithOptions(params.WorkspaceDir, &archive.TarOptions{})
+	if err != nil {
+		_ = a.CleanBuildContainer(context.Background(), resp.ID)
+		return "", nil, fmt.Errorf("failed to tar workspace: %w", err)
+	}
+	defer tarStream.Close()
+
+	err = a.cli.CopyToContainer(ctx, resp.ID, "/workspace", tarStream, container.CopyToContainerOptions{})
+	if err != nil {
+		_ = a.CleanBuildContainer(context.Background(), resp.ID)
+		return "", nil, fmt.Errorf("failed to copy files to kaniko: %w", err)
 	}
 
 	// 3. Запускаем сборку

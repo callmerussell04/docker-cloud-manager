@@ -185,7 +185,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if isCustom {
 		// Формируем полный тег для пулла из Registry
 		repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID.String(), baseName))
-		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.Get().RegistryURL, repoName, version)
+		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.Get().RegistryPublicURL, repoName, version)
 	}
 
 	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)

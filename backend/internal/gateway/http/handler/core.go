@@ -441,7 +441,8 @@ func (h *CoreHandler) UpdateSystemConfig(c *gin.Context) {
 		ContainerDiskQuota:            systemConfigDTO.ContainerDiskQuota,
 		MaxVolumesPerUser:             int32(systemConfigDTO.MaxVolumesPerUser),
 		MaxContainersPerUser:          int32(systemConfigDTO.MaxContainersPerUser),
-		RegistryUrl:                   systemConfigDTO.RegistryUrl,
+		RegistryApiUrl:                systemConfigDTO.RegistryApiUrl,
+		RegistryPublicUrl:             systemConfigDTO.RegistryPublicUrl,
 		ContainerTtlHours:             systemConfigDTO.ContainerTtlHours,
 	}
 

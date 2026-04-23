@@ -48,7 +48,7 @@ services:
     image: registry:2
     container_name: registry
     environment:
-      REGISTRY_STORAGE_DELETE_ENABLED: "true" # ОЧЕНЬ ВАЖНО! Иначе API DELETE не будет работать
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
     ports:
       - "5000:5000"
     volumes:
@@ -56,8 +56,93 @@ services:
     networks:
       - dcm_net
 
+  sso:
+    build:
+      context: .
+      dockerfile: dockerfiles/sso.Dockerfile
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable"
+      JWT_SECRET: "your_super_secret_jwt_key_here"
+      SSO_GRPC_PORT: "50051"
+    networks:
+      - dcm_net
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  core:
+    build:
+      context: .
+      dockerfile: dockerfiles/core.Dockerfile
+    environment:
+      DATABASE_URL: "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable"
+      BASE_DOMAIN: "localhost"
+      BUILDER_HTTP_TARGET: "http://builder:8082"
+      REGISTRY_API_URL: "registry:5000"
+      REGISTRY_PUBLIC_URL: "localhost:5000"
+      REGISTRY_CONTAINER_NAME: "registry"
+      CORE_GRPC_PORT: "50052"
+      CORE_HTTP_PORT: "8083"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config:/app/config
+    networks:
+      - dcm_net
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  builder:
+    build:
+      context: .
+      dockerfile: dockerfiles/builder.Dockerfile
+    environment:
+      BUILDER_PORT: "8082"
+      CORE_GRPC_TARGET: "core:50052"
+      REGISTRY_URL: "registry:5000"
+      BUILD_STORAGE_PATH: "/tmp/builds"
+      BUILD_LOGS_PATH: "/tmp/build_logs"
+      BUILD_MEMORY_BYTES: 2147483648
+      BUILD_CPU_QUOTA: 200000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - builder_storage:/tmp/builds
+      - builder_logs:/tmp/build_logs
+    networks:
+      - dcm_net
+    depends_on:
+      - core
+
+  gateway:
+    build:
+      context: .
+      dockerfile: dockerfiles/gateway.Dockerfile
+    environment:
+      GATEWAY_PORT: "8081"
+      SSO_GRPC_TARGET: "sso:50051"
+      CORE_GRPC_TARGET: "core:50052"
+      BUILDER_HTTP_TARGET: "http://builder:8082"
+      CORE_HTTP_TARGET: "http://core:8083"
+      JWT_SECRET: "your_super_secret_jwt_key_here"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gateway.rule=Host(`localhost`) && PathPrefix(`/api/v1`)"
+      - "traefik.http.services.gateway.loadbalancer.server.port=8081"
+      - "traefik.docker.network=proxy_net"
+    networks:
+      - proxy_net
+      - dcm_net
+    depends_on:
+      - sso
+      - core
+      - builder
+
 networks:
   proxy_net:
     external: true
   dcm_net:
     name: dcm_net
+
+volumes:
+  builder_storage:
+  builder_logs:

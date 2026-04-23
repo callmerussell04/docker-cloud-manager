@@ -66,12 +66,12 @@ func main() {
 		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
 	}
 
-	registryURL := getEnvString("REGISTRY_URL", "localhost:5000")
+	registryAPIURL := getEnvString("REGISTRY_API_URL", "registry:5000")
+	registryPublicURL := getEnvString("REGISTRY_PUBLIC_URL", "localhost:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
 	defaultCfg := config.SystemConfig{
 		BaseDomain:               baseDomain,
-		RegistryURL:              registryURL,
 		DefaultMemoryReservation: getEnvInt64("DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
 		ReservedSystemMemory:     getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
 		OvercommitFactor:         getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
@@ -85,12 +85,14 @@ func main() {
 		ContainerDiskQuota:       getEnvString("CONTAINER_DISK_QUOTA", "1G"),
 		MaxVolumesPerUser:        getEnvInt("MAX_VOLUMES_PER_USER", 5),
 		MaxContainersPerUser:     getEnvInt("MAX_CONTAINERS_PER_USER", 10),
+		RegistryAPIURL:           registryAPIURL,
+		RegistryPublicURL:        registryPublicURL,
 		ContainerTTL:             time.Duration(getEnvInt("CONTAINER_TTL_HOURS", 24)) * time.Hour,
 	}
 
 	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)
 
-	application, err := app.New(port, httpPort, dbURL, registryURL, registryContainerName, builderHTTPUrl, cfgManager)
+	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, cfgManager)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

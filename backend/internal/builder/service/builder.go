@@ -125,17 +125,14 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 	// Создаем рабочую директорию (workspace) для Kaniko
 	workspaceDir := filepath.Join(s.config.StoragePath, buildID+"_workspace")
 	if err := os.MkdirAll(workspaceDir, 0755); err == nil {
-		defer os.RemoveAll(workspaceDir) // Очищаем workspace после сборки
+		defer os.RemoveAll(workspaceDir)
 
 		// Распаковываем архив пользователя
 		if err := s.extractor.Extract(archivePath, workspaceDir); err == nil {
 
-			// 1. Формируем пути внутри контейнера Kaniko
-			buildContextPath := "/workspace"
+			cleanContextDir := ""
 			if contextDir != "" && contextDir != "." {
-				// Защита от выхода за пределы директории
-				cleanContext := filepath.Clean(contextDir)
-				buildContextPath = filepath.Join("/workspace", cleanContext)
+				cleanContextDir = filepath.Clean(contextDir)
 			}
 
 			dfPath := "Dockerfile"
@@ -147,9 +144,9 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 			destinationTag := fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
 
 			params := docker.BuildContainerParams{
-				WorkspaceDir:   workspaceDir,
-				ContextDir:     buildContextPath,                        // НОВОЕ
-				Dockerfile:     filepath.Join(buildContextPath, dfPath), // НОВОЕ
+				WorkspaceDir:   workspaceDir,    // Путь к папке на хосте/в контейнере билдера
+				ContextSubDir:  cleanContextDir, // Относительный путь (если юзер указал подпапку)
+				Dockerfile:     dfPath,          // Относительный путь к Dockerfile
 				DestinationTag: destinationTag,
 				MemoryBytes:    s.config.BuildMemoryBytes,
 				CPUQuota:       s.config.BuildCPUQuota,

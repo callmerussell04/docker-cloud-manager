@@ -42,7 +42,8 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		ContainerDiskQuota:            cfg.ContainerDiskQuota,
 		MaxVolumesPerUser:             int32(cfg.MaxVolumesPerUser),
 		MaxContainersPerUser:          int32(cfg.MaxContainersPerUser),
-		RegistryUrl:                   cfg.RegistryURL,
+		RegistryApiUrl:                cfg.RegistryAPIURL,
+		RegistryPublicUrl:             cfg.RegistryPublicURL,
 		ContainerTtlHours:             int64(cfg.ContainerTTL.Hours()),
 	}, nil
 }
@@ -63,7 +64,8 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 		ContainerDiskQuota:       req.GetContainerDiskQuota(),
 		MaxVolumesPerUser:        int(req.GetMaxVolumesPerUser()),
 		MaxContainersPerUser:     int(req.GetMaxContainersPerUser()),
-		RegistryURL:              req.GetRegistryUrl(),
+		RegistryAPIURL:           req.GetRegistryApiUrl(),
+		RegistryPublicURL:        req.GetRegistryPublicUrl(),
 		ContainerTTL:             time.Duration(req.GetContainerTtlHours()) * time.Hour,
 	}
 

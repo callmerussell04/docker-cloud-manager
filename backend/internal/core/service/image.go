@@ -54,7 +54,7 @@ type ImageService struct {
 	dockerAPI   ImageDockerAPI
 	registryAPI ImageRegistryAPI
 	contRepo    ImageContainerRepository
-	registryURL string
+	cfg         ConfigManager
 }
 
 func NewImageService(
@@ -63,7 +63,7 @@ func NewImageService(
 	dockerAPI ImageDockerAPI,
 	registryAPI ImageRegistryAPI,
 	contRepo ImageContainerRepository,
-	registryURL string,
+	cfg ConfigManager,
 ) *ImageService {
 	return &ImageService{
 		repo:        repo,
@@ -71,7 +71,7 @@ func NewImageService(
 		dockerAPI:   dockerAPI,
 		registryAPI: registryAPI,
 		contRepo:    contRepo,
-		registryURL: registryURL,
+		cfg:         cfg,
 	}
 }
 
@@ -111,7 +111,7 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	}
 
 	// Удаление из локального кэша Docker Engine
-	fullTag := fmt.Sprintf("%s/%s:%s", s.registryURL, repoName, version)
+	fullTag := fmt.Sprintf("%s/%s:%s", s.cfg.Get().RegistryPublicURL, repoName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	// Удаление записи из бд
@@ -192,7 +192,7 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	// Запрашиваем реальный размер образа из Registry API
 	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
-		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_registry_error")
+		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed")
 	}
 
 	sizeMB := int(sizeBytes / (1024 * 1024))
@@ -282,7 +282,7 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 	}
 
-	fullTag := fmt.Sprintf("%s/%s:%s", s.registryURL, repoName, version)
+	fullTag := fmt.Sprintf("%s/%s:%s", s.cfg.Get().RegistryPublicURL, repoName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	return s.repo.Delete(ctx, imageID)

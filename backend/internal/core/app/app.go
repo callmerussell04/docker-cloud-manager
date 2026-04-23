@@ -48,7 +48,7 @@ func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, project
 	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
-func New(port int, httpPort int, dbURL string, registryURL string, registryContainerName string, builderHTTPUrl string, configManager *config.Manager) (*App, error) {
+func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, configManager *config.Manager) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -63,7 +63,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 		return nil, err
 	}
 
-	registryAdapter := registry.NewAdapter(registryURL)
+	registryAdapter := registry.NewAdapter(configManager.Get().RegistryAPIURL)
 
 	contRepo := repository.NewContainerRepository(db)
 	volRepo := repository.NewVolumeRepository(db)
@@ -75,7 +75,7 @@ func New(port int, httpPort int, dbURL string, registryURL string, registryConta
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager.Get().MaxVolumesPerUser)
-	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, registryURL)
+	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, configManager)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager)

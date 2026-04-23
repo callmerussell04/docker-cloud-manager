@@ -23,7 +23,8 @@ type SystemConfig struct {
 	ContainerDiskQuota       string        `json:"container_disk_quota"`
 	MaxVolumesPerUser        int           `json:"max_volumes_per_user"`
 	MaxContainersPerUser     int           `json:"max_containers_per_user"`
-	RegistryURL              string        `json:"registry_url"`
+	RegistryAPIURL           string        `json:"registry_api_url"`    // Для HTTP-клиента (registry:5000)
+	RegistryPublicURL        string        `json:"registry_public_url"` // Для тегов Docker (localhost:5000)
 	ContainerTTL             time.Duration `json:"container_ttl"`
 }
 

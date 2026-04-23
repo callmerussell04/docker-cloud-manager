@@ -15,7 +15,8 @@ type SystemConfigDTO struct {
 	ContainerDiskQuota            string  `json:"container_disk_quota"`
 	MaxVolumesPerUser             int     `json:"max_volumes_per_user"`
 	MaxContainersPerUser          int     `json:"max_containers_per_user"`
-	RegistryUrl                   string  `json:"registry_url"`
+	RegistryApiUrl                string  `json:"registry_api_url"`
+	RegistryPublicUrl             string  `json:"registry_public_url"`
 	ContainerTtlHours             int64   `json:"container_ttl_hours"`
 }
 
