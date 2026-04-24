@@ -7,7 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 )
 
-func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenParser middleware.TokenParser) *gin.Engine {
+func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, builderLogsProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenParser middleware.TokenParser) *gin.Engine {
 	router := gin.Default()
 
 	router.Use(middleware.CORSMiddleware())
@@ -52,7 +52,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			{
 				builds.GET("", coreHandler.GetBuilds)
 				builds.DELETE("/:id", coreHandler.DeleteBuild)
-				builds.GET("/:id/logs", builderProxy)
+				builds.GET("/:id/logs", builderLogsProxy)
 			}
 
 			projects := protected.Group("/projects")

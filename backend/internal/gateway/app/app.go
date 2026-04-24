@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/lib/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 )
 
 type App struct {
@@ -20,15 +21,23 @@ type App struct {
 	port   int
 }
 
-func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwtSecret string) (*App, error) {
+func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwtSecret string, internalToken string) (*App, error) {
 	//TODO: fix insecure connection and overall grpc client execution
-	ssoConn, err := grpc.NewClient(ssoTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ssoConn, err := grpc.NewClient(
+		ssoTarget,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to sso service: %w", err)
 	}
 
 	//TODO: fix insecure connection and overall grpc client execution
-	coreConn, err := grpc.NewClient(coreTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	coreConn, err := grpc.NewClient(
+		coreTarget,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("core conn fail: %w", err)
 	}
@@ -41,19 +50,24 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwt
 	coreService := service.NewCore(coreClient)
 	coreHandler := handler.NewCoreHandler(coreService)
 
-	builderProxy, err := handler.NewBuilderProxyHandler(builderHttpTarget)
+	builderProxy, err := handler.NewBuilderProxyHandler(builderHttpTarget, internalToken)
 	if err != nil {
 		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
 	}
 
-	coreProxy, err := handler.NewCoreProxyHandler(coreHttpTarget)
+	builderLogsProxy, err := handler.NewAuthorizedBuilderLogsProxy(builderHttpTarget, coreService, internalToken)
+	if err != nil {
+		return nil, fmt.Errorf("builder logs proxy setup fail: %w", err)
+	}
+
+	coreProxy, err := handler.NewCoreProxyHandler(coreHttpTarget, internalToken)
 	if err != nil {
 		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
 	tokenParser := jwt.NewParser(jwtSecret)
 
-	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, coreProxy, tokenParser)
+	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, builderLogsProxy, coreProxy, tokenParser)
 
 	return &App{
 		router: router,

@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 
@@ -48,7 +49,7 @@ func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, project
 	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
-func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, configManager *config.Manager) (*App, error) {
+func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, internalToken string, configManager *config.Manager) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -74,17 +75,17 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager)
-	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager.Get().MaxVolumesPerUser)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager)
 	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, configManager)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager)
 
-	gRPCServer := grpc.NewServer()
+	gRPCServer := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor(internalToken)))
 
-	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl)
+	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl, internalToken)
 	composeHandler := corehttp.NewComposeHandler(orchestrator)
-	router := corehttp.SetupRouter(composeHandler)
+	router := corehttp.SetupRouter(composeHandler, internalToken)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", httpPort),

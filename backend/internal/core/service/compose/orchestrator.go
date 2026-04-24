@@ -52,6 +52,7 @@ type Orchestrator struct {
 	dockerAPI      ComposeDockerAPI
 	builderHTTPUrl string
 	httpClient     *http.Client
+	internalToken  string
 }
 
 func NewOrchestrator(
@@ -61,6 +62,7 @@ func NewOrchestrator(
 	contService ContainerService,
 	dockerAPI ComposeDockerAPI,
 	builderHTTPUrl string,
+	internalToken string,
 ) *Orchestrator {
 	return &Orchestrator{
 		parser:         NewParser(),
@@ -71,6 +73,7 @@ func NewOrchestrator(
 		dockerAPI:      dockerAPI,
 		builderHTTPUrl: builderHTTPUrl,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		internalToken:  internalToken,
 	}
 }
 
@@ -284,6 +287,7 @@ func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv domain.ComposeService
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("X-User-Id", ownerID.String())
+	req.Header.Set("X-Internal-Token", o.internalToken)
 
 	resp, err := o.httpClient.Do(req)
 	if err != nil {

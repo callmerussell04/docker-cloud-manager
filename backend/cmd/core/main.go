@@ -66,6 +66,11 @@ func main() {
 		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
 	}
 
+	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	if internalToken == "" {
+		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+	}
+
 	registryAPIURL := getEnvString("REGISTRY_API_URL", "registry:5000")
 	registryPublicURL := getEnvString("REGISTRY_PUBLIC_URL", "localhost:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
@@ -92,7 +97,7 @@ func main() {
 
 	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)
 
-	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, cfgManager)
+	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, internalToken, cfgManager)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

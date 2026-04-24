@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,8 +21,12 @@ type App struct {
 	port   int
 }
 
-func New(port int, coreTarget string, config service.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
-	coreConn, err := grpc.NewClient(coreTarget, grpc.WithTransportCredentials(insecure.NewCredentials()))
+func New(port int, coreTarget string, internalToken string, config service.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
+	coreConn, err := grpc.NewClient(
+		coreTarget,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("core conn fail: %w", err)
 	}
@@ -50,7 +55,7 @@ func New(port int, coreTarget string, config service.BuilderConfig, maxUnpackedS
 	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, config)
 	buildHandler := handler.NewBuildHandler(builderService, config.LogsDirPath)
 
-	router := deliveryhttp.NewRouter(buildHandler)
+	router := deliveryhttp.NewRouter(buildHandler, internalToken)
 
 	return &App{
 		router: router,

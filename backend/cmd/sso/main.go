@@ -29,10 +29,15 @@ func main() {
 		log.Fatal("JWT_SECRET environment variable is not set")
 	}
 
+	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	if internalToken == "" {
+		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+	}
+
 	accessTTL := 15 * time.Minute
 	refreshTTL := 30 * 24 * time.Hour
 
-	application, err := app.New(port, dbURL, jwtSecret, accessTTL, refreshTTL)
+	application, err := app.New(port, dbURL, jwtSecret, internalToken, accessTTL, refreshTTL)
 	if err != nil {
 		log.Fatalf("failed to initialize application: %v", err)
 	}

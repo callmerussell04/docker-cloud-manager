@@ -43,9 +43,15 @@ func main() {
 		log.Fatal("CORE_GRPC_TARGET environment variable is not set")
 	}
 
+	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
+	if internalToken == "" {
+		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+	}
+
 	storagePath := getEnvString("BUILD_STORAGE_PATH", "/tmp/builds")
 	logsDirPath := getEnvString("BUILD_LOGS_PATH", "/tmp/build_logs")
 	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
+	buildNetworkName := getEnvString("BUILD_NETWORK_NAME", "build_net")
 	maxUnpackedSize := getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024)
 	maxLogSize := getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)
 
@@ -55,11 +61,12 @@ func main() {
 		LogsDirPath:         logsDirPath,
 		StoragePath:         storagePath,
 		RegistryURL:         registryURL,
+		BuildNetworkName:    buildNetworkName,
 		MaxBuildTime:        time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
 		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 	}
 
-	application, err := app.New(port, coreTarget, config, maxUnpackedSize, maxLogSize, storagePath)
+	application, err := app.New(port, coreTarget, internalToken, config, maxUnpackedSize, maxLogSize, storagePath)
 	if err != nil {
 		log.Fatalf("failed to initialize builder app: %v", err)
 	}

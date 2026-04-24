@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -65,8 +66,8 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	})
 }
 
-func SetupRouter(handler *ComposeHandler) *gin.Engine {
+func SetupRouter(handler *ComposeHandler, internalToken string) *gin.Engine {
 	r := gin.Default()
-	r.POST("/api/v1/projects/compose", handler.DeployCompose)
+	r.POST("/api/v1/projects/compose", internalauth.Middleware(internalToken), handler.DeployCompose)
 	return r
 }

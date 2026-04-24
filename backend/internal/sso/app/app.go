@@ -6,6 +6,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"google.golang.org/grpc"
 
 	authgrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
@@ -20,7 +21,7 @@ type App struct {
 	port       int
 }
 
-func New(port int, dbURL string, jwtSecret string, accessTTL, refreshTTL time.Duration) (*App, error) {
+func New(port int, dbURL string, jwtSecret string, internalToken string, accessTTL, refreshTTL time.Duration) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -34,7 +35,7 @@ func New(port int, dbURL string, jwtSecret string, accessTTL, refreshTTL time.Du
 	tokenProvider := jwt.NewProvider(jwtSecret, accessTTL, refreshTTL)
 	authService := service.NewAuthService(repo, tokenProvider)
 
-	gRPCServer := grpc.NewServer()
+	gRPCServer := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor(internalToken)))
 	authgrpc.Register(gRPCServer, authService)
 
 	return &App{

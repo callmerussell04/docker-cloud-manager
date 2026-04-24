@@ -2,13 +2,15 @@ package http
 
 import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter(buildHandler *handler.BuildHandler) *gin.Engine {
+func NewRouter(buildHandler *handler.BuildHandler, internalToken string) *gin.Engine {
 	router := gin.Default()
 
 	v1 := router.Group("/api/v1")
+	v1.Use(internalauth.Middleware(internalToken))
 	{
 		images := v1.Group("/images")
 		{
