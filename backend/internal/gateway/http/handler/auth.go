@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -107,5 +108,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {
 	maxAge := 30 * 24 * 3600
-	c.SetCookie("refresh_token", token, maxAge, "/", "", false, true)
+	secure := os.Getenv("COOKIE_SECURE") == "true"
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("refresh_token", token, maxAge, "/", "", secure, true)
 }

@@ -2,13 +2,11 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: dcm_db
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${POSTGRES_DB:-dcm_db}"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,7 +20,7 @@ services:
         condition: service_healthy
     volumes:
       - ./migrations:/migrations
-    command: ["-path", "/migrations", "-database", "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable", "up"]
+    command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable", "up"]
     networks:
       - dcm_net
 
@@ -31,13 +29,11 @@ services:
     container_name: dcm_traefik
     user: root
     command:
-      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
     ports:
       - "80:80"
-      - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -50,19 +46,21 @@ services:
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./registry_data:/var/lib/registry
     networks:
       - dcm_net
+      - build_net
 
   sso:
     build:
       context: .
       dockerfile: dockerfiles/sso.Dockerfile
     environment:
-      DATABASE_URL: "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable"
-      JWT_SECRET: "your_super_secret_jwt_key_here"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       SSO_GRPC_PORT: "50051"
     networks:
       - dcm_net
@@ -75,7 +73,8 @@ services:
       context: .
       dockerfile: dockerfiles/core.Dockerfile
     environment:
-      DATABASE_URL: "postgres://postgres:postgres@db:5432/dcm_db?sslmode=disable"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       BASE_DOMAIN: "localhost"
       BUILDER_HTTP_TARGET: "http://builder:8082"
       REGISTRY_API_URL: "registry:5000"
@@ -100,6 +99,8 @@ services:
       BUILDER_PORT: "8082"
       CORE_GRPC_TARGET: "core:50052"
       REGISTRY_URL: "registry:5000"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      BUILD_NETWORK_NAME: "build_net"
       BUILD_STORAGE_PATH: "/tmp/builds"
       BUILD_LOGS_PATH: "/tmp/build_logs"
       BUILD_MEMORY_BYTES: 2147483648
@@ -123,7 +124,10 @@ services:
       CORE_GRPC_TARGET: "core:50052"
       BUILDER_HTTP_TARGET: "http://builder:8082"
       CORE_HTTP_TARGET: "http://core:8083"
-      JWT_SECRET: "your_super_secret_jwt_key_here"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.gateway.rule=Host(`localhost`) && PathPrefix(`/api/v1`)"
@@ -142,6 +146,8 @@ networks:
     external: true
   dcm_net:
     name: dcm_net
+  build_net:
+    name: build_net
 
 volumes:
   builder_storage:
