@@ -1,10 +1,10 @@
 services:
-  db:
+  core_db:
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-postgres}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
-      POSTGRES_DB: "${POSTGRES_DB:-dcm_db}"
+      POSTGRES_DB: "${CORE_POSTGRES_DB:-dcm_core_db}"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
@@ -13,14 +13,39 @@ services:
     networks:
       - dcm_net
 
-  migrate:
+  sso_db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${SSO_POSTGRES_DB:-dcm_sso_db}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dcm_net
+
+  migrate_core:
     image: migrate/migrate
     depends_on:
-      db:
+      core_db:
         condition: service_healthy
     volumes:
-      - ./migrations:/migrations
-    command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable", "up"]
+      - ./migrations/core:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable", "up"]
+    networks:
+      - dcm_net
+
+  migrate_sso:
+    image: migrate/migrate
+    depends_on:
+      sso_db:
+        condition: service_healthy
+    volumes:
+      - ./migrations/sso:/migrations
+    command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable", "up"]
     networks:
       - dcm_net
 
@@ -58,14 +83,14 @@ services:
       context: .
       dockerfile: dockerfiles/sso.Dockerfile
     environment:
-      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       SSO_GRPC_PORT: "50051"
     networks:
       - dcm_net
     depends_on:
-      migrate:
+      migrate_sso:
         condition: service_completed_successfully
 
   core:
@@ -73,8 +98,9 @@ services:
       context: .
       dockerfile: dockerfiles/core.Dockerfile
     environment:
-      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@db:5432/${POSTGRES_DB:-dcm_db}?sslmode=disable"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      SSO_GRPC_TARGET: "sso:50051"
       BASE_DOMAIN: "localhost"
       BUILDER_HTTP_TARGET: "http://builder:8082"
       REGISTRY_API_URL: "registry:5000"
@@ -88,8 +114,10 @@ services:
     networks:
       - dcm_net
     depends_on:
-      migrate:
+      migrate_core:
         condition: service_completed_successfully
+      sso:
+        condition: service_started
 
   builder:
     build:
@@ -124,7 +152,6 @@ services:
       CORE_GRPC_TARGET: "core:50052"
       BUILDER_HTTP_TARGET: "http://builder:8082"
       CORE_HTTP_TARGET: "http://core:8083"
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"

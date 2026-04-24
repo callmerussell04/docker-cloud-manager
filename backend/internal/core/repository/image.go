@@ -121,13 +121,6 @@ func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid
 	return usedMB, err
 }
 
-func (r *ImageRepository) GetUserDiskQuota(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	query := `SELECT quota_disk_mb FROM users WHERE id = $1`
-	var quotaMB int64
-	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&quotaMB)
-	return quotaMB, err
-}
-
 func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -188,9 +181,8 @@ func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	}
 
 	query := `
-		SELECT i.id, i.owner_id, u.username, i.tag, i.size_mb, i.is_custom, i.metadata, i.created_at 
+		SELECT i.id, i.owner_id, i.tag, i.size_mb, i.is_custom, i.metadata, i.created_at
 		FROM images i
-		JOIN users u ON i.owner_id = u.id
 		ORDER BY i.created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -202,7 +194,7 @@ func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	var images []domain.Image
 	for rows.Next() {
 		var img domain.Image
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.OwnerUsername, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.CreatedAt); err != nil {
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		images = append(images, img)

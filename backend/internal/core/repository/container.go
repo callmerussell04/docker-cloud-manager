@@ -147,19 +147,6 @@ func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID
 	return totalReserved, err
 }
 
-func (r *ContainerRepository) GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	query := `SELECT quota_ram_mb FROM users WHERE id = $1`
-	var quotaMB int64
-	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&quotaMB)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, apperrors.ErrNotFound
-		}
-		return 0, err
-	}
-	return quotaMB * 1024 * 1024, nil
-}
-
 func (r *ContainerRepository) GetRunning(ctx context.Context) ([]domain.Container, error) {
 	query := `
 		SELECT id, docker_id, base_memory_reservation
@@ -397,9 +384,8 @@ func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset
 	}
 
 	query := `
-		SELECT c.id, c.owner_id, u.username, c.project_id, c.docker_id, c.name, c.image_tag, c.internal_port, c.domain_prefix, c.status, c.base_memory_reservation, c.created_at
+		SELECT c.id, c.owner_id, c.project_id, c.docker_id, c.name, c.image_tag, c.internal_port, c.domain_prefix, c.status, c.base_memory_reservation, c.created_at
 		FROM containers c
-		JOIN users u ON c.owner_id = u.id
 		ORDER BY c.created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -413,7 +399,7 @@ func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset
 		var c domain.Container
 		var projectID sql.NullString
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &c.OwnerID, &c.OwnerUsername, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if projectID.Valid {

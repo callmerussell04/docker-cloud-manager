@@ -39,7 +39,7 @@ func (r *UserRepository) SaveUser(ctx context.Context, user domain.User) error {
 
 func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role
+		SELECT id, username, email, password_hash, role, quota_cpu, quota_ram_mb, quota_disk_mb
 		FROM users
 		WHERE username = $1
 	`
@@ -51,6 +51,9 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 		&user.Email,
 		&user.PasswordHash,
 		&user.Role,
+		&user.QuotaCPU,
+		&user.QuotaRAMMB,
+		&user.QuotaDiskMB,
 	)
 
 	if err != nil {
@@ -65,7 +68,7 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 
 func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, role
+		SELECT id, username, email, password_hash, role, quota_cpu, quota_ram_mb, quota_disk_mb
 		FROM users
 		WHERE id = $1
 	`
@@ -77,6 +80,9 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.
 		&user.Email,
 		&user.PasswordHash,
 		&user.Role,
+		&user.QuotaCPU,
+		&user.QuotaRAMMB,
+		&user.QuotaDiskMB,
 	)
 
 	if err != nil {
@@ -87,4 +93,41 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.
 	}
 
 	return user, nil
+}
+
+func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.User, error) {
+	if len(ids) == 0 {
+		return []domain.User{}, nil
+	}
+
+	query := `
+		SELECT id, username, email, password_hash, role, quota_cpu, quota_ram_mb, quota_disk_mb
+		FROM users
+		WHERE id = ANY($1)
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []domain.User
+	for rows.Next() {
+		var user domain.User
+		if err := rows.Scan(
+			&user.ID,
+			&user.Username,
+			&user.Email,
+			&user.PasswordHash,
+			&user.Role,
+			&user.QuotaCPU,
+			&user.QuotaRAMMB,
+			&user.QuotaDiskMB,
+		); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
 }

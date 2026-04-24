@@ -1,6 +1,6 @@
 CREATE TABLE containers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_id UUID NOT NULL REFERENCES users(id),
+    owner_id UUID NOT NULL,
     docker_id VARCHAR(64) UNIQUE,
     name VARCHAR(100) NOT NULL,
     image_tag VARCHAR(150) NOT NULL,

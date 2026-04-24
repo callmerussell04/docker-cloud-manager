@@ -47,7 +47,6 @@ type ContainerRepository interface {
 	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetUserRAMQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetRunning(ctx context.Context) ([]domain.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
@@ -88,6 +87,10 @@ type ConfigManager interface {
 	Get() config.SystemConfig
 }
 
+type UserInfoProvider interface {
+	GetUser(ctx context.Context, userID uuid.UUID) (domain.UserInfo, error)
+}
+
 type ContainerService struct {
 	repo       ContainerRepository
 	volumeRepo ContainerVolumeRepository
@@ -95,6 +98,7 @@ type ContainerService struct {
 	dockerAPI  ContainerDockerAPI
 	metrics    HostMetricsProvider
 	config     ConfigManager
+	users      UserInfoProvider
 }
 
 func NewContainerService(
@@ -104,6 +108,7 @@ func NewContainerService(
 	dockerAPI ContainerDockerAPI,
 	metrics HostMetricsProvider,
 	config ConfigManager,
+	users UserInfoProvider,
 ) *ContainerService {
 	return &ContainerService{
 		repo:       repo,
@@ -112,6 +117,7 @@ func NewContainerService(
 		dockerAPI:  dockerAPI,
 		metrics:    metrics,
 		config:     config,
+		users:      users,
 	}
 }
 
@@ -547,10 +553,11 @@ func (s *ContainerService) GetByID(ctx context.Context, id uuid.UUID) (domain.Co
 // --- Admission Control ---
 
 func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID, requestedRam int64) error {
-	userQuota, err := s.repo.GetUserRAMQuota(ctx, ownerID)
+	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
 		return err
 	}
+	userQuota := user.QuotaRAMMB * 1024 * 1024
 
 	usedRam, err := s.repo.GetUserReservedMemory(ctx, ownerID)
 	if err != nil {

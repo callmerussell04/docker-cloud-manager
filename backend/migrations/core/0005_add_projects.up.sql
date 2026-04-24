@@ -1,6 +1,6 @@
 CREATE TABLE projects (
                           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                          owner_id UUID NOT NULL REFERENCES users(id),
+                          owner_id UUID NOT NULL,
                           name VARCHAR(100) NOT NULL,
                           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                           status VARCHAR(20) DEFAULT 'pending',

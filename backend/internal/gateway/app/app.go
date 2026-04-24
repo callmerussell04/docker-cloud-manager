@@ -11,7 +11,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
 	httprouter "github.com/callmerussell04/docker-cloud-manager/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/lib/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 )
@@ -21,7 +20,7 @@ type App struct {
 	port   int
 }
 
-func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwtSecret string, internalToken string) (*App, error) {
+func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget string, internalToken string) (*App, error) {
 	//TODO: fix insecure connection and overall grpc client execution
 	ssoConn, err := grpc.NewClient(
 		ssoTarget,
@@ -65,9 +64,7 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwt
 		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
-	tokenParser := jwt.NewParser(jwtSecret)
-
-	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, builderLogsProxy, coreProxy, tokenParser)
+	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, builderLogsProxy, coreProxy, authService)
 
 	return &App{
 		router: router,

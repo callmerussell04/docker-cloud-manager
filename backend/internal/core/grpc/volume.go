@@ -25,10 +25,11 @@ type VolumeLogic interface {
 type VolumeHandler struct {
 	coreapi.UnimplementedVolumeAPIServer
 	logic VolumeLogic
+	users UserDirectory
 }
 
-func RegisterVolumeAPI(gRPCServer *grpc.Server, logic VolumeLogic) {
-	coreapi.RegisterVolumeAPIServer(gRPCServer, &VolumeHandler{logic: logic})
+func RegisterVolumeAPI(gRPCServer *grpc.Server, logic VolumeLogic, users UserDirectory) {
+	coreapi.RegisterVolumeAPIServer(gRPCServer, &VolumeHandler{logic: logic, users: users})
 }
 
 func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVolumeRequest) (*coreapi.CreateVolumeResponse, error) {
@@ -131,6 +132,7 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 	}
 
 	var pbVolumes []*coreapi.VolumeData
+	usernames := h.usernamesByOwner(ctx, volumes)
 	for _, v := range volumes {
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
 			Id:            v.ID.String(),
@@ -138,7 +140,7 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 			Driver:        v.Driver,
 			CreatedAt:     v.CreatedAt.Unix(),
 			OwnerId:       v.OwnerID.String(),
-			OwnerUsername: v.OwnerUsername,
+			OwnerUsername: usernames[v.OwnerID],
 		})
 	}
 
@@ -146,6 +148,19 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 		Volumes:    pbVolumes,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *VolumeHandler) usernamesByOwner(ctx context.Context, volumes []domain.Volume) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(volumes))
+	seen := make(map[uuid.UUID]struct{}, len(volumes))
+	for _, v := range volumes {
+		if _, ok := seen[v.OwnerID]; ok {
+			continue
+		}
+		seen[v.OwnerID] = struct{}{}
+		ids = append(ids, v.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
 }
 
 func (h *VolumeHandler) AdminDeleteVolume(ctx context.Context, req *coreapi.VolumeActionRequest) (*coreapi.Empty, error) {

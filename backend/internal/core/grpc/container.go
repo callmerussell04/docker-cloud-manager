@@ -32,10 +32,15 @@ type ContainerLogic interface {
 type ContainerHandler struct {
 	coreapi.UnimplementedContainerAPIServer
 	logic ContainerLogic
+	users UserDirectory
 }
 
-func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic) {
-	coreapi.RegisterContainerAPIServer(gRPCServer, &ContainerHandler{logic: logic})
+type UserDirectory interface {
+	GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.UserInfo, error)
+}
+
+func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic, users UserDirectory) {
+	coreapi.RegisterContainerAPIServer(gRPCServer, &ContainerHandler{logic: logic, users: users})
 }
 
 func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
@@ -242,6 +247,7 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 	}
 
 	var pbContainers []*coreapi.ContainerData
+	usernames := h.usernamesByOwner(ctx, containers)
 	for _, c := range containers {
 		pbContainers = append(pbContainers, &coreapi.ContainerData{
 			Id:            c.ID.String(),
@@ -253,7 +259,7 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 			Status:        c.Status,
 			CreatedAt:     c.CreatedAt.Unix(),
 			OwnerId:       c.OwnerID.String(),
-			OwnerUsername: c.OwnerUsername,
+			OwnerUsername: usernames[c.OwnerID],
 		})
 	}
 
@@ -261,6 +267,34 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 		Containers: pbContainers,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ContainerHandler) usernamesByOwner(ctx context.Context, containers []domain.Container) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(containers))
+	seen := make(map[uuid.UUID]struct{}, len(containers))
+	for _, c := range containers {
+		if _, ok := seen[c.OwnerID]; ok {
+			continue
+		}
+		seen[c.OwnerID] = struct{}{}
+		ids = append(ids, c.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
+}
+
+func usernamesByID(ctx context.Context, users UserDirectory, ids []uuid.UUID) map[uuid.UUID]string {
+	result := make(map[uuid.UUID]string, len(ids))
+	if users == nil || len(ids) == 0 {
+		return result
+	}
+	userMap, err := users.GetUsers(ctx, ids)
+	if err != nil {
+		return result
+	}
+	for id, user := range userMap {
+		result[id] = user.Username
+	}
+	return result
 }
 
 func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {

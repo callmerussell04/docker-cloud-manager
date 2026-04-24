@@ -25,11 +25,6 @@ func main() {
 		log.Fatal("CORE_GRPC_TARGET environment variable is not set")
 	}
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		log.Fatal("JWT_SECRET environment variable is not set")
-	}
-
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	if internalToken == "" {
 		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
@@ -45,7 +40,7 @@ func main() {
 		log.Fatal("CORE_HTTP_TARGET environment variable is not set")
 	}
 
-	application, err := app.New(port, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, jwtSecret, internalToken)
+	application, err := app.New(port, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, internalToken)
 	if err != nil {
 		log.Fatalf("failed to initialize gateway app: %v", err)
 	}

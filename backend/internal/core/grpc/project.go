@@ -25,10 +25,11 @@ type ProjectLogic interface {
 type ProjectHandler struct {
 	coreapi.UnimplementedProjectAPIServer
 	logic ProjectLogic
+	users UserDirectory
 }
 
-func RegisterProjectAPI(gRPCServer *grpc.Server, logic ProjectLogic) {
-	coreapi.RegisterProjectAPIServer(gRPCServer, &ProjectHandler{logic: logic})
+func RegisterProjectAPI(gRPCServer *grpc.Server, logic ProjectLogic, users UserDirectory) {
+	coreapi.RegisterProjectAPIServer(gRPCServer, &ProjectHandler{logic: logic, users: users})
 }
 
 func (h *ProjectHandler) GetUserProjects(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.ProjectListResponse, error) {
@@ -122,6 +123,7 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 	}
 
 	var pbProjects []*coreapi.ProjectData
+	usernames := h.usernamesByOwner(ctx, projects)
 	for _, p := range projects {
 		errMsg := ""
 		if p.ErrorMessage != nil {
@@ -134,7 +136,7 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 			ErrorMessage:  errMsg,
 			CreatedAt:     p.CreatedAt.Unix(),
 			OwnerId:       p.OwnerID.String(),
-			OwnerUsername: p.OwnerUsername,
+			OwnerUsername: usernames[p.OwnerID],
 		})
 	}
 
@@ -142,6 +144,19 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 		Projects:   pbProjects,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ProjectHandler) usernamesByOwner(ctx context.Context, projects []domain.Project) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(projects))
+	seen := make(map[uuid.UUID]struct{}, len(projects))
+	for _, p := range projects {
+		if _, ok := seen[p.OwnerID]; ok {
+			continue
+		}
+		seen[p.OwnerID] = struct{}{}
+		ids = append(ids, p.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
 }
 
 func (h *ProjectHandler) AdminDeleteProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {

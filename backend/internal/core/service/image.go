@@ -21,7 +21,6 @@ type ImageRepository interface {
 	Save(ctx context.Context, img domain.Image) error
 	UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetUserDiskQuota(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Image, int, error)
@@ -56,6 +55,7 @@ type ImageService struct {
 	registryAPI ImageRegistryAPI
 	contRepo    ImageContainerRepository
 	cfg         ConfigManager
+	users       UserInfoProvider
 }
 
 func NewImageService(
@@ -65,6 +65,7 @@ func NewImageService(
 	registryAPI ImageRegistryAPI,
 	contRepo ImageContainerRepository,
 	cfg ConfigManager,
+	users UserInfoProvider,
 ) *ImageService {
 	return &ImageService{
 		repo:        repo,
@@ -73,6 +74,7 @@ func NewImageService(
 		registryAPI: registryAPI,
 		contRepo:    contRepo,
 		cfg:         cfg,
+		users:       users,
 	}
 }
 
@@ -126,10 +128,11 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 
 	// 1. Предварительная проверка дисковой квоты ДО сборки
 	// Мы не знаем размер будущего образа, но если квота УЖЕ исчерпана, нет смысла начинать сборку.
-	quotaMB, err := s.repo.GetUserDiskQuota(ctx, ownerID)
+	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
+	quotaMB := user.QuotaDiskMB
 
 	usedMB, err := s.repo.GetUserUsedDiskSpace(ctx, ownerID)
 	if err != nil {
@@ -205,10 +208,11 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		sizeMB = 1 // Минимальный размер 1 МБ
 	}
 
-	quotaMB, err := s.repo.GetUserDiskQuota(ctx, img.OwnerID)
+	user, err := s.users.GetUser(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}
+	quotaMB := user.QuotaDiskMB
 
 	usedMB, err := s.repo.GetUserUsedDiskSpace(ctx, img.OwnerID)
 	if err != nil {

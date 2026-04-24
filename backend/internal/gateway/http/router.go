@@ -7,7 +7,29 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 )
 
-func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, builderLogsProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenParser middleware.TokenParser) *gin.Engine {
+const (
+	permissionSystemConfigRead   = "system.config.read"
+	permissionSystemConfigUpdate = "system.config.update"
+
+	permissionContainersAdminList   = "containers.admin.list"
+	permissionContainersAdminAction = "containers.admin.action"
+	permissionContainersAdminStats  = "containers.admin.stats"
+
+	permissionVolumesAdminList   = "volumes.admin.list"
+	permissionVolumesAdminDelete = "volumes.admin.delete"
+
+	permissionImagesAdminList   = "images.admin.list"
+	permissionImagesAdminDelete = "images.admin.delete"
+
+	permissionBuildsAdminList   = "builds.admin.list"
+	permissionBuildsAdminDelete = "builds.admin.delete"
+
+	permissionProjectsAdminList   = "projects.admin.list"
+	permissionProjectsAdminDelete = "projects.admin.delete"
+	permissionProjectsAdminStop   = "projects.admin.stop"
+)
+
+func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, builderLogsProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier) *gin.Engine {
 	router := gin.Default()
 
 	router.Use(middleware.CORSMiddleware())
@@ -23,7 +45,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 		}
 
 		protected := v1.Group("/")
-		protected.Use(middleware.Auth(tokenParser))
+		protected.Use(middleware.Auth(tokenVerifier))
 		{
 			containers := protected.Group("/containers")
 			{
@@ -64,27 +86,26 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			}
 		}
 		admin := protected.Group("/admin")
-		admin.Use(middleware.RequireRole("admin"))
 		{
-			admin.GET("/config", coreHandler.GetSystemConfig)
-			admin.PUT("/config", coreHandler.UpdateSystemConfig)
+			admin.GET("/config", middleware.RequirePermission(tokenVerifier, permissionSystemConfigRead), coreHandler.GetSystemConfig)
+			admin.PUT("/config", middleware.RequirePermission(tokenVerifier, permissionSystemConfigUpdate), coreHandler.UpdateSystemConfig)
 
-			admin.GET("/containers", coreHandler.GetAllContainers)
-			admin.POST("/containers/:id/action/:action", coreHandler.AdminActionContainer)
-			admin.GET("/containers/:id/stats", coreHandler.AdminGetContainerStats)
+			admin.GET("/containers", middleware.RequirePermission(tokenVerifier, permissionContainersAdminList), coreHandler.GetAllContainers)
+			admin.POST("/containers/:id/action/:action", middleware.RequirePermission(tokenVerifier, permissionContainersAdminAction), coreHandler.AdminActionContainer)
+			admin.GET("/containers/:id/stats", middleware.RequirePermission(tokenVerifier, permissionContainersAdminStats), coreHandler.AdminGetContainerStats)
 
-			admin.GET("/volumes", coreHandler.GetAllVolumes)
-			admin.DELETE("/volumes/:id", coreHandler.AdminDeleteVolume)
+			admin.GET("/volumes", middleware.RequirePermission(tokenVerifier, permissionVolumesAdminList), coreHandler.GetAllVolumes)
+			admin.DELETE("/volumes/:id", middleware.RequirePermission(tokenVerifier, permissionVolumesAdminDelete), coreHandler.AdminDeleteVolume)
 
-			admin.GET("/images", coreHandler.GetAllImages)
-			admin.DELETE("/images/:id", coreHandler.AdminDeleteImage)
+			admin.GET("/images", middleware.RequirePermission(tokenVerifier, permissionImagesAdminList), coreHandler.GetAllImages)
+			admin.DELETE("/images/:id", middleware.RequirePermission(tokenVerifier, permissionImagesAdminDelete), coreHandler.AdminDeleteImage)
 
-			admin.GET("/builds", coreHandler.GetAllBuilds)
-			admin.DELETE("/builds/:id", coreHandler.AdminDeleteBuild)
+			admin.GET("/builds", middleware.RequirePermission(tokenVerifier, permissionBuildsAdminList), coreHandler.GetAllBuilds)
+			admin.DELETE("/builds/:id", middleware.RequirePermission(tokenVerifier, permissionBuildsAdminDelete), coreHandler.AdminDeleteBuild)
 
-			admin.GET("/projects", coreHandler.GetAllProjects)
-			admin.DELETE("/projects/:id", coreHandler.AdminDeleteProject)
-			admin.POST("/projects/:id/stop", coreHandler.AdminStopProject)
+			admin.GET("/projects", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminList), coreHandler.GetAllProjects)
+			admin.DELETE("/projects/:id", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminDelete), coreHandler.AdminDeleteProject)
+			admin.POST("/projects/:id/stop", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminStop), coreHandler.AdminStopProject)
 		}
 		stats := protected.Group("/stats")
 		{

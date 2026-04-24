@@ -155,9 +155,8 @@ func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset i
 	}
 
 	query := `
-		SELECT p.id, p.owner_id, u.username, p.name, p.status, p.error_message, p.created_at 
+		SELECT p.id, p.owner_id, p.name, p.status, p.error_message, p.created_at
 		FROM projects p
-		JOIN users u ON p.owner_id = u.id
 		ORDER BY p.created_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -170,7 +169,7 @@ func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset i
 	for rows.Next() {
 		var p domain.Project
 		var errMsg sql.NullString
-		if err := rows.Scan(&p.ID, &p.OwnerID, &p.OwnerUsername, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if errMsg.Valid {

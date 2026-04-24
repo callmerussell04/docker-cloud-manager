@@ -16,8 +16,10 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
+	grpcclient "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc/client"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/metrics"
@@ -30,6 +32,7 @@ type App struct {
 	httpServer *http.Server
 	db         *sql.DB
 	dockerCli  *docker.Adapter
+	ssoConn    *grpc.ClientConn
 	port       int
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -49,7 +52,7 @@ func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, project
 	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
-func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, internalToken string, configManager *config.Manager) (*App, error) {
+func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, ssoTarget string, internalToken string, configManager *config.Manager) (*App, error) {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -65,6 +68,15 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 	}
 
 	registryAdapter := registry.NewAdapter(configManager.Get().RegistryAPIURL)
+	ssoConn, err := grpc.NewClient(
+		ssoTarget,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("sso conn fail: %w", err)
+	}
+	ssoClient := grpcclient.NewSSOClient(ssoConn)
 
 	contRepo := repository.NewContainerRepository(db)
 	volRepo := repository.NewVolumeRepository(db)
@@ -74,12 +86,12 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager, ssoClient)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager)
-	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, configManager)
+	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, configManager, ssoClient)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
-	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager)
+	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager, ssoClient)
 
 	gRPCServer := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor(internalToken)))
 
@@ -92,10 +104,10 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 		Handler: router,
 	}
 
-	coregrpc.RegisterContainerAPI(gRPCServer, contService)
-	coregrpc.RegisterVolumeAPI(gRPCServer, volService)
-	coregrpc.RegisterImageAPI(gRPCServer, imgService)
-	coregrpc.RegisterProjectAPI(gRPCServer, projService)
+	coregrpc.RegisterContainerAPI(gRPCServer, contService, ssoClient)
+	coregrpc.RegisterVolumeAPI(gRPCServer, volService, ssoClient)
+	coregrpc.RegisterImageAPI(gRPCServer, imgService, ssoClient)
+	coregrpc.RegisterProjectAPI(gRPCServer, projService, ssoClient)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
@@ -125,6 +137,7 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 		httpServer: httpServer,
 		db:         db,
 		dockerCli:  dockerAdapter,
+		ssoConn:    ssoConn,
 		port:       port,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -154,6 +167,9 @@ func (a *App) Stop() {
 	}
 	if a.dockerCli != nil {
 		a.dockerCli.Close()
+	}
+	if a.ssoConn != nil {
+		a.ssoConn.Close()
 	}
 	if a.httpServer != nil {
 		_ = a.httpServer.Shutdown(context.Background())

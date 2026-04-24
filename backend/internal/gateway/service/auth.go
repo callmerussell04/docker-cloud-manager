@@ -10,6 +10,8 @@ type SSOProvider interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
 	Login(ctx context.Context, username, password string) (domain.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (domain.Tokens, error)
+	VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error)
+	CheckPermission(ctx context.Context, authHeader, permission string) error
 }
 
 type AuthService struct {
@@ -32,4 +34,12 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (dom
 
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (domain.Tokens, error) {
 	return s.sso.Refresh(ctx, refreshToken)
+}
+
+func (s *AuthService) VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error) {
+	return s.sso.VerifyAccessToken(ctx, authHeader)
+}
+
+func (s *AuthService) CheckPermission(ctx context.Context, authHeader, permission string) error {
+	return s.sso.CheckPermission(ctx, authHeader, permission)
 }

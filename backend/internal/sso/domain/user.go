@@ -13,4 +13,7 @@ type User struct {
 	Email        string
 	PasswordHash string
 	Role         string
+	QuotaCPU     float64
+	QuotaRAMMB   int64
+	QuotaDiskMB  int64
 }

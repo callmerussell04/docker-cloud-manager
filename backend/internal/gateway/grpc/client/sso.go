@@ -2,6 +2,7 @@ package grpcclient
 
 import (
 	"context"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -13,12 +14,14 @@ import (
 )
 
 type SSOClient struct {
-	api sso.AuthClient
+	authAPI sso.AuthClient
+	userAPI sso.UserAPIClient
 }
 
 func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
 	return &SSOClient{
-		api: sso.NewAuthClient(cc),
+		authAPI: sso.NewAuthClient(cc),
+		userAPI: sso.NewUserAPIClient(cc),
 	}
 }
 
@@ -29,7 +32,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 		Password: password,
 	}
 
-	resp, err := c.api.Register(ctx, req)
+	resp, err := c.authAPI.Register(ctx, req)
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok {
@@ -52,7 +55,7 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (domai
 		Password: password,
 	}
 
-	resp, err := c.api.Login(ctx, req)
+	resp, err := c.authAPI.Login(ctx, req)
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok {
@@ -77,7 +80,7 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (domain.To
 		RefreshToken: refreshToken,
 	}
 
-	resp, err := c.api.Refresh(ctx, req)
+	resp, err := c.authAPI.Refresh(ctx, req)
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok {
@@ -95,4 +98,64 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (domain.To
 		AccessToken:  resp.GetAccessToken(),
 		RefreshToken: resp.GetRefreshToken(),
 	}, nil
+}
+
+func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error) {
+	token, err := accessTokenFromHeader(authHeader)
+	if err != nil {
+		return domain.AuthUser{}, apperrors.ErrUnauthorized
+	}
+
+	resp, err := c.userAPI.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{
+		AccessToken: token,
+	})
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.Unauthenticated {
+			return domain.AuthUser{}, apperrors.ErrUnauthorized
+		}
+		return domain.AuthUser{}, apperrors.ErrInternal
+	}
+
+	return domain.AuthUser{
+		UserID:   resp.GetUserId(),
+		Username: resp.GetUsername(),
+		Role:     resp.GetRole(),
+	}, nil
+}
+
+func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission string) error {
+	token, err := accessTokenFromHeader(authHeader)
+	if err != nil {
+		return apperrors.ErrUnauthorized
+	}
+
+	resp, err := c.userAPI.CheckPermission(ctx, &sso.CheckPermissionRequest{
+		AccessToken: token,
+		Permission:  permission,
+	})
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok {
+			switch st.Code() {
+			case codes.Unauthenticated:
+				return apperrors.ErrUnauthorized
+			case codes.InvalidArgument:
+				return apperrors.ErrBadRequest
+			}
+		}
+		return apperrors.ErrInternal
+	}
+	if !resp.GetAllowed() {
+		return apperrors.ErrForbidden
+	}
+	return nil
+}
+
+func accessTokenFromHeader(authHeader string) (string, error) {
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "Bearer" || parts[1] == "" {
+		return "", apperrors.ErrUnauthorized
+	}
+	return parts[1], nil
 }

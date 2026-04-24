@@ -66,6 +66,11 @@ func main() {
 		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
 	}
 
+	ssoTarget := os.Getenv("SSO_GRPC_TARGET")
+	if ssoTarget == "" {
+		log.Fatal("SSO_GRPC_TARGET environment variable is not set")
+	}
+
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	if internalToken == "" {
 		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
@@ -96,8 +101,11 @@ func main() {
 	}
 
 	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)
+	if err != nil {
+		log.Fatalf("failed to initialize config manager: %v", err)
+	}
 
-	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, internalToken, cfgManager)
+	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, ssoTarget, internalToken, cfgManager)
 	if err != nil {
 		log.Fatalf("failed to initialize core application: %v", err)
 	}

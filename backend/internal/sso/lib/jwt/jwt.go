@@ -2,6 +2,7 @@ package jwt
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -9,6 +10,11 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/jwtutils"
+)
+
+const (
+	tokenTypeAccess  = "access"
+	tokenTypeRefresh = "refresh"
 )
 
 type Provider struct {
@@ -27,9 +33,10 @@ func NewProvider(secretKey string, accessTTL, refreshTTL time.Duration) *Provide
 
 func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
 	accessClaims := jwtutils.UserClaims{
-		UserID:   user.ID,
-		Username: user.Username,
-		Role:     user.Role,
+		UserID:    user.ID,
+		Username:  user.Username,
+		Role:      user.Role,
+		TokenType: tokenTypeAccess,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(p.accessTTL)),
 		},
@@ -42,7 +49,8 @@ func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
 	}
 
 	refreshClaims := jwtutils.UserClaims{
-		UserID: user.ID,
+		UserID:    user.ID,
+		TokenType: tokenTypeRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(p.refreshTTL)),
 		},
@@ -58,6 +66,14 @@ func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
 }
 
 func (p *Provider) ValidateRefreshToken(tokenStr string) (uuid.UUID, error) {
+	return p.validateToken(tokenStr, tokenTypeRefresh)
+}
+
+func (p *Provider) ValidateAccessToken(tokenStr string) (uuid.UUID, error) {
+	return p.validateToken(tokenStr, tokenTypeAccess)
+}
+
+func (p *Provider) validateToken(tokenStr, expectedType string) (uuid.UUID, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &jwtutils.UserClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
@@ -72,6 +88,9 @@ func (p *Provider) ValidateRefreshToken(tokenStr string) (uuid.UUID, error) {
 	claims, ok := token.Claims.(*jwtutils.UserClaims)
 	if !ok {
 		return uuid.Nil, errors.New("invalid claims")
+	}
+	if claims.TokenType != expectedType {
+		return uuid.Nil, fmt.Errorf("unexpected token type: %s", claims.TokenType)
 	}
 
 	return claims.UserID, nil

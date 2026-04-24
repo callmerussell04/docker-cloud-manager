@@ -1,41 +1,53 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/jwtutils"
 	"github.com/gin-gonic/gin"
 )
 
-type TokenParser interface {
-	ParseToken(authHeader string) (jwtutils.UserClaims, error)
+type TokenVerifier interface {
+	VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error)
+	CheckPermission(ctx context.Context, authHeader, permission string) error
 }
 
-func Auth(parser TokenParser) gin.HandlerFunc {
+func Auth(verifier TokenVerifier) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 
-		claims, err := parser.ParseToken(authHeader)
+		user, err := verifier.VerifyAccessToken(c.Request.Context(), authHeader)
 		if err != nil {
 			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 			return
 		}
 
-		c.Set("user_id", claims.UserID.String())
-		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
+		c.Set("user_id", user.UserID)
+		c.Set("username", user.Username)
+		c.Set("role", user.Role)
 
 		c.Next()
 	}
 }
 
-func RequireRole(requiredRole string) gin.HandlerFunc {
+func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role := c.GetString("role")
-		if role != requiredRole {
-			apperrors.Respond(c, http.StatusForbidden, errors.New("forbidden: insufficient permissions"))
+		authHeader := c.GetHeader("Authorization")
+		if err := verifier.CheckPermission(c.Request.Context(), authHeader, permission); err != nil {
+			statusCode := http.StatusInternalServerError
+			responseErr := apperrors.ErrInternal
+			switch {
+			case errors.Is(err, apperrors.ErrUnauthorized):
+				statusCode = http.StatusUnauthorized
+				responseErr = apperrors.ErrUnauthorized
+			case errors.Is(err, apperrors.ErrForbidden):
+				statusCode = http.StatusForbidden
+				responseErr = apperrors.ErrForbidden
+			}
+			apperrors.Respond(c, statusCode, responseErr)
 			return
 		}
 		c.Next()

@@ -10,6 +10,13 @@ service Auth {
   rpc Refresh (RefreshRequest) returns (RefreshResponse);
 }
 
+service UserAPI {
+  rpc VerifyAccessToken (VerifyTokenRequest) returns (UserData);
+  rpc CheckPermission (CheckPermissionRequest) returns (CheckPermissionResponse);
+  rpc GetUser (GetUserRequest) returns (UserData);
+  rpc BatchGetUsers (BatchGetUsersRequest) returns (BatchGetUsersResponse);
+}
+
 message RegisterRequest {
   string username = 1;
   string email = 2;
@@ -37,4 +44,40 @@ message RefreshRequest {
 message RefreshResponse {
   string access_token = 1;
   string refresh_token = 2;
+}
+
+message VerifyTokenRequest {
+  string access_token = 1;
+}
+
+message CheckPermissionRequest {
+  string access_token = 1;
+  string permission = 2;
+}
+
+message CheckPermissionResponse {
+  bool allowed = 1;
+  UserData user = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message BatchGetUsersRequest {
+  repeated string user_ids = 1;
+}
+
+message UserData {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string role = 4;
+  int64 quota_ram_mb = 5;
+  int64 quota_disk_mb = 6;
+  double quota_cpu = 7;
+}
+
+message BatchGetUsersResponse {
+  repeated UserData users = 1;
 }

@@ -13,6 +13,7 @@ type StatsService struct {
 	imgRepo  ImageRepository
 	projRepo ProjectRepository
 	cfg      ConfigManager
+	users    UserInfoProvider
 }
 
 func NewStatsService(
@@ -21,6 +22,7 @@ func NewStatsService(
 	imgRepo ImageRepository,
 	projRepo ProjectRepository,
 	cfg ConfigManager,
+	users UserInfoProvider,
 ) *StatsService {
 	return &StatsService{
 		contRepo: contRepo,
@@ -28,6 +30,7 @@ func NewStatsService(
 		imgRepo:  imgRepo,
 		projRepo: projRepo,
 		cfg:      cfg,
+		users:    users,
 	}
 }
 
@@ -38,7 +41,11 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (dom
 	stats.ContainersQuota = cfg.MaxContainersPerUser
 	stats.VolumesQuota = cfg.MaxVolumesPerUser
 
-	stats.RamQuotaBytes, _ = s.contRepo.GetUserRAMQuota(ctx, ownerID)
+	user, err := s.users.GetUser(ctx, ownerID)
+	if err != nil {
+		return domain.UserStats{}, err
+	}
+	stats.RamQuotaBytes = user.QuotaRAMMB * 1024 * 1024
 	stats.RamUsedBytes, _ = s.contRepo.GetUserReservedMemory(ctx, ownerID)
 
 	stats.ContainersTotal, _ = s.contRepo.CountByOwnerID(ctx, ownerID)
@@ -49,8 +56,7 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (dom
 		}
 	}
 
-	diskQuota, _ := s.imgRepo.GetUserDiskQuota(ctx, ownerID)
-	stats.DiskQuotaMB = int(diskQuota)
+	stats.DiskQuotaMB = int(user.QuotaDiskMB)
 	diskUsed, _ := s.imgRepo.GetUserUsedDiskSpace(ctx, ownerID)
 	stats.DiskUsedMB = int(diskUsed)
 

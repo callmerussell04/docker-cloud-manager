@@ -30,10 +30,11 @@ type ImageLogic interface {
 type ImageHandler struct {
 	coreapi.UnimplementedImageAPIServer
 	logic ImageLogic
+	users UserDirectory
 }
 
-func RegisterImageAPI(gRPCServer *grpc.Server, logic ImageLogic) {
-	coreapi.RegisterImageAPIServer(gRPCServer, &ImageHandler{logic: logic})
+func RegisterImageAPI(gRPCServer *grpc.Server, logic ImageLogic, users UserDirectory) {
+	coreapi.RegisterImageAPIServer(gRPCServer, &ImageHandler{logic: logic, users: users})
 }
 
 func (h *ImageHandler) GetUserImages(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.ImageListResponse, error) {
@@ -210,6 +211,7 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 	}
 
 	var pbImages []*coreapi.ImageData
+	usernames := h.usernamesByImageOwner(ctx, images)
 	for _, img := range images {
 		pbImages = append(pbImages, &coreapi.ImageData{
 			Id:            img.ID.String(),
@@ -218,7 +220,7 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 			IsCustom:      img.IsCustom,
 			CreatedAt:     img.CreatedAt.Unix(),
 			OwnerId:       img.OwnerID.String(),
-			OwnerUsername: img.OwnerUsername,
+			OwnerUsername: usernames[img.OwnerID],
 		})
 	}
 
@@ -256,6 +258,7 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 	}
 
 	var pbBuilds []*coreapi.BuildData
+	usernames := h.usernamesByBuildOwner(ctx, builds)
 	for _, b := range builds {
 		var finishedAt int64
 		if b.FinishedAt != nil {
@@ -269,7 +272,7 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 			FinishedAt:    finishedAt,
 			LogFilePath:   b.LogFilePath,
 			OwnerId:       b.OwnerID.String(),
-			OwnerUsername: b.OwnerUsername,
+			OwnerUsername: usernames[b.OwnerID],
 		})
 	}
 
@@ -277,6 +280,32 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 		Builds:     pbBuilds,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []domain.Image) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(images))
+	seen := make(map[uuid.UUID]struct{}, len(images))
+	for _, img := range images {
+		if _, ok := seen[img.OwnerID]; ok {
+			continue
+		}
+		seen[img.OwnerID] = struct{}{}
+		ids = append(ids, img.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
+}
+
+func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []domain.Build) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(builds))
+	seen := make(map[uuid.UUID]struct{}, len(builds))
+	for _, build := range builds {
+		if _, ok := seen[build.OwnerID]; ok {
+			continue
+		}
+		seen[build.OwnerID] = struct{}{}
+		ids = append(ids, build.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
 }
 
 func (h *ImageHandler) AdminDeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {

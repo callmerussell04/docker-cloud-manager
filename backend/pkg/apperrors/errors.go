@@ -7,6 +7,7 @@ var (
 	ErrAlreadyExists      = errors.New("already exists")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrUnauthorized       = errors.New("unauthorized")
+	ErrForbidden          = errors.New("forbidden")
 	ErrInvalidToken       = errors.New("invalid token")
 	ErrBadRequest         = errors.New("bad request")
 	ErrInternal           = errors.New("internal server error")
