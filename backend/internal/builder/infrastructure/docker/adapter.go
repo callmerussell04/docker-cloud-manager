@@ -23,6 +23,7 @@ type BuildContainerParams struct {
 	MemoryBytes    int64
 	CPUQuota       int64
 	BuildArgs      map[string]string
+	NetworkName    string
 }
 
 type Adapter struct {
@@ -65,20 +66,29 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerPa
 		cmd = append(cmd, fmt.Sprintf("--build-arg=%s=%s", k, v))
 	}
 
+	networkName := params.NetworkName
+	if networkName == "" {
+		networkName = "build_net"
+	}
+
 	// 2. Настраиваем контейнер Kaniko
+	pidsLimit := int64(512)
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
 		Cmd:   cmd,
 	}, &container.HostConfig{
+		SecurityOpt: []string{"no-new-privileges:true"},
+		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
 			Memory:     params.MemoryBytes,
 			MemorySwap: params.MemoryBytes * 2,
 			CPUQuota:   params.CPUQuota,
 			CPUPeriod:  100000,
+			PidsLimit:  &pidsLimit,
 		},
 	}, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
-			"dcm_net": {}, // Указываем ту же сеть, в которой находится Registry
+			networkName: {},
 		},
 	}, nil, "")
 

@@ -80,13 +80,17 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		})
 	}
 
+	pidsLimit := int64(256)
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(params.NetworkName),
+		SecurityOpt: []string{"no-new-privileges:true"},
+		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
 			Memory:            params.MemoryLimitBytes,
 			MemorySwap:        params.MemoryLimitBytes * 2,
 			MemoryReservation: params.MemoryReservation,
 			CPUShares:         params.CPUShares,
+			PidsLimit:         &pidsLimit,
 		},
 		Mounts: mounts,
 		LogConfig: container.LogConfig{

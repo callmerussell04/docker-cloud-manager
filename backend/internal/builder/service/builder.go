@@ -12,6 +12,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
 
@@ -46,6 +48,7 @@ type BuilderConfig struct {
 	LogsDirPath         string
 	StoragePath         string // Путь для временных файлов
 	RegistryURL         string // Адрес локального Registry (напр. registry:5000)
+	BuildNetworkName    string
 	MaxBuildTime        time.Duration
 	MaxConcurrentBuilds int
 }
@@ -80,6 +83,19 @@ func NewBuilderService(
 }
 
 func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (string, error) {
+	if _, err := uuid.Parse(job.OwnerID); err != nil {
+		return "", apperrors.ErrUnauthorized
+	}
+	if err := validation.ImageTag(job.Tag); err != nil {
+		return "", fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := validateRelativeBuildPath(job.ContextDir); err != nil {
+		return "", fmt.Errorf("%w: invalid build context: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := validateRelativeBuildPath(job.Dockerfile); err != nil {
+		return "", fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
+	}
+
 	fileID := uuid.New().String()
 
 	filePath, err := s.fileManager.SaveArchive(job.File, fileID)
@@ -151,6 +167,7 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 				MemoryBytes:    s.config.BuildMemoryBytes,
 				CPUQuota:       s.config.BuildCPUQuota,
 				BuildArgs:      buildArgs,
+				NetworkName:    s.config.BuildNetworkName,
 			}
 
 			// Запускаем контейнер Kaniko
@@ -186,4 +203,18 @@ func parseImageTag(rawTag string) (baseName, version string) {
 		return parts[0], "latest"
 	}
 	return parts[0], parts[1]
+}
+
+func validateRelativeBuildPath(path string) error {
+	if path == "" || path == "." {
+		return nil
+	}
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("absolute paths are not allowed")
+	}
+	clean := filepath.Clean(path)
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "\x00") {
+		return fmt.Errorf("parent directory traversal is not allowed")
+	}
+	return nil
 }
