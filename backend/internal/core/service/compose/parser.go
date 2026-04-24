@@ -3,11 +3,13 @@ package compose
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/compose-spec/compose-go/v2/loader"
 	"github.com/compose-spec/compose-go/v2/types"
@@ -21,6 +23,10 @@ func NewParser() *Parser {
 
 // ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
 func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*domain.ComposeProject, error) {
+	if err := validation.ProjectName(projectName); err != nil {
+		return nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+
 	header := fmt.Sprintf("name: %s\n", projectName)
 	fullContent := append([]byte(header), yamlContent...)
 	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
@@ -94,9 +100,19 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 	// 1. Собираем именованные тома
 	volumeMap := make(map[string]string)
 	for volName, volConfig := range project.Volumes {
+		if err := validation.ResourceName(volName); err != nil {
+			return nil, fmt.Errorf("%w: volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
+		}
+
 		driver := "local"
 		if volConfig.Driver != "" {
 			driver = volConfig.Driver
+		}
+		if driver != "local" {
+			return nil, fmt.Errorf("%w: only local volumes are allowed", apperrors.ErrBadRequest)
+		}
+		if len(volConfig.DriverOpts) > 0 {
+			return nil, fmt.Errorf("%w: volume driver options are not allowed", apperrors.ErrBadRequest)
 		}
 
 		result.Volumes = append(result.Volumes, domain.VolumeCreateParams{
@@ -116,6 +132,10 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 
 	// ForEachService гарантирует вызов колбэка в правильном порядке (с учетом depends_on)
 	err := project.ForEachService(allServiceNames, func(serviceName string, srv *types.ServiceConfig) error {
+		if err := validation.ResourceName(srv.Name); err != nil {
+			return fmt.Errorf("%w: service %s has invalid name: %v", apperrors.ErrBadRequest, srv.Name, err)
+		}
+
 		domainSrv := domain.ComposeService{
 			Name:      srv.Name,
 			EnvVars:   make(map[string]string),
@@ -125,8 +145,15 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 
 		// Обработка сборки (build)
 		if srv.Build != nil {
+			if err := validateRelativeComposePath(srv.Build.Context); err != nil {
+				return fmt.Errorf("%w: invalid build context for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
+			}
+
 			domainSrv.BuildContext = srv.Build.Context
 			if srv.Build.Dockerfile != "" {
+				if err := validateRelativeComposePath(srv.Build.Dockerfile); err != nil {
+					return fmt.Errorf("%w: invalid dockerfile path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
+				}
 				domainSrv.Dockerfile = srv.Build.Dockerfile
 			} else {
 				domainSrv.Dockerfile = "Dockerfile"
@@ -134,7 +161,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 
 			domainSrv.ImageTag = srv.Image
 			if domainSrv.ImageTag == "" {
-				domainSrv.ImageTag = fmt.Sprintf("%s_%s:latest", projectName, srv.Name)
+				domainSrv.ImageTag = strings.ToLower(fmt.Sprintf("%s_%s:latest", projectName, srv.Name))
 			}
 			// Сохраняем Build Args
 			for k, v := range srv.Build.Args {
@@ -147,6 +174,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 				return fmt.Errorf("%w: service %s must have either image or build", apperrors.ErrBadRequest, srv.Name)
 			}
 			domainSrv.ImageTag = srv.Image
+		}
+		if err := validation.ImageTag(domainSrv.ImageTag); err != nil {
+			return fmt.Errorf("%w: invalid image tag for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 		}
 
 		// Копируем переменные окружения
@@ -164,6 +194,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			domainSrv.Entrypoint = srv.Entrypoint
 		}
 		if srv.Restart != "" {
+			if srv.Restart != "no" && srv.Restart != "on-failure" {
+				return fmt.Errorf("%w: restart policy %s is not allowed", apperrors.ErrBadRequest, srv.Restart)
+			}
 			domainSrv.Restart = srv.Restart
 		}
 
@@ -202,6 +235,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 				if _, exists := volumeMap[vol.Source]; !exists {
 					return fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
 				}
+				if err := validation.MountPath(vol.Target); err != nil {
+					return fmt.Errorf("%w: invalid mount path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
+				}
 				domainSrv.VolumeMounts = append(domainSrv.VolumeMounts, domain.VolumeMountParams{
 					VolumeName: vol.Source,
 					MountPath:  vol.Target,
@@ -226,11 +262,11 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			if !hasPrefix || !hasPort {
 				return fmt.Errorf("%w: service %s must have BOTH dcm.domain_prefix and dcm.internal_port labels to be exposed", apperrors.ErrBadRequest, srv.Name)
 			}
-			if len(prefixStr) > 30 {
-				return fmt.Errorf("%w: domain prefix for service %s must be 30 characters or less", apperrors.ErrBadRequest, srv.Name)
+			if err := validation.DomainPrefix(prefixStr); err != nil {
+				return fmt.Errorf("%w: invalid domain prefix for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 			}
 			portInt, err := strconv.Atoi(portStr)
-			if err != nil || portInt <= 0 {
+			if err != nil || portInt <= 0 || portInt > 65535 {
 				return fmt.Errorf("%w: invalid dcm.internal_port for service %s", apperrors.ErrBadRequest, srv.Name)
 			}
 			domainSrv.DomainPrefix = prefixStr
@@ -246,4 +282,18 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 	}
 
 	return result, nil
+}
+
+func validateRelativeComposePath(path string) error {
+	if path == "" || path == "." {
+		return nil
+	}
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("absolute paths are not allowed")
+	}
+	clean := filepath.Clean(path)
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "\x00") {
+		return fmt.Errorf("parent directory traversal is not allowed")
+	}
+	return nil
 }

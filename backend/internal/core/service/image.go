@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/google/uuid"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
@@ -119,6 +120,10 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 }
 
 func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error) {
+	if err := validation.ImageTag(tag); err != nil {
+		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+
 	// 1. Предварительная проверка дисковой квоты ДО сборки
 	// Мы не знаем размер будущего образа, но если квота УЖЕ исчерпана, нет смысла начинать сборку.
 	quotaMB, err := s.repo.GetUserDiskQuota(ctx, ownerID)

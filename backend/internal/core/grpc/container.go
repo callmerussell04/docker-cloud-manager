@@ -78,6 +78,15 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		if errors.Is(err, apperrors.ErrLimitExceeded) {
 			return nil, status.Error(codes.ResourceExhausted, "maximum number of resources reached")
 		}
+		if errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
+			return nil, status.Error(codes.ResourceExhausted, "quota exceeded")
+		}
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, "resource already exists")
+		}
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return nil, status.Error(codes.InvalidArgument, "invalid container request")
+		}
 		return nil, status.Error(codes.Internal, "failed to create container")
 	}
 
@@ -101,6 +110,9 @@ func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.Cont
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		if errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
+			return nil, status.Error(codes.ResourceExhausted, "quota exceeded")
 		}
 		return nil, status.Error(codes.Internal, "failed to start container")
 	}
@@ -201,6 +213,12 @@ func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.Exp
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "container not found")
+		}
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, "domain prefix already exists")
+		}
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return nil, status.Error(codes.InvalidArgument, "invalid expose request")
 		}
 		return nil, status.Error(codes.Internal, "failed to expose container")
 	}

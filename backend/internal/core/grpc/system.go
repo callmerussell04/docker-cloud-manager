@@ -2,10 +2,12 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -70,6 +72,9 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	}
 
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return nil, status.Error(codes.InvalidArgument, "invalid config")
+		}
 		return nil, status.Error(codes.Internal, "failed to update config")
 	}
 

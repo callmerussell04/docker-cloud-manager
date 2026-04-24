@@ -7,6 +7,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
@@ -27,26 +28,36 @@ type VolumeDockerAPI interface {
 }
 
 type VolumeService struct {
-	repo              VolumeRepository
-	dockerAPI         VolumeDockerAPI
-	maxVolumesPerUser int
+	repo      VolumeRepository
+	dockerAPI VolumeDockerAPI
+	cfg       ConfigManager
 }
 
-func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, maxVolumesPerUser int) *VolumeService {
+func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager) *VolumeService {
 	return &VolumeService{
-		repo:              repo,
-		dockerAPI:         dockerAPI,
-		maxVolumesPerUser: maxVolumesPerUser,
+		repo:      repo,
+		dockerAPI: dockerAPI,
+		cfg:       cfg,
 	}
 }
 
 func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error) {
+	if err := validation.ResourceName(params.Name); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if params.Driver != "" && params.Driver != "local" {
+		return uuid.Nil, fmt.Errorf("%w: only local volumes are allowed", apperrors.ErrBadRequest)
+	}
+	if len(params.DriverOpts) > 0 {
+		return uuid.Nil, fmt.Errorf("%w: volume driver options are not allowed", apperrors.ErrBadRequest)
+	}
+
 	// Проверка лимита на количество томов
 	count, err := s.repo.CountByOwnerID(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if count >= s.maxVolumesPerUser {
+	if count >= s.cfg.Get().MaxVolumesPerUser {
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
 

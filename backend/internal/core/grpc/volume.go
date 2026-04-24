@@ -52,6 +52,12 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return nil, status.Error(codes.AlreadyExists, "volume already exists")
 		}
+		if errors.Is(err, apperrors.ErrLimitExceeded) {
+			return nil, status.Error(codes.ResourceExhausted, "maximum number of resources reached")
+		}
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return nil, status.Error(codes.InvalidArgument, "invalid volume request")
+		}
 		return nil, status.Error(codes.Internal, "failed to create volume")
 	}
 

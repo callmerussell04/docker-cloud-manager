@@ -97,6 +97,12 @@ func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBui
 
 	buildID, imageID, err := h.logic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
 	if err != nil {
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return nil, status.Error(codes.InvalidArgument, "invalid image tag")
+		}
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return nil, status.Error(codes.AlreadyExists, "image already exists")
+		}
 		if errors.Is(err, apperrors.ErrQuotaExceeded) {
 			return nil, status.Error(codes.ResourceExhausted, "disk quota exceeded")
 		}

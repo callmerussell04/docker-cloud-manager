@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -115,6 +116,19 @@ func NewContainerService(
 }
 
 func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error) {
+	if err := validation.ResourceName(params.Name); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := validation.ImageTag(params.ImageTag); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if params.InternalPort < 0 || params.InternalPort > 65535 {
+		return uuid.Nil, fmt.Errorf("%w: invalid internal port", apperrors.ErrBadRequest)
+	}
+	if err := validation.DomainPrefix(params.DomainPrefix); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+
 	count, err := s.repo.CountByOwnerID(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, err
@@ -127,9 +141,6 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if params.DomainPrefix != "" {
 		if params.InternalPort <= 0 {
 			return uuid.Nil, apperrors.ErrBadRequest
-		}
-		if len(params.DomainPrefix) > 30 {
-			return uuid.Nil, fmt.Errorf("%w: domain prefix must be 30 characters or less", apperrors.ErrBadRequest)
 		}
 
 		exists, err := s.repo.CheckDomainPrefixExists(ctx, params.DomainPrefix)
@@ -220,6 +231,10 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	var dbMounts []domain.VolumeMount
 
 	for _, vm := range params.VolumeMounts {
+		if err := validation.MountPath(vm.MountPath); err != nil {
+			return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+		}
+
 		vol, err := s.volumeRepo.GetByID(ctx, vm.VolumeID)
 		if err != nil {
 			return uuid.Nil, err
@@ -331,8 +346,12 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		return apperrors.ErrBadRequest
 	}
 
-	if len(domainPrefix) > 30 {
-		return fmt.Errorf("%w: domain prefix must be 30 characters or less", apperrors.ErrBadRequest)
+	if internalPort > 65535 {
+		return fmt.Errorf("%w: invalid internal port", apperrors.ErrBadRequest)
+	}
+
+	if err := validation.DomainPrefix(domainPrefix); err != nil {
+		return fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
 
 	if c.DomainPrefix != domainPrefix {

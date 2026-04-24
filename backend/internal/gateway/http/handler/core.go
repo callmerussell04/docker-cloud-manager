@@ -504,6 +504,14 @@ func (h *CoreHandler) handleError(c *gin.Context, err error) {
 		apperrors.Respond(c, http.StatusConflict, apperrors.ErrLimitExceeded)
 		return
 	}
+	if errors.Is(err, apperrors.ErrResourceExhausted) || errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
+		apperrors.Respond(c, http.StatusConflict, apperrors.ErrResourceExhausted)
+		return
+	}
+	if errors.Is(err, apperrors.ErrUnauthorized) {
+		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+		return
+	}
 	if errors.Is(err, apperrors.ErrBadRequest) {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
