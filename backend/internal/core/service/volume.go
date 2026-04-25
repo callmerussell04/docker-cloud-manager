@@ -6,8 +6,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
 )
 

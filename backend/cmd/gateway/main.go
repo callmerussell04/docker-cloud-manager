@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/app"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 )
 
 func main() {

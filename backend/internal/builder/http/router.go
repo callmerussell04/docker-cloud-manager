@@ -5,7 +5,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
 )
 

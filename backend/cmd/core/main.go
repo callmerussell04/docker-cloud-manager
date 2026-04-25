@@ -10,7 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	_ "github.com/lib/pq"
 )
 

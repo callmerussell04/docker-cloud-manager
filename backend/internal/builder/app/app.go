@@ -13,7 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
