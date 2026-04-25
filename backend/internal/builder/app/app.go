@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
@@ -12,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -20,13 +22,17 @@ import (
 type App struct {
 	router *gin.Engine
 	port   int
+	logger *slog.Logger
 }
 
-func New(port int, coreTarget string, internalToken string, cfg config.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
+func New(port int, coreTarget string, internalToken string, cfg config.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string, logger *slog.Logger) (*App, error) {
 	coreConn, err := grpc.NewClient(
 		coreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+		grpc.WithChainUnaryInterceptor(
+			logging.UnaryClientInterceptor(logger),
+			internalauth.UnaryClientInterceptor(internalToken),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("core conn fail: %w", err)
@@ -53,17 +59,19 @@ func New(port int, coreTarget string, internalToken string, cfg config.BuilderCo
 		return nil, err
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg)
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg, logger)
 	buildHandler := handler.NewBuildHandler(builderService, cfg.LogsDirPath)
 
-	router := deliveryhttp.NewRouter(buildHandler, internalToken)
+	router := deliveryhttp.NewRouter(buildHandler, internalToken, logger)
 
 	return &App{
 		router: router,
 		port:   port,
+		logger: logging.WithComponent(logger, "app"),
 	}, nil
 }
 
 func (a *App) Run() error {
+	a.logger.Info("builder server starting", "port", a.port)
 	return a.router.Run(fmt.Sprintf(":%d", a.port))
 }

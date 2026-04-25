@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
@@ -50,6 +52,7 @@ type BuilderService struct {
 	coreClient  CoreClient
 	config      config.BuilderConfig
 	semaphore   chan struct{}
+	logger      *slog.Logger
 }
 
 func NewBuilderService(
@@ -59,6 +62,7 @@ func NewBuilderService(
 	logManager LogManager,
 	coreClient CoreClient,
 	config config.BuilderConfig,
+	logger *slog.Logger,
 ) *BuilderService {
 	return &BuilderService{
 		fileManager: fileManager,
@@ -68,6 +72,7 @@ func NewBuilderService(
 		coreClient:  coreClient,
 		config:      config,
 		semaphore:   make(chan struct{}, config.MaxConcurrentBuilds),
+		logger:      logging.WithComponent(logger, "builder_service"),
 	}
 }
 
@@ -109,12 +114,13 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 	}
 
 	// Передаем распарсенные baseName и version
-	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs)
+	requestID := logging.RequestIDFromContext(ctx)
+	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string) {
+func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string) {
 	s.semaphore <- struct{}{}
 	defer func() { <-s.semaphore }()
 
@@ -123,6 +129,10 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
 	defer cancel()
+	ctx = logging.ContextWithRequestID(ctx, requestID)
+
+	logger := s.logger.With("build_id", buildID, "image_id", imageID, "owner_id", ownerID)
+	logger.InfoContext(ctx, "build started", "image_tag", fmt.Sprintf("%s:%s", baseName, version))
 
 	status := "failed"
 	var sizeMB int
@@ -183,7 +193,15 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 		status = "failed_timeout"
 	}
 
-	_ = s.coreClient.CompleteBuildRecord(context.Background(), buildID, imageID, status, sizeMB)
+	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
+		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
+		return
+	}
+	if status == "success" {
+		logger.InfoContext(ctx, "build completed", "status", status)
+	} else {
+		logger.WarnContext(ctx, "build failed", "status", status)
+	}
 }
 
 func parseImageTag(rawTag string) (baseName, version string) {

@@ -7,5 +7,6 @@ type ErrorResponse struct {
 }
 
 func Respond(c *gin.Context, statusCode int, err error) {
+	_ = c.Error(err)
 	c.AbortWithStatusJSON(statusCode, ErrorResponse{Error: SafeMessage(err)})
 }

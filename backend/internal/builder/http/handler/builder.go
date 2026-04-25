@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -83,11 +82,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 
 	buildID, err := h.service.InitBuild(c.Request.Context(), job, req.File)
 	if err != nil {
-		statusCode := apperrors.HTTPStatus(err)
-		if statusCode >= http.StatusInternalServerError {
-			slog.ErrorContext(c.Request.Context(), "builder init failed", "error", err)
-		}
-		apperrors.Respond(c, statusCode, err)
+		apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 		return
 	}
 

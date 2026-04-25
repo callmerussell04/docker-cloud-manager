@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,7 +40,7 @@ func UnaryClientInterceptor(token string) grpc.UnaryClientInterceptor {
 func Middleware(token string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if token == "" || c.GetHeader(HeaderName) != token {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 			return
 		}
 		c.Next()

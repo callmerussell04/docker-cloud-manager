@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	_ "github.com/lib/pq"
 )
 
@@ -48,32 +49,35 @@ func getEnvString(key string, fallback string) string {
 }
 
 func main() {
+	logger := logging.NewLogger("core", logging.ConfigFromEnv())
+	slog.SetDefault(logger)
+
 	port := getEnvInt("CORE_GRPC_PORT", 50052)
 	httpPort := getEnvInt("CORE_HTTP_PORT", 8083)
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		log.Fatal("DATABASE_URL environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "DATABASE_URL")
 	}
 
 	baseDomain := os.Getenv("BASE_DOMAIN")
 	if baseDomain == "" {
-		log.Fatal("BASE_DOMAIN environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "BASE_DOMAIN")
 	}
 
 	builderHTTPUrl := os.Getenv("BUILDER_HTTP_TARGET")
 	if builderHTTPUrl == "" {
-		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "BUILDER_HTTP_TARGET")
 	}
 
 	ssoTarget := os.Getenv("SSO_GRPC_TARGET")
 	if ssoTarget == "" {
-		log.Fatal("SSO_GRPC_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "SSO_GRPC_TARGET")
 	}
 
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	if internalToken == "" {
-		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
 
 	registryAPIURL := getEnvString("REGISTRY_API_URL", "registry:5000")
@@ -102,17 +106,17 @@ func main() {
 
 	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)
 	if err != nil {
-		log.Fatalf("failed to initialize config manager: %v", err)
+		fatal(logger, "failed to initialize config manager", "error", err)
 	}
 
-	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, ssoTarget, internalToken, cfgManager)
+	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, ssoTarget, internalToken, cfgManager, logger)
 	if err != nil {
-		log.Fatalf("failed to initialize core application: %v", err)
+		fatal(logger, "failed to initialize core application", "error", err)
 	}
 
 	go func() {
 		if err := application.Run(); err != nil {
-			log.Fatalf("grpc server failed: %v", err)
+			fatal(logger, "core grpc server failed", "error", err)
 		}
 	}()
 
@@ -121,4 +125,9 @@ func main() {
 	<-stop
 
 	application.Stop()
+}
+
+func fatal(logger *slog.Logger, msg string, args ...any) {
+	logger.Error(msg, args...)
+	os.Exit(1)
 }

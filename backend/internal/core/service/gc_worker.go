@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/google/uuid"
 )
 
@@ -29,9 +30,10 @@ type GCWorker struct {
 	interval              time.Duration
 	buildTimeout          time.Duration
 	registryContainerName string
+	logger                *slog.Logger
 }
 
-func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, interval, buildTimeout time.Duration, registryContainerName string) *GCWorker {
+func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, interval, buildTimeout time.Duration, registryContainerName string, logger *slog.Logger) *GCWorker {
 	return &GCWorker{
 		dockerAPI:             dockerAPI,
 		imgSvc:                imgSvc,
@@ -39,16 +41,19 @@ func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuild
 		interval:              interval,
 		buildTimeout:          buildTimeout,
 		registryContainerName: registryContainerName,
+		logger:                logging.WithComponent(logger, "gc_worker"),
 	}
 }
 
 func (w *GCWorker) Run(ctx context.Context) {
+	w.logger.InfoContext(ctx, "gc worker started", "interval", w.interval.String())
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			w.logger.InfoContext(ctx, "gc worker stopped")
 			return
 		case <-ticker.C:
 			w.runPrune(ctx)
@@ -60,16 +65,16 @@ func (w *GCWorker) runPrune(ctx context.Context) {
 	// 1. Очистка самого Docker демона (останавливает накопление кэша и пустых слоев)
 	err := w.dockerAPI.PruneSystem(ctx)
 	if err != nil {
-		log.Printf("[GC Worker] Failed to prune docker system: %v", err)
+		w.logger.ErrorContext(ctx, "failed to prune docker system", "error", err)
 	}
 
 	// 2. Очистка локального Registry (физическое удаление "soft-deleted" манифестов)
 	if w.registryContainerName != "" {
 		err = w.dockerAPI.RunRegistryGarbageCollect(ctx, w.registryContainerName)
 		if err != nil {
-			log.Printf("[GC Worker] Failed to run registry garbage collection: %v", err)
+			w.logger.ErrorContext(ctx, "failed to run registry garbage collection", "registry_container", w.registryContainerName, "error", err)
 		} else {
-			log.Printf("[GC Worker] Registry garbage collection completed successfully")
+			w.logger.InfoContext(ctx, "registry garbage collection completed", "registry_container", w.registryContainerName)
 		}
 	}
 
@@ -77,12 +82,12 @@ func (w *GCWorker) runPrune(ctx context.Context) {
 	threshold := time.Now().Add(-w.buildTimeout)
 	staleBuilds, err := w.buildRepo.GetStaleBuilds(ctx, threshold)
 	if err != nil {
-		log.Printf("[GC Worker] Failed to fetch stale builds: %v", err)
+		w.logger.ErrorContext(ctx, "failed to fetch stale builds", "error", err)
 		return
 	}
 
 	for _, b := range staleBuilds {
-		log.Printf("[GC Worker] Failing stale build: %s", b.ID)
+		w.logger.WarnContext(ctx, "failing stale build", "build_id", b.ID, "image_id", b.ImageID)
 		_ = w.imgSvc.CompleteBuildRecord(ctx, b.ID, b.ImageID, "failed_timeout", 0)
 	}
 }

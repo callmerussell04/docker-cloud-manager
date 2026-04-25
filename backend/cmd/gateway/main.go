@@ -1,14 +1,18 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/app"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 func main() {
+	logger := logging.NewLogger("gateway", logging.ConfigFromEnv())
+	slog.SetDefault(logger)
+
 	portStr := os.Getenv("GATEWAY_PORT")
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
@@ -17,35 +21,40 @@ func main() {
 
 	ssoTarget := os.Getenv("SSO_GRPC_TARGET")
 	if ssoTarget == "" {
-		log.Fatal("SSO_GRPC_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "SSO_GRPC_TARGET")
 	}
 
 	coreTarget := os.Getenv("CORE_GRPC_TARGET")
 	if coreTarget == "" {
-		log.Fatal("CORE_GRPC_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "CORE_GRPC_TARGET")
 	}
 
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	if internalToken == "" {
-		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
 
 	builderHttpTarget := os.Getenv("BUILDER_HTTP_TARGET")
 	if builderHttpTarget == "" {
-		log.Fatal("BUILDER_HTTP_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "BUILDER_HTTP_TARGET")
 	}
 
 	coreHttpTarget := os.Getenv("CORE_HTTP_TARGET")
 	if coreHttpTarget == "" {
-		log.Fatal("CORE_HTTP_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "CORE_HTTP_TARGET")
 	}
 
-	application, err := app.New(port, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, internalToken)
+	application, err := app.New(port, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, internalToken, logger)
 	if err != nil {
-		log.Fatalf("failed to initialize gateway app: %v", err)
+		fatal(logger, "failed to initialize gateway app", "error", err)
 	}
 
 	if err := application.Run(); err != nil {
-		log.Fatalf("gateway server failed: %v", err)
+		fatal(logger, "gateway server failed", "error", err)
 	}
+}
+
+func fatal(logger *slog.Logger, msg string, args ...any) {
+	logger.Error(msg, args...)
+	os.Exit(1)
 }

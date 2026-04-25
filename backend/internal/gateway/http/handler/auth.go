@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"log/slog"
 	"net/http"
 	"os"
 
@@ -85,11 +84,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
-	statusCode := apperrors.HTTPStatus(err)
-	if statusCode >= http.StatusInternalServerError {
-		slog.ErrorContext(c.Request.Context(), "auth request failed", "path", c.FullPath(), "error", err)
-	}
-	apperrors.Respond(c, statusCode, err)
+	apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 }
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {

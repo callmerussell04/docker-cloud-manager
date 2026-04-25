@@ -1,13 +1,14 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 func getEnvInt(key string, fallback int) int {
@@ -36,16 +37,19 @@ func getEnvString(key string, fallback string) string {
 }
 
 func main() {
+	logger := logging.NewLogger("builder", logging.ConfigFromEnv())
+	slog.SetDefault(logger)
+
 	port := getEnvInt("BUILDER_PORT", 8082)
 
 	coreTarget := os.Getenv("CORE_GRPC_TARGET")
 	if coreTarget == "" {
-		log.Fatal("CORE_GRPC_TARGET environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "CORE_GRPC_TARGET")
 	}
 
 	internalToken := os.Getenv("INTERNAL_SERVICE_TOKEN")
 	if internalToken == "" {
-		log.Fatal("INTERNAL_SERVICE_TOKEN environment variable is not set")
+		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
 
 	storagePath := getEnvString("BUILD_STORAGE_PATH", "/tmp/builds")
@@ -66,13 +70,17 @@ func main() {
 		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 	}
 
-	application, err := app.New(port, coreTarget, internalToken, builderConfig, maxUnpackedSize, maxLogSize, storagePath)
+	application, err := app.New(port, coreTarget, internalToken, builderConfig, maxUnpackedSize, maxLogSize, storagePath, logger)
 	if err != nil {
-		log.Fatalf("failed to initialize builder app: %v", err)
+		fatal(logger, "failed to initialize builder app", "error", err)
 	}
 
-	log.Printf("Builder service starting on port %d", port)
 	if err := application.Run(); err != nil {
-		log.Fatalf("builder server failed: %v", err)
+		fatal(logger, "builder server failed", "error", err)
 	}
+}
+
+func fatal(logger *slog.Logger, msg string, args ...any) {
+	logger.Error(msg, args...)
+	os.Exit(1)
 }

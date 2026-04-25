@@ -1,10 +1,13 @@
 package http
 
 import (
+	"log/slog"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 const (
@@ -29,9 +32,12 @@ const (
 	permissionProjectsAdminStop   = "projects.admin.stop"
 )
 
-func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, builderLogsProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier) *gin.Engine {
-	router := gin.Default()
+func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, builderProxy gin.HandlerFunc, builderLogsProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
+	router := gin.New()
 
+	router.Use(logging.RequestIDMiddleware())
+	router.Use(logging.AccessLogMiddleware(logger))
+	router.Use(logging.RecoveryMiddleware(logger))
 	router.Use(middleware.CORSMiddleware())
 
 	v1 := router.Group("/api/v1")

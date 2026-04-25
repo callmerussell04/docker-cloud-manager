@@ -2,11 +2,13 @@ package http
 
 import (
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -73,8 +75,11 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	})
 }
 
-func SetupRouter(handler *ComposeHandler, internalToken string) *gin.Engine {
-	r := gin.Default()
+func SetupRouter(handler *ComposeHandler, internalToken string, logger *slog.Logger) *gin.Engine {
+	r := gin.New()
+	r.Use(logging.RequestIDMiddleware())
+	r.Use(logging.AccessLogMiddleware(logger))
+	r.Use(logging.RecoveryMiddleware(logger))
 	r.POST("/api/v1/projects/compose", internalauth.Middleware(internalToken), handler.DeployCompose)
 	return r
 }

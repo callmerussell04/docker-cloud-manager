@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
@@ -54,6 +55,7 @@ type Orchestrator struct {
 	builderHTTPUrl string
 	httpClient     *http.Client
 	internalToken  string
+	logger         *slog.Logger
 }
 
 func NewOrchestrator(
@@ -64,6 +66,7 @@ func NewOrchestrator(
 	dockerAPI ComposeDockerAPI,
 	builderHTTPUrl string,
 	internalToken string,
+	logger *slog.Logger,
 ) *Orchestrator {
 	return &Orchestrator{
 		parser:         NewParser(),
@@ -75,6 +78,7 @@ func NewOrchestrator(
 		builderHTTPUrl: builderHTTPUrl,
 		httpClient:     &http.Client{Timeout: 30 * time.Second},
 		internalToken:  internalToken,
+		logger:         logging.WithComponent(logger, "compose_orchestrator"),
 	}
 }
 
@@ -93,18 +97,21 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, p
 	}
 
 	// Запускаем асинхронный процесс (Этап 3 и 4)
-	go o.runPipeline(projectID, ownerID, projectName, archiveBytes)
+	requestID := logging.RequestIDFromContext(ctx)
+	go o.runPipeline(projectID, ownerID, projectName, archiveBytes, requestID)
 
 	return projectID, nil
 }
 
-func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName string, archiveBytes []byte) {
-	ctx := context.Background()
+func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName string, archiveBytes []byte, requestID string) {
+	ctx := logging.ContextWithRequestID(context.Background(), requestID)
+	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
+	logger.InfoContext(ctx, "compose deployment pipeline started", "project_name", projectName)
 
 	// Вспомогательная функция для обновления статуса при ошибке
 	failProject := func(err error) {
 		errMsg := apperrors.SafeMessage(err)
-		log.Printf("[Orchestrator] Project %s failed: %v", projectID, err)
+		logger.ErrorContext(ctx, "compose deployment failed", "error", err)
 		_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &errMsg)
 	}
 
@@ -126,7 +133,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	var buildIDs []uuid.UUID
 	for _, srv := range parsedProject.Services {
 		if srv.BuildContext != "" { // Нужна сборка
-			buildID, err := o.triggerBuild(ownerID, srv, archiveBytes)
+			buildID, err := o.triggerBuild(ctx, ownerID, srv, archiveBytes)
 			if err != nil {
 				failProject(fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err))
 				return
@@ -146,7 +153,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 
 	// Развертывание контейнеров
 	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusDeploying, nil)
-	log.Printf("[Orchestrator] Project %s builds completed. Starting deployment...", projectID)
+	logger.InfoContext(ctx, "compose builds completed; starting deployment")
 
 	// Списки для Rollback
 	var createdVolumes []uuid.UUID
@@ -154,7 +161,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 
 	// Функция отката (Rollback). Если что-то упало — удаляем уже созданное.
 	rollback := func(deployErr error) {
-		log.Printf("[Orchestrator] Deployment failed. Rolling back Project %s...", projectID)
+		logger.WarnContext(ctx, "compose deployment failed; rolling back", "error", deployErr)
 		// Сначала контейнеры (они зависят от томов)
 		for _, cid := range createdContainers {
 			_ = o.contService.Delete(ctx, ownerID, cid)
@@ -261,10 +268,10 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 
 	// 4. Финал
 	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil)
-	log.Printf("[Orchestrator] Project %s deployed and started successfully!", projectID)
+	logger.InfoContext(ctx, "compose deployment completed")
 }
 
-func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
+func (o *Orchestrator) triggerBuild(ctx context.Context, ownerID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -282,13 +289,16 @@ func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv model.ComposeService,
 	}
 	writer.Close()
 
-	req, err := http.NewRequest("POST", o.builderHTTPUrl+"/api/v1/images/build", body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.builderHTTPUrl+"/api/v1/images/build", body)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("X-User-Id", ownerID.String())
 	req.Header.Set("X-Internal-Token", o.internalToken)
+	if requestID := logging.RequestIDFromContext(ctx); requestID != "" {
+		req.Header.Set(logging.RequestIDHeader, requestID)
+	}
 
 	resp, err := o.httpClient.Do(req)
 	if err != nil {

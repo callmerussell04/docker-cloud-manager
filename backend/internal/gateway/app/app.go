@@ -2,7 +2,7 @@ package app
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -13,19 +13,24 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 type App struct {
 	router *gin.Engine
 	port   int
+	logger *slog.Logger
 }
 
-func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget string, internalToken string) (*App, error) {
+func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget string, internalToken string, logger *slog.Logger) (*App, error) {
 	//TODO: fix insecure connection and overall grpc client execution
 	ssoConn, err := grpc.NewClient(
 		ssoTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+		grpc.WithChainUnaryInterceptor(
+			logging.UnaryClientInterceptor(logger),
+			internalauth.UnaryClientInterceptor(internalToken),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to sso service: %w", err)
@@ -35,7 +40,10 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget stri
 	coreConn, err := grpc.NewClient(
 		coreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+		grpc.WithChainUnaryInterceptor(
+			logging.UnaryClientInterceptor(logger),
+			internalauth.UnaryClientInterceptor(internalToken),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("core conn fail: %w", err)
@@ -64,16 +72,17 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget stri
 		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
-	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, builderLogsProxy, coreProxy, authService)
+	router := httprouter.NewRouter(authHandler, coreHandler, builderProxy, builderLogsProxy, coreProxy, authService, logger)
 
 	return &App{
 		router: router,
 		port:   port,
+		logger: logging.WithComponent(logger, "app"),
 	}, nil
 
 }
 
 func (a *App) Run() error {
-	log.Printf("Gateway server is running on port %d", a.port)
+	a.logger.Info("gateway server starting", "port", a.port)
 	return a.router.Run(fmt.Sprintf(":%d", a.port))
 }

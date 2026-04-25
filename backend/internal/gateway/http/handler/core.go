@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"log/slog"
-	"net/http"
 	"strconv"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -42,9 +40,5 @@ func getPaginationParams(c *gin.Context) (int, int) {
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {
-	statusCode := apperrors.HTTPStatus(err)
-	if statusCode >= http.StatusInternalServerError {
-		slog.ErrorContext(c.Request.Context(), "gateway core request failed", "path", c.FullPath(), "error", err)
-	}
-	apperrors.Respond(c, statusCode, err)
+	apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 }

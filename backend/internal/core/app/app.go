@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -35,9 +37,12 @@ type App struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         *sync.WaitGroup
+	logger     *slog.Logger
 }
 
-func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, ssoTarget string, internalToken string, configManager *config.Manager) (*App, error) {
+func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, ssoTarget string, internalToken string, configManager *config.Manager, logger *slog.Logger) (*App, error) {
+	appLogger := logging.WithComponent(logger, "app")
+
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, err
@@ -56,7 +61,10 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 	ssoConn, err := grpc.NewClient(
 		ssoTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(internalToken)),
+		grpc.WithChainUnaryInterceptor(
+			logging.UnaryClientInterceptor(logger),
+			internalauth.UnaryClientInterceptor(internalToken),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
@@ -71,19 +79,22 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager, ssoClient)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager, ssoClient, logger)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager)
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, configManager)
-	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient)
+	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager, ssoClient)
 
-	gRPCServer := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor(internalToken)))
+	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
+		logging.UnaryServerInterceptor(logger),
+		internalauth.UnaryServerInterceptor(internalToken),
+	))
 
-	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl, internalToken)
+	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl, internalToken, logger)
 	composeHandler := corehttp.NewComposeHandler(orchestrator)
-	router := corehttp.SetupRouter(composeHandler, internalToken)
+	router := corehttp.SetupRouter(composeHandler, internalToken, logger)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", httpPort),
@@ -100,9 +111,9 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute)
-	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
-	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName)
+	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
+	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService, logger)
+	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName, logger)
 
 	wg.Add(3)
 	go func() {
@@ -128,12 +139,16 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 		ctx:        ctx,
 		cancel:     cancel,
 		wg:         wg,
+		logger:     appLogger,
 	}, nil
 }
 
 func (a *App) Run() error {
 	go func() {
-		_ = a.httpServer.ListenAndServe()
+		a.logger.Info("core http server starting", "port", a.httpServer.Addr)
+		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			a.logger.Error("core http server failed", "error", err)
+		}
 	}()
 
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", a.port))
@@ -141,10 +156,12 @@ func (a *App) Run() error {
 		return err
 	}
 
+	a.logger.Info("core grpc server starting", "port", a.port)
 	return a.gRPCServer.Serve(l)
 }
 
 func (a *App) Stop() {
+	a.logger.Info("core application stopping")
 	a.cancel()
 	a.wg.Wait()
 	a.gRPCServer.GracefulStop()

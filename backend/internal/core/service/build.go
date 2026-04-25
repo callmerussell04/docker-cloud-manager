@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
@@ -35,14 +37,16 @@ type BuildService struct {
 	imageRepo   BuildImageRepository
 	registryAPI ImageRegistryAPI
 	users       UserInfoProvider
+	logger      *slog.Logger
 }
 
-func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider) *BuildService {
+func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger) *BuildService {
 	return &BuildService{
 		repo:        repo,
 		imageRepo:   imageRepo,
 		registryAPI: registryAPI,
 		users:       users,
+		logger:      logging.WithComponent(logger, "build_service"),
 	}
 }
 
@@ -93,11 +97,13 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		return uuid.Nil, uuid.Nil, err
 	}
 
+	s.logger.InfoContext(ctx, "build record initialized", "build_id", buildID, "image_id", imageID, "owner_id", ownerID, "image_tag", img.Tag)
 	return buildID, imageID, nil
 }
 
 func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
 	if status != model.BuildStatusSuccess {
+		s.logger.WarnContext(ctx, "build record marked failed", "build_id", buildID, "image_id", imageID, "status", status)
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
 	}
 
@@ -111,6 +117,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 
 	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
+		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailed)
 	}
 
@@ -131,10 +138,15 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 		_ = s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
+		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
 		return apperrors.New(apperrors.ErrQuotaExceeded, "image size exceeds user disk quota, image removed")
 	}
 
-	return s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB)
+	if err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB); err != nil {
+		return err
+	}
+	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
+	return nil
 }
 
 func (s *BuildService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {

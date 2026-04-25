@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -80,6 +81,7 @@ type ContainerService struct {
 	metrics    HostMetricsProvider
 	config     ConfigManager
 	users      UserInfoProvider
+	logger     *slog.Logger
 }
 
 func NewContainerService(
@@ -90,6 +92,7 @@ func NewContainerService(
 	metrics HostMetricsProvider,
 	config ConfigManager,
 	users UserInfoProvider,
+	logger *slog.Logger,
 ) *ContainerService {
 	return &ContainerService{
 		repo:       repo,
@@ -99,6 +102,7 @@ func NewContainerService(
 		metrics:    metrics,
 		config:     config,
 		users:      users,
+		logger:     logging.WithComponent(logger, "container_service"),
 	}
 }
 
@@ -317,6 +321,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		return uuid.Nil, err
 	}
 
+	s.logger.InfoContext(ctx, "container created", "container_id", containerID, "owner_id", ownerID, "image_tag", normalizedInputTag)
 	return containerID, nil
 }
 
@@ -466,6 +471,7 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 
 	// Вызываем ребалансировку в фоне
 	if err == nil {
+		s.logger.InfoContext(ctx, "container started", "container_id", containerID, "owner_id", ownerID)
 		go s.RebalanceResources(context.Background())
 	}
 
@@ -489,6 +495,7 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 
 	// Кто-то остановился -> освободились ресурсы -> ребалансируем остальных!
 	if err == nil {
+		s.logger.InfoContext(ctx, "container stopped", "container_id", containerID, "owner_id", ownerID)
 		go s.RebalanceResources(context.Background())
 	}
 
@@ -520,6 +527,7 @@ func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid
 		_ = s.dockerAPI.RemoveNetwork(ctx, networkName)
 	}
 
+	s.logger.InfoContext(ctx, "container deleted", "container_id", containerID, "owner_id", ownerID)
 	return nil
 }
 
@@ -554,7 +562,7 @@ func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID
 func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 	totalMem, err := s.metrics.GetTotalMemory()
 	if err != nil {
-		log.Printf("[AdmissionControl] Failed to get system memory: %v", err)
+		s.logger.Error("failed to get system memory", "error", err)
 		return apperrors.ErrInternal
 	}
 
@@ -572,14 +580,18 @@ func (s *ContainerService) checkHostCapacity(requestedRam int64) error {
 	// We need a repository method to get the total reserved RAM for ALL users, not just one.
 	totalRunningReserved, err := s.repo.GetTotalSystemReservedMemory(context.Background())
 	if err != nil {
-		log.Printf("[AdmissionControl] Failed to calculate total system reserved memory: %v", err)
+		s.logger.Error("failed to calculate total system reserved memory", "error", err)
 		return apperrors.ErrInternal
 	}
 
 	// 3. Admission Check: Will adding this new container push us over the overcommit limit?
 	projectedRequiredMem := totalRunningReserved + requestedRam
 	if projectedRequiredMem > int64(availablePool) {
-		log.Printf("[AdmissionControl] Request rejected. Projected: %d MB, Max Pool: %d MB", projectedRequiredMem/1024/1024, int64(availablePool)/1024/1024)
+		s.logger.Warn(
+			"container request rejected by host capacity",
+			"projected_memory_mb", projectedRequiredMem/1024/1024,
+			"max_pool_mb", int64(availablePool)/1024/1024,
+		)
 		return apperrors.ErrHostExhausted
 	}
 
@@ -596,7 +608,7 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 
 	totalMem, err := s.metrics.GetTotalMemory()
 	if err != nil {
-		log.Printf("[Rebalancer] Error reading memory: %v", err)
+		s.logger.ErrorContext(ctx, "failed to read system memory for rebalancing", "error", err)
 		return
 	}
 
@@ -635,10 +647,10 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 
 		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, c.BaseMemoryReservation, cpuShares)
 		if err != nil {
-			log.Printf("[Rebalancer] failed to update %s: %v", c.ID, err)
+			s.logger.ErrorContext(ctx, "failed to update container resources", "container_id", c.ID, "docker_id", c.DockerID, "error", err)
 		}
 	}
-	log.Printf("[Rebalancer] Rebalanced %d containers. Burst Factor: %.2f", len(runningContainers), burstFactor)
+	s.logger.InfoContext(ctx, "containers rebalanced", "container_count", len(runningContainers), "burst_factor", burstFactor)
 }
 
 func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
@@ -664,6 +676,7 @@ func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID
 	}
 	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning)
 	if err == nil {
+		s.logger.InfoContext(ctx, "container started by admin", "container_id", containerID)
 		go s.RebalanceResources(context.Background())
 	}
 	return err
@@ -679,6 +692,7 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 	}
 	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
 	if err == nil {
+		s.logger.InfoContext(ctx, "container stopped by admin", "container_id", containerID)
 		go s.RebalanceResources(context.Background())
 	}
 	return err
