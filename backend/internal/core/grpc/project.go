@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -40,7 +39,7 @@ func (h *ProjectHandler) GetUserProjects(ctx context.Context, req *coreapi.GetUs
 
 	projects, err := h.logic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve projects")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbProjects []*coreapi.ProjectData
@@ -76,10 +75,7 @@ func (h *ProjectHandler) DeleteProject(ctx context.Context, req *coreapi.Project
 
 	err = h.logic.Delete(ctx, ownerID, projectID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "project not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete project")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -98,10 +94,7 @@ func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectAc
 
 	err = h.logic.Stop(ctx, ownerID, projectID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "project not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to stop project")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -119,7 +112,7 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 
 	projects, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get projects")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbProjects []*coreapi.ProjectData
@@ -166,7 +159,7 @@ func (h *ProjectHandler) AdminDeleteProject(ctx context.Context, req *coreapi.Pr
 	}
 
 	if err := h.logic.AdminDelete(ctx, projectID); err != nil {
-		return nil, status.Error(codes.Internal, "failed to delete project")
+		return nil, apperrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }
@@ -178,7 +171,7 @@ func (h *ProjectHandler) AdminStopProject(ctx context.Context, req *coreapi.Proj
 	}
 
 	if err := h.logic.AdminStop(ctx, projectID); err != nil {
-		return nil, status.Error(codes.Internal, "failed to stop project")
+		return nil, apperrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }

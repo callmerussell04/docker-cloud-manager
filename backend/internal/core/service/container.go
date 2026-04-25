@@ -191,7 +191,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if isCustom {
 		err = s.dockerAPI.PullImage(ctx, actualImageTag)
 		if err != nil {
-			return uuid.Nil, fmt.Errorf("failed to pull custom image: %v", err)
+			return uuid.Nil, apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
 		}
 	} else {
 		imageExists, err := s.dockerAPI.ImageExists(ctx, actualImageTag)
@@ -201,7 +201,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		if !imageExists {
 			err = s.dockerAPI.PullImage(ctx, actualImageTag)
 			if err != nil {
-				return uuid.Nil, err
+				return uuid.Nil, apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
 			}
 		}
 	}

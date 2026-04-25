@@ -5,13 +5,14 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func (c *CoreClient) GetUserBuilds(ctx context.Context, ownerID string) ([]dto.BuildDTO, error) {
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.imageAPI.GetUserBuilds(ctx, req)
 	if err != nil {
-		return nil, mapCoreError(err)
+		return nil, apperrors.FromGRPC(err)
 	}
 	return buildsFromProto(resp.GetBuilds()), nil
 }
@@ -23,7 +24,7 @@ func (c *CoreClient) DeleteBuild(ctx context.Context, ownerID, buildID string) e
 	}
 	_, err := c.imageAPI.DeleteBuild(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -32,7 +33,7 @@ func (c *CoreClient) GetAllBuilds(ctx context.Context, page, limit int) (dto.Pag
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.imageAPI.GetAllBuilds(ctx, req)
 	if err != nil {
-		return dto.PaginatedBuilds{}, mapCoreError(err)
+		return dto.PaginatedBuilds{}, apperrors.FromGRPC(err)
 	}
 	return dto.PaginatedBuilds{
 		Builds:     buildsFromProto(resp.GetBuilds()),
@@ -44,7 +45,7 @@ func (c *CoreClient) AdminDeleteBuild(ctx context.Context, buildID string) error
 	req := &coreapi.BuildActionRequest{BuildId: buildID}
 	_, err := c.imageAPI.AdminDeleteBuild(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }

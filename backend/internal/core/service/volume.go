@@ -96,7 +96,7 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 		return err
 	}
 	if inUse {
-		return fmt.Errorf("conflict: unable to remove volume, it is currently in use by a container")
+		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 	}
 
 	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {
@@ -125,7 +125,7 @@ func (s *VolumeService) AdminDelete(ctx context.Context, volumeID uuid.UUID) err
 		return err
 	}
 	if inUse {
-		return fmt.Errorf("conflict: unable to remove volume, it is currently in use")
+		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 	}
 
 	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {

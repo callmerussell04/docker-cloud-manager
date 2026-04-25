@@ -7,5 +7,5 @@ type ErrorResponse struct {
 }
 
 func Respond(c *gin.Context, statusCode int, err error) {
-	c.AbortWithStatusJSON(statusCode, ErrorResponse{Error: err.Error()})
+	c.AbortWithStatusJSON(statusCode, ErrorResponse{Error: SafeMessage(err)})
 }

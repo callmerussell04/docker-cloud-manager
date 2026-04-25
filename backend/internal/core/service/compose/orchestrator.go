@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
 )
@@ -102,7 +103,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 
 	// Вспомогательная функция для обновления статуса при ошибке
 	failProject := func(err error) {
-		errMsg := err.Error()
+		errMsg := apperrors.SafeMessage(err)
 		log.Printf("[Orchestrator] Project %s failed: %v", projectID, err)
 		_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &errMsg)
 	}
@@ -296,7 +297,7 @@ func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv model.ComposeService,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusAccepted {
-		return uuid.Nil, fmt.Errorf("builder returned status %d", resp.StatusCode)
+		return uuid.Nil, builderHTTPError(resp)
 	}
 
 	var result struct {
@@ -325,7 +326,7 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 					continue // Ждем, пока запись появится
 				}
 				if b.Status == model.BuildStatusFailed || b.Status == "failed_timeout" || b.Status == "failed_quota_exceeded" {
-					return fmt.Errorf("build %s failed with status: %s", bid, b.Status)
+					return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", b.Status))
 				}
 				if b.Status != model.BuildStatusSuccess {
 					allSuccess = false
@@ -352,7 +353,7 @@ func extractComposeFile(archiveBytes []byte) ([]byte, error) {
 				return io.ReadAll(rc)
 			}
 		}
-		return nil, fmt.Errorf("docker-compose.yml not found in zip archive")
+		return nil, apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in zip archive")
 	}
 
 	// 2. Если это не ZIP, проверяем, не является ли это просто сырым YAML файлом
@@ -362,7 +363,33 @@ func extractComposeFile(archiveBytes []byte) ([]byte, error) {
 		return archiveBytes, nil
 	}
 
-	return nil, fmt.Errorf("invalid file format: not a valid zip archive or raw docker-compose.yml")
+	return nil, apperrors.New(apperrors.ErrBadRequest, "invalid file format: expected zip archive or raw docker-compose.yml")
+}
+
+func builderHTTPError(resp *http.Response) error {
+	message := fmt.Sprintf("builder returned status %d", resp.StatusCode)
+
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Error != "" {
+		message = body.Error
+	}
+
+	switch resp.StatusCode {
+	case http.StatusBadRequest:
+		return apperrors.New(apperrors.ErrBadRequest, message)
+	case http.StatusUnauthorized:
+		return apperrors.New(apperrors.ErrUnauthorized, message)
+	case http.StatusForbidden:
+		return apperrors.New(apperrors.ErrForbidden, message)
+	case http.StatusNotFound:
+		return apperrors.New(apperrors.ErrNotFound, message)
+	case http.StatusConflict:
+		return apperrors.New(apperrors.ErrConflict, message)
+	default:
+		return apperrors.New(apperrors.ErrInternal, apperrors.ErrInternal.Error())
+	}
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, condition string) error {
@@ -375,7 +402,7 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timeout:
-			return fmt.Errorf("timeout waiting for dependency state")
+			return apperrors.New(apperrors.ErrConflict, "timeout waiting for dependency state")
 		case <-ticker.C:
 			inspect, err := o.dockerAPI.InspectContainer(ctx, dockerID)
 			if err != nil {
@@ -386,30 +413,30 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 			switch condition {
 			case "service_healthy":
 				if state.Health == nil {
-					return fmt.Errorf("service_healthy requested, but no healthcheck defined for container")
+					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
 				}
 				if state.Health.Status == "healthy" {
 					return nil // Зависимость здорова, идем дальше!
 				}
 				if state.Health.Status == "unhealthy" {
-					return fmt.Errorf("dependency became unhealthy")
+					return apperrors.New(apperrors.ErrConflict, "dependency became unhealthy")
 				}
 				if !state.Running && state.ExitCode != 0 {
-					return fmt.Errorf("dependency exited with code %d before becoming healthy", state.ExitCode)
+					return apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
 				}
 			case "service_completed_successfully":
 				if !state.Running {
 					if state.ExitCode == 0 {
 						return nil // Успешно завершил работу (идеально для migrate)
 					}
-					return fmt.Errorf("dependency exited with non-zero code %d", state.ExitCode)
+					return apperrors.New(apperrors.ErrConflict, "dependency exited with non-zero code")
 				}
 			case "service_started":
 				if state.Running {
 					return nil // Просто запустился
 				}
 				if !state.Running && state.ExitCode != 0 {
-					return fmt.Errorf("dependency failed to start")
+					return apperrors.New(apperrors.ErrConflict, "dependency failed to start")
 				}
 			default:
 				// По дефолту (если condition пустой) ведем себя как service_started

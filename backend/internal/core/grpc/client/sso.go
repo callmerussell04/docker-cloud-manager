@@ -8,8 +8,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 type SSOClient struct {
@@ -23,7 +21,7 @@ func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
 func (c *SSOClient) GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error) {
 	resp, err := c.userAPI.GetUser(ctx, &ssoapi.GetUserRequest{UserId: userID.String()})
 	if err != nil {
-		return model.UserInfo{}, mapSSOError(err)
+		return model.UserInfo{}, apperrors.FromGRPC(err)
 	}
 	return userFromProto(resp)
 }
@@ -36,7 +34,7 @@ func (c *SSOClient) GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 
 	resp, err := c.userAPI.BatchGetUsers(ctx, &ssoapi.BatchGetUsersRequest{UserIds: rawIDs})
 	if err != nil {
-		return nil, mapSSOError(err)
+		return nil, apperrors.FromGRPC(err)
 	}
 
 	users := make(map[uuid.UUID]model.UserInfo, len(resp.GetUsers()))
@@ -63,21 +61,4 @@ func userFromProto(pbUser *ssoapi.UserData) (model.UserInfo, error) {
 		QuotaDiskMB: pbUser.GetQuotaDiskMb(),
 		QuotaCPU:    pbUser.GetQuotaCpu(),
 	}, nil
-}
-
-func mapSSOError(err error) error {
-	st, ok := status.FromError(err)
-	if !ok {
-		return apperrors.ErrInternal
-	}
-	switch st.Code() {
-	case codes.NotFound:
-		return apperrors.ErrNotFound
-	case codes.InvalidArgument:
-		return apperrors.ErrBadRequest
-	case codes.Unauthenticated:
-		return apperrors.ErrUnauthorized
-	default:
-		return apperrors.ErrInternal
-	}
 }

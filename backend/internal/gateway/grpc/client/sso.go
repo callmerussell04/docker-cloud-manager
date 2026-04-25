@@ -5,8 +5,6 @@ import (
 	"strings"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
@@ -34,16 +32,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 
 	resp, err := c.authAPI.Register(ctx, req)
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			switch st.Code() {
-			case codes.AlreadyExists:
-				return "", apperrors.ErrAlreadyExists
-			case codes.InvalidArgument:
-				return "", apperrors.ErrBadRequest
-			}
-		}
-		return "", apperrors.ErrInternal
+		return "", apperrors.FromGRPC(err)
 	}
 
 	return resp.GetUserId(), nil
@@ -57,16 +46,7 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (model
 
 	resp, err := c.authAPI.Login(ctx, req)
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			switch st.Code() {
-			case codes.Unauthenticated:
-				return model.Tokens{}, apperrors.ErrInvalidCredentials
-			case codes.InvalidArgument:
-				return model.Tokens{}, apperrors.ErrBadRequest
-			}
-		}
-		return model.Tokens{}, apperrors.ErrInternal
+		return model.Tokens{}, apperrors.FromGRPC(err)
 	}
 
 	return model.Tokens{
@@ -82,16 +62,7 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 
 	resp, err := c.authAPI.Refresh(ctx, req)
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			switch st.Code() {
-			case codes.Unauthenticated:
-				return model.Tokens{}, apperrors.ErrInvalidToken
-			case codes.InvalidArgument:
-				return model.Tokens{}, apperrors.ErrBadRequest
-			}
-		}
-		return model.Tokens{}, apperrors.ErrInternal
+		return model.Tokens{}, apperrors.FromGRPC(err)
 	}
 
 	return model.Tokens{
@@ -110,11 +81,7 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (m
 		AccessToken: token,
 	})
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok && st.Code() == codes.Unauthenticated {
-			return model.AuthUser{}, apperrors.ErrUnauthorized
-		}
-		return model.AuthUser{}, apperrors.ErrInternal
+		return model.AuthUser{}, apperrors.FromGRPC(err)
 	}
 
 	return model.AuthUser{
@@ -135,16 +102,7 @@ func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission 
 		Permission:  permission,
 	})
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			switch st.Code() {
-			case codes.Unauthenticated:
-				return apperrors.ErrUnauthorized
-			case codes.InvalidArgument:
-				return apperrors.ErrBadRequest
-			}
-		}
-		return apperrors.ErrInternal
+		return apperrors.FromGRPC(err)
 	}
 	if !resp.GetAllowed() {
 		return apperrors.ErrForbidden

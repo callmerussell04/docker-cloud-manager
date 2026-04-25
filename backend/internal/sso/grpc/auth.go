@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
@@ -23,10 +22,7 @@ func (h *Handler) Register(ctx context.Context, req *sso.RegisterRequest) (*sso.
 
 	uid, err := h.auth.Register(ctx, registerDTO.Username, registerDTO.Email, registerDTO.Password)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "user already exists")
-		}
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &sso.RegisterResponse{
@@ -45,10 +41,7 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 
 	accessToken, refreshToken, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidCredentials) {
-			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
-		}
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &sso.LoginResponse{
@@ -65,10 +58,7 @@ func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.Re
 
 	accessToken, refreshToken, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidToken) {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
-		}
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &sso.RefreshResponse{
@@ -85,10 +75,7 @@ func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenReq
 
 	user, err := h.auth.VerifyAccessToken(ctx, tokenDTO.AccessToken)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidToken) {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
-		}
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return userToProto(user), nil
@@ -105,13 +92,7 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 
 	user, allowed, err := h.auth.CheckPermission(ctx, checkDTO.AccessToken, checkDTO.Permission)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidToken) {
-			return nil, status.Error(codes.Unauthenticated, "invalid token")
-		}
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "unknown permission")
-		}
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &sso.CheckPermissionResponse{

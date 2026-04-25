@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -34,16 +33,7 @@ func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBui
 
 	buildID, imageID, err := h.buildLogic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
 	if err != nil {
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "invalid image tag")
-		}
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "image already exists")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "disk quota exceeded")
-		}
-		return nil, status.Error(codes.Internal, "failed to initialize build record")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.InitBuildResponse{
@@ -65,13 +55,7 @@ func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.Com
 
 	err = h.buildLogic.CompleteBuildRecord(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "build or image not found")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "image size exceeds user quota, image removed")
-		}
-		return nil, status.Error(codes.Internal, "failed to complete build record")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -85,7 +69,7 @@ func (h *ImageHandler) GetUserBuilds(ctx context.Context, req *coreapi.GetUserRe
 
 	builds, err := h.buildLogic.GetUserBuilds(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve builds")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbBuilds []*coreapi.BuildData
@@ -111,10 +95,7 @@ func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildAction
 
 	err = h.buildLogic.DeleteBuild(ctx, ownerID, buildID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "build not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete build")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -125,7 +106,7 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 
 	builds, total, err := h.buildLogic.GetAllPaginatedBuilds(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get builds")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbBuilds []*coreapi.BuildData
@@ -147,7 +128,7 @@ func (h *ImageHandler) AdminDeleteBuild(ctx context.Context, req *coreapi.BuildA
 	}
 
 	if err := h.buildLogic.AdminDeleteBuild(ctx, buildID); err != nil {
-		return nil, status.Error(codes.Internal, "failed to delete build")
+		return nil, apperrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }

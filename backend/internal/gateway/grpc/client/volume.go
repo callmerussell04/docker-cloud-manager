@@ -5,6 +5,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error) {
@@ -14,7 +15,7 @@ func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, createVol
 	}
 	resp, err := c.volumeAPI.CreateVolume(ctx, req)
 	if err != nil {
-		return "", mapCoreError(err)
+		return "", apperrors.FromGRPC(err)
 	}
 	return resp.GetVolumeId(), nil
 }
@@ -26,7 +27,7 @@ func (c *CoreClient) DeleteVolume(ctx context.Context, ownerID, volumeID string)
 	}
 	_, err := c.volumeAPI.DeleteVolume(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -35,7 +36,7 @@ func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]dto.
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.volumeAPI.GetUserVolumes(ctx, req)
 	if err != nil {
-		return nil, mapCoreError(err)
+		return nil, apperrors.FromGRPC(err)
 	}
 	return volumesFromProto(resp.GetVolumes()), nil
 }
@@ -44,7 +45,7 @@ func (c *CoreClient) GetAllVolumes(ctx context.Context, page, limit int) (dto.Pa
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.volumeAPI.GetAllVolumes(ctx, req)
 	if err != nil {
-		return dto.PaginatedVolumes{}, mapCoreError(err)
+		return dto.PaginatedVolumes{}, apperrors.FromGRPC(err)
 	}
 	return dto.PaginatedVolumes{
 		Volumes:    volumesFromProto(resp.GetVolumes()),
@@ -56,7 +57,7 @@ func (c *CoreClient) AdminDeleteVolume(ctx context.Context, volumeID string) err
 	req := &coreapi.VolumeActionRequest{VolumeId: volumeID}
 	_, err := c.volumeAPI.AdminDeleteVolume(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }

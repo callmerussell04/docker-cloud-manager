@@ -2,7 +2,7 @@ package handler
 
 import (
 	"context"
-	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -38,11 +38,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	userID, err := h.service.Register(c.Request.Context(), req.Username, req.Email, req.Password)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			apperrors.Respond(c, http.StatusConflict, apperrors.ErrAlreadyExists)
-			return
-		}
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		h.handleAuthError(c, err)
 		return
 	}
 
@@ -58,11 +54,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	tokens, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidCredentials) {
-			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidCredentials)
-			return
-		}
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		h.handleAuthError(c, err)
 		return
 	}
 
@@ -79,11 +71,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 
 	tokens, err := h.service.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidToken) {
-			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidToken)
-			return
-		}
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		h.handleAuthError(c, err)
 		return
 	}
 
@@ -94,6 +82,14 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 func (h *AuthHandler) Logout(c *gin.Context) {
 	c.SetCookie("refresh_token", "", -1, "/", "", false, true)
 	c.Status(http.StatusOK)
+}
+
+func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
+	statusCode := apperrors.HTTPStatus(err)
+	if statusCode >= http.StatusInternalServerError {
+		slog.ErrorContext(c.Request.Context(), "auth request failed", "path", c.FullPath(), "error", err)
+	}
+	apperrors.Respond(c, statusCode, err)
 }
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {

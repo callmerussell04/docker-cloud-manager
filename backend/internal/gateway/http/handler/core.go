@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -42,29 +42,9 @@ func getPaginationParams(c *gin.Context) (int, int) {
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {
-	if errors.Is(err, apperrors.ErrNotFound) {
-		apperrors.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
-		return
+	statusCode := apperrors.HTTPStatus(err)
+	if statusCode >= http.StatusInternalServerError {
+		slog.ErrorContext(c.Request.Context(), "gateway core request failed", "path", c.FullPath(), "error", err)
 	}
-	if errors.Is(err, apperrors.ErrAlreadyExists) {
-		apperrors.Respond(c, http.StatusConflict, apperrors.ErrAlreadyExists)
-		return
-	}
-	if errors.Is(err, apperrors.ErrLimitExceeded) {
-		apperrors.Respond(c, http.StatusConflict, apperrors.ErrLimitExceeded)
-		return
-	}
-	if errors.Is(err, apperrors.ErrResourceExhausted) || errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
-		apperrors.Respond(c, http.StatusConflict, apperrors.ErrResourceExhausted)
-		return
-	}
-	if errors.Is(err, apperrors.ErrUnauthorized) {
-		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
-		return
-	}
-	if errors.Is(err, apperrors.ErrBadRequest) {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
-		return
-	}
-	apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+	apperrors.Respond(c, statusCode, err)
 }

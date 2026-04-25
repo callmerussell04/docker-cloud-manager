@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -50,16 +49,7 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 
 	volumeID, err := h.logic.Create(ctx, ownerID, params)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "volume already exists")
-		}
-		if errors.Is(err, apperrors.ErrLimitExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "maximum number of resources reached")
-		}
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "invalid volume request")
-		}
-		return nil, status.Error(codes.Internal, "failed to create volume")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.CreateVolumeResponse{
@@ -80,10 +70,7 @@ func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeAct
 
 	err = h.logic.Delete(ctx, ownerID, volumeID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "volume not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete volume")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -97,7 +84,7 @@ func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUser
 
 	volumes, err := h.logic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve volumes")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbVolumes []*coreapi.VolumeData
@@ -128,7 +115,7 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 
 	volumes, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get volumes")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbVolumes []*coreapi.VolumeData
@@ -171,10 +158,7 @@ func (h *VolumeHandler) AdminDeleteVolume(ctx context.Context, req *coreapi.Volu
 
 	err = h.logic.AdminDelete(ctx, volumeID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "volume not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete volume")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil

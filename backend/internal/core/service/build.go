@@ -61,7 +61,7 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		return uuid.Nil, uuid.Nil, err
 	}
 	if usedMB >= user.QuotaDiskMB {
-		return uuid.Nil, uuid.Nil, apperrors.ErrQuotaExceeded
+		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 
 	baseName, version := parseImageTag(tag)
@@ -131,7 +131,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
 		_ = s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
-		return apperrors.ErrQuotaExceeded
+		return apperrors.New(apperrors.ErrQuotaExceeded, "image size exceeds user disk quota, image removed")
 	}
 
 	return s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB)

@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
@@ -21,7 +21,7 @@ func Auth(verifier TokenVerifier) gin.HandlerFunc {
 
 		user, err := verifier.VerifyAccessToken(c.Request.Context(), authHeader)
 		if err != nil {
-			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+			apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 			return
 		}
 
@@ -37,17 +37,11 @@ func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFun
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if err := verifier.CheckPermission(c.Request.Context(), authHeader, permission); err != nil {
-			statusCode := http.StatusInternalServerError
-			responseErr := apperrors.ErrInternal
-			switch {
-			case errors.Is(err, apperrors.ErrUnauthorized):
-				statusCode = http.StatusUnauthorized
-				responseErr = apperrors.ErrUnauthorized
-			case errors.Is(err, apperrors.ErrForbidden):
-				statusCode = http.StatusForbidden
-				responseErr = apperrors.ErrForbidden
+			statusCode := apperrors.HTTPStatus(err)
+			if statusCode >= http.StatusInternalServerError {
+				slog.ErrorContext(c.Request.Context(), "permission check failed", "permission", permission, "error", err)
 			}
-			apperrors.Respond(c, statusCode, responseErr)
+			apperrors.Respond(c, statusCode, err)
 			return
 		}
 		c.Next()

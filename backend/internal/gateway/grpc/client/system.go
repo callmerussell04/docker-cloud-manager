@@ -5,12 +5,13 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func (c *CoreClient) GetSystemConfig(ctx context.Context) (dto.SystemConfigDTO, error) {
 	resp, err := c.systemAPI.GetConfig(ctx, &coreapi.Empty{})
 	if err != nil {
-		return dto.SystemConfigDTO{}, mapCoreError(err)
+		return dto.SystemConfigDTO{}, apperrors.FromGRPC(err)
 	}
 	return systemConfigFromProto(resp), nil
 }
@@ -18,7 +19,7 @@ func (c *CoreClient) GetSystemConfig(ctx context.Context) (dto.SystemConfigDTO, 
 func (c *CoreClient) UpdateSystemConfig(ctx context.Context, req dto.SystemConfigDTO) error {
 	_, err := c.systemAPI.UpdateConfig(ctx, systemConfigToProto(req))
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }

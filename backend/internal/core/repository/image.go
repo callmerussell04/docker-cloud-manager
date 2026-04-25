@@ -84,7 +84,7 @@ func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return errors.New("image is in use")
+			return apperrors.New(apperrors.ErrResourceInUse, "image is currently used by a container")
 		}
 		return err
 	}

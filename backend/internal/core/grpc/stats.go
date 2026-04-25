@@ -10,6 +10,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type StatsLogic interface {
@@ -33,7 +34,7 @@ func (h *StatsHandler) GetUserStats(ctx context.Context, req *coreapi.GetUserReq
 
 	stats, err := h.logic.GetUserStats(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to fetch stats")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.UserStatsResponse{

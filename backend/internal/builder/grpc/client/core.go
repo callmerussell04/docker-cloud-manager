@@ -4,8 +4,6 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -30,16 +28,7 @@ func (c *CoreClient) InitBuildRecord(ctx context.Context, ownerID, tag, logFileP
 
 	resp, err := c.imageAPI.InitBuildRecord(ctx, req)
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			switch st.Code() {
-			case codes.AlreadyExists:
-				return "", "", apperrors.ErrAlreadyExists
-			case codes.ResourceExhausted:
-				return "", "", apperrors.ErrResourceExhausted
-			}
-		}
-		return "", "", apperrors.ErrInternal
+		return "", "", apperrors.FromGRPC(err)
 	}
 
 	return resp.GetBuildId(), resp.GetImageId(), nil
@@ -55,13 +44,7 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 
 	_, err := c.imageAPI.CompleteBuildRecord(ctx, req)
 	if err != nil {
-		st, ok := status.FromError(err)
-		if ok {
-			if st.Code() == codes.NotFound {
-				return apperrors.ErrNotFound
-			}
-		}
-		return apperrors.ErrInternal
+		return apperrors.FromGRPC(err)
 	}
 
 	return nil

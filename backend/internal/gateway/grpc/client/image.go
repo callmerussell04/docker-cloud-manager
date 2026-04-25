@@ -5,13 +5,14 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func (c *CoreClient) GetUserImages(ctx context.Context, ownerID string) ([]dto.ImageDTO, error) {
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.imageAPI.GetUserImages(ctx, req)
 	if err != nil {
-		return nil, mapCoreError(err)
+		return nil, apperrors.FromGRPC(err)
 	}
 	return imagesFromProto(resp.GetImages()), nil
 }
@@ -23,7 +24,7 @@ func (c *CoreClient) DeleteImage(ctx context.Context, ownerID, imageID string) e
 	}
 	_, err := c.imageAPI.DeleteImage(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -32,7 +33,7 @@ func (c *CoreClient) GetAllImages(ctx context.Context, page, limit int) (dto.Pag
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.imageAPI.GetAllImages(ctx, req)
 	if err != nil {
-		return dto.PaginatedImages{}, mapCoreError(err)
+		return dto.PaginatedImages{}, apperrors.FromGRPC(err)
 	}
 	return dto.PaginatedImages{
 		Images:     imagesFromProto(resp.GetImages()),
@@ -44,7 +45,7 @@ func (c *CoreClient) AdminDeleteImage(ctx context.Context, imageID string) error
 	req := &coreapi.ImageActionRequest{ImageId: imageID}
 	_, err := c.imageAPI.AdminDeleteImage(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }

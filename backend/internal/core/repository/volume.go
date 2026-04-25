@@ -105,7 +105,7 @@ func (r *VolumeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return errors.New("volume is in use")
+			return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 		}
 		return err
 	}

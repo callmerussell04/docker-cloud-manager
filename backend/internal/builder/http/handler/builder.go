@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -83,23 +83,11 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 
 	buildID, err := h.service.InitBuild(c.Request.Context(), job, req.File)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrInvalidFileFormat) {
-			apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrInvalidFileFormat)
-			return
+		statusCode := apperrors.HTTPStatus(err)
+		if statusCode >= http.StatusInternalServerError {
+			slog.ErrorContext(c.Request.Context(), "builder init failed", "error", err)
 		}
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
-			return
-		}
-		if errors.Is(err, apperrors.ErrUnauthorized) {
-			apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
-			return
-		}
-		if errors.Is(err, apperrors.ErrResourceExhausted) {
-			apperrors.Respond(c, http.StatusConflict, apperrors.ErrResourceExhausted)
-			return
-		}
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		apperrors.Respond(c, statusCode, err)
 		return
 	}
 

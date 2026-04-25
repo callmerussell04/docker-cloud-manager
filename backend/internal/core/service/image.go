@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -71,7 +70,7 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	}
 
 	if !img.IsCustom {
-		return errors.New("cannot delete system image")
+		return apperrors.New(apperrors.ErrForbidden, "system images cannot be deleted")
 	}
 
 	inUse, err := s.contRepo.IsImageInUse(ctx, ownerID, img.Tag)
@@ -79,7 +78,7 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 		return err
 	}
 	if inUse {
-		return fmt.Errorf("conflict: unable to remove image, it is currently in use by a container")
+		return apperrors.New(apperrors.ErrResourceInUse, "image is currently used by a container")
 	}
 
 	baseName, version := parseImageTag(img.Tag)
@@ -118,7 +117,7 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 	}
 
 	if !img.IsCustom {
-		return errors.New("cannot delete system image")
+		return apperrors.New(apperrors.ErrForbidden, "system images cannot be deleted")
 	}
 
 	inUse, err := s.contRepo.IsImageInUse(ctx, img.OwnerID, img.Tag)
@@ -126,7 +125,7 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 		return err
 	}
 	if inUse {
-		return fmt.Errorf("conflict: unable to remove image, it is currently in use")
+		return apperrors.New(apperrors.ErrResourceInUse, "image is currently used by a container")
 	}
 
 	baseName, version := parseImageTag(img.Tag)

@@ -5,13 +5,14 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func (c *CoreClient) GetUserStats(ctx context.Context, ownerID string) (dto.UserStatsDTO, error) {
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.statsAPI.GetUserStats(ctx, req)
 	if err != nil {
-		return dto.UserStatsDTO{}, mapCoreError(err)
+		return dto.UserStatsDTO{}, apperrors.FromGRPC(err)
 	}
 	return userStatsFromProto(resp), nil
 }

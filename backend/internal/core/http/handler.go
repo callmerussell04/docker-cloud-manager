@@ -63,7 +63,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 
 	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), ownerID, req.ProjectName, archiveBytes)
 	if err != nil {
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 		return
 	}
 

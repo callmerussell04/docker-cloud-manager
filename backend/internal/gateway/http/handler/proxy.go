@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http/httputil"
 	"net/url"
 
@@ -47,7 +46,7 @@ func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerServ
 
 		builds, err := buildService.GetUserBuilds(c.Request.Context(), userID)
 		if err != nil {
-			apperrors.Respond(c, 500, apperrors.ErrInternal)
+			apperrors.Respond(c, apperrors.HTTPStatus(err), err)
 			return
 		}
 
@@ -59,7 +58,7 @@ func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerServ
 			}
 		}
 		if !allowed {
-			apperrors.Respond(c, 404, errors.New("build not found"))
+			apperrors.Respond(c, apperrors.HTTPStatus(apperrors.ErrNotFound), apperrors.ErrNotFound)
 			return
 		}
 

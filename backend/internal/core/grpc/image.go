@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -44,7 +43,7 @@ func (h *ImageHandler) GetUserImages(ctx context.Context, req *coreapi.GetUserRe
 
 	images, err := h.imageLogic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve images")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbImages []*coreapi.ImageData
@@ -70,10 +69,7 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 
 	err = h.imageLogic.Delete(ctx, ownerID, imageID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "image not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete image")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -84,7 +80,7 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 
 	images, total, err := h.imageLogic.GetAllPaginatedImages(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get images")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbImages []*coreapi.ImageData
@@ -106,7 +102,7 @@ func (h *ImageHandler) AdminDeleteImage(ctx context.Context, req *coreapi.ImageA
 	}
 
 	if err := h.imageLogic.AdminDeleteImage(ctx, imageID); err != nil {
-		return nil, status.Error(codes.Internal, "failed to delete image")
+		return nil, apperrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }

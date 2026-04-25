@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -93,22 +92,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "related resource not found")
-		}
-		if errors.Is(err, apperrors.ErrLimitExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "maximum number of resources reached")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
-			return nil, status.Error(codes.ResourceExhausted, "quota exceeded")
-		}
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "resource already exists")
-		}
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "invalid container request")
-		}
-		return nil, status.Error(codes.Internal, "failed to create container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.CreateContainerResponse{
@@ -129,13 +113,7 @@ func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.Cont
 
 	err = h.logic.Start(ctx, ownerID, containerID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) || errors.Is(err, apperrors.ErrHostExhausted) {
-			return nil, status.Error(codes.ResourceExhausted, "quota exceeded")
-		}
-		return nil, status.Error(codes.Internal, "failed to start container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -154,10 +132,7 @@ func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.Conta
 
 	err = h.logic.Stop(ctx, ownerID, containerID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to stop container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -176,10 +151,7 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 
 	err = h.logic.Delete(ctx, ownerID, containerID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -193,7 +165,7 @@ func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.G
 
 	containers, err := h.logic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve containers")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbContainers []*coreapi.ContainerData
@@ -232,16 +204,7 @@ func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.Exp
 
 	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "domain prefix already exists")
-		}
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "invalid expose request")
-		}
-		return nil, status.Error(codes.Internal, "failed to expose container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -259,7 +222,7 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 
 	containers, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get containers")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	var pbContainers []*coreapi.ContainerData
@@ -333,10 +296,7 @@ func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreap
 	}
 
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to execute admin action on container")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -354,10 +314,7 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 
 	stats, err := h.logic.GetStats(ctx, ownerID, containerID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to get stats")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.ContainerStatsResponse{
@@ -377,10 +334,7 @@ func (h *ContainerHandler) AdminGetContainerStats(ctx context.Context, req *core
 
 	stats, err := h.logic.AdminGetStats(ctx, containerID)
 	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "container not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to get stats")
+		return nil, apperrors.ToGRPC(err)
 	}
 
 	return &coreapi.ContainerStatsResponse{

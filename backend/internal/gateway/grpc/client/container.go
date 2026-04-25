@@ -30,7 +30,7 @@ func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, create
 
 	resp, err := c.containerAPI.CreateContainer(ctx, req)
 	if err != nil {
-		return "", mapCoreError(err)
+		return "", apperrors.FromGRPC(err)
 	}
 
 	return resp.GetContainerId(), nil
@@ -40,7 +40,7 @@ func (c *CoreClient) GetUserContainers(ctx context.Context, ownerID string) ([]d
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.containerAPI.GetUserContainers(ctx, req)
 	if err != nil {
-		return nil, mapCoreError(err)
+		return nil, apperrors.FromGRPC(err)
 	}
 	return containersFromProto(resp.GetContainers()), nil
 }
@@ -64,7 +64,7 @@ func (c *CoreClient) ActionContainer(ctx context.Context, ownerID, containerID, 
 	}
 
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -78,7 +78,7 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, 
 	}
 	_, err := c.containerAPI.ExposeContainer(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -87,7 +87,7 @@ func (c *CoreClient) GetAllContainers(ctx context.Context, page, limit int) (dto
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.containerAPI.GetAllContainers(ctx, req)
 	if err != nil {
-		return dto.PaginatedContainers{}, mapCoreError(err)
+		return dto.PaginatedContainers{}, apperrors.FromGRPC(err)
 	}
 	return dto.PaginatedContainers{
 		Containers: containersFromProto(resp.GetContainers()),
@@ -103,7 +103,7 @@ func (c *CoreClient) AdminActionContainer(ctx context.Context, containerID, acti
 
 	_, err := c.containerAPI.AdminActionContainer(ctx, req)
 	if err != nil {
-		return mapCoreError(err)
+		return apperrors.FromGRPC(err)
 	}
 	return nil
 }
@@ -115,7 +115,7 @@ func (c *CoreClient) GetContainerStats(ctx context.Context, ownerID, containerID
 	}
 	resp, err := c.containerAPI.GetContainerStats(ctx, req)
 	if err != nil {
-		return dto.ContainerStatsDTO{}, mapCoreError(err)
+		return dto.ContainerStatsDTO{}, apperrors.FromGRPC(err)
 	}
 	return containerStatsFromProto(resp), nil
 }
@@ -126,7 +126,7 @@ func (c *CoreClient) AdminGetContainerStats(ctx context.Context, containerID str
 	}
 	resp, err := c.containerAPI.AdminGetContainerStats(ctx, req)
 	if err != nil {
-		return dto.ContainerStatsDTO{}, mapCoreError(err)
+		return dto.ContainerStatsDTO{}, apperrors.FromGRPC(err)
 	}
 	return containerStatsFromProto(resp), nil
 }
