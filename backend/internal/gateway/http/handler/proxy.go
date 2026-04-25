@@ -5,14 +5,15 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildOwnerService interface {
-	GetUserBuilds(ctx context.Context, ownerID string) ([]dto.BuildDTO, error)
+	GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error)
 }
 
 func NewBuilderProxyHandler(targetURL string, internalToken string) (gin.HandlerFunc, error) {
@@ -46,7 +47,7 @@ func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerServ
 
 		builds, err := buildService.GetUserBuilds(c.Request.Context(), userID)
 		if err != nil {
-			apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
 
@@ -58,7 +59,7 @@ func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerServ
 			}
 		}
 		if !allowed {
-			apperrors.Respond(c, apperrors.HTTPStatus(apperrors.ErrNotFound), apperrors.ErrNotFound)
+			httpresponse.Respond(c, httpresponse.Status(apperrors.ErrNotFound), apperrors.ErrNotFound)
 			return
 		}
 

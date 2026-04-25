@@ -5,7 +5,7 @@ import (
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,7 +20,7 @@ func (h *Handler) GetUser(ctx context.Context, req *sso.GetUserRequest) (*sso.Us
 
 	user, err := h.auth.GetUser(ctx, userDTO.UserID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return userToProto(user), nil
@@ -44,7 +44,7 @@ func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersReque
 
 	users, err := h.auth.GetUsers(ctx, usersDTO.UserIDs)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	resp := &sso.BatchGetUsersResponse{

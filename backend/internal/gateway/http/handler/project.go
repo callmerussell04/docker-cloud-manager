@@ -4,15 +4,15 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 
 type ProjectService interface {
-	GetUserProjects(ctx context.Context, ownerID string) ([]dto.ProjectDTO, error)
+	GetUserProjects(ctx context.Context, ownerID string) ([]model.Project, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
 	StopProject(ctx context.Context, ownerID, projectID string) error
-	GetAllProjects(ctx context.Context, page, limit int) (dto.PaginatedProjects, error)
+	GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
 	AdminDeleteProject(ctx context.Context, projectID string) error
 	AdminStopProject(ctx context.Context, projectID string) error
 }
@@ -27,10 +27,10 @@ func (h *CoreHandler) GetProjects(c *gin.Context) {
 	}
 
 	if projects == nil {
-		projects = make([]dto.ProjectDTO, 0)
+		projects = make([]model.Project, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"projects": projects})
+	c.JSON(http.StatusOK, gin.H{"projects": projectsToDTO(projects)})
 }
 
 func (h *CoreHandler) DeleteProject(c *gin.Context) {
@@ -67,7 +67,7 @@ func (h *CoreHandler) GetAllProjects(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"projects":    resp.Projects,
+		"projects":    projectsToDTO(resp.Projects),
 		"total_count": resp.TotalCount,
 	})
 }

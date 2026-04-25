@@ -4,12 +4,12 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 
 type StatsService interface {
-	GetUserStats(ctx context.Context, ownerID string) (dto.UserStatsDTO, error)
+	GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error)
 }
 
 func (h *CoreHandler) GetUserStats(c *gin.Context) {
@@ -21,5 +21,5 @@ func (h *CoreHandler) GetUserStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, userStatsToDTO(stats))
 }

@@ -5,19 +5,21 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
 type ContainerService interface {
-	CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error)
-	GetUserContainers(ctx context.Context, ownerID string) ([]dto.ContainerDTO, error)
+	CreateContainer(ctx context.Context, ownerID string, input model.CreateContainerInput) (string, error)
+	GetUserContainers(ctx context.Context, ownerID string) ([]model.Container, error)
 	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
 	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
-	GetAllContainers(ctx context.Context, page, limit int) (dto.PaginatedContainers, error)
+	GetAllContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
 	AdminActionContainer(ctx context.Context, containerID, action string) error
-	GetContainerStats(ctx context.Context, ownerID, containerID string) (dto.ContainerStatsDTO, error)
-	AdminGetContainerStats(ctx context.Context, containerID string) (dto.ContainerStatsDTO, error)
+	GetContainerStats(ctx context.Context, ownerID, containerID string) (model.ContainerStats, error)
+	AdminGetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
 func (h *CoreHandler) CreateContainer(c *gin.Context) {
@@ -25,11 +27,11 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 	var createContainerDTO dto.CreateContainerDTO
 
 	if err := c.ShouldBindJSON(&createContainerDTO); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	containerID, err := h.service.CreateContainer(c.Request.Context(), userID, createContainerDTO)
+	containerID, err := h.service.CreateContainer(c.Request.Context(), userID, createContainerInputFromDTO(createContainerDTO))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -48,10 +50,10 @@ func (h *CoreHandler) GetContainers(c *gin.Context) {
 	}
 
 	if containers == nil {
-		containers = make([]dto.ContainerDTO, 0)
+		containers = make([]model.Container, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"containers": containers})
+	c.JSON(http.StatusOK, gin.H{"containers": containersToDTO(containers)})
 }
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {
@@ -74,7 +76,7 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 
 	var exposeContainerDTO dto.ExposeContainerDTO
 	if err := c.ShouldBindJSON(&exposeContainerDTO); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -95,7 +97,7 @@ func (h *CoreHandler) GetAllContainers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"containers":  resp.Containers,
+		"containers":  containersToDTO(resp.Containers),
 		"total_count": resp.TotalCount,
 	})
 }
@@ -122,7 +124,7 @@ func (h *CoreHandler) GetContainerStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, containerStatsToDTO(stats))
 }
 
 func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
@@ -134,5 +136,5 @@ func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, stats)
+	c.JSON(http.StatusOK, containerStatsToDTO(stats))
 }

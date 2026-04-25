@@ -4,21 +4,21 @@ import (
 	"context"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) GetUserStats(ctx context.Context, ownerID string) (dto.UserStatsDTO, error) {
+func (c *CoreClient) GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error) {
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.statsAPI.GetUserStats(ctx, req)
 	if err != nil {
-		return dto.UserStatsDTO{}, apperrors.FromGRPC(err)
+		return model.UserStats{}, grpcerrors.FromGRPC(err)
 	}
 	return userStatsFromProto(resp), nil
 }
 
-func userStatsFromProto(data *coreapi.UserStatsResponse) dto.UserStatsDTO {
-	return dto.UserStatsDTO{
+func userStatsFromProto(data *coreapi.UserStatsResponse) model.UserStats {
+	return model.UserStats{
 		ContainersTotal:   data.GetContainersTotal(),
 		ContainersRunning: data.GetContainersRunning(),
 		ContainersQuota:   data.GetContainersQuota(),

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,7 +19,7 @@ func Auth(verifier TokenVerifier) gin.HandlerFunc {
 
 		user, err := verifier.VerifyAccessToken(c.Request.Context(), authHeader)
 		if err != nil {
-			apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
 
@@ -35,7 +35,7 @@ func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFun
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if err := verifier.CheckPermission(c.Request.Context(), authHeader, permission); err != nil {
-			apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
 		c.Next()

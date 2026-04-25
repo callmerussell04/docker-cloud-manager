@@ -6,7 +6,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"google.golang.org/grpc"
 )
 
@@ -69,7 +69,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	}
 
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil

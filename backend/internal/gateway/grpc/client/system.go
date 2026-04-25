@@ -4,28 +4,28 @@ import (
 	"context"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) GetSystemConfig(ctx context.Context) (dto.SystemConfigDTO, error) {
+func (c *CoreClient) GetSystemConfig(ctx context.Context) (model.SystemConfig, error) {
 	resp, err := c.systemAPI.GetConfig(ctx, &coreapi.Empty{})
 	if err != nil {
-		return dto.SystemConfigDTO{}, apperrors.FromGRPC(err)
+		return model.SystemConfig{}, grpcerrors.FromGRPC(err)
 	}
 	return systemConfigFromProto(resp), nil
 }
 
-func (c *CoreClient) UpdateSystemConfig(ctx context.Context, req dto.SystemConfigDTO) error {
+func (c *CoreClient) UpdateSystemConfig(ctx context.Context, req model.SystemConfig) error {
 	_, err := c.systemAPI.UpdateConfig(ctx, systemConfigToProto(req))
 	if err != nil {
-		return apperrors.FromGRPC(err)
+		return grpcerrors.FromGRPC(err)
 	}
 	return nil
 }
 
-func systemConfigFromProto(data *coreapi.SystemConfigData) dto.SystemConfigDTO {
-	return dto.SystemConfigDTO{
+func systemConfigFromProto(data *coreapi.SystemConfigData) model.SystemConfig {
+	return model.SystemConfig{
 		BaseDomain:                    data.GetBaseDomain(),
 		DefaultMemoryReservationBytes: data.GetDefaultMemoryReservationBytes(),
 		ReservedSystemMemoryBytes:     data.GetReservedSystemMemoryBytes(),
@@ -46,7 +46,7 @@ func systemConfigFromProto(data *coreapi.SystemConfigData) dto.SystemConfigDTO {
 	}
 }
 
-func systemConfigToProto(data dto.SystemConfigDTO) *coreapi.SystemConfigData {
+func systemConfigToProto(data model.SystemConfig) *coreapi.SystemConfigData {
 	return &coreapi.SystemConfigData{
 		BaseDomain:                    data.BaseDomain,
 		DefaultMemoryReservationBytes: data.DefaultMemoryReservationBytes,

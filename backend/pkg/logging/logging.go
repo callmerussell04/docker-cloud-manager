@@ -151,7 +151,7 @@ func RecoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 					"error", err,
 					"stack", string(debug.Stack()),
 				)
-				c.AbortWithStatusJSON(http.StatusInternalServerError, apperrors.ErrorResponse{Error: apperrors.ErrInternal.Error()})
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": apperrors.ErrInternal.Error()})
 			}
 		}()
 

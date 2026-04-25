@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
@@ -22,7 +21,7 @@ type VolumeRepository interface {
 }
 
 type VolumeDockerAPI interface {
-	CreateVolume(ctx context.Context, params docker.CreateVolumeParams) (string, error)
+	CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error)
 	RemoveVolume(ctx context.Context, volumeName string, force bool) error
 }
 
@@ -57,7 +56,7 @@ func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params mo
 	volID := uuid.New()
 	dockerName := fmt.Sprintf("vol_%s_%s", ownerID.String()[:8], params.Name)
 
-	dockerParams := docker.CreateVolumeParams{
+	dockerParams := model.VolumeRuntimeSpec{
 		VolumeName: dockerName,
 	}
 

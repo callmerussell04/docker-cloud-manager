@@ -40,10 +40,21 @@ type App struct {
 	logger     *slog.Logger
 }
 
-func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, ssoTarget string, internalToken string, configManager *config.Manager, logger *slog.Logger) (*App, error) {
+type Config struct {
+	Port                  int
+	HTTPPort              int
+	DBURL                 string
+	RegistryContainerName string
+	BuilderHTTPURL        string
+	SSOTarget             string
+	InternalToken         string
+	ConfigManager         *config.Manager
+}
+
+func New(cfg Config, logger *slog.Logger) (*App, error) {
 	appLogger := logging.WithComponent(logger, "app")
 
-	db, err := sql.Open("postgres", dbURL)
+	db, err := sql.Open("postgres", cfg.DBURL)
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +68,13 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 		return nil, err
 	}
 
-	registryAdapter := registry.NewAdapter(configManager.Get().RegistryAPIURL)
+	registryAdapter := registry.NewAdapter(cfg.ConfigManager.Get().RegistryAPIURL)
 	ssoConn, err := grpc.NewClient(
-		ssoTarget,
+		cfg.SSOTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(internalToken),
+			internalauth.UnaryClientInterceptor(cfg.InternalToken),
 		),
 	)
 	if err != nil {
@@ -79,25 +90,25 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager, ssoClient, logger)
-	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager)
-	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, configManager)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, logger)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager)
+	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
-	systemService := service.NewSystemService(configManager)
-	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager, ssoClient)
+	systemService := service.NewSystemService(cfg.ConfigManager)
+	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
-		internalauth.UnaryServerInterceptor(internalToken),
+		internalauth.UnaryServerInterceptor(cfg.InternalToken),
 	))
 
-	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, builderHTTPUrl, internalToken, logger)
+	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
 	composeHandler := corehttp.NewComposeHandler(orchestrator)
-	router := corehttp.SetupRouter(composeHandler, internalToken, logger)
+	router := corehttp.SetupRouter(composeHandler, cfg.InternalToken, logger)
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", httpPort),
+		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler: router,
 	}
 
@@ -113,7 +124,7 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService, logger)
-	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName, logger)
+	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, cfg.RegistryContainerName, logger)
 
 	wg.Add(3)
 	go func() {
@@ -135,7 +146,7 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 		db:         db,
 		dockerCli:  dockerAdapter,
 		ssoConn:    ssoConn,
-		port:       port,
+		port:       cfg.Port,
 		ctx:        ctx,
 		cancel:     cancel,
 		wg:         wg,

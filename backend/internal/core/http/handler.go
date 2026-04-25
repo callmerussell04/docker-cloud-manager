@@ -9,6 +9,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -28,13 +29,13 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	ownerIDStr := c.GetHeader("X-User-Id")
 	projectName := c.PostForm("project_name")
 	if projectName == "" {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
 	file, err := c.FormFile("archive")
 	if err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -46,26 +47,26 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 
 	ownerID, err := uuid.Parse(req.OwnerID)
 	if err != nil {
-		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 		return
 	}
 
 	src, err := req.Archive.Open()
 	if err != nil {
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		httpresponse.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
 		return
 	}
 	defer src.Close()
 
 	archiveBytes, err := io.ReadAll(src)
 	if err != nil {
-		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
+		httpresponse.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
 		return
 	}
 
 	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), ownerID, req.ProjectName, archiveBytes)
 	if err != nil {
-		apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
 

@@ -13,6 +13,8 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/moby/go-archive"
+
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 )
 
 type Adapter struct {
@@ -27,7 +29,7 @@ func NewAdapter() (*Adapter, error) {
 	return &Adapter{cli: cli}, nil
 }
 
-func (a *Adapter) RunBuildContainer(ctx context.Context, params BuildContainerParams) (string, io.ReadCloser, error) {
+func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
 	// 1. Убеждаемся, что образ Kaniko есть на хосте
 	kanikoImage := "gcr.io/kaniko-project/executor:latest"
 	_, err := a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})

@@ -9,7 +9,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type BuildLogic interface {
@@ -33,7 +33,7 @@ func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBui
 
 	buildID, imageID, err := h.buildLogic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.InitBuildResponse{
@@ -55,7 +55,7 @@ func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.Com
 
 	err = h.buildLogic.CompleteBuildRecord(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -69,7 +69,7 @@ func (h *ImageHandler) GetUserBuilds(ctx context.Context, req *coreapi.GetUserRe
 
 	builds, err := h.buildLogic.GetUserBuilds(ctx, ownerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbBuilds []*coreapi.BuildData
@@ -95,7 +95,7 @@ func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildAction
 
 	err = h.buildLogic.DeleteBuild(ctx, ownerID, buildID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -106,7 +106,7 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 
 	builds, total, err := h.buildLogic.GetAllPaginatedBuilds(ctx, limit, offset)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbBuilds []*coreapi.BuildData
@@ -128,7 +128,7 @@ func (h *ImageHandler) AdminDeleteBuild(ctx context.Context, req *coreapi.BuildA
 	}
 
 	if err := h.buildLogic.AdminDeleteBuild(ctx, buildID); err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }

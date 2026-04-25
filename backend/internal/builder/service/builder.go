@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -30,7 +29,7 @@ type ArchiveExtractor interface {
 }
 
 type DockerAPI interface {
-	RunBuildContainer(ctx context.Context, params docker.BuildContainerParams) (string, io.ReadCloser, error)
+	RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error)
 	WaitForBuild(ctx context.Context, containerID string) error
 	CleanBuildContainer(ctx context.Context, containerID string) error
 }
@@ -158,7 +157,7 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 			repoName := strings.ToLower(fmt.Sprintf("%s_%s", ownerID, baseName))
 			destinationTag := fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
 
-			params := docker.BuildContainerParams{
+			params := model.BuildRuntimeSpec{
 				WorkspaceDir:   workspaceDir,    // Путь к папке на хосте/в контейнере билдера
 				ContextSubDir:  cleanContextDir, // Относительный путь (если юзер указал подпапку)
 				Dockerfile:     dfPath,          // Относительный путь к Dockerfile

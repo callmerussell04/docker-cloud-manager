@@ -4,14 +4,14 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 
 type ImageService interface {
-	GetUserImages(ctx context.Context, ownerID string) ([]dto.ImageDTO, error)
+	GetUserImages(ctx context.Context, ownerID string) ([]model.Image, error)
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
-	GetAllImages(ctx context.Context, page, limit int) (dto.PaginatedImages, error)
+	GetAllImages(ctx context.Context, page, limit int) (model.PaginatedImages, error)
 	AdminDeleteImage(ctx context.Context, imageID string) error
 }
 
@@ -25,10 +25,10 @@ func (h *CoreHandler) GetImages(c *gin.Context) {
 	}
 
 	if images == nil {
-		images = make([]dto.ImageDTO, 0)
+		images = make([]model.Image, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"images": images})
+	c.JSON(http.StatusOK, gin.H{"images": imagesToDTO(images)})
 }
 
 func (h *CoreHandler) DeleteImage(c *gin.Context) {
@@ -52,7 +52,7 @@ func (h *CoreHandler) GetAllImages(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"images":      resp.Images,
+		"images":      imagesToDTO(resp.Images),
 		"total_count": resp.TotalCount,
 	})
 }

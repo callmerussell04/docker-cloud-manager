@@ -16,7 +16,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
 )
 
@@ -42,7 +41,7 @@ type ContainerService interface {
 }
 
 type ComposeDockerAPI interface {
-	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
+	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 }
 
 type Orchestrator struct {
@@ -422,13 +421,13 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 			state := inspect.State
 			switch condition {
 			case "service_healthy":
-				if state.Health == nil {
+				if state.HealthStatus == nil {
 					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
 				}
-				if state.Health.Status == "healthy" {
+				if *state.HealthStatus == "healthy" {
 					return nil // Зависимость здорова, идем дальше!
 				}
-				if state.Health.Status == "unhealthy" {
+				if *state.HealthStatus == "unhealthy" {
 					return apperrors.New(apperrors.ErrConflict, "dependency became unhealthy")
 				}
 				if !state.Running && state.ExitCode != 0 {

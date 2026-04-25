@@ -9,13 +9,10 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
 	"github.com/google/uuid"
 )
 
@@ -46,12 +43,12 @@ type ContainerDockerAPI interface {
 	EnsureUserNetwork(ctx context.Context, networkName string) (string, error)
 	RemoveNetwork(ctx context.Context, networkName string) error
 	PullImage(ctx context.Context, imageName string) error
-	CreateContainer(ctx context.Context, params docker.CreateContainerParams) (string, error)
+	CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error)
 	StartContainer(ctx context.Context, dockerID string) error
 	StopContainer(ctx context.Context, dockerID string, timeout int) error
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
 	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
-	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
+	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
 	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
@@ -218,7 +215,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	containerID := uuid.New()
 
 	// Подготовка томов
-	var dockerMounts []docker.MountParam
+	var dockerMounts []model.ContainerMountSpec
 	var dbMounts []model.VolumeMount
 
 	for _, vm := range params.VolumeMounts {
@@ -234,7 +231,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 			return uuid.Nil, apperrors.ErrNotFound
 		}
 
-		dockerMounts = append(dockerMounts, docker.MountParam{
+		dockerMounts = append(dockerMounts, model.ContainerMountSpec{
 			VolumeName: vol.DockerName,
 			Target:     vm.MountPath,
 			ReadOnly:   vm.IsReadOnly,
@@ -279,7 +276,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	// 5. Конфигурация Docker. Изначально ставим жесткий лимит равным мягкому.
 	// Ребалансировщик потом его увеличит (Burst).
-	dockerParams := docker.CreateContainerParams{
+	dockerParams := model.ContainerRuntimeSpec{
 		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
 		NetworkAlias:      params.NetworkAlias,
 		ImageName:         actualImageTag,
@@ -372,51 +369,34 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	}
 
 	var envList []string
-	envList = append(envList, inspect.Config.Env...)
+	envList = append(envList, inspect.Env...)
 
-	var dockerMounts []docker.MountParam
+	var dockerMounts []model.ContainerMountSpec
 	for _, m := range inspect.Mounts {
-		if m.Type == mount.TypeVolume {
-			dockerMounts = append(dockerMounts, docker.MountParam{
-				VolumeName: m.Name,
-				Target:     m.Destination,
-				ReadOnly:   !m.RW,
-			})
-		}
-	}
-
-	var healthcheck *model.Healthcheck
-	if inspect.Config.Healthcheck != nil {
-		healthcheck = &model.Healthcheck{
-			Test:        inspect.Config.Healthcheck.Test,
-			Interval:    inspect.Config.Healthcheck.Interval,
-			Timeout:     inspect.Config.Healthcheck.Timeout,
-			StartPeriod: inspect.Config.Healthcheck.StartPeriod,
-			Retries:     inspect.Config.Healthcheck.Retries,
-		}
+		dockerMounts = append(dockerMounts, m)
 	}
 
 	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
 	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.Get().BaseDomain)
 
-	dockerParams := docker.CreateContainerParams{
+	dockerParams := model.ContainerRuntimeSpec{
 		ContainerName:     strings.TrimPrefix(inspect.Name, "/"),
-		ImageName:         inspect.Config.Image,
+		ImageName:         inspect.Image,
 		NetworkName:       networkName,
 		Domain:            fullDomain,
 		InternalPort:      internalPort,
 		EnvVars:           envList,
-		MemoryLimitBytes:  inspect.HostConfig.Memory,
-		MemoryReservation: inspect.HostConfig.MemoryReservation,
-		CPUShares:         inspect.HostConfig.CPUShares,
+		MemoryLimitBytes:  inspect.MemoryLimitBytes,
+		MemoryReservation: inspect.MemoryReservation,
+		CPUShares:         inspect.CPUShares,
 		VolumeMounts:      dockerMounts,
 		MaxLogSize:        s.config.Get().MaxLogSize,
 		MaxLogFiles:       s.config.Get().MaxLogFiles,
 		StorageQuota:      s.config.Get().ContainerDiskQuota,
-		Command:           inspect.Config.Cmd,
-		Entrypoint:        inspect.Config.Entrypoint,
-		Restart:           string(inspect.HostConfig.RestartPolicy.Name),
-		Healthcheck:       healthcheck,
+		Command:           inspect.Command,
+		Entrypoint:        inspect.Entrypoint,
+		Restart:           inspect.Restart,
+		Healthcheck:       inspect.Healthcheck,
 	}
 
 	// Создаем новый контейнер с лейблами Traefik

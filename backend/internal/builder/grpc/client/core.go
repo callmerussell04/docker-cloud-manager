@@ -6,7 +6,7 @@ import (
 	"google.golang.org/grpc"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type CoreClient struct {
@@ -28,7 +28,7 @@ func (c *CoreClient) InitBuildRecord(ctx context.Context, ownerID, tag, logFileP
 
 	resp, err := c.imageAPI.InitBuildRecord(ctx, req)
 	if err != nil {
-		return "", "", apperrors.FromGRPC(err)
+		return "", "", grpcerrors.FromGRPC(err)
 	}
 
 	return resp.GetBuildId(), resp.GetImageId(), nil
@@ -44,7 +44,7 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 
 	_, err := c.imageAPI.CompleteBuildRecord(ctx, req)
 	if err != nil {
-		return apperrors.FromGRPC(err)
+		return grpcerrors.FromGRPC(err)
 	}
 
 	return nil

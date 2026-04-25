@@ -58,7 +58,7 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 	return resp.ID, nil
 }
 
-func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerParams) (string, error) {
+func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
 	labels := map[string]string{
 		"managed_by": "docker-cloud-manager",
 	}
@@ -187,7 +187,7 @@ func (a *Adapter) RemoveContainer(ctx context.Context, dockerID string, force bo
 	})
 }
 
-func (a *Adapter) CreateVolume(ctx context.Context, params CreateVolumeParams) (string, error) {
+func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error) {
 	vol, err := a.cli.VolumeCreate(ctx, volume.CreateOptions{
 		Name:   params.VolumeName,
 		Driver: "local",
@@ -229,12 +229,55 @@ func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
 	return err
 }
 
-func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error) {
+func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error) {
 	containerJSON, err := a.cli.ContainerInspect(ctx, dockerID)
 	if err != nil {
-		return nil, err
+		return model.ContainerInspection{}, err
 	}
-	return &containerJSON, nil
+
+	inspection := model.ContainerInspection{
+		Name:              containerJSON.Name,
+		Mounts:            make([]model.ContainerMountSpec, 0, len(containerJSON.Mounts)),
+		MemoryLimitBytes:  containerJSON.HostConfig.Memory,
+		MemoryReservation: containerJSON.HostConfig.MemoryReservation,
+		CPUShares:         containerJSON.HostConfig.CPUShares,
+		Restart:           string(containerJSON.HostConfig.RestartPolicy.Name),
+		State: model.ContainerState{
+			Running:  containerJSON.State.Running,
+			Status:   containerJSON.State.Status,
+			ExitCode: containerJSON.State.ExitCode,
+		},
+	}
+	if containerJSON.Config != nil {
+		inspection.Image = containerJSON.Config.Image
+		inspection.Env = containerJSON.Config.Env
+		inspection.Command = containerJSON.Config.Cmd
+		inspection.Entrypoint = containerJSON.Config.Entrypoint
+		if containerJSON.Config.Healthcheck != nil {
+			inspection.Healthcheck = &model.Healthcheck{
+				Test:        containerJSON.Config.Healthcheck.Test,
+				Interval:    containerJSON.Config.Healthcheck.Interval,
+				Timeout:     containerJSON.Config.Healthcheck.Timeout,
+				StartPeriod: containerJSON.Config.Healthcheck.StartPeriod,
+				Retries:     containerJSON.Config.Healthcheck.Retries,
+			}
+		}
+	}
+	if containerJSON.State.Health != nil {
+		healthStatus := containerJSON.State.Health.Status
+		inspection.State.HealthStatus = &healthStatus
+	}
+	for _, m := range containerJSON.Mounts {
+		if m.Type != mount.TypeVolume {
+			continue
+		}
+		inspection.Mounts = append(inspection.Mounts, model.ContainerMountSpec{
+			VolumeName: m.Name,
+			Target:     m.Destination,
+			ReadOnly:   !m.RW,
+		})
+	}
+	return inspection, nil
 }
 
 func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (*volume.Volume, error) {
@@ -278,13 +321,35 @@ func (a *Adapter) ImageExists(ctx context.Context, imageTag string) (bool, error
 	return true, nil
 }
 
-func (a *Adapter) ListenEvents(ctx context.Context) (<-chan events.Message, <-chan error) {
+func (a *Adapter) ListenEvents(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
 	options := events.ListOptions{
 		Filters: filters.NewArgs(
 			filters.Arg("type", "container"),
 		),
 	}
-	return a.cli.Events(ctx, options)
+	dockerEvents, errCh := a.cli.Events(ctx, options)
+	eventCh := make(chan model.ContainerEvent)
+
+	go func() {
+		defer close(eventCh)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-dockerEvents:
+				if !ok {
+					return
+				}
+				eventCh <- model.ContainerEvent{
+					Type:     string(msg.Type),
+					Action:   string(msg.Action),
+					DockerID: msg.Actor.ID,
+				}
+			}
+		}
+	}()
+
+	return eventCh, errCh
 }
 
 func (a *Adapter) PruneSystem(ctx context.Context) error {

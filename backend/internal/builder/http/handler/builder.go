@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
@@ -38,13 +39,13 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 
 	ownerID := c.GetHeader("X-User-Id")
 	if ownerID == "" {
-		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 		return
 	}
 
 	tag := c.PostForm("tag")
 	if tag == "" {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -54,7 +55,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 
 	file, err := c.FormFile("archive")
 	if err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -82,7 +83,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 
 	buildID, err := h.service.InitBuild(c.Request.Context(), job, req.File)
 	if err != nil {
-		apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
 
@@ -96,13 +97,13 @@ func (h *BuildHandler) GetLogs(c *gin.Context) {
 	//role := c.GetHeader("X-User-Role")
 	buildID := c.Param("id")
 	if buildID == "" {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
 	logPath := filepath.Join(h.logsDir, buildID+".log")
 	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		apperrors.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type SSOClient struct {
@@ -32,7 +33,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 
 	resp, err := c.authAPI.Register(ctx, req)
 	if err != nil {
-		return "", apperrors.FromGRPC(err)
+		return "", grpcerrors.FromGRPC(err)
 	}
 
 	return resp.GetUserId(), nil
@@ -46,7 +47,7 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (model
 
 	resp, err := c.authAPI.Login(ctx, req)
 	if err != nil {
-		return model.Tokens{}, apperrors.FromGRPC(err)
+		return model.Tokens{}, grpcerrors.FromGRPC(err)
 	}
 
 	return model.Tokens{
@@ -62,7 +63,7 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 
 	resp, err := c.authAPI.Refresh(ctx, req)
 	if err != nil {
-		return model.Tokens{}, apperrors.FromGRPC(err)
+		return model.Tokens{}, grpcerrors.FromGRPC(err)
 	}
 
 	return model.Tokens{
@@ -81,7 +82,7 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (m
 		AccessToken: token,
 	})
 	if err != nil {
-		return model.AuthUser{}, apperrors.FromGRPC(err)
+		return model.AuthUser{}, grpcerrors.FromGRPC(err)
 	}
 
 	return model.AuthUser{
@@ -102,7 +103,7 @@ func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission 
 		Permission:  permission,
 	})
 	if err != nil {
-		return apperrors.FromGRPC(err)
+		return grpcerrors.FromGRPC(err)
 	}
 	if !resp.GetAllowed() {
 		return apperrors.ErrForbidden

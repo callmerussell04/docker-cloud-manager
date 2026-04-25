@@ -22,14 +22,23 @@ type App struct {
 	logger *slog.Logger
 }
 
-func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget string, internalToken string, logger *slog.Logger) (*App, error) {
+type Config struct {
+	Port              int
+	SSOTarget         string
+	CoreTarget        string
+	BuilderHTTPTarget string
+	CoreHTTPTarget    string
+	InternalToken     string
+}
+
+func New(cfg Config, logger *slog.Logger) (*App, error) {
 	//TODO: fix insecure connection and overall grpc client execution
 	ssoConn, err := grpc.NewClient(
-		ssoTarget,
+		cfg.SSOTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(internalToken),
+			internalauth.UnaryClientInterceptor(cfg.InternalToken),
 		),
 	)
 	if err != nil {
@@ -38,11 +47,11 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget stri
 
 	//TODO: fix insecure connection and overall grpc client execution
 	coreConn, err := grpc.NewClient(
-		coreTarget,
+		cfg.CoreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(internalToken),
+			internalauth.UnaryClientInterceptor(cfg.InternalToken),
 		),
 	)
 	if err != nil {
@@ -57,17 +66,17 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget stri
 	coreService := service.NewCore(coreClient)
 	coreHandler := handler.NewCoreHandler(coreService)
 
-	builderProxy, err := handler.NewBuilderProxyHandler(builderHttpTarget, internalToken)
+	builderProxy, err := handler.NewBuilderProxyHandler(cfg.BuilderHTTPTarget, cfg.InternalToken)
 	if err != nil {
 		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
 	}
 
-	builderLogsProxy, err := handler.NewAuthorizedBuilderLogsProxy(builderHttpTarget, coreService, internalToken)
+	builderLogsProxy, err := handler.NewAuthorizedBuilderLogsProxy(cfg.BuilderHTTPTarget, coreService, cfg.InternalToken)
 	if err != nil {
 		return nil, fmt.Errorf("builder logs proxy setup fail: %w", err)
 	}
 
-	coreProxy, err := handler.NewCoreProxyHandler(coreHttpTarget, internalToken)
+	coreProxy, err := handler.NewCoreProxyHandler(cfg.CoreHTTPTarget, cfg.InternalToken)
 	if err != nil {
 		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
@@ -76,7 +85,7 @@ func New(port int, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget stri
 
 	return &App{
 		router: router,
-		port:   port,
+		port:   cfg.Port,
 		logger: logging.WithComponent(logger, "app"),
 	}, nil
 

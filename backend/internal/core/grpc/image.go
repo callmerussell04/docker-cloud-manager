@@ -10,7 +10,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type ImageLogic interface {
@@ -43,7 +43,7 @@ func (h *ImageHandler) GetUserImages(ctx context.Context, req *coreapi.GetUserRe
 
 	images, err := h.imageLogic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbImages []*coreapi.ImageData
@@ -69,7 +69,7 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 
 	err = h.imageLogic.Delete(ctx, ownerID, imageID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -80,7 +80,7 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 
 	images, total, err := h.imageLogic.GetAllPaginatedImages(ctx, limit, offset)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbImages []*coreapi.ImageData
@@ -102,7 +102,7 @@ func (h *ImageHandler) AdminDeleteImage(ctx context.Context, req *coreapi.ImageA
 	}
 
 	if err := h.imageLogic.AdminDeleteImage(ctx, imageID); err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
 }

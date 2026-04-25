@@ -5,15 +5,17 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
 type VolumeService interface {
-	CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error)
+	CreateVolume(ctx context.Context, ownerID string, input model.CreateVolumeInput) (string, error)
 	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
-	GetUserVolumes(ctx context.Context, ownerID string) ([]dto.VolumeDTO, error)
-	GetAllVolumes(ctx context.Context, page, limit int) (dto.PaginatedVolumes, error)
+	GetUserVolumes(ctx context.Context, ownerID string) ([]model.Volume, error)
+	GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
 	AdminDeleteVolume(ctx context.Context, volumeID string) error
 }
 
@@ -22,11 +24,11 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 	var createVolumeDTO dto.CreateVolumeDTO
 
 	if err := c.ShouldBindJSON(&createVolumeDTO); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	volumeID, err := h.service.CreateVolume(c.Request.Context(), userID, createVolumeDTO)
+	volumeID, err := h.service.CreateVolume(c.Request.Context(), userID, createVolumeInputFromDTO(createVolumeDTO))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -45,10 +47,10 @@ func (h *CoreHandler) GetVolumes(c *gin.Context) {
 	}
 
 	if volumes == nil {
-		volumes = make([]dto.VolumeDTO, 0)
+		volumes = make([]model.Volume, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"volumes": volumes})
+	c.JSON(http.StatusOK, gin.H{"volumes": volumesToDTO(volumes)})
 }
 
 func (h *CoreHandler) DeleteVolume(c *gin.Context) {
@@ -72,7 +74,7 @@ func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"volumes":     resp.Volumes,
+		"volumes":     volumesToDTO(resp.Volumes),
 		"total_count": resp.TotalCount,
 	})
 }

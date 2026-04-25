@@ -1,6 +1,6 @@
-package docker
+package model
 
-type BuildContainerParams struct {
+type BuildRuntimeSpec struct {
 	WorkspaceDir   string
 	ContextSubDir  string
 	Dockerfile     string

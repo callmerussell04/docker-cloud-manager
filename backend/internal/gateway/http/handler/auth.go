@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 )
 
 type AuthService interface {
@@ -31,7 +32,7 @@ func NewAuthHandler(service AuthService) *AuthHandler {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -47,7 +48,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
@@ -64,7 +65,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) Refresh(c *gin.Context) {
 	refreshToken, err := c.Cookie("refresh_token")
 	if err != nil {
-		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 		return
 	}
 
@@ -84,7 +85,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
-	apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+	httpresponse.Respond(c, httpresponse.Status(err), err)
 }
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {

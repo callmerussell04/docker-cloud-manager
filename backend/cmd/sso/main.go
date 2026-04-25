@@ -41,7 +41,14 @@ func main() {
 	accessTTL := 15 * time.Minute
 	refreshTTL := 30 * 24 * time.Hour
 
-	application, err := app.New(port, dbURL, jwtSecret, internalToken, accessTTL, refreshTTL, logger)
+	application, err := app.New(app.Config{
+		Port:          port,
+		DBURL:         dbURL,
+		JWTSecret:     jwtSecret,
+		InternalToken: internalToken,
+		AccessTTL:     accessTTL,
+		RefreshTTL:    refreshTTL,
+	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize sso application", "error", err)
 	}

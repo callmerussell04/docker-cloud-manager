@@ -9,9 +9,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type ContainerLogic interface {
@@ -53,46 +52,31 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		return nil, status.Error(codes.InvalidArgument, "name and image_tag are required")
 	}
 
-	createDTO := dto.CreateContainerDTO{
-		Name:         req.GetName(),
-		ImageTag:     req.GetImageTag(),
-		InternalPort: int(req.GetInternalPort()),
-		EnvVars:      req.GetEnvVars(),
-		DomainPrefix: req.GetDomainPrefix(),
-	}
+	mounts := make([]model.VolumeMountParams, 0, len(req.GetVolumeMounts()))
 	for _, m := range req.GetVolumeMounts() {
 		volID, err := uuid.Parse(m.GetVolumeId())
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
 		}
-		createDTO.VolumeMounts = append(createDTO.VolumeMounts, dto.VolumeMountDTO{
+		mounts = append(mounts, model.VolumeMountParams{
 			VolumeID:   volID,
 			MountPath:  m.GetMountPath(),
 			IsReadOnly: m.GetIsReadonly(),
 		})
 	}
 
-	mounts := make([]model.VolumeMountParams, 0, len(createDTO.VolumeMounts))
-	for _, m := range createDTO.VolumeMounts {
-		mounts = append(mounts, model.VolumeMountParams{
-			VolumeID:   m.VolumeID,
-			MountPath:  m.MountPath,
-			IsReadOnly: m.IsReadOnly,
-		})
-	}
-
 	params := model.ContainerCreateParams{
-		Name:         createDTO.Name,
-		ImageTag:     createDTO.ImageTag,
-		InternalPort: createDTO.InternalPort,
-		EnvVars:      createDTO.EnvVars,
+		Name:         req.GetName(),
+		ImageTag:     req.GetImageTag(),
+		InternalPort: int(req.GetInternalPort()),
+		EnvVars:      req.GetEnvVars(),
 		VolumeMounts: mounts,
-		DomainPrefix: createDTO.DomainPrefix,
+		DomainPrefix: req.GetDomainPrefix(),
 	}
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.CreateContainerResponse{
@@ -113,7 +97,7 @@ func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.Cont
 
 	err = h.logic.Start(ctx, ownerID, containerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -132,7 +116,7 @@ func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.Conta
 
 	err = h.logic.Stop(ctx, ownerID, containerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -151,7 +135,7 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 
 	err = h.logic.Delete(ctx, ownerID, containerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -165,7 +149,7 @@ func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.G
 
 	containers, err := h.logic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbContainers []*coreapi.ContainerData
@@ -204,7 +188,7 @@ func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.Exp
 
 	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -222,7 +206,7 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 
 	containers, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbContainers []*coreapi.ContainerData
@@ -296,7 +280,7 @@ func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreap
 	}
 
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -314,7 +298,7 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 
 	stats, err := h.logic.GetStats(ctx, ownerID, containerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.ContainerStatsResponse{
@@ -334,7 +318,7 @@ func (h *ContainerHandler) AdminGetContainerStats(ctx context.Context, req *core
 
 	stats, err := h.logic.AdminGetStats(ctx, containerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.ContainerStatsResponse{

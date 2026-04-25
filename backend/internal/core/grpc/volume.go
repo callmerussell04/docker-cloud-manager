@@ -9,9 +9,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
 type VolumeLogic interface {
@@ -38,18 +37,17 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
 	}
 
-	createVolumeDTO := dto.CreateVolumeDTO{Name: req.GetName()}
-	if createVolumeDTO.Name == "" {
+	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
 
 	params := model.VolumeCreateParams{
-		Name: createVolumeDTO.Name,
+		Name: req.GetName(),
 	}
 
 	volumeID, err := h.logic.Create(ctx, ownerID, params)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.CreateVolumeResponse{
@@ -70,7 +68,7 @@ func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeAct
 
 	err = h.logic.Delete(ctx, ownerID, volumeID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil
@@ -84,7 +82,7 @@ func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUser
 
 	volumes, err := h.logic.GetByOwner(ctx, ownerID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbVolumes []*coreapi.VolumeData
@@ -115,7 +113,7 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 
 	volumes, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	var pbVolumes []*coreapi.VolumeData
@@ -158,7 +156,7 @@ func (h *VolumeHandler) AdminDeleteVolume(ctx context.Context, req *coreapi.Volu
 
 	err = h.logic.AdminDelete(ctx, volumeID)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &coreapi.Empty{}, nil

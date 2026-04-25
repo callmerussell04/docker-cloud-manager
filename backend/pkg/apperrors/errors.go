@@ -2,7 +2,6 @@ package apperrors
 
 import (
 	"errors"
-	"net/http"
 )
 
 var (
@@ -114,24 +113,5 @@ func SafeMessage(err error) string {
 		return ErrConflict.Error()
 	default:
 		return ErrInternal.Error()
-	}
-}
-
-func HTTPStatus(err error) int {
-	switch {
-	case errors.Is(err, ErrBadRequest), errors.Is(err, ErrInvalidFileFormat):
-		return http.StatusBadRequest
-	case errors.Is(err, ErrUnauthorized), errors.Is(err, ErrInvalidCredentials), errors.Is(err, ErrInvalidToken):
-		return http.StatusUnauthorized
-	case errors.Is(err, ErrForbidden):
-		return http.StatusForbidden
-	case errors.Is(err, ErrNotFound):
-		return http.StatusNotFound
-	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrLimitExceeded), errors.Is(err, ErrQuotaExceeded), errors.Is(err, ErrResourceExhausted), errors.Is(err, ErrConflict), errors.Is(err, ErrResourceInUse):
-		return http.StatusConflict
-	case errors.Is(err, ErrHostExhausted):
-		return http.StatusServiceUnavailable
-	default:
-		return http.StatusInternalServerError
 	}
 }

@@ -25,13 +25,23 @@ type App struct {
 	logger *slog.Logger
 }
 
-func New(port int, coreTarget string, internalToken string, cfg config.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string, logger *slog.Logger) (*App, error) {
+type Config struct {
+	Port            int
+	CoreTarget      string
+	InternalToken   string
+	Builder         config.BuilderConfig
+	MaxUnpackedSize int64
+	MaxLogSize      int64
+	StoragePath     string
+}
+
+func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coreConn, err := grpc.NewClient(
-		coreTarget,
+		cfg.CoreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(internalToken),
+			internalauth.UnaryClientInterceptor(cfg.InternalToken),
 		),
 	)
 	if err != nil {
@@ -42,31 +52,31 @@ func New(port int, coreTarget string, internalToken string, cfg config.BuilderCo
 
 	//TODO: make it an env
 	maxArchiveSize := int64(50 << 20) // 50 MB
-	fileManager, err := storage.NewFileManager(storagePath, maxArchiveSize)
+	fileManager, err := storage.NewFileManager(cfg.StoragePath, maxArchiveSize)
 	if err != nil {
 		return nil, err
 	}
 
-	logManager, err := storage.NewLogManager(cfg.LogsDirPath, maxLogSize)
+	logManager, err := storage.NewLogManager(cfg.Builder.LogsDirPath, cfg.MaxLogSize)
 	if err != nil {
 		return nil, err
 	}
 
-	extractor := archive.NewExtractor(maxUnpackedSize)
+	extractor := archive.NewExtractor(cfg.MaxUnpackedSize)
 
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
 		return nil, err
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg, logger)
-	buildHandler := handler.NewBuildHandler(builderService, cfg.LogsDirPath)
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg.Builder, logger)
+	buildHandler := handler.NewBuildHandler(builderService, cfg.Builder.LogsDirPath)
 
-	router := deliveryhttp.NewRouter(buildHandler, internalToken, logger)
+	router := deliveryhttp.NewRouter(buildHandler, cfg.InternalToken, logger)
 
 	return &App{
 		router: router,
-		port:   port,
+		port:   cfg.Port,
 		logger: logging.WithComponent(logger, "app"),
 	}, nil
 }

@@ -109,7 +109,16 @@ func main() {
 		fatal(logger, "failed to initialize config manager", "error", err)
 	}
 
-	application, err := app.New(port, httpPort, dbURL, registryContainerName, builderHTTPUrl, ssoTarget, internalToken, cfgManager, logger)
+	application, err := app.New(app.Config{
+		Port:                  port,
+		HTTPPort:              httpPort,
+		DBURL:                 dbURL,
+		RegistryContainerName: registryContainerName,
+		BuilderHTTPURL:        builderHTTPUrl,
+		SSOTarget:             ssoTarget,
+		InternalToken:         internalToken,
+		ConfigManager:         cfgManager,
+	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize core application", "error", err)
 	}

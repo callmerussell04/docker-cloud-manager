@@ -24,8 +24,17 @@ type App struct {
 	logger     *slog.Logger
 }
 
-func New(port int, dbURL string, jwtSecret string, internalToken string, accessTTL, refreshTTL time.Duration, logger *slog.Logger) (*App, error) {
-	db, err := sql.Open("postgres", dbURL)
+type Config struct {
+	Port          int
+	DBURL         string
+	JWTSecret     string
+	InternalToken string
+	AccessTTL     time.Duration
+	RefreshTTL    time.Duration
+}
+
+func New(cfg Config, logger *slog.Logger) (*App, error) {
+	db, err := sql.Open("postgres", cfg.DBURL)
 	if err != nil {
 		return nil, err
 	}
@@ -35,19 +44,19 @@ func New(port int, dbURL string, jwtSecret string, internalToken string, accessT
 	}
 
 	repo := repository.NewUserRepository(db)
-	tokenProvider := jwt.NewProvider(jwtSecret, accessTTL, refreshTTL)
+	tokenProvider := jwt.NewProvider(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
 	authService := service.NewAuthService(repo, tokenProvider)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
-		internalauth.UnaryServerInterceptor(internalToken),
+		internalauth.UnaryServerInterceptor(cfg.InternalToken),
 	))
 	authgrpc.Register(gRPCServer, authService)
 
 	return &App{
 		gRPCServer: gRPCServer,
 		db:         db,
-		port:       port,
+		port:       cfg.Port,
 		logger:     logging.WithComponent(logger, "app"),
 	}, nil
 }

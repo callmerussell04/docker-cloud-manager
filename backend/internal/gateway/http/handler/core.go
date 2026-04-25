@@ -1,10 +1,9 @@
 package handler
 
 import (
-	"strconv"
-
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
+	"strconv"
 )
 
 type CoreService interface {
@@ -40,5 +39,5 @@ func getPaginationParams(c *gin.Context) (int, int) {
 }
 
 func (h *CoreHandler) handleError(c *gin.Context, err error) {
-	apperrors.Respond(c, apperrors.HTTPStatus(err), err)
+	httpresponse.Respond(c, httpresponse.Status(err), err)
 }

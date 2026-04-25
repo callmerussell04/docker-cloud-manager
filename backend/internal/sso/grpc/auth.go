@@ -5,7 +5,7 @@ import (
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,7 +22,7 @@ func (h *Handler) Register(ctx context.Context, req *sso.RegisterRequest) (*sso.
 
 	uid, err := h.auth.Register(ctx, registerDTO.Username, registerDTO.Email, registerDTO.Password)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.RegisterResponse{
@@ -41,7 +41,7 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 
 	accessToken, refreshToken, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.LoginResponse{
@@ -58,7 +58,7 @@ func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.Re
 
 	accessToken, refreshToken, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.RefreshResponse{
@@ -75,7 +75,7 @@ func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenReq
 
 	user, err := h.auth.VerifyAccessToken(ctx, tokenDTO.AccessToken)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return userToProto(user), nil
@@ -92,7 +92,7 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 
 	user, allowed, err := h.auth.CheckPermission(ctx, checkDTO.AccessToken, checkDTO.Permission)
 	if err != nil {
-		return nil, apperrors.ToGRPC(err)
+		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.CheckPermissionResponse{

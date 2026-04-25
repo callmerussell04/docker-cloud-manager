@@ -4,18 +4,18 @@ import (
 	"context"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error) {
+func (c *CoreClient) CreateVolume(ctx context.Context, ownerID string, createVolumeDTO model.CreateVolumeInput) (string, error) {
 	req := &coreapi.CreateVolumeRequest{
 		OwnerId: ownerID,
 		Name:    createVolumeDTO.Name,
 	}
 	resp, err := c.volumeAPI.CreateVolume(ctx, req)
 	if err != nil {
-		return "", apperrors.FromGRPC(err)
+		return "", grpcerrors.FromGRPC(err)
 	}
 	return resp.GetVolumeId(), nil
 }
@@ -27,27 +27,27 @@ func (c *CoreClient) DeleteVolume(ctx context.Context, ownerID, volumeID string)
 	}
 	_, err := c.volumeAPI.DeleteVolume(ctx, req)
 	if err != nil {
-		return apperrors.FromGRPC(err)
+		return grpcerrors.FromGRPC(err)
 	}
 	return nil
 }
 
-func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]dto.VolumeDTO, error) {
+func (c *CoreClient) GetUserVolumes(ctx context.Context, ownerID string) ([]model.Volume, error) {
 	req := &coreapi.GetUserRequest{OwnerId: ownerID}
 	resp, err := c.volumeAPI.GetUserVolumes(ctx, req)
 	if err != nil {
-		return nil, apperrors.FromGRPC(err)
+		return nil, grpcerrors.FromGRPC(err)
 	}
 	return volumesFromProto(resp.GetVolumes()), nil
 }
 
-func (c *CoreClient) GetAllVolumes(ctx context.Context, page, limit int) (dto.PaginatedVolumes, error) {
+func (c *CoreClient) GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.volumeAPI.GetAllVolumes(ctx, req)
 	if err != nil {
-		return dto.PaginatedVolumes{}, apperrors.FromGRPC(err)
+		return model.PaginatedVolumes{}, grpcerrors.FromGRPC(err)
 	}
-	return dto.PaginatedVolumes{
+	return model.PaginatedVolumes{
 		Volumes:    volumesFromProto(resp.GetVolumes()),
 		TotalCount: resp.GetTotalCount(),
 	}, nil
@@ -57,15 +57,15 @@ func (c *CoreClient) AdminDeleteVolume(ctx context.Context, volumeID string) err
 	req := &coreapi.VolumeActionRequest{VolumeId: volumeID}
 	_, err := c.volumeAPI.AdminDeleteVolume(ctx, req)
 	if err != nil {
-		return apperrors.FromGRPC(err)
+		return grpcerrors.FromGRPC(err)
 	}
 	return nil
 }
 
-func volumesFromProto(items []*coreapi.VolumeData) []dto.VolumeDTO {
-	result := make([]dto.VolumeDTO, 0, len(items))
+func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
+	result := make([]model.Volume, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.VolumeDTO{
+		result = append(result, model.Volume{
 			ID:            item.GetId(),
 			DockerName:    item.GetDockerName(),
 			Driver:        item.GetDriver(),

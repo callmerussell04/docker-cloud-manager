@@ -44,7 +44,14 @@ func main() {
 		fatal(logger, "required environment variable is not set", "env_var", "CORE_HTTP_TARGET")
 	}
 
-	application, err := app.New(port, ssoTarget, coreTarget, builderHttpTarget, coreHttpTarget, internalToken, logger)
+	application, err := app.New(app.Config{
+		Port:              port,
+		SSOTarget:         ssoTarget,
+		CoreTarget:        coreTarget,
+		BuilderHTTPTarget: builderHttpTarget,
+		CoreHTTPTarget:    coreHttpTarget,
+		InternalToken:     internalToken,
+	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize gateway app", "error", err)
 	}

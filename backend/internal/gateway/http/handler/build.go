@@ -4,14 +4,14 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildService interface {
-	GetUserBuilds(ctx context.Context, ownerID string) ([]dto.BuildDTO, error)
+	GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
-	GetAllBuilds(ctx context.Context, page, limit int) (dto.PaginatedBuilds, error)
+	GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error)
 	AdminDeleteBuild(ctx context.Context, buildID string) error
 }
 
@@ -25,10 +25,10 @@ func (h *CoreHandler) GetBuilds(c *gin.Context) {
 	}
 
 	if builds == nil {
-		builds = make([]dto.BuildDTO, 0)
+		builds = make([]model.Build, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"builds": builds})
+	c.JSON(http.StatusOK, gin.H{"builds": buildsToDTO(builds)})
 }
 
 func (h *CoreHandler) DeleteBuild(c *gin.Context) {
@@ -52,7 +52,7 @@ func (h *CoreHandler) GetAllBuilds(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"builds":      resp.Builds,
+		"builds":      buildsToDTO(resp.Builds),
 		"total_count": resp.TotalCount,
 	})
 }

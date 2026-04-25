@@ -5,13 +5,15 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 
 type SystemService interface {
-	GetSystemConfig(ctx context.Context) (dto.SystemConfigDTO, error)
-	UpdateSystemConfig(ctx context.Context, req dto.SystemConfigDTO) error
+	GetSystemConfig(ctx context.Context) (model.SystemConfig, error)
+	UpdateSystemConfig(ctx context.Context, req model.SystemConfig) error
 }
 
 func (h *CoreHandler) GetSystemConfig(c *gin.Context) {
@@ -20,17 +22,17 @@ func (h *CoreHandler) GetSystemConfig(c *gin.Context) {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, systemConfigToDTO(resp))
 }
 
 func (h *CoreHandler) UpdateSystemConfig(c *gin.Context) {
 	var systemConfigDTO dto.SystemConfigDTO
 	if err := c.ShouldBindJSON(&systemConfigDTO); err != nil {
-		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	err := h.service.UpdateSystemConfig(c.Request.Context(), systemConfigDTO)
+	err := h.service.UpdateSystemConfig(c.Request.Context(), systemConfigFromDTO(systemConfigDTO))
 	if err != nil {
 		h.handleError(c, err)
 		return

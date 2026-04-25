@@ -6,6 +6,7 @@ import (
 	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -21,7 +22,7 @@ func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
 func (c *SSOClient) GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error) {
 	resp, err := c.userAPI.GetUser(ctx, &ssoapi.GetUserRequest{UserId: userID.String()})
 	if err != nil {
-		return model.UserInfo{}, apperrors.FromGRPC(err)
+		return model.UserInfo{}, grpcerrors.FromGRPC(err)
 	}
 	return userFromProto(resp)
 }
@@ -34,7 +35,7 @@ func (c *SSOClient) GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 
 	resp, err := c.userAPI.BatchGetUsers(ctx, &ssoapi.BatchGetUsersRequest{UserIds: rawIDs})
 	if err != nil {
-		return nil, apperrors.FromGRPC(err)
+		return nil, grpcerrors.FromGRPC(err)
 	}
 
 	users := make(map[uuid.UUID]model.UserInfo, len(resp.GetUsers()))

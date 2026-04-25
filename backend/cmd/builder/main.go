@@ -70,7 +70,15 @@ func main() {
 		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 	}
 
-	application, err := app.New(port, coreTarget, internalToken, builderConfig, maxUnpackedSize, maxLogSize, storagePath, logger)
+	application, err := app.New(app.Config{
+		Port:            port,
+		CoreTarget:      coreTarget,
+		InternalToken:   internalToken,
+		Builder:         builderConfig,
+		MaxUnpackedSize: maxUnpackedSize,
+		MaxLogSize:      maxLogSize,
+		StoragePath:     storagePath,
+	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize builder app", "error", err)
 	}

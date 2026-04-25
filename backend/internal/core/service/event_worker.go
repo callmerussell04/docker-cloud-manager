@@ -7,8 +7,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	cerrdefs "github.com/containerd/errdefs"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/events"
 	"github.com/google/uuid"
 )
 
@@ -19,8 +17,8 @@ type EventContainerRepo interface {
 }
 
 type EventDockerAPI interface {
-	ListenEvents(ctx context.Context) (<-chan events.Message, <-chan error)
-	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
+	ListenEvents(ctx context.Context) (<-chan model.ContainerEvent, <-chan error)
+	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 }
 
 type ContainerRebalancer interface {
@@ -64,10 +62,10 @@ func (w *EventWorker) Run(ctx context.Context) {
 			if msg.Type == "container" {
 				switch msg.Action {
 				case "start":
-					_ = w.repo.UpdateStatusByDockerID(ctx, msg.Actor.ID, model.ContainerStatusRunning)
+					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusRunning)
 					go w.rebalancer.RebalanceResources(context.Background())
 				case "die", "stop", "kill", "oom":
-					_ = w.repo.UpdateStatusByDockerID(ctx, msg.Actor.ID, model.ContainerStatusExited)
+					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusExited)
 					go w.rebalancer.RebalanceResources(context.Background())
 				}
 			}
