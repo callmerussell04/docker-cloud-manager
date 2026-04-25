@@ -73,7 +73,8 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, configManager, ssoClient)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, configManager)
-	imgService := service.NewImageService(imgRepo, buildRepo, dockerAdapter, registryAdapter, contRepo, configManager, ssoClient)
+	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, configManager)
+	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
 	systemService := service.NewSystemService(configManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, configManager, ssoClient)
@@ -91,7 +92,7 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	coregrpc.RegisterContainerAPI(gRPCServer, contService, ssoClient)
 	coregrpc.RegisterVolumeAPI(gRPCServer, volService, ssoClient)
-	coregrpc.RegisterImageAPI(gRPCServer, imgService, ssoClient)
+	coregrpc.RegisterImageAPI(gRPCServer, imgService, buildService, ssoClient)
 	coregrpc.RegisterProjectAPI(gRPCServer, projService, ssoClient)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
@@ -101,7 +102,7 @@ func New(port int, httpPort int, dbURL string, registryContainerName string, bui
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute)
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService)
-	gcWorker := service.NewGCWorker(dockerAdapter, imgService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName)
+	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, registryContainerName)
 
 	wg.Add(3)
 	go func() {

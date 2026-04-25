@@ -7,10 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
+type StatsImageRepository interface {
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
+	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
 type StatsService struct {
 	contRepo ContainerRepository
 	volRepo  VolumeRepository
-	imgRepo  ImageRepository
+	imgRepo  StatsImageRepository
 	projRepo ProjectRepository
 	cfg      ConfigManager
 	users    UserInfoProvider
@@ -19,7 +24,7 @@ type StatsService struct {
 func NewStatsService(
 	contRepo ContainerRepository,
 	volRepo VolumeRepository,
-	imgRepo ImageRepository,
+	imgRepo StatsImageRepository,
 	projRepo ProjectRepository,
 	cfg ConfigManager,
 	users UserInfoProvider,

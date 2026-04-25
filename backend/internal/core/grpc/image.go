@@ -17,24 +17,23 @@ import (
 type ImageLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 	Delete(ctx context.Context, ownerID, imageID uuid.UUID) error
-	InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
-	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
-	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error)
-	DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error
 	GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]model.Image, int, error)
 	AdminDeleteImage(ctx context.Context, imageID uuid.UUID) error
-	GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]model.Build, int, error)
-	AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
 type ImageHandler struct {
 	coreapi.UnimplementedImageAPIServer
-	logic ImageLogic
-	users UserDirectory
+	imageLogic ImageLogic
+	buildLogic BuildLogic
+	users      UserDirectory
 }
 
-func RegisterImageAPI(gRPCServer *grpc.Server, logic ImageLogic, users UserDirectory) {
-	coreapi.RegisterImageAPIServer(gRPCServer, &ImageHandler{logic: logic, users: users})
+func RegisterImageAPI(gRPCServer *grpc.Server, imageLogic ImageLogic, buildLogic BuildLogic, users UserDirectory) {
+	coreapi.RegisterImageAPIServer(gRPCServer, &ImageHandler{
+		imageLogic: imageLogic,
+		buildLogic: buildLogic,
+		users:      users,
+	})
 }
 
 func (h *ImageHandler) GetUserImages(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.ImageListResponse, error) {
@@ -43,20 +42,14 @@ func (h *ImageHandler) GetUserImages(ctx context.Context, req *coreapi.GetUserRe
 		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
 	}
 
-	images, err := h.logic.GetByOwner(ctx, ownerID)
+	images, err := h.imageLogic.GetByOwner(ctx, ownerID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to retrieve images")
 	}
 
 	var pbImages []*coreapi.ImageData
 	for _, img := range images {
-		pbImages = append(pbImages, &coreapi.ImageData{
-			Id:        img.ID.String(),
-			Tag:       img.Tag,
-			SizeMb:    int32(img.SizeMB),
-			IsCustom:  img.IsCustom,
-			CreatedAt: img.CreatedAt.Unix(),
-		})
+		pbImages = append(pbImages, imageToProto(img, ""))
 	}
 
 	return &coreapi.ImageListResponse{
@@ -75,7 +68,7 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 		return nil, status.Error(codes.InvalidArgument, "invalid image_id format")
 	}
 
-	err = h.logic.Delete(ctx, ownerID, imageID)
+	err = h.imageLogic.Delete(ctx, ownerID, imageID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "image not found")
@@ -86,126 +79,10 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 	return &coreapi.Empty{}, nil
 }
 
-func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBuildRequest) (*coreapi.InitBuildResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	if req.GetTag() == "" {
-		return nil, status.Error(codes.InvalidArgument, "image tag is required")
-	}
-
-	buildID, imageID, err := h.logic.InitBuildRecord(ctx, ownerID, req.GetTag(), req.GetLogFilePath())
-	if err != nil {
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return nil, status.Error(codes.InvalidArgument, "invalid image tag")
-		}
-		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return nil, status.Error(codes.AlreadyExists, "image already exists")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "disk quota exceeded")
-		}
-		return nil, status.Error(codes.Internal, "failed to initialize build record")
-	}
-
-	return &coreapi.InitBuildResponse{
-		BuildId: buildID.String(),
-		ImageId: imageID.String(),
-	}, nil
-}
-
-func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.CompleteBuildRequest) (*coreapi.Empty, error) {
-	buildID, err := uuid.Parse(req.GetBuildId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
-	}
-
-	imageID, err := uuid.Parse(req.GetImageId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid image_id format")
-	}
-
-	err = h.logic.CompleteBuildRecord(ctx, buildID, imageID, req.GetStatus(), int(req.GetSizeMb()))
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "build or image not found")
-		}
-		if errors.Is(err, apperrors.ErrQuotaExceeded) {
-			return nil, status.Error(codes.ResourceExhausted, "image size exceeds user quota, image removed")
-		}
-		return nil, status.Error(codes.Internal, "failed to complete build record")
-	}
-
-	return &coreapi.Empty{}, nil
-}
-
-func (h *ImageHandler) GetUserBuilds(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.BuildListResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	builds, err := h.logic.GetUserBuilds(ctx, ownerID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to retrieve builds")
-	}
-
-	var pbBuilds []*coreapi.BuildData
-	for _, b := range builds {
-		var finishedAt int64
-		if b.FinishedAt != nil {
-			finishedAt = b.FinishedAt.Unix()
-		}
-		pbBuilds = append(pbBuilds, &coreapi.BuildData{
-			Id:          b.ID.String(),
-			ImageId:     b.ImageID.String(),
-			Status:      b.Status,
-			StartedAt:   b.StartedAt.Unix(),
-			FinishedAt:  finishedAt,
-			LogFilePath: b.LogFilePath,
-		})
-	}
-
-	return &coreapi.BuildListResponse{
-		Builds: pbBuilds,
-	}, nil
-}
-
-func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	buildID, err := uuid.Parse(req.GetBuildId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
-	}
-
-	err = h.logic.DeleteBuild(ctx, ownerID, buildID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, status.Error(codes.NotFound, "build not found")
-		}
-		return nil, status.Error(codes.Internal, "failed to delete build")
-	}
-
-	return &coreapi.Empty{}, nil
-}
-
 func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedImageResponse, error) {
-	limit := int(req.GetLimit())
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset := (int(req.GetPage()) - 1) * limit
-	if offset < 0 {
-		offset = 0
-	}
+	limit, offset := pagination(req)
 
-	images, total, err := h.logic.GetAllPaginatedImages(ctx, limit, offset)
+	images, total, err := h.imageLogic.GetAllPaginatedImages(ctx, limit, offset)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get images")
 	}
@@ -213,15 +90,7 @@ func (h *ImageHandler) GetAllImages(ctx context.Context, req *coreapi.Pagination
 	var pbImages []*coreapi.ImageData
 	usernames := h.usernamesByImageOwner(ctx, images)
 	for _, img := range images {
-		pbImages = append(pbImages, &coreapi.ImageData{
-			Id:            img.ID.String(),
-			Tag:           img.Tag,
-			SizeMb:        int32(img.SizeMB),
-			IsCustom:      img.IsCustom,
-			CreatedAt:     img.CreatedAt.Unix(),
-			OwnerId:       img.OwnerID.String(),
-			OwnerUsername: usernames[img.OwnerID],
-		})
+		pbImages = append(pbImages, imageToProto(img, usernames[img.OwnerID]))
 	}
 
 	return &coreapi.PaginatedImageResponse{
@@ -236,50 +105,10 @@ func (h *ImageHandler) AdminDeleteImage(ctx context.Context, req *coreapi.ImageA
 		return nil, status.Error(codes.InvalidArgument, "invalid image_id")
 	}
 
-	if err := h.logic.AdminDeleteImage(ctx, imageID); err != nil {
+	if err := h.imageLogic.AdminDeleteImage(ctx, imageID); err != nil {
 		return nil, status.Error(codes.Internal, "failed to delete image")
 	}
 	return &coreapi.Empty{}, nil
-}
-
-func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedBuildResponse, error) {
-	limit := int(req.GetLimit())
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset := (int(req.GetPage()) - 1) * limit
-	if offset < 0 {
-		offset = 0
-	}
-
-	builds, total, err := h.logic.GetAllPaginatedBuilds(ctx, limit, offset)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "failed to get builds")
-	}
-
-	var pbBuilds []*coreapi.BuildData
-	usernames := h.usernamesByBuildOwner(ctx, builds)
-	for _, b := range builds {
-		var finishedAt int64
-		if b.FinishedAt != nil {
-			finishedAt = b.FinishedAt.Unix()
-		}
-		pbBuilds = append(pbBuilds, &coreapi.BuildData{
-			Id:            b.ID.String(),
-			ImageId:       b.ImageID.String(),
-			Status:        b.Status,
-			StartedAt:     b.StartedAt.Unix(),
-			FinishedAt:    finishedAt,
-			LogFilePath:   b.LogFilePath,
-			OwnerId:       b.OwnerID.String(),
-			OwnerUsername: usernames[b.OwnerID],
-		})
-	}
-
-	return &coreapi.PaginatedBuildResponse{
-		Builds:     pbBuilds,
-		TotalCount: int32(total),
-	}, nil
 }
 
 func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []model.Image) map[uuid.UUID]string {
@@ -295,27 +124,14 @@ func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []model
 	return usernamesByID(ctx, h.users, ids)
 }
 
-func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []model.Build) map[uuid.UUID]string {
-	ids := make([]uuid.UUID, 0, len(builds))
-	seen := make(map[uuid.UUID]struct{}, len(builds))
-	for _, build := range builds {
-		if _, ok := seen[build.OwnerID]; ok {
-			continue
-		}
-		seen[build.OwnerID] = struct{}{}
-		ids = append(ids, build.OwnerID)
+func imageToProto(img model.Image, ownerUsername string) *coreapi.ImageData {
+	return &coreapi.ImageData{
+		Id:            img.ID.String(),
+		Tag:           img.Tag,
+		SizeMb:        int32(img.SizeMB),
+		IsCustom:      img.IsCustom,
+		CreatedAt:     img.CreatedAt.Unix(),
+		OwnerId:       img.OwnerID.String(),
+		OwnerUsername: ownerUsername,
 	}
-	return usernamesByID(ctx, h.users, ids)
-}
-
-func (h *ImageHandler) AdminDeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
-	buildID, err := uuid.Parse(req.GetBuildId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid build_id")
-	}
-
-	if err := h.logic.AdminDeleteBuild(ctx, buildID); err != nil {
-		return nil, status.Error(codes.Internal, "failed to delete build")
-	}
-	return &coreapi.Empty{}, nil
 }
