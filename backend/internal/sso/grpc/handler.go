@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -18,10 +19,10 @@ type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (uuid.UUID, error)
 	Login(ctx context.Context, username, password string) (string, string, error)
 	Refresh(ctx context.Context, refreshToken string) (string, string, error)
-	VerifyAccessToken(ctx context.Context, accessToken string) (domain.User, error)
-	CheckPermission(ctx context.Context, accessToken, permission string) (domain.User, bool, error)
-	GetUser(ctx context.Context, userID uuid.UUID) (domain.User, error)
-	GetUsers(ctx context.Context, ids []uuid.UUID) ([]domain.User, error)
+	VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error)
+	CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error)
+	GetUser(ctx context.Context, userID uuid.UUID) (model.User, error)
+	GetUsers(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
 }
 
 type Handler struct {
@@ -36,11 +37,16 @@ func Register(gRPCServer *grpc.Server, auth AuthService) {
 }
 
 func (h *Handler) Register(ctx context.Context, req *sso.RegisterRequest) (*sso.RegisterResponse, error) {
-	if req.GetUsername() == "" || req.GetPassword() == "" || req.GetEmail() == "" {
+	registerDTO := dto.RegisterRequest{
+		Username: req.GetUsername(),
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+	}
+	if registerDTO.Username == "" || registerDTO.Password == "" || registerDTO.Email == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
-	uid, err := h.auth.Register(ctx, req.GetUsername(), req.GetEmail(), req.GetPassword())
+	uid, err := h.auth.Register(ctx, registerDTO.Username, registerDTO.Email, registerDTO.Password)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return nil, status.Error(codes.AlreadyExists, "user already exists")
@@ -54,11 +60,15 @@ func (h *Handler) Register(ctx context.Context, req *sso.RegisterRequest) (*sso.
 }
 
 func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginResponse, error) {
-	if req.GetUsername() == "" || req.GetPassword() == "" {
+	loginDTO := dto.LoginRequest{
+		Username: req.GetUsername(),
+		Password: req.GetPassword(),
+	}
+	if loginDTO.Username == "" || loginDTO.Password == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
-	accessToken, refreshToken, err := h.auth.Login(ctx, req.GetUsername(), req.GetPassword())
+	accessToken, refreshToken, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidCredentials) {
 			return nil, status.Error(codes.Unauthenticated, "invalid credentials")
@@ -73,11 +83,12 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 }
 
 func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.RefreshResponse, error) {
-	if req.GetRefreshToken() == "" {
+	refreshDTO := dto.RefreshRequest{RefreshToken: req.GetRefreshToken()}
+	if refreshDTO.RefreshToken == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing refresh token")
 	}
 
-	accessToken, refreshToken, err := h.auth.Refresh(ctx, req.GetRefreshToken())
+	accessToken, refreshToken, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidToken) {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
@@ -92,11 +103,12 @@ func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.Re
 }
 
 func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenRequest) (*sso.UserData, error) {
-	if req.GetAccessToken() == "" {
+	tokenDTO := dto.VerifyTokenRequest{AccessToken: req.GetAccessToken()}
+	if tokenDTO.AccessToken == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing access token")
 	}
 
-	user, err := h.auth.VerifyAccessToken(ctx, req.GetAccessToken())
+	user, err := h.auth.VerifyAccessToken(ctx, tokenDTO.AccessToken)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidToken) {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
@@ -108,11 +120,15 @@ func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenReq
 }
 
 func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionRequest) (*sso.CheckPermissionResponse, error) {
-	if req.GetAccessToken() == "" || req.GetPermission() == "" {
+	checkDTO := dto.CheckPermissionRequest{
+		AccessToken: req.GetAccessToken(),
+		Permission:  req.GetPermission(),
+	}
+	if checkDTO.AccessToken == "" || checkDTO.Permission == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing access token or permission")
 	}
 
-	user, allowed, err := h.auth.CheckPermission(ctx, req.GetAccessToken(), req.GetPermission())
+	user, allowed, err := h.auth.CheckPermission(ctx, checkDTO.AccessToken, checkDTO.Permission)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidToken) {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
@@ -134,8 +150,9 @@ func (h *Handler) GetUser(ctx context.Context, req *sso.GetUserRequest) (*sso.Us
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid user_id format")
 	}
+	userDTO := dto.GetUserRequest{UserID: userID}
 
-	user, err := h.auth.GetUser(ctx, userID)
+	user, err := h.auth.GetUser(ctx, userDTO.UserID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil, status.Error(codes.NotFound, "user not found")
@@ -160,8 +177,9 @@ func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersReque
 		seen[id] = struct{}{}
 		ids = append(ids, id)
 	}
+	usersDTO := dto.BatchGetUsersRequest{UserIDs: ids}
 
-	users, err := h.auth.GetUsers(ctx, ids)
+	users, err := h.auth.GetUsers(ctx, usersDTO.UserIDs)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal error")
 	}
@@ -175,7 +193,7 @@ func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersReque
 	return resp, nil
 }
 
-func userToProto(user domain.User) *sso.UserData {
+func userToProto(user model.User) *sso.UserData {
 	return &sso.UserData{
 		UserId:      user.ID.String(),
 		Username:    user.Username,

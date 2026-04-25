@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
@@ -18,46 +18,27 @@ import (
 	"github.com/google/uuid"
 )
 
-type ContainerConfig struct {
-	BaseDomain               string
-	DefaultMemoryReservation int64
-	ReservedSystemMemory     int64
-	OvercommitFactor         float64
-	MaxBurstMultiplier       int64
-	DefaultCPUShares         int64
-	HighLoadCPUShares        int64
-	HighLoadContainerCount   int
-	ContainerStopTimeout     int
-	MaxLogSize               string
-	MaxLogFiles              string
-	ContainerDiskQuota       string
-	MaxVolumesPerUser        int
-	MaxContainersPerUser     int
-	RegistryURL              string
-	ContainerTTL             time.Duration
-}
-
 type ContainerRepository interface {
-	Save(ctx context.Context, c domain.Container) error
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error)
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
+	Save(ctx context.Context, c model.Container) error
+	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetRunning(ctx context.Context) ([]domain.Container, error)
+	GetRunning(ctx context.Context) ([]model.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
-	GetNonExited(ctx context.Context) ([]domain.Container, error)
+	GetNonExited(ctx context.Context) ([]model.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error)
 }
 
 type ContainerVolumeRepository interface {
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Volume, error)
-	SaveMounts(ctx context.Context, mounts []domain.VolumeMount) error
+	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
+	SaveMounts(ctx context.Context, mounts []model.VolumeMount) error
 }
 
 type ContainerDockerAPI interface {
@@ -71,7 +52,7 @@ type ContainerDockerAPI interface {
 	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
 	InspectContainer(ctx context.Context, dockerID string) (*container.InspectResponse, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
-	GetContainerStats(ctx context.Context, dockerID string) (domain.ContainerStats, error)
+	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
 
 type HostMetricsProvider interface {
@@ -80,7 +61,7 @@ type HostMetricsProvider interface {
 }
 
 type ContainerImageRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 }
 
 type ConfigManager interface {
@@ -88,7 +69,7 @@ type ConfigManager interface {
 }
 
 type UserInfoProvider interface {
-	GetUser(ctx context.Context, userID uuid.UUID) (domain.UserInfo, error)
+	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
 type ContainerService struct {
@@ -121,7 +102,7 @@ func NewContainerService(
 	}
 }
 
-func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error) {
+func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error) {
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -234,7 +215,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	// Подготовка томов
 	var dockerMounts []docker.MountParam
-	var dbMounts []domain.VolumeMount
+	var dbMounts []model.VolumeMount
 
 	for _, vm := range params.VolumeMounts {
 		if err := validation.MountPath(vm.MountPath); err != nil {
@@ -255,7 +236,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 			ReadOnly:   vm.IsReadOnly,
 		})
 
-		dbMounts = append(dbMounts, domain.VolumeMount{
+		dbMounts = append(dbMounts, model.VolumeMount{
 			ContainerID: containerID,
 			VolumeID:    vol.ID,
 			MountPath:   vm.MountPath,
@@ -274,7 +255,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		ttlDeadline = &t
 	}
 
-	c := domain.Container{
+	c := model.Container{
 		ID:                    containerID,
 		ProjectID:             params.ProjectID,
 		OwnerID:               ownerID,
@@ -282,7 +263,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		ImageTag:              normalizedInputTag,
 		InternalPort:          params.InternalPort,
 		DomainPrefix:          params.DomainPrefix,
-		Status:                domain.ContainerStatusCreating,
+		Status:                model.ContainerStatusCreating,
 		TTLDeadline:           ttlDeadline,
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
@@ -329,7 +310,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		}
 	}
 
-	err = s.repo.UpdateDockerIDAndStatus(ctx, containerID, dockerID, domain.ContainerStatusCreated)
+	err = s.repo.UpdateDockerIDAndStatus(ctx, containerID, dockerID, model.ContainerStatusCreated)
 	if err != nil {
 		s.dockerAPI.RemoveContainer(context.Background(), dockerID, true)
 		_ = s.repo.Delete(ctx, containerID)
@@ -399,9 +380,9 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		}
 	}
 
-	var healthcheck *domain.Healthcheck
+	var healthcheck *model.Healthcheck
 	if inspect.Config.Healthcheck != nil {
-		healthcheck = &domain.Healthcheck{
+		healthcheck = &model.Healthcheck{
 			Test:        inspect.Config.Healthcheck.Test,
 			Interval:    inspect.Config.Healthcheck.Interval,
 			Timeout:     inspect.Config.Healthcheck.Timeout,
@@ -450,7 +431,7 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	}
 
 	// Если до пересоздания контейнер был запущен — запускаем новый
-	if c.Status == domain.ContainerStatusRunning {
+	if c.Status == model.ContainerStatusRunning {
 		err = s.dockerAPI.StartContainer(ctx, newDockerID)
 		if err != nil {
 			return err
@@ -481,7 +462,7 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 		return err
 	}
 
-	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusRunning)
+	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning)
 
 	// Вызываем ребалансировку в фоне
 	if err == nil {
@@ -504,7 +485,7 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 		return err
 	}
 
-	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusExited)
+	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
 
 	// Кто-то остановился -> освободились ресурсы -> ребалансируем остальных!
 	if err == nil {
@@ -542,11 +523,11 @@ func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid
 	return nil
 }
 
-func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
+func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
-func (s *ContainerService) GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error) {
+func (s *ContainerService) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
@@ -660,7 +641,7 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 	log.Printf("[Rebalancer] Rebalanced %d containers. Burst Factor: %.2f", len(runningContainers), burstFactor)
 }
 
-func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error) {
+func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
 	return s.repo.GetAllPaginated(ctx, limit, offset)
 }
 
@@ -681,7 +662,7 @@ func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		return err
 	}
-	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusRunning)
+	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning)
 	if err == nil {
 		go s.RebalanceResources(context.Background())
 	}
@@ -696,34 +677,34 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
 		return err
 	}
-	err = s.repo.UpdateStatus(ctx, containerID, domain.ContainerStatusExited)
+	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
 	if err == nil {
 		go s.RebalanceResources(context.Background())
 	}
 	return err
 }
 
-func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (domain.ContainerStats, error) {
+func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (model.ContainerStats, error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
-		return domain.ContainerStats{}, err
+		return model.ContainerStats{}, err
 	}
 	if c.OwnerID != ownerID {
-		return domain.ContainerStats{}, apperrors.ErrNotFound
+		return model.ContainerStats{}, apperrors.ErrNotFound
 	}
-	if c.Status != domain.ContainerStatusRunning {
-		return domain.ContainerStats{}, nil
+	if c.Status != model.ContainerStatusRunning {
+		return model.ContainerStats{}, nil
 	}
 	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
 }
 
-func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.UUID) (domain.ContainerStats, error) {
+func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
-		return domain.ContainerStats{}, err
+		return model.ContainerStats{}, err
 	}
-	if c.Status != domain.ContainerStatusRunning {
-		return domain.ContainerStats{}, nil
+	if c.Status != model.ContainerStatusRunning {
+		return model.ContainerStats{}, nil
 	}
 	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
 }

@@ -1,6 +1,4 @@
-package domain
-
-import "time"
+package model
 
 type ComposeProject struct {
 	Name     string
@@ -25,12 +23,4 @@ type ComposeService struct {
 	// Роутинг (заполняется только если есть кастомные лейблы)
 	DomainPrefix string
 	InternalPort int
-}
-
-type Healthcheck struct {
-	Test        []string
-	Interval    time.Duration
-	Timeout     time.Duration
-	StartPeriod time.Duration
-	Retries     int
 }

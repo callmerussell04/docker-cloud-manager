@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 )
 
 type TTLContainerRepository interface {
-	GetExpired(ctx context.Context) ([]domain.Container, error)
+	GetExpired(ctx context.Context) ([]model.Container, error)
 }
 
 type TTLDockerAPI interface {

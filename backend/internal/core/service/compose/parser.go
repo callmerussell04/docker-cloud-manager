@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/compose-spec/compose-go/v2/loader"
@@ -22,7 +22,7 @@ func NewParser() *Parser {
 }
 
 // ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
-func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*domain.ComposeProject, error) {
+func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*model.ComposeProject, error) {
 	if err := validation.ProjectName(projectName); err != nil {
 		return nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -92,8 +92,8 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 }
 
 // translateToDomain конвертирует структуру compose-go в нашу бизнес-модель
-func (p *Parser) translateToDomain(projectName string, project *types.Project) (*domain.ComposeProject, error) {
-	result := &domain.ComposeProject{
+func (p *Parser) translateToDomain(projectName string, project *types.Project) (*model.ComposeProject, error) {
+	result := &model.ComposeProject{
 		Name: projectName,
 	}
 
@@ -104,21 +104,15 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			return nil, fmt.Errorf("%w: volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
 		}
 
-		driver := "local"
 		if volConfig.Driver != "" {
-			driver = volConfig.Driver
-		}
-		if driver != "local" {
-			return nil, fmt.Errorf("%w: only local volumes are allowed", apperrors.ErrBadRequest)
+			return nil, fmt.Errorf("%w: custom volume drivers are not allowed", apperrors.ErrBadRequest)
 		}
 		if len(volConfig.DriverOpts) > 0 {
 			return nil, fmt.Errorf("%w: volume driver options are not allowed", apperrors.ErrBadRequest)
 		}
 
-		result.Volumes = append(result.Volumes, domain.VolumeCreateParams{
-			Name:       volName,
-			Driver:     driver,
-			DriverOpts: volConfig.DriverOpts,
+		result.Volumes = append(result.Volumes, model.VolumeCreateParams{
+			Name: volName,
 		})
 		volumeMap[volName] = volName
 	}
@@ -136,7 +130,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			return fmt.Errorf("%w: service %s has invalid name: %v", apperrors.ErrBadRequest, srv.Name, err)
 		}
 
-		domainSrv := domain.ComposeService{
+		domainSrv := model.ComposeService{
 			Name:      srv.Name,
 			EnvVars:   make(map[string]string),
 			BuildArgs: make(map[string]string),
@@ -202,7 +196,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 
 		// Healthcheck
 		if srv.HealthCheck != nil && !srv.HealthCheck.Disable {
-			domainSrv.Healthcheck = &domain.Healthcheck{
+			domainSrv.Healthcheck = &model.Healthcheck{
 				Test: srv.HealthCheck.Test,
 			}
 
@@ -238,7 +232,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 				if err := validation.MountPath(vol.Target); err != nil {
 					return fmt.Errorf("%w: invalid mount path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 				}
-				domainSrv.VolumeMounts = append(domainSrv.VolumeMounts, domain.VolumeMountParams{
+				domainSrv.VolumeMounts = append(domainSrv.VolumeMounts, model.VolumeMountParams{
 					VolumeName: vol.Source,
 					MountPath:  vol.Target,
 					IsReadOnly: vol.ReadOnly,

@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -14,10 +14,10 @@ import (
 )
 
 type ProjectLogic interface {
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error)
+	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error)
 	Delete(ctx context.Context, ownerID, projectID uuid.UUID) error
 	Stop(ctx context.Context, ownerID, projectID uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error)
 	AdminStop(ctx context.Context, projectID uuid.UUID) error
 	AdminDelete(ctx context.Context, projectID uuid.UUID) error
 }
@@ -146,7 +146,7 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 	}, nil
 }
 
-func (h *ProjectHandler) usernamesByOwner(ctx context.Context, projects []domain.Project) map[uuid.UUID]string {
+func (h *ProjectHandler) usernamesByOwner(ctx context.Context, projects []model.Project) map[uuid.UUID]string {
 	ids := make([]uuid.UUID, 0, len(projects))
 	seen := make(map[uuid.UUID]struct{}, len(projects))
 	for _, p := range projects {

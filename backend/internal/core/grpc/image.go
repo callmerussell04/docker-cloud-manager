@@ -10,20 +10,20 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type ImageLogic interface {
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
+	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 	Delete(ctx context.Context, ownerID, imageID uuid.UUID) error
 	InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
-	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
+	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error
-	GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]domain.Image, int, error)
+	GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]model.Image, int, error)
 	AdminDeleteImage(ctx context.Context, imageID uuid.UUID) error
-	GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]domain.Build, int, error)
+	GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 	AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -282,7 +282,7 @@ func (h *ImageHandler) GetAllBuilds(ctx context.Context, req *coreapi.Pagination
 	}, nil
 }
 
-func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []domain.Image) map[uuid.UUID]string {
+func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []model.Image) map[uuid.UUID]string {
 	ids := make([]uuid.UUID, 0, len(images))
 	seen := make(map[uuid.UUID]struct{}, len(images))
 	for _, img := range images {
@@ -295,7 +295,7 @@ func (h *ImageHandler) usernamesByImageOwner(ctx context.Context, images []domai
 	return usernamesByID(ctx, h.users, ids)
 }
 
-func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []domain.Build) map[uuid.UUID]string {
+func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []model.Build) map[uuid.UUID]string {
 	ids := make([]uuid.UUID, 0, len(builds))
 	seen := make(map[uuid.UUID]struct{}, len(builds))
 	for _, build := range builds {

@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -37,19 +35,6 @@ type App struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         *sync.WaitGroup
-}
-
-type projectResourceRepo struct {
-	contRepo *repository.ContainerRepository
-	volRepo  *repository.VolumeRepository
-}
-
-func (p *projectResourceRepo) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Container, error) {
-	return p.contRepo.GetByProjectID(ctx, projectID)
-}
-
-func (p *projectResourceRepo) GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Volume, error) {
-	return p.volRepo.GetByProjectID(ctx, projectID)
 }
 
 func New(port int, httpPort int, dbURL string, registryContainerName string, builderHTTPUrl string, ssoTarget string, internalToken string, configManager *config.Manager) (*App, error) {

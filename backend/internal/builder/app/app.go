@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
 	deliveryhttp "github.com/callmerussell04/docker-cloud-manager/internal/builder/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/http/handler"
@@ -21,7 +22,7 @@ type App struct {
 	port   int
 }
 
-func New(port int, coreTarget string, internalToken string, config service.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
+func New(port int, coreTarget string, internalToken string, cfg config.BuilderConfig, maxUnpackedSize int64, maxLogSize int64, storagePath string) (*App, error) {
 	coreConn, err := grpc.NewClient(
 		coreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -40,7 +41,7 @@ func New(port int, coreTarget string, internalToken string, config service.Build
 		return nil, err
 	}
 
-	logManager, err := storage.NewLogManager(config.LogsDirPath, maxLogSize)
+	logManager, err := storage.NewLogManager(cfg.LogsDirPath, maxLogSize)
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +53,8 @@ func New(port int, coreTarget string, internalToken string, config service.Build
 		return nil, err
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, config)
-	buildHandler := handler.NewBuildHandler(builderService, config.LogsDirPath)
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg)
+	buildHandler := handler.NewBuildHandler(builderService, cfg.LogsDirPath)
 
 	router := deliveryhttp.NewRouter(buildHandler, internalToken)
 

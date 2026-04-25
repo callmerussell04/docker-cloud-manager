@@ -1,4 +1,4 @@
-package domain
+package model
 
 import (
 	"time"
@@ -17,9 +17,21 @@ type Volume struct {
 	CreatedAt     time.Time
 }
 
+type VolumeCreateParams struct {
+	ProjectID *uuid.UUID
+	Name      string
+}
+
 type VolumeMount struct {
 	ContainerID uuid.UUID
 	VolumeID    uuid.UUID
 	MountPath   string
 	IsReadOnly  bool
+}
+
+type VolumeMountParams struct {
+	VolumeID   uuid.UUID
+	VolumeName string
+	MountPath  string
+	IsReadOnly bool
 }

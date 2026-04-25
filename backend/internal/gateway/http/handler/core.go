@@ -6,43 +6,42 @@ import (
 	"net/http"
 	"strconv"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
 
 type CoreService interface {
 	CreateContainer(ctx context.Context, ownerID string, createContainerDTO dto.CreateContainerDTO) (string, error)
-	GetUserContainers(ctx context.Context, ownerID string) ([]*coreapi.ContainerData, error)
+	GetUserContainers(ctx context.Context, ownerID string) ([]dto.ContainerDTO, error)
 	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
 	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
 	CreateVolume(ctx context.Context, ownerID string, createVolumeDTO dto.CreateVolumeDTO) (string, error)
 	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
-	GetUserVolumes(ctx context.Context, ownerID string) ([]*coreapi.VolumeData, error)
-	GetUserImages(ctx context.Context, ownerID string) ([]*coreapi.ImageData, error)
+	GetUserVolumes(ctx context.Context, ownerID string) ([]dto.VolumeDTO, error)
+	GetUserImages(ctx context.Context, ownerID string) ([]dto.ImageDTO, error)
 	DeleteImage(ctx context.Context, ownerID, imageID string) error
-	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
+	GetUserBuilds(ctx context.Context, ownerID string) ([]dto.BuildDTO, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
-	GetUserProjects(ctx context.Context, ownerID string) ([]*coreapi.ProjectData, error)
+	GetUserProjects(ctx context.Context, ownerID string) ([]dto.ProjectDTO, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
 	StopProject(ctx context.Context, ownerID, projectID string) error
-	GetAllContainers(ctx context.Context, page, limit int) (*coreapi.PaginatedContainerResponse, error)
+	GetAllContainers(ctx context.Context, page, limit int) (dto.PaginatedContainers, error)
 	AdminActionContainer(ctx context.Context, containerID, action string) error
-	GetAllVolumes(ctx context.Context, page, limit int) (*coreapi.PaginatedVolumeResponse, error)
+	GetAllVolumes(ctx context.Context, page, limit int) (dto.PaginatedVolumes, error)
 	AdminDeleteVolume(ctx context.Context, volumeID string) error
-	GetAllImages(ctx context.Context, page, limit int) (*coreapi.PaginatedImageResponse, error)
+	GetAllImages(ctx context.Context, page, limit int) (dto.PaginatedImages, error)
 	AdminDeleteImage(ctx context.Context, imageID string) error
-	GetAllBuilds(ctx context.Context, page, limit int) (*coreapi.PaginatedBuildResponse, error)
+	GetAllBuilds(ctx context.Context, page, limit int) (dto.PaginatedBuilds, error)
 	AdminDeleteBuild(ctx context.Context, buildID string) error
-	GetAllProjects(ctx context.Context, page, limit int) (*coreapi.PaginatedProjectResponse, error)
+	GetAllProjects(ctx context.Context, page, limit int) (dto.PaginatedProjects, error)
 	AdminDeleteProject(ctx context.Context, projectID string) error
 	AdminStopProject(ctx context.Context, projectID string) error
-	GetSystemConfig(ctx context.Context) (*coreapi.SystemConfigData, error)
-	UpdateSystemConfig(ctx context.Context, req *coreapi.SystemConfigData) error
-	GetContainerStats(ctx context.Context, ownerID, containerID string) (*coreapi.ContainerStatsResponse, error)
-	AdminGetContainerStats(ctx context.Context, containerID string) (*coreapi.ContainerStatsResponse, error)
-	GetUserStats(ctx context.Context, ownerID string) (*coreapi.UserStatsResponse, error)
+	GetSystemConfig(ctx context.Context) (dto.SystemConfigDTO, error)
+	UpdateSystemConfig(ctx context.Context, req dto.SystemConfigDTO) error
+	GetContainerStats(ctx context.Context, ownerID, containerID string) (dto.ContainerStatsDTO, error)
+	AdminGetContainerStats(ctx context.Context, containerID string) (dto.ContainerStatsDTO, error)
+	GetUserStats(ctx context.Context, ownerID string) (dto.UserStatsDTO, error)
 }
 
 type CoreHandler struct {
@@ -83,7 +82,7 @@ func (h *CoreHandler) GetContainers(c *gin.Context) {
 	}
 
 	if containers == nil {
-		containers = make([]*coreapi.ContainerData, 0)
+		containers = make([]dto.ContainerDTO, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"containers": containers})
@@ -150,7 +149,7 @@ func (h *CoreHandler) GetVolumes(c *gin.Context) {
 	}
 
 	if volumes == nil {
-		volumes = make([]*coreapi.VolumeData, 0)
+		volumes = make([]dto.VolumeDTO, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"volumes": volumes})
@@ -179,7 +178,7 @@ func (h *CoreHandler) GetImages(c *gin.Context) {
 	}
 
 	if images == nil {
-		images = make([]*coreapi.ImageData, 0)
+		images = make([]dto.ImageDTO, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"images": images})
@@ -208,7 +207,7 @@ func (h *CoreHandler) GetBuilds(c *gin.Context) {
 	}
 
 	if builds == nil {
-		builds = make([]*coreapi.BuildData, 0)
+		builds = make([]dto.BuildDTO, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"builds": builds})
@@ -237,7 +236,7 @@ func (h *CoreHandler) GetProjects(c *gin.Context) {
 	}
 
 	if projects == nil {
-		projects = make([]*coreapi.ProjectData, 0)
+		projects = make([]dto.ProjectDTO, 0)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"projects": projects})
@@ -291,8 +290,8 @@ func (h *CoreHandler) GetAllContainers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"containers":  resp.GetContainers(),
-		"total_count": resp.GetTotalCount(),
+		"containers":  resp.Containers,
+		"total_count": resp.TotalCount,
 	})
 }
 
@@ -316,8 +315,8 @@ func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"volumes":     resp.GetVolumes(),
-		"total_count": resp.GetTotalCount(),
+		"volumes":     resp.Volumes,
+		"total_count": resp.TotalCount,
 	})
 }
 
@@ -339,8 +338,8 @@ func (h *CoreHandler) GetAllImages(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"images":      resp.GetImages(),
-		"total_count": resp.GetTotalCount(),
+		"images":      resp.Images,
+		"total_count": resp.TotalCount,
 	})
 }
 
@@ -362,8 +361,8 @@ func (h *CoreHandler) GetAllBuilds(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"builds":      resp.GetBuilds(),
-		"total_count": resp.GetTotalCount(),
+		"builds":      resp.Builds,
+		"total_count": resp.TotalCount,
 	})
 }
 
@@ -385,8 +384,8 @@ func (h *CoreHandler) GetAllProjects(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"projects":    resp.GetProjects(),
-		"total_count": resp.GetTotalCount(),
+		"projects":    resp.Projects,
+		"total_count": resp.TotalCount,
 	})
 }
 
@@ -426,27 +425,7 @@ func (h *CoreHandler) UpdateSystemConfig(c *gin.Context) {
 		return
 	}
 
-	req := &coreapi.SystemConfigData{
-		BaseDomain:                    systemConfigDTO.BaseDomain,
-		DefaultMemoryReservationBytes: systemConfigDTO.DefaultMemoryReservationBytes,
-		ReservedSystemMemoryBytes:     systemConfigDTO.ReservedSystemMemoryBytes,
-		OvercommitFactor:              systemConfigDTO.OvercommitFactor,
-		MaxBurstMultiplier:            systemConfigDTO.MaxBurstMultiplier,
-		DefaultCpuShares:              systemConfigDTO.DefaultCpuShares,
-		HighLoadCpuShares:             systemConfigDTO.HighLoadCpuShares,
-		HighLoadContainerCount:        int32(systemConfigDTO.HighLoadContainerCount),
-		ContainerStopTimeout:          int32(systemConfigDTO.ContainerStopTimeout),
-		MaxLogSize:                    systemConfigDTO.MaxLogSize,
-		MaxLogFiles:                   systemConfigDTO.MaxLogFiles,
-		ContainerDiskQuota:            systemConfigDTO.ContainerDiskQuota,
-		MaxVolumesPerUser:             int32(systemConfigDTO.MaxVolumesPerUser),
-		MaxContainersPerUser:          int32(systemConfigDTO.MaxContainersPerUser),
-		RegistryApiUrl:                systemConfigDTO.RegistryApiUrl,
-		RegistryPublicUrl:             systemConfigDTO.RegistryPublicUrl,
-		ContainerTtlHours:             systemConfigDTO.ContainerTtlHours,
-	}
-
-	err := h.service.UpdateSystemConfig(c.Request.Context(), req)
+	err := h.service.UpdateSystemConfig(c.Request.Context(), systemConfigDTO)
 	if err != nil {
 		h.handleError(c, err)
 		return

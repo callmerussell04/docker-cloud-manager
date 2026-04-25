@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/google/uuid"
 )
 
@@ -19,7 +19,7 @@ type GCImageService interface {
 }
 
 type GCBuildRepo interface {
-	GetStaleBuilds(ctx context.Context, threshold time.Time) ([]domain.Build, error)
+	GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error)
 }
 
 type GCWorker struct {

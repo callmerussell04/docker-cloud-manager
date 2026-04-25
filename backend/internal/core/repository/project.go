@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
@@ -18,7 +18,7 @@ func NewProjectRepository(db *sql.DB) *ProjectRepository {
 	return &ProjectRepository{db: db}
 }
 
-func (r *ProjectRepository) Save(ctx context.Context, p domain.Project) error {
+func (r *ProjectRepository) Save(ctx context.Context, p model.Project) error {
 	query := `
 		INSERT INTO projects (id, owner_id, name, status, error_message) 
 		VALUES ($1, $2, $3, $4, $5)
@@ -34,14 +34,14 @@ func (r *ProjectRepository) Save(ctx context.Context, p domain.Project) error {
 	return err
 }
 
-func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Project, error) {
+func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {
 	query := `
 		SELECT id, owner_id, name, status, error_message, created_at 
 		FROM projects 
 		WHERE id = $1
 	`
 
-	var p domain.Project
+	var p model.Project
 	var errMsg sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -55,9 +55,9 @@ func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.P
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Project{}, apperrors.ErrNotFound
+			return model.Project{}, apperrors.ErrNotFound
 		}
-		return domain.Project{}, err
+		return model.Project{}, err
 	}
 
 	if errMsg.Valid {
@@ -67,7 +67,7 @@ func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.P
 	return p, nil
 }
 
-func (r *ProjectRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error) {
+func (r *ProjectRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
 	query := `
 		SELECT id, owner_id, name, status, error_message, created_at 
 		FROM projects 
@@ -81,9 +81,9 @@ func (r *ProjectRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID)
 	}
 	defer rows.Close()
 
-	var projects []domain.Project
+	var projects []model.Project
 	for rows.Next() {
-		var p domain.Project
+		var p model.Project
 		var errMsg sql.NullString
 
 		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
@@ -147,7 +147,7 @@ func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error) {
+func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&total)
 	if err != nil {
@@ -165,9 +165,9 @@ func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset i
 	}
 	defer rows.Close()
 
-	var projects []domain.Project
+	var projects []model.Project
 	for rows.Next() {
-		var p domain.Project
+		var p model.Project
 		var errMsg sql.NullString
 		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
 			return nil, 0, err

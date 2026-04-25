@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
@@ -49,7 +49,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 	return resp.GetUserId(), nil
 }
 
-func (c *SSOClient) Login(ctx context.Context, username, password string) (domain.Tokens, error) {
+func (c *SSOClient) Login(ctx context.Context, username, password string) (model.Tokens, error) {
 	req := &sso.LoginRequest{
 		Username: username,
 		Password: password,
@@ -61,21 +61,21 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (domai
 		if ok {
 			switch st.Code() {
 			case codes.Unauthenticated:
-				return domain.Tokens{}, apperrors.ErrInvalidCredentials
+				return model.Tokens{}, apperrors.ErrInvalidCredentials
 			case codes.InvalidArgument:
-				return domain.Tokens{}, apperrors.ErrBadRequest
+				return model.Tokens{}, apperrors.ErrBadRequest
 			}
 		}
-		return domain.Tokens{}, apperrors.ErrInternal
+		return model.Tokens{}, apperrors.ErrInternal
 	}
 
-	return domain.Tokens{
+	return model.Tokens{
 		AccessToken:  resp.GetAccessToken(),
 		RefreshToken: resp.GetRefreshToken(),
 	}, nil
 }
 
-func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (domain.Tokens, error) {
+func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tokens, error) {
 	req := &sso.RefreshRequest{
 		RefreshToken: refreshToken,
 	}
@@ -86,24 +86,24 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (domain.To
 		if ok {
 			switch st.Code() {
 			case codes.Unauthenticated:
-				return domain.Tokens{}, apperrors.ErrInvalidToken
+				return model.Tokens{}, apperrors.ErrInvalidToken
 			case codes.InvalidArgument:
-				return domain.Tokens{}, apperrors.ErrBadRequest
+				return model.Tokens{}, apperrors.ErrBadRequest
 			}
 		}
-		return domain.Tokens{}, apperrors.ErrInternal
+		return model.Tokens{}, apperrors.ErrInternal
 	}
 
-	return domain.Tokens{
+	return model.Tokens{
 		AccessToken:  resp.GetAccessToken(),
 		RefreshToken: resp.GetRefreshToken(),
 	}, nil
 }
 
-func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error) {
+func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error) {
 	token, err := accessTokenFromHeader(authHeader)
 	if err != nil {
-		return domain.AuthUser{}, apperrors.ErrUnauthorized
+		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
 	resp, err := c.userAPI.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{
@@ -112,12 +112,12 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (d
 	if err != nil {
 		st, ok := status.FromError(err)
 		if ok && st.Code() == codes.Unauthenticated {
-			return domain.AuthUser{}, apperrors.ErrUnauthorized
+			return model.AuthUser{}, apperrors.ErrUnauthorized
 		}
-		return domain.AuthUser{}, apperrors.ErrInternal
+		return model.AuthUser{}, apperrors.ErrInternal
 	}
 
-	return domain.AuthUser{
+	return model.AuthUser{
 		UserID:   resp.GetUserId(),
 		Username: resp.GetUsername(),
 		Role:     resp.GetRole(),

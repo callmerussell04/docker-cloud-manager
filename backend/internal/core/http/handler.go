@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -23,12 +24,6 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 100<<20)
 
 	ownerIDStr := c.GetHeader("X-User-Id")
-	ownerID, err := uuid.Parse(ownerIDStr)
-	if err != nil {
-		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
-		return
-	}
-
 	projectName := c.PostForm("project_name")
 	if projectName == "" {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
@@ -41,7 +36,19 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		return
 	}
 
-	src, err := file.Open()
+	req := dto.DeployComposeRequest{
+		OwnerID:     ownerIDStr,
+		ProjectName: projectName,
+		Archive:     file,
+	}
+
+	ownerID, err := uuid.Parse(req.OwnerID)
+	if err != nil {
+		apperrors.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+		return
+	}
+
+	src, err := req.Archive.Open()
 	if err != nil {
 		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
 		return
@@ -54,7 +61,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		return
 	}
 
-	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), ownerID, projectName, archiveBytes)
+	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), ownerID, req.ProjectName, archiveBytes)
 	if err != nil {
 		apperrors.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
 		return

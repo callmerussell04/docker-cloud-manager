@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
@@ -17,7 +19,7 @@ import (
 const maxUploadSize = 50 << 20
 
 type BuilderService interface {
-	InitBuild(ctx context.Context, job domain.BuildJob) (string, error)
+	InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error)
 }
 
 type BuildHandler struct {
@@ -63,7 +65,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		_ = json.Unmarshal([]byte(argsStr), &buildArgs)
 	}
 
-	job := domain.BuildJob{
+	req := dto.BuildImageRequest{
 		OwnerID:    ownerID,
 		Tag:        tag,
 		ContextDir: contextDir,
@@ -71,8 +73,15 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		File:       file,
 		BuildArgs:  buildArgs,
 	}
+	job := model.BuildJob{
+		OwnerID:    req.OwnerID,
+		Tag:        req.Tag,
+		ContextDir: req.ContextDir,
+		Dockerfile: req.Dockerfile,
+		BuildArgs:  req.BuildArgs,
+	}
 
-	buildID, err := h.service.InitBuild(c.Request.Context(), job)
+	buildID, err := h.service.InitBuild(c.Request.Context(), job, req.File)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrInvalidFileFormat) {
 			apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrInvalidFileFormat)

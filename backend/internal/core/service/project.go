@@ -4,23 +4,23 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
 
 type ProjectRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error)
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Project, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Project, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 }
 
 type ProjectResourceRepository interface {
-	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Container, error)
-	GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Volume, error)
+	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error)
+	GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error)
 }
 
 type ProjectDockerAPI interface {
@@ -45,7 +45,7 @@ func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepos
 	}
 }
 
-func (s *ProjectService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Project, error) {
+func (s *ProjectService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
@@ -65,7 +65,7 @@ func (s *ProjectService) Stop(ctx context.Context, ownerID, projectID uuid.UUID)
 
 	var stopErrors []error
 	for _, c := range containers {
-		if c.Status == domain.ContainerStatusRunning {
+		if c.Status == model.ContainerStatusRunning {
 			err := s.dockerAPI.StopContainer(ctx, c.DockerID, 10)
 			if err != nil {
 				stopErrors = append(stopErrors, fmt.Errorf("failed to stop %s: %v", c.Name, err))
@@ -77,7 +77,7 @@ func (s *ProjectService) Stop(ctx context.Context, ownerID, projectID uuid.UUID)
 		return fmt.Errorf("errors occurred while stopping project: %v", stopErrors)
 	}
 
-	return s.repo.UpdateStatus(ctx, projectID, domain.ProjectStatusStopped, nil)
+	return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusStopped, nil)
 }
 
 func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUID) error {
@@ -107,7 +107,7 @@ func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUI
 	return s.repo.Delete(ctx, projectID)
 }
 
-func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Project, int, error) {
+func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
 	return s.repo.GetAllPaginated(ctx, limit, offset)
 }
 
@@ -124,7 +124,7 @@ func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) err
 
 	var stopErrors []error
 	for _, c := range containers {
-		if c.Status == domain.ContainerStatusRunning {
+		if c.Status == model.ContainerStatusRunning {
 			err := s.dockerAPI.StopContainer(ctx, c.DockerID, 10)
 			if err != nil {
 				stopErrors = append(stopErrors, fmt.Errorf("failed to stop %s: %v", c.Name, err))
@@ -136,7 +136,7 @@ func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) err
 		return fmt.Errorf("errors occurred while stopping project: %v", stopErrors)
 	}
 
-	return s.repo.UpdateStatus(ctx, projectID, domain.ProjectStatusStopped, nil)
+	return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusStopped, nil)
 }
 
 func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) error {

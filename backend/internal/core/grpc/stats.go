@@ -9,11 +9,11 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 )
 
 type StatsLogic interface {
-	GetUserStats(ctx context.Context, ownerID uuid.UUID) (domain.UserStats, error)
+	GetUserStats(ctx context.Context, ownerID uuid.UUID) (model.UserStats, error)
 }
 
 type StatsHandler struct {

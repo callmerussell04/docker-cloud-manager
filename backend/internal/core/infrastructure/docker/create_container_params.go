@@ -1,6 +1,6 @@
 package docker
 
-import "github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+import "github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 
 type CreateContainerParams struct {
 	ContainerName     string
@@ -20,17 +20,5 @@ type CreateContainerParams struct {
 	Command           []string
 	Entrypoint        []string
 	Restart           string
-	Healthcheck       *domain.Healthcheck
-}
-
-type MountParam struct {
-	VolumeName string
-	Target     string
-	ReadOnly   bool
-}
-
-type CreateVolumeParams struct {
-	VolumeName string
-	Driver     string
-	DriverOpts map[string]string
+	Healthcheck       *model.Healthcheck
 }

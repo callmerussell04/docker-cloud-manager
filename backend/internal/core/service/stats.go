@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/google/uuid"
 )
 
@@ -34,8 +34,8 @@ func NewStatsService(
 	}
 }
 
-func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (domain.UserStats, error) {
-	var stats domain.UserStats
+func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (model.UserStats, error) {
+	var stats model.UserStats
 
 	cfg := s.cfg.Get()
 	stats.ContainersQuota = cfg.MaxContainersPerUser
@@ -43,7 +43,7 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (dom
 
 	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
-		return domain.UserStats{}, err
+		return model.UserStats{}, err
 	}
 	stats.RamQuotaBytes = user.QuotaRAMMB * 1024 * 1024
 	stats.RamUsedBytes, _ = s.contRepo.GetUserReservedMemory(ctx, ownerID)
@@ -51,7 +51,7 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (dom
 	stats.ContainersTotal, _ = s.contRepo.CountByOwnerID(ctx, ownerID)
 	containers, _ := s.contRepo.GetByOwnerID(ctx, ownerID)
 	for _, c := range containers {
-		if c.Status == domain.ContainerStatusRunning {
+		if c.Status == model.ContainerStatusRunning {
 			stats.ContainersRunning++
 		}
 	}

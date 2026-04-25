@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
@@ -19,7 +19,7 @@ func NewBuildRepository(db *sql.DB) *BuildRepository {
 	return &BuildRepository{db: db}
 }
 
-func (r *BuildRepository) Save(ctx context.Context, b domain.Build) error {
+func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
 		INSERT INTO builds (id, image_id, status, log_file_path, started_at, finished_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -42,7 +42,7 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	`
 
 	var finishedAt sql.NullTime
-	if status == domain.BuildStatusSuccess || status == domain.BuildStatusFailed {
+	if status == model.BuildStatusSuccess || status == model.BuildStatusFailed {
 		finishedAt.Time = time.Now()
 		finishedAt.Valid = true
 	}
@@ -63,7 +63,7 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	return nil
 }
 
-func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]domain.Build, error) {
+func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
 		SELECT id, image_id, status, log_file_path, started_at, finished_at 
 		FROM builds 
@@ -76,10 +76,10 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	}
 	defer rows.Close()
 
-	var builds []domain.Build
+	var builds []model.Build
 
 	for rows.Next() {
-		var b domain.Build
+		var b model.Build
 		var finishedAt sql.NullTime
 
 		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
@@ -94,7 +94,7 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	return builds, rows.Err()
 }
 
-func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {
+func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
 	query := `
 		SELECT b.id, b.image_id, b.status, b.log_file_path, b.started_at, b.finished_at 
 		FROM builds b
@@ -108,9 +108,9 @@ func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) 
 	}
 	defer rows.Close()
 
-	var builds []domain.Build
+	var builds []model.Build
 	for rows.Next() {
-		var b domain.Build
+		var b model.Build
 		var finishedAt sql.NullTime
 
 		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
@@ -125,13 +125,13 @@ func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) 
 	return builds, rows.Err()
 }
 
-func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error) {
+func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
 		SELECT id, image_id, status, log_file_path, started_at, finished_at 
 		FROM builds 
 		WHERE id = $1
 	`
-	var b domain.Build
+	var b model.Build
 	var finishedAt sql.NullTime
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
@@ -139,9 +139,9 @@ func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Bui
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Build{}, apperrors.ErrNotFound
+			return model.Build{}, apperrors.ErrNotFound
 		}
-		return domain.Build{}, err
+		return model.Build{}, err
 	}
 
 	if finishedAt.Valid {
@@ -166,21 +166,21 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]domain.Build, error) {
+func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
 		SELECT id, image_id, status, log_file_path, started_at 
 		FROM builds 
 		WHERE status IN ($1, $2) AND started_at < $3
 	`
-	rows, err := r.db.QueryContext(ctx, query, domain.BuildStatusPending, domain.BuildStatusRunning, threshold)
+	rows, err := r.db.QueryContext(ctx, query, model.BuildStatusPending, model.BuildStatusRunning, threshold)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var builds []domain.Build
+	var builds []model.Build
 	for rows.Next() {
-		var b domain.Build
+		var b model.Build
 		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt); err != nil {
 			return nil, err
 		}
@@ -189,7 +189,7 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	return builds, rows.Err()
 }
 
-func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Build, int, error) {
+func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`).Scan(&total)
 	if err != nil {
@@ -208,9 +208,9 @@ func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	}
 	defer rows.Close()
 
-	var builds []domain.Build
+	var builds []model.Build
 	for rows.Next() {
-		var b domain.Build
+		var b model.Build
 		var finishedAt sql.NullTime
 		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
 			return nil, 0, err

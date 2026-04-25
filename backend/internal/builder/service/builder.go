@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
@@ -42,24 +42,13 @@ type CoreClient interface {
 	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
 }
 
-type BuilderConfig struct {
-	BuildMemoryBytes    int64
-	BuildCPUQuota       int64
-	LogsDirPath         string
-	StoragePath         string // Путь для временных файлов
-	RegistryURL         string // Адрес локального Registry (напр. registry:5000)
-	BuildNetworkName    string
-	MaxBuildTime        time.Duration
-	MaxConcurrentBuilds int
-}
-
 type BuilderService struct {
 	fileManager FileManager
 	extractor   ArchiveExtractor
 	dockerAPI   DockerAPI
 	logManager  LogManager
 	coreClient  CoreClient
-	config      BuilderConfig
+	config      config.BuilderConfig
 	semaphore   chan struct{}
 }
 
@@ -69,7 +58,7 @@ func NewBuilderService(
 	dockerAPI DockerAPI,
 	logManager LogManager,
 	coreClient CoreClient,
-	config BuilderConfig,
+	config config.BuilderConfig,
 ) *BuilderService {
 	return &BuilderService{
 		fileManager: fileManager,
@@ -82,7 +71,7 @@ func NewBuilderService(
 	}
 }
 
-func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (string, error) {
+func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error) {
 	if _, err := uuid.Parse(job.OwnerID); err != nil {
 		return "", apperrors.ErrUnauthorized
 	}
@@ -98,7 +87,7 @@ func (s *BuilderService) InitBuild(ctx context.Context, job domain.BuildJob) (st
 
 	fileID := uuid.New().String()
 
-	filePath, err := s.fileManager.SaveArchive(job.File, fileID)
+	filePath, err := s.fileManager.SaveArchive(archive, fileID)
 	if err != nil {
 		return "", err
 	}

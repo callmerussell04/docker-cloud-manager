@@ -8,14 +8,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
-	Login(ctx context.Context, username, password string) (domain.Tokens, error)
-	Refresh(ctx context.Context, refreshToken string) (domain.Tokens, error)
+	Login(ctx context.Context, username, password string) (model.Tokens, error)
+	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
 }
 
 type AuthHandler struct {
@@ -28,19 +29,8 @@ func NewAuthHandler(service AuthService) *AuthHandler {
 	}
 }
 
-type registerRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
-}
-
-type loginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
-}
-
 func (h *AuthHandler) Register(c *gin.Context) {
-	var req registerRequest
+	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
@@ -60,7 +50,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
-	var req loginRequest
+	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		apperrors.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return

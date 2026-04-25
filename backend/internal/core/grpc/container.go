@@ -10,23 +10,24 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type ContainerLogic interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error)
+	Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error)
 	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error)
+	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
 	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error)
 	AdminDelete(ctx context.Context, containerID uuid.UUID) error
 	AdminStart(ctx context.Context, containerID uuid.UUID) error
 	AdminStop(ctx context.Context, containerID uuid.UUID) error
-	GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (domain.ContainerStats, error)
-	AdminGetStats(ctx context.Context, containerID uuid.UUID) (domain.ContainerStats, error)
+	GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (model.ContainerStats, error)
+	AdminGetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
 }
 
 type ContainerHandler struct {
@@ -36,7 +37,7 @@ type ContainerHandler struct {
 }
 
 type UserDirectory interface {
-	GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]domain.UserInfo, error)
+	GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]model.UserInfo, error)
 }
 
 func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic, users UserDirectory) {
@@ -53,26 +54,41 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		return nil, status.Error(codes.InvalidArgument, "name and image_tag are required")
 	}
 
-	var mounts []domain.VolumeMountParams
+	createDTO := dto.CreateContainerDTO{
+		Name:         req.GetName(),
+		ImageTag:     req.GetImageTag(),
+		InternalPort: int(req.GetInternalPort()),
+		EnvVars:      req.GetEnvVars(),
+		DomainPrefix: req.GetDomainPrefix(),
+	}
 	for _, m := range req.GetVolumeMounts() {
 		volID, err := uuid.Parse(m.GetVolumeId())
 		if err != nil {
 			return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
 		}
-		mounts = append(mounts, domain.VolumeMountParams{
+		createDTO.VolumeMounts = append(createDTO.VolumeMounts, dto.VolumeMountDTO{
 			VolumeID:   volID,
 			MountPath:  m.GetMountPath(),
 			IsReadOnly: m.GetIsReadonly(),
 		})
 	}
 
-	params := domain.ContainerCreateParams{
-		Name:         req.GetName(),
-		ImageTag:     req.GetImageTag(),
-		InternalPort: int(req.GetInternalPort()),
-		EnvVars:      req.GetEnvVars(),
+	mounts := make([]model.VolumeMountParams, 0, len(createDTO.VolumeMounts))
+	for _, m := range createDTO.VolumeMounts {
+		mounts = append(mounts, model.VolumeMountParams{
+			VolumeID:   m.VolumeID,
+			MountPath:  m.MountPath,
+			IsReadOnly: m.IsReadOnly,
+		})
+	}
+
+	params := model.ContainerCreateParams{
+		Name:         createDTO.Name,
+		ImageTag:     createDTO.ImageTag,
+		InternalPort: createDTO.InternalPort,
+		EnvVars:      createDTO.EnvVars,
 		VolumeMounts: mounts,
-		DomainPrefix: req.GetDomainPrefix(),
+		DomainPrefix: createDTO.DomainPrefix,
 	}
 
 	containerID, err := h.logic.Create(ctx, ownerID, params)
@@ -269,7 +285,7 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 	}, nil
 }
 
-func (h *ContainerHandler) usernamesByOwner(ctx context.Context, containers []domain.Container) map[uuid.UUID]string {
+func (h *ContainerHandler) usernamesByOwner(ctx context.Context, containers []model.Container) map[uuid.UUID]string {
 	ids := make([]uuid.UUID, 0, len(containers))
 	seen := make(map[uuid.UUID]struct{}, len(containers))
 	for _, c := range containers {

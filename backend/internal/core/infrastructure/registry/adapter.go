@@ -26,15 +26,6 @@ func NewAdapter(registryURL string) *Adapter {
 	}
 }
 
-type manifestResponse struct {
-	Config struct {
-		Size int64 `json:"size"`
-	} `json:"config"`
-	Layers []struct {
-		Size int64 `json:"size"`
-	} `json:"layers"`
-}
-
 func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error) {
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repo, tag)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

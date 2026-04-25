@@ -1,4 +1,4 @@
-package domain
+package model
 
 type UserStats struct {
 	ContainersTotal   int

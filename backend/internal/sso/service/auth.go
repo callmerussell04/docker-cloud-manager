@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -33,7 +33,7 @@ const (
 )
 
 var rolePermissions = map[string]map[string]struct{}{
-	domain.RoleAdmin: {
+	model.RoleAdmin: {
 		PermissionSystemConfigRead:      {},
 		PermissionSystemConfigUpdate:    {},
 		PermissionContainersAdminList:   {},
@@ -49,18 +49,18 @@ var rolePermissions = map[string]map[string]struct{}{
 		PermissionProjectsAdminDelete:   {},
 		PermissionProjectsAdminStop:     {},
 	},
-	domain.RoleUser: {},
+	model.RoleUser: {},
 }
 
 type UserRepository interface {
-	SaveUser(ctx context.Context, user domain.User) error
-	GetUserByUsername(ctx context.Context, username string) (domain.User, error)
-	GetUserByID(ctx context.Context, id uuid.UUID) (domain.User, error)
-	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.User, error)
+	SaveUser(ctx context.Context, user model.User) error
+	GetUserByUsername(ctx context.Context, username string) (model.User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error)
+	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
 }
 
 type TokenProvider interface {
-	GenerateTokens(user domain.User) (string, string, error)
+	GenerateTokens(user model.User) (string, string, error)
 	ValidateAccessToken(token string) (uuid.UUID, error)
 	ValidateRefreshToken(token string) (uuid.UUID, error)
 }
@@ -70,27 +70,27 @@ type AuthService struct {
 	tokenProvider TokenProvider
 }
 
-func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (domain.User, error) {
+func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
 	userID, err := s.tokenProvider.ValidateAccessToken(accessToken)
 	if err != nil {
-		return domain.User{}, apperrors.ErrInvalidToken
+		return model.User{}, apperrors.ErrInvalidToken
 	}
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return domain.User{}, apperrors.ErrInvalidToken
+		return model.User{}, apperrors.ErrInvalidToken
 	}
 	return user, nil
 }
 
-func (s *AuthService) CheckPermission(ctx context.Context, accessToken, permission string) (domain.User, bool, error) {
+func (s *AuthService) CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error) {
 	if !permissionExists(permission) {
-		return domain.User{}, false, apperrors.ErrBadRequest
+		return model.User{}, false, apperrors.ErrBadRequest
 	}
 
 	user, err := s.VerifyAccessToken(ctx, accessToken)
 	if err != nil {
-		return domain.User{}, false, err
+		return model.User{}, false, err
 	}
 
 	permissions, ok := rolePermissions[user.Role]
@@ -110,11 +110,11 @@ func permissionExists(permission string) bool {
 	return false
 }
 
-func (s *AuthService) GetUser(ctx context.Context, userID uuid.UUID) (domain.User, error) {
+func (s *AuthService) GetUser(ctx context.Context, userID uuid.UUID) (model.User, error) {
 	return s.repo.GetUserByID(ctx, userID)
 }
 
-func (s *AuthService) GetUsers(ctx context.Context, ids []uuid.UUID) ([]domain.User, error) {
+func (s *AuthService) GetUsers(ctx context.Context, ids []uuid.UUID) ([]model.User, error) {
 	return s.repo.GetUsersByIDs(ctx, ids)
 }
 
@@ -131,12 +131,12 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 		return uuid.Nil, apperrors.ErrInternal
 	}
 
-	user := domain.User{
+	user := model.User{
 		ID:           uuid.New(),
 		Username:     username,
 		Email:        email,
 		PasswordHash: string(hash),
-		Role:         domain.RoleUser,
+		Role:         model.RoleUser,
 	}
 
 	err = s.repo.SaveUser(ctx, user)

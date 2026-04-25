@@ -2,24 +2,23 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 )
 
 type VolumeRepository interface {
-	Save(ctx context.Context, vol domain.Volume) error
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Volume, error)
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error)
+	Save(ctx context.Context, vol model.Volume) error
+	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
 }
 
 type VolumeDockerAPI interface {
@@ -41,15 +40,9 @@ func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg Conf
 	}
 }
 
-func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error) {
+func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error) {
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-	}
-	if params.Driver != "" && params.Driver != "local" {
-		return uuid.Nil, fmt.Errorf("%w: only local volumes are allowed", apperrors.ErrBadRequest)
-	}
-	if len(params.DriverOpts) > 0 {
-		return uuid.Nil, fmt.Errorf("%w: volume driver options are not allowed", apperrors.ErrBadRequest)
 	}
 
 	// Проверка лимита на количество томов
@@ -64,15 +57,8 @@ func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params do
 	volID := uuid.New()
 	dockerName := fmt.Sprintf("vol_%s_%s", ownerID.String()[:8], params.Name)
 
-	optsBytes, err := json.Marshal(params.DriverOpts)
-	if err != nil {
-		return uuid.Nil, err
-	}
-
 	dockerParams := docker.CreateVolumeParams{
 		VolumeName: dockerName,
-		Driver:     params.Driver,
-		DriverOpts: params.DriverOpts,
 	}
 
 	_, err = s.dockerAPI.CreateVolume(ctx, dockerParams)
@@ -80,12 +66,11 @@ func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params do
 		return uuid.Nil, err
 	}
 
-	vol := domain.Volume{
+	vol := model.Volume{
 		ID:         volID,
 		OwnerID:    ownerID,
 		DockerName: dockerName,
-		Driver:     params.Driver,
-		DriverOpts: optsBytes,
+		Driver:     "local",
 	}
 
 	if err := s.repo.Save(ctx, vol); err != nil {
@@ -121,11 +106,11 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 	return s.repo.Delete(ctx, volumeID)
 }
 
-func (s *VolumeService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error) {
+func (s *VolumeService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
-func (s *VolumeService) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error) {
+func (s *VolumeService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error) {
 	return s.repo.GetAllPaginated(ctx, limit, offset)
 }
 

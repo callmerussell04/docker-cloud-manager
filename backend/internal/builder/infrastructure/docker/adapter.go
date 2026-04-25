@@ -15,17 +15,6 @@ import (
 	"github.com/moby/go-archive"
 )
 
-type BuildContainerParams struct {
-	WorkspaceDir   string
-	ContextSubDir  string
-	Dockerfile     string
-	DestinationTag string
-	MemoryBytes    int64
-	CPUQuota       int64
-	BuildArgs      map[string]string
-	NetworkName    string
-}
-
 type Adapter struct {
 	cli *client.Client
 }

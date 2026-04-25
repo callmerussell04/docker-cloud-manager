@@ -13,30 +13,30 @@ import (
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/docker/docker/api/types/container"
 	"github.com/google/uuid"
 )
 
 type ProjectRepository interface {
-	Save(ctx context.Context, p domain.Project) error
+	Save(ctx context.Context, p model.Project) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
 }
 
 type BuildRepository interface {
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 }
 
 type VolumeService interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error)
+	Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error)
 	Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error
 }
 
 type ContainerService interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params domain.ContainerCreateParams) (uuid.UUID, error)
+	Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error)
 	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
 	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
 type ComposeDockerAPI interface {
@@ -80,11 +80,11 @@ func NewOrchestrator(
 // StartDeployment - Точка входа. Создает проект и запускает горутину оркестрации
 func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, projectName string, archiveBytes []byte) (uuid.UUID, error) {
 	projectID := uuid.New()
-	p := domain.Project{
+	p := model.Project{
 		ID:      projectID,
 		OwnerID: ownerID,
 		Name:    projectName,
-		Status:  domain.ProjectStatusBuilding,
+		Status:  model.ProjectStatusBuilding,
 	}
 
 	if err := o.projectRepo.Save(ctx, p); err != nil {
@@ -104,7 +104,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	failProject := func(err error) {
 		errMsg := err.Error()
 		log.Printf("[Orchestrator] Project %s failed: %v", projectID, err)
-		_ = o.projectRepo.UpdateStatus(ctx, projectID, domain.ProjectStatusFailed, &errMsg)
+		_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &errMsg)
 	}
 
 	// 1. Извлечение и парсинг YAML
@@ -144,7 +144,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	}
 
 	// Развертывание контейнеров
-	_ = o.projectRepo.UpdateStatus(ctx, projectID, domain.ProjectStatusDeploying, nil)
+	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusDeploying, nil)
 	log.Printf("[Orchestrator] Project %s builds completed. Starting deployment...", projectID)
 
 	// Списки для Rollback
@@ -186,10 +186,10 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	// Создаем Контейнеры (Services)
 	for _, srv := range parsedProject.Services {
 		// Подготавливаем Mounts (меняем строковое имя из YAML на сгенерированный UUID тома)
-		var resolvedMounts []domain.VolumeMountParams
+		var resolvedMounts []model.VolumeMountParams
 		for _, m := range srv.VolumeMounts {
 			if vid, ok := volumeNameMap[m.VolumeName]; ok {
-				resolvedMounts = append(resolvedMounts, domain.VolumeMountParams{
+				resolvedMounts = append(resolvedMounts, model.VolumeMountParams{
 					VolumeID:   vid,
 					MountPath:  m.MountPath,
 					IsReadOnly: m.IsReadOnly,
@@ -198,7 +198,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		}
 
 		// Формируем параметры
-		createParams := domain.ContainerCreateParams{
+		createParams := model.ContainerCreateParams{
 			ProjectID:    &projectID,
 			Name:         fmt.Sprintf("%s_%s", projectName, srv.Name), // Визуальное имя для юзера
 			NetworkAlias: srv.Name,                                    // DNS алиас из compose
@@ -259,11 +259,11 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	}
 
 	// 4. Финал
-	_ = o.projectRepo.UpdateStatus(ctx, projectID, domain.ProjectStatusRunning, nil)
+	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil)
 	log.Printf("[Orchestrator] Project %s deployed and started successfully!", projectID)
 }
 
-func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv domain.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
+func (o *Orchestrator) triggerBuild(ownerID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 
@@ -324,10 +324,10 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 				if err != nil {
 					continue // Ждем, пока запись появится
 				}
-				if b.Status == domain.BuildStatusFailed || b.Status == "failed_timeout" || b.Status == "failed_quota_exceeded" {
+				if b.Status == model.BuildStatusFailed || b.Status == "failed_timeout" || b.Status == "failed_quota_exceeded" {
 					return fmt.Errorf("build %s failed with status: %s", bid, b.Status)
 				}
-				if b.Status != domain.BuildStatusSuccess {
+				if b.Status != model.BuildStatusSuccess {
 					allSuccess = false
 				}
 			}

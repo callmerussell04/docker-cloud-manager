@@ -5,13 +5,13 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
 
 type TokenVerifier interface {
-	VerifyAccessToken(ctx context.Context, authHeader string) (domain.AuthUser, error)
+	VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error)
 	CheckPermission(ctx context.Context, authHeader, permission string) error
 }
 

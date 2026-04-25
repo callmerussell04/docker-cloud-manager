@@ -10,15 +10,16 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type VolumeLogic interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params domain.VolumeCreateParams) (uuid.UUID, error)
+	Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error)
 	Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Volume, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Volume, int, error)
+	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
 	AdminDelete(ctx context.Context, volumeID uuid.UUID) error
 }
 
@@ -38,14 +39,13 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
 	}
 
-	if req.GetName() == "" {
+	createVolumeDTO := dto.CreateVolumeDTO{Name: req.GetName()}
+	if createVolumeDTO.Name == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
 
-	params := domain.VolumeCreateParams{
-		Name:       req.GetName(),
-		Driver:     req.GetDriver(),
-		DriverOpts: req.GetDriverOpts(),
+	params := model.VolumeCreateParams{
+		Name: createVolumeDTO.Name,
 	}
 
 	volumeID, err := h.logic.Create(ctx, ownerID, params)
@@ -150,7 +150,7 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 	}, nil
 }
 
-func (h *VolumeHandler) usernamesByOwner(ctx context.Context, volumes []domain.Volume) map[uuid.UUID]string {
+func (h *VolumeHandler) usernamesByOwner(ctx context.Context, volumes []model.Volume) map[uuid.UUID]string {
 	ids := make([]uuid.UUID, 0, len(volumes))
 	seen := make(map[uuid.UUID]struct{}, len(volumes))
 	for _, v := range volumes {

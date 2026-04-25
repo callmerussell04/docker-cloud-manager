@@ -8,7 +8,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/jwtutils"
 )
 
@@ -31,7 +31,7 @@ func NewProvider(secretKey string, accessTTL, refreshTTL time.Duration) *Provide
 	}
 }
 
-func (p *Provider) GenerateTokens(user domain.User) (string, string, error) {
+func (p *Provider) GenerateTokens(user model.User) (string, string, error) {
 	accessClaims := jwtutils.UserClaims{
 		UserID:    user.ID,
 		Username:  user.Username,

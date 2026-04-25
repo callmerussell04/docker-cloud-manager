@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
@@ -80,6 +80,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params CreateContainerPar
 		})
 	}
 
+	//TODO: сделать настраевым параметром
 	pidsLimit := int64(256)
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(params.NetworkName),
@@ -187,15 +188,9 @@ func (a *Adapter) RemoveContainer(ctx context.Context, dockerID string, force bo
 }
 
 func (a *Adapter) CreateVolume(ctx context.Context, params CreateVolumeParams) (string, error) {
-	driver := params.Driver
-	if driver == "" {
-		driver = "local"
-	}
-
 	vol, err := a.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Name:       params.VolumeName,
-		Driver:     driver,
-		DriverOpts: params.DriverOpts,
+		Name:   params.VolumeName,
+		Driver: "local",
 		Labels: map[string]string{
 			"managed_by": "docker-cloud-manager",
 		},
@@ -352,10 +347,10 @@ func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
 	return a.cli.NetworkRemove(ctx, networkName)
 }
 
-func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (domain.ContainerStats, error) {
+func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error) {
 	statsResp, err := a.cli.ContainerStats(ctx, dockerID, false)
 	if err != nil {
-		return domain.ContainerStats{}, err
+		return model.ContainerStats{}, err
 	}
 	defer statsResp.Body.Close()
 
@@ -385,7 +380,7 @@ func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (domai
 	}
 
 	if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
-		return domain.ContainerStats{}, err
+		return model.ContainerStats{}, err
 	}
 
 	var cpuPercent float64
@@ -406,7 +401,7 @@ func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (domai
 		netTx += net.TxBytes
 	}
 
-	return domain.ContainerStats{
+	return model.ContainerStats{
 		CPUPercentage:    cpuPercent,
 		MemoryUsageBytes: v.MemoryStats.Usage,
 		MemoryLimitBytes: v.MemoryStats.Limit,

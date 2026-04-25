@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -19,7 +19,7 @@ func NewContainerRepository(db *sql.DB) *ContainerRepository {
 	return &ContainerRepository{db: db}
 }
 
-func (r *ContainerRepository) Save(ctx context.Context, c domain.Container) error {
+func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error {
 	query := `
 		INSERT INTO containers (id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, ttl_deadline, env_vars, base_memory_reservation)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -143,25 +143,25 @@ func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID
 		WHERE owner_id = $1 AND status = $2
 	`
 	var totalReserved int64
-	err := r.db.QueryRowContext(ctx, query, ownerID, domain.ContainerStatusRunning).Scan(&totalReserved)
+	err := r.db.QueryRowContext(ctx, query, ownerID, model.ContainerStatusRunning).Scan(&totalReserved)
 	return totalReserved, err
 }
 
-func (r *ContainerRepository) GetRunning(ctx context.Context) ([]domain.Container, error) {
+func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container, error) {
 	query := `
 		SELECT id, docker_id, base_memory_reservation
 		FROM containers 
 		WHERE status = $1
 	`
-	rows, err := r.db.QueryContext(ctx, query, domain.ContainerStatusRunning)
+	rows, err := r.db.QueryContext(ctx, query, model.ContainerStatusRunning)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &dockerID, &c.BaseMemoryReservation); err != nil {
 			return nil, err
@@ -174,12 +174,12 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]domain.Containe
 	return containers, rows.Err()
 }
 
-func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (domain.Container, error) {
+func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE id = $1
 	`
-	var c domain.Container
+	var c model.Container
 	var projectID sql.NullString
 	var dockerID sql.NullString
 
@@ -188,9 +188,9 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (domain
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.Container{}, apperrors.ErrNotFound
+			return model.Container{}, apperrors.ErrNotFound
 		}
-		return domain.Container{}, err
+		return model.Container{}, err
 	}
 
 	if projectID.Valid {
@@ -219,7 +219,7 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Container, error) {
+func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers WHERE owner_id = $1
@@ -230,9 +230,9 @@ func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUI
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var projectID sql.NullString
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation); err != nil {
@@ -250,7 +250,7 @@ func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUI
 	return containers, rows.Err()
 }
 
-func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]domain.Container, error) {
+func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix, status, base_memory_reservation
 		FROM containers 
@@ -262,9 +262,9 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var pID sql.NullString
 		var dID sql.NullString
 
@@ -283,20 +283,20 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 	return containers, rows.Err()
 }
 
-func (r *ContainerRepository) GetExpired(ctx context.Context) ([]domain.Container, error) {
+func (r *ContainerRepository) GetExpired(ctx context.Context) ([]model.Container, error) {
 	query := `
 		SELECT id, docker_id FROM containers 
 		WHERE status = $1 AND ttl_deadline < NOW()
 	`
-	rows, err := r.db.QueryContext(ctx, query, domain.ContainerStatusRunning)
+	rows, err := r.db.QueryContext(ctx, query, model.ContainerStatusRunning)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &dockerID); err != nil {
 			return nil, err
@@ -323,7 +323,7 @@ func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) 
 		WHERE status = $1
 	`
 	var totalReserved int64
-	err := r.db.QueryRowContext(ctx, query, domain.ContainerStatusRunning).Scan(&totalReserved)
+	err := r.db.QueryRowContext(ctx, query, model.ContainerStatusRunning).Scan(&totalReserved)
 	return totalReserved, err
 }
 
@@ -342,21 +342,21 @@ func (r *ContainerRepository) IsImageInUse(ctx context.Context, ownerID uuid.UUI
 	return exists, nil
 }
 
-func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]domain.Container, error) {
+func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Container, error) {
 	query := `
 		SELECT id, docker_id, status
 		FROM containers
 		WHERE status IN ($1, $2, $3)
 	`
-	rows, err := r.db.QueryContext(ctx, query, domain.ContainerStatusCreating, domain.ContainerStatusCreated, domain.ContainerStatusRunning)
+	rows, err := r.db.QueryContext(ctx, query, model.ContainerStatusCreating, model.ContainerStatusCreated, model.ContainerStatusRunning)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &dockerID, &c.Status); err != nil {
 			return nil, err
@@ -376,7 +376,7 @@ func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefi
 	return exists, err
 }
 
-func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Container, int, error) {
+func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
 	var total int
 	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM containers`).Scan(&total)
 	if err != nil {
@@ -394,9 +394,9 @@ func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset
 	}
 	defer rows.Close()
 
-	var containers []domain.Container
+	var containers []model.Container
 	for rows.Next() {
-		var c domain.Container
+		var c model.Container
 		var projectID sql.NullString
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix, &c.Status, &c.BaseMemoryReservation, &c.CreatedAt); err != nil {

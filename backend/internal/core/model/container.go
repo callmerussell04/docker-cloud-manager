@@ -1,4 +1,4 @@
-package domain
+package model
 
 import (
 	"time"
@@ -29,6 +29,23 @@ type Container struct {
 	EnvVars               []byte
 	BaseMemoryReservation int64
 	CreatedAt             time.Time
+}
+
+type ContainerCreateParams struct {
+	ProjectID         *uuid.UUID
+	Name              string
+	NetworkAlias      string
+	ImageTag          string
+	InternalPort      int
+	EnvVars           map[string]string
+	VolumeMounts      []VolumeMountParams
+	RequestedMemoryMB int64
+	DomainPrefix      string
+
+	Command     []string
+	Entrypoint  []string
+	Restart     string
+	Healthcheck *Healthcheck
 }
 
 type ContainerStats struct {

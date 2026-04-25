@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -19,7 +19,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
-func (r *UserRepository) SaveUser(ctx context.Context, user domain.User) error {
+func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 	query := `
 		INSERT INTO users (id, username, email, password_hash, role)
 		VALUES ($1, $2, $3, $4, $5)
@@ -37,14 +37,14 @@ func (r *UserRepository) SaveUser(ctx context.Context, user domain.User) error {
 	return nil
 }
 
-func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
+func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	query := `
 		SELECT id, username, email, password_hash, role, quota_cpu, quota_ram_mb, quota_disk_mb
 		FROM users
 		WHERE username = $1
 	`
 
-	var user domain.User
+	var user model.User
 	err := r.db.QueryRowContext(ctx, query, username).Scan(
 		&user.ID,
 		&user.Username,
@@ -58,22 +58,22 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.User{}, apperrors.ErrNotFound
+			return model.User{}, apperrors.ErrNotFound
 		}
-		return domain.User{}, err
+		return model.User{}, err
 	}
 
 	return user, nil
 }
 
-func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
+func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error) {
 	query := `
 		SELECT id, username, email, password_hash, role, quota_cpu, quota_ram_mb, quota_disk_mb
 		FROM users
 		WHERE id = $1
 	`
 
-	var user domain.User
+	var user model.User
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID,
 		&user.Username,
@@ -87,17 +87,17 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (domain.
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return domain.User{}, apperrors.ErrNotFound
+			return model.User{}, apperrors.ErrNotFound
 		}
-		return domain.User{}, err
+		return model.User{}, err
 	}
 
 	return user, nil
 }
 
-func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.User, error) {
+func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]model.User, error) {
 	if len(ids) == 0 {
-		return []domain.User{}, nil
+		return []model.User{}, nil
 	}
 
 	query := `
@@ -112,9 +112,9 @@ func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]
 	}
 	defer rows.Close()
 
-	var users []domain.User
+	var users []model.User
 	for rows.Next() {
-		var user domain.User
+		var user model.User
 		if err := rows.Scan(
 			&user.ID,
 			&user.Username,

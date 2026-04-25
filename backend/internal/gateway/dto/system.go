@@ -19,28 +19,3 @@ type SystemConfigDTO struct {
 	RegistryPublicUrl             string  `json:"registry_public_url"`
 	ContainerTtlHours             int64   `json:"container_ttl_hours"`
 }
-
-type PaginatedContainers struct {
-	Containers []interface{} `json:"containers"`
-	TotalCount int           `json:"total_count"`
-}
-
-type PaginatedVolumes struct {
-	Volumes    []interface{} `json:"volumes"`
-	TotalCount int           `json:"total_count"`
-}
-
-type PaginatedImages struct {
-	Images     []interface{} `json:"images"`
-	TotalCount int           `json:"total_count"`
-}
-
-type PaginatedBuilds struct {
-	Builds     []interface{} `json:"builds"`
-	TotalCount int           `json:"total_count"`
-}
-
-type PaginatedProjects struct {
-	Projects   []interface{} `json:"projects"`
-	TotalCount int           `json:"total_count"`
-}

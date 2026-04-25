@@ -6,14 +6,14 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildOwnerService interface {
-	GetUserBuilds(ctx context.Context, ownerID string) ([]*coreapi.BuildData, error)
+	GetUserBuilds(ctx context.Context, ownerID string) ([]dto.BuildDTO, error)
 }
 
 func NewBuilderProxyHandler(targetURL string, internalToken string) (gin.HandlerFunc, error) {
@@ -53,7 +53,7 @@ func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerServ
 
 		allowed := false
 		for _, build := range builds {
-			if build.GetId() == buildID {
+			if build.ID == buildID {
 				allowed = true
 				break
 			}

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 )
 
 func getEnvInt(key string, fallback int) int {
@@ -55,7 +55,7 @@ func main() {
 	maxUnpackedSize := getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024)
 	maxLogSize := getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)
 
-	config := service.BuilderConfig{
+	builderConfig := config.BuilderConfig{
 		BuildMemoryBytes:    getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
 		BuildCPUQuota:       getEnvInt64("BUILD_CPU_QUOTA", 100000),
 		LogsDirPath:         logsDirPath,
@@ -66,7 +66,7 @@ func main() {
 		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 	}
 
-	application, err := app.New(port, coreTarget, internalToken, config, maxUnpackedSize, maxLogSize, storagePath)
+	application, err := app.New(port, coreTarget, internalToken, builderConfig, maxUnpackedSize, maxLogSize, storagePath)
 	if err != nil {
 		log.Fatalf("failed to initialize builder app: %v", err)
 	}

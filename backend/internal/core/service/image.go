@@ -10,20 +10,20 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/validation"
 	"github.com/google/uuid"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/domain"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type ImageRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error)
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Image, error)
+	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	Save(ctx context.Context, img domain.Image) error
+	Save(ctx context.Context, img model.Image) error
 	UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Image, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Image, int, error)
 }
 
 type ImageContainerRepository interface {
@@ -31,12 +31,12 @@ type ImageContainerRepository interface {
 }
 
 type BuildRepository interface {
-	Save(ctx context.Context, b domain.Build) error
+	Save(ctx context.Context, b model.Build) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
-	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error)
-	GetByID(ctx context.Context, id uuid.UUID) (domain.Build, error)
+	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]domain.Build, int, error)
+	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 }
 
 type ImageDockerAPI interface {
@@ -78,7 +78,7 @@ func NewImageService(
 	}
 }
 
-func (s *ImageService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]domain.Image, error) {
+func (s *ImageService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
 }
 
@@ -148,7 +148,7 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 
 	// 2. Резервируем "пустой" образ в БД
 	imageID := uuid.New()
-	img := domain.Image{
+	img := model.Image{
 		ID:       imageID,
 		OwnerID:  ownerID,
 		Tag:      normalizedTag,
@@ -167,10 +167,10 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		logFilePath = buildID.String() + ".log"
 	}
 
-	build := domain.Build{
+	build := model.Build{
 		ID:          buildID,
 		ImageID:     imageID,
-		Status:      domain.BuildStatusPending, // Или "running", так как процесс уже пошел
+		Status:      model.BuildStatusPending, // Или "running", так как процесс уже пошел
 		LogFilePath: logFilePath,
 		StartedAt:   time.Now(),
 	}
@@ -185,7 +185,7 @@ func (s *ImageService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 }
 
 func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
-	if status != domain.BuildStatusSuccess {
+	if status != model.BuildStatusSuccess {
 		return s.repo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
 	}
 
@@ -231,7 +231,7 @@ func (s *ImageService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	return s.repo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB)
 }
 
-func (s *ImageService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]domain.Build, error) {
+func (s *ImageService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
 	return s.buildRepo.GetUserBuilds(ctx, ownerID)
 }
 
@@ -261,7 +261,7 @@ func parseImageTag(rawTag string) (baseName, version string) {
 	return parts[0], parts[1]
 }
 
-func (s *ImageService) GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]domain.Image, int, error) {
+func (s *ImageService) GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]model.Image, int, error) {
 	return s.repo.GetAllPaginated(ctx, limit, offset)
 }
 
@@ -297,7 +297,7 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 	return s.repo.Delete(ctx, imageID)
 }
 
-func (s *ImageService) GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]domain.Build, int, error) {
+func (s *ImageService) GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
 	return s.buildRepo.GetAllPaginated(ctx, limit, offset)
 }
 

@@ -167,8 +167,8 @@ message ImageListResponse {
 message CreateVolumeRequest {
   string owner_id = 1;
   string name = 2;
-  string driver = 3;
-  map<string, string> driver_opts = 4;
+  reserved 3, 4;
+  reserved "driver", "driver_opts";
 }
 
 message CreateVolumeResponse {
