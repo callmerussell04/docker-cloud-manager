@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 )
 
+var ErrLogSizeLimitExceeded = errors.New("log size limit exceeded")
+
 type LogManager struct {
 	logDir     string
 	maxLogSize int64
@@ -42,7 +44,7 @@ func (m *LogManager) SaveLogs(buildID string, logStream io.Reader) (string, erro
 
 		if totalBytes > m.maxLogSize {
 			file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
-			return logFilePath, errors.New("log size limit exceeded")
+			return logFilePath, ErrLogSizeLimitExceeded
 		}
 	}
 
@@ -51,4 +53,22 @@ func (m *LogManager) SaveLogs(buildID string, logStream io.Reader) (string, erro
 	}
 
 	return logFilePath, nil
+}
+
+func (m *LogManager) WriteSystemLog(buildID string, message string) error {
+	logFilePath := filepath.Join(m.logDir, buildID+".log")
+	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString("\n[SYSTEM] " + message + "\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *LogManager) IsLogSizeLimitExceeded(err error) bool {
+	return errors.Is(err, ErrLogSizeLimitExceeded)
 }

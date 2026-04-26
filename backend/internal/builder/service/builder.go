@@ -36,6 +36,8 @@ type DockerAPI interface {
 
 type LogManager interface {
 	SaveLogs(logID string, dockerStream io.Reader) (string, error)
+	WriteSystemLog(logID string, message string) error
+	IsLogSizeLimitExceeded(err error) bool
 }
 
 type CoreClient interface {
@@ -133,17 +135,22 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 	logger := s.logger.With("build_id", buildID, "image_id", imageID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "build started", "image_tag", fmt.Sprintf("%s:%s", baseName, version))
 
-	status := "failed"
+	status := buildStatusFailedInternal
 	var sizeMB int
 
 	// Создаем рабочую директорию (workspace) для Kaniko
 	workspaceDir := filepath.Join(s.config.StoragePath, buildID+"_workspace")
-	if err := os.MkdirAll(workspaceDir, 0755); err == nil {
+	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
+		logger.ErrorContext(ctx, "failed to create build workspace", "error", err)
+		s.writeInternalBuildLog(ctx, logger, buildID)
+	} else {
 		defer os.RemoveAll(workspaceDir)
 
 		// Распаковываем архив пользователя
-		if err := s.extractor.Extract(archivePath, workspaceDir); err == nil {
-
+		if err := s.extractor.Extract(archivePath, workspaceDir); err != nil {
+			logger.ErrorContext(ctx, "failed to extract build archive", "error", err)
+			s.writeInternalBuildLog(ctx, logger, buildID)
+		} else {
 			cleanContextDir := ""
 			if contextDir != "" && contextDir != "." {
 				cleanContextDir = filepath.Clean(contextDir)
@@ -170,7 +177,10 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 
 			// Запускаем контейнер Kaniko
 			containerID, logStream, buildErr := s.dockerAPI.RunBuildContainer(ctx, params)
-			if buildErr == nil {
+			if buildErr != nil {
+				logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
+				s.writeInternalBuildLog(ctx, logger, buildID)
+			} else {
 				defer logStream.Close()
 				defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
 
@@ -181,27 +191,56 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 				waitErr := s.dockerAPI.WaitForBuild(ctx, containerID)
 
 				if logErr == nil && waitErr == nil && ctx.Err() == nil {
-					status = "success"
+					status = buildStatusSuccess
 					sizeMB = 0
+				} else if waitErr != nil {
+					status = buildStatusFailed
+					if logErr != nil {
+						logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
+					}
+				} else if logErr != nil {
+					if s.logManager.IsLogSizeLimitExceeded(logErr) {
+						status = buildStatusFailed
+					} else {
+						status = buildStatusFailedInternal
+						s.writeInternalBuildLog(ctx, logger, buildID)
+					}
+					logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
 				}
 			}
 		}
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		status = "failed_timeout"
+		status = buildStatusFailedTimeout
+		if err := s.logManager.WriteSystemLog(buildID, "Build failed because it exceeded the maximum build time."); err != nil {
+			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
+		}
 	}
 
 	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
 		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
 		return
 	}
-	if status == "success" {
+	if status == buildStatusSuccess {
 		logger.InfoContext(ctx, "build completed", "status", status)
 	} else {
 		logger.WarnContext(ctx, "build failed", "status", status)
 	}
 }
+
+func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID string) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error."); err != nil {
+		logger.WarnContext(ctx, "failed to write internal build log", "error", err)
+	}
+}
+
+const (
+	buildStatusSuccess        = "success"
+	buildStatusFailed         = "failed"
+	buildStatusFailedTimeout  = "failed_timeout"
+	buildStatusFailedInternal = "failed_internal"
+)
 
 func parseImageTag(rawTag string) (baseName, version string) {
 	parts := strings.SplitN(rawTag, ":", 2)

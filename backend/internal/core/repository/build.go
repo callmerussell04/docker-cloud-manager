@@ -21,8 +21,8 @@ func NewBuildRepository(db *sql.DB) *BuildRepository {
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, status, log_file_path, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO builds (id, image_id, owner_id, status, log_file_path, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	var finishedAt sql.NullTime
 	if b.FinishedAt != nil {
@@ -30,7 +30,7 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 		finishedAt.Valid = true
 	}
 
-	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.Status, b.LogFilePath, b.StartedAt, finishedAt)
+	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.OwnerID, b.Status, b.LogFilePath, b.StartedAt, finishedAt)
 	return err
 }
 
@@ -42,7 +42,7 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	`
 
 	var finishedAt sql.NullTime
-	if status == model.BuildStatusSuccess || status == model.BuildStatusFailed {
+	if model.IsBuildTerminalStatus(status) {
 		finishedAt.Time = time.Now()
 		finishedAt.Valid = true
 	}
@@ -65,7 +65,7 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 
 func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, status, log_file_path, started_at, finished_at 
+		SELECT id, image_id, owner_id, status, log_file_path, started_at, finished_at 
 		FROM builds 
 		WHERE image_id = $1 
 		ORDER BY started_at DESC
@@ -82,7 +82,7 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 		var b model.Build
 		var finishedAt sql.NullTime
 
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 
@@ -96,10 +96,9 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 
 func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
 	query := `
-		SELECT b.id, b.image_id, b.status, b.log_file_path, b.started_at, b.finished_at 
+		SELECT b.id, b.image_id, b.owner_id, b.status, b.log_file_path, b.started_at, b.finished_at 
 		FROM builds b
-		JOIN images i ON b.image_id = i.id
-		WHERE i.owner_id = $1 
+		WHERE b.owner_id = $1 
 		ORDER BY b.started_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -113,7 +112,7 @@ func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) 
 		var b model.Build
 		var finishedAt sql.NullTime
 
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 
@@ -127,7 +126,7 @@ func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) 
 
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
-		SELECT id, image_id, status, log_file_path, started_at, finished_at 
+		SELECT id, image_id, owner_id, status, log_file_path, started_at, finished_at 
 		FROM builds 
 		WHERE id = $1
 	`
@@ -135,7 +134,7 @@ func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Buil
 	var finishedAt sql.NullTime
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt,
+		&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.StartedAt, &finishedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -168,7 +167,7 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, status, log_file_path, started_at 
+		SELECT id, image_id, owner_id, status, log_file_path, started_at 
 		FROM builds 
 		WHERE status IN ($1, $2) AND started_at < $3
 	`
@@ -181,7 +180,7 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	var builds []model.Build
 	for rows.Next() {
 		var b model.Build
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.Status, &b.LogFilePath, &b.StartedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.StartedAt); err != nil {
 			return nil, err
 		}
 		builds = append(builds, b)
@@ -197,9 +196,8 @@ func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	}
 
 	query := `
-		SELECT b.id, b.image_id, i.owner_id, b.status, b.log_file_path, b.started_at, b.finished_at
+		SELECT b.id, b.image_id, b.owner_id, b.status, b.log_file_path, b.started_at, b.finished_at
 		FROM builds b
-		JOIN images i ON b.image_id = i.id
 		ORDER BY b.started_at DESC LIMIT $1 OFFSET $2
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)

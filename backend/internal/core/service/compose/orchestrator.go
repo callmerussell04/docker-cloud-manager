@@ -334,7 +334,7 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 				if err != nil {
 					continue // Ждем, пока запись появится
 				}
-				if b.Status == model.BuildStatusFailed || b.Status == "failed_timeout" || b.Status == "failed_quota_exceeded" {
+				if model.IsBuildFailedStatus(b.Status) {
 					return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", b.Status))
 				}
 				if b.Status != model.BuildStatusSuccess {

@@ -129,7 +129,7 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 	defer tx.Rollback()
 
 	var finishedAt sql.NullTime
-	if status == model.BuildStatusSuccess || status == model.BuildStatusFailed || status == "failed_timeout" || status == "failed_quota_exceeded" {
+	if model.IsBuildTerminalStatus(status) {
 		finishedAt.Time = time.Now()
 		finishedAt.Valid = true
 	}
@@ -155,7 +155,7 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 	defer tx.Rollback()
 
 	var finishedAt sql.NullTime
-	if status == model.BuildStatusSuccess || status == model.BuildStatusFailed || status == "failed_timeout" || status == "failed_quota_exceeded" {
+	if model.IsBuildTerminalStatus(status) {
 		finishedAt.Time = time.Now()
 		finishedAt.Valid = true
 	}

@@ -88,6 +88,7 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 	build := model.Build{
 		ID:          buildID,
 		ImageID:     imageID,
+		OwnerID:     ownerID,
 		Status:      model.BuildStatusPending,
 		LogFilePath: logFilePath,
 		StartedAt:   time.Now(),
@@ -103,6 +104,7 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 
 func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
 	if status != model.BuildStatusSuccess {
+		status = normalizeFailedBuildStatus(status)
 		s.logger.WarnContext(ctx, "build record marked failed", "build_id", buildID, "image_id", imageID, "status", status)
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
 	}
@@ -118,7 +120,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
-		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailed)
+		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
 
 	sizeMB := int(sizeBytes / (1024 * 1024))
@@ -137,7 +139,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 
 	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
-		_ = s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, "failed_quota_exceeded")
+		_ = s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded)
 		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
 		return apperrors.New(apperrors.ErrQuotaExceeded, "image size exceeds user disk quota, image removed")
 	}
@@ -158,12 +160,7 @@ func (s *BuildService) DeleteBuild(ctx context.Context, ownerID, buildID uuid.UU
 	if err != nil {
 		return err
 	}
-
-	img, err := s.imageRepo.GetByID(ctx, b.ImageID)
-	if err != nil {
-		return err
-	}
-	if img.OwnerID != ownerID {
+	if b.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
 
@@ -180,4 +177,16 @@ func (s *BuildService) AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) 
 		return err
 	}
 	return s.repo.Delete(ctx, buildID)
+}
+
+func normalizeFailedBuildStatus(status string) string {
+	switch status {
+	case model.BuildStatusFailed,
+		model.BuildStatusFailedTimeout,
+		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedInternal:
+		return status
+	default:
+		return model.BuildStatusFailedInternal
+	}
 }
