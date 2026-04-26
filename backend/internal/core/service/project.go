@@ -29,19 +29,25 @@ type ProjectDockerAPI interface {
 	RemoveVolume(ctx context.Context, volumeName string, force bool) error
 }
 
-type ProjectService struct {
-	repo         ProjectRepository
-	resourceRepo ProjectResourceRepository
-	dockerAPI    ProjectDockerAPI
-	parser       *compose.Parser
+type ProjectNetworkCleaner interface {
+	CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error
 }
 
-func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI) *ProjectService {
+type ProjectService struct {
+	repo           ProjectRepository
+	resourceRepo   ProjectResourceRepository
+	dockerAPI      ProjectDockerAPI
+	networkCleaner ProjectNetworkCleaner
+	parser         *compose.Parser
+}
+
+func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, networkCleaner ProjectNetworkCleaner) *ProjectService {
 	return &ProjectService{
-		repo:         repo,
-		resourceRepo: resourceRepo,
-		dockerAPI:    dockerAPI,
-		parser:       compose.NewParser(),
+		repo:           repo,
+		resourceRepo:   resourceRepo,
+		dockerAPI:      dockerAPI,
+		networkCleaner: networkCleaner,
+		parser:         compose.NewParser(),
 	}
 }
 
@@ -104,7 +110,12 @@ func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUI
 	}
 
 	// 3. Удаляем запись проекта из БД (Сработает ON DELETE CASCADE для контейнеров и томов в БД)
-	return s.repo.Delete(ctx, projectID)
+	if err := s.repo.Delete(ctx, projectID); err != nil {
+		return err
+	}
+
+	s.cleanupUserNetwork(ctx, ownerID)
+	return nil
 }
 
 func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
@@ -140,7 +151,7 @@ func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) err
 }
 
 func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) error {
-	_, err := s.repo.GetByID(ctx, projectID)
+	p, err := s.repo.GetByID(ctx, projectID)
 	if err != nil {
 		return err
 	}
@@ -159,5 +170,17 @@ func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) e
 		}
 	}
 
-	return s.repo.Delete(ctx, projectID)
+	if err := s.repo.Delete(ctx, projectID); err != nil {
+		return err
+	}
+
+	s.cleanupUserNetwork(ctx, p.OwnerID)
+	return nil
+}
+
+func (s *ProjectService) cleanupUserNetwork(ctx context.Context, ownerID uuid.UUID) {
+	if s.networkCleaner == nil {
+		return
+	}
+	_ = s.networkCleaner.CleanupUserNetworkIfUnused(ctx, ownerID)
 }

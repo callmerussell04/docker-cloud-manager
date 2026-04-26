@@ -94,7 +94,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager)
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger)
-	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter)
+	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
 

@@ -103,7 +103,7 @@ func NewContainerService(
 	}
 }
 
-func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error) {
+func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -159,11 +159,16 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	}
 
 	// 4. Изоляция сети
-	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
+	networkName := userNetworkName(ownerID)
 	_, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName)
 	if err != nil {
 		return uuid.Nil, err
 	}
+	defer func() {
+		if err != nil {
+			s.cleanupUserNetworkIfUnused(ctx, ownerID)
+		}
+	}()
 
 	baseName, version := parseImageTag(params.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
@@ -376,7 +381,7 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 		dockerMounts = append(dockerMounts, m)
 	}
 
-	networkName := fmt.Sprintf("net_user_%s", ownerID.String())
+	networkName := userNetworkName(ownerID)
 	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.Get().BaseDomain)
 
 	dockerParams := model.ContainerRuntimeSpec{
@@ -501,14 +506,40 @@ func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid
 		return err
 	}
 
-	count, _ := s.repo.CountByOwnerID(ctx, ownerID)
-	if count == 0 {
-		networkName := fmt.Sprintf("net_user_%s", ownerID.String())
-		_ = s.dockerAPI.RemoveNetwork(ctx, networkName)
-	}
+	s.cleanupUserNetworkIfUnused(ctx, ownerID)
 
 	s.logger.InfoContext(ctx, "container deleted", "container_id", containerID, "owner_id", ownerID)
 	return nil
+}
+
+func (s *ContainerService) CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error {
+	count, err := s.repo.CountByOwnerID(ctx, ownerID)
+	if err != nil {
+		err = fmt.Errorf("failed to count user containers: %w", err)
+		s.logger.WarnContext(ctx, "failed to cleanup user network", "owner_id", ownerID, "error", err)
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	networkName := userNetworkName(ownerID)
+	if err := s.dockerAPI.RemoveNetwork(ctx, networkName); err != nil {
+		err = fmt.Errorf("failed to remove user network %s: %w", networkName, err)
+		s.logger.WarnContext(ctx, "failed to cleanup user network", "owner_id", ownerID, "network", networkName, "error", err)
+		return err
+	}
+
+	s.logger.InfoContext(ctx, "user network removed", "owner_id", ownerID, "network", networkName)
+	return nil
+}
+
+func (s *ContainerService) cleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) {
+	_ = s.CleanupUserNetworkIfUnused(ctx, ownerID)
+}
+
+func userNetworkName(ownerID uuid.UUID) string {
+	return fmt.Sprintf("net_user_%s", ownerID.String())
 }
 
 func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
@@ -643,7 +674,11 @@ func (s *ContainerService) AdminDelete(ctx context.Context, containerID uuid.UUI
 		return err
 	}
 	_ = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
-	return s.repo.Delete(ctx, containerID)
+	if err := s.repo.Delete(ctx, containerID); err != nil {
+		return err
+	}
+	s.cleanupUserNetworkIfUnused(ctx, c.OwnerID)
+	return nil
 }
 
 func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID) error {
