@@ -121,6 +121,8 @@ message ContainerData {
   int64 created_at = 8;
   string owner_id = 9;
   string owner_username = 10;
+  string desired_status = 11;
+  string last_error = 12;
 }
 
 message ContainerListResponse {
@@ -158,6 +160,8 @@ message ImageData {
   int64 created_at = 5;
   string owner_id = 6;
   string owner_username = 7;
+  string status = 8;
+  string last_error = 9;
 }
 
 message ImageListResponse {
@@ -187,6 +191,8 @@ message VolumeData {
   int64 created_at = 4;
   string owner_id = 5;
   string owner_username = 6;
+  string status = 7;
+  string last_error = 8;
 }
 
 message VolumeListResponse {
@@ -221,6 +227,7 @@ message ProjectData {
   int64 created_at = 5;
   string owner_id = 6;
   string owner_username = 7;
+  string last_error = 8;
 }
 
 message ProjectListResponse {

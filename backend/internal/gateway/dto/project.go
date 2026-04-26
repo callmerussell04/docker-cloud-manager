@@ -5,6 +5,7 @@ type ProjectDTO struct {
 	Name          string `json:"name"`
 	Status        string `json:"status"`
 	ErrorMessage  string `json:"error_message"`
+	LastError     string `json:"last_error"`
 	CreatedAt     int64  `json:"created_at"`
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`

@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
@@ -18,6 +19,11 @@ type VolumeRepository interface {
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
+}
+
+type volumeStateRepository interface {
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
 type VolumeDockerAPI interface {
@@ -56,26 +62,34 @@ func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params mo
 	volID := uuid.New()
 	dockerName := fmt.Sprintf("vol_%s_%s", ownerID.String()[:8], params.Name)
 
+	vol := model.Volume{
+		ID:         volID,
+		OwnerID:    ownerID,
+		ProjectID:  params.ProjectID,
+		DockerName: dockerName,
+		Driver:     "local",
+		Status:     model.VolumeStatusCreating,
+	}
+
+	if err := s.repo.Save(ctx, vol); err != nil {
+		return uuid.Nil, err
+	}
+
 	dockerParams := model.VolumeRuntimeSpec{
 		VolumeName: dockerName,
+		VolumeID:   volID.String(),
+		OwnerID:    ownerID.String(),
+	}
+	if params.ProjectID != nil {
+		dockerParams.ProjectID = params.ProjectID.String()
 	}
 
 	_, err = s.dockerAPI.CreateVolume(ctx, dockerParams)
 	if err != nil {
+		s.markVolumeError(ctx, volID, model.VolumeStatusError, err)
 		return uuid.Nil, err
 	}
-
-	vol := model.Volume{
-		ID:         volID,
-		OwnerID:    ownerID,
-		DockerName: dockerName,
-		Driver:     "local",
-	}
-
-	if err := s.repo.Save(ctx, vol); err != nil {
-		s.dockerAPI.RemoveVolume(context.Background(), dockerName, true)
-		return uuid.Nil, err
-	}
+	s.setVolumeStatus(ctx, volID, model.VolumeStatusAvailable)
 
 	return volID, nil
 }
@@ -97,8 +111,10 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 	if inUse {
 		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 	}
+	s.setVolumeStatus(ctx, volumeID, model.VolumeStatusDeleting)
 
-	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {
+	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil && !cerrdefs.IsNotFound(err) {
+		s.markVolumeError(ctx, volumeID, model.VolumeStatusError, err)
 		return err
 	}
 
@@ -126,10 +142,28 @@ func (s *VolumeService) AdminDelete(ctx context.Context, volumeID uuid.UUID) err
 	if inUse {
 		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 	}
+	s.setVolumeStatus(ctx, volumeID, model.VolumeStatusDeleting)
 
-	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil {
+	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil && !cerrdefs.IsNotFound(err) {
+		s.markVolumeError(ctx, volumeID, model.VolumeStatusError, err)
 		return err
 	}
 
 	return s.repo.Delete(ctx, volumeID)
+}
+
+func (s *VolumeService) setVolumeStatus(ctx context.Context, volumeID uuid.UUID, status string) {
+	stateRepo, ok := s.repo.(volumeStateRepository)
+	if !ok {
+		return
+	}
+	_ = stateRepo.UpdateStatus(ctx, volumeID, status)
+}
+
+func (s *VolumeService) markVolumeError(ctx context.Context, volumeID uuid.UUID, status string, cause error) {
+	stateRepo, ok := s.repo.(volumeStateRepository)
+	if !ok {
+		return
+	}
+	_ = stateRepo.MarkStatusError(ctx, volumeID, status, cause)
 }

@@ -7,11 +7,14 @@ import (
 )
 
 const (
-	ContainerStatusCreating = "creating"
-	ContainerStatusCreated  = "created"
-	ContainerStatusRunning  = "running"
-	ContainerStatusExited   = "exited"
-	ContainerStatusError    = "error"
+	ContainerStatusCreating    = "creating"
+	ContainerStatusCreated     = "created"
+	ContainerStatusRunning     = "running"
+	ContainerStatusExited      = "exited"
+	ContainerStatusError       = "error"
+	ContainerStatusMissing     = "missing"
+	ContainerStatusDeleting    = "deleting"
+	ContainerStatusReconciling = "reconciling"
 )
 
 type Container struct {
@@ -25,9 +28,18 @@ type Container struct {
 	InternalPort          int
 	DomainPrefix          string
 	Status                string
+	DesiredStatus         string
 	TTLDeadline           *time.Time
 	EnvVars               []byte
 	BaseMemoryReservation int64
+	LastObservedAt        *time.Time
+	LastError             *string
+	DockerGeneration      int
+	NetworkAlias          string
+	Command               []string
+	Entrypoint            []string
+	Restart               string
+	Healthcheck           *Healthcheck
 	CreatedAt             time.Time
 }
 

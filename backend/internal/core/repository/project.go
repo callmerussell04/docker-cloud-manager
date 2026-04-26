@@ -128,6 +128,16 @@ func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	return nil
 }
 
+func (r *ProjectRepository) FailActiveDeployments(ctx context.Context, errorMessage string) error {
+	query := `
+		UPDATE projects
+		SET status = $1, error_message = $2
+		WHERE status IN ($3, $4)
+	`
+	_, err := r.db.ExecContext(ctx, query, model.ProjectStatusFailed, errorMessage, model.ProjectStatusBuilding, model.ProjectStatusDeploying)
+	return err
+}
+
 func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM projects WHERE id = $1`
 

@@ -5,6 +5,7 @@ type Project struct {
 	Name          string
 	Status        string
 	ErrorMessage  string
+	LastError     string
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string

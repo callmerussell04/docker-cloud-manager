@@ -561,6 +561,8 @@ type ContainerData struct {
 	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername string                 `protobuf:"bytes,10,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	DesiredStatus string                 `protobuf:"bytes,11,opt,name=desired_status,json=desiredStatus,proto3" json:"desired_status,omitempty"`
+	LastError     string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -661,6 +663,20 @@ func (x *ContainerData) GetOwnerId() string {
 func (x *ContainerData) GetOwnerUsername() string {
 	if x != nil {
 		return x.OwnerUsername
+	}
+	return ""
+}
+
+func (x *ContainerData) GetDesiredStatus() string {
+	if x != nil {
+		return x.DesiredStatus
+	}
+	return ""
+}
+
+func (x *ContainerData) GetLastError() string {
+	if x != nil {
+		return x.LastError
 	}
 	return ""
 }
@@ -950,6 +966,8 @@ type ImageData struct {
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername string                 `protobuf:"bytes,7,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	LastError     string                 `protobuf:"bytes,9,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1029,6 +1047,20 @@ func (x *ImageData) GetOwnerId() string {
 func (x *ImageData) GetOwnerUsername() string {
 	if x != nil {
 		return x.OwnerUsername
+	}
+	return ""
+}
+
+func (x *ImageData) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ImageData) GetLastError() string {
+	if x != nil {
+		return x.LastError
 	}
 	return ""
 }
@@ -1233,6 +1265,8 @@ type VolumeData struct {
 	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername string                 `protobuf:"bytes,6,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	LastError     string                 `protobuf:"bytes,8,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1305,6 +1339,20 @@ func (x *VolumeData) GetOwnerId() string {
 func (x *VolumeData) GetOwnerUsername() string {
 	if x != nil {
 		return x.OwnerUsername
+	}
+	return ""
+}
+
+func (x *VolumeData) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *VolumeData) GetLastError() string {
+	if x != nil {
+		return x.LastError
 	}
 	return ""
 }
@@ -1558,6 +1606,7 @@ type ProjectData struct {
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername string                 `protobuf:"bytes,7,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	LastError     string                 `protobuf:"bytes,8,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1637,6 +1686,13 @@ func (x *ProjectData) GetOwnerId() string {
 func (x *ProjectData) GetOwnerUsername() string {
 	if x != nil {
 		return x.OwnerUsername
+	}
+	return ""
+}
+
+func (x *ProjectData) GetLastError() string {
+	if x != nil {
+		return x.LastError
 	}
 	return ""
 }
@@ -2346,7 +2402,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\"\xb0\x02\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\"\xf6\x02\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -2359,7 +2415,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"created_at\x18\b \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\t \x01(\tR\aownerId\x12%\n" +
 	"\x0eowner_username\x18\n" +
-	" \x01(\tR\rownerUsername\"L\n" +
+	" \x01(\tR\rownerUsername\x12%\n" +
+	"\x0edesired_status\x18\v \x01(\tR\rdesiredStatus\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\f \x01(\tR\tlastError\"L\n" +
 	"\x15ContainerListResponse\x123\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\v2\x13.core.ContainerDataR\n" +
@@ -2378,7 +2437,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x17\n" +
-	"\asize_mb\x18\x04 \x01(\x05R\x06sizeMb\"\xc4\x01\n" +
+	"\asize_mb\x18\x04 \x01(\x05R\x06sizeMb\"\xfb\x01\n" +
 	"\tImageData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03tag\x18\x02 \x01(\tR\x03tag\x12\x17\n" +
@@ -2387,7 +2446,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\x06 \x01(\tR\aownerId\x12%\n" +
-	"\x0eowner_username\x18\a \x01(\tR\rownerUsername\"<\n" +
+	"\x0eowner_username\x18\a \x01(\tR\rownerUsername\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\t \x01(\tR\tlastError\"<\n" +
 	"\x11ImageListResponse\x12'\n" +
 	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"e\n" +
 	"\x13CreateVolumeRequest\x12\x19\n" +
@@ -2397,7 +2459,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"M\n" +
 	"\x13VolumeActionRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x1b\n" +
-	"\tvolume_id\x18\x02 \x01(\tR\bvolumeId\"\xb6\x01\n" +
+	"\tvolume_id\x18\x02 \x01(\tR\bvolumeId\"\xed\x01\n" +
 	"\n" +
 	"VolumeData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
@@ -2407,7 +2469,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\x05 \x01(\tR\aownerId\x12%\n" +
-	"\x0eowner_username\x18\x06 \x01(\tR\rownerUsername\"@\n" +
+	"\x0eowner_username\x18\x06 \x01(\tR\rownerUsername\x12\x16\n" +
+	"\x06status\x18\a \x01(\tR\x06status\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\b \x01(\tR\tlastError\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"J\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
@@ -2425,7 +2490,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\bowner_id\x18\a \x01(\tR\aownerId\x12%\n" +
 	"\x0eowner_username\x18\b \x01(\tR\rownerUsername\"<\n" +
 	"\x11BuildListResponse\x12'\n" +
-	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds\"\xcf\x01\n" +
+	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds\"\xee\x01\n" +
 	"\vProjectData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -2434,7 +2499,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\x06 \x01(\tR\aownerId\x12%\n" +
-	"\x0eowner_username\x18\a \x01(\tR\rownerUsername\"D\n" +
+	"\x0eowner_username\x18\a \x01(\tR\rownerUsername\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\b \x01(\tR\tlastError\"D\n" +
 	"\x13ProjectListResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\"P\n" +
 	"\x14ProjectActionRequest\x12\x19\n" +

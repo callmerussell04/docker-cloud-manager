@@ -69,6 +69,8 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 			ID:            item.GetId(),
 			DockerName:    item.GetDockerName(),
 			Driver:        item.GetDriver(),
+			Status:        item.GetStatus(),
+			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

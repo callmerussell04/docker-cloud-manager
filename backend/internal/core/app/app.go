@@ -87,6 +87,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
+	if err := projRepo.FailActiveDeployments(context.Background(), "deployment interrupted by core service restart"); err != nil {
+		appLogger.Warn("failed to mark interrupted deployments", "error", err)
+	}
 
 	metricsProvider := metrics.NewSystemMetrics()
 
@@ -103,7 +106,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		internalauth.UnaryServerInterceptor(cfg.InternalToken),
 	))
 
-	orchestrator := compose.NewOrchestrator(projRepo, buildRepo, volService, contService, dockerAdapter, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
+	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+
+	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
 	composeHandler := corehttp.NewComposeHandler(orchestrator)
 	router := corehttp.SetupRouter(composeHandler, cfg.InternalToken, logger)
 
@@ -119,14 +125,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	wg := &sync.WaitGroup{}
-
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
 	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, cfg.RegistryContainerName, logger)
 
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		ttlWorker.Run(ctx)
@@ -138,6 +141,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	go func() {
 		defer wg.Done()
 		gcWorker.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		contService.RunRebalancer(ctx)
 	}()
 
 	return &App{

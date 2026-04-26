@@ -18,6 +18,11 @@ type ImageRepository interface {
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Image, int, error)
 }
 
+type imageStateRepository interface {
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
+}
+
 type ImageContainerRepository interface {
 	IsImageInUse(ctx context.Context, ownerID uuid.UUID, imageTag string) (bool, error)
 }
@@ -83,6 +88,7 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 
 	baseName, version := parseImageTag(img.Tag)
 	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	s.setImageStatus(ctx, imageID, model.ImageStatusDeleting)
 
 	// Удаление из Registry (Soft Delete)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
@@ -95,7 +101,11 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	// Удаление записи из бд
-	return s.repo.Delete(ctx, imageID)
+	if err := s.repo.Delete(ctx, imageID); err != nil {
+		s.markImageError(ctx, imageID, model.ImageStatusError, err)
+		return err
+	}
+	return nil
 }
 
 func parseImageTag(rawTag string) (baseName, version string) {
@@ -130,6 +140,7 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 
 	baseName, version := parseImageTag(img.Tag)
 	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	s.setImageStatus(ctx, imageID, model.ImageStatusDeleting)
 
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err == nil && digest != "" {
@@ -139,5 +150,25 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 	fullTag := fmt.Sprintf("%s/%s:%s", s.cfg.Get().RegistryPublicURL, repoName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
-	return s.repo.Delete(ctx, imageID)
+	if err := s.repo.Delete(ctx, imageID); err != nil {
+		s.markImageError(ctx, imageID, model.ImageStatusError, err)
+		return err
+	}
+	return nil
+}
+
+func (s *ImageService) setImageStatus(ctx context.Context, imageID uuid.UUID, status string) {
+	stateRepo, ok := s.repo.(imageStateRepository)
+	if !ok {
+		return
+	}
+	_ = stateRepo.UpdateStatus(ctx, imageID, status)
+}
+
+func (s *ImageService) markImageError(ctx context.Context, imageID uuid.UUID, status string, cause error) {
+	stateRepo, ok := s.repo.(imageStateRepository)
+	if !ok {
+		return
+	}
+	_ = stateRepo.MarkStatusError(ctx, imageID, status, cause)
 }

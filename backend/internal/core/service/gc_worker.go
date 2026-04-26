@@ -49,6 +49,7 @@ func (w *GCWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "gc worker started", "interval", w.interval.String())
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
+	w.runPrune(ctx)
 
 	for {
 		select {

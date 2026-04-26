@@ -1,6 +1,8 @@
 package model
 
 type BuildRuntimeSpec struct {
+	BuildID        string
+	OwnerID        string
 	WorkspaceDir   string
 	ContextSubDir  string
 	Dockerfile     string

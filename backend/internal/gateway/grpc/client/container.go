@@ -143,6 +143,8 @@ func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 			InternalPort:  item.GetInternalPort(),
 			DomainPrefix:  item.GetDomainPrefix(),
 			Status:        item.GetStatus(),
+			DesiredStatus: item.GetDesiredStatus(),
+			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

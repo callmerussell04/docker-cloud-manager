@@ -21,8 +21,8 @@ func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 
 func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 	query := `
-		INSERT INTO volumes (id, owner_id, project_id, docker_name, driver, driver_opts)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO volumes (id, owner_id, project_id, docker_name, driver, driver_opts, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 
 	var projectID sql.NullString
@@ -31,7 +31,12 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 		projectID.Valid = true
 	}
 
-	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, vol.Driver, vol.DriverOpts)
+	status := vol.Status
+	if status == "" {
+		status = model.VolumeStatusAvailable
+	}
+
+	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, vol.Driver, vol.DriverOpts, status)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -44,15 +49,17 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {
 	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
 		FROM volumes WHERE id = $1
 	`
 
 	var v model.Volume
 	var projectID sql.NullString
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt,
+		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -65,13 +72,19 @@ func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Vol
 		parsed, _ := uuid.Parse(projectID.String)
 		v.ProjectID = &parsed
 	}
+	if lastObservedAt.Valid {
+		v.LastObservedAt = &lastObservedAt.Time
+	}
+	if lastError.Valid {
+		v.LastError = &lastError.String
+	}
 
 	return v, nil
 }
 
 func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error) {
 	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
 		FROM volumes WHERE owner_id = $1
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
@@ -84,14 +97,22 @@ func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) 
 	for rows.Next() {
 		var v model.Volume
 		var projectID sql.NullString
+		var lastObservedAt sql.NullTime
+		var lastError sql.NullString
 
-		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 
 		if projectID.Valid {
 			parsed, _ := uuid.Parse(projectID.String)
 			v.ProjectID = &parsed
+		}
+		if lastObservedAt.Valid {
+			v.LastObservedAt = &lastObservedAt.Time
+		}
+		if lastError.Valid {
+			v.LastError = &lastError.String
 		}
 
 		volumes = append(volumes, v)
@@ -107,6 +128,43 @@ func (r *VolumeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 		}
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *VolumeRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	query := `UPDATE volumes SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
+	res, err := r.db.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *VolumeRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	var msg sql.NullString
+	if cause != nil {
+		msg.String = cause.Error()
+		msg.Valid = true
+	}
+	query := `UPDATE volumes SET status = $1, last_observed_at = NOW(), last_error = $2 WHERE id = $3`
+	res, err := r.db.ExecContext(ctx, query, status, msg, id)
+	if err != nil {
 		return err
 	}
 	rowsAffected, err := res.RowsAffected()
@@ -177,7 +235,7 @@ func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID
 
 func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error) {
 	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, created_at 
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
 		FROM volumes 
 		WHERE project_id = $1
 	`
@@ -191,13 +249,21 @@ func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UU
 	for rows.Next() {
 		var v model.Volume
 		var pID sql.NullString
+		var lastObservedAt sql.NullTime
+		var lastError sql.NullString
 
-		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
 			return nil, err
 		}
 		if pID.Valid {
 			parsed, _ := uuid.Parse(pID.String)
 			v.ProjectID = &parsed
+		}
+		if lastObservedAt.Valid {
+			v.LastObservedAt = &lastObservedAt.Time
+		}
+		if lastError.Valid {
+			v.LastError = &lastError.String
 		}
 		volumes = append(volumes, v)
 	}
@@ -212,7 +278,7 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 	}
 
 	query := `
-		SELECT v.id, v.owner_id, v.project_id, v.docker_name, v.driver, v.driver_opts, v.created_at
+		SELECT v.id, v.owner_id, v.project_id, v.docker_name, v.driver, v.driver_opts, v.status, v.last_observed_at, v.last_error, v.created_at
 		FROM volumes v
 		ORDER BY v.created_at DESC LIMIT $1 OFFSET $2
 	`
@@ -226,12 +292,20 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 	for rows.Next() {
 		var v model.Volume
 		var pID sql.NullString
-		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.CreatedAt); err != nil {
+		var lastObservedAt sql.NullTime
+		var lastError sql.NullString
+		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if pID.Valid {
 			parsed, _ := uuid.Parse(pID.String)
 			v.ProjectID = &parsed
+		}
+		if lastObservedAt.Valid {
+			v.LastObservedAt = &lastObservedAt.Time
+		}
+		if lastError.Valid {
+			v.LastError = &lastError.String
 		}
 		volumes = append(volumes, v)
 	}

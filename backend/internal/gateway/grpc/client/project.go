@@ -73,6 +73,7 @@ func projectsFromProto(items []*coreapi.ProjectData) []model.Project {
 			Name:          item.GetName(),
 			Status:        item.GetStatus(),
 			ErrorMessage:  item.GetErrorMessage(),
+			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

@@ -93,6 +93,8 @@ func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUser
 			DockerName: v.DockerName,
 			Driver:     v.Driver,
 			CreatedAt:  v.CreatedAt.Unix(),
+			Status:     v.Status,
+			LastError:  stringValue(v.LastError),
 		})
 	}
 
@@ -126,6 +128,8 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 			CreatedAt:     v.CreatedAt.Unix(),
 			OwnerId:       v.OwnerID.String(),
 			OwnerUsername: usernames[v.OwnerID],
+			Status:        v.Status,
+			LastError:     stringValue(v.LastError),
 		})
 	}
 

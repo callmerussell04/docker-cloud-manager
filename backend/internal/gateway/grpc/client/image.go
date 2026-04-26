@@ -58,6 +58,8 @@ func imagesFromProto(items []*coreapi.ImageData) []model.Image {
 			Tag:           item.GetTag(),
 			SizeMB:        item.GetSizeMb(),
 			IsCustom:      item.GetIsCustom(),
+			Status:        item.GetStatus(),
+			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

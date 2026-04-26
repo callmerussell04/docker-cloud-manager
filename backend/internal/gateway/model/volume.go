@@ -4,6 +4,8 @@ type Volume struct {
 	ID            string
 	DockerName    string
 	Driver        string
+	Status        string
+	LastError     string
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string

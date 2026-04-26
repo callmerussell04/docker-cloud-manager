@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
@@ -83,9 +86,19 @@ func main() {
 		fatal(logger, "failed to initialize builder app", "error", err)
 	}
 
-	if err := application.Run(); err != nil {
-		fatal(logger, "builder server failed", "error", err)
-	}
+	go func() {
+		if err := application.Run(); err != nil {
+			fatal(logger, "builder server failed", "error", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
+	<-stop
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	application.Stop(shutdownCtx)
 }
 
 func fatal(logger *slog.Logger, msg string, args ...any) {

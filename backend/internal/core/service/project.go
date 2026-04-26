@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
@@ -94,19 +95,30 @@ func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUI
 	if p.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
+	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusDeleting, nil)
 
+	var cleanupErrors []error
 	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
 	if err == nil {
 		for _, c := range containers {
-			_ = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
+			if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !cerrdefs.IsNotFound(err) {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove container %s: %w", c.Name, err))
+			}
 		}
 	}
 
 	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, projectID)
 	if err == nil {
 		for _, v := range volumes {
-			_ = s.dockerAPI.RemoveVolume(ctx, v.DockerName, true)
+			if err := s.dockerAPI.RemoveVolume(ctx, v.DockerName, true); err != nil && !cerrdefs.IsNotFound(err) {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err))
+			}
 		}
+	}
+	if len(cleanupErrors) > 0 {
+		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
+		_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+		return fmt.Errorf("errors occurred while deleting project: %v", cleanupErrors)
 	}
 
 	// 3. Удаляем запись проекта из БД (Сработает ON DELETE CASCADE для контейнеров и томов в БД)
@@ -155,19 +167,30 @@ func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) e
 	if err != nil {
 		return err
 	}
+	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusDeleting, nil)
 
+	var cleanupErrors []error
 	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
 	if err == nil {
 		for _, c := range containers {
-			_ = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
+			if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !cerrdefs.IsNotFound(err) {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove container %s: %w", c.Name, err))
+			}
 		}
 	}
 
 	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, projectID)
 	if err == nil {
 		for _, v := range volumes {
-			_ = s.dockerAPI.RemoveVolume(ctx, v.DockerName, true)
+			if err := s.dockerAPI.RemoveVolume(ctx, v.DockerName, true); err != nil && !cerrdefs.IsNotFound(err) {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err))
+			}
 		}
+	}
+	if len(cleanupErrors) > 0 {
+		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
+		_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+		return fmt.Errorf("errors occurred while deleting project: %v", cleanupErrors)
 	}
 
 	if err := s.repo.Delete(ctx, projectID); err != nil {

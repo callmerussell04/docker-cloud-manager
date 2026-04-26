@@ -76,6 +76,7 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		Tag:      fmt.Sprintf("%s:%s", baseName, version),
 		SizeMB:   0,
 		IsCustom: true,
+		Status:   model.ImageStatusBuilding,
 	}
 	if err := s.imageRepo.Save(ctx, img); err != nil {
 		return uuid.Nil, uuid.Nil, err

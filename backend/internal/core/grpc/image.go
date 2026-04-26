@@ -129,5 +129,7 @@ func imageToProto(img model.Image, ownerUsername string) *coreapi.ImageData {
 		CreatedAt:     img.CreatedAt.Unix(),
 		OwnerId:       img.OwnerID.String(),
 		OwnerUsername: ownerUsername,
+		Status:        img.Status,
+		LastError:     stringValue(img.LastError),
 	}
 }

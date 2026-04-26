@@ -8,6 +8,8 @@ type ContainerDTO struct {
 	InternalPort  int32  `json:"internal_port"`
 	DomainPrefix  string `json:"domain_prefix"`
 	Status        string `json:"status"`
+	DesiredStatus string `json:"desired_status"`
+	LastError     string `json:"last_error"`
 	CreatedAt     int64  `json:"created_at"`
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`

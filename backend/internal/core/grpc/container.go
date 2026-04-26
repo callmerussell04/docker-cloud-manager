@@ -155,14 +155,16 @@ func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.G
 	var pbContainers []*coreapi.ContainerData
 	for _, c := range containers {
 		pbContainers = append(pbContainers, &coreapi.ContainerData{
-			Id:           c.ID.String(),
-			DockerId:     c.DockerID,
-			Name:         c.Name,
-			ImageTag:     c.ImageTag,
-			InternalPort: int32(c.InternalPort),
-			DomainPrefix: c.DomainPrefix,
-			Status:       c.Status,
-			CreatedAt:    c.CreatedAt.Unix(),
+			Id:            c.ID.String(),
+			DockerId:      c.DockerID,
+			Name:          c.Name,
+			ImageTag:      c.ImageTag,
+			InternalPort:  int32(c.InternalPort),
+			DomainPrefix:  c.DomainPrefix,
+			Status:        c.Status,
+			CreatedAt:     c.CreatedAt.Unix(),
+			DesiredStatus: c.DesiredStatus,
+			LastError:     stringValue(c.LastError),
 		})
 	}
 
@@ -223,6 +225,8 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 			CreatedAt:     c.CreatedAt.Unix(),
 			OwnerId:       c.OwnerID.String(),
 			OwnerUsername: usernames[c.OwnerID],
+			DesiredStatus: c.DesiredStatus,
+			LastError:     stringValue(c.LastError),
 		})
 	}
 

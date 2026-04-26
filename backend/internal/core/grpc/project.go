@@ -56,6 +56,7 @@ func (h *ProjectHandler) GetUserProjects(ctx context.Context, req *coreapi.GetUs
 			Status:       p.Status,
 			ErrorMessage: errMsg,
 			CreatedAt:    p.CreatedAt.Unix(),
+			LastError:    errMsg,
 		})
 	}
 
@@ -130,6 +131,7 @@ func (h *ProjectHandler) GetAllProjects(ctx context.Context, req *coreapi.Pagina
 			CreatedAt:     p.CreatedAt.Unix(),
 			OwnerId:       p.OwnerID.String(),
 			OwnerUsername: usernames[p.OwnerID],
+			LastError:     errMsg,
 		})
 	}
 

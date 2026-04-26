@@ -5,6 +5,8 @@ type Image struct {
 	Tag           string
 	SizeMB        int32
 	IsCustom      bool
+	Status        string
+	LastError     string
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -32,9 +33,17 @@ func NewAdapter() (*Adapter, error) {
 func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
 	// 1. Убеждаемся, что образ Kaniko есть на хосте
 	kanikoImage := "gcr.io/kaniko-project/executor:latest"
-	_, err := a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})
+	pullStream, err := a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})
 	if err != nil {
 		return "", nil, err
+	}
+	_, err = io.Copy(io.Discard, pullStream)
+	closeErr := pullStream.Close()
+	if err != nil {
+		return "", nil, err
+	}
+	if closeErr != nil {
+		return "", nil, closeErr
 	}
 
 	kanikoContext := "dir:///workspace"
@@ -67,6 +76,12 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
 		Cmd:   cmd,
+		Labels: map[string]string{
+			"managed_by":        "docker-cloud-manager",
+			"dcm.resource_type": "build",
+			"dcm.build_id":      params.BuildID,
+			"dcm.owner_id":      params.OwnerID,
+		},
 	}, &container.HostConfig{
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
@@ -156,4 +171,30 @@ func (a *Adapter) CleanBuildContainer(ctx context.Context, containerID string) e
 	return a.cli.ContainerRemove(ctx, containerID, container.RemoveOptions{
 		Force: true,
 	})
+}
+
+func (a *Adapter) CleanupOrphanBuildContainers(ctx context.Context) error {
+	containers, err := a.cli.ContainerList(ctx, container.ListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("label", "managed_by=docker-cloud-manager"),
+			filters.Arg("label", "dcm.resource_type=build"),
+		),
+	})
+	if err != nil {
+		return err
+	}
+	for _, c := range containers {
+		if err := a.CleanBuildContainer(ctx, c.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (a *Adapter) Close() error {
+	if a.cli != nil {
+		return a.cli.Close()
+	}
+	return nil
 }

@@ -8,6 +8,8 @@ type Container struct {
 	InternalPort  int32
 	DomainPrefix  string
 	Status        string
+	DesiredStatus string
+	LastError     string
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string

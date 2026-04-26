@@ -45,6 +45,7 @@ type ComposeDockerAPI interface {
 }
 
 type Orchestrator struct {
+	parentCtx      context.Context
 	parser         *Parser
 	projectRepo    ProjectRepository
 	buildRepo      BuildRepository
@@ -58,6 +59,7 @@ type Orchestrator struct {
 }
 
 func NewOrchestrator(
+	parentCtx context.Context,
 	projectRepo ProjectRepository,
 	buildRepo BuildRepository,
 	volumeService VolumeService,
@@ -67,7 +69,11 @@ func NewOrchestrator(
 	internalToken string,
 	logger *slog.Logger,
 ) *Orchestrator {
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
 	return &Orchestrator{
+		parentCtx:      parentCtx,
 		parser:         NewParser(),
 		projectRepo:    projectRepo,
 		buildRepo:      buildRepo,
@@ -103,7 +109,9 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, p
 }
 
 func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName string, archiveBytes []byte, requestID string) {
-	ctx := logging.ContextWithRequestID(context.Background(), requestID)
+	baseCtx, cancel := context.WithTimeout(o.parentCtx, 30*time.Minute)
+	defer cancel()
+	ctx := logging.ContextWithRequestID(baseCtx, requestID)
 	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "compose deployment pipeline started", "project_name", projectName)
 

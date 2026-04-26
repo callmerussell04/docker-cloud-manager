@@ -13,6 +13,7 @@ const (
 	ProjectStatusRunning   = "running"
 	ProjectStatusStopped   = "stopped"
 	ProjectStatusFailed    = "failed"
+	ProjectStatusDeleting  = "deleting"
 )
 
 type Project struct {

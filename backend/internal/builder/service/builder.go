@@ -56,6 +56,7 @@ type BuilderService struct {
 	semaphore   chan struct{}
 	activeMu    sync.Mutex
 	active      map[string]context.CancelFunc
+	wg          sync.WaitGroup
 	logger      *slog.Logger
 }
 
@@ -124,9 +125,39 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 	s.activeMu.Lock()
 	s.active[buildID] = cancel
 	s.activeMu.Unlock()
-	go s.processBuild(buildCtx, cancel, filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.processBuild(buildCtx, cancel, filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
+	}()
 
 	return buildID, nil
+}
+
+func (s *BuilderService) Stop(ctx context.Context) error {
+	s.activeMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.active))
+	for _, cancel := range s.active {
+		cancels = append(cancels, cancel)
+	}
+	s.activeMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
+	}
 }
 
 func (s *BuilderService) CancelBuild(ctx context.Context, buildID string) error {
@@ -200,6 +231,8 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			destinationTag := fmt.Sprintf("%s/%s:%s", s.config.RegistryURL, repoName, version)
 
 			params := model.BuildRuntimeSpec{
+				BuildID:        buildID,
+				OwnerID:        ownerID,
 				WorkspaceDir:   workspaceDir,    // Путь к папке на хосте/в контейнере билдера
 				ContextSubDir:  cleanContextDir, // Относительный путь (если юзер указал подпапку)
 				Dockerfile:     dfPath,          // Относительный путь к Dockerfile
@@ -221,8 +254,13 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 				defer logStream.Close()
 				defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
 
-				// Сохраняем логи
+				// Сохраняем логи. При превышении лимита закрываем stream и убираем контейнер,
+				// чтобы не оставить stdcopy goroutine заблокированной на pipe write.
 				_, logErr := s.logManager.SaveLogs(buildID, logStream)
+				if logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr) {
+					_ = logStream.Close()
+					_ = s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+				}
 
 				// Ждем завершения контейнера (успех или ошибка)
 				waitErr := s.dockerAPI.WaitForBuild(ctx, containerID)

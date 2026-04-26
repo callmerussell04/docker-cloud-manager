@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
@@ -20,9 +23,13 @@ import (
 )
 
 type App struct {
-	router *gin.Engine
-	port   int
-	logger *slog.Logger
+	router         *gin.Engine
+	httpServer     *http.Server
+	coreConn       *grpc.ClientConn
+	dockerAdapter  *docker.Adapter
+	builderService *service.BuilderService
+	port           int
+	logger         *slog.Logger
 }
 
 type Config struct {
@@ -68,20 +75,52 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := dockerAdapter.CleanupOrphanBuildContainers(context.Background()); err != nil {
+		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)
+	}
 
 	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, coreClient, cfg.Builder, logger)
 	buildHandler := handler.NewBuildHandler(builderService, cfg.Builder.LogsDirPath)
 
 	router := deliveryhttp.NewRouter(buildHandler, cfg.InternalToken, logger)
+	httpServer := &http.Server{
+		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Handler: router,
+	}
 
 	return &App{
-		router: router,
-		port:   cfg.Port,
-		logger: logging.WithComponent(logger, "app"),
+		router:         router,
+		httpServer:     httpServer,
+		coreConn:       coreConn,
+		dockerAdapter:  dockerAdapter,
+		builderService: builderService,
+		port:           cfg.Port,
+		logger:         logging.WithComponent(logger, "app"),
 	}, nil
 }
 
 func (a *App) Run() error {
 	a.logger.Info("builder server starting", "port", a.port)
-	return a.router.Run(fmt.Sprintf(":%d", a.port))
+	if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	return nil
+}
+
+func (a *App) Stop(ctx context.Context) {
+	a.logger.Info("builder application stopping")
+	if a.builderService != nil {
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		_ = a.builderService.Stop(stopCtx)
+		cancel()
+	}
+	if a.httpServer != nil {
+		_ = a.httpServer.Shutdown(ctx)
+	}
+	if a.coreConn != nil {
+		_ = a.coreConn.Close()
+	}
+	if a.dockerAdapter != nil {
+		_ = a.dockerAdapter.Close()
+	}
 }

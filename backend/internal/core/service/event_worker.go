@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -22,7 +23,7 @@ type EventDockerAPI interface {
 }
 
 type ContainerRebalancer interface {
-	RebalanceResources(ctx context.Context)
+	RequestRebalance()
 }
 
 type EventWorker struct {
@@ -41,32 +42,55 @@ func NewEventWorker(repo EventContainerRepo, dockerAPI EventDockerAPI, rebalance
 	}
 }
 
-// TODO: maybe update so that it also manually checks the state once per some time
 func (w *EventWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "event worker started")
 	w.syncState(ctx)
 
-	msgCh, errCh := w.dockerAPI.ListenEvents(ctx)
+	syncTicker := time.NewTicker(30 * time.Second)
+	defer syncTicker.Stop()
+
+	var msgCh <-chan model.ContainerEvent
+	var errCh <-chan error
+	reconnectAt := time.NewTimer(0)
+	defer reconnectAt.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			w.logger.InfoContext(ctx, "event worker stopped")
 			return
-		case err := <-errCh:
+		case <-syncTicker.C:
+			w.syncState(ctx)
+		case <-reconnectAt.C:
+			msgCh, errCh = w.dockerAPI.ListenEvents(ctx)
+		case err, ok := <-errCh:
+			if !ok {
+				msgCh, errCh = nil, nil
+				resetTimer(reconnectAt, 5*time.Second)
+				continue
+			}
 			if err != nil {
 				w.logger.ErrorContext(ctx, "docker event stream error", "error", err)
+				msgCh, errCh = nil, nil
+				resetTimer(reconnectAt, 5*time.Second)
 			}
-			continue
-		case msg := <-msgCh:
+		case msg, ok := <-msgCh:
+			if !ok {
+				msgCh, errCh = nil, nil
+				resetTimer(reconnectAt, 5*time.Second)
+				continue
+			}
 			if msg.Type == "container" {
 				switch msg.Action {
 				case "start":
 					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusRunning)
-					go w.rebalancer.RebalanceResources(context.Background())
+					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
 					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusExited)
-					go w.rebalancer.RebalanceResources(context.Background())
+					w.rebalancer.RequestRebalance()
+				case "destroy":
+					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusMissing)
+					w.rebalancer.RequestRebalance()
 				}
 			}
 		}
@@ -116,6 +140,16 @@ func (w *EventWorker) syncState(ctx context.Context) {
 	}
 
 	if changed {
-		go w.rebalancer.RebalanceResources(context.Background())
+		w.rebalancer.RequestRebalance()
 	}
+}
+
+func resetTimer(timer *time.Timer, delay time.Duration) {
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(delay)
 }

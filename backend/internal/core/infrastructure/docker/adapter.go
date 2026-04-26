@@ -60,7 +60,14 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 
 func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
 	labels := map[string]string{
-		"managed_by": "docker-cloud-manager",
+		"managed_by":        "docker-cloud-manager",
+		"dcm.resource_type": "container",
+		"dcm.container_id":   params.ContainerID,
+		"dcm.owner_id":       params.OwnerID,
+		"dcm.generation":     strconv.Itoa(params.Generation),
+	}
+	if params.ProjectID != "" {
+		labels["dcm.project_id"] = params.ProjectID
 	}
 
 	if params.Domain != "" && params.InternalPort != 0 {
@@ -192,7 +199,11 @@ func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSp
 		Name:   params.VolumeName,
 		Driver: "local",
 		Labels: map[string]string{
-			"managed_by": "docker-cloud-manager",
+			"managed_by":        "docker-cloud-manager",
+			"dcm.resource_type": "volume",
+			"dcm.volume_id":     params.VolumeID,
+			"dcm.owner_id":      params.OwnerID,
+			"dcm.project_id":    params.ProjectID,
 		},
 	})
 	if err != nil {
@@ -340,10 +351,15 @@ func (a *Adapter) ListenEvents(ctx context.Context) (<-chan model.ContainerEvent
 				if !ok {
 					return
 				}
-				eventCh <- model.ContainerEvent{
+				event := model.ContainerEvent{
 					Type:     string(msg.Type),
 					Action:   string(msg.Action),
 					DockerID: msg.Actor.ID,
+				}
+				select {
+				case eventCh <- event:
+				case <-ctx.Done():
+					return
 				}
 			}
 		}

@@ -7,6 +7,10 @@ type ContainerMountSpec struct {
 }
 
 type ContainerRuntimeSpec struct {
+	ContainerID       string
+	OwnerID           string
+	ProjectID         string
+	Generation        int
 	ContainerName     string
 	NetworkAlias      string
 	ImageName         string
@@ -29,6 +33,9 @@ type ContainerRuntimeSpec struct {
 
 type VolumeRuntimeSpec struct {
 	VolumeName string
+	VolumeID   string
+	OwnerID    string
+	ProjectID  string
 }
 
 type ContainerInspection struct {
