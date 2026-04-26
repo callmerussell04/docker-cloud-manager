@@ -132,8 +132,15 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	var buildIDs []uuid.UUID
 	for _, srv := range parsedProject.Services {
 		if srv.BuildContext != "" { // Нужна сборка
+			if status, ok := o.failedBuildStatus(ctx, buildIDs); ok {
+				o.cancelBuilds(ctx, buildIDs)
+				failProject(apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", status)))
+				return
+			}
+
 			buildID, err := o.triggerBuild(ctx, ownerID, srv, archiveBytes)
 			if err != nil {
+				o.cancelBuilds(ctx, buildIDs)
 				failProject(fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err))
 				return
 			}
@@ -335,6 +342,7 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 					continue // Ждем, пока запись появится
 				}
 				if model.IsBuildFailedStatus(b.Status) {
+					o.cancelBuilds(ctx, buildIDs)
 					return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", b.Status))
 				}
 				if b.Status != model.BuildStatusSuccess {
@@ -344,6 +352,43 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 			if allSuccess {
 				return nil
 			}
+		}
+	}
+}
+
+func (o *Orchestrator) failedBuildStatus(ctx context.Context, buildIDs []uuid.UUID) (string, bool) {
+	for _, buildID := range buildIDs {
+		b, err := o.buildRepo.GetByID(ctx, buildID)
+		if err != nil {
+			continue
+		}
+		if model.IsBuildFailedStatus(b.Status) {
+			return b.Status, true
+		}
+	}
+	return "", false
+}
+
+func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {
+	for _, buildID := range buildIDs {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.builderHTTPUrl+"/api/v1/builds/"+buildID.String()+"/cancel", nil)
+		if err != nil {
+			o.logger.WarnContext(ctx, "failed to create build cancellation request", "build_id", buildID, "error", err)
+			continue
+		}
+		req.Header.Set("X-Internal-Token", o.internalToken)
+		if requestID := logging.RequestIDFromContext(ctx); requestID != "" {
+			req.Header.Set(logging.RequestIDHeader, requestID)
+		}
+
+		resp, err := o.httpClient.Do(req)
+		if err != nil {
+			o.logger.WarnContext(ctx, "failed to cancel build", "build_id", buildID, "error", err)
+			continue
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+			o.logger.WarnContext(ctx, "builder returned unexpected cancellation status", "build_id", buildID, "status", resp.StatusCode)
 		}
 	}
 }

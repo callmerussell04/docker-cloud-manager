@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
@@ -53,6 +54,8 @@ type BuilderService struct {
 	coreClient  CoreClient
 	config      config.BuilderConfig
 	semaphore   chan struct{}
+	activeMu    sync.Mutex
+	active      map[string]context.CancelFunc
 	logger      *slog.Logger
 }
 
@@ -73,6 +76,7 @@ func NewBuilderService(
 		coreClient:  coreClient,
 		config:      config,
 		semaphore:   make(chan struct{}, config.MaxConcurrentBuilds),
+		active:      make(map[string]context.CancelFunc),
 		logger:      logging.WithComponent(logger, "builder_service"),
 	}
 }
@@ -116,27 +120,58 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 
 	// Передаем распарсенные baseName и version
 	requestID := logging.RequestIDFromContext(ctx)
-	go s.processBuild(filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
+	buildCtx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
+	s.activeMu.Lock()
+	s.active[buildID] = cancel
+	s.activeMu.Unlock()
+	go s.processBuild(buildCtx, cancel, filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
 
 	return buildID, nil
 }
 
-func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string) {
-	s.semaphore <- struct{}{}
-	defer func() { <-s.semaphore }()
+func (s *BuilderService) CancelBuild(ctx context.Context, buildID string) error {
+	s.activeMu.Lock()
+	cancel, ok := s.active[buildID]
+	s.activeMu.Unlock()
+	if !ok {
+		return apperrors.ErrNotFound
+	}
 
+	cancel()
+	s.logger.InfoContext(ctx, "build cancellation requested", "build_id", buildID)
+	return nil
+}
+
+func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string) {
 	// Очищаем архив после сборки
 	defer s.fileManager.CleanUp(archivePath)
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
 	defer cancel()
 	ctx = logging.ContextWithRequestID(ctx, requestID)
+
+	defer func() {
+		s.activeMu.Lock()
+		delete(s.active, buildID)
+		s.activeMu.Unlock()
+	}()
 
 	logger := s.logger.With("build_id", buildID, "image_id", imageID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "build started", "image_tag", fmt.Sprintf("%s:%s", baseName, version))
 
 	status := buildStatusFailedInternal
 	var sizeMB int
+
+	select {
+	case s.semaphore <- struct{}{}:
+		defer func() { <-s.semaphore }()
+	case <-ctx.Done():
+		status = buildStatusFailed
+		s.writeCancelledBuildLog(ctx, logger, buildID)
+		if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
+			logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
+		}
+		return
+	}
 
 	// Создаем рабочую директорию (workspace) для Kaniko
 	workspaceDir := filepath.Join(s.config.StoragePath, buildID+"_workspace")
@@ -178,8 +213,10 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 			// Запускаем контейнер Kaniko
 			containerID, logStream, buildErr := s.dockerAPI.RunBuildContainer(ctx, params)
 			if buildErr != nil {
-				logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
-				s.writeInternalBuildLog(ctx, logger, buildID)
+				if ctx.Err() == nil {
+					logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
+					s.writeInternalBuildLog(ctx, logger, buildID)
+				}
 			} else {
 				defer logStream.Close()
 				defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
@@ -216,6 +253,9 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 		if err := s.logManager.WriteSystemLog(buildID, "Build failed because it exceeded the maximum build time."); err != nil {
 			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
 		}
+	} else if ctx.Err() == context.Canceled {
+		status = buildStatusFailed
+		s.writeCancelledBuildLog(ctx, logger, buildID)
 	}
 
 	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
@@ -232,6 +272,12 @@ func (s *BuilderService) processBuild(archivePath, buildID, imageID, ownerID, ba
 func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID string) {
 	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error."); err != nil {
 		logger.WarnContext(ctx, "failed to write internal build log", "error", err)
+	}
+}
+
+func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID string) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build cancelled because the compose build phase was aborted."); err != nil {
+		logger.WarnContext(ctx, "failed to write cancelled build log", "error", err)
 	}
 }
 

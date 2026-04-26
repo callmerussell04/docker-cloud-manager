@@ -20,6 +20,7 @@ const maxUploadSize = 50 << 20
 
 type BuilderService interface {
 	InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error)
+	CancelBuild(ctx context.Context, buildID string) error
 }
 
 type BuildHandler struct {
@@ -108,4 +109,19 @@ func (h *BuildHandler) GetLogs(c *gin.Context) {
 	}
 
 	c.File(logPath)
+}
+
+func (h *BuildHandler) CancelBuild(c *gin.Context) {
+	buildID := c.Param("id")
+	if buildID == "" {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+
+	if err := h.service.CancelBuild(c.Request.Context(), buildID); err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "build cancellation requested"})
 }

@@ -26,6 +26,7 @@ func NewRouter(buildHandler *handler.BuildHandler, internalToken string, logger 
 		builds := v1.Group("/builds")
 		{
 			builds.GET("/:id/logs", buildHandler.GetLogs)
+			builds.POST("/:id/cancel", buildHandler.CancelBuild)
 		}
 	}
 
