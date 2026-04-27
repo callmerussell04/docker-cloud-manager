@@ -3,10 +3,9 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
@@ -21,6 +20,7 @@ const maxUploadSize = 50 << 20
 type BuilderService interface {
 	InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error)
 	CancelBuild(ctx context.Context, buildID string) error
+	GetLogs(ctx context.Context, buildID string) (io.ReadCloser, error)
 }
 
 type BuildHandler struct {
@@ -95,20 +95,22 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 }
 
 func (h *BuildHandler) GetLogs(c *gin.Context) {
-	//role := c.GetHeader("X-User-Role")
 	buildID := c.Param("id")
 	if buildID == "" {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	logPath := filepath.Join(h.logsDir, buildID+".log")
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+	logReader, err := h.service.GetLogs(c.Request.Context(), buildID)
+	if err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
+	defer logReader.Close()
 
-	c.File(logPath)
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, logReader)
 }
 
 func (h *BuildHandler) CancelBuild(c *gin.Context) {

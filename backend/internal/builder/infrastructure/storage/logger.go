@@ -26,7 +26,7 @@ func NewLogManager(logDir string, maxLogSize int64) (*LogManager, error) {
 }
 
 func (m *LogManager) SaveLogs(buildID string, logStream io.Reader) (string, error) {
-	logFilePath := filepath.Join(m.logDir, buildID+".log")
+	logFilePath := m.LogPath(buildID)
 	file, err := os.Create(logFilePath)
 	if err != nil {
 		return "", err
@@ -56,7 +56,7 @@ func (m *LogManager) SaveLogs(buildID string, logStream io.Reader) (string, erro
 }
 
 func (m *LogManager) WriteSystemLog(buildID string, message string) error {
-	logFilePath := filepath.Join(m.logDir, buildID+".log")
+	logFilePath := m.LogPath(buildID)
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err
@@ -71,4 +71,8 @@ func (m *LogManager) WriteSystemLog(buildID string, message string) error {
 
 func (m *LogManager) IsLogSizeLimitExceeded(err error) bool {
 	return errors.Is(err, ErrLogSizeLimitExceeded)
+}
+
+func (m *LogManager) LogPath(buildID string) string {
+	return filepath.Join(m.logDir, buildID+".log")
 }

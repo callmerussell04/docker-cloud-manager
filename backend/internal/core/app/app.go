@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
@@ -28,16 +29,17 @@ import (
 )
 
 type App struct {
-	gRPCServer *grpc.Server
-	httpServer *http.Server
-	db         *sql.DB
-	dockerCli  *docker.Adapter
-	ssoConn    *grpc.ClientConn
-	port       int
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         *sync.WaitGroup
-	logger     *slog.Logger
+	gRPCServer     *grpc.Server
+	httpServer     *http.Server
+	db             *sql.DB
+	dockerCli      *docker.Adapter
+	buildPublisher service.BuildQueuePublisher
+	ssoConn        *grpc.ClientConn
+	port           int
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             *sync.WaitGroup
+	logger         *slog.Logger
 }
 
 type Config struct {
@@ -46,6 +48,7 @@ type Config struct {
 	DBURL                 string
 	RegistryContainerName string
 	BuilderHTTPURL        string
+	RabbitMQURL           string
 	SSOTarget             string
 	InternalToken         string
 	ConfigManager         *config.Manager
@@ -100,6 +103,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
+	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -128,8 +132,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, cfg.RegistryContainerName, logger)
+	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, time.Second, 10, logger)
 
-	wg.Add(4)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		ttlWorker.Run(ctx)
@@ -146,18 +151,23 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		defer wg.Done()
 		contService.RunRebalancer(ctx)
 	}()
+	go func() {
+		defer wg.Done()
+		buildOutboxWorker.Run(ctx)
+	}()
 
 	return &App{
-		gRPCServer: gRPCServer,
-		httpServer: httpServer,
-		db:         db,
-		dockerCli:  dockerAdapter,
-		ssoConn:    ssoConn,
-		port:       cfg.Port,
-		ctx:        ctx,
-		cancel:     cancel,
-		wg:         wg,
-		logger:     appLogger,
+		gRPCServer:     gRPCServer,
+		httpServer:     httpServer,
+		db:             db,
+		dockerCli:      dockerAdapter,
+		buildPublisher: buildPublisher,
+		ssoConn:        ssoConn,
+		port:           cfg.Port,
+		ctx:            ctx,
+		cancel:         cancel,
+		wg:             wg,
+		logger:         appLogger,
 	}, nil
 }
 
@@ -188,6 +198,9 @@ func (a *App) Stop() {
 	}
 	if a.dockerCli != nil {
 		a.dockerCli.Close()
+	}
+	if a.buildPublisher != nil {
+		_ = a.buildPublisher.Close()
 	}
 	if a.ssoConn != nil {
 		a.ssoConn.Close()

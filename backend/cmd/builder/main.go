@@ -11,6 +11,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 )
 
@@ -39,6 +40,15 @@ func getEnvString(key string, fallback string) string {
 	return fallback
 }
 
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
+		}
+	}
+	return fallback
+}
+
 func main() {
 	logger := logging.NewLogger("builder", logging.ConfigFromEnv())
 	slog.SetDefault(logger)
@@ -54,6 +64,25 @@ func main() {
 	if internalToken == "" {
 		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
+
+	rabbitMQURL := os.Getenv("RABBITMQ_URL")
+	if rabbitMQURL == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "RABBITMQ_URL")
+	}
+
+	objectStorageEndpoint := os.Getenv("OBJECT_STORAGE_ENDPOINT")
+	if objectStorageEndpoint == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "OBJECT_STORAGE_ENDPOINT")
+	}
+	objectStorageAccessKey := os.Getenv("OBJECT_STORAGE_ACCESS_KEY")
+	if objectStorageAccessKey == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "OBJECT_STORAGE_ACCESS_KEY")
+	}
+	objectStorageSecretKey := os.Getenv("OBJECT_STORAGE_SECRET_KEY")
+	if objectStorageSecretKey == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "OBJECT_STORAGE_SECRET_KEY")
+	}
+	objectStorageBucket := getEnvString("OBJECT_STORAGE_BUCKET", "dcm-builds")
 
 	storagePath := getEnvString("BUILD_STORAGE_PATH", "/tmp/builds")
 	logsDirPath := getEnvString("BUILD_LOGS_PATH", "/tmp/build_logs")
@@ -81,6 +110,14 @@ func main() {
 		MaxUnpackedSize: maxUnpackedSize,
 		MaxLogSize:      maxLogSize,
 		StoragePath:     storagePath,
+		RabbitMQURL:     rabbitMQURL,
+		ObjectStorage: objectstorage.Config{
+			Endpoint:  objectStorageEndpoint,
+			Bucket:    objectStorageBucket,
+			AccessKey: objectStorageAccessKey,
+			SecretKey: objectStorageSecretKey,
+			UseSSL:    getEnvBool("OBJECT_STORAGE_USE_SSL", false),
+		},
 	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize builder app", "error", err)

@@ -21,8 +21,12 @@ service ImageAPI {
   rpc GetUserImages (GetUserRequest) returns (ImageListResponse);
   rpc DeleteImage (ImageActionRequest) returns (Empty);
   rpc InitBuildRecord (InitBuildRequest) returns (InitBuildResponse);
+  rpc CreateBuildJob (CreateBuildJobRequest) returns (InitBuildResponse);
+  rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
+  rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
   rpc GetUserBuilds (GetUserRequest) returns (BuildListResponse);
+  rpc GetBuild (BuildActionRequest) returns (BuildData);
   rpc DeleteBuild (BuildActionRequest) returns (Empty);
   rpc GetAllImages (PaginationRequest) returns (PaginatedImageResponse);
   rpc AdminDeleteImage (ImageActionRequest) returns (Empty);
@@ -140,9 +144,26 @@ message InitBuildRequest {
   string log_file_path = 3;
 }
 
+message CreateBuildJobRequest {
+  string owner_id = 1;
+  string tag = 2;
+  string archive_object_key = 3;
+  string log_object_key = 4;
+  string context_dir = 5;
+  string dockerfile = 6;
+  map<string, string> build_args = 7;
+  string request_id = 8;
+}
+
 message InitBuildResponse {
   string image_id = 1;
   string build_id = 2;
+}
+
+message StartBuildRecordResponse {
+  bool started = 1;
+  string status = 2;
+  string image_id = 3;
 }
 
 message CompleteBuildRequest {

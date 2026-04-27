@@ -70,6 +70,11 @@ func main() {
 		fatal(logger, "required environment variable is not set", "env_var", "BUILDER_HTTP_TARGET")
 	}
 
+	rabbitMQURL := os.Getenv("RABBITMQ_URL")
+	if rabbitMQURL == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "RABBITMQ_URL")
+	}
+
 	ssoTarget := os.Getenv("SSO_GRPC_TARGET")
 	if ssoTarget == "" {
 		fatal(logger, "required environment variable is not set", "env_var", "SSO_GRPC_TARGET")
@@ -115,6 +120,7 @@ func main() {
 		DBURL:                 dbURL,
 		RegistryContainerName: registryContainerName,
 		BuilderHTTPURL:        builderHTTPUrl,
+		RabbitMQURL:           rabbitMQURL,
 		SSOTarget:             ssoTarget,
 		InternalToken:         internalToken,
 		ConfigManager:         cfgManager,

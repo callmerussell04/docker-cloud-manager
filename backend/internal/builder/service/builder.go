@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -39,11 +40,22 @@ type LogManager interface {
 	SaveLogs(logID string, dockerStream io.Reader) (string, error)
 	WriteSystemLog(logID string, message string) error
 	IsLogSizeLimitExceeded(err error) bool
+	LogPath(logID string) string
+}
+
+type ObjectStorage interface {
+	UploadFile(ctx context.Context, objectKey, filePath, contentType string) error
+	DownloadFile(ctx context.Context, objectKey, filePath string) error
+	DeleteObject(ctx context.Context, objectKey string) error
+	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 }
 
 type CoreClient interface {
-	InitBuildRecord(ctx context.Context, ownerID, tag, logFilePath string) (string, string, error)
+	CreateBuildJob(ctx context.Context, ownerID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error)
+	StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
+	CancelBuildRecord(ctx context.Context, buildID string) error
+	GetBuildLogObjectKey(ctx context.Context, buildID string) (string, error)
 }
 
 type BuilderService struct {
@@ -51,6 +63,7 @@ type BuilderService struct {
 	extractor   ArchiveExtractor
 	dockerAPI   DockerAPI
 	logManager  LogManager
+	objectStore ObjectStorage
 	coreClient  CoreClient
 	config      config.BuilderConfig
 	semaphore   chan struct{}
@@ -65,6 +78,7 @@ func NewBuilderService(
 	extractor ArchiveExtractor,
 	dockerAPI DockerAPI,
 	logManager LogManager,
+	objectStore ObjectStorage,
 	coreClient CoreClient,
 	config config.BuilderConfig,
 	logger *slog.Logger,
@@ -74,6 +88,7 @@ func NewBuilderService(
 		extractor:   extractor,
 		dockerAPI:   dockerAPI,
 		logManager:  logManager,
+		objectStore: objectStore,
 		coreClient:  coreClient,
 		config:      config,
 		semaphore:   make(chan struct{}, config.MaxConcurrentBuilds),
@@ -102,34 +117,36 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 	if err != nil {
 		return "", err
 	}
+	defer s.fileManager.CleanUp(filePath)
 
 	if err := s.fileManager.ValidateArchive(filePath); err != nil {
-		_ = s.fileManager.CleanUp(filePath)
 		return "", err
 	}
 
-	// Парсим тег, переданный пользователем
 	baseName, version := parseImageTag(job.Tag)
 	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
+	archiveObjectKey := buildArchiveObjectKey(fileID, filePath)
+	logObjectKey := buildLogObjectKey(fileID)
 
-	// Отправляем в Core нормализованный тег (с версией)
-	buildID, imageID, err := s.coreClient.InitBuildRecord(ctx, job.OwnerID, normalizedTag, "")
-	if err != nil {
-		_ = s.fileManager.CleanUp(filePath)
+	if err := s.objectStore.UploadFile(ctx, archiveObjectKey, filePath, "application/octet-stream"); err != nil {
 		return "", err
 	}
 
-	// Передаем распарсенные baseName и version
-	requestID := logging.RequestIDFromContext(ctx)
-	buildCtx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
-	s.activeMu.Lock()
-	s.active[buildID] = cancel
-	s.activeMu.Unlock()
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.processBuild(buildCtx, cancel, filePath, buildID, imageID, job.OwnerID, baseName, version, job.ContextDir, job.Dockerfile, job.BuildArgs, requestID)
-	}()
+	buildID, _, err := s.coreClient.CreateBuildJob(
+		ctx,
+		job.OwnerID,
+		normalizedTag,
+		archiveObjectKey,
+		logObjectKey,
+		job.ContextDir,
+		job.Dockerfile,
+		job.BuildArgs,
+		logging.RequestIDFromContext(ctx),
+	)
+	if err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		return "", err
+	}
 
 	return buildID, nil
 }
@@ -164,16 +181,69 @@ func (s *BuilderService) CancelBuild(ctx context.Context, buildID string) error 
 	s.activeMu.Lock()
 	cancel, ok := s.active[buildID]
 	s.activeMu.Unlock()
-	if !ok {
-		return apperrors.ErrNotFound
+
+	if ok {
+		cancel()
 	}
 
-	cancel()
+	if err := s.coreClient.CancelBuildRecord(ctx, buildID); err != nil {
+		return err
+	}
 	s.logger.InfoContext(ctx, "build cancellation requested", "build_id", buildID)
 	return nil
 }
 
-func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string) {
+func (s *BuilderService) GetLogs(ctx context.Context, buildID string) (io.ReadCloser, error) {
+	logObjectKey, err := s.coreClient.GetBuildLogObjectKey(ctx, buildID)
+	if err != nil {
+		return nil, err
+	}
+	if logObjectKey == "" {
+		return nil, apperrors.ErrNotFound
+	}
+	return s.objectStore.OpenObject(ctx, logObjectKey)
+}
+
+func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+	ctx = logging.ContextWithRequestID(ctx, msg.RequestID)
+	imageID, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
+	if err != nil {
+		return err
+	}
+	if !started {
+		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
+		return nil
+	}
+	if imageID == "" {
+		imageID = msg.ImageID
+	}
+
+	archivePath := filepath.Join(s.config.StoragePath, msg.BuildID+archiveObjectExt(msg.ArchiveObjectKey))
+	if err := s.objectStore.DownloadFile(ctx, msg.ArchiveObjectKey, archivePath); err != nil {
+		return err
+	}
+
+	baseName, version := parseImageTag(msg.Tag)
+	buildCtx, cancel := context.WithTimeout(context.Background(), s.config.MaxBuildTime)
+	buildCtx = logging.ContextWithRequestID(buildCtx, msg.RequestID)
+
+	s.activeMu.Lock()
+	s.active[msg.BuildID] = cancel
+	s.activeMu.Unlock()
+
+	s.wg.Add(1)
+	defer s.wg.Done()
+
+	if err := s.processBuild(buildCtx, cancel, archivePath, msg.BuildID, imageID, msg.OwnerID, baseName, version, msg.ContextDir, msg.Dockerfile, msg.BuildArgs, msg.RequestID, msg.LogObjectKey); err != nil {
+		return err
+	}
+	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
+		s.logger.WarnContext(ctx, "failed to delete build archive object", "build_id", msg.BuildID, "error", err)
+	}
+	return nil
+}
+
+func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string, logObjectKey string) error {
 	// Очищаем архив после сборки
 	defer s.fileManager.CleanUp(archivePath)
 
@@ -197,25 +267,26 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		defer func() { <-s.semaphore }()
 	case <-ctx.Done():
 		status = buildStatusFailed
-		s.writeCancelledBuildLog(ctx, logger, buildID)
+		s.writeCancelledBuildLog(ctx, logger, buildID, logObjectKey)
 		if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
 			logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
+			return err
 		}
-		return
+		return nil
 	}
 
 	// Создаем рабочую директорию (workspace) для Kaniko
 	workspaceDir := filepath.Join(s.config.StoragePath, buildID+"_workspace")
 	if err := os.MkdirAll(workspaceDir, 0755); err != nil {
 		logger.ErrorContext(ctx, "failed to create build workspace", "error", err)
-		s.writeInternalBuildLog(ctx, logger, buildID)
+		s.writeInternalBuildLog(ctx, logger, buildID, logObjectKey)
 	} else {
 		defer os.RemoveAll(workspaceDir)
 
 		// Распаковываем архив пользователя
 		if err := s.extractor.Extract(archivePath, workspaceDir); err != nil {
 			logger.ErrorContext(ctx, "failed to extract build archive", "error", err)
-			s.writeInternalBuildLog(ctx, logger, buildID)
+			s.writeInternalBuildLog(ctx, logger, buildID, logObjectKey)
 		} else {
 			cleanContextDir := ""
 			if contextDir != "" && contextDir != "." {
@@ -248,7 +319,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			if buildErr != nil {
 				if ctx.Err() == nil {
 					logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
-					s.writeInternalBuildLog(ctx, logger, buildID)
+					s.writeInternalBuildLog(ctx, logger, buildID, logObjectKey)
 				}
 			} else {
 				defer logStream.Close()
@@ -257,6 +328,9 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 				// Сохраняем логи. При превышении лимита закрываем stream и убираем контейнер,
 				// чтобы не оставить stdcopy goroutine заблокированной на pipe write.
 				_, logErr := s.logManager.SaveLogs(buildID, logStream)
+				if uploadErr := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); uploadErr != nil {
+					logger.WarnContext(ctx, "failed to upload build log", "error", uploadErr)
+				}
 				if logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr) {
 					_ = logStream.Close()
 					_ = s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
@@ -278,7 +352,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 						status = buildStatusFailed
 					} else {
 						status = buildStatusFailedInternal
-						s.writeInternalBuildLog(ctx, logger, buildID)
+						s.writeInternalBuildLog(ctx, logger, buildID, logObjectKey)
 					}
 					logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
 				}
@@ -291,32 +365,63 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		if err := s.logManager.WriteSystemLog(buildID, "Build failed because it exceeded the maximum build time."); err != nil {
 			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
 		}
+		if uploadErr := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); uploadErr != nil {
+			logger.WarnContext(ctx, "failed to upload timeout build log", "error", uploadErr)
+		}
 	} else if ctx.Err() == context.Canceled {
 		status = buildStatusFailed
-		s.writeCancelledBuildLog(ctx, logger, buildID)
+		s.writeCancelledBuildLog(ctx, logger, buildID, logObjectKey)
 	}
 
+	if uploadErr := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); uploadErr != nil {
+		logger.WarnContext(ctx, "failed to upload final build log", "error", uploadErr)
+	}
 	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
 		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
-		return
+		return err
 	}
 	if status == buildStatusSuccess {
 		logger.InfoContext(ctx, "build completed", "status", status)
 	} else {
 		logger.WarnContext(ctx, "build failed", "status", status)
 	}
+	return nil
 }
 
-func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID string) {
+func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
 	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error."); err != nil {
 		logger.WarnContext(ctx, "failed to write internal build log", "error", err)
 	}
+	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
+		logger.WarnContext(ctx, "failed to upload internal build log", "error", err)
+	}
 }
 
-func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID string) {
+func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
 	if err := s.logManager.WriteSystemLog(buildID, "Build cancelled because the compose build phase was aborted."); err != nil {
 		logger.WarnContext(ctx, "failed to write cancelled build log", "error", err)
 	}
+	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
+		logger.WarnContext(ctx, "failed to upload cancelled build log", "error", err)
+	}
+}
+
+func (s *BuilderService) uploadBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) error {
+	if logObjectKey == "" {
+		return nil
+	}
+	logPath := s.logManager.LogPath(buildID)
+	if _, err := os.Stat(logPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := s.objectStore.UploadFile(ctx, logObjectKey, logPath, "text/plain"); err != nil {
+		return err
+	}
+	logger.DebugContext(ctx, "build log uploaded", "build_id", buildID)
+	return nil
 }
 
 const (
@@ -332,6 +437,26 @@ func parseImageTag(rawTag string) (baseName, version string) {
 		return parts[0], "latest"
 	}
 	return parts[0], parts[1]
+}
+
+func buildArchiveObjectKey(fileID, filePath string) string {
+	return "build-archives/" + fileID + archiveObjectExt(filePath)
+}
+
+func buildLogObjectKey(fileID string) string {
+	return "build-logs/" + fileID + ".log"
+}
+
+func archiveObjectExt(path string) string {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".tar.gz") {
+		return ".tar.gz"
+	}
+	ext := filepath.Ext(path)
+	if ext == "" {
+		return ".archive"
+	}
+	return ext
 }
 
 func validateRelativeBuildPath(path string) error {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -16,6 +18,7 @@ import (
 
 type BuildRepository interface {
 	Save(ctx context.Context, b model.Build) error
+	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
@@ -103,7 +106,122 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 	return buildID, imageID, nil
 }
 
+func (s *BuildService) CreateBuildJob(ctx context.Context, ownerID uuid.UUID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
+	if err := validation.ImageTag(tag); err != nil {
+		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if archiveObjectKey == "" || logObjectKey == "" {
+		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "build archive and log object keys are required")
+	}
+
+	user, err := s.users.GetUser(ctx, ownerID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+
+	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if usedMB >= user.QuotaDiskMB {
+		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
+	}
+
+	baseName, version := parseImageTag(tag)
+	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
+	imageID := uuid.New()
+	buildID := uuid.New()
+	now := time.Now()
+
+	message := buildqueue.ImageBuildMessage{
+		BuildID:          buildID.String(),
+		ImageID:          imageID.String(),
+		OwnerID:          ownerID.String(),
+		Tag:              normalizedTag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       contextDir,
+		Dockerfile:       dockerfile,
+		BuildArgs:        buildArgs,
+		RequestID:        requestID,
+		CreatedAt:        now.Unix(),
+	}
+	payload, err := json.Marshal(message)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, fmt.Errorf("failed to marshal build queue message: %w", err)
+	}
+
+	img := model.Image{
+		ID:       imageID,
+		OwnerID:  ownerID,
+		Tag:      normalizedTag,
+		SizeMB:   0,
+		IsCustom: true,
+		Status:   model.ImageStatusBuilding,
+	}
+	build := model.Build{
+		ID:               buildID,
+		ImageID:          imageID,
+		OwnerID:          ownerID,
+		Status:           model.BuildStatusPending,
+		LogFilePath:      logObjectKey,
+		ArchiveObjectKey: archiveObjectKey,
+		StartedAt:        now,
+	}
+	outbox := model.BuildQueueOutbox{
+		ID:         uuid.New(),
+		BuildID:    buildID,
+		Exchange:   buildqueue.ExchangeName,
+		RoutingKey: buildqueue.RoutingKey,
+		Payload:    payload,
+		Status:     model.BuildOutboxStatusPending,
+	}
+
+	if err := s.repo.CreateQueuedBuild(ctx, img, build, outbox); err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+
+	s.logger.InfoContext(ctx, "build job created", "build_id", buildID, "image_id", imageID, "owner_id", ownerID, "image_tag", normalizedTag)
+	return buildID, imageID, nil
+}
+
+func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return model.Build{}, false, err
+	}
+	if model.IsBuildTerminalStatus(b.Status) {
+		return b, false, nil
+	}
+	if err := s.repo.UpdateStatus(ctx, buildID, model.BuildStatusRunning); err != nil {
+		return model.Build{}, false, err
+	}
+	b.Status = model.BuildStatusRunning
+	s.logger.InfoContext(ctx, "build record started", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	return b, true, nil
+}
+
+func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return err
+	}
+	if model.IsBuildTerminalStatus(b.Status) {
+		return nil
+	}
+	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusFailed)
+}
+
 func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return err
+	}
+	if model.IsBuildTerminalStatus(b.Status) {
+		return nil
+	}
+
 	if status != model.BuildStatusSuccess {
 		status = normalizeFailedBuildStatus(status)
 		s.logger.WarnContext(ctx, "build record marked failed", "build_id", buildID, "image_id", imageID, "status", status)
@@ -154,6 +272,10 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 
 func (s *BuildService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
 	return s.repo.GetUserBuilds(ctx, ownerID)
+}
+
+func (s *BuildService) GetBuildByID(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
+	return s.repo.GetByID(ctx, buildID)
 }
 
 func (s *BuildService) DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error {
