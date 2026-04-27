@@ -191,10 +191,10 @@ func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 
 		FROM containers 
-		WHERE owner_id = $1 AND (status = $2 OR desired_status = $2)
+		WHERE owner_id = $1 AND status != $3 AND (status = $2 OR desired_status = $2)
 	`
 	var totalReserved int64
-	err := r.db.QueryRowContext(ctx, query, ownerID, model.ContainerStatusRunning).Scan(&totalReserved)
+	err := r.db.QueryRowContext(ctx, query, ownerID, model.ContainerStatusRunning, model.ContainerStatusMissing).Scan(&totalReserved)
 	return totalReserved, err
 }
 
@@ -413,10 +413,10 @@ func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) 
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 
 		FROM containers 
-		WHERE status = $1 OR desired_status = $1
+		WHERE status != $2 AND (status = $1 OR desired_status = $1)
 	`
 	var totalReserved int64
-	err := r.db.QueryRowContext(ctx, query, model.ContainerStatusRunning).Scan(&totalReserved)
+	err := r.db.QueryRowContext(ctx, query, model.ContainerStatusRunning, model.ContainerStatusMissing).Scan(&totalReserved)
 	return totalReserved, err
 }
 
@@ -439,8 +439,10 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 	query := `
 		SELECT id, docker_id, status, desired_status
 		FROM containers
-		WHERE status IN ($1, $2, $3, $4, $5)
+		WHERE status != $6 AND (
+			status IN ($1, $2, $3, $4, $5)
 			OR desired_status IN ($2, $3, $4)
+		)
 	`
 	rows, err := r.db.QueryContext(ctx, query,
 		model.ContainerStatusCreating,
@@ -448,6 +450,7 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 		model.ContainerStatusRunning,
 		model.ContainerStatusDeleting,
 		model.ContainerStatusReconciling,
+		model.ContainerStatusMissing,
 	)
 	if err != nil {
 		return nil, err

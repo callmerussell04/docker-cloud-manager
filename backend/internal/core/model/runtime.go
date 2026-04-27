@@ -38,6 +38,12 @@ type VolumeRuntimeSpec struct {
 	ProjectID  string
 }
 
+type VolumeInspection struct {
+	Name   string
+	Driver string
+	Labels map[string]string
+}
+
 type ContainerInspection struct {
 	Name              string
 	Image             string

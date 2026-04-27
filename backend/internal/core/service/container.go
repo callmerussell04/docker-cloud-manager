@@ -82,6 +82,10 @@ type ContainerImageRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 }
 
+type containerVolumeInspector interface {
+	InspectVolume(ctx context.Context, volumeName string) (model.VolumeInspection, error)
+}
+
 type ConfigManager interface {
 	Get() config.SystemConfig
 }
@@ -204,15 +208,20 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
 
 	isCustom := false
+	var customImage *model.Image
 	userImages, err := s.imageRepo.GetByOwnerID(ctx, ownerID)
 	if err == nil {
 		for _, img := range userImages {
 			// Сравниваем с нормализованным тегом из БД
 			if img.Tag == normalizedInputTag && img.IsCustom {
 				isCustom = true
+				customImage = &img
 				break
 			}
 		}
+	}
+	if customImage != nil && customImage.Status == model.ImageStatusMissing {
+		return uuid.Nil, resourceUnavailableError("image")
 	}
 
 	actualImageTag := normalizedInputTag
@@ -227,6 +236,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if isCustom {
 		err = s.dockerAPI.PullImage(ctx, actualImageTag)
 		if err != nil {
+			if customImage != nil && isDockerNotFound(err) {
+				s.markImageMissing(ctx, customImage.ID)
+			}
 			return uuid.Nil, apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
 		}
 	} else {
@@ -264,6 +276,18 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 		}
 		if vol.OwnerID != ownerID {
 			return uuid.Nil, apperrors.ErrNotFound
+		}
+		if vol.Status == model.VolumeStatusMissing {
+			return uuid.Nil, resourceUnavailableError("volume")
+		}
+		if inspector, ok := s.dockerAPI.(containerVolumeInspector); ok {
+			if _, err := inspector.InspectVolume(ctx, vol.DockerName); err != nil {
+				if isDockerNotFound(err) {
+					s.markVolumeMissing(ctx, vol.ID)
+					return uuid.Nil, resourceUnavailableError("volume")
+				}
+				return uuid.Nil, err
+			}
 		}
 
 		dockerMounts = append(dockerMounts, model.ContainerMountSpec{
@@ -393,6 +417,13 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID == "" {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return resourceUnavailableError("container")
+	}
 
 	if domainPrefix == "" || internalPort <= 0 {
 		return apperrors.ErrBadRequest
@@ -418,6 +449,10 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 
 	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
 	if err != nil {
+		if isDockerNotFound(err) {
+			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+			return resourceUnavailableError("container")
+		}
 		return err
 	}
 
@@ -521,9 +556,12 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
 	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, apperrors.ErrNotFound)
-		return apperrors.ErrNotFound
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return resourceUnavailableError("container")
 	}
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
@@ -548,7 +586,9 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		if isDockerNotFound(err) {
-			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, err)
+			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+			return resourceUnavailableError("container")
 		}
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
@@ -576,6 +616,13 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 	if c.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID == "" {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return resourceUnavailableError("container")
+	}
 	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusExited)
 	s.createContainerOperation(ctx, containerID, ownerID, model.OperationStop)
 
@@ -584,7 +631,9 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return err
 		}
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, err)
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+		return resourceUnavailableError("container")
 	}
 
 	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
@@ -833,6 +882,26 @@ func (s *ContainerService) markContainerError(ctx context.Context, containerID u
 	}
 }
 
+func (s *ContainerService) markVolumeMissing(ctx context.Context, volumeID uuid.UUID) {
+	stateRepo, ok := s.volumeRepo.(volumeStateRepository)
+	if !ok {
+		return
+	}
+	if err := stateRepo.MarkStatusError(ctx, volumeID, model.VolumeStatusMissing, resourceMissingError("volume")); err != nil {
+		s.logger.WarnContext(ctx, "failed to mark volume missing", "volume_id", volumeID, "error", err)
+	}
+}
+
+func (s *ContainerService) markImageMissing(ctx context.Context, imageID uuid.UUID) {
+	stateRepo, ok := s.imageRepo.(imageStateRepository)
+	if !ok {
+		return
+	}
+	if err := stateRepo.MarkStatusError(ctx, imageID, model.ImageStatusMissing, resourceMissingError("image")); err != nil {
+		s.logger.WarnContext(ctx, "failed to mark image missing", "image_id", imageID, "error", err)
+	}
+}
+
 func (s *ContainerService) createContainerOperation(ctx context.Context, containerID, ownerID uuid.UUID, operation string) {
 	stateRepo, ok := s.repo.(containerStateRepository)
 	if !ok {
@@ -863,6 +932,13 @@ func (s *ContainerService) completeContainerOperation(ctx context.Context, conta
 
 func isDockerNotFound(err error) bool {
 	return err != nil && cerrdefs.IsNotFound(err)
+}
+
+func resourceUnavailableError(resource string) error {
+	if resource == "" {
+		resource = "resource"
+	}
+	return apperrors.New(apperrors.ErrConflict, resource+" is missing in Docker and can only be deleted")
 }
 
 func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
@@ -896,6 +972,13 @@ func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID
 	if err != nil {
 		return err
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID == "" {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return resourceUnavailableError("container")
+	}
 	unlock, err := s.acquireOwnerCapacityLock(ctx, c.OwnerID)
 	if err != nil {
 		return err
@@ -907,7 +990,9 @@ func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID
 	s.createContainerOperation(ctx, containerID, c.OwnerID, model.OperationStart)
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		if isDockerNotFound(err) {
-			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, err)
+			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+			return resourceUnavailableError("container")
 		}
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
@@ -928,6 +1013,13 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 	if err != nil {
 		return err
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID == "" {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return resourceUnavailableError("container")
+	}
 	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusExited)
 	s.createContainerOperation(ctx, containerID, c.OwnerID, model.OperationStop)
 	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
@@ -935,7 +1027,9 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return err
 		}
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, err)
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+		return resourceUnavailableError("container")
 	}
 	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
 	if err == nil {
@@ -956,10 +1050,18 @@ func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uu
 	if c.OwnerID != ownerID {
 		return model.ContainerStats{}, apperrors.ErrNotFound
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return model.ContainerStats{}, resourceUnavailableError("container")
+	}
 	if c.Status != model.ContainerStatusRunning {
 		return model.ContainerStats{}, nil
 	}
-	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
+	stats, err := s.dockerAPI.GetContainerStats(ctx, c.DockerID)
+	if err != nil && isDockerNotFound(err) {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return model.ContainerStats{}, resourceUnavailableError("container")
+	}
+	return stats, err
 }
 
 func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
@@ -967,8 +1069,16 @@ func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.U
 	if err != nil {
 		return model.ContainerStats{}, err
 	}
+	if c.Status == model.ContainerStatusMissing {
+		return model.ContainerStats{}, resourceUnavailableError("container")
+	}
 	if c.Status != model.ContainerStatusRunning {
 		return model.ContainerStats{}, nil
 	}
-	return s.dockerAPI.GetContainerStats(ctx, c.DockerID)
+	stats, err := s.dockerAPI.GetContainerStats(ctx, c.DockerID)
+	if err != nil && isDockerNotFound(err) {
+		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+		return model.ContainerStats{}, resourceUnavailableError("container")
+	}
+	return stats, err
 }

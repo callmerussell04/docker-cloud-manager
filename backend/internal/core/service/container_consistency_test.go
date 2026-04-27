@@ -80,6 +80,66 @@ func TestContainerServiceDeleteIgnoresMissingDockerContainer(t *testing.T) {
 	}
 }
 
+func TestContainerServiceStopMarksMissingDockerContainerAndBlocksUse(t *testing.T) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	repo := &containerCleanupRepoFake{
+		container: model.Container{
+			ID:       containerID,
+			OwnerID:  ownerID,
+			DockerID: "missing-docker",
+			Status:   model.ContainerStatusRunning,
+		},
+		containerCount: 1,
+	}
+	dockerAPI := &containerExposeDockerFake{stopErr: cerrdefs.ErrNotFound}
+	svc := &ContainerService{
+		repo:        repo,
+		dockerAPI:   dockerAPI,
+		config:      staticConfig{},
+		logger:      slog.Default(),
+		rebalanceCh: make(chan struct{}, 1),
+	}
+
+	if err := svc.Stop(ctx, ownerID, containerID); err == nil {
+		t.Fatal("Stop() error = nil, want error")
+	}
+	if repo.container.Status != model.ContainerStatusMissing {
+		t.Fatalf("container status = %q, want %q", repo.container.Status, model.ContainerStatusMissing)
+	}
+}
+
+func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	repo := &containerCleanupRepoFake{
+		container: model.Container{
+			ID:       containerID,
+			OwnerID:  ownerID,
+			DockerID: "missing-docker",
+			Status:   model.ContainerStatusMissing,
+		},
+		containerCount: 1,
+	}
+	dockerAPI := &containerExposeDockerFake{}
+	svc := &ContainerService{
+		repo:        repo,
+		dockerAPI:   dockerAPI,
+		config:      staticConfig{},
+		logger:      slog.Default(),
+		rebalanceCh: make(chan struct{}, 1),
+	}
+
+	if err := svc.Start(ctx, ownerID, containerID); err == nil {
+		t.Fatal("Start() error = nil, want error")
+	}
+	if dockerAPI.startCalls != 0 {
+		t.Fatalf("StartContainer calls = %d, want 0", dockerAPI.startCalls)
+	}
+}
+
 func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -115,10 +175,12 @@ func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 }
 
 type containerExposeDockerFake struct {
-	createErr error
-	removeErr error
-	inspect   model.ContainerInspection
-	removed   map[string]bool
+	createErr  error
+	removeErr  error
+	stopErr    error
+	inspect    model.ContainerInspection
+	removed    map[string]bool
+	startCalls int
 }
 
 func (f *containerExposeDockerFake) EnsureUserNetwork(ctx context.Context, networkName string) (string, error) {
@@ -140,10 +202,11 @@ func (f *containerExposeDockerFake) CreateContainer(ctx context.Context, params 
 }
 
 func (f *containerExposeDockerFake) StartContainer(ctx context.Context, dockerID string) error {
+	f.startCalls++
 	return nil
 }
 func (f *containerExposeDockerFake) StopContainer(ctx context.Context, dockerID string, timeout int) error {
-	return nil
+	return f.stopErr
 }
 
 func (f *containerExposeDockerFake) RemoveContainer(ctx context.Context, dockerID string, force bool) error {

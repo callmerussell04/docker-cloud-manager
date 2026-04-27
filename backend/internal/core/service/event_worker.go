@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -15,11 +16,19 @@ type EventContainerRepo interface {
 	UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
 type EventDockerAPI interface {
 	ListenEvents(ctx context.Context) (<-chan model.ContainerEvent, <-chan error)
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
+	InspectVolume(ctx context.Context, volumeName string) (model.VolumeInspection, error)
+}
+
+type EventVolumeRepo interface {
+	GetReconcileCandidates(ctx context.Context) ([]model.Volume, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
 type ContainerRebalancer interface {
@@ -28,14 +37,16 @@ type ContainerRebalancer interface {
 
 type EventWorker struct {
 	repo       EventContainerRepo
+	volumeRepo EventVolumeRepo
 	dockerAPI  EventDockerAPI
 	rebalancer ContainerRebalancer
 	logger     *slog.Logger
 }
 
-func NewEventWorker(repo EventContainerRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, logger *slog.Logger) *EventWorker {
+func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, logger *slog.Logger) *EventWorker {
 	return &EventWorker{
 		repo:       repo,
+		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
 		rebalancer: rebalancer,
 		logger:     logging.WithComponent(logger, "event_worker"),
@@ -98,6 +109,11 @@ func (w *EventWorker) Run(ctx context.Context) {
 }
 
 func (w *EventWorker) syncState(ctx context.Context) {
+	w.syncContainers(ctx)
+	w.syncVolumes(ctx)
+}
+
+func (w *EventWorker) syncContainers(ctx context.Context) {
 	containers, err := w.repo.GetNonExited(ctx)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch non-exited containers", "error", err)
@@ -108,7 +124,7 @@ func (w *EventWorker) syncState(ctx context.Context) {
 
 	for _, c := range containers {
 		if c.DockerID == "" {
-			_ = w.repo.UpdateStatus(ctx, c.ID, model.ContainerStatusError)
+			_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
 			w.logger.WarnContext(ctx, "container has empty docker id", "container_id", c.ID)
 			continue
 		}
@@ -116,7 +132,7 @@ func (w *EventWorker) syncState(ctx context.Context) {
 		inspect, err := w.dockerAPI.InspectContainer(ctx, c.DockerID)
 		if err != nil {
 			if cerrdefs.IsNotFound(err) {
-				_ = w.repo.UpdateStatus(ctx, c.ID, model.ContainerStatusExited)
+				_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
 				w.logger.WarnContext(ctx, "docker container missing during state sync", "container_id", c.ID, "docker_id", c.DockerID)
 				changed = true
 			}
@@ -142,6 +158,45 @@ func (w *EventWorker) syncState(ctx context.Context) {
 	if changed {
 		w.rebalancer.RequestRebalance()
 	}
+}
+
+func (w *EventWorker) syncVolumes(ctx context.Context) {
+	if w.volumeRepo == nil {
+		return
+	}
+
+	volumes, err := w.volumeRepo.GetReconcileCandidates(ctx)
+	if err != nil {
+		w.logger.ErrorContext(ctx, "failed to fetch volume reconcile candidates", "error", err)
+		return
+	}
+
+	for _, v := range volumes {
+		if v.DockerName == "" {
+			_ = w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))
+			w.logger.WarnContext(ctx, "volume has empty docker name", "volume_id", v.ID)
+			continue
+		}
+
+		if _, err := w.dockerAPI.InspectVolume(ctx, v.DockerName); err != nil {
+			if cerrdefs.IsNotFound(err) {
+				_ = w.volumeRepo.MarkStatusError(ctx, v.ID, model.VolumeStatusMissing, resourceMissingError("volume"))
+				w.logger.WarnContext(ctx, "docker volume missing during state sync", "volume_id", v.ID, "docker_name", v.DockerName)
+			}
+			continue
+		}
+
+		if v.Status == model.VolumeStatusCreating {
+			_ = w.volumeRepo.UpdateStatus(ctx, v.ID, model.VolumeStatusAvailable)
+		}
+	}
+}
+
+func resourceMissingError(resource string) error {
+	if resource == "" {
+		resource = "resource"
+	}
+	return errors.New(resource + " is missing in Docker; delete it")
 }
 
 func resetTimer(timer *time.Timer, delay time.Duration) {

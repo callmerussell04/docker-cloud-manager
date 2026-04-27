@@ -126,7 +126,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
-	eventWorker := service.NewEventWorker(contRepo, dockerAdapter, contService, logger)
+	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, cfg.RegistryContainerName, logger)
 
 	wg.Add(4)

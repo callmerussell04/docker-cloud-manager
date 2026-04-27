@@ -120,6 +120,45 @@ func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) 
 	return volumes, rows.Err()
 }
 
+func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
+	query := `
+		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at
+		FROM volumes
+		WHERE status IN ($1, $2)
+	`
+	rows, err := r.db.QueryContext(ctx, query, model.VolumeStatusCreating, model.VolumeStatusAvailable)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var volumes []model.Volume
+	for rows.Next() {
+		var v model.Volume
+		var projectID sql.NullString
+		var lastObservedAt sql.NullTime
+		var lastError sql.NullString
+
+		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if projectID.Valid {
+			parsed, _ := uuid.Parse(projectID.String)
+			v.ProjectID = &parsed
+		}
+		if lastObservedAt.Valid {
+			v.LastObservedAt = &lastObservedAt.Time
+		}
+		if lastError.Valid {
+			v.LastError = &lastError.String
+		}
+
+		volumes = append(volumes, v)
+	}
+	return volumes, rows.Err()
+}
+
 func (r *VolumeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM volumes WHERE id = $1`
 	res, err := r.db.ExecContext(ctx, query, id)

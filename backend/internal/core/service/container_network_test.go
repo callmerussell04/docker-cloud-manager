@@ -90,6 +90,9 @@ func (f *containerCleanupRepoFake) GetByOwnerID(ctx context.Context, ownerID uui
 }
 
 func (f *containerCleanupRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	if f.container.ID == id {
+		f.container.Status = status
+	}
 	return nil
 }
 
@@ -137,6 +140,32 @@ func (f *containerCleanupRepoFake) CheckDomainPrefixExists(ctx context.Context, 
 
 func (f *containerCleanupRepoFake) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
 	return nil, 0, nil
+}
+
+func (f *containerCleanupRepoFake) SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error {
+	if f.container.ID == id {
+		f.container.DesiredStatus = desiredStatus
+	}
+	return nil
+}
+
+func (f *containerCleanupRepoFake) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if f.container.ID == id {
+		f.container.Status = status
+		if cause != nil {
+			msg := cause.Error()
+			f.container.LastError = &msg
+		}
+	}
+	return nil
+}
+
+func (f *containerCleanupRepoFake) CreateOperation(ctx context.Context, op model.ResourceOperation) error {
+	return nil
+}
+
+func (f *containerCleanupRepoFake) CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error {
+	return nil
 }
 
 type containerCleanupDockerFake struct {

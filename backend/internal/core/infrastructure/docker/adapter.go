@@ -62,9 +62,9 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	labels := map[string]string{
 		"managed_by":        "docker-cloud-manager",
 		"dcm.resource_type": "container",
-		"dcm.container_id":   params.ContainerID,
-		"dcm.owner_id":       params.OwnerID,
-		"dcm.generation":     strconv.Itoa(params.Generation),
+		"dcm.container_id":  params.ContainerID,
+		"dcm.owner_id":      params.OwnerID,
+		"dcm.generation":    strconv.Itoa(params.Generation),
 	}
 	if params.ProjectID != "" {
 		labels["dcm.project_id"] = params.ProjectID
@@ -291,12 +291,16 @@ func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.
 	return inspection, nil
 }
 
-func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (*volume.Volume, error) {
+func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (model.VolumeInspection, error) {
 	vol, err := a.cli.VolumeInspect(ctx, volumeName)
 	if err != nil {
-		return nil, err
+		return model.VolumeInspection{}, err
 	}
-	return &vol, nil
+	return model.VolumeInspection{
+		Name:   vol.Name,
+		Driver: vol.Driver,
+		Labels: vol.Labels,
+	}, nil
 }
 
 func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) error {

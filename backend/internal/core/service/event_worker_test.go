@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
@@ -16,7 +17,7 @@ func TestEventWorkerClosedStreamBacksOff(t *testing.T) {
 	defer cancel()
 
 	dockerAPI := &closedEventDockerFake{}
-	worker := NewEventWorker(&eventRepoFake{}, dockerAPI, &eventRebalancerFake{}, slog.Default())
+	worker := NewEventWorker(&eventRepoFake{}, nil, dockerAPI, &eventRebalancerFake{}, slog.Default())
 
 	done := make(chan struct{})
 	go func() {
@@ -38,22 +39,75 @@ func TestEventWorkerClosedStreamBacksOff(t *testing.T) {
 	}
 }
 
-type eventRepoFake struct{}
+func TestEventWorkerMarksMissingContainerOnSync(t *testing.T) {
+	ctx := context.Background()
+	containerID := uuid.New()
+	repo := &eventRepoFake{
+		containers: []model.Container{{
+			ID:       containerID,
+			DockerID: "missing-docker",
+			Status:   model.ContainerStatusRunning,
+		}},
+	}
+	dockerAPI := &closedEventDockerFake{inspectContainerErr: cerrdefs.ErrNotFound}
+	worker := NewEventWorker(repo, nil, dockerAPI, &eventRebalancerFake{}, slog.Default())
+
+	worker.syncState(ctx)
+
+	if got := repo.markedStatus[containerID]; got != model.ContainerStatusMissing {
+		t.Fatalf("marked status = %q, want %q", got, model.ContainerStatusMissing)
+	}
+}
+
+func TestEventWorkerMarksMissingVolumeOnSync(t *testing.T) {
+	ctx := context.Background()
+	volumeID := uuid.New()
+	volumeRepo := &eventVolumeRepoFake{
+		volumes: []model.Volume{{
+			ID:         volumeID,
+			DockerName: "missing-volume",
+			Status:     model.VolumeStatusAvailable,
+		}},
+	}
+	dockerAPI := &closedEventDockerFake{inspectVolumeErr: cerrdefs.ErrNotFound}
+	worker := NewEventWorker(&eventRepoFake{}, volumeRepo, dockerAPI, &eventRebalancerFake{}, slog.Default())
+
+	worker.syncState(ctx)
+
+	if got := volumeRepo.markedStatus[volumeID]; got != model.VolumeStatusMissing {
+		t.Fatalf("marked status = %q, want %q", got, model.VolumeStatusMissing)
+	}
+}
+
+type eventRepoFake struct {
+	containers   []model.Container
+	markedStatus map[uuid.UUID]string
+}
 
 func (f *eventRepoFake) UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error {
 	return nil
 }
 
 func (f *eventRepoFake) GetNonExited(ctx context.Context) ([]model.Container, error) {
-	return nil, nil
+	return f.containers, nil
 }
 
 func (f *eventRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	return nil
 }
 
+func (f *eventRepoFake) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if f.markedStatus == nil {
+		f.markedStatus = make(map[uuid.UUID]string)
+	}
+	f.markedStatus[id] = status
+	return nil
+}
+
 type closedEventDockerFake struct {
-	calls atomic.Int32
+	calls               atomic.Int32
+	inspectContainerErr error
+	inspectVolumeErr    error
 }
 
 func (f *closedEventDockerFake) ListenEvents(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
@@ -66,7 +120,32 @@ func (f *closedEventDockerFake) ListenEvents(ctx context.Context) (<-chan model.
 }
 
 func (f *closedEventDockerFake) InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error) {
-	return model.ContainerInspection{}, nil
+	return model.ContainerInspection{}, f.inspectContainerErr
+}
+
+func (f *closedEventDockerFake) InspectVolume(ctx context.Context, volumeName string) (model.VolumeInspection, error) {
+	return model.VolumeInspection{}, f.inspectVolumeErr
+}
+
+type eventVolumeRepoFake struct {
+	volumes      []model.Volume
+	markedStatus map[uuid.UUID]string
+}
+
+func (f *eventVolumeRepoFake) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
+	return f.volumes, nil
+}
+
+func (f *eventVolumeRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	return nil
+}
+
+func (f *eventVolumeRepoFake) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if f.markedStatus == nil {
+		f.markedStatus = make(map[uuid.UUID]string)
+	}
+	f.markedStatus[id] = status
+	return nil
 }
 
 type eventRebalancerFake struct {
