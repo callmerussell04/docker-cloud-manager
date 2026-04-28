@@ -2266,26 +2266,56 @@ func (x *PaginatedProjectResponse) GetTotalCount() int32 {
 }
 
 type SystemConfigData struct {
-	state                         protoimpl.MessageState `protogen:"open.v1"`
-	BaseDomain                    string                 `protobuf:"bytes,1,opt,name=base_domain,json=baseDomain,proto3" json:"base_domain,omitempty"`
-	DefaultMemoryReservationBytes int64                  `protobuf:"varint,2,opt,name=default_memory_reservation_bytes,json=defaultMemoryReservationBytes,proto3" json:"default_memory_reservation_bytes,omitempty"`
-	ReservedSystemMemoryBytes     int64                  `protobuf:"varint,3,opt,name=reserved_system_memory_bytes,json=reservedSystemMemoryBytes,proto3" json:"reserved_system_memory_bytes,omitempty"`
-	OvercommitFactor              float64                `protobuf:"fixed64,4,opt,name=overcommit_factor,json=overcommitFactor,proto3" json:"overcommit_factor,omitempty"`
-	MaxBurstMultiplier            int64                  `protobuf:"varint,5,opt,name=max_burst_multiplier,json=maxBurstMultiplier,proto3" json:"max_burst_multiplier,omitempty"`
-	DefaultCpuShares              int64                  `protobuf:"varint,6,opt,name=default_cpu_shares,json=defaultCpuShares,proto3" json:"default_cpu_shares,omitempty"`
-	HighLoadCpuShares             int64                  `protobuf:"varint,7,opt,name=high_load_cpu_shares,json=highLoadCpuShares,proto3" json:"high_load_cpu_shares,omitempty"`
-	HighLoadContainerCount        int32                  `protobuf:"varint,8,opt,name=high_load_container_count,json=highLoadContainerCount,proto3" json:"high_load_container_count,omitempty"`
-	ContainerStopTimeout          int32                  `protobuf:"varint,9,opt,name=container_stop_timeout,json=containerStopTimeout,proto3" json:"container_stop_timeout,omitempty"`
-	MaxLogSize                    string                 `protobuf:"bytes,10,opt,name=max_log_size,json=maxLogSize,proto3" json:"max_log_size,omitempty"`
-	MaxLogFiles                   string                 `protobuf:"bytes,11,opt,name=max_log_files,json=maxLogFiles,proto3" json:"max_log_files,omitempty"`
-	ContainerDiskQuota            string                 `protobuf:"bytes,12,opt,name=container_disk_quota,json=containerDiskQuota,proto3" json:"container_disk_quota,omitempty"`
-	MaxVolumesPerUser             int32                  `protobuf:"varint,13,opt,name=max_volumes_per_user,json=maxVolumesPerUser,proto3" json:"max_volumes_per_user,omitempty"`
-	MaxContainersPerUser          int32                  `protobuf:"varint,14,opt,name=max_containers_per_user,json=maxContainersPerUser,proto3" json:"max_containers_per_user,omitempty"`
-	RegistryApiUrl                string                 `protobuf:"bytes,15,opt,name=registry_api_url,json=registryApiUrl,proto3" json:"registry_api_url,omitempty"`
-	RegistryPublicUrl             string                 `protobuf:"bytes,16,opt,name=registry_public_url,json=registryPublicUrl,proto3" json:"registry_public_url,omitempty"`
-	ContainerTtlHours             int64                  `protobuf:"varint,17,opt,name=container_ttl_hours,json=containerTtlHours,proto3" json:"container_ttl_hours,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state                                protoimpl.MessageState `protogen:"open.v1"`
+	BaseDomain                           string                 `protobuf:"bytes,1,opt,name=base_domain,json=baseDomain,proto3" json:"base_domain,omitempty"`
+	DefaultMemoryReservationBytes        int64                  `protobuf:"varint,2,opt,name=default_memory_reservation_bytes,json=defaultMemoryReservationBytes,proto3" json:"default_memory_reservation_bytes,omitempty"`
+	ReservedSystemMemoryBytes            int64                  `protobuf:"varint,3,opt,name=reserved_system_memory_bytes,json=reservedSystemMemoryBytes,proto3" json:"reserved_system_memory_bytes,omitempty"`
+	OvercommitFactor                     float64                `protobuf:"fixed64,4,opt,name=overcommit_factor,json=overcommitFactor,proto3" json:"overcommit_factor,omitempty"`
+	MaxBurstMultiplier                   int64                  `protobuf:"varint,5,opt,name=max_burst_multiplier,json=maxBurstMultiplier,proto3" json:"max_burst_multiplier,omitempty"`
+	DefaultCpuShares                     int64                  `protobuf:"varint,6,opt,name=default_cpu_shares,json=defaultCpuShares,proto3" json:"default_cpu_shares,omitempty"`
+	HighLoadCpuShares                    int64                  `protobuf:"varint,7,opt,name=high_load_cpu_shares,json=highLoadCpuShares,proto3" json:"high_load_cpu_shares,omitempty"`
+	HighLoadContainerCount               int32                  `protobuf:"varint,8,opt,name=high_load_container_count,json=highLoadContainerCount,proto3" json:"high_load_container_count,omitempty"`
+	ContainerStopTimeout                 int32                  `protobuf:"varint,9,opt,name=container_stop_timeout,json=containerStopTimeout,proto3" json:"container_stop_timeout,omitempty"`
+	MaxLogSize                           string                 `protobuf:"bytes,10,opt,name=max_log_size,json=maxLogSize,proto3" json:"max_log_size,omitempty"`
+	MaxLogFiles                          string                 `protobuf:"bytes,11,opt,name=max_log_files,json=maxLogFiles,proto3" json:"max_log_files,omitempty"`
+	ContainerDiskQuota                   string                 `protobuf:"bytes,12,opt,name=container_disk_quota,json=containerDiskQuota,proto3" json:"container_disk_quota,omitempty"`
+	MaxVolumesPerUser                    int32                  `protobuf:"varint,13,opt,name=max_volumes_per_user,json=maxVolumesPerUser,proto3" json:"max_volumes_per_user,omitempty"`
+	MaxContainersPerUser                 int32                  `protobuf:"varint,14,opt,name=max_containers_per_user,json=maxContainersPerUser,proto3" json:"max_containers_per_user,omitempty"`
+	RegistryApiUrl                       string                 `protobuf:"bytes,15,opt,name=registry_api_url,json=registryApiUrl,proto3" json:"registry_api_url,omitempty"`
+	RegistryPublicUrl                    string                 `protobuf:"bytes,16,opt,name=registry_public_url,json=registryPublicUrl,proto3" json:"registry_public_url,omitempty"`
+	ContainerTtlHours                    int64                  `protobuf:"varint,17,opt,name=container_ttl_hours,json=containerTtlHours,proto3" json:"container_ttl_hours,omitempty"`
+	ContainerPidsLimit                   int64                  `protobuf:"varint,18,opt,name=container_pids_limit,json=containerPidsLimit,proto3" json:"container_pids_limit,omitempty"`
+	ContainerMemorySwapMultiplier        float64                `protobuf:"fixed64,19,opt,name=container_memory_swap_multiplier,json=containerMemorySwapMultiplier,proto3" json:"container_memory_swap_multiplier,omitempty"`
+	ProxyNetworkName                     string                 `protobuf:"bytes,20,opt,name=proxy_network_name,json=proxyNetworkName,proto3" json:"proxy_network_name,omitempty"`
+	RegistryContainerName                string                 `protobuf:"bytes,21,opt,name=registry_container_name,json=registryContainerName,proto3" json:"registry_container_name,omitempty"`
+	BuildMemoryBytes                     int64                  `protobuf:"varint,22,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
+	BuildCpuQuota                        int64                  `protobuf:"varint,23,opt,name=build_cpu_quota,json=buildCpuQuota,proto3" json:"build_cpu_quota,omitempty"`
+	BuildCpuPeriod                       int64                  `protobuf:"varint,24,opt,name=build_cpu_period,json=buildCpuPeriod,proto3" json:"build_cpu_period,omitempty"`
+	BuildMemorySwapMultiplier            float64                `protobuf:"fixed64,25,opt,name=build_memory_swap_multiplier,json=buildMemorySwapMultiplier,proto3" json:"build_memory_swap_multiplier,omitempty"`
+	BuildPidsLimit                       int64                  `protobuf:"varint,26,opt,name=build_pids_limit,json=buildPidsLimit,proto3" json:"build_pids_limit,omitempty"`
+	BuildNetworkName                     string                 `protobuf:"bytes,27,opt,name=build_network_name,json=buildNetworkName,proto3" json:"build_network_name,omitempty"`
+	KanikoImage                          string                 `protobuf:"bytes,28,opt,name=kaniko_image,json=kanikoImage,proto3" json:"kaniko_image,omitempty"`
+	MaxBuildTimeMinutes                  int64                  `protobuf:"varint,29,opt,name=max_build_time_minutes,json=maxBuildTimeMinutes,proto3" json:"max_build_time_minutes,omitempty"`
+	MaxConcurrentBuilds                  int32                  `protobuf:"varint,30,opt,name=max_concurrent_builds,json=maxConcurrentBuilds,proto3" json:"max_concurrent_builds,omitempty"`
+	MaxUploadSizeBytes                   int64                  `protobuf:"varint,31,opt,name=max_upload_size_bytes,json=maxUploadSizeBytes,proto3" json:"max_upload_size_bytes,omitempty"`
+	MaxArchiveSizeBytes                  int64                  `protobuf:"varint,32,opt,name=max_archive_size_bytes,json=maxArchiveSizeBytes,proto3" json:"max_archive_size_bytes,omitempty"`
+	MaxUnpackedSizeBytes                 int64                  `protobuf:"varint,33,opt,name=max_unpacked_size_bytes,json=maxUnpackedSizeBytes,proto3" json:"max_unpacked_size_bytes,omitempty"`
+	MaxBuildLogSizeBytes                 int64                  `protobuf:"varint,34,opt,name=max_build_log_size_bytes,json=maxBuildLogSizeBytes,proto3" json:"max_build_log_size_bytes,omitempty"`
+	TtlWorkerIntervalSeconds             int64                  `protobuf:"varint,35,opt,name=ttl_worker_interval_seconds,json=ttlWorkerIntervalSeconds,proto3" json:"ttl_worker_interval_seconds,omitempty"`
+	GcWorkerIntervalMinutes              int64                  `protobuf:"varint,36,opt,name=gc_worker_interval_minutes,json=gcWorkerIntervalMinutes,proto3" json:"gc_worker_interval_minutes,omitempty"`
+	StaleBuildTimeoutMinutes             int64                  `protobuf:"varint,37,opt,name=stale_build_timeout_minutes,json=staleBuildTimeoutMinutes,proto3" json:"stale_build_timeout_minutes,omitempty"`
+	EventSyncIntervalSeconds             int64                  `protobuf:"varint,38,opt,name=event_sync_interval_seconds,json=eventSyncIntervalSeconds,proto3" json:"event_sync_interval_seconds,omitempty"`
+	EventReconnectDelaySeconds           int64                  `protobuf:"varint,39,opt,name=event_reconnect_delay_seconds,json=eventReconnectDelaySeconds,proto3" json:"event_reconnect_delay_seconds,omitempty"`
+	BuildOutboxIntervalSeconds           int64                  `protobuf:"varint,40,opt,name=build_outbox_interval_seconds,json=buildOutboxIntervalSeconds,proto3" json:"build_outbox_interval_seconds,omitempty"`
+	BuildOutboxBatchSize                 int32                  `protobuf:"varint,41,opt,name=build_outbox_batch_size,json=buildOutboxBatchSize,proto3" json:"build_outbox_batch_size,omitempty"`
+	ComposeUploadMaxBytes                int64                  `protobuf:"varint,42,opt,name=compose_upload_max_bytes,json=composeUploadMaxBytes,proto3" json:"compose_upload_max_bytes,omitempty"`
+	ComposePipelineTimeoutMinutes        int64                  `protobuf:"varint,43,opt,name=compose_pipeline_timeout_minutes,json=composePipelineTimeoutMinutes,proto3" json:"compose_pipeline_timeout_minutes,omitempty"`
+	ComposeBuilderHttpTimeoutSeconds     int64                  `protobuf:"varint,44,opt,name=compose_builder_http_timeout_seconds,json=composeBuilderHttpTimeoutSeconds,proto3" json:"compose_builder_http_timeout_seconds,omitempty"`
+	ComposeBuildPollIntervalSeconds      int64                  `protobuf:"varint,45,opt,name=compose_build_poll_interval_seconds,json=composeBuildPollIntervalSeconds,proto3" json:"compose_build_poll_interval_seconds,omitempty"`
+	ComposeDependencyWaitTimeoutMinutes  int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
+	ComposeDependencyPollIntervalSeconds int64                  `protobuf:"varint,47,opt,name=compose_dependency_poll_interval_seconds,json=composeDependencyPollIntervalSeconds,proto3" json:"compose_dependency_poll_interval_seconds,omitempty"`
+	unknownFields                        protoimpl.UnknownFields
+	sizeCache                            protoimpl.SizeCache
 }
 
 func (x *SystemConfigData) Reset() {
@@ -2433,6 +2463,216 @@ func (x *SystemConfigData) GetRegistryPublicUrl() string {
 func (x *SystemConfigData) GetContainerTtlHours() int64 {
 	if x != nil {
 		return x.ContainerTtlHours
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerPidsLimit() int64 {
+	if x != nil {
+		return x.ContainerPidsLimit
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerMemorySwapMultiplier() float64 {
+	if x != nil {
+		return x.ContainerMemorySwapMultiplier
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetProxyNetworkName() string {
+	if x != nil {
+		return x.ProxyNetworkName
+	}
+	return ""
+}
+
+func (x *SystemConfigData) GetRegistryContainerName() string {
+	if x != nil {
+		return x.RegistryContainerName
+	}
+	return ""
+}
+
+func (x *SystemConfigData) GetBuildMemoryBytes() int64 {
+	if x != nil {
+		return x.BuildMemoryBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildCpuQuota() int64 {
+	if x != nil {
+		return x.BuildCpuQuota
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildCpuPeriod() int64 {
+	if x != nil {
+		return x.BuildCpuPeriod
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildMemorySwapMultiplier() float64 {
+	if x != nil {
+		return x.BuildMemorySwapMultiplier
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildPidsLimit() int64 {
+	if x != nil {
+		return x.BuildPidsLimit
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildNetworkName() string {
+	if x != nil {
+		return x.BuildNetworkName
+	}
+	return ""
+}
+
+func (x *SystemConfigData) GetKanikoImage() string {
+	if x != nil {
+		return x.KanikoImage
+	}
+	return ""
+}
+
+func (x *SystemConfigData) GetMaxBuildTimeMinutes() int64 {
+	if x != nil {
+		return x.MaxBuildTimeMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxConcurrentBuilds() int32 {
+	if x != nil {
+		return x.MaxConcurrentBuilds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxUploadSizeBytes() int64 {
+	if x != nil {
+		return x.MaxUploadSizeBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxArchiveSizeBytes() int64 {
+	if x != nil {
+		return x.MaxArchiveSizeBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxUnpackedSizeBytes() int64 {
+	if x != nil {
+		return x.MaxUnpackedSizeBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxBuildLogSizeBytes() int64 {
+	if x != nil {
+		return x.MaxBuildLogSizeBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetTtlWorkerIntervalSeconds() int64 {
+	if x != nil {
+		return x.TtlWorkerIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetGcWorkerIntervalMinutes() int64 {
+	if x != nil {
+		return x.GcWorkerIntervalMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetStaleBuildTimeoutMinutes() int64 {
+	if x != nil {
+		return x.StaleBuildTimeoutMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetEventSyncIntervalSeconds() int64 {
+	if x != nil {
+		return x.EventSyncIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetEventReconnectDelaySeconds() int64 {
+	if x != nil {
+		return x.EventReconnectDelaySeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildOutboxIntervalSeconds() int64 {
+	if x != nil {
+		return x.BuildOutboxIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetBuildOutboxBatchSize() int32 {
+	if x != nil {
+		return x.BuildOutboxBatchSize
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeUploadMaxBytes() int64 {
+	if x != nil {
+		return x.ComposeUploadMaxBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposePipelineTimeoutMinutes() int64 {
+	if x != nil {
+		return x.ComposePipelineTimeoutMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeBuilderHttpTimeoutSeconds() int64 {
+	if x != nil {
+		return x.ComposeBuilderHttpTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeBuildPollIntervalSeconds() int64 {
+	if x != nil {
+		return x.ComposeBuildPollIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeDependencyWaitTimeoutMinutes() int64 {
+	if x != nil {
+		return x.ComposeDependencyWaitTimeoutMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeDependencyPollIntervalSeconds() int64 {
+	if x != nil {
+		return x.ComposeDependencyPollIntervalSeconds
 	}
 	return 0
 }
@@ -2713,7 +2953,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xd6\x06\n" +
+	"totalCount\"\xb8\x14\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -2734,7 +2974,37 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x17max_containers_per_user\x18\x0e \x01(\x05R\x14maxContainersPerUser\x12(\n" +
 	"\x10registry_api_url\x18\x0f \x01(\tR\x0eregistryApiUrl\x12.\n" +
 	"\x13registry_public_url\x18\x10 \x01(\tR\x11registryPublicUrl\x12.\n" +
-	"\x13container_ttl_hours\x18\x11 \x01(\x03R\x11containerTtlHours\"\xef\x01\n" +
+	"\x13container_ttl_hours\x18\x11 \x01(\x03R\x11containerTtlHours\x120\n" +
+	"\x14container_pids_limit\x18\x12 \x01(\x03R\x12containerPidsLimit\x12G\n" +
+	" container_memory_swap_multiplier\x18\x13 \x01(\x01R\x1dcontainerMemorySwapMultiplier\x12,\n" +
+	"\x12proxy_network_name\x18\x14 \x01(\tR\x10proxyNetworkName\x126\n" +
+	"\x17registry_container_name\x18\x15 \x01(\tR\x15registryContainerName\x12,\n" +
+	"\x12build_memory_bytes\x18\x16 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
+	"\x0fbuild_cpu_quota\x18\x17 \x01(\x03R\rbuildCpuQuota\x12(\n" +
+	"\x10build_cpu_period\x18\x18 \x01(\x03R\x0ebuildCpuPeriod\x12?\n" +
+	"\x1cbuild_memory_swap_multiplier\x18\x19 \x01(\x01R\x19buildMemorySwapMultiplier\x12(\n" +
+	"\x10build_pids_limit\x18\x1a \x01(\x03R\x0ebuildPidsLimit\x12,\n" +
+	"\x12build_network_name\x18\x1b \x01(\tR\x10buildNetworkName\x12!\n" +
+	"\fkaniko_image\x18\x1c \x01(\tR\vkanikoImage\x123\n" +
+	"\x16max_build_time_minutes\x18\x1d \x01(\x03R\x13maxBuildTimeMinutes\x122\n" +
+	"\x15max_concurrent_builds\x18\x1e \x01(\x05R\x13maxConcurrentBuilds\x121\n" +
+	"\x15max_upload_size_bytes\x18\x1f \x01(\x03R\x12maxUploadSizeBytes\x123\n" +
+	"\x16max_archive_size_bytes\x18  \x01(\x03R\x13maxArchiveSizeBytes\x125\n" +
+	"\x17max_unpacked_size_bytes\x18! \x01(\x03R\x14maxUnpackedSizeBytes\x126\n" +
+	"\x18max_build_log_size_bytes\x18\" \x01(\x03R\x14maxBuildLogSizeBytes\x12=\n" +
+	"\x1bttl_worker_interval_seconds\x18# \x01(\x03R\x18ttlWorkerIntervalSeconds\x12;\n" +
+	"\x1agc_worker_interval_minutes\x18$ \x01(\x03R\x17gcWorkerIntervalMinutes\x12=\n" +
+	"\x1bstale_build_timeout_minutes\x18% \x01(\x03R\x18staleBuildTimeoutMinutes\x12=\n" +
+	"\x1bevent_sync_interval_seconds\x18& \x01(\x03R\x18eventSyncIntervalSeconds\x12A\n" +
+	"\x1devent_reconnect_delay_seconds\x18' \x01(\x03R\x1aeventReconnectDelaySeconds\x12A\n" +
+	"\x1dbuild_outbox_interval_seconds\x18( \x01(\x03R\x1abuildOutboxIntervalSeconds\x125\n" +
+	"\x17build_outbox_batch_size\x18) \x01(\x05R\x14buildOutboxBatchSize\x127\n" +
+	"\x18compose_upload_max_bytes\x18* \x01(\x03R\x15composeUploadMaxBytes\x12G\n" +
+	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12N\n" +
+	"$compose_builder_http_timeout_seconds\x18, \x01(\x03R composeBuilderHttpTimeoutSeconds\x12L\n" +
+	"#compose_build_poll_interval_seconds\x18- \x01(\x03R\x1fcomposeBuildPollIntervalSeconds\x12T\n" +
+	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x12V\n" +
+	"(compose_dependency_poll_interval_seconds\x18/ \x01(\x03R$composeDependencyPollIntervalSeconds\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

@@ -1,7 +1,5 @@
 package config
 
-import "time"
-
 type ContainerConfig struct {
 	BaseDomain               string
 	DefaultMemoryReservation int64
@@ -18,5 +16,5 @@ type ContainerConfig struct {
 	MaxVolumesPerUser        int
 	MaxContainersPerUser     int
 	RegistryURL              string
-	ContainerTTL             time.Duration
+	ContainerTTLHours        int64
 }

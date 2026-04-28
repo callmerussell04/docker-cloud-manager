@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/rabbitmq"
@@ -43,15 +42,14 @@ type App struct {
 }
 
 type Config struct {
-	Port                  int
-	HTTPPort              int
-	DBURL                 string
-	RegistryContainerName string
-	BuilderHTTPURL        string
-	RabbitMQURL           string
-	SSOTarget             string
-	InternalToken         string
-	ConfigManager         *config.Manager
+	Port           int
+	HTTPPort       int
+	DBURL          string
+	BuilderHTTPURL string
+	RabbitMQURL    string
+	SSOTarget      string
+	InternalToken  string
+	ConfigManager  *config.Manager
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -113,8 +111,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
-	composeHandler := corehttp.NewComposeHandler(orchestrator)
+	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
+	composeHandler := corehttp.NewComposeHandler(orchestrator, cfg.ConfigManager)
 	router := corehttp.SetupRouter(composeHandler, cfg.InternalToken, logger)
 
 	httpServer := &http.Server{
@@ -129,10 +127,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
-	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, 1*time.Minute, logger)
-	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, logger)
-	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, 1*time.Hour, 30*time.Minute, cfg.RegistryContainerName, logger)
-	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, time.Second, 10, logger)
+	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
+	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, cfg.ConfigManager, logger)
+	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, cfg.ConfigManager, logger)
+	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 
 	wg.Add(5)
 	go func() {

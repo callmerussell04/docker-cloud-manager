@@ -67,7 +67,7 @@ type ContainerDockerAPI interface {
 	StartContainer(ctx context.Context, dockerID string) error
 	StopContainer(ctx context.Context, dockerID string, timeout int) error
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
-	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error
+	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
 	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
@@ -155,7 +155,8 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if count >= s.config.Get().MaxContainersPerUser {
+	cfg := s.config.Get()
+	if count >= cfg.MaxContainersPerUser {
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
 
@@ -173,13 +174,13 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 			return uuid.Nil, fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
 		}
 
-		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, s.config.Get().BaseDomain)
+		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, cfg.BaseDomain)
 	}
 
 	// 1. Определение запрашиваемой памяти (Гарантии)
 	reqMem := params.RequestedMemoryMB * 1024 * 1024
 	if reqMem <= 0 {
-		reqMem = s.config.Get().DefaultMemoryReservation
+		reqMem = cfg.DefaultMemoryReservation
 	}
 
 	// 2. Admission Control: Проверка квоты пользователя
@@ -310,8 +311,8 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	}
 
 	var ttlDeadline *time.Time
-	if s.config.Get().ContainerTTL > 0 {
-		t := time.Now().Add(s.config.Get().ContainerTTL)
+	if cfg.ContainerTTLHours > 0 {
+		t := time.Now().Add(time.Duration(cfg.ContainerTTLHours) * time.Hour)
 		ttlDeadline = &t
 	}
 
@@ -363,27 +364,30 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	// 5. Конфигурация Docker. Изначально ставим жесткий лимит равным мягкому.
 	// Ребалансировщик потом его увеличит (Burst).
 	dockerParams := model.ContainerRuntimeSpec{
-		ContainerID:       containerID.String(),
-		OwnerID:           ownerID.String(),
-		Generation:        c.DockerGeneration,
-		ContainerName:     fmt.Sprintf("usr_%s", containerID.String()[:12]),
-		NetworkAlias:      params.NetworkAlias,
-		ImageName:         actualImageTag,
-		NetworkName:       networkName,
-		Domain:            fullDomain,
-		InternalPort:      params.InternalPort,
-		EnvVars:           envList,
-		MemoryLimitBytes:  reqMem,                          // Стартовый жесткий лимит
-		MemoryReservation: reqMem,                          // Гарантия (Soft limit)
-		CPUShares:         s.config.Get().DefaultCPUShares, // Базовый приоритет
-		VolumeMounts:      dockerMounts,
-		MaxLogSize:        s.config.Get().MaxLogSize,
-		MaxLogFiles:       s.config.Get().MaxLogFiles,
-		StorageQuota:      s.config.Get().ContainerDiskQuota,
-		Command:           params.Command,
-		Entrypoint:        params.Entrypoint,
-		Restart:           params.Restart,
-		Healthcheck:       params.Healthcheck,
+		ContainerID:          containerID.String(),
+		OwnerID:              ownerID.String(),
+		Generation:           c.DockerGeneration,
+		ContainerName:        fmt.Sprintf("usr_%s", containerID.String()[:12]),
+		NetworkAlias:         params.NetworkAlias,
+		ImageName:            actualImageTag,
+		NetworkName:          networkName,
+		Domain:               fullDomain,
+		InternalPort:         params.InternalPort,
+		EnvVars:              envList,
+		MemoryLimitBytes:     reqMem, // Стартовый жесткий лимит
+		MemoryReservation:    reqMem, // Гарантия (Soft limit)
+		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
+		CPUShares:            cfg.DefaultCPUShares, // Базовый приоритет
+		PidsLimit:            cfg.ContainerPidsLimit,
+		ProxyNetworkName:     cfg.ProxyNetworkName,
+		VolumeMounts:         dockerMounts,
+		MaxLogSize:           cfg.MaxLogSize,
+		MaxLogFiles:          cfg.MaxLogFiles,
+		StorageQuota:         cfg.ContainerDiskQuota,
+		Command:              params.Command,
+		Entrypoint:           params.Entrypoint,
+		Restart:              params.Restart,
+		Healthcheck:          params.Healthcheck,
 	}
 	if params.ProjectID != nil {
 		dockerParams.ProjectID = params.ProjectID.String()
@@ -465,33 +469,37 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	}
 
 	networkName := userNetworkName(ownerID)
-	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, s.config.Get().BaseDomain)
+	cfg := s.config.Get()
+	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, cfg.BaseDomain)
 	nextGeneration := c.DockerGeneration + 1
 	if nextGeneration <= 1 {
 		nextGeneration = 2
 	}
 
 	dockerParams := model.ContainerRuntimeSpec{
-		ContainerID:       containerID.String(),
-		OwnerID:           ownerID.String(),
-		Generation:        nextGeneration,
-		ContainerName:     fmt.Sprintf("%s_g%d", strings.TrimPrefix(inspect.Name, "/"), nextGeneration),
-		ImageName:         inspect.Image,
-		NetworkName:       networkName,
-		Domain:            fullDomain,
-		InternalPort:      internalPort,
-		EnvVars:           envList,
-		MemoryLimitBytes:  inspect.MemoryLimitBytes,
-		MemoryReservation: inspect.MemoryReservation,
-		CPUShares:         inspect.CPUShares,
-		VolumeMounts:      dockerMounts,
-		MaxLogSize:        s.config.Get().MaxLogSize,
-		MaxLogFiles:       s.config.Get().MaxLogFiles,
-		StorageQuota:      s.config.Get().ContainerDiskQuota,
-		Command:           inspect.Command,
-		Entrypoint:        inspect.Entrypoint,
-		Restart:           inspect.Restart,
-		Healthcheck:       inspect.Healthcheck,
+		ContainerID:          containerID.String(),
+		OwnerID:              ownerID.String(),
+		Generation:           nextGeneration,
+		ContainerName:        fmt.Sprintf("%s_g%d", strings.TrimPrefix(inspect.Name, "/"), nextGeneration),
+		ImageName:            inspect.Image,
+		NetworkName:          networkName,
+		Domain:               fullDomain,
+		InternalPort:         internalPort,
+		EnvVars:              envList,
+		MemoryLimitBytes:     inspect.MemoryLimitBytes,
+		MemoryReservation:    inspect.MemoryReservation,
+		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
+		CPUShares:            inspect.CPUShares,
+		PidsLimit:            cfg.ContainerPidsLimit,
+		ProxyNetworkName:     cfg.ProxyNetworkName,
+		VolumeMounts:         dockerMounts,
+		MaxLogSize:           cfg.MaxLogSize,
+		MaxLogFiles:          cfg.MaxLogFiles,
+		StorageQuota:         cfg.ContainerDiskQuota,
+		Command:              inspect.Command,
+		Entrypoint:           inspect.Entrypoint,
+		Restart:              inspect.Restart,
+		Healthcheck:          inspect.Healthcheck,
 	}
 	if c.ProjectID != nil {
 		dockerParams.ProjectID = c.ProjectID.String()
@@ -782,6 +790,7 @@ func (s *ContainerService) checkHostCapacity(ctx context.Context, requestedRam i
 // --- Dynamic Rebalancing (The "Robin Hood" algorithm) ---
 
 func (s *ContainerService) RebalanceResources(ctx context.Context) {
+	cfg := s.config.Get()
 	runningContainers, err := s.repo.GetRunning(ctx)
 	if err != nil || len(runningContainers) == 0 {
 		return
@@ -794,7 +803,7 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 	}
 
 	// Свободная память на сервере для "Burst" режима
-	availableForBurst := totalMem - s.config.Get().ReservedSystemMemory
+	availableForBurst := totalMem - cfg.ReservedSystemMemory
 
 	// Сколько памяти гарантированно забрали все текущие запущенные контейнеры
 	var totalReserved int64 = 0
@@ -815,18 +824,18 @@ func (s *ContainerService) RebalanceResources(ctx context.Context) {
 		newMemoryLimit := int64(float64(c.BaseMemoryReservation) * burstFactor)
 
 		// Ограничиваем сверху, чтобы один контейнер не съел весь хост (например, не больше 4x от базы)
-		maxAllowedBurst := c.BaseMemoryReservation * s.config.Get().MaxBurstMultiplier
+		maxAllowedBurst := c.BaseMemoryReservation * cfg.MaxBurstMultiplier
 		if newMemoryLimit > maxAllowedBurst {
 			newMemoryLimit = maxAllowedBurst
 		}
 
 		// Выдаем CpuShares: если мало контейнеров - высокий приоритет, если много - стандартный
-		cpuShares := s.config.Get().DefaultCPUShares
-		if len(runningContainers) > s.config.Get().HighLoadContainerCount {
-			cpuShares = s.config.Get().HighLoadCPUShares
+		cpuShares := cfg.DefaultCPUShares
+		if len(runningContainers) > cfg.HighLoadContainerCount {
+			cpuShares = cfg.HighLoadCPUShares
 		}
 
-		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, c.BaseMemoryReservation, cpuShares)
+		err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, newMemoryLimit, c.BaseMemoryReservation, cpuShares, cfg.ContainerMemorySwapMultiplier)
 		if err != nil {
 			s.logger.ErrorContext(ctx, "failed to update container resources", "container_id", c.ID, "docker_id", c.DockerID, "error", err)
 		}

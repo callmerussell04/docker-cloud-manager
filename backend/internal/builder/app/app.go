@@ -39,15 +39,13 @@ type App struct {
 }
 
 type Config struct {
-	Port            int
-	CoreTarget      string
-	InternalToken   string
-	Builder         config.BuilderConfig
-	MaxUnpackedSize int64
-	MaxLogSize      int64
-	StoragePath     string
-	RabbitMQURL     string
-	ObjectStorage   objectstorage.Config
+	Port          int
+	CoreTarget    string
+	InternalToken string
+	Builder       config.BuilderConfig
+	StoragePath   string
+	RabbitMQURL   string
+	ObjectStorage objectstorage.Config
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -64,15 +62,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 
 	coreClient := grpcclient.NewCoreClient(coreConn)
+	runtimeConfig := config.NewRuntimeManager(cfg.Builder, coreClient, logging.WithComponent(logger, "builder_config"))
 
-	//TODO: make it an env
-	maxArchiveSize := int64(50 << 20) // 50 MB
-	fileManager, err := storage.NewFileManager(cfg.StoragePath, maxArchiveSize)
+	fileManager, err := storage.NewFileManager(cfg.StoragePath)
 	if err != nil {
 		return nil, err
 	}
 
-	logManager, err := storage.NewLogManager(cfg.Builder.LogsDirPath, cfg.MaxLogSize)
+	logManager, err := storage.NewLogManager(cfg.Builder.LogsDirPath)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +78,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	extractor := archive.NewExtractor(cfg.MaxUnpackedSize)
+	extractor := archive.NewExtractor()
 
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
@@ -91,8 +88,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, objectStore, coreClient, cfg.Builder, logger)
-	buildHandler := handler.NewBuildHandler(builderService, cfg.Builder.LogsDirPath)
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, objectStore, coreClient, runtimeConfig, logger)
+	buildHandler := handler.NewBuildHandler(builderService, cfg.Builder.LogsDirPath, runtimeConfig)
 
 	router := deliveryhttp.NewRouter(buildHandler, cfg.InternalToken, logger)
 	httpServer := &http.Server{

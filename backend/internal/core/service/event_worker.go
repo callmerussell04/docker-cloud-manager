@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	cerrdefs "github.com/containerd/errdefs"
@@ -35,20 +36,26 @@ type ContainerRebalancer interface {
 	RequestRebalance()
 }
 
+type EventConfigProvider interface {
+	Get() config.SystemConfig
+}
+
 type EventWorker struct {
 	repo       EventContainerRepo
 	volumeRepo EventVolumeRepo
 	dockerAPI  EventDockerAPI
 	rebalancer ContainerRebalancer
+	cfg        EventConfigProvider
 	logger     *slog.Logger
 }
 
-func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, logger *slog.Logger) *EventWorker {
+func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
 	return &EventWorker{
 		repo:       repo,
 		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
 		rebalancer: rebalancer,
+		cfg:        cfg,
 		logger:     logging.WithComponent(logger, "event_worker"),
 	}
 }
@@ -57,7 +64,7 @@ func (w *EventWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "event worker started")
 	w.syncState(ctx)
 
-	syncTicker := time.NewTicker(30 * time.Second)
+	syncTicker := time.NewTicker(time.Duration(w.cfg.Get().EventSyncIntervalSeconds) * time.Second)
 	defer syncTicker.Stop()
 
 	var msgCh <-chan model.ContainerEvent
@@ -72,23 +79,24 @@ func (w *EventWorker) Run(ctx context.Context) {
 			return
 		case <-syncTicker.C:
 			w.syncState(ctx)
+			resetTicker(syncTicker, time.Duration(w.cfg.Get().EventSyncIntervalSeconds)*time.Second)
 		case <-reconnectAt.C:
 			msgCh, errCh = w.dockerAPI.ListenEvents(ctx)
 		case err, ok := <-errCh:
 			if !ok {
 				msgCh, errCh = nil, nil
-				resetTimer(reconnectAt, 5*time.Second)
+				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}
 			if err != nil {
 				w.logger.ErrorContext(ctx, "docker event stream error", "error", err)
 				msgCh, errCh = nil, nil
-				resetTimer(reconnectAt, 5*time.Second)
+				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 			}
 		case msg, ok := <-msgCh:
 			if !ok {
 				msgCh, errCh = nil, nil
-				resetTimer(reconnectAt, 5*time.Second)
+				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}
 			if msg.Type == "container" {
@@ -207,4 +215,11 @@ func resetTimer(timer *time.Timer, delay time.Duration) {
 		}
 	}
 	timer.Reset(delay)
+}
+
+func resetTicker(ticker *time.Ticker, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker.Reset(interval)
 }

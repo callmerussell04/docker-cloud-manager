@@ -32,7 +32,7 @@ func NewAdapter() (*Adapter, error) {
 
 func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
 	// 1. Убеждаемся, что образ Kaniko есть на хосте
-	kanikoImage := "gcr.io/kaniko-project/executor:latest"
+	kanikoImage := params.KanikoImage
 	pullStream, err := a.cli.ImagePull(ctx, kanikoImage, image.PullOptions{})
 	if err != nil {
 		return "", nil, err
@@ -56,7 +56,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		"--context=" + kanikoContext,
 		"--dockerfile=" + kanikoDockerfile,
 		"--destination=" + params.DestinationTag,
-		"--cache=true",
+		"--cache=false",
 		"--insecure",
 		"--skip-tls-verify",
 	}
@@ -67,12 +67,10 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	}
 
 	networkName := params.NetworkName
-	if networkName == "" {
-		networkName = "build_net"
-	}
 
 	// 2. Настраиваем контейнер Kaniko
-	pidsLimit := int64(512)
+	pidsLimit := params.PidsLimit
+	memorySwap := int64(float64(params.MemoryBytes) * params.MemorySwapMultiplier)
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
 		Cmd:   cmd,
@@ -87,9 +85,9 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
 			Memory:     params.MemoryBytes,
-			MemorySwap: params.MemoryBytes * 2,
+			MemorySwap: memorySwap,
 			CPUQuota:   params.CPUQuota,
-			CPUPeriod:  100000,
+			CPUPeriod:  params.CPUPeriod,
 			PidsLimit:  &pidsLimit,
 		},
 	}, &network.NetworkingConfig{

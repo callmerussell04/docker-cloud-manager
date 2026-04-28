@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
@@ -17,14 +18,19 @@ import (
 
 type ComposeHandler struct {
 	orchestrator *compose.Orchestrator
+	cfg          ConfigProvider
 }
 
-func NewComposeHandler(orchestrator *compose.Orchestrator) *ComposeHandler {
-	return &ComposeHandler{orchestrator: orchestrator}
+type ConfigProvider interface {
+	Get() config.SystemConfig
+}
+
+func NewComposeHandler(orchestrator *compose.Orchestrator, cfg ConfigProvider) *ComposeHandler {
+	return &ComposeHandler{orchestrator: orchestrator, cfg: cfg}
 }
 
 func (h *ComposeHandler) DeployCompose(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 100<<20)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().ComposeUploadMaxBytes)
 
 	ownerIDStr := c.GetHeader("X-User-Id")
 	projectName := c.PostForm("project_name")

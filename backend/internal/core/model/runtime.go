@@ -7,28 +7,31 @@ type ContainerMountSpec struct {
 }
 
 type ContainerRuntimeSpec struct {
-	ContainerID       string
-	OwnerID           string
-	ProjectID         string
-	Generation        int
-	ContainerName     string
-	NetworkAlias      string
-	ImageName         string
-	NetworkName       string
-	Domain            string
-	InternalPort      int
-	EnvVars           []string
-	MemoryLimitBytes  int64
-	MemoryReservation int64
-	CPUShares         int64
-	VolumeMounts      []ContainerMountSpec
-	MaxLogSize        string
-	MaxLogFiles       string
-	StorageQuota      string
-	Command           []string
-	Entrypoint        []string
-	Restart           string
-	Healthcheck       *Healthcheck
+	ContainerID          string
+	OwnerID              string
+	ProjectID            string
+	Generation           int
+	ContainerName        string
+	NetworkAlias         string
+	ImageName            string
+	NetworkName          string
+	Domain               string
+	InternalPort         int
+	EnvVars              []string
+	MemoryLimitBytes     int64
+	MemoryReservation    int64
+	MemorySwapMultiplier float64
+	CPUShares            int64
+	PidsLimit            int64
+	ProxyNetworkName     string
+	VolumeMounts         []ContainerMountSpec
+	MaxLogSize           string
+	MaxLogFiles          string
+	StorageQuota         string
+	Command              []string
+	Entrypoint           []string
+	Restart              string
+	Healthcheck          *Healthcheck
 }
 
 type VolumeRuntimeSpec struct {

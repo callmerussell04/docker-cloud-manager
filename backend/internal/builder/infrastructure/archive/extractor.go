@@ -14,16 +14,13 @@ import (
 )
 
 type Extractor struct {
-	maxUnpackedSize int64
 }
 
-func NewExtractor(maxUnpackedSize int64) *Extractor {
-	return &Extractor{
-		maxUnpackedSize: maxUnpackedSize,
-	}
+func NewExtractor() *Extractor {
+	return &Extractor{}
 }
 
-func (e *Extractor) Extract(archivePath string, destDir string) error {
+func (e *Extractor) Extract(archivePath string, destDir string, maxUnpackedSize int64) error {
 	ext := strings.ToLower(filepath.Ext(archivePath))
 	if strings.HasSuffix(strings.ToLower(archivePath), ".tar.gz") {
 		ext = ".tar.gz"
@@ -31,24 +28,24 @@ func (e *Extractor) Extract(archivePath string, destDir string) error {
 
 	switch ext {
 	case ".zip":
-		return e.extractZip(archivePath, destDir)
+		return e.extractZip(archivePath, destDir, maxUnpackedSize)
 	case ".tar":
-		return e.extractTar(archivePath, destDir, false)
+		return e.extractTar(archivePath, destDir, maxUnpackedSize, false)
 	case ".tar.gz", ".tgz":
-		return e.extractTar(archivePath, destDir, true)
+		return e.extractTar(archivePath, destDir, maxUnpackedSize, true)
 	default:
 		return apperrors.ErrInvalidFileFormat
 	}
 }
 
-func (e *Extractor) extractZip(zipPath string, destDir string) error {
+func (e *Extractor) extractZip(zipPath string, destDir string, maxUnpackedSize int64) error {
 	r, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
 
-	remainingBytes := e.maxUnpackedSize
+	remainingBytes := maxUnpackedSize
 
 	for _, f := range r.File {
 		if err := e.extractZipFile(f, destDir, &remainingBytes); err != nil {
@@ -99,7 +96,7 @@ func (e *Extractor) extractZipFile(f *zip.File, destDir string, remainingBytes *
 	return nil
 }
 
-func (e *Extractor) extractTar(tarPath string, destDir string, isGzip bool) error {
+func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize int64, isGzip bool) error {
 	f, err := os.Open(tarPath)
 	if err != nil {
 		return err
@@ -118,7 +115,7 @@ func (e *Extractor) extractTar(tarPath string, destDir string, isGzip bool) erro
 		tr = tar.NewReader(f)
 	}
 
-	remainingBytes := e.maxUnpackedSize
+	remainingBytes := maxUnpackedSize
 
 	for {
 		header, err := tr.Next()

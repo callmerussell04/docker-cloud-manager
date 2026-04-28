@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -44,6 +45,10 @@ type ComposeDockerAPI interface {
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 }
 
+type ConfigProvider interface {
+	Get() config.SystemConfig
+}
+
 type Orchestrator struct {
 	parentCtx      context.Context
 	parser         *Parser
@@ -52,6 +57,7 @@ type Orchestrator struct {
 	volumeService  VolumeService
 	contService    ContainerService
 	dockerAPI      ComposeDockerAPI
+	cfg            ConfigProvider
 	builderHTTPUrl string
 	httpClient     *http.Client
 	internalToken  string
@@ -65,6 +71,7 @@ func NewOrchestrator(
 	volumeService VolumeService,
 	contService ContainerService,
 	dockerAPI ComposeDockerAPI,
+	cfg ConfigProvider,
 	builderHTTPUrl string,
 	internalToken string,
 	logger *slog.Logger,
@@ -80,8 +87,9 @@ func NewOrchestrator(
 		volumeService:  volumeService,
 		contService:    contService,
 		dockerAPI:      dockerAPI,
+		cfg:            cfg,
 		builderHTTPUrl: builderHTTPUrl,
-		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		httpClient:     &http.Client{},
 		internalToken:  internalToken,
 		logger:         logging.WithComponent(logger, "compose_orchestrator"),
 	}
@@ -109,7 +117,7 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, p
 }
 
 func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName string, archiveBytes []byte, requestID string) {
-	baseCtx, cancel := context.WithTimeout(o.parentCtx, 30*time.Minute)
+	baseCtx, cancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
 	defer cancel()
 	ctx := logging.ContextWithRequestID(baseCtx, requestID)
 	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
@@ -303,7 +311,10 @@ func (o *Orchestrator) triggerBuild(ctx context.Context, ownerID uuid.UUID, srv 
 	}
 	writer.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.builderHTTPUrl+"/api/v1/images/build", body)
+	httpCtx, cancel := context.WithTimeout(ctx, time.Duration(o.cfg.Get().ComposeBuilderHTTPTimeoutSeconds)*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, o.builderHTTPUrl+"/api/v1/images/build", body)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -335,7 +346,7 @@ func (o *Orchestrator) triggerBuild(ctx context.Context, ownerID uuid.UUID, srv 
 }
 
 func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) error {
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -343,6 +354,7 @@ func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			ticker.Reset(time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second)
 			allSuccess := true
 			for _, bid := range buildIDs {
 				b, err := o.buildRepo.GetByID(ctx, bid)
@@ -379,8 +391,10 @@ func (o *Orchestrator) failedBuildStatus(ctx context.Context, buildIDs []uuid.UU
 
 func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {
 	for _, buildID := range buildIDs {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.builderHTTPUrl+"/api/v1/builds/"+buildID.String()+"/cancel", nil)
+		httpCtx, cancel := context.WithTimeout(ctx, time.Duration(o.cfg.Get().ComposeBuilderHTTPTimeoutSeconds)*time.Second)
+		req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, o.builderHTTPUrl+"/api/v1/builds/"+buildID.String()+"/cancel", nil)
 		if err != nil {
+			cancel()
 			o.logger.WarnContext(ctx, "failed to create build cancellation request", "build_id", buildID, "error", err)
 			continue
 		}
@@ -390,6 +404,7 @@ func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {
 		}
 
 		resp, err := o.httpClient.Do(req)
+		cancel()
 		if err != nil {
 			o.logger.WarnContext(ctx, "failed to cancel build", "build_id", buildID, "error", err)
 			continue
@@ -455,8 +470,8 @@ func builderHTTPError(resp *http.Response) error {
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, condition string) error {
-	timeout := time.After(5 * time.Minute) // Максимальное время ожидания поднятия зависимости
-	ticker := time.NewTicker(2 * time.Second)
+	timeout := time.After(time.Duration(o.cfg.Get().ComposeDependencyWaitTimeoutMinutes) * time.Minute)
+	ticker := time.NewTicker(time.Duration(o.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -466,6 +481,7 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 		case <-timeout:
 			return apperrors.New(apperrors.ErrConflict, "timeout waiting for dependency state")
 		case <-ticker.C:
+			ticker.Reset(time.Duration(o.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
 			inspect, err := o.dockerAPI.InspectContainer(ctx, dockerID)
 			if err != nil {
 				continue // Контейнер мог еще не успеть появиться, ждем дальше

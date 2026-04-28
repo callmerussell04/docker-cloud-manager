@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
@@ -23,40 +24,41 @@ type GCBuildRepo interface {
 	GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error)
 }
 
-type GCWorker struct {
-	dockerAPI             GCDockerAPI
-	imgSvc                GCImageService
-	buildRepo             GCBuildRepo
-	interval              time.Duration
-	buildTimeout          time.Duration
-	registryContainerName string
-	logger                *slog.Logger
+type GCConfigProvider interface {
+	Get() config.SystemConfig
 }
 
-func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, interval, buildTimeout time.Duration, registryContainerName string, logger *slog.Logger) *GCWorker {
+type GCWorker struct {
+	dockerAPI GCDockerAPI
+	imgSvc    GCImageService
+	buildRepo GCBuildRepo
+	cfg       GCConfigProvider
+	logger    *slog.Logger
+}
+
+func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, cfg GCConfigProvider, logger *slog.Logger) *GCWorker {
 	return &GCWorker{
-		dockerAPI:             dockerAPI,
-		imgSvc:                imgSvc,
-		buildRepo:             buildRepo,
-		interval:              interval,
-		buildTimeout:          buildTimeout,
-		registryContainerName: registryContainerName,
-		logger:                logging.WithComponent(logger, "gc_worker"),
+		dockerAPI: dockerAPI,
+		imgSvc:    imgSvc,
+		buildRepo: buildRepo,
+		cfg:       cfg,
+		logger:    logging.WithComponent(logger, "gc_worker"),
 	}
 }
 
 func (w *GCWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "gc worker started", "interval", w.interval.String())
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
+	w.logger.InfoContext(ctx, "gc worker started")
 	w.runPrune(ctx)
 
 	for {
+		interval := time.Duration(w.cfg.Get().GCWorkerIntervalMinutes) * time.Minute
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			w.logger.InfoContext(ctx, "gc worker stopped")
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			w.runPrune(ctx)
 		}
 	}
@@ -70,17 +72,18 @@ func (w *GCWorker) runPrune(ctx context.Context) {
 	}
 
 	// 2. Очистка локального Registry (физическое удаление "soft-deleted" манифестов)
-	if w.registryContainerName != "" {
-		err = w.dockerAPI.RunRegistryGarbageCollect(ctx, w.registryContainerName)
+	cfg := w.cfg.Get()
+	if cfg.RegistryContainerName != "" {
+		err = w.dockerAPI.RunRegistryGarbageCollect(ctx, cfg.RegistryContainerName)
 		if err != nil {
-			w.logger.ErrorContext(ctx, "failed to run registry garbage collection", "registry_container", w.registryContainerName, "error", err)
+			w.logger.ErrorContext(ctx, "failed to run registry garbage collection", "registry_container", cfg.RegistryContainerName, "error", err)
 		} else {
-			w.logger.InfoContext(ctx, "registry garbage collection completed", "registry_container", w.registryContainerName)
+			w.logger.InfoContext(ctx, "registry garbage collection completed", "registry_container", cfg.RegistryContainerName)
 		}
 	}
 
 	// 3. Очистка зависших сборок
-	threshold := time.Now().Add(-w.buildTimeout)
+	threshold := time.Now().Add(-time.Duration(cfg.StaleBuildTimeoutMinutes) * time.Minute)
 	staleBuilds, err := w.buildRepo.GetStaleBuilds(ctx, threshold)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch stale builds", "error", err)

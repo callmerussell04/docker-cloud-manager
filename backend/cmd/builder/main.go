@@ -33,6 +33,15 @@ func getEnvInt64(key string, fallback int64) int64 {
 	return fallback
 }
 
+func getEnvFloat(key string, fallback float64) float64 {
+	if value, ok := os.LookupEnv(key); ok {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
+	}
+	return fallback
+}
+
 func getEnvString(key string, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
@@ -88,29 +97,33 @@ func main() {
 	logsDirPath := getEnvString("BUILD_LOGS_PATH", "/tmp/build_logs")
 	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
 	buildNetworkName := getEnvString("BUILD_NETWORK_NAME", "build_net")
-	maxUnpackedSize := getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024)
-	maxLogSize := getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)
 
 	builderConfig := config.BuilderConfig{
-		BuildMemoryBytes:    getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
-		BuildCPUQuota:       getEnvInt64("BUILD_CPU_QUOTA", 100000),
-		LogsDirPath:         logsDirPath,
-		StoragePath:         storagePath,
-		RegistryURL:         registryURL,
-		BuildNetworkName:    buildNetworkName,
-		MaxBuildTime:        time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
-		MaxConcurrentBuilds: getEnvInt("MAX_CONCURRENT_BUILDS", 2),
+		BuildMemoryBytes:          getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
+		BuildCPUQuota:             getEnvInt64("BUILD_CPU_QUOTA", 100000),
+		BuildCPUPeriod:            getEnvInt64("BUILD_CPU_PERIOD", 100000),
+		BuildMemorySwapMultiplier: getEnvFloat("BUILD_MEMORY_SWAP_MULTIPLIER", 2),
+		BuildPidsLimit:            getEnvInt64("BUILD_PIDS_LIMIT", 512),
+		LogsDirPath:               logsDirPath,
+		StoragePath:               storagePath,
+		RegistryURL:               registryURL,
+		BuildNetworkName:          buildNetworkName,
+		KanikoImage:               getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor:latest"),
+		MaxBuildTime:              time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
+		MaxConcurrentBuilds:       getEnvInt("MAX_CONCURRENT_BUILDS", 2),
+		MaxUploadSizeBytes:        getEnvInt64("MAX_UPLOAD_SIZE_BYTES", 50<<20),
+		MaxArchiveSizeBytes:       getEnvInt64("MAX_ARCHIVE_SIZE_BYTES", 50<<20),
+		MaxUnpackedSizeBytes:      getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
+		MaxBuildLogSizeBytes:      getEnvInt64("MAX_BUILD_LOG_SIZE_BYTES", getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)),
 	}
 
 	application, err := app.New(app.Config{
-		Port:            port,
-		CoreTarget:      coreTarget,
-		InternalToken:   internalToken,
-		Builder:         builderConfig,
-		MaxUnpackedSize: maxUnpackedSize,
-		MaxLogSize:      maxLogSize,
-		StoragePath:     storagePath,
-		RabbitMQURL:     rabbitMQURL,
+		Port:          port,
+		CoreTarget:    coreTarget,
+		InternalToken: internalToken,
+		Builder:       builderConfig,
+		StoragePath:   storagePath,
+		RabbitMQURL:   rabbitMQURL,
 		ObjectStorage: objectstorage.Config{
 			Endpoint:  objectStorageEndpoint,
 			Bucket:    objectStorageBucket,

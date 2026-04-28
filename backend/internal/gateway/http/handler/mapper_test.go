@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
@@ -29,6 +30,63 @@ func TestCreateContainerInputFromDTO(t *testing.T) {
 	}
 	if len(got.VolumeMounts) != 1 || got.VolumeMounts[0].VolumeID != "volume-id" || !got.VolumeMounts[0].IsReadOnly {
 		t.Fatalf("VolumeMounts were not mapped: %+v", got.VolumeMounts)
+	}
+}
+
+func TestSystemConfigDTORoundTrip(t *testing.T) {
+	req := dto.SystemConfigDTO{
+		BaseDomain:                           "localhost",
+		DefaultMemoryReservationBytes:        1,
+		ReservedSystemMemoryBytes:            2,
+		OvercommitFactor:                     1.5,
+		MaxBurstMultiplier:                   4,
+		DefaultCpuShares:                     1024,
+		HighLoadCpuShares:                    512,
+		HighLoadContainerCount:               5,
+		ContainerStopTimeout:                 10,
+		MaxLogSize:                           "10m",
+		MaxLogFiles:                          "3",
+		ContainerDiskQuota:                   "1G",
+		MaxVolumesPerUser:                    5,
+		MaxContainersPerUser:                 10,
+		RegistryApiUrl:                       "registry:5000",
+		RegistryPublicUrl:                    "localhost:5000",
+		ContainerTtlHours:                    24,
+		ContainerPidsLimit:                   256,
+		ContainerMemorySwapMultiplier:        2,
+		ProxyNetworkName:                     "proxy_net",
+		RegistryContainerName:                "registry",
+		BuildMemoryBytes:                     512,
+		BuildCpuQuota:                        100000,
+		BuildCpuPeriod:                       100000,
+		BuildMemorySwapMultiplier:            2,
+		BuildPidsLimit:                       512,
+		BuildNetworkName:                     "build_net",
+		KanikoImage:                          "kaniko:test",
+		MaxBuildTimeMinutes:                  10,
+		MaxConcurrentBuilds:                  2,
+		MaxUploadSizeBytes:                   50 << 20,
+		MaxArchiveSizeBytes:                  50 << 20,
+		MaxUnpackedSizeBytes:                 500 << 20,
+		MaxBuildLogSizeBytes:                 5 << 20,
+		TtlWorkerIntervalSeconds:             60,
+		GcWorkerIntervalMinutes:              60,
+		StaleBuildTimeoutMinutes:             30,
+		EventSyncIntervalSeconds:             30,
+		EventReconnectDelaySeconds:           5,
+		BuildOutboxIntervalSeconds:           1,
+		BuildOutboxBatchSize:                 10,
+		ComposeUploadMaxBytes:                100 << 20,
+		ComposePipelineTimeoutMinutes:        30,
+		ComposeBuilderHttpTimeoutSeconds:     30,
+		ComposeBuildPollIntervalSeconds:      3,
+		ComposeDependencyWaitTimeoutMinutes:  5,
+		ComposeDependencyPollIntervalSeconds: 2,
+	}
+
+	got := systemConfigToDTO(systemConfigFromDTO(req))
+	if !reflect.DeepEqual(got, req) {
+		t.Fatalf("system config round trip mismatch:\n got: %+v\nwant: %+v", got, req)
 	}
 }
 

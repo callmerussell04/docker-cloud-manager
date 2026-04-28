@@ -7,15 +7,13 @@ import (
 	"mime/multipart"
 	"net/http"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
 )
-
-// TODO: put into a config
-const maxUploadSize = 50 << 20
 
 type BuilderService interface {
 	InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error)
@@ -26,17 +24,20 @@ type BuilderService interface {
 type BuildHandler struct {
 	service BuilderService
 	logsDir string
+	config  *config.RuntimeManager
 }
 
-func NewBuildHandler(service BuilderService, logsDir string) *BuildHandler {
+func NewBuildHandler(service BuilderService, logsDir string, config *config.RuntimeManager) *BuildHandler {
 	return &BuildHandler{
 		service: service,
 		logsDir: logsDir,
+		config:  config,
 	}
 }
 
 func (h *BuildHandler) BuildImage(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
+	cfg := h.config.Refresh(c.Request.Context())
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, cfg.MaxUploadSizeBytes)
 
 	ownerID := c.GetHeader("X-User-Id")
 	if ownerID == "" {

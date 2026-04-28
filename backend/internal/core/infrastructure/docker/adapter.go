@@ -74,7 +74,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 		labels["traefik.enable"] = "true"
 		labels["traefik.http.routers."+params.ContainerName+".rule"] = "Host(`" + params.Domain + "`)"
 		labels["traefik.http.services."+params.ContainerName+".loadbalancer.server.port"] = strconv.Itoa(params.InternalPort)
-		labels["traefik.docker.network"] = "proxy_net"
+		labels["traefik.docker.network"] = params.ProxyNetworkName
 	}
 
 	var mounts []mount.Mount
@@ -87,15 +87,15 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 		})
 	}
 
-	//TODO: сделать настраевым параметром
-	pidsLimit := int64(256)
+	pidsLimit := params.PidsLimit
+	memorySwap := int64(float64(params.MemoryLimitBytes) * params.MemorySwapMultiplier)
 	hostConfig := &container.HostConfig{
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
 			Memory:            params.MemoryLimitBytes,
-			MemorySwap:        params.MemoryLimitBytes * 2,
+			MemorySwap:        memorySwap,
 			MemoryReservation: params.MemoryReservation,
 			CPUShares:         params.CPUShares,
 			PidsLimit:         &pidsLimit,
@@ -165,7 +165,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	}
 
 	if params.Domain != "" && params.InternalPort != 0 {
-		err = a.cli.NetworkConnect(ctx, "proxy_net", resp.ID, nil)
+		err = a.cli.NetworkConnect(ctx, params.ProxyNetworkName, resp.ID, nil)
 		if err != nil {
 			// TODO: idk about this, probably remove this line
 			//a.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
@@ -311,11 +311,11 @@ func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) e
 	return err
 }
 
-func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error {
+func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error {
 	updateConfig := container.UpdateConfig{
 		Resources: container.Resources{
 			Memory:            memoryLimit,
-			MemorySwap:        memoryLimit * 2,
+			MemorySwap:        int64(float64(memoryLimit) * memorySwapMultiplier),
 			MemoryReservation: memoryReservation,
 			CPUShares:         cpuShares,
 		},

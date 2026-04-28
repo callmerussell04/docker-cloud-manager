@@ -201,7 +201,7 @@ func (f *containerCleanupDockerFake) RemoveContainer(ctx context.Context, docker
 	return nil
 }
 
-func (f *containerCleanupDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error {
+func (f *containerCleanupDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error {
 	return nil
 }
 

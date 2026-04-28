@@ -217,7 +217,7 @@ func (f *containerExposeDockerFake) RemoveContainer(ctx context.Context, dockerI
 	return f.removeErr
 }
 
-func (f *containerExposeDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error {
+func (f *containerExposeDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error {
 	return nil
 }
 
@@ -301,7 +301,7 @@ func (f *rebalancerDockerFake) StopContainer(ctx context.Context, dockerID strin
 func (f *rebalancerDockerFake) RemoveContainer(ctx context.Context, dockerID string, force bool) error {
 	return nil
 }
-func (f *rebalancerDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64) error {
+func (f *rebalancerDockerFake) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error {
 	f.updates++
 	select {
 	case <-f.done:
@@ -331,12 +331,19 @@ type staticConfig struct{}
 
 func (staticConfig) Get() config.SystemConfig {
 	return config.SystemConfig{
-		ReservedSystemMemory:   0,
-		MaxBurstMultiplier:     4,
-		DefaultCPUShares:       1024,
-		HighLoadCPUShares:      512,
-		HighLoadContainerCount: 5,
-		ContainerStopTimeout:   1,
-		BaseDomain:             "example.test",
+		ReservedSystemMemory:          0,
+		MaxBurstMultiplier:            4,
+		DefaultCPUShares:              1024,
+		HighLoadCPUShares:             512,
+		HighLoadContainerCount:        5,
+		ContainerStopTimeout:          1,
+		BaseDomain:                    "example.test",
+		ContainerPidsLimit:            256,
+		ContainerMemorySwapMultiplier: 2,
+		ProxyNetworkName:              "proxy_net",
+		EventSyncIntervalSeconds:      30,
+		EventReconnectDelaySeconds:    5,
+		BuildOutboxIntervalSeconds:    1,
+		BuildOutboxBatchSize:          10,
 	}
 }

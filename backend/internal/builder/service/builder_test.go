@@ -25,11 +25,11 @@ func TestBuilderServiceLogLimitCleansBuildContainer(t *testing.T) {
 		logManager,
 		&builderObjectStoreFake{},
 		coreClient,
-		config.BuilderConfig{StoragePath: t.TempDir(), MaxConcurrentBuilds: 1},
+		testBuilderRuntimeConfig(t),
 		nil,
 	)
 
-	err := svc.processBuild(context.Background(), func() {}, "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "")
+	err := svc.processBuild(context.Background(), func() {}, svc.config.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "")
 	if err != nil {
 		t.Fatalf("processBuild returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
 		&builderLogFake{},
 		objectStore,
 		coreClient,
-		config.BuilderConfig{StoragePath: t.TempDir(), MaxConcurrentBuilds: 1},
+		testBuilderRuntimeConfig(t),
 		nil,
 	)
 
@@ -82,6 +82,41 @@ func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
 	if len(fileManager.cleaned) != 1 || fileManager.cleaned[0] != "/tmp/upload.zip" {
 		t.Fatalf("cleaned paths = %v", fileManager.cleaned)
 	}
+	if fileManager.maxArchiveSize != (50 << 20) {
+		t.Fatalf("max archive size = %d", fileManager.maxArchiveSize)
+	}
+}
+
+func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
+	dockerAPI := &builderDockerFake{logs: io.NopCloser(strings.NewReader(""))}
+	logManager := &builderLogFake{}
+	cfg := testBuilderRuntimeConfig(t)
+	svc := NewBuilderService(
+		&builderFileFake{},
+		&builderExtractorFake{},
+		dockerAPI,
+		logManager,
+		&builderObjectStoreFake{},
+		&builderCoreFake{},
+		cfg,
+		nil,
+	)
+
+	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	if err != nil {
+		t.Fatalf("processBuild returned error: %v", err)
+	}
+
+	params := dockerAPI.params
+	if params.KanikoImage != "kaniko:test" || params.PidsLimit != 512 || params.CPUPeriod != 100000 {
+		t.Fatalf("build runtime params not applied: %+v", params)
+	}
+	if params.MemorySwapMultiplier != 2 || params.NetworkName != "build_net" {
+		t.Fatalf("build runtime params not applied: %+v", params)
+	}
+	if logManager.maxLogSize != (5 << 20) {
+		t.Fatalf("max log size = %d", logManager.maxLogSize)
+	}
 }
 
 func TestBuilderServiceInitBuildDeletesArchiveObjectOnCoreError(t *testing.T) {
@@ -94,7 +129,7 @@ func TestBuilderServiceInitBuildDeletesArchiveObjectOnCoreError(t *testing.T) {
 		&builderLogFake{},
 		objectStore,
 		coreClient,
-		config.BuilderConfig{StoragePath: t.TempDir(), MaxConcurrentBuilds: 1},
+		testBuilderRuntimeConfig(t),
 		nil,
 	)
 
@@ -120,7 +155,7 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 		&builderLogFake{},
 		objectStore,
 		coreClient,
-		config.BuilderConfig{StoragePath: t.TempDir(), MaxConcurrentBuilds: 1},
+		testBuilderRuntimeConfig(t),
 		nil,
 	)
 
@@ -142,12 +177,33 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 
 var errBuilderLogLimit = errors.New("log limit")
 
-type builderFileFake struct {
-	savePath string
-	cleaned  []string
+func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
+	t.Helper()
+	return config.NewRuntimeManager(config.BuilderConfig{
+		StoragePath:               t.TempDir(),
+		RegistryURL:               "registry:5000",
+		BuildNetworkName:          "build_net",
+		KanikoImage:               "kaniko:test",
+		BuildMemoryBytes:          512,
+		BuildMemorySwapMultiplier: 2,
+		BuildCPUQuota:             100000,
+		BuildCPUPeriod:            100000,
+		BuildPidsLimit:            512,
+		MaxConcurrentBuilds:       1,
+		MaxArchiveSizeBytes:       50 << 20,
+		MaxUnpackedSizeBytes:      500 << 20,
+		MaxBuildLogSizeBytes:      5 << 20,
+	}, nil, nil)
 }
 
-func (f *builderFileFake) SaveArchive(file *multipart.FileHeader, fileID string) (string, error) {
+type builderFileFake struct {
+	savePath       string
+	cleaned        []string
+	maxArchiveSize int64
+}
+
+func (f *builderFileFake) SaveArchive(file *multipart.FileHeader, fileID string, maxArchiveSize int64) (string, error) {
+	f.maxArchiveSize = maxArchiveSize
 	if f.savePath != "" {
 		return f.savePath, nil
 	}
@@ -161,14 +217,18 @@ func (f *builderFileFake) CleanUp(filePath string) error {
 
 type builderExtractorFake struct{}
 
-func (f *builderExtractorFake) Extract(archivePath string, destDir string) error { return nil }
+func (f *builderExtractorFake) Extract(archivePath string, destDir string, maxUnpackedSize int64) error {
+	return nil
+}
 
 type builderDockerFake struct {
 	logs       io.ReadCloser
 	cleanCalls int
+	params     model.BuildRuntimeSpec
 }
 
 func (f *builderDockerFake) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
+	f.params = params
 	return "container-id", f.logs, nil
 }
 func (f *builderDockerFake) WaitForBuild(ctx context.Context, containerID string) error { return nil }
@@ -178,10 +238,12 @@ func (f *builderDockerFake) CleanBuildContainer(ctx context.Context, containerID
 }
 
 type builderLogFake struct {
-	saveErr error
+	saveErr    error
+	maxLogSize int64
 }
 
-func (f *builderLogFake) SaveLogs(logID string, dockerStream io.Reader) (string, error) {
+func (f *builderLogFake) SaveLogs(logID string, dockerStream io.Reader, maxLogSize int64) (string, error) {
+	f.maxLogSize = maxLogSize
 	return "", f.saveErr
 }
 func (f *builderLogFake) WriteSystemLog(logID string, message string) error { return nil }

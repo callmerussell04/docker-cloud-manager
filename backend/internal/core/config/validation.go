@@ -1,0 +1,90 @@
+package config
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+)
+
+func ValidateSystemConfig(cfg SystemConfig) error {
+	if cfg.BaseDomain == "" || strings.ContainsAny(cfg.BaseDomain, " `/\\") {
+		return fmt.Errorf("invalid base domain")
+	}
+	if cfg.DefaultMemoryReservation <= 0 || cfg.ReservedSystemMemory < 0 {
+		return fmt.Errorf("memory limits must be positive")
+	}
+	if cfg.OvercommitFactor <= 0 || cfg.OvercommitFactor > 10 {
+		return fmt.Errorf("overcommit factor must be between 0 and 10")
+	}
+	if cfg.MaxBurstMultiplier <= 0 || cfg.MaxBurstMultiplier > 10 {
+		return fmt.Errorf("max burst multiplier must be between 1 and 10")
+	}
+	if cfg.DefaultCPUShares <= 0 || cfg.HighLoadCPUShares <= 0 {
+		return fmt.Errorf("cpu shares must be positive")
+	}
+	if cfg.HighLoadContainerCount <= 0 || cfg.ContainerStopTimeout <= 0 {
+		return fmt.Errorf("container counters and timeouts must be positive")
+	}
+	if err := validation.DockerSize(cfg.MaxLogSize); err != nil {
+		return fmt.Errorf("invalid max log size: %w", err)
+	}
+	if err := validation.PositiveNumberString(cfg.MaxLogFiles); err != nil {
+		return fmt.Errorf("invalid max log files: %w", err)
+	}
+	if err := validation.DockerSize(cfg.ContainerDiskQuota); err != nil {
+		return fmt.Errorf("invalid container disk quota: %w", err)
+	}
+	if cfg.MaxVolumesPerUser <= 0 || cfg.MaxContainersPerUser <= 0 {
+		return fmt.Errorf("user resource limits must be positive")
+	}
+	if cfg.RegistryAPIURL == "" || cfg.RegistryPublicURL == "" {
+		return fmt.Errorf("registry urls are required")
+	}
+	if cfg.ContainerTTLHours < 0 {
+		return fmt.Errorf("container ttl must not be negative")
+	}
+	if cfg.ContainerPidsLimit <= 0 {
+		return fmt.Errorf("container pids limit must be positive")
+	}
+	if cfg.ContainerMemorySwapMultiplier < 1 || cfg.ContainerMemorySwapMultiplier > 10 {
+		return fmt.Errorf("container memory swap multiplier must be between 1 and 10")
+	}
+	if cfg.ProxyNetworkName == "" {
+		return fmt.Errorf("proxy network name is required")
+	}
+	if cfg.RegistryContainerName == "" {
+		return fmt.Errorf("registry container name is required")
+	}
+	if cfg.BuildMemoryBytes <= 0 || cfg.BuildCPUQuota <= 0 || cfg.BuildCPUPeriod <= 0 || cfg.BuildPidsLimit <= 0 {
+		return fmt.Errorf("build resource limits must be positive")
+	}
+	if cfg.BuildMemorySwapMultiplier < 1 || cfg.BuildMemorySwapMultiplier > 10 {
+		return fmt.Errorf("build memory swap multiplier must be between 1 and 10")
+	}
+	if cfg.BuildNetworkName == "" || cfg.KanikoImage == "" {
+		return fmt.Errorf("build network name and kaniko image are required")
+	}
+	if cfg.MaxBuildTimeMinutes <= 0 || cfg.MaxConcurrentBuilds <= 0 {
+		return fmt.Errorf("build time and concurrency must be positive")
+	}
+	if cfg.MaxUploadSizeBytes <= 0 || cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
+		return fmt.Errorf("build size limits must be positive")
+	}
+	if cfg.TTLWorkerIntervalSeconds <= 0 || cfg.GCWorkerIntervalMinutes <= 0 || cfg.StaleBuildTimeoutMinutes <= 0 {
+		return fmt.Errorf("worker intervals and stale build timeout must be positive")
+	}
+	if cfg.EventSyncIntervalSeconds <= 0 || cfg.EventReconnectDelaySeconds <= 0 {
+		return fmt.Errorf("event worker intervals must be positive")
+	}
+	if cfg.BuildOutboxIntervalSeconds <= 0 || cfg.BuildOutboxBatchSize <= 0 {
+		return fmt.Errorf("build outbox settings must be positive")
+	}
+	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 || cfg.ComposeBuilderHTTPTimeoutSeconds <= 0 {
+		return fmt.Errorf("compose upload and timeout settings must be positive")
+	}
+	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
+		return fmt.Errorf("compose polling settings must be positive")
+	}
+	return nil
+}

@@ -1,0 +1,19 @@
+version: "2"
+run:
+  timeout: 3m
+
+output:
+  sort-results: true
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+
+issues:
+  max-issues-per-linter: 20
+  max-issues: 50
+  exclude-dirs:
+    - migrations

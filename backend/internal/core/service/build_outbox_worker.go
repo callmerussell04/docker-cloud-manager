@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
@@ -21,49 +22,46 @@ type BuildQueuePublisher interface {
 	Close() error
 }
 
+type BuildOutboxConfigProvider interface {
+	Get() config.SystemConfig
+}
+
 type BuildOutboxWorker struct {
 	repo      BuildOutboxRepository
 	publisher BuildQueuePublisher
-	interval  time.Duration
-	batchSize int
+	cfg       BuildOutboxConfigProvider
 	logger    *slog.Logger
 }
 
-func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher BuildQueuePublisher, interval time.Duration, batchSize int, logger *slog.Logger) *BuildOutboxWorker {
-	if interval <= 0 {
-		interval = time.Second
-	}
-	if batchSize <= 0 {
-		batchSize = 10
-	}
+func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher BuildQueuePublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
 	return &BuildOutboxWorker{
 		repo:      repo,
 		publisher: publisher,
-		interval:  interval,
-		batchSize: batchSize,
+		cfg:       cfg,
 		logger:    logging.WithComponent(logger, "build_outbox_worker"),
 	}
 }
 
 func (w *BuildOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "build outbox worker started", "interval", w.interval.String(), "batch_size", w.batchSize)
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
+	w.logger.InfoContext(ctx, "build outbox worker started")
 
 	w.publishBatch(ctx)
 	for {
+		interval := time.Duration(w.cfg.Get().BuildOutboxIntervalSeconds) * time.Second
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			w.logger.InfoContext(ctx, "build outbox worker stopped")
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			w.publishBatch(ctx)
 		}
 	}
 }
 
 func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
-	items, err := w.repo.LeasePendingBuildOutbox(ctx, w.batchSize)
+	items, err := w.repo.LeasePendingBuildOutbox(ctx, w.cfg.Get().BuildOutboxBatchSize)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to lease build outbox messages", "error", err)
 		return
