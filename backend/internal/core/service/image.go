@@ -74,10 +74,6 @@ func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) e
 		return apperrors.ErrNotFound
 	}
 
-	if !img.IsCustom {
-		return apperrors.New(apperrors.ErrForbidden, "system images cannot be deleted")
-	}
-
 	inUse, err := s.contRepo.IsImageInUse(ctx, ownerID, img.Tag)
 	if err != nil {
 		return err
@@ -124,10 +120,6 @@ func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) 
 	img, err := s.repo.GetByID(ctx, imageID)
 	if err != nil {
 		return err
-	}
-
-	if !img.IsCustom {
-		return apperrors.New(apperrors.ErrForbidden, "system images cannot be deleted")
 	}
 
 	inUse, err := s.contRepo.IsImageInUse(ctx, img.OwnerID, img.Tag)

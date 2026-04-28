@@ -12,7 +12,6 @@ type Image struct {
 	OwnerUsername  string
 	Tag            string
 	SizeMB         int
-	IsCustom       bool
 	Metadata       []byte
 	Status         string
 	LastObservedAt *time.Time

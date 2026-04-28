@@ -47,9 +47,9 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		imgStatus = model.ImageStatusBuilding
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO images (id, owner_id, tag, size_mb, is_custom, metadata, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.IsCustom, img.Metadata, imgStatus); err != nil {
+		INSERT INTO images (id, owner_id, tag, size_mb, metadata, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.Metadata, imgStatus); err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists

@@ -74,12 +74,11 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 	baseName, version := parseImageTag(tag)
 	imageID := uuid.New()
 	img := model.Image{
-		ID:       imageID,
-		OwnerID:  ownerID,
-		Tag:      fmt.Sprintf("%s:%s", baseName, version),
-		SizeMB:   0,
-		IsCustom: true,
-		Status:   model.ImageStatusBuilding,
+		ID:      imageID,
+		OwnerID: ownerID,
+		Tag:     fmt.Sprintf("%s:%s", baseName, version),
+		SizeMB:  0,
+		Status:  model.ImageStatusBuilding,
 	}
 	if err := s.imageRepo.Save(ctx, img); err != nil {
 		return uuid.Nil, uuid.Nil, err
@@ -152,12 +151,11 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, ownerID uuid.UUID, ta
 	}
 
 	img := model.Image{
-		ID:       imageID,
-		OwnerID:  ownerID,
-		Tag:      normalizedTag,
-		SizeMB:   0,
-		IsCustom: true,
-		Status:   model.ImageStatusBuilding,
+		ID:      imageID,
+		OwnerID: ownerID,
+		Tag:     normalizedTag,
+		SizeMB:  0,
+		Status:  model.ImageStatusBuilding,
 	}
 	build := model.Build{
 		ID:               buildID,

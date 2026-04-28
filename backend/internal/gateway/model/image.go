@@ -4,7 +4,6 @@ type Image struct {
 	ID            string
 	Tag           string
 	SizeMB        int32
-	IsCustom      bool
 	Status        string
 	LastError     string
 	CreatedAt     int64

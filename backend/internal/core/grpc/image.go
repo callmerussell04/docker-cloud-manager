@@ -125,7 +125,6 @@ func imageToProto(img model.Image, ownerUsername string) *coreapi.ImageData {
 		Id:            img.ID.String(),
 		Tag:           img.Tag,
 		SizeMb:        int32(img.SizeMB),
-		IsCustom:      img.IsCustom,
 		CreatedAt:     img.CreatedAt.Unix(),
 		OwnerId:       img.OwnerID.String(),
 		OwnerUsername: ownerUsername,

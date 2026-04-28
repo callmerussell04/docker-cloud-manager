@@ -83,7 +83,6 @@ func imagesToDTO(items []model.Image) []dto.ImageDTO {
 			ID:            item.ID,
 			Tag:           item.Tag,
 			SizeMB:        item.SizeMB,
-			IsCustom:      item.IsCustom,
 			Status:        item.Status,
 			LastError:     item.LastError,
 			CreatedAt:     item.CreatedAt,

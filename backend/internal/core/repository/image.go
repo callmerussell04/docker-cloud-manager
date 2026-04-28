@@ -22,14 +22,14 @@ func NewImageRepository(db *sql.DB) *ImageRepository {
 
 func (r *ImageRepository) Save(ctx context.Context, img model.Image) error {
 	query := `
-		INSERT INTO images (id, owner_id, tag, size_mb, is_custom, metadata, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO images (id, owner_id, tag, size_mb, metadata, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 	status := img.Status
 	if status == "" {
 		status = model.ImageStatusAvailable
 	}
-	_, err := r.db.ExecContext(ctx, query, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.IsCustom, img.Metadata, status)
+	_, err := r.db.ExecContext(ctx, query, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.Metadata, status)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -42,7 +42,7 @@ func (r *ImageRepository) Save(ctx context.Context, img model.Image) error {
 
 func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Image, error) {
 	query := `
-		SELECT id, owner_id, tag, size_mb, is_custom, metadata, status, last_observed_at, last_error, created_at 
+		SELECT id, owner_id, tag, size_mb, metadata, status, last_observed_at, last_error, created_at
 		FROM images WHERE id = $1
 	`
 
@@ -50,7 +50,7 @@ func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Imag
 	var lastObservedAt sql.NullTime
 	var lastError sql.NullString
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt,
+		&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -71,8 +71,8 @@ func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Imag
 
 func (r *ImageRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error) {
 	query := `
-		SELECT id, owner_id, tag, size_mb, is_custom, metadata, status, last_observed_at, last_error, created_at 
-		FROM images WHERE owner_id = $1 OR is_custom = false
+		SELECT id, owner_id, tag, size_mb, metadata, status, last_observed_at, last_error, created_at
+		FROM images WHERE owner_id = $1
 	`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
 	if err != nil {
@@ -85,7 +85,7 @@ func (r *ImageRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) (
 		var img model.Image
 		var lastObservedAt sql.NullTime
 		var lastError sql.NullString
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
 			return nil, err
 		}
 		if lastObservedAt.Valid {
@@ -100,7 +100,7 @@ func (r *ImageRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) (
 }
 
 func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	query := `DELETE FROM images WHERE id = $1 AND is_custom = true`
+	query := `DELETE FROM images WHERE id = $1`
 	res, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		var pgErr *pq.Error
@@ -223,7 +223,7 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1 AND is_custom = true", imageID)
+	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1", imageID)
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int
 	}
 
 	query := `
-		SELECT i.id, i.owner_id, i.tag, i.size_mb, i.is_custom, i.metadata, i.status, i.last_observed_at, i.last_error, i.created_at
+		SELECT i.id, i.owner_id, i.tag, i.size_mb, i.metadata, i.status, i.last_observed_at, i.last_error, i.created_at
 		FROM images i
 		ORDER BY i.created_at DESC LIMIT $1 OFFSET $2
 	`
@@ -254,7 +254,7 @@ func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int
 		var img model.Image
 		var lastObservedAt sql.NullTime
 		var lastError sql.NullString
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.IsCustom, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
+		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		if lastObservedAt.Valid {

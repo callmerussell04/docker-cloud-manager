@@ -214,7 +214,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if err == nil {
 		for _, img := range userImages {
 			// Сравниваем с нормализованным тегом из БД
-			if img.Tag == normalizedInputTag && img.IsCustom {
+			if img.Tag == normalizedInputTag {
 				isCustom = true
 				customImage = &img
 				break

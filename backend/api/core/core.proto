@@ -177,7 +177,8 @@ message ImageData {
   string id = 1;
   string tag = 2;
   int32 size_mb = 3;
-  bool is_custom = 4;
+  reserved 4;
+  reserved "is_custom";
   int64 created_at = 5;
   string owner_id = 6;
   string owner_username = 7;

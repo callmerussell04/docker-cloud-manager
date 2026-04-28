@@ -4,7 +4,6 @@ type ImageDTO struct {
 	ID            string `json:"id"`
 	Tag           string `json:"tag"`
 	SizeMB        int32  `json:"size_mb"`
-	IsCustom      bool   `json:"is_custom"`
 	Status        string `json:"status"`
 	LastError     string `json:"last_error"`
 	CreatedAt     int64  `json:"created_at"`
