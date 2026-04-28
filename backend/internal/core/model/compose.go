@@ -6,6 +6,12 @@ type ComposeProject struct {
 	Volumes  []VolumeCreateParams
 }
 
+const (
+	ComposeDependencyConditionStarted               = "service_started"
+	ComposeDependencyConditionHealthy               = "service_healthy"
+	ComposeDependencyConditionCompletedSuccessfully = "service_completed_successfully"
+)
+
 type ComposeService struct {
 	Name         string
 	ImageTag     string
@@ -13,7 +19,7 @@ type ComposeService struct {
 	Dockerfile   string
 	EnvVars      map[string]string
 	VolumeMounts []VolumeMountParams
-	DependsOn    map[string]string
+	DependsOn    []ComposeDependency
 	Command      []string
 	Entrypoint   []string
 	BuildArgs    map[string]string
@@ -23,4 +29,20 @@ type ComposeService struct {
 	// Роутинг (заполняется только если есть кастомные лейблы)
 	DomainPrefix string
 	InternalPort int
+}
+
+type ComposeDependency struct {
+	ServiceName string
+	Condition   string
+}
+
+func IsValidComposeDependencyCondition(condition string) bool {
+	switch condition {
+	case ComposeDependencyConditionStarted,
+		ComposeDependencyConditionHealthy,
+		ComposeDependencyConditionCompletedSuccessfully:
+		return true
+	default:
+		return false
+	}
 }

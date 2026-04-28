@@ -272,6 +272,53 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 	return c, nil
 }
 
+func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
+	query := `
+		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
+			status, desired_status, base_memory_reservation, last_observed_at, last_error,
+			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
+		FROM containers WHERE docker_id = $1
+	`
+	var c model.Container
+	var projectID sql.NullString
+	var dbDockerID sql.NullString
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
+	var command, entrypoint, healthcheck []byte
+
+	err := r.db.QueryRowContext(ctx, query, dockerID).Scan(
+		&c.ID, &c.OwnerID, &projectID, &dbDockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
+		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
+		&c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Container{}, apperrors.ErrNotFound
+		}
+		return model.Container{}, err
+	}
+
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		c.ProjectID = &parsed
+	}
+	if dbDockerID.Valid {
+		c.DockerID = dbDockerID.String
+	}
+	if lastObservedAt.Valid {
+		c.LastObservedAt = &lastObservedAt.Time
+	}
+	if lastError.Valid {
+		c.LastError = &lastError.String
+	}
+	_ = json.Unmarshal(command, &c.Command)
+	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
+	if len(healthcheck) > 0 && string(healthcheck) != "null" {
+		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
+	}
+	return c, nil
+}
+
 func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM containers WHERE id = $1`
 	res, err := r.db.ExecContext(ctx, query, id)
@@ -437,7 +484,7 @@ func (r *ContainerRepository) IsImageInUse(ctx context.Context, ownerID uuid.UUI
 
 func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Container, error) {
 	query := `
-		SELECT id, docker_id, status, desired_status
+		SELECT id, project_id, docker_id, status, desired_status
 		FROM containers
 		WHERE status != $6 AND (
 			status IN ($1, $2, $3, $4, $5)
@@ -460,9 +507,14 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 	var containers []model.Container
 	for rows.Next() {
 		var c model.Container
+		var projectID sql.NullString
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &dockerID, &c.Status, &c.DesiredStatus); err != nil {
+		if err := rows.Scan(&c.ID, &projectID, &dockerID, &c.Status, &c.DesiredStatus); err != nil {
 			return nil, err
+		}
+		if projectID.Valid {
+			parsed, _ := uuid.Parse(projectID.String)
+			c.ProjectID = &parsed
 		}
 		if dockerID.Valid {
 			c.DockerID = dockerID.String

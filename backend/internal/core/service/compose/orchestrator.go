@@ -23,6 +23,7 @@ import (
 type ProjectRepository interface {
 	Save(ctx context.Context, p model.Project) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
+	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
 }
 
 type BuildRepository interface {
@@ -143,7 +144,6 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		failProject(err)
 		return
 	}
-
 	// 2. Оркестрация сборок (Kaniko)
 	var buildIDs []uuid.UUID
 	for _, srv := range parsedProject.Services {
@@ -253,15 +253,25 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		serviceToContainerID[srv.Name] = contID
 	}
 
+	serviceGraph, err := projectServiceGraph(projectID, parsedProject.Services, serviceToContainerID)
+	if err != nil {
+		rollback(err)
+		return
+	}
+	if err := o.projectRepo.SaveServiceGraph(ctx, projectID, serviceGraph); err != nil {
+		rollback(fmt.Errorf("failed to save compose service graph: %w", err))
+		return
+	}
+
 	// 3.3 Запуск контейнеров (Авто-старт после создания)
 	for _, srv := range parsedProject.Services {
 		contID := serviceToContainerID[srv.Name]
 
 		// 1. Ждем выполнения условий зависимостей
-		for depName, condition := range srv.DependsOn {
-			depContID, ok := serviceToContainerID[depName]
+		for _, dep := range srv.DependsOn {
+			depContID, ok := serviceToContainerID[dep.ServiceName]
 			if !ok {
-				rollback(fmt.Errorf("dependency %s not found for service %s", depName, srv.Name))
+				rollback(fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name))
 				return
 			}
 
@@ -273,9 +283,9 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 			}
 
 			// Блокирующий поллинг состояния
-			err = o.waitForCondition(ctx, depContInfo.DockerID, condition)
+			err = o.waitForCondition(ctx, depContInfo.DockerID, dep.Condition)
 			if err != nil {
-				rollback(fmt.Errorf("dependency %s failed condition %s: %w", depName, condition, err))
+				rollback(fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err))
 				return
 			}
 		}
@@ -291,6 +301,48 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	// 4. Финал
 	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil)
 	logger.InfoContext(ctx, "compose deployment completed")
+}
+
+func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, serviceToContainerID map[string]uuid.UUID) ([]model.ProjectServiceNode, error) {
+	graph := make([]model.ProjectServiceNode, 0, len(services))
+	serviceOrder := make(map[string]int, len(services))
+	for i, srv := range services {
+		serviceOrder[srv.Name] = i
+	}
+	for i, srv := range services {
+		containerID, ok := serviceToContainerID[srv.Name]
+		if !ok {
+			return nil, fmt.Errorf("container mapping not found for service %s", srv.Name)
+		}
+		node := model.ProjectServiceNode{
+			ProjectID:   projectID,
+			ContainerID: containerID,
+			ServiceName: srv.Name,
+			StartOrder:  i,
+		}
+		for _, dep := range srv.DependsOn {
+			depOrder, ok := serviceOrder[dep.ServiceName]
+			if !ok {
+				return nil, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
+			}
+			if depOrder >= i {
+				return nil, fmt.Errorf("dependency %s must be ordered before service %s", dep.ServiceName, srv.Name)
+			}
+			depContainerID, ok := serviceToContainerID[dep.ServiceName]
+			if !ok {
+				return nil, fmt.Errorf("container mapping not found for dependency %s", dep.ServiceName)
+			}
+			node.Dependencies = append(node.Dependencies, model.ProjectServiceDependency{
+				ProjectID:            projectID,
+				ContainerID:          containerID,
+				DependsOnContainerID: depContainerID,
+				DependsOnServiceName: dep.ServiceName,
+				Condition:            dep.Condition,
+			})
+		}
+		graph = append(graph, node)
+	}
+	return graph, nil
 }
 
 func (o *Orchestrator) triggerBuild(ctx context.Context, ownerID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
@@ -489,7 +541,7 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 
 			state := inspect.State
 			switch condition {
-			case "service_healthy":
+			case model.ComposeDependencyConditionHealthy:
 				if state.HealthStatus == nil {
 					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
 				}
@@ -502,14 +554,14 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 				if !state.Running && state.ExitCode != 0 {
 					return apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
 				}
-			case "service_completed_successfully":
+			case model.ComposeDependencyConditionCompletedSuccessfully:
 				if !state.Running {
 					if state.ExitCode == 0 {
 						return nil // Успешно завершил работу (идеально для migrate)
 					}
 					return apperrors.New(apperrors.ErrConflict, "dependency exited with non-zero code")
 				}
-			case "service_started":
+			case model.ComposeDependencyConditionStarted:
 				if state.Running {
 					return nil // Просто запустился
 				}
@@ -517,10 +569,7 @@ func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, co
 					return apperrors.New(apperrors.ErrConflict, "dependency failed to start")
 				}
 			default:
-				// По дефолту (если condition пустой) ведем себя как service_started
-				if state.Running {
-					return nil
-				}
+				return apperrors.New(apperrors.ErrBadRequest, "unsupported dependency condition")
 			}
 		}
 	}

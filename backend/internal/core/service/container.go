@@ -94,6 +94,10 @@ type UserInfoProvider interface {
 	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
+type ProjectStatusUpdater interface {
+	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
+}
+
 type ContainerService struct {
 	repo        ContainerRepository
 	volumeRepo  ContainerVolumeRepository
@@ -102,6 +106,7 @@ type ContainerService struct {
 	metrics     HostMetricsProvider
 	config      ConfigManager
 	users       UserInfoProvider
+	projects    ProjectStatusUpdater
 	logger      *slog.Logger
 	rebalanceCh chan struct{}
 }
@@ -127,6 +132,10 @@ func NewContainerService(
 		logger:      logging.WithComponent(logger, "container_service"),
 		rebalanceCh: make(chan struct{}, 1),
 	}
+}
+
+func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater) {
+	s.projects = updater
 }
 
 func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
@@ -609,6 +618,7 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 		s.logger.InfoContext(ctx, "container started", "container_id", containerID, "owner_id", ownerID)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 		s.RequestRebalance()
+		s.refreshProjectStatus(ctx, c.ProjectID)
 	} else {
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 	}
@@ -651,6 +661,7 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 		s.logger.InfoContext(ctx, "container stopped", "container_id", containerID, "owner_id", ownerID)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 		s.RequestRebalance()
+		s.refreshProjectStatus(ctx, c.ProjectID)
 	} else {
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 	}
@@ -685,6 +696,7 @@ func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid
 	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 
 	s.cleanupUserNetworkIfUnused(ctx, ownerID)
+	s.refreshProjectStatus(ctx, c.ProjectID)
 
 	s.logger.InfoContext(ctx, "container deleted", "container_id", containerID, "owner_id", ownerID)
 	return nil
@@ -973,6 +985,7 @@ func (s *ContainerService) AdminDelete(ctx context.Context, containerID uuid.UUI
 	}
 	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 	s.cleanupUserNetworkIfUnused(ctx, c.OwnerID)
+	s.refreshProjectStatus(ctx, c.ProjectID)
 	return nil
 }
 
@@ -1011,6 +1024,7 @@ func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID
 		s.logger.InfoContext(ctx, "container started by admin", "container_id", containerID)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 		s.RequestRebalance()
+		s.refreshProjectStatus(ctx, c.ProjectID)
 	} else {
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 	}
@@ -1045,10 +1059,20 @@ func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID)
 		s.logger.InfoContext(ctx, "container stopped by admin", "container_id", containerID)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 		s.RequestRebalance()
+		s.refreshProjectStatus(ctx, c.ProjectID)
 	} else {
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 	}
 	return err
+}
+
+func (s *ContainerService) refreshProjectStatus(ctx context.Context, projectID *uuid.UUID) {
+	if s.projects == nil || projectID == nil {
+		return
+	}
+	if err := s.projects.RefreshProjectStatus(ctx, *projectID); err != nil {
+		s.logger.WarnContext(ctx, "failed to refresh project status", "project_id", *projectID, "error", err)
+	}
 }
 
 func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (model.ContainerStats, error) {

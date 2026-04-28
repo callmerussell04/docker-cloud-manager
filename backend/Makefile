@@ -13,7 +13,7 @@ build: tidy
 
 .PHONY: run
 run:
-	docker-compose up -d --build
+	docker compose up -d --build
 
 .PHONY: tidy
 tidy:

@@ -29,6 +29,7 @@ const (
 
 	PermissionProjectsAdminList   = "projects.admin.list"
 	PermissionProjectsAdminDelete = "projects.admin.delete"
+	PermissionProjectsAdminStart  = "projects.admin.start"
 	PermissionProjectsAdminStop   = "projects.admin.stop"
 )
 
@@ -47,6 +48,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		PermissionBuildsAdminDelete:     {},
 		PermissionProjectsAdminList:     {},
 		PermissionProjectsAdminDelete:   {},
+		PermissionProjectsAdminStart:    {},
 		PermissionProjectsAdminStop:     {},
 	},
 	model.RoleUser: {},

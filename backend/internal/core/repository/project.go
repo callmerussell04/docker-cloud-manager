@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -126,6 +127,119 @@ func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	}
 
 	return nil
+}
+
+func (r *ProjectRepository) SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM project_service_dependencies WHERE project_id = $1`, projectID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM project_services WHERE project_id = $1`, projectID); err != nil {
+		return err
+	}
+
+	serviceStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO project_services (project_id, container_id, service_name, start_order)
+		VALUES ($1, $2, $3, $4)
+	`)
+	if err != nil {
+		return err
+	}
+	defer serviceStmt.Close()
+
+	depStmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO project_service_dependencies (project_id, container_id, depends_on_container_id, condition)
+		VALUES ($1, $2, $3, $4)
+	`)
+	if err != nil {
+		return err
+	}
+	defer depStmt.Close()
+
+	for _, svc := range services {
+		if _, err := serviceStmt.ExecContext(ctx, projectID, svc.ContainerID, svc.ServiceName, svc.StartOrder); err != nil {
+			return err
+		}
+		for _, dep := range svc.Dependencies {
+			if !model.IsValidComposeDependencyCondition(dep.Condition) {
+				return fmt.Errorf("%w: invalid compose dependency condition", apperrors.ErrBadRequest)
+			}
+			if _, err := depStmt.ExecContext(ctx, projectID, svc.ContainerID, dep.DependsOnContainerID, dep.Condition); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (r *ProjectRepository) GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT container_id, service_name, start_order
+		FROM project_services
+		WHERE project_id = $1
+		ORDER BY start_order ASC
+	`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	services := make([]model.ProjectServiceNode, 0)
+	byContainer := make(map[uuid.UUID]int)
+	for rows.Next() {
+		var svc model.ProjectServiceNode
+		svc.ProjectID = projectID
+		if err := rows.Scan(&svc.ContainerID, &svc.ServiceName, &svc.StartOrder); err != nil {
+			return nil, err
+		}
+		byContainer[svc.ContainerID] = len(services)
+		services = append(services, svc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(services) == 0 {
+		return nil, fmt.Errorf("%w: project service graph not found", apperrors.ErrNotFound)
+	}
+
+	depRows, err := r.db.QueryContext(ctx, `
+		SELECT d.container_id, d.depends_on_container_id, dep.service_name, d.condition
+		FROM project_service_dependencies d
+		JOIN project_services dep
+			ON dep.project_id = d.project_id
+			AND dep.container_id = d.depends_on_container_id
+		WHERE d.project_id = $1
+	`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer depRows.Close()
+
+	for depRows.Next() {
+		var containerID uuid.UUID
+		var dep model.ProjectServiceDependency
+		dep.ProjectID = projectID
+		if err := depRows.Scan(&containerID, &dep.DependsOnContainerID, &dep.DependsOnServiceName, &dep.Condition); err != nil {
+			return nil, err
+		}
+		dep.ContainerID = containerID
+		idx, ok := byContainer[containerID]
+		if !ok {
+			continue
+		}
+		services[idx].Dependencies = append(services[idx].Dependencies, dep)
+	}
+	if err := depRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return services, nil
 }
 
 func (r *ProjectRepository) FailActiveDeployments(ctx context.Context, errorMessage string) error {

@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
+	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -17,6 +19,7 @@ type ProjectRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
+	GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error)
 }
 
 type ProjectResourceRepository interface {
@@ -25,7 +28,7 @@ type ProjectResourceRepository interface {
 }
 
 type ProjectDockerAPI interface {
-	StopContainer(ctx context.Context, dockerID string, timeout int) error // НОВОЕ
+	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
 	RemoveVolume(ctx context.Context, volumeName string, force bool) error
 }
@@ -34,26 +37,50 @@ type ProjectNetworkCleaner interface {
 	CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error
 }
 
+type ProjectContainerLifecycle interface {
+	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
+	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
+	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
+}
+
+type ProjectConfigProvider interface {
+	Get() config.SystemConfig
+}
+
 type ProjectService struct {
 	repo           ProjectRepository
 	resourceRepo   ProjectResourceRepository
 	dockerAPI      ProjectDockerAPI
+	containers     ProjectContainerLifecycle
 	networkCleaner ProjectNetworkCleaner
-	parser         *compose.Parser
+	cfg            ProjectConfigProvider
 }
 
-func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, networkCleaner ProjectNetworkCleaner) *ProjectService {
+func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, containers ProjectContainerLifecycle, cfg ProjectConfigProvider) *ProjectService {
+	networkCleaner, _ := containers.(ProjectNetworkCleaner)
 	return &ProjectService{
 		repo:           repo,
 		resourceRepo:   resourceRepo,
 		dockerAPI:      dockerAPI,
+		containers:     containers,
 		networkCleaner: networkCleaner,
-		parser:         compose.NewParser(),
+		cfg:            cfg,
 	}
 }
 
 func (s *ProjectService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
 	return s.repo.GetByOwnerID(ctx, ownerID)
+}
+
+func (s *ProjectService) Start(ctx context.Context, ownerID, projectID uuid.UUID) error {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if p.OwnerID != ownerID {
+		return apperrors.ErrNotFound
+	}
+	return s.startProject(ctx, p)
 }
 
 func (s *ProjectService) Stop(ctx context.Context, ownerID, projectID uuid.UUID) error {
@@ -64,27 +91,7 @@ func (s *ProjectService) Stop(ctx context.Context, ownerID, projectID uuid.UUID)
 	if p.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
-
-	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
-	if err != nil {
-		return err
-	}
-
-	var stopErrors []error
-	for _, c := range containers {
-		if c.Status == model.ContainerStatusRunning {
-			err := s.dockerAPI.StopContainer(ctx, c.DockerID, 10)
-			if err != nil {
-				stopErrors = append(stopErrors, fmt.Errorf("failed to stop %s: %v", c.Name, err))
-			}
-		}
-	}
-
-	if len(stopErrors) > 0 {
-		return fmt.Errorf("errors occurred while stopping project: %v", stopErrors)
-	}
-
-	return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusStopped, nil)
+	return s.stopProject(ctx, p)
 }
 
 func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUID) error {
@@ -95,71 +102,27 @@ func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUI
 	if p.OwnerID != ownerID {
 		return apperrors.ErrNotFound
 	}
-	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusDeleting, nil)
-
-	var cleanupErrors []error
-	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
-	if err == nil {
-		for _, c := range containers {
-			if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !cerrdefs.IsNotFound(err) {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove container %s: %w", c.Name, err))
-			}
-		}
-	}
-
-	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, projectID)
-	if err == nil {
-		for _, v := range volumes {
-			if err := s.dockerAPI.RemoveVolume(ctx, v.DockerName, true); err != nil && !cerrdefs.IsNotFound(err) {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err))
-			}
-		}
-	}
-	if len(cleanupErrors) > 0 {
-		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
-		_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
-		return fmt.Errorf("errors occurred while deleting project: %v", cleanupErrors)
-	}
-
-	// 3. Удаляем запись проекта из БД (Сработает ON DELETE CASCADE для контейнеров и томов в БД)
-	if err := s.repo.Delete(ctx, projectID); err != nil {
-		return err
-	}
-
-	s.cleanupUserNetwork(ctx, ownerID)
-	return nil
+	return s.deleteProject(ctx, p)
 }
 
 func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
 	return s.repo.GetAllPaginated(ctx, limit, offset)
 }
 
+func (s *ProjectService) AdminStart(ctx context.Context, projectID uuid.UUID) error {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	return s.startProject(ctx, p)
+}
+
 func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) error {
-	_, err := s.repo.GetByID(ctx, projectID)
+	p, err := s.repo.GetByID(ctx, projectID)
 	if err != nil {
 		return err
 	}
-
-	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
-	if err != nil {
-		return err
-	}
-
-	var stopErrors []error
-	for _, c := range containers {
-		if c.Status == model.ContainerStatusRunning {
-			err := s.dockerAPI.StopContainer(ctx, c.DockerID, 10)
-			if err != nil {
-				stopErrors = append(stopErrors, fmt.Errorf("failed to stop %s: %v", c.Name, err))
-			}
-		}
-	}
-
-	if len(stopErrors) > 0 {
-		return fmt.Errorf("errors occurred while stopping project: %v", stopErrors)
-	}
-
-	return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusStopped, nil)
+	return s.stopProject(ctx, p)
 }
 
 func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) error {
@@ -167,10 +130,119 @@ func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) e
 	if err != nil {
 		return err
 	}
-	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusDeleting, nil)
+	return s.deleteProject(ctx, p)
+}
+
+func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if projectStatusBlocksAggregation(p.Status) {
+		return nil
+	}
+
+	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if len(containers) == 0 {
+		return nil
+	}
+
+	hasRunning := false
+	allStopped := true
+	for _, c := range containers {
+		switch c.Status {
+		case model.ContainerStatusMissing, model.ContainerStatusError:
+			msg := fmt.Sprintf("container %s is %s", c.Name, c.Status)
+			return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+		case model.ContainerStatusRunning:
+			hasRunning = true
+			allStopped = false
+		case model.ContainerStatusCreated, model.ContainerStatusExited:
+		default:
+			allStopped = false
+		}
+	}
+
+	if hasRunning {
+		return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil)
+	}
+	if allStopped {
+		return s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusStopped, nil)
+	}
+	return nil
+}
+
+func (s *ProjectService) startProject(ctx context.Context, p model.Project) error {
+	graph, err := s.repo.GetServiceGraph(ctx, p.ID)
+	if err != nil {
+		return apperrors.Wrap(apperrors.ErrConflict, "project service graph is missing; redeploy the compose project", err)
+	}
+
+	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStarting, nil)
+	for _, node := range graph {
+		for _, dep := range node.Dependencies {
+			depContainer, err := s.containers.GetByID(ctx, dep.DependsOnContainerID)
+			if err != nil {
+				s.failProject(ctx, p.ID, err)
+				return err
+			}
+			if err := s.waitForCondition(ctx, depContainer.DockerID, dep.Condition); err != nil {
+				err = fmt.Errorf("dependency %s failed condition %s: %w", dep.DependsOnServiceName, dep.Condition, err)
+				s.failProject(ctx, p.ID, err)
+				return err
+			}
+		}
+		current, err := s.containers.GetByID(ctx, node.ContainerID)
+		if err != nil {
+			s.failProject(ctx, p.ID, err)
+			return err
+		}
+		if current.Status == model.ContainerStatusRunning {
+			continue
+		}
+		if err := s.containers.Start(ctx, p.OwnerID, node.ContainerID); err != nil {
+			err = fmt.Errorf("failed to start service %s: %w", node.ServiceName, err)
+			s.failProject(ctx, p.ID, err)
+			return err
+		}
+	}
+	return s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusRunning, nil)
+}
+
+func (s *ProjectService) stopProject(ctx context.Context, p model.Project) error {
+	graph, err := s.repo.GetServiceGraph(ctx, p.ID)
+	if err != nil {
+		return apperrors.Wrap(apperrors.ErrConflict, "project service graph is missing; redeploy the compose project", err)
+	}
+	slices.Reverse(graph)
+
+	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStopping, nil)
+	for _, node := range graph {
+		current, err := s.containers.GetByID(ctx, node.ContainerID)
+		if err != nil {
+			s.failProject(ctx, p.ID, err)
+			return err
+		}
+		if current.Status == model.ContainerStatusCreated || current.Status == model.ContainerStatusExited {
+			continue
+		}
+		if err := s.containers.Stop(ctx, p.OwnerID, node.ContainerID); err != nil {
+			err = fmt.Errorf("failed to stop service %s: %w", node.ServiceName, err)
+			s.failProject(ctx, p.ID, err)
+			return err
+		}
+	}
+	return s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStopped, nil)
+}
+
+func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) error {
+	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusDeleting, nil)
 
 	var cleanupErrors []error
-	containers, err := s.resourceRepo.GetByProjectID(ctx, projectID)
+	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
 	if err == nil {
 		for _, c := range containers {
 			if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !cerrdefs.IsNotFound(err) {
@@ -179,7 +251,7 @@ func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) e
 		}
 	}
 
-	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, projectID)
+	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, p.ID)
 	if err == nil {
 		for _, v := range volumes {
 			if err := s.dockerAPI.RemoveVolume(ctx, v.DockerName, true); err != nil && !cerrdefs.IsNotFound(err) {
@@ -189,16 +261,90 @@ func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) e
 	}
 	if len(cleanupErrors) > 0 {
 		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
-		_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+		_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusFailed, &msg)
 		return fmt.Errorf("errors occurred while deleting project: %v", cleanupErrors)
 	}
 
-	if err := s.repo.Delete(ctx, projectID); err != nil {
+	if err := s.repo.Delete(ctx, p.ID); err != nil {
 		return err
 	}
 
 	s.cleanupUserNetwork(ctx, p.OwnerID)
 	return nil
+}
+
+func (s *ProjectService) waitForCondition(ctx context.Context, dockerID string, condition string) error {
+	if dockerID == "" {
+		return resourceUnavailableError("container")
+	}
+	timeout := time.After(time.Duration(s.cfg.Get().ComposeDependencyWaitTimeoutMinutes) * time.Minute)
+	ticker := time.NewTicker(time.Duration(s.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return apperrors.New(apperrors.ErrConflict, "timeout waiting for dependency state")
+		case <-ticker.C:
+			ticker.Reset(time.Duration(s.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
+			inspect, err := s.dockerAPI.InspectContainer(ctx, dockerID)
+			if err != nil {
+				if cerrdefs.IsNotFound(err) {
+					return resourceUnavailableError("container")
+				}
+				continue
+			}
+
+			state := inspect.State
+			switch condition {
+			case model.ComposeDependencyConditionHealthy:
+				if state.HealthStatus == nil {
+					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
+				}
+				if *state.HealthStatus == "healthy" {
+					return nil
+				}
+				if *state.HealthStatus == "unhealthy" {
+					return apperrors.New(apperrors.ErrConflict, "dependency became unhealthy")
+				}
+				if !state.Running && state.ExitCode != 0 {
+					return apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
+				}
+			case model.ComposeDependencyConditionCompletedSuccessfully:
+				if !state.Running {
+					if state.ExitCode == 0 {
+						return nil
+					}
+					return apperrors.New(apperrors.ErrConflict, "dependency exited with non-zero code")
+				}
+			case model.ComposeDependencyConditionStarted:
+				if state.Running {
+					return nil
+				}
+				if !state.Running && state.ExitCode != 0 {
+					return apperrors.New(apperrors.ErrConflict, "dependency failed to start")
+				}
+			default:
+				return apperrors.New(apperrors.ErrBadRequest, "unsupported dependency condition")
+			}
+		}
+	}
+}
+
+func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, cause error) {
+	msg := apperrors.SafeMessage(cause)
+	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+}
+
+func projectStatusBlocksAggregation(status string) bool {
+	switch status {
+	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *ProjectService) cleanupUserNetwork(ctx context.Context, ownerID uuid.UUID) {

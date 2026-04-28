@@ -25,18 +25,18 @@ func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
 	}
 	repo.onDelete = resources.deleteProject
 	dockerAPI := &projectDockerFake{}
-	networkCleaner := &projectNetworkCleanerFake{}
+	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, resources, dockerAPI, networkCleaner)
+	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
 
 	if err := svc.Delete(ctx, ownerID, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	if len(networkCleaner.cleanedOwnerIDs) != 1 {
-		t.Fatalf("network cleanup count = %d, want 1", len(networkCleaner.cleanedOwnerIDs))
+	if len(containers.cleanedOwnerIDs) != 1 {
+		t.Fatalf("network cleanup count = %d, want 1", len(containers.cleanedOwnerIDs))
 	}
-	if got := networkCleaner.cleanedOwnerIDs[0]; got != ownerID {
+	if got := containers.cleanedOwnerIDs[0]; got != ownerID {
 		t.Fatalf("network cleanup owner = %s, want %s", got, ownerID)
 	}
 }
@@ -60,16 +60,16 @@ func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *
 	}
 	repo.onDelete = resources.deleteProject
 	dockerAPI := &projectDockerFake{}
-	networkCleaner := &projectNetworkCleanerFake{}
+	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, resources, dockerAPI, networkCleaner)
+	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
 
 	if err := svc.Delete(ctx, ownerID, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	if len(networkCleaner.cleanedOwnerIDs) != 1 {
-		t.Fatalf("network cleanup count = %d, want 1", len(networkCleaner.cleanedOwnerIDs))
+	if len(containers.cleanedOwnerIDs) != 1 {
+		t.Fatalf("network cleanup count = %d, want 1", len(containers.cleanedOwnerIDs))
 	}
 }
 
@@ -106,6 +106,10 @@ func (f *projectRepoFake) GetAllPaginated(ctx context.Context, limit, offset int
 
 func (f *projectRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	return nil
+}
+
+func (f *projectRepoFake) GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error) {
+	return nil, nil
 }
 
 type projectResourceRepoFake struct {
@@ -145,6 +149,10 @@ func (f *projectResourceRepoFake) deleteProject(projectID uuid.UUID) {
 
 type projectDockerFake struct{}
 
+func (f *projectDockerFake) InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error) {
+	return model.ContainerInspection{}, nil
+}
+
 func (f *projectDockerFake) StopContainer(ctx context.Context, dockerID string, timeout int) error {
 	return nil
 }
@@ -157,11 +165,23 @@ func (f *projectDockerFake) RemoveVolume(ctx context.Context, volumeName string,
 	return nil
 }
 
-type projectNetworkCleanerFake struct {
+type projectContainerLifecycleFake struct {
 	cleanedOwnerIDs []uuid.UUID
 }
 
-func (f *projectNetworkCleanerFake) CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error {
+func (f *projectContainerLifecycleFake) Start(ctx context.Context, ownerID, containerID uuid.UUID) error {
+	return nil
+}
+
+func (f *projectContainerLifecycleFake) Stop(ctx context.Context, ownerID, containerID uuid.UUID) error {
+	return nil
+}
+
+func (f *projectContainerLifecycleFake) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
+	return model.Container{ID: id, DockerID: "docker-id"}, nil
+}
+
+func (f *projectContainerLifecycleFake) CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error {
 	f.cleanedOwnerIDs = append(f.cleanedOwnerIDs, ownerID)
 	return nil
 }

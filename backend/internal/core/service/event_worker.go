@@ -15,6 +15,7 @@ import (
 
 type EventContainerRepo interface {
 	UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error
+	GetByDockerID(ctx context.Context, dockerID string) (model.Container, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
@@ -36,6 +37,10 @@ type ContainerRebalancer interface {
 	RequestRebalance()
 }
 
+type EventProjectStatusUpdater interface {
+	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
+}
+
 type EventConfigProvider interface {
 	Get() config.SystemConfig
 }
@@ -45,16 +50,18 @@ type EventWorker struct {
 	volumeRepo EventVolumeRepo
 	dockerAPI  EventDockerAPI
 	rebalancer ContainerRebalancer
+	projects   EventProjectStatusUpdater
 	cfg        EventConfigProvider
 	logger     *slog.Logger
 }
 
-func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
+func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, projects EventProjectStatusUpdater, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
 	return &EventWorker{
 		repo:       repo,
 		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
 		rebalancer: rebalancer,
+		projects:   projects,
 		cfg:        cfg,
 		logger:     logging.WithComponent(logger, "event_worker"),
 	}
@@ -103,12 +110,15 @@ func (w *EventWorker) Run(ctx context.Context) {
 				switch msg.Action {
 				case "start":
 					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusRunning)
+					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
 					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
 					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusExited)
+					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
 					w.rebalancer.RequestRebalance()
 				case "destroy":
 					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusMissing)
+					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
 					w.rebalancer.RequestRebalance()
 				}
 			}
@@ -142,6 +152,7 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 			if cerrdefs.IsNotFound(err) {
 				_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
 				w.logger.WarnContext(ctx, "docker container missing during state sync", "container_id", c.ID, "docker_id", c.DockerID)
+				w.refreshProjectStatus(ctx, c.ProjectID)
 				changed = true
 			}
 			continue
@@ -157,6 +168,7 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 		if c.Status != expectedStatus {
 			_ = w.repo.UpdateStatus(ctx, c.ID, expectedStatus)
 			w.logger.InfoContext(ctx, "container status synced", "container_id", c.ID, "old_status", c.Status, "new_status", expectedStatus)
+			w.refreshProjectStatus(ctx, c.ProjectID)
 			if expectedStatus == model.ContainerStatusRunning || c.Status == model.ContainerStatusRunning {
 				changed = true
 			}
@@ -165,6 +177,26 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 
 	if changed {
 		w.rebalancer.RequestRebalance()
+	}
+}
+
+func (w *EventWorker) refreshProjectStatusByDockerID(ctx context.Context, dockerID string) {
+	if w.projects == nil {
+		return
+	}
+	c, err := w.repo.GetByDockerID(ctx, dockerID)
+	if err != nil {
+		return
+	}
+	w.refreshProjectStatus(ctx, c.ProjectID)
+}
+
+func (w *EventWorker) refreshProjectStatus(ctx context.Context, projectID *uuid.UUID) {
+	if w.projects == nil || projectID == nil {
+		return
+	}
+	if err := w.projects.RefreshProjectStatus(ctx, *projectID); err != nil {
+		w.logger.WarnContext(ctx, "failed to refresh project status", "project_id", *projectID, "error", err)
 	}
 }
 

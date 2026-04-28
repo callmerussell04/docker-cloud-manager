@@ -17,7 +17,7 @@ func TestEventWorkerClosedStreamBacksOff(t *testing.T) {
 	defer cancel()
 
 	dockerAPI := &closedEventDockerFake{}
-	worker := NewEventWorker(&eventRepoFake{}, nil, dockerAPI, &eventRebalancerFake{}, staticConfig{}, slog.Default())
+	worker := NewEventWorker(&eventRepoFake{}, nil, dockerAPI, &eventRebalancerFake{}, nil, staticConfig{}, slog.Default())
 
 	done := make(chan struct{})
 	go func() {
@@ -50,7 +50,7 @@ func TestEventWorkerMarksMissingContainerOnSync(t *testing.T) {
 		}},
 	}
 	dockerAPI := &closedEventDockerFake{inspectContainerErr: cerrdefs.ErrNotFound}
-	worker := NewEventWorker(repo, nil, dockerAPI, &eventRebalancerFake{}, staticConfig{}, slog.Default())
+	worker := NewEventWorker(repo, nil, dockerAPI, &eventRebalancerFake{}, nil, staticConfig{}, slog.Default())
 
 	worker.syncState(ctx)
 
@@ -70,7 +70,7 @@ func TestEventWorkerMarksMissingVolumeOnSync(t *testing.T) {
 		}},
 	}
 	dockerAPI := &closedEventDockerFake{inspectVolumeErr: cerrdefs.ErrNotFound}
-	worker := NewEventWorker(&eventRepoFake{}, volumeRepo, dockerAPI, &eventRebalancerFake{}, staticConfig{}, slog.Default())
+	worker := NewEventWorker(&eventRepoFake{}, volumeRepo, dockerAPI, &eventRebalancerFake{}, nil, staticConfig{}, slog.Default())
 
 	worker.syncState(ctx)
 
@@ -86,6 +86,10 @@ type eventRepoFake struct {
 
 func (f *eventRepoFake) UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error {
 	return nil
+}
+
+func (f *eventRepoFake) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
+	return model.Container{}, nil
 }
 
 func (f *eventRepoFake) GetNonExited(ctx context.Context) ([]model.Container, error) {

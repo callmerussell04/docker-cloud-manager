@@ -29,6 +29,7 @@ const (
 
 	permissionProjectsAdminList   = "projects.admin.list"
 	permissionProjectsAdminDelete = "projects.admin.delete"
+	permissionProjectsAdminStart  = "projects.admin.start"
 	permissionProjectsAdminStop   = "projects.admin.stop"
 )
 
@@ -87,6 +88,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 			{
 				projects.GET("", coreHandler.GetProjects)
 				projects.DELETE("/:id", coreHandler.DeleteProject)
+				projects.POST("/:id/start", coreHandler.StartProject)
 				projects.POST("/:id/stop", coreHandler.StopProject)
 				projects.POST("/compose", coreHttpProxy)
 			}
@@ -111,6 +113,7 @@ func NewRouter(authHandler *handler.AuthHandler, coreHandler *handler.CoreHandle
 
 			admin.GET("/projects", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminList), coreHandler.GetAllProjects)
 			admin.DELETE("/projects/:id", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminDelete), coreHandler.AdminDeleteProject)
+			admin.POST("/projects/:id/start", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminStart), coreHandler.AdminStartProject)
 			admin.POST("/projects/:id/stop", middleware.RequirePermission(tokenVerifier, permissionProjectsAdminStop), coreHandler.AdminStopProject)
 		}
 		stats := protected.Group("/stats")

@@ -98,7 +98,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager)
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger)
-	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService)
+	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, cfg.ConfigManager)
+	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
@@ -128,7 +129,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
-	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, cfg.ConfigManager, logger)
+	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 

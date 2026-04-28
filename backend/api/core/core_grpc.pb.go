@@ -1315,9 +1315,11 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 const (
 	ProjectAPI_GetUserProjects_FullMethodName    = "/core.ProjectAPI/GetUserProjects"
 	ProjectAPI_DeleteProject_FullMethodName      = "/core.ProjectAPI/DeleteProject"
+	ProjectAPI_StartProject_FullMethodName       = "/core.ProjectAPI/StartProject"
 	ProjectAPI_StopProject_FullMethodName        = "/core.ProjectAPI/StopProject"
 	ProjectAPI_GetAllProjects_FullMethodName     = "/core.ProjectAPI/GetAllProjects"
 	ProjectAPI_AdminDeleteProject_FullMethodName = "/core.ProjectAPI/AdminDeleteProject"
+	ProjectAPI_AdminStartProject_FullMethodName  = "/core.ProjectAPI/AdminStartProject"
 	ProjectAPI_AdminStopProject_FullMethodName   = "/core.ProjectAPI/AdminStopProject"
 )
 
@@ -1327,9 +1329,11 @@ const (
 type ProjectAPIClient interface {
 	GetUserProjects(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*ProjectListResponse, error)
 	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	StartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetAllProjects(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedProjectResponse, error)
 	AdminDeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
+	AdminStartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	AdminStopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
@@ -1355,6 +1359,16 @@ func (c *projectAPIClient) DeleteProject(ctx context.Context, in *ProjectActionR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, ProjectAPI_DeleteProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) StartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_StartProject_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1391,6 +1405,16 @@ func (c *projectAPIClient) AdminDeleteProject(ctx context.Context, in *ProjectAc
 	return out, nil
 }
 
+func (c *projectAPIClient) AdminStartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ProjectAPI_AdminStartProject_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *projectAPIClient) AdminStopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
@@ -1407,9 +1431,11 @@ func (c *projectAPIClient) AdminStopProject(ctx context.Context, in *ProjectActi
 type ProjectAPIServer interface {
 	GetUserProjects(context.Context, *GetUserRequest) (*ProjectListResponse, error)
 	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	StartProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StopProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	GetAllProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error)
 	AdminDeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
+	AdminStartProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	AdminStopProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	mustEmbedUnimplementedProjectAPIServer()
 }
@@ -1427,6 +1453,9 @@ func (UnimplementedProjectAPIServer) GetUserProjects(context.Context, *GetUserRe
 func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteProject not implemented")
 }
+func (UnimplementedProjectAPIServer) StartProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartProject not implemented")
+}
 func (UnimplementedProjectAPIServer) StopProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopProject not implemented")
 }
@@ -1435,6 +1464,9 @@ func (UnimplementedProjectAPIServer) GetAllProjects(context.Context, *Pagination
 }
 func (UnimplementedProjectAPIServer) AdminDeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AdminDeleteProject not implemented")
+}
+func (UnimplementedProjectAPIServer) AdminStartProject(context.Context, *ProjectActionRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AdminStartProject not implemented")
 }
 func (UnimplementedProjectAPIServer) AdminStopProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AdminStopProject not implemented")
@@ -1496,6 +1528,24 @@ func _ProjectAPI_DeleteProject_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectAPI_StartProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).StartProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_StartProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).StartProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ProjectAPI_StopProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProjectActionRequest)
 	if err := dec(in); err != nil {
@@ -1550,6 +1600,24 @@ func _ProjectAPI_AdminDeleteProject_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectAPI_AdminStartProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).AdminStartProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_AdminStartProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).AdminStartProject(ctx, req.(*ProjectActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ProjectAPI_AdminStopProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProjectActionRequest)
 	if err := dec(in); err != nil {
@@ -1584,6 +1652,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ProjectAPI_DeleteProject_Handler,
 		},
 		{
+			MethodName: "StartProject",
+			Handler:    _ProjectAPI_StartProject_Handler,
+		},
+		{
 			MethodName: "StopProject",
 			Handler:    _ProjectAPI_StopProject_Handler,
 		},
@@ -1594,6 +1666,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AdminDeleteProject",
 			Handler:    _ProjectAPI_AdminDeleteProject_Handler,
+		},
+		{
+			MethodName: "AdminStartProject",
+			Handler:    _ProjectAPI_AdminStartProject_Handler,
 		},
 		{
 			MethodName: "AdminStopProject",

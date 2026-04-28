@@ -26,6 +26,15 @@ func (c *CoreClient) DeleteProject(ctx context.Context, ownerID, projectID strin
 	return nil
 }
 
+func (c *CoreClient) StartProject(ctx context.Context, ownerID, projectID string) error {
+	req := &coreapi.ProjectActionRequest{OwnerId: ownerID, ProjectId: projectID}
+	_, err := c.projectAPI.StartProject(ctx, req)
+	if err != nil {
+		return grpcerrors.FromGRPC(err)
+	}
+	return nil
+}
+
 func (c *CoreClient) StopProject(ctx context.Context, ownerID, projectID string) error {
 	req := &coreapi.ProjectActionRequest{OwnerId: ownerID, ProjectId: projectID}
 	_, err := c.projectAPI.StopProject(ctx, req)
@@ -50,6 +59,15 @@ func (c *CoreClient) GetAllProjects(ctx context.Context, page, limit int) (model
 func (c *CoreClient) AdminDeleteProject(ctx context.Context, projectID string) error {
 	req := &coreapi.ProjectActionRequest{ProjectId: projectID}
 	_, err := c.projectAPI.AdminDeleteProject(ctx, req)
+	if err != nil {
+		return grpcerrors.FromGRPC(err)
+	}
+	return nil
+}
+
+func (c *CoreClient) AdminStartProject(ctx context.Context, projectID string) error {
+	req := &coreapi.ProjectActionRequest{ProjectId: projectID}
+	_, err := c.projectAPI.AdminStartProject(ctx, req)
 	if err != nil {
 		return grpcerrors.FromGRPC(err)
 	}

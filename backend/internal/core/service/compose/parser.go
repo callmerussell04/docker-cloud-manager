@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -134,7 +135,6 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			Name:      srv.Name,
 			EnvVars:   make(map[string]string),
 			BuildArgs: make(map[string]string),
-			DependsOn: make(map[string]string),
 		}
 
 		// Обработка сборки (build)
@@ -244,8 +244,27 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 
 		// Сохраняем зависимости (depends_on condition)
 		for depName, depConfig := range srv.DependsOn {
-			domainSrv.DependsOn[depName] = depConfig.Condition
+			if depConfig.Restart {
+				return fmt.Errorf("%w: depends_on.restart is not supported for service %s dependency %s", apperrors.ErrBadRequest, srv.Name, depName)
+			}
+			if !depConfig.Required {
+				return fmt.Errorf("%w: depends_on.required=false is not supported for service %s dependency %s", apperrors.ErrBadRequest, srv.Name, depName)
+			}
+			condition := depConfig.Condition
+			if condition == "" {
+				condition = model.ComposeDependencyConditionStarted
+			}
+			if !model.IsValidComposeDependencyCondition(condition) {
+				return fmt.Errorf("%w: unsupported depends_on condition %s for service %s dependency %s", apperrors.ErrBadRequest, condition, srv.Name, depName)
+			}
+			domainSrv.DependsOn = append(domainSrv.DependsOn, model.ComposeDependency{
+				ServiceName: depName,
+				Condition:   condition,
+			})
 		}
+		sort.Slice(domainSrv.DependsOn, func(i, j int) bool {
+			return domainSrv.DependsOn[i].ServiceName < domainSrv.DependsOn[j].ServiceName
+		})
 
 		// Парсим кастомные лейблы для экспоуза
 		prefixStr, hasPrefix := srv.Labels["dcm.domain_prefix"]

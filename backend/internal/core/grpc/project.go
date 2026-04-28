@@ -15,8 +15,10 @@ import (
 type ProjectLogic interface {
 	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error)
 	Delete(ctx context.Context, ownerID, projectID uuid.UUID) error
+	Start(ctx context.Context, ownerID, projectID uuid.UUID) error
 	Stop(ctx context.Context, ownerID, projectID uuid.UUID) error
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error)
+	AdminStart(ctx context.Context, projectID uuid.UUID) error
 	AdminStop(ctx context.Context, projectID uuid.UUID) error
 	AdminDelete(ctx context.Context, projectID uuid.UUID) error
 }
@@ -75,6 +77,25 @@ func (h *ProjectHandler) DeleteProject(ctx context.Context, req *coreapi.Project
 	}
 
 	err = h.logic.Delete(ctx, ownerID, projectID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) StartProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	ownerID, err := uuid.Parse(req.GetOwnerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
+	}
+
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+	}
+
+	err = h.logic.Start(ctx, ownerID, projectID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -161,6 +182,18 @@ func (h *ProjectHandler) AdminDeleteProject(ctx context.Context, req *coreapi.Pr
 	}
 
 	if err := h.logic.AdminDelete(ctx, projectID); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) AdminStartProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id")
+	}
+
+	if err := h.logic.AdminStart(ctx, projectID); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil

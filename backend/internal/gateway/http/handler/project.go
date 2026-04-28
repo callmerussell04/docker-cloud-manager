@@ -11,9 +11,11 @@ import (
 type ProjectService interface {
 	GetUserProjects(ctx context.Context, ownerID string) ([]model.Project, error)
 	DeleteProject(ctx context.Context, ownerID, projectID string) error
+	StartProject(ctx context.Context, ownerID, projectID string) error
 	StopProject(ctx context.Context, ownerID, projectID string) error
 	GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
 	AdminDeleteProject(ctx context.Context, projectID string) error
+	AdminStartProject(ctx context.Context, projectID string) error
 	AdminStopProject(ctx context.Context, projectID string) error
 }
 
@@ -44,6 +46,19 @@ func (h *CoreHandler) DeleteProject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "project deleted"})
+}
+
+func (h *CoreHandler) StartProject(c *gin.Context) {
+	userID := c.GetString("user_id")
+	projectID := c.Param("id")
+
+	err := h.service.StartProject(c.Request.Context(), userID, projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "project started successfully"})
 }
 
 func (h *CoreHandler) StopProject(c *gin.Context) {
@@ -80,6 +95,16 @@ func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "project deleted by admin"})
+}
+
+func (h *CoreHandler) AdminStartProject(c *gin.Context) {
+	projectID := c.Param("id")
+	err := h.service.AdminStartProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "project started by admin"})
 }
 
 func (h *CoreHandler) AdminStopProject(c *gin.Context) {

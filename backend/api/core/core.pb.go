@@ -3033,14 +3033,16 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12@\n" +
 	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponse\x12G\n" +
 	"\rGetAllVolumes\x12\x17.core.PaginationRequest\x1a\x1d.core.PaginatedVolumeResponse\x12;\n" +
-	"\x11AdminDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty2\x89\x03\n" +
+	"\x11AdminDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty2\x80\x04\n" +
 	"\n" +
 	"ProjectAPI\x12B\n" +
 	"\x0fGetUserProjects\x12\x14.core.GetUserRequest\x1a\x19.core.ProjectListResponse\x128\n" +
-	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x126\n" +
+	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x127\n" +
+	"\fStartProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x126\n" +
 	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12I\n" +
 	"\x0eGetAllProjects\x12\x17.core.PaginationRequest\x1a\x1e.core.PaginatedProjectResponse\x12=\n" +
-	"\x12AdminDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12;\n" +
+	"\x12AdminDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12<\n" +
+	"\x11AdminStartProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12;\n" +
 	"\x10AdminStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
 	"\tSystemAPI\x120\n" +
 	"\tGetConfig\x12\v.core.Empty\x1a\x16.core.SystemConfigData\x123\n" +
@@ -3147,53 +3149,57 @@ var file_api_core_core_proto_depIdxs = []int32{
 	20, // 41: core.VolumeAPI.AdminDeleteVolume:input_type -> core.VolumeActionRequest
 	2,  // 42: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
 	28, // 43: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	28, // 44: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	29, // 45: core.ProjectAPI.GetAllProjects:input_type -> core.PaginationRequest
-	28, // 46: core.ProjectAPI.AdminDeleteProject:input_type -> core.ProjectActionRequest
-	28, // 47: core.ProjectAPI.AdminStopProject:input_type -> core.ProjectActionRequest
-	1,  // 48: core.SystemAPI.GetConfig:input_type -> core.Empty
-	35, // 49: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	2,  // 50: core.StatsAPI.GetUserStats:input_type -> core.GetUserRequest
-	5,  // 51: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	1,  // 52: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	1,  // 53: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	1,  // 54: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	9,  // 55: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	1,  // 56: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	30, // 57: core.ContainerAPI.GetAllContainers:output_type -> core.PaginatedContainerResponse
-	1,  // 58: core.ContainerAPI.AdminActionContainer:output_type -> core.Empty
-	36, // 59: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
-	36, // 60: core.ContainerAPI.AdminGetContainerStats:output_type -> core.ContainerStatsResponse
-	17, // 61: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	1,  // 62: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	13, // 63: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	13, // 64: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
-	14, // 65: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
-	1,  // 66: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
-	1,  // 67: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	25, // 68: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	24, // 69: core.ImageAPI.GetBuild:output_type -> core.BuildData
-	1,  // 70: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	32, // 71: core.ImageAPI.GetAllImages:output_type -> core.PaginatedImageResponse
-	1,  // 72: core.ImageAPI.AdminDeleteImage:output_type -> core.Empty
-	33, // 73: core.ImageAPI.GetAllBuilds:output_type -> core.PaginatedBuildResponse
-	1,  // 74: core.ImageAPI.AdminDeleteBuild:output_type -> core.Empty
-	19, // 75: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	1,  // 76: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	22, // 77: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	31, // 78: core.VolumeAPI.GetAllVolumes:output_type -> core.PaginatedVolumeResponse
-	1,  // 79: core.VolumeAPI.AdminDeleteVolume:output_type -> core.Empty
-	27, // 80: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
-	1,  // 81: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	1,  // 82: core.ProjectAPI.StopProject:output_type -> core.Empty
-	34, // 83: core.ProjectAPI.GetAllProjects:output_type -> core.PaginatedProjectResponse
-	1,  // 84: core.ProjectAPI.AdminDeleteProject:output_type -> core.Empty
-	1,  // 85: core.ProjectAPI.AdminStopProject:output_type -> core.Empty
-	35, // 86: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	1,  // 87: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	0,  // 88: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
-	51, // [51:89] is the sub-list for method output_type
-	13, // [13:51] is the sub-list for method input_type
+	28, // 44: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
+	28, // 45: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	29, // 46: core.ProjectAPI.GetAllProjects:input_type -> core.PaginationRequest
+	28, // 47: core.ProjectAPI.AdminDeleteProject:input_type -> core.ProjectActionRequest
+	28, // 48: core.ProjectAPI.AdminStartProject:input_type -> core.ProjectActionRequest
+	28, // 49: core.ProjectAPI.AdminStopProject:input_type -> core.ProjectActionRequest
+	1,  // 50: core.SystemAPI.GetConfig:input_type -> core.Empty
+	35, // 51: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	2,  // 52: core.StatsAPI.GetUserStats:input_type -> core.GetUserRequest
+	5,  // 53: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	1,  // 54: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	1,  // 55: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	1,  // 56: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	9,  // 57: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
+	1,  // 58: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	30, // 59: core.ContainerAPI.GetAllContainers:output_type -> core.PaginatedContainerResponse
+	1,  // 60: core.ContainerAPI.AdminActionContainer:output_type -> core.Empty
+	36, // 61: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	36, // 62: core.ContainerAPI.AdminGetContainerStats:output_type -> core.ContainerStatsResponse
+	17, // 63: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
+	1,  // 64: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	13, // 65: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	13, // 66: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
+	14, // 67: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
+	1,  // 68: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
+	1,  // 69: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	25, // 70: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
+	24, // 71: core.ImageAPI.GetBuild:output_type -> core.BuildData
+	1,  // 72: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	32, // 73: core.ImageAPI.GetAllImages:output_type -> core.PaginatedImageResponse
+	1,  // 74: core.ImageAPI.AdminDeleteImage:output_type -> core.Empty
+	33, // 75: core.ImageAPI.GetAllBuilds:output_type -> core.PaginatedBuildResponse
+	1,  // 76: core.ImageAPI.AdminDeleteBuild:output_type -> core.Empty
+	19, // 77: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	1,  // 78: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	22, // 79: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
+	31, // 80: core.VolumeAPI.GetAllVolumes:output_type -> core.PaginatedVolumeResponse
+	1,  // 81: core.VolumeAPI.AdminDeleteVolume:output_type -> core.Empty
+	27, // 82: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
+	1,  // 83: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	1,  // 84: core.ProjectAPI.StartProject:output_type -> core.Empty
+	1,  // 85: core.ProjectAPI.StopProject:output_type -> core.Empty
+	34, // 86: core.ProjectAPI.GetAllProjects:output_type -> core.PaginatedProjectResponse
+	1,  // 87: core.ProjectAPI.AdminDeleteProject:output_type -> core.Empty
+	1,  // 88: core.ProjectAPI.AdminStartProject:output_type -> core.Empty
+	1,  // 89: core.ProjectAPI.AdminStopProject:output_type -> core.Empty
+	35, // 90: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	1,  // 91: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	0,  // 92: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
+	53, // [53:93] is the sub-list for method output_type
+	13, // [13:53] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
