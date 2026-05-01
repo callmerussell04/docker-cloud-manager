@@ -11,6 +11,42 @@ security:
   - BearerAuth: []
 
 paths:
+  /health/live:
+    get:
+      summary: Liveness probe
+      tags: [Health]
+      security: []
+      servers:
+        - url: /
+      responses:
+        '200':
+          description: Gateway process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /health/ready:
+    get:
+      summary: Readiness probe
+      tags: [Health]
+      security: []
+      servers:
+        - url: /
+      responses:
+        '200':
+          description: Gateway and upstream dependencies are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessStatus'
+        '503':
+          description: One or more upstream dependencies are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessStatus'
+
   # ================= AUTH =================
   /auth/register:
     post:
@@ -117,7 +153,7 @@ paths:
                   containers:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Container'
+                      $ref: '#/components/schemas/UserContainer'
     post:
       summary: Create a new container
       tags: [Containers]
@@ -217,7 +253,7 @@ paths:
                   volumes:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Volume'
+                      $ref: '#/components/schemas/UserVolume'
     post:
       summary: Create a new volume
       tags: [Volumes]
@@ -273,7 +309,7 @@ paths:
                   images:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Image'
+                      $ref: '#/components/schemas/UserImage'
 
   /images/{id}:
     delete:
@@ -349,7 +385,7 @@ paths:
                   builds:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Build'
+                      $ref: '#/components/schemas/UserBuild'
 
   /builds/{id}:
     delete:
@@ -379,6 +415,22 @@ paths:
               schema:
                 type: string
 
+  /builds/{id}/cancel:
+    post:
+      summary: Cancel a queued or running build
+      tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Build cancellation requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   # ================= PROJECTS (COMPOSE) =================
   /projects:
     get:
@@ -395,7 +447,7 @@ paths:
                   projects:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Project'
+                      $ref: '#/components/schemas/UserProject'
 
   /projects/compose:
     post:
@@ -772,6 +824,7 @@ components:
       schema:
         type: integer
         default: 1
+        minimum: 1
     LimitParam:
       name: limit
       in: query
@@ -779,6 +832,7 @@ components:
       schema:
         type: integer
         default: 20
+        minimum: 1
         maximum: 100
 
   responses:
@@ -812,6 +866,24 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Upstream dependency is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    GatewayTimeout:
+      description: Upstream request timed out
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
     ErrorResponse:
@@ -819,12 +891,38 @@ components:
       properties:
         error:
           type: string
+        request_id:
+          type: string
 
     MessageResponse:
       type: object
       properties:
         message:
           type: string
+
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ReadinessStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        checks:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [ok, unavailable]
+              error:
+                type: string
 
     # AUTH
     RegisterRequest:
@@ -895,6 +993,31 @@ components:
         internal_port:
           type: integer
           minimum: 1
+
+    UserContainer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        image_tag:
+          type: string
+        internal_port:
+          type: integer
+        domain_prefix:
+          type: string
+        status:
+          type: string
+        desired_status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp
 
     Container:
       type: object
@@ -978,7 +1101,41 @@ components:
         owner_username:
           type: string
 
+    UserVolume:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        driver:
+          type: string
+        status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
     # IMAGES
+    UserImage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tag:
+          type: string
+        size_mb:
+          type: integer
+        status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
     Image:
       type: object
       properties:
@@ -1003,6 +1160,24 @@ components:
           type: string
 
     # BUILDS
+    UserBuild:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        started_at:
+          type: integer
+          format: int64
+        finished_at:
+          type: integer
+          format: int64
+
     Build:
       type: object
       properties:
@@ -1029,6 +1204,24 @@ components:
           type: string
 
     # PROJECTS
+    UserProject:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        error_message:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+
     Project:
       type: object
       properties:

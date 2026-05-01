@@ -32,12 +32,15 @@ func (h *CoreHandler) GetProjects(c *gin.Context) {
 		projects = make([]model.Project, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"projects": projectsToDTO(projects)})
+	c.JSON(http.StatusOK, gin.H{"projects": projectsToUserDTO(projects)})
 }
 
 func (h *CoreHandler) DeleteProject(c *gin.Context) {
 	userID := c.GetString("user_id")
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.DeleteProject(c.Request.Context(), userID, projectID)
 	if err != nil {
@@ -50,7 +53,10 @@ func (h *CoreHandler) DeleteProject(c *gin.Context) {
 
 func (h *CoreHandler) StartProject(c *gin.Context) {
 	userID := c.GetString("user_id")
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.StartProject(c.Request.Context(), userID, projectID)
 	if err != nil {
@@ -63,7 +69,10 @@ func (h *CoreHandler) StartProject(c *gin.Context) {
 
 func (h *CoreHandler) StopProject(c *gin.Context) {
 	userID := c.GetString("user_id")
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.StopProject(c.Request.Context(), userID, projectID)
 	if err != nil {
@@ -75,7 +84,10 @@ func (h *CoreHandler) StopProject(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetAllProjects(c *gin.Context) {
-	page, limit := getPaginationParams(c)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
 	resp, err := h.service.GetAllProjects(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
@@ -88,7 +100,10 @@ func (h *CoreHandler) GetAllProjects(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminDeleteProject(c.Request.Context(), projectID)
 	if err != nil {
 		h.handleError(c, err)
@@ -98,7 +113,10 @@ func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminStartProject(c *gin.Context) {
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminStartProject(c.Request.Context(), projectID)
 	if err != nil {
 		h.handleError(c, err)
@@ -108,7 +126,10 @@ func (h *CoreHandler) AdminStartProject(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminStopProject(c *gin.Context) {
-	projectID := c.Param("id")
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminStopProject(c.Request.Context(), projectID)
 	if err != nil {
 		h.handleError(c, err)

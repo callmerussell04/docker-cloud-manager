@@ -10,7 +10,7 @@ import (
 
 type TokenVerifier interface {
 	VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error)
-	CheckPermission(ctx context.Context, authHeader, permission string) error
+	CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error)
 }
 
 func Auth(verifier TokenVerifier) gin.HandlerFunc {
@@ -23,9 +23,7 @@ func Auth(verifier TokenVerifier) gin.HandlerFunc {
 			return
 		}
 
-		c.Set("user_id", user.UserID)
-		c.Set("username", user.Username)
-		c.Set("role", user.Role)
+		setAuthUser(c, user)
 
 		c.Next()
 	}
@@ -34,10 +32,18 @@ func Auth(verifier TokenVerifier) gin.HandlerFunc {
 func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
-		if err := verifier.CheckPermission(c.Request.Context(), authHeader, permission); err != nil {
+		user, err := verifier.CheckPermission(c.Request.Context(), authHeader, permission)
+		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
+		setAuthUser(c, user)
 		c.Next()
 	}
+}
+
+func setAuthUser(c *gin.Context, user model.AuthUser) {
+	c.Set("user_id", user.UserID)
+	c.Set("username", user.Username)
+	c.Set("role", user.Role)
 }

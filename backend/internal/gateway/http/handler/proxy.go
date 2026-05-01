@@ -2,6 +2,10 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
 	"net/http/httputil"
 	"net/url"
 
@@ -9,80 +13,118 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
 )
 
 type BuildOwnerService interface {
-	GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error)
+	GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error)
 }
 
-func NewBuilderProxyHandler(targetURL string, internalToken string) (gin.HandlerFunc, error) {
-	target, err := url.Parse(targetURL)
+type ProxyOptions struct {
+	TargetURL     string
+	InternalToken string
+	Transport     http.RoundTripper
+}
+
+func NewBuilderProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {
+	proxy, err := newGatewayProxy(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
 	return func(c *gin.Context) {
-		userID := c.GetString("user_id")
-		c.Request.Header.Del("X-User-Id")
-		c.Request.Header.Set("X-User-Id", userID)
-		c.Request.Header.Set(internalauth.HeaderName, internalToken)
+		prepareProxyRequest(c, opts.InternalToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
 
-func NewAuthorizedBuilderLogsProxy(targetURL string, buildService BuildOwnerService, internalToken string) (gin.HandlerFunc, error) {
-	target, err := url.Parse(targetURL)
+func NewAuthorizedBuildProxyHandler(opts ProxyOptions, buildService BuildOwnerService) (gin.HandlerFunc, error) {
+	proxy, err := newGatewayProxy(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
-		buildID := c.Param("id")
+		buildID, ok := pathUUID(c, "id")
+		if !ok {
+			return
+		}
 
-		builds, err := buildService.GetUserBuilds(c.Request.Context(), userID)
+		build, err := buildService.GetBuild(c.Request.Context(), userID, buildID)
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
-
-		allowed := false
-		for _, build := range builds {
-			if build.ID == buildID {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if build.ID == "" || (build.OwnerID != "" && build.OwnerID != userID) {
 			httpresponse.Respond(c, httpresponse.Status(apperrors.ErrNotFound), apperrors.ErrNotFound)
 			return
 		}
 
-		c.Request.Header.Del("X-User-Id")
-		c.Request.Header.Set("X-User-Id", userID)
-		c.Request.Header.Set(internalauth.HeaderName, internalToken)
+		prepareProxyRequest(c, opts.InternalToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
 
-func NewCoreProxyHandler(targetURL string, internalToken string) (gin.HandlerFunc, error) {
-	target, err := url.Parse(targetURL)
+func NewCoreProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {
+	proxy, err := newGatewayProxy(opts)
 	if err != nil {
 		return nil, err
 	}
 
-	proxy := httputil.NewSingleHostReverseProxy(target)
-
 	return func(c *gin.Context) {
-		userID := c.GetString("user_id")
-		c.Request.Header.Del("X-User-Id")
-		c.Request.Header.Set("X-User-Id", userID)
-		c.Request.Header.Set(internalauth.HeaderName, internalToken)
+		prepareProxyRequest(c, opts.InternalToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
+}
+
+func newGatewayProxy(opts ProxyOptions) (*httputil.ReverseProxy, error) {
+	target, err := url.Parse(opts.TargetURL)
+	if err != nil {
+		return nil, err
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	if opts.Transport != nil {
+		proxy.Transport = opts.Transport
+	}
+	proxy.ErrorHandler = proxyErrorHandler
+	return proxy, nil
+}
+
+func prepareProxyRequest(c *gin.Context, internalToken string) {
+	clearProxyIdentityHeaders(c.Request.Header)
+	c.Request.Header.Set("X-User-Id", c.GetString("user_id"))
+	c.Request.Header.Set(internalauth.HeaderName, internalToken)
+	if requestID := logging.RequestIDFromContext(c.Request.Context()); requestID != "" {
+		c.Request.Header.Set(logging.RequestIDHeader, requestID)
+	}
+}
+
+func clearProxyIdentityHeaders(header http.Header) {
+	header.Del("Authorization")
+	header.Del("Cookie")
+	header.Del("X-User-Id")
+	header.Del(internalauth.HeaderName)
+	header.Del("X-Forwarded-User")
+	header.Del("X-Forwarded-Email")
+	header.Del("X-Forwarded-Groups")
+	header.Del("X-Remote-User")
+}
+
+func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
+	statusCode := http.StatusServiceUnavailable
+	appErr := apperrors.ErrUnavailable
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()) {
+		statusCode = http.StatusGatewayTimeout
+		appErr = apperrors.ErrTimeout
+	}
+
+	rw.Header().Set("Content-Type", "application/json; charset=utf-8")
+	rw.WriteHeader(statusCode)
+	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{
+		Error:     apperrors.SafeMessage(appErr),
+		RequestID: logging.RequestIDFromContext(req.Context()),
+	})
 }

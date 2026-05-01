@@ -28,12 +28,15 @@ func (h *CoreHandler) GetImages(c *gin.Context) {
 		images = make([]model.Image, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"images": imagesToDTO(images)})
+	c.JSON(http.StatusOK, gin.H{"images": imagesToUserDTO(images)})
 }
 
 func (h *CoreHandler) DeleteImage(c *gin.Context) {
 	userID := c.GetString("user_id")
-	imageID := c.Param("id")
+	imageID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.DeleteImage(c.Request.Context(), userID, imageID)
 	if err != nil {
@@ -45,7 +48,10 @@ func (h *CoreHandler) DeleteImage(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetAllImages(c *gin.Context) {
-	page, limit := getPaginationParams(c)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
 	resp, err := h.service.GetAllImages(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
@@ -58,7 +64,10 @@ func (h *CoreHandler) GetAllImages(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminDeleteImage(c *gin.Context) {
-	imageID := c.Param("id")
+	imageID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminDeleteImage(c.Request.Context(), imageID)
 	if err != nil {
 		h.handleError(c, err)

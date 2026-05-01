@@ -10,6 +10,7 @@ import (
 
 type BuildService interface {
 	GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error)
+	GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error)
 	DeleteBuild(ctx context.Context, ownerID, buildID string) error
 	GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error)
 	AdminDeleteBuild(ctx context.Context, buildID string) error
@@ -28,12 +29,15 @@ func (h *CoreHandler) GetBuilds(c *gin.Context) {
 		builds = make([]model.Build, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"builds": buildsToDTO(builds)})
+	c.JSON(http.StatusOK, gin.H{"builds": buildsToUserDTO(builds)})
 }
 
 func (h *CoreHandler) DeleteBuild(c *gin.Context) {
 	userID := c.GetString("user_id")
-	buildID := c.Param("id")
+	buildID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.DeleteBuild(c.Request.Context(), userID, buildID)
 	if err != nil {
@@ -45,7 +49,10 @@ func (h *CoreHandler) DeleteBuild(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetAllBuilds(c *gin.Context) {
-	page, limit := getPaginationParams(c)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
 	resp, err := h.service.GetAllBuilds(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
@@ -58,7 +65,10 @@ func (h *CoreHandler) GetAllBuilds(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminDeleteBuild(c *gin.Context) {
-	buildID := c.Param("id")
+	buildID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminDeleteBuild(c.Request.Context(), buildID)
 	if err != nil {
 		h.handleError(c, err)

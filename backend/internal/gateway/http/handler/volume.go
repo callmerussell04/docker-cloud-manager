@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/gin-gonic/gin"
 )
 
@@ -25,6 +26,10 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&createVolumeDTO); err != nil {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+	if err := validation.ResourceName(createVolumeDTO.Name); err != nil {
+		badRequest(c, err.Error())
 		return
 	}
 
@@ -50,12 +55,15 @@ func (h *CoreHandler) GetVolumes(c *gin.Context) {
 		volumes = make([]model.Volume, 0)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"volumes": volumesToDTO(volumes)})
+	c.JSON(http.StatusOK, gin.H{"volumes": volumesToUserDTO(volumes)})
 }
 
 func (h *CoreHandler) DeleteVolume(c *gin.Context) {
 	userID := c.GetString("user_id")
-	volumeID := c.Param("id")
+	volumeID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 
 	err := h.service.DeleteVolume(c.Request.Context(), userID, volumeID)
 	if err != nil {
@@ -67,7 +75,10 @@ func (h *CoreHandler) DeleteVolume(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
-	page, limit := getPaginationParams(c)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
 	resp, err := h.service.GetAllVolumes(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
@@ -80,7 +91,10 @@ func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminDeleteVolume(c *gin.Context) {
-	volumeID := c.Param("id")
+	volumeID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
 	err := h.service.AdminDeleteVolume(c.Request.Context(), volumeID)
 	if err != nil {
 		h.handleError(c, err)

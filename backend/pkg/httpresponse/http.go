@@ -5,16 +5,21 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
 )
 
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Error     string `json:"error"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
 func Respond(c *gin.Context, statusCode int, err error) {
 	_ = c.Error(err)
-	c.AbortWithStatusJSON(statusCode, ErrorResponse{Error: apperrors.SafeMessage(err)})
+	c.AbortWithStatusJSON(statusCode, ErrorResponse{
+		Error:     apperrors.SafeMessage(err),
+		RequestID: logging.RequestIDFromContext(c.Request.Context()),
+	})
 }
 
 func Status(err error) int {
@@ -31,6 +36,10 @@ func Status(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, apperrors.ErrHostExhausted):
 		return http.StatusServiceUnavailable
+	case errors.Is(err, apperrors.ErrUnavailable):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, apperrors.ErrTimeout):
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}

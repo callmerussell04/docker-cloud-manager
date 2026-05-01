@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"os"
 	"strings"
 	"time"
 
@@ -9,13 +8,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func CORSMiddleware() gin.HandlerFunc {
+func CORSMiddleware(origins []string) gin.HandlerFunc {
 	allowedOrigins := map[string]struct{}{}
-	origins := os.Getenv("CORS_ALLOWED_ORIGINS")
-	if origins == "" {
-		origins = "http://localhost,http://localhost:3000,http://localhost:5173"
-	}
-	for _, origin := range strings.Split(origins, ",") {
+	for _, origin := range origins {
 		origin = strings.TrimSpace(origin)
 		if origin != "" {
 			allowedOrigins[origin] = struct{}{}
@@ -41,6 +36,9 @@ func CORSMiddleware() gin.HandlerFunc {
 		AllowOriginFunc: func(origin string) bool {
 			if origin == "" {
 				return true
+			}
+			if len(allowedOrigins) == 0 {
+				return false
 			}
 			_, ok := allowedOrigins[origin]
 			return ok

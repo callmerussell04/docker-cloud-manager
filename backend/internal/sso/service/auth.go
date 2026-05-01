@@ -6,31 +6,32 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )
 
 const (
-	PermissionSystemConfigRead   = "system.config.read"
-	PermissionSystemConfigUpdate = "system.config.update"
+	PermissionSystemConfigRead   = permissions.SystemConfigRead
+	PermissionSystemConfigUpdate = permissions.SystemConfigUpdate
 
-	PermissionContainersAdminList   = "containers.admin.list"
-	PermissionContainersAdminAction = "containers.admin.action"
-	PermissionContainersAdminStats  = "containers.admin.stats"
+	PermissionContainersAdminList   = permissions.ContainersAdminList
+	PermissionContainersAdminAction = permissions.ContainersAdminAction
+	PermissionContainersAdminStats  = permissions.ContainersAdminStats
 
-	PermissionVolumesAdminList   = "volumes.admin.list"
-	PermissionVolumesAdminDelete = "volumes.admin.delete"
+	PermissionVolumesAdminList   = permissions.VolumesAdminList
+	PermissionVolumesAdminDelete = permissions.VolumesAdminDelete
 
-	PermissionImagesAdminList   = "images.admin.list"
-	PermissionImagesAdminDelete = "images.admin.delete"
+	PermissionImagesAdminList   = permissions.ImagesAdminList
+	PermissionImagesAdminDelete = permissions.ImagesAdminDelete
 
-	PermissionBuildsAdminList   = "builds.admin.list"
-	PermissionBuildsAdminDelete = "builds.admin.delete"
+	PermissionBuildsAdminList   = permissions.BuildsAdminList
+	PermissionBuildsAdminDelete = permissions.BuildsAdminDelete
 
-	PermissionProjectsAdminList   = "projects.admin.list"
-	PermissionProjectsAdminDelete = "projects.admin.delete"
-	PermissionProjectsAdminStart  = "projects.admin.start"
-	PermissionProjectsAdminStop   = "projects.admin.stop"
+	PermissionProjectsAdminList   = permissions.ProjectsAdminList
+	PermissionProjectsAdminDelete = permissions.ProjectsAdminDelete
+	PermissionProjectsAdminStart  = permissions.ProjectsAdminStart
+	PermissionProjectsAdminStop   = permissions.ProjectsAdminStop
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -104,12 +105,7 @@ func (s *AuthService) CheckPermission(ctx context.Context, accessToken, permissi
 }
 
 func permissionExists(permission string) bool {
-	for _, permissions := range rolePermissions {
-		if _, ok := permissions[permission]; ok {
-			return true
-		}
-	}
-	return false
+	return permissions.Exists(permission)
 }
 
 func (s *AuthService) GetUser(ctx context.Context, userID uuid.UUID) (model.User, error) {

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"net/http"
-	"os"
 
 	"github.com/gin-gonic/gin"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 )
 
 type AuthService interface {
@@ -20,12 +20,36 @@ type AuthService interface {
 }
 
 type AuthHandler struct {
-	service AuthService
+	service      AuthService
+	cookieConfig CookieConfig
 }
 
-func NewAuthHandler(service AuthService) *AuthHandler {
+type CookieConfig struct {
+	Name     string
+	Path     string
+	Domain   string
+	MaxAge   int
+	Secure   bool
+	HTTPOnly bool
+	SameSite http.SameSite
+}
+
+func NewAuthHandler(service AuthService, cookieConfig CookieConfig) *AuthHandler {
+	if cookieConfig.Name == "" {
+		cookieConfig.Name = "refresh_token"
+	}
+	if cookieConfig.Path == "" {
+		cookieConfig.Path = "/"
+	}
+	if cookieConfig.MaxAge <= 0 {
+		cookieConfig.MaxAge = 30 * 24 * 3600
+	}
+	if cookieConfig.SameSite == 0 {
+		cookieConfig.SameSite = http.SameSiteLaxMode
+	}
 	return &AuthHandler{
-		service: service,
+		service:      service,
+		cookieConfig: cookieConfig,
 	}
 }
 
@@ -33,6 +57,10 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+	if err := validation.ResourceName(req.Username); err != nil {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.New(apperrors.ErrBadRequest, err.Error()))
 		return
 	}
 
@@ -51,6 +79,10 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
+	if err := validation.ResourceName(req.Username); err != nil {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.New(apperrors.ErrBadRequest, err.Error()))
+		return
+	}
 
 	tokens, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
@@ -63,7 +95,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
-	refreshToken, err := c.Cookie("refresh_token")
+	refreshToken, err := c.Cookie(h.cookieConfig.Name)
 	if err != nil {
 		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 		return
@@ -80,7 +112,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
-	c.SetCookie("refresh_token", "", -1, "/", "", false, true)
+	h.clearRefreshTokenCookie(c)
 	c.Status(http.StatusOK)
 }
 
@@ -89,8 +121,13 @@ func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
 }
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {
-	maxAge := 30 * 24 * 3600
-	secure := os.Getenv("COOKIE_SECURE") == "true"
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("refresh_token", token, maxAge, "/", "", secure, true)
+	cfg := h.cookieConfig
+	c.SetSameSite(cfg.SameSite)
+	c.SetCookie(cfg.Name, token, cfg.MaxAge, cfg.Path, cfg.Domain, cfg.Secure, cfg.HTTPOnly)
+}
+
+func (h *AuthHandler) clearRefreshTokenCookie(c *gin.Context) {
+	cfg := h.cookieConfig
+	c.SetSameSite(cfg.SameSite)
+	c.SetCookie(cfg.Name, "", -1, cfg.Path, cfg.Domain, cfg.Secure, cfg.HTTPOnly)
 }

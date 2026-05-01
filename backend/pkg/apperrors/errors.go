@@ -20,6 +20,8 @@ var (
 	ErrInvalidFileFormat  = errors.New("invalid file format, allowed: .zip, .tar, .tar.gz")
 	ErrConflict           = errors.New("conflict")
 	ErrResourceInUse      = errors.New("resource is currently in use")
+	ErrTimeout            = errors.New("request timed out")
+	ErrUnavailable        = errors.New("service unavailable")
 )
 
 type Error struct {
@@ -111,6 +113,10 @@ func SafeMessage(err error) string {
 		return ErrResourceInUse.Error()
 	case errors.Is(err, ErrConflict):
 		return ErrConflict.Error()
+	case errors.Is(err, ErrTimeout):
+		return ErrTimeout.Error()
+	case errors.Is(err, ErrUnavailable):
+		return ErrUnavailable.Error()
 	default:
 		return ErrInternal.Error()
 	}

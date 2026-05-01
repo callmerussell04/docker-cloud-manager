@@ -11,6 +11,14 @@ type VolumeDTO struct {
 	OwnerUsername string `json:"owner_username"`
 }
 
+type UserVolumeDTO struct {
+	ID        string `json:"id"`
+	Driver    string `json:"driver"`
+	Status    string `json:"status"`
+	LastError string `json:"last_error"`
+	CreatedAt int64  `json:"created_at"`
+}
+
 type CreateVolumeDTO struct {
 	Name string `json:"name" binding:"required"`
 }

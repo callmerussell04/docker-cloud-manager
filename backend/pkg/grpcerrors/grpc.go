@@ -25,6 +25,10 @@ func Code(err error) codes.Code {
 		return codes.ResourceExhausted
 	case errors.Is(err, apperrors.ErrConflict), errors.Is(err, apperrors.ErrResourceInUse):
 		return codes.FailedPrecondition
+	case errors.Is(err, apperrors.ErrTimeout):
+		return codes.DeadlineExceeded
+	case errors.Is(err, apperrors.ErrUnavailable):
+		return codes.Unavailable
 	default:
 		return codes.Internal
 	}
@@ -60,6 +64,10 @@ func FromGRPC(err error) error {
 		return apperrors.New(resourceExhaustedKind(message), message)
 	case codes.FailedPrecondition, codes.Aborted:
 		return apperrors.New(conflictKind(message), message)
+	case codes.DeadlineExceeded:
+		return apperrors.New(apperrors.ErrTimeout, apperrors.ErrTimeout.Error())
+	case codes.Unavailable:
+		return apperrors.New(apperrors.ErrUnavailable, apperrors.ErrUnavailable.Error())
 	default:
 		return apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), err)
 	}
@@ -112,6 +120,10 @@ func statusMessage(code codes.Code) string {
 		return apperrors.ErrResourceExhausted.Error()
 	case codes.FailedPrecondition, codes.Aborted:
 		return apperrors.ErrConflict.Error()
+	case codes.DeadlineExceeded:
+		return apperrors.ErrTimeout.Error()
+	case codes.Unavailable:
+		return apperrors.ErrUnavailable.Error()
 	default:
 		return apperrors.ErrInternal.Error()
 	}

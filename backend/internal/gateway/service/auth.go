@@ -11,7 +11,7 @@ type SSOProvider interface {
 	Login(ctx context.Context, username, password string) (model.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
 	VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error)
-	CheckPermission(ctx context.Context, authHeader, permission string) error
+	CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error)
 }
 
 type AuthService struct {
@@ -40,6 +40,6 @@ func (s *AuthService) VerifyAccessToken(ctx context.Context, authHeader string) 
 	return s.sso.VerifyAccessToken(ctx, authHeader)
 }
 
-func (s *AuthService) CheckPermission(ctx context.Context, authHeader, permission string) error {
+func (s *AuthService) CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error) {
 	return s.sso.CheckPermission(ctx, authHeader, permission)
 }

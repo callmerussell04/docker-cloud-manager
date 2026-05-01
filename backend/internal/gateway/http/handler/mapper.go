@@ -49,6 +49,24 @@ func containersToDTO(items []model.Container) []dto.ContainerDTO {
 	return result
 }
 
+func containersToUserDTO(items []model.Container) []dto.UserContainerDTO {
+	result := make([]dto.UserContainerDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.UserContainerDTO{
+			ID:            item.ID,
+			Name:          item.Name,
+			ImageTag:      item.ImageTag,
+			InternalPort:  item.InternalPort,
+			DomainPrefix:  item.DomainPrefix,
+			Status:        item.Status,
+			DesiredStatus: item.DesiredStatus,
+			LastError:     item.LastError,
+			CreatedAt:     item.CreatedAt,
+		})
+	}
+	return result
+}
+
 func containerStatsToDTO(data model.ContainerStats) dto.ContainerStatsDTO {
 	return dto.ContainerStatsDTO{
 		CPUPercentage:    data.CPUPercentage,
@@ -76,6 +94,20 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 	return result
 }
 
+func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
+	result := make([]dto.UserVolumeDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.UserVolumeDTO{
+			ID:        item.ID,
+			Driver:    item.Driver,
+			Status:    item.Status,
+			LastError: item.LastError,
+			CreatedAt: item.CreatedAt,
+		})
+	}
+	return result
+}
+
 func imagesToDTO(items []model.Image) []dto.ImageDTO {
 	result := make([]dto.ImageDTO, 0, len(items))
 	for _, item := range items {
@@ -88,6 +120,21 @@ func imagesToDTO(items []model.Image) []dto.ImageDTO {
 			CreatedAt:     item.CreatedAt,
 			OwnerID:       item.OwnerID,
 			OwnerUsername: item.OwnerUsername,
+		})
+	}
+	return result
+}
+
+func imagesToUserDTO(items []model.Image) []dto.UserImageDTO {
+	result := make([]dto.UserImageDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.UserImageDTO{
+			ID:        item.ID,
+			Tag:       item.Tag,
+			SizeMB:    item.SizeMB,
+			Status:    item.Status,
+			LastError: item.LastError,
+			CreatedAt: item.CreatedAt,
 		})
 	}
 	return result
@@ -110,6 +157,20 @@ func buildsToDTO(items []model.Build) []dto.BuildDTO {
 	return result
 }
 
+func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
+	result := make([]dto.UserBuildDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.UserBuildDTO{
+			ID:         item.ID,
+			ImageID:    item.ImageID,
+			Status:     item.Status,
+			StartedAt:  item.StartedAt,
+			FinishedAt: item.FinishedAt,
+		})
+	}
+	return result
+}
+
 func projectsToDTO(items []model.Project) []dto.ProjectDTO {
 	result := make([]dto.ProjectDTO, 0, len(items))
 	for _, item := range items {
@@ -122,6 +183,21 @@ func projectsToDTO(items []model.Project) []dto.ProjectDTO {
 			CreatedAt:     item.CreatedAt,
 			OwnerID:       item.OwnerID,
 			OwnerUsername: item.OwnerUsername,
+		})
+	}
+	return result
+}
+
+func projectsToUserDTO(items []model.Project) []dto.UserProjectDTO {
+	result := make([]dto.UserProjectDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.UserProjectDTO{
+			ID:           item.ID,
+			Name:         item.Name,
+			Status:       item.Status,
+			ErrorMessage: item.ErrorMessage,
+			LastError:    item.LastError,
+			CreatedAt:    item.CreatedAt,
 		})
 	}
 	return result

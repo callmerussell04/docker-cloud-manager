@@ -17,6 +17,18 @@ func (c *CoreClient) GetUserBuilds(ctx context.Context, ownerID string) ([]model
 	return buildsFromProto(resp.GetBuilds()), nil
 }
 
+func (c *CoreClient) GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error) {
+	req := &coreapi.BuildActionRequest{
+		OwnerId: ownerID,
+		BuildId: buildID,
+	}
+	resp, err := c.imageAPI.GetBuild(ctx, req)
+	if err != nil {
+		return model.Build{}, grpcerrors.FromGRPC(err)
+	}
+	return buildFromProto(resp), nil
+}
+
 func (c *CoreClient) DeleteBuild(ctx context.Context, ownerID, buildID string) error {
 	req := &coreapi.BuildActionRequest{
 		OwnerId: ownerID,
@@ -53,16 +65,23 @@ func (c *CoreClient) AdminDeleteBuild(ctx context.Context, buildID string) error
 func buildsFromProto(items []*coreapi.BuildData) []model.Build {
 	result := make([]model.Build, 0, len(items))
 	for _, item := range items {
-		result = append(result, model.Build{
-			ID:            item.GetId(),
-			ImageID:       item.GetImageId(),
-			Status:        item.GetStatus(),
-			StartedAt:     item.GetStartedAt(),
-			FinishedAt:    item.GetFinishedAt(),
-			LogFilePath:   item.GetLogFilePath(),
-			OwnerID:       item.GetOwnerId(),
-			OwnerUsername: item.GetOwnerUsername(),
-		})
+		result = append(result, buildFromProto(item))
 	}
 	return result
+}
+
+func buildFromProto(item *coreapi.BuildData) model.Build {
+	if item == nil {
+		return model.Build{}
+	}
+	return model.Build{
+		ID:            item.GetId(),
+		ImageID:       item.GetImageId(),
+		Status:        item.GetStatus(),
+		StartedAt:     item.GetStartedAt(),
+		FinishedAt:    item.GetFinishedAt(),
+		LogFilePath:   item.GetLogFilePath(),
+		OwnerID:       item.GetOwnerId(),
+		OwnerUsername: item.GetOwnerUsername(),
+	}
 }

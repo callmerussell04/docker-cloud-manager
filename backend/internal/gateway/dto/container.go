@@ -15,6 +15,18 @@ type ContainerDTO struct {
 	OwnerUsername string `json:"owner_username"`
 }
 
+type UserContainerDTO struct {
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	ImageTag      string `json:"image_tag"`
+	InternalPort  int32  `json:"internal_port"`
+	DomainPrefix  string `json:"domain_prefix"`
+	Status        string `json:"status"`
+	DesiredStatus string `json:"desired_status"`
+	LastError     string `json:"last_error"`
+	CreatedAt     int64  `json:"created_at"`
+}
+
 type CreateContainerDTO struct {
 	Name         string            `json:"name" binding:"required"`
 	ImageTag     string            `json:"image_tag" binding:"required"`

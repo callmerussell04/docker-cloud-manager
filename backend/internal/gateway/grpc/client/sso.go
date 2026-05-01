@@ -92,10 +92,10 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (m
 	}, nil
 }
 
-func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission string) error {
+func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error) {
 	token, err := accessTokenFromHeader(authHeader)
 	if err != nil {
-		return apperrors.ErrUnauthorized
+		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
 	resp, err := c.userAPI.CheckPermission(ctx, &sso.CheckPermissionRequest{
@@ -103,12 +103,20 @@ func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission 
 		Permission:  permission,
 	})
 	if err != nil {
-		return grpcerrors.FromGRPC(err)
+		return model.AuthUser{}, grpcerrors.FromGRPC(err)
 	}
 	if !resp.GetAllowed() {
-		return apperrors.ErrForbidden
+		return model.AuthUser{}, apperrors.ErrForbidden
 	}
-	return nil
+	user := resp.GetUser()
+	if user == nil {
+		return model.AuthUser{}, apperrors.ErrUnauthorized
+	}
+	return model.AuthUser{
+		UserID:   user.GetUserId(),
+		Username: user.GetUsername(),
+		Role:     user.GetRole(),
+	}, nil
 }
 
 func accessTokenFromHeader(authHeader string) (string, error) {

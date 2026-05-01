@@ -11,6 +11,15 @@ type ImageDTO struct {
 	OwnerUsername string `json:"owner_username"`
 }
 
+type UserImageDTO struct {
+	ID        string `json:"id"`
+	Tag       string `json:"tag"`
+	SizeMB    int32  `json:"size_mb"`
+	Status    string `json:"status"`
+	LastError string `json:"last_error"`
+	CreatedAt int64  `json:"created_at"`
+}
+
 type RegisterImageDTO struct {
 	Tag    string `json:"tag" binding:"required"`
 	SizeMB int    `json:"size_mb" binding:"required,min=1"`
