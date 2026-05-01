@@ -88,6 +88,10 @@ func (f *eventRepoFake) UpdateStatusByDockerID(ctx context.Context, dockerID str
 	return nil
 }
 
+func (f *eventRepoFake) UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error {
+	return nil
+}
+
 func (f *eventRepoFake) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
 	return model.Container{}, nil
 }

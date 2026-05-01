@@ -35,22 +35,48 @@ type BuildImageRepository interface {
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
+type BuildVolumeDiskRepository interface {
+	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
 type BuildService struct {
 	repo        BuildRepository
 	imageRepo   BuildImageRepository
+	volumeRepo  BuildVolumeDiskRepository
 	registryAPI ImageRegistryAPI
 	users       UserInfoProvider
 	logger      *slog.Logger
 }
 
-func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger) *BuildService {
-	return &BuildService{
+func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps ...any) *BuildService {
+	s := &BuildService{
 		repo:        repo,
 		imageRepo:   imageRepo,
 		registryAPI: registryAPI,
 		users:       users,
 		logger:      logging.WithComponent(logger, "build_service"),
 	}
+	for _, dep := range deps {
+		if v, ok := dep.(BuildVolumeDiskRepository); ok {
+			s.volumeRepo = v
+		}
+	}
+	return s
+}
+
+func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if err != nil {
+		return 0, err
+	}
+	if s.volumeRepo != nil {
+		usedBytes, err := s.volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		if err != nil {
+			return 0, err
+		}
+		usedMB += bytesToMBRoundedUp(usedBytes)
+	}
+	return usedMB, nil
 }
 
 func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error) {
@@ -63,7 +89,7 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 		return uuid.Nil, uuid.Nil, err
 	}
 
-	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
@@ -118,7 +144,7 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, ownerID uuid.UUID, ta
 		return uuid.Nil, uuid.Nil, err
 	}
 
-	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
@@ -249,7 +275,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err != nil {
 		return err
 	}
-	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, img.OwnerID)
+	usedMB, err := s.getUserUsedDiskMB(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}

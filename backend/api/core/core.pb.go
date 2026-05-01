@@ -1410,17 +1410,19 @@ func (x *VolumeActionRequest) GetVolumeId() string {
 }
 
 type VolumeData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	DockerName    string                 `protobuf:"bytes,2,opt,name=docker_name,json=dockerName,proto3" json:"docker_name,omitempty"`
-	Driver        string                 `protobuf:"bytes,3,opt,name=driver,proto3" json:"driver,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	OwnerId       string                 `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	OwnerUsername string                 `protobuf:"bytes,6,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
-	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
-	LastError     string                 `protobuf:"bytes,8,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	DockerName      string                 `protobuf:"bytes,2,opt,name=docker_name,json=dockerName,proto3" json:"docker_name,omitempty"`
+	Driver          string                 `protobuf:"bytes,3,opt,name=driver,proto3" json:"driver,omitempty"`
+	CreatedAt       int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	OwnerId         string                 `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerUsername   string                 `protobuf:"bytes,6,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	Status          string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	LastError       string                 `protobuf:"bytes,8,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	UsedBytes       int64                  `protobuf:"varint,9,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
+	UsageObservedAt int64                  `protobuf:"varint,10,opt,name=usage_observed_at,json=usageObservedAt,proto3" json:"usage_observed_at,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *VolumeData) Reset() {
@@ -1507,6 +1509,20 @@ func (x *VolumeData) GetLastError() string {
 		return x.LastError
 	}
 	return ""
+}
+
+func (x *VolumeData) GetUsedBytes() int64 {
+	if x != nil {
+		return x.UsedBytes
+	}
+	return 0
+}
+
+func (x *VolumeData) GetUsageObservedAt() int64 {
+	if x != nil {
+		return x.UsageObservedAt
+	}
+	return 0
 }
 
 type VolumeListResponse struct {
@@ -2306,6 +2322,7 @@ type SystemConfigData struct {
 	ComposeBuildPollIntervalSeconds      int64                  `protobuf:"varint,45,opt,name=compose_build_poll_interval_seconds,json=composeBuildPollIntervalSeconds,proto3" json:"compose_build_poll_interval_seconds,omitempty"`
 	ComposeDependencyWaitTimeoutMinutes  int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
 	ComposeDependencyPollIntervalSeconds int64                  `protobuf:"varint,47,opt,name=compose_dependency_poll_interval_seconds,json=composeDependencyPollIntervalSeconds,proto3" json:"compose_dependency_poll_interval_seconds,omitempty"`
+	ReservedDomainPrefixes               []string               `protobuf:"bytes,48,rep,name=reserved_domain_prefixes,json=reservedDomainPrefixes,proto3" json:"reserved_domain_prefixes,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -2669,6 +2686,13 @@ func (x *SystemConfigData) GetComposeDependencyPollIntervalSeconds() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetReservedDomainPrefixes() []string {
+	if x != nil {
+		return x.ReservedDomainPrefixes
+	}
+	return nil
+}
+
 type ContainerStatsResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	CpuPercentage    float64                `protobuf:"fixed64,1,opt,name=cpu_percentage,json=cpuPercentage,proto3" json:"cpu_percentage,omitempty"`
@@ -2871,7 +2895,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"M\n" +
 	"\x13VolumeActionRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x1b\n" +
-	"\tvolume_id\x18\x02 \x01(\tR\bvolumeId\"\xed\x01\n" +
+	"\tvolume_id\x18\x02 \x01(\tR\bvolumeId\"\xb8\x02\n" +
 	"\n" +
 	"VolumeData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
@@ -2884,7 +2908,11 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x0eowner_username\x18\x06 \x01(\tR\rownerUsername\x12\x16\n" +
 	"\x06status\x18\a \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\b \x01(\tR\tlastError\"@\n" +
+	"last_error\x18\b \x01(\tR\tlastError\x12\x1d\n" +
+	"\n" +
+	"used_bytes\x18\t \x01(\x03R\tusedBytes\x12*\n" +
+	"\x11usage_observed_at\x18\n" +
+	" \x01(\x03R\x0fusageObservedAt\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"J\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
@@ -2944,7 +2972,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xb8\x14\n" +
+	"totalCount\"\xf2\x14\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -2995,7 +3023,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"$compose_builder_http_timeout_seconds\x18, \x01(\x03R composeBuilderHttpTimeoutSeconds\x12L\n" +
 	"#compose_build_poll_interval_seconds\x18- \x01(\x03R\x1fcomposeBuildPollIntervalSeconds\x12T\n" +
 	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x12V\n" +
-	"(compose_dependency_poll_interval_seconds\x18/ \x01(\x03R$composeDependencyPollIntervalSeconds\"\xef\x01\n" +
+	"(compose_dependency_poll_interval_seconds\x18/ \x01(\x03R$composeDependencyPollIntervalSeconds\x128\n" +
+	"\x18reserved_domain_prefixes\x180 \x03(\tR\x16reservedDomainPrefixes\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

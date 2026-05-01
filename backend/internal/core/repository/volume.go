@@ -15,6 +15,12 @@ type VolumeRepository struct {
 	db *sql.DB
 }
 
+const volumeColumns = `id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
 func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 	return &VolumeRepository{db: db}
 }
@@ -48,45 +54,20 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 }
 
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {
-	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
-		FROM volumes WHERE id = $1
-	`
+	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE id = $1`
 
-	var v model.Volume
-	var projectID sql.NullString
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt,
-	)
+	v, err := scanVolume(r.db.QueryRowContext(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Volume{}, apperrors.ErrNotFound
 		}
 		return model.Volume{}, err
 	}
-
-	if projectID.Valid {
-		parsed, _ := uuid.Parse(projectID.String)
-		v.ProjectID = &parsed
-	}
-	if lastObservedAt.Valid {
-		v.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		v.LastError = &lastError.String
-	}
-
 	return v, nil
 }
 
 func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error) {
-	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
-		FROM volumes WHERE owner_id = $1
-	`
+	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE owner_id = $1`
 	rows, err := r.db.QueryContext(ctx, query, ownerID)
 	if err != nil {
 		return nil, err
@@ -95,37 +76,17 @@ func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) 
 
 	var volumes []model.Volume
 	for rows.Next() {
-		var v model.Volume
-		var projectID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-
-		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
+		v, err := scanVolume(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if projectID.Valid {
-			parsed, _ := uuid.Parse(projectID.String)
-			v.ProjectID = &parsed
-		}
-		if lastObservedAt.Valid {
-			v.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			v.LastError = &lastError.String
-		}
-
 		volumes = append(volumes, v)
 	}
 	return volumes, rows.Err()
 }
 
 func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
-	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at
-		FROM volumes
-		WHERE status IN ($1, $2)
-	`
+	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE status IN ($1, $2)`
 	rows, err := r.db.QueryContext(ctx, query, model.VolumeStatusCreating, model.VolumeStatusAvailable)
 	if err != nil {
 		return nil, err
@@ -134,26 +95,10 @@ func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.
 
 	var volumes []model.Volume
 	for rows.Next() {
-		var v model.Volume
-		var projectID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-
-		if err := rows.Scan(&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
+		v, err := scanVolume(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if projectID.Valid {
-			parsed, _ := uuid.Parse(projectID.String)
-			v.ProjectID = &parsed
-		}
-		if lastObservedAt.Valid {
-			v.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			v.LastError = &lastError.String
-		}
-
 		volumes = append(volumes, v)
 	}
 	return volumes, rows.Err()
@@ -273,11 +218,7 @@ func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID
 }
 
 func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error) {
-	query := `
-		SELECT id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, created_at 
-		FROM volumes 
-		WHERE project_id = $1
-	`
+	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE project_id = $1`
 	rows, err := r.db.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err
@@ -286,23 +227,9 @@ func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UU
 
 	var volumes []model.Volume
 	for rows.Next() {
-		var v model.Volume
-		var pID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-
-		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
+		v, err := scanVolume(rows)
+		if err != nil {
 			return nil, err
-		}
-		if pID.Valid {
-			parsed, _ := uuid.Parse(pID.String)
-			v.ProjectID = &parsed
-		}
-		if lastObservedAt.Valid {
-			v.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			v.LastError = &lastError.String
 		}
 		volumes = append(volumes, v)
 	}
@@ -317,7 +244,7 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 	}
 
 	query := `
-		SELECT v.id, v.owner_id, v.project_id, v.docker_name, v.driver, v.driver_opts, v.status, v.last_observed_at, v.last_error, v.created_at
+		SELECT v.id, v.owner_id, v.project_id, v.docker_name, v.driver, v.driver_opts, v.status, v.last_observed_at, v.last_error, v.used_bytes, v.usage_observed_at, v.created_at
 		FROM volumes v
 		ORDER BY v.created_at DESC LIMIT $1 OFFSET $2
 	`
@@ -329,24 +256,80 @@ func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset in
 
 	var volumes []model.Volume
 	for rows.Next() {
-		var v model.Volume
-		var pID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-		if err := rows.Scan(&v.ID, &v.OwnerID, &pID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status, &lastObservedAt, &lastError, &v.CreatedAt); err != nil {
+		v, err := scanVolume(rows)
+		if err != nil {
 			return nil, 0, err
-		}
-		if pID.Valid {
-			parsed, _ := uuid.Parse(pID.String)
-			v.ProjectID = &parsed
-		}
-		if lastObservedAt.Valid {
-			v.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			v.LastError = &lastError.String
 		}
 		volumes = append(volumes, v)
 	}
 	return volumes, total, rows.Err()
+}
+
+func (r *VolumeRepository) UpdateUsage(ctx context.Context, id uuid.UUID, usedBytes int64) error {
+	query := `UPDATE volumes SET used_bytes = $1, usage_observed_at = NOW(), last_observed_at = NOW(), last_error = NULL WHERE id = $2`
+	res, err := r.db.ExecContext(ctx, query, usedBytes, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *VolumeRepository) GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE owner_id = $1 AND status != $2`
+	var usedBytes int64
+	err := r.db.QueryRowContext(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&usedBytes)
+	return usedBytes, err
+}
+
+func (r *VolumeRepository) GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT owner_id FROM volumes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var owners []uuid.UUID
+	for rows.Next() {
+		var ownerID uuid.UUID
+		if err := rows.Scan(&ownerID); err != nil {
+			return nil, err
+		}
+		owners = append(owners, ownerID)
+	}
+	return owners, rows.Err()
+}
+
+func scanVolume(s scanner) (model.Volume, error) {
+	var v model.Volume
+	var projectID sql.NullString
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
+	var usageObservedAt sql.NullTime
+
+	if err := s.Scan(
+		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status,
+		&lastObservedAt, &lastError, &v.UsedBytes, &usageObservedAt, &v.CreatedAt,
+	); err != nil {
+		return model.Volume{}, err
+	}
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		v.ProjectID = &parsed
+	}
+	if lastObservedAt.Valid {
+		v.LastObservedAt = &lastObservedAt.Time
+	}
+	if lastError.Valid {
+		v.LastError = &lastError.String
+	}
+	if usageObservedAt.Valid {
+		v.UsageObservedAt = &usageObservedAt.Time
+	}
+	return v, nil
 }

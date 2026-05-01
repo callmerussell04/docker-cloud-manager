@@ -8,6 +8,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ import (
 
 type EventContainerRepo interface {
 	UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error
+	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
 	GetByDockerID(ctx context.Context, dockerID string) (model.Container, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -109,21 +111,36 @@ func (w *EventWorker) Run(ctx context.Context) {
 			if msg.Type == "container" {
 				switch msg.Action {
 				case "start":
-					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusRunning)
-					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusRunning)
+					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
-					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusExited)
-					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusExited)
+					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				case "destroy":
-					_ = w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, model.ContainerStatusMissing)
-					w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusMissing)
+					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				}
 			}
 		}
 	}
+}
+
+func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg model.ContainerEvent, status string) error {
+	err := w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, status)
+	if err == nil || !errors.Is(err, apperrors.ErrNotFound) {
+		return err
+	}
+	if msg.ContainerID == "" || msg.Generation <= 0 {
+		return err
+	}
+	containerID, parseErr := uuid.Parse(msg.ContainerID)
+	if parseErr != nil {
+		return err
+	}
+	return w.repo.UpdateStatusByContainerIDAndGeneration(ctx, containerID, msg.Generation, status)
 }
 
 func (w *EventWorker) syncState(ctx context.Context) {
@@ -189,6 +206,10 @@ func (w *EventWorker) refreshProjectStatusByDockerID(ctx context.Context, docker
 		return
 	}
 	w.refreshProjectStatus(ctx, c.ProjectID)
+}
+
+func (w *EventWorker) refreshProjectStatusFromEvent(ctx context.Context, msg model.ContainerEvent) {
+	w.refreshProjectStatusByDockerID(ctx, msg.DockerID)
 }
 
 func (w *EventWorker) refreshProjectStatus(ctx context.Context, projectID *uuid.UUID) {

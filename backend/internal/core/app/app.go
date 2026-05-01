@@ -95,9 +95,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, logger)
-	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, ssoClient, imgRepo)
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
-	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger)
+	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, volRepo)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
@@ -131,9 +131,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, cfg.ConfigManager, logger)
+	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 
-	wg.Add(5)
+	wg.Add(6)
 	go func() {
 		defer wg.Done()
 		ttlWorker.Run(ctx)
@@ -145,6 +146,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	go func() {
 		defer wg.Done()
 		gcWorker.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		volumeUsageWorker.Run(ctx)
 	}()
 	go func() {
 		defer wg.Done()

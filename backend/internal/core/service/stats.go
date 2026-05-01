@@ -63,6 +63,10 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (mod
 
 	stats.DiskQuotaMB = int(user.QuotaDiskMB)
 	diskUsed, _ := s.imgRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if volumeRepo, ok := s.volRepo.(volumeDiskUsageRepository); ok {
+		volumeBytes, _ := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		diskUsed += bytesToMBRoundedUp(volumeBytes)
+	}
 	stats.DiskUsedMB = int(diskUsed)
 
 	images, _ := s.imgRepo.GetByOwnerID(ctx, ownerID)

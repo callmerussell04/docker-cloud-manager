@@ -35,6 +35,20 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if err := validation.DockerSize(cfg.ContainerDiskQuota); err != nil {
 		return fmt.Errorf("invalid container disk quota: %w", err)
 	}
+	seenPrefixes := make(map[string]struct{}, len(cfg.ReservedDomainPrefixes))
+	for _, prefix := range cfg.ReservedDomainPrefixes {
+		if prefix == "" {
+			return fmt.Errorf("reserved domain prefixes must not contain empty values")
+		}
+		if err := validation.DomainPrefix(prefix); err != nil {
+			return fmt.Errorf("invalid reserved domain prefix %q: %w", prefix, err)
+		}
+		normalized := strings.ToLower(prefix)
+		if _, ok := seenPrefixes[normalized]; ok {
+			return fmt.Errorf("reserved domain prefixes must be unique")
+		}
+		seenPrefixes[normalized] = struct{}{}
+	}
 	if cfg.MaxVolumesPerUser <= 0 || cfg.MaxContainersPerUser <= 0 {
 		return fmt.Errorf("user resource limits must be positive")
 	}

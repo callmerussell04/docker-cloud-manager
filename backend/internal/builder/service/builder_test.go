@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"mime/multipart"
 	"strings"
 	"testing"
 
@@ -60,7 +59,7 @@ func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
 	buildID, err := svc.InitBuild(context.Background(), model.BuildJob{
 		OwnerID: uuid.NewString(),
 		Tag:     "demo-app",
-	}, nil)
+	}, "upload.zip", strings.NewReader("archive"))
 	if err != nil {
 		t.Fatalf("InitBuild returned error: %v", err)
 	}
@@ -78,12 +77,6 @@ func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
 	}
 	if !strings.HasPrefix(coreClient.logObjectKey, "build-logs/") || !strings.HasSuffix(coreClient.logObjectKey, ".log") {
 		t.Fatalf("log object key = %q", coreClient.logObjectKey)
-	}
-	if len(fileManager.cleaned) != 1 || fileManager.cleaned[0] != "/tmp/upload.zip" {
-		t.Fatalf("cleaned paths = %v", fileManager.cleaned)
-	}
-	if fileManager.maxArchiveSize != (50 << 20) {
-		t.Fatalf("max archive size = %d", fileManager.maxArchiveSize)
 	}
 }
 
@@ -136,7 +129,7 @@ func TestBuilderServiceInitBuildDeletesArchiveObjectOnCoreError(t *testing.T) {
 	_, err := svc.InitBuild(context.Background(), model.BuildJob{
 		OwnerID: uuid.NewString(),
 		Tag:     "demo-app:latest",
-	}, nil)
+	}, "upload.tar.gz", strings.NewReader("archive"))
 	if err == nil {
 		t.Fatal("InitBuild returned nil error")
 	}
@@ -197,18 +190,10 @@ func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
 }
 
 type builderFileFake struct {
-	savePath       string
-	cleaned        []string
-	maxArchiveSize int64
+	savePath string
+	cleaned  []string
 }
 
-func (f *builderFileFake) SaveArchive(file *multipart.FileHeader, fileID string, maxArchiveSize int64) (string, error) {
-	f.maxArchiveSize = maxArchiveSize
-	if f.savePath != "" {
-		return f.savePath, nil
-	}
-	return fileID + ".zip", nil
-}
 func (f *builderFileFake) ValidateArchive(filePath string) error { return nil }
 func (f *builderFileFake) CleanUp(filePath string) error {
 	f.cleaned = append(f.cleaned, filePath)
@@ -260,6 +245,11 @@ type builderObjectStoreFake struct {
 
 func (f *builderObjectStoreFake) UploadFile(ctx context.Context, objectKey, filePath, contentType string) error {
 	f.uploads = append(f.uploads, objectKey)
+	return nil
+}
+func (f *builderObjectStoreFake) UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
+	f.uploads = append(f.uploads, objectKey)
+	_, _ = io.Copy(io.Discard, reader)
 	return nil
 }
 func (f *builderObjectStoreFake) DownloadFile(ctx context.Context, objectKey, filePath string) error {

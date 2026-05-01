@@ -217,6 +217,8 @@ message VolumeData {
   string owner_username = 6;
   string status = 7;
   string last_error = 8;
+  int64 used_bytes = 9;
+  int64 usage_observed_at = 10;
 }
 
 message VolumeListResponse {
@@ -341,6 +343,7 @@ message SystemConfigData {
   int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
   int64 compose_dependency_poll_interval_seconds = 47;
+  repeated string reserved_domain_prefixes = 48;
 }
 
 message ContainerStatsResponse {

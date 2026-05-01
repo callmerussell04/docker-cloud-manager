@@ -21,6 +21,14 @@ type VolumeRepository interface {
 	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
 }
 
+type volumeDiskUsageRepository interface {
+	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
+type volumeImageDiskRepository interface {
+	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
 type volumeStateRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
@@ -35,19 +43,58 @@ type VolumeService struct {
 	repo      VolumeRepository
 	dockerAPI VolumeDockerAPI
 	cfg       ConfigManager
+	users     UserInfoProvider
+	imageRepo volumeImageDiskRepository
 }
 
-func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager) *VolumeService {
-	return &VolumeService{
+func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager, deps ...any) *VolumeService {
+	s := &VolumeService{
 		repo:      repo,
 		dockerAPI: dockerAPI,
 		cfg:       cfg,
 	}
+	for _, dep := range deps {
+		switch v := dep.(type) {
+		case UserInfoProvider:
+			s.users = v
+		case volumeImageDiskRepository:
+			s.imageRepo = v
+		}
+	}
+	return s
+}
+
+func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID) error {
+	if s.users == nil || s.imageRepo == nil {
+		return nil
+	}
+	user, err := s.users.GetUser(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if volumeRepo, ok := s.repo.(volumeDiskUsageRepository); ok {
+		usedBytes, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		if err != nil {
+			return err
+		}
+		usedMB += bytesToMBRoundedUp(usedBytes)
+	}
+	if usedMB >= user.QuotaDiskMB {
+		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
+	}
+	return nil
 }
 
 func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error) {
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := s.ensureDiskQuotaAvailable(ctx, ownerID); err != nil {
+		return uuid.Nil, err
 	}
 
 	// Проверка лимита на количество томов

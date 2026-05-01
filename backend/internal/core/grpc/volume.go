@@ -89,12 +89,14 @@ func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUser
 
 	for _, v := range volumes {
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
-			Id:         v.ID.String(),
-			DockerName: v.DockerName,
-			Driver:     v.Driver,
-			CreatedAt:  v.CreatedAt.Unix(),
-			Status:     v.Status,
-			LastError:  stringValue(v.LastError),
+			Id:              v.ID.String(),
+			DockerName:      v.DockerName,
+			Driver:          v.Driver,
+			CreatedAt:       v.CreatedAt.Unix(),
+			Status:          v.Status,
+			LastError:       stringValue(v.LastError),
+			UsedBytes:       v.UsedBytes,
+			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
 		})
 	}
 
@@ -122,14 +124,16 @@ func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.Paginati
 	usernames := h.usernamesByOwner(ctx, volumes)
 	for _, v := range volumes {
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
-			Id:            v.ID.String(),
-			DockerName:    v.DockerName,
-			Driver:        v.Driver,
-			CreatedAt:     v.CreatedAt.Unix(),
-			OwnerId:       v.OwnerID.String(),
-			OwnerUsername: usernames[v.OwnerID],
-			Status:        v.Status,
-			LastError:     stringValue(v.LastError),
+			Id:              v.ID.String(),
+			DockerName:      v.DockerName,
+			Driver:          v.Driver,
+			CreatedAt:       v.CreatedAt.Unix(),
+			OwnerId:         v.OwnerID.String(),
+			OwnerUsername:   usernames[v.OwnerID],
+			Status:          v.Status,
+			LastError:       stringValue(v.LastError),
+			UsedBytes:       v.UsedBytes,
+			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
 		})
 	}
 

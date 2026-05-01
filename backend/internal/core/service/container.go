@@ -82,6 +82,10 @@ type ContainerImageRepository interface {
 	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 }
 
+type containerImageDiskRepository interface {
+	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
 type containerVolumeInspector interface {
 	InspectVolume(ctx context.Context, volumeName string) (model.VolumeInspection, error)
 }
@@ -151,6 +155,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	if err := validation.DomainPrefix(params.DomainPrefix); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
+	if validation.ReservedDomainPrefix(params.DomainPrefix, s.config.Get().ReservedDomainPrefixes) {
+		return uuid.Nil, fmt.Errorf("%w: domain prefix is reserved", apperrors.ErrBadRequest)
+	}
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {
@@ -194,6 +201,9 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	// 2. Admission Control: Проверка квоты пользователя
 	if err := s.checkUserQuota(ctx, ownerID, reqMem); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
 		return uuid.Nil, err
 	}
 
@@ -449,6 +459,9 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	if err := validation.DomainPrefix(domainPrefix); err != nil {
 		return fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
+	if validation.ReservedDomainPrefix(domainPrefix, s.config.Get().ReservedDomainPrefixes) {
+		return fmt.Errorf("%w: domain prefix is reserved", apperrors.ErrBadRequest)
+	}
 
 	if c.DomainPrefix != domainPrefix {
 		exists, err := s.repo.CheckDomainPrefixExists(ctx, domainPrefix)
@@ -596,6 +609,10 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 		return err
 	}
 	if err := s.checkHostCapacity(ctx, c.BaseMemoryReservation); err != nil {
+		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+		return err
+	}
+	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
@@ -756,6 +773,32 @@ func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID
 
 	if usedRam+requestedRam > userQuota {
 		return apperrors.ErrQuotaExceeded
+	}
+	return nil
+}
+
+func (s *ContainerService) checkUserDiskQuota(ctx context.Context, ownerID uuid.UUID) error {
+	imageRepo, ok := s.imageRepo.(containerImageDiskRepository)
+	if !ok {
+		return nil
+	}
+	user, err := s.users.GetUser(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	usedMB, err := imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if volumeRepo, ok := s.volumeRepo.(volumeDiskUsageRepository); ok {
+		usedBytes, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		if err != nil {
+			return err
+		}
+		usedMB += bytesToMBRoundedUp(usedBytes)
+	}
+	if usedMB >= user.QuotaDiskMB {
+		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 	return nil
 }

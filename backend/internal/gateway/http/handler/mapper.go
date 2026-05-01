@@ -81,14 +81,16 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 	result := make([]dto.VolumeDTO, 0, len(items))
 	for _, item := range items {
 		result = append(result, dto.VolumeDTO{
-			ID:            item.ID,
-			DockerName:    item.DockerName,
-			Driver:        item.Driver,
-			Status:        item.Status,
-			LastError:     item.LastError,
-			CreatedAt:     item.CreatedAt,
-			OwnerID:       item.OwnerID,
-			OwnerUsername: item.OwnerUsername,
+			ID:              item.ID,
+			DockerName:      item.DockerName,
+			Driver:          item.Driver,
+			Status:          item.Status,
+			LastError:       item.LastError,
+			UsedBytes:       item.UsedBytes,
+			UsageObservedAt: item.UsageObservedAt,
+			CreatedAt:       item.CreatedAt,
+			OwnerID:         item.OwnerID,
+			OwnerUsername:   item.OwnerUsername,
 		})
 	}
 	return result
@@ -98,11 +100,13 @@ func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
 	result := make([]dto.UserVolumeDTO, 0, len(items))
 	for _, item := range items {
 		result = append(result, dto.UserVolumeDTO{
-			ID:        item.ID,
-			Driver:    item.Driver,
-			Status:    item.Status,
-			LastError: item.LastError,
-			CreatedAt: item.CreatedAt,
+			ID:              item.ID,
+			Driver:          item.Driver,
+			Status:          item.Status,
+			LastError:       item.LastError,
+			UsedBytes:       item.UsedBytes,
+			UsageObservedAt: item.UsageObservedAt,
+			CreatedAt:       item.CreatedAt,
 		})
 	}
 	return result
@@ -217,6 +221,7 @@ func systemConfigFromDTO(data dto.SystemConfigDTO) model.SystemConfig {
 		MaxLogSize:                           data.MaxLogSize,
 		MaxLogFiles:                          data.MaxLogFiles,
 		ContainerDiskQuota:                   data.ContainerDiskQuota,
+		ReservedDomainPrefixes:               data.ReservedDomainPrefixes,
 		MaxVolumesPerUser:                    data.MaxVolumesPerUser,
 		MaxContainersPerUser:                 data.MaxContainersPerUser,
 		RegistryApiUrl:                       data.RegistryApiUrl,
@@ -269,6 +274,7 @@ func systemConfigToDTO(data model.SystemConfig) dto.SystemConfigDTO {
 		MaxLogSize:                           data.MaxLogSize,
 		MaxLogFiles:                          data.MaxLogFiles,
 		ContainerDiskQuota:                   data.ContainerDiskQuota,
+		ReservedDomainPrefixes:               data.ReservedDomainPrefixes,
 		MaxVolumesPerUser:                    data.MaxVolumesPerUser,
 		MaxContainersPerUser:                 data.MaxContainersPerUser,
 		RegistryApiUrl:                       data.RegistryApiUrl,

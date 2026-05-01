@@ -23,7 +23,7 @@ func NewParser() *Parser {
 }
 
 // ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
-func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte) (*model.ComposeProject, error) {
+func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
 	if err := validation.ProjectName(projectName); err != nil {
 		return nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -52,7 +52,7 @@ func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlC
 	}
 
 	// Трансляция во внутренние структуры
-	return p.translateToDomain(projectName, project)
+	return p.translateToDomain(projectName, project, reservedDomainPrefixes)
 }
 
 // validateSecurity блокирует опасные директивы, чтобы защитить хост-систему
@@ -93,7 +93,7 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 }
 
 // translateToDomain конвертирует структуру compose-go в нашу бизнес-модель
-func (p *Parser) translateToDomain(projectName string, project *types.Project) (*model.ComposeProject, error) {
+func (p *Parser) translateToDomain(projectName string, project *types.Project, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
 	result := &model.ComposeProject{
 		Name: projectName,
 	}
@@ -277,6 +277,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project) (
 			}
 			if err := validation.DomainPrefix(prefixStr); err != nil {
 				return fmt.Errorf("%w: invalid domain prefix for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
+			}
+			if validation.ReservedDomainPrefix(prefixStr, reservedDomainPrefixes) {
+				return fmt.Errorf("%w: domain prefix for service %s is reserved", apperrors.ErrBadRequest, srv.Name)
 			}
 			portInt, err := strconv.Atoi(portStr)
 			if err != nil || portInt <= 0 || portInt > 65535 {

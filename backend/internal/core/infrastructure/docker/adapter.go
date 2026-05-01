@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -297,10 +299,42 @@ func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (model.V
 		return model.VolumeInspection{}, err
 	}
 	return model.VolumeInspection{
-		Name:   vol.Name,
-		Driver: vol.Driver,
-		Labels: vol.Labels,
+		Name:       vol.Name,
+		Driver:     vol.Driver,
+		Labels:     vol.Labels,
+		Mountpoint: vol.Mountpoint,
 	}, nil
+}
+
+func (a *Adapter) GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error) {
+	vol, err := a.cli.VolumeInspect(ctx, volumeName)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	err = filepath.WalkDir(vol.Mountpoint, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) error {
@@ -356,9 +390,13 @@ func (a *Adapter) ListenEvents(ctx context.Context) (<-chan model.ContainerEvent
 					return
 				}
 				event := model.ContainerEvent{
-					Type:     string(msg.Type),
-					Action:   string(msg.Action),
-					DockerID: msg.Actor.ID,
+					Type:        string(msg.Type),
+					Action:      string(msg.Action),
+					DockerID:    msg.Actor.ID,
+					ContainerID: msg.Actor.Attributes["dcm.container_id"],
+				}
+				if generation, err := strconv.Atoi(msg.Actor.Attributes["dcm.generation"]); err == nil {
+					event.Generation = generation
 				}
 				select {
 				case eventCh <- event:

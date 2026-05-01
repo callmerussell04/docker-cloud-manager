@@ -58,6 +58,17 @@ func (s *MinIOStorage) UploadFile(ctx context.Context, objectKey, filePath, cont
 	return nil
 }
 
+func (s *MinIOStorage) UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	_, err := s.client.PutObject(ctx, s.bucket, objectKey, reader, size, minio.PutObjectOptions{ContentType: contentType})
+	if err != nil {
+		return fmt.Errorf("failed to upload object %s: %w", objectKey, err)
+	}
+	return nil
+}
+
 func (s *MinIOStorage) DownloadFile(ctx context.Context, objectKey, filePath string) error {
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 		return err

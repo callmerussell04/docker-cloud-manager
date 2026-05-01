@@ -155,6 +155,22 @@ func (r *ContainerRepository) UpdateStatusByDockerID(ctx context.Context, docker
 	return nil
 }
 
+func (r *ContainerRepository) UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error {
+	query := `UPDATE containers SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2 AND docker_generation = $3`
+	res, err := r.db.ExecContext(ctx, query, status, containerID, generation)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error {
 	query := `UPDATE containers SET docker_id = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
 	res, err := r.db.ExecContext(ctx, query, dockerID, id)
@@ -215,6 +231,33 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container
 		var c model.Container
 		var dockerID sql.NullString
 		if err := rows.Scan(&c.ID, &dockerID, &c.BaseMemoryReservation); err != nil {
+			return nil, err
+		}
+		if dockerID.Valid {
+			c.DockerID = dockerID.String
+		}
+		containers = append(containers, c)
+	}
+	return containers, rows.Err()
+}
+
+func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
+	query := `
+		SELECT DISTINCT c.id, c.docker_id
+		FROM containers c
+		JOIN volume_mounts vm ON vm.container_id = c.id
+		WHERE c.owner_id = $1 AND c.status = $2 AND vm.is_readonly = false
+	`
+	rows, err := r.db.QueryContext(ctx, query, ownerID, model.ContainerStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var containers []model.Container
+	for rows.Next() {
+		var c model.Container
+		var dockerID sql.NullString
+		if err := rows.Scan(&c.ID, &dockerID); err != nil {
 			return nil, err
 		}
 		if dockerID.Valid {

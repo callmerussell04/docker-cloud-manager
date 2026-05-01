@@ -7,17 +7,19 @@ import (
 )
 
 type Volume struct {
-	ID             uuid.UUID
-	OwnerID        uuid.UUID
-	OwnerUsername  string
-	ProjectID      *uuid.UUID
-	DockerName     string
-	Driver         string
-	DriverOpts     []byte
-	Status         string
-	LastObservedAt *time.Time
-	LastError      *string
-	CreatedAt      time.Time
+	ID              uuid.UUID
+	OwnerID         uuid.UUID
+	OwnerUsername   string
+	ProjectID       *uuid.UUID
+	DockerName      string
+	Driver          string
+	DriverOpts      []byte
+	Status          string
+	LastObservedAt  *time.Time
+	LastError       *string
+	UsedBytes       int64
+	UsageObservedAt *time.Time
+	CreatedAt       time.Time
 }
 
 const (

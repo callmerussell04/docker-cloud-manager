@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"mime/multipart"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +21,6 @@ import (
 )
 
 type FileManager interface {
-	SaveArchive(file *multipart.FileHeader, fileID string, maxArchiveSize int64) (string, error)
 	ValidateArchive(filePath string) error
 	CleanUp(filePath string) error
 }
@@ -46,6 +44,7 @@ type LogManager interface {
 
 type ObjectStorage interface {
 	UploadFile(ctx context.Context, objectKey, filePath, contentType string) error
+	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	DownloadFile(ctx context.Context, objectKey, filePath string) error
 	DeleteObject(ctx context.Context, objectKey string) error
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
@@ -97,7 +96,7 @@ func NewBuilderService(
 	}
 }
 
-func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error) {
+func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, archiveName string, archive io.Reader) (string, error) {
 	cfg := s.config.Refresh(ctx)
 	if _, err := uuid.Parse(job.OwnerID); err != nil {
 		return "", apperrors.ErrUnauthorized
@@ -112,24 +111,19 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 		return "", fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
 	}
 
+	if archive == nil || archiveName == "" {
+		return "", apperrors.ErrBadRequest
+	}
+
 	fileID := uuid.New().String()
-
-	filePath, err := s.fileManager.SaveArchive(archive, fileID, cfg.MaxArchiveSizeBytes)
-	if err != nil {
-		return "", err
-	}
-	defer s.fileManager.CleanUp(filePath)
-
-	if err := s.fileManager.ValidateArchive(filePath); err != nil {
-		return "", err
-	}
-
 	baseName, version := parseImageTag(job.Tag)
 	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
-	archiveObjectKey := buildArchiveObjectKey(fileID, filePath)
+	archiveObjectKey := buildArchiveObjectKey(fileID, archiveName)
 	logObjectKey := buildLogObjectKey(fileID)
 
-	if err := s.objectStore.UploadFile(ctx, archiveObjectKey, filePath, "application/octet-stream"); err != nil {
+	limitedArchive := &maxBytesReader{r: archive, remaining: cfg.MaxArchiveSizeBytes}
+	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
 		return "", err
 	}
 
@@ -254,6 +248,20 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	archivePath := filepath.Join(cfg.StoragePath, msg.BuildID+archiveObjectExt(msg.ArchiveObjectKey))
 	if err := s.objectStore.DownloadFile(ctx, msg.ArchiveObjectKey, archivePath); err != nil {
 		return err
+	}
+	if err := s.fileManager.ValidateArchive(archivePath); err != nil {
+		defer s.fileManager.CleanUp(archivePath)
+		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.")
+		if uploadErr := s.uploadBuildLog(ctx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
+			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
+		}
+		if completeErr := s.coreClient.CompleteBuildRecord(ctx, msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
+			return completeErr
+		}
+		if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
+			s.logger.WarnContext(ctx, "failed to delete invalid build archive object", "build_id", msg.BuildID, "error", deleteErr)
+		}
+		return nil
 	}
 
 	baseName, version := parseImageTag(msg.Tag)
@@ -492,6 +500,28 @@ func archiveObjectExt(path string) string {
 		return ".archive"
 	}
 	return ext
+}
+
+type maxBytesReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (r *maxBytesReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var one [1]byte
+		n, err := r.r.Read(one[:])
+		if n > 0 {
+			return 0, apperrors.ErrBadRequest
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 func validateRelativeBuildPath(path string) error {

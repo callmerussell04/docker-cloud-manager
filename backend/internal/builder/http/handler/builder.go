@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"mime/multipart"
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
@@ -16,7 +15,7 @@ import (
 )
 
 type BuilderService interface {
-	InitBuild(ctx context.Context, job model.BuildJob, archive *multipart.FileHeader) (string, error)
+	InitBuild(ctx context.Context, job model.BuildJob, archiveName string, archive io.Reader) (string, error)
 	CancelBuild(ctx context.Context, buildID string) error
 	GetLogs(ctx context.Context, buildID string) (io.ReadCloser, error)
 }
@@ -45,54 +44,77 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		return
 	}
 
-	tag := c.PostForm("tag")
-	if tag == "" {
-		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
-		return
-	}
-
-	// TODO: handle if empty
-	contextDir := c.PostForm("context")
-	dockerfile := c.PostForm("dockerfile")
-
-	file, err := c.FormFile("archive")
+	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
+	var tag, contextDir, dockerfile string
 	buildArgs := make(map[string]string)
-	argsStr := c.PostForm("build_args")
-	if argsStr != "" {
-		_ = json.Unmarshal([]byte(argsStr), &buildArgs)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return
+		}
+		name := part.FormName()
+		if name == "archive" {
+			if tag == "" {
+				httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+				_ = part.Close()
+				return
+			}
+			req := dto.BuildImageRequest{
+				OwnerID:    ownerID,
+				Tag:        tag,
+				ContextDir: contextDir,
+				Dockerfile: dockerfile,
+				BuildArgs:  buildArgs,
+			}
+			job := model.BuildJob{
+				OwnerID:    req.OwnerID,
+				Tag:        req.Tag,
+				ContextDir: req.ContextDir,
+				Dockerfile: req.Dockerfile,
+				BuildArgs:  req.BuildArgs,
+			}
+			buildID, err := h.service.InitBuild(c.Request.Context(), job, part.FileName(), part)
+			_ = part.Close()
+			if err != nil {
+				httpresponse.Respond(c, httpresponse.Status(err), err)
+				return
+			}
+			c.JSON(http.StatusAccepted, gin.H{
+				"build_id": buildID,
+				"message":  "build initialized",
+			})
+			return
+		}
+		value, err := io.ReadAll(io.LimitReader(part, 1<<20))
+		_ = part.Close()
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return
+		}
+		switch name {
+		case "tag":
+			tag = string(value)
+		case "context":
+			contextDir = string(value)
+		case "dockerfile":
+			dockerfile = string(value)
+		case "build_args":
+			if len(value) > 0 {
+				_ = json.Unmarshal(value, &buildArgs)
+			}
+		}
 	}
 
-	req := dto.BuildImageRequest{
-		OwnerID:    ownerID,
-		Tag:        tag,
-		ContextDir: contextDir,
-		Dockerfile: dockerfile,
-		File:       file,
-		BuildArgs:  buildArgs,
-	}
-	job := model.BuildJob{
-		OwnerID:    req.OwnerID,
-		Tag:        req.Tag,
-		ContextDir: req.ContextDir,
-		Dockerfile: req.Dockerfile,
-		BuildArgs:  req.BuildArgs,
-	}
-
-	buildID, err := h.service.InitBuild(c.Request.Context(), job, req.File)
-	if err != nil {
-		httpresponse.Respond(c, httpresponse.Status(err), err)
-		return
-	}
-
-	c.JSON(http.StatusAccepted, gin.H{
-		"build_id": buildID,
-		"message":  "build initialized",
-	})
+	httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 }
 
 func (h *BuildHandler) GetLogs(c *gin.Context) {

@@ -139,7 +139,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	}
 
 	// Парсинг и валидация
-	parsedProject, err := o.parser.ParseAndValidate(ctx, projectName, composeYaml)
+	parsedProject, err := o.parser.ParseAndValidate(ctx, projectName, composeYaml, o.cfg.Get().ReservedDomainPrefixes)
 	if err != nil {
 		failProject(err)
 		return

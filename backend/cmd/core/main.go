@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
@@ -45,6 +46,25 @@ func getEnvString(key string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getEnvStringList(key string, fallback []string) []string {
+	value, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	if len(result) == 0 {
+		return fallback
+	}
+	return result
 }
 
 func main() {
@@ -101,6 +121,7 @@ func main() {
 		MaxLogSize:                           getEnvString("MAX_LOG_SIZE", "10m"),
 		MaxLogFiles:                          getEnvString("MAX_LOG_FILES", "3"),
 		ContainerDiskQuota:                   getEnvString("CONTAINER_DISK_QUOTA", "1G"),
+		ReservedDomainPrefixes:               getEnvStringList("RESERVED_DOMAIN_PREFIXES", []string{"api", "admin", "gateway", "sso", "core", "builder", "traefik", "registry"}),
 		MaxVolumesPerUser:                    getEnvInt("MAX_VOLUMES_PER_USER", 5),
 		MaxContainersPerUser:                 getEnvInt("MAX_CONTAINERS_PER_USER", 10),
 		RegistryAPIURL:                       registryAPIURL,

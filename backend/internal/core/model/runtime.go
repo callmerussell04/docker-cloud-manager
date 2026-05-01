@@ -42,9 +42,10 @@ type VolumeRuntimeSpec struct {
 }
 
 type VolumeInspection struct {
-	Name   string
-	Driver string
-	Labels map[string]string
+	Name       string
+	Driver     string
+	Labels     map[string]string
+	Mountpoint string
 }
 
 type ContainerInspection struct {
@@ -70,7 +71,9 @@ type ContainerState struct {
 }
 
 type ContainerEvent struct {
-	Type     string
-	Action   string
-	DockerID string
+	Type        string
+	Action      string
+	DockerID    string
+	ContainerID string
+	Generation  int
 }

@@ -24,6 +24,19 @@ func DomainPrefix(prefix string) error {
 	return nil
 }
 
+func ReservedDomainPrefix(prefix string, reserved []string) bool {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return false
+	}
+	for _, item := range reserved {
+		if prefix == strings.ToLower(strings.TrimSpace(item)) {
+			return true
+		}
+	}
+	return false
+}
+
 func ResourceName(name string) error {
 	if !resourceNameRe.MatchString(name) {
 		return fmt.Errorf("name must start with a letter or digit and contain only letters, digits, underscore, dot or hyphen")

@@ -66,14 +66,16 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 	result := make([]model.Volume, 0, len(items))
 	for _, item := range items {
 		result = append(result, model.Volume{
-			ID:            item.GetId(),
-			DockerName:    item.GetDockerName(),
-			Driver:        item.GetDriver(),
-			Status:        item.GetStatus(),
-			LastError:     item.GetLastError(),
-			CreatedAt:     item.GetCreatedAt(),
-			OwnerID:       item.GetOwnerId(),
-			OwnerUsername: item.GetOwnerUsername(),
+			ID:              item.GetId(),
+			DockerName:      item.GetDockerName(),
+			Driver:          item.GetDriver(),
+			Status:          item.GetStatus(),
+			LastError:       item.GetLastError(),
+			UsedBytes:       item.GetUsedBytes(),
+			UsageObservedAt: item.GetUsageObservedAt(),
+			CreatedAt:       item.GetCreatedAt(),
+			OwnerID:         item.GetOwnerId(),
+			OwnerUsername:   item.GetOwnerUsername(),
 		})
 	}
 	return result

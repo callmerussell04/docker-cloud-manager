@@ -134,11 +134,23 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 
 	// 5. Очищаем Docker-заголовки из логов с помощью stdcopy
 	pr, pw := io.Pipe()
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		defer pw.Close()
 		defer rawLogs.Close()
 		// StdCopy разделяет stdout и stderr, мы направляем оба потока в наш Pipe
-		_, _ = stdcopy.StdCopy(pw, pw, rawLogs)
+		if _, err := stdcopy.StdCopy(pw, pw, rawLogs); err != nil && ctx.Err() != nil {
+			_ = pw.CloseWithError(ctx.Err())
+		}
+	}()
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = rawLogs.Close()
+			_ = pw.CloseWithError(ctx.Err())
+		case <-done:
+		}
 	}()
 
 	return resp.ID, pr, nil
