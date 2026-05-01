@@ -1,0 +1,1212 @@
+openapi: 3.0.3
+info:
+  title: Docker Cloud Manager API
+  description: Self-hosted PaaS API for managing Docker containers, volumes, images, builds, and compose projects.
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Gateway Service API
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ================= AUTH =================
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id:
+                    type: string
+                    format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /auth/login:
+    post:
+      summary: Login to get access and refresh tokens
+      tags: [Auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          headers:
+            Set-Cookie:
+              description: Refresh token cookie (refresh_token)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      summary: Refresh access token using cookie
+      tags: [Auth]
+      security:
+        - CookieAuth: []
+      responses:
+        '200':
+          description: Token refreshed successfully
+          headers:
+            Set-Cookie:
+              description: New refresh token cookie
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      summary: Logout user (clears refresh token cookie)
+      tags: [Auth]
+      security: []
+      responses:
+        '200':
+          description: Successfully logged out
+
+  # ================= CONTAINERS =================
+  /containers:
+    get:
+      summary: Get all containers for current user
+      tags: [Containers]
+      responses:
+        '200':
+          description: List of containers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Container'
+    post:
+      summary: Create a new container
+      tags: [Containers]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContainerRequest'
+      responses:
+        '201':
+          description: Container created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  container_id:
+                    type: string
+                    format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /containers/{id}/action/{action}:
+    post:
+      summary: Perform action on a container (start, stop, delete)
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, delete]
+      responses:
+        '200':
+          description: Action performed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /containers/{id}/expose:
+    post:
+      summary: Expose container to the internet via Traefik
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExposeContainerRequest'
+      responses:
+        '200':
+          description: Container exposed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /containers/{id}/stats:
+    get:
+      summary: Get real-time container stats (CPU, RAM, Network)
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Container stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerStats'
+
+  # ================= VOLUMES =================
+  /volumes:
+    get:
+      summary: Get all volumes for current user
+      tags: [Volumes]
+      responses:
+        '200':
+          description: List of volumes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+    post:
+      summary: Create a new volume
+      tags: [Volumes]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVolumeRequest'
+      responses:
+        '201':
+          description: Volume created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volume_id:
+                    type: string
+                    format: uuid
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /volumes/{id}:
+    delete:
+      summary: Delete a volume
+      tags: [Volumes]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Volume deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  # ================= IMAGES & BUILDER =================
+  /images:
+    get:
+      summary: Get all images for current user
+      tags: [Images]
+      responses:
+        '200':
+          description: List of images
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+
+  /images/{id}:
+    delete:
+      summary: Delete an image
+      tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Image deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /images/build:
+    post:
+      summary: Build a new image from source archive
+      tags: [Images]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - tag
+                - archive
+              properties:
+                tag:
+                  type: string
+                  description: "Image tag (e.g. my-app:v1)"
+                context:
+                  type: string
+                  description: "Build context directory inside archive (default: .)"
+                dockerfile:
+                  type: string
+                  description: "Dockerfile path inside context (default: Dockerfile)"
+                build_args:
+                  type: string
+                  description: "JSON string of build arguments (e.g. {\"ENV\":\"prod\"})"
+                archive:
+                  type: string
+                  format: binary
+                  description: ".zip, .tar, or .tar.gz archive containing source code"
+      responses:
+        '202':
+          description: Build job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+
+  # ================= BUILDS =================
+  /builds:
+    get:
+      summary: Get user builds history
+      tags: [Builds]
+      responses:
+        '200':
+          description: List of builds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  builds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Build'
+
+  /builds/{id}:
+    delete:
+      summary: Delete a build record
+      tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Build record deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /builds/{id}/logs:
+    get:
+      summary: Get logs for a specific build
+      tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Plain text logs stream
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ================= PROJECTS (COMPOSE) =================
+  /projects:
+    get:
+      summary: Get all compose projects for current user
+      tags: [Projects]
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+
+  /projects/compose:
+    post:
+      summary: Deploy a new Docker Compose project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - project_name
+                - archive
+              properties:
+                project_name:
+                  type: string
+                  description: "Name of the compose project"
+                archive:
+                  type: string
+                  format: binary
+                  description: ".zip archive containing docker-compose.yml and sources"
+      responses:
+        '202':
+          description: Compose deployment accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id:
+                    type: string
+                    format: uuid
+                  message:
+                    type: string
+
+  /projects/{id}:
+    delete:
+      summary: Delete a compose project and its resources
+      tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /projects/{id}/start:
+    post:
+      summary: Start all containers in a compose project
+      tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /projects/{id}/stop:
+    post:
+      summary: Stop all containers in a compose project
+      tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  # ================= STATS =================
+  /stats:
+    get:
+      summary: Get usage statistics for current user
+      tags: [Stats]
+      responses:
+        '200':
+          description: User statistics and quotas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserStats'
+
+  # ================= ADMIN =================
+  /admin/config:
+    get:
+      summary: Get system runtime configuration
+      tags: [Admin]
+      responses:
+        '200':
+          description: System configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemConfig'
+    put:
+      summary: Update system runtime configuration dynamically
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SystemConfig'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/containers:
+    get:
+      summary: Get paginated list of all containers (all users)
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated containers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Container'
+                  total_count:
+                    type: integer
+
+  /admin/containers/{id}/action/{action}:
+    post:
+      summary: Admin action on any container
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, delete]
+      responses:
+        '200':
+          description: Admin action successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/containers/{id}/stats:
+    get:
+      summary: Admin get container stats
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Container stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerStats'
+
+  /admin/volumes:
+    get:
+      summary: Get paginated list of all volumes (all users)
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated volumes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  volumes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Volume'
+                  total_count:
+                    type: integer
+
+  /admin/volumes/{id}:
+    delete:
+      summary: Admin delete any volume
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Volume deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/images:
+    get:
+      summary: Get paginated list of all images (all users)
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated images
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  images:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Image'
+                  total_count:
+                    type: integer
+
+  /admin/images/{id}:
+    delete:
+      summary: Admin delete any image
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Image deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/builds:
+    get:
+      summary: Get paginated list of all builds (all users)
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated builds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  builds:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Build'
+                  total_count:
+                    type: integer
+
+  /admin/builds/{id}:
+    delete:
+      summary: Admin delete any build record
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Build deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/projects:
+    get:
+      summary: Get paginated list of all projects (all users)
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+                  total_count:
+                    type: integer
+
+  /admin/projects/{id}:
+    delete:
+      summary: Admin delete any project
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/projects/{id}/start:
+    post:
+      summary: Admin start any project
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+  /admin/projects/{id}/stop:
+    post:
+      summary: Admin stop any project
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Project stopped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token obtained from /auth/login or /auth/refresh
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+
+  parameters:
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 20
+        maximum: 100
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Unauthorized (Invalid or missing token)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Forbidden (Not enough permissions)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflict (e.g. quota exceeded, resource in use)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+
+    # AUTH
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
+    # CONTAINERS
+    CreateContainerRequest:
+      type: object
+      required: [name, image_tag]
+      properties:
+        name:
+          type: string
+        image_tag:
+          type: string
+        internal_port:
+          type: integer
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
+        volume_mounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/VolumeMountRequest'
+        domain_prefix:
+          type: string
+          maxLength: 30
+
+    VolumeMountRequest:
+      type: object
+      required: [volume_id, mount_path]
+      properties:
+        volume_id:
+          type: string
+          format: uuid
+        mount_path:
+          type: string
+        is_readonly:
+          type: boolean
+          default: false
+
+    ExposeContainerRequest:
+      type: object
+      required: [domain_prefix, internal_port]
+      properties:
+        domain_prefix:
+          type: string
+          maxLength: 30
+        internal_port:
+          type: integer
+          minimum: 1
+
+    Container:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        docker_id:
+          type: string
+        name:
+          type: string
+        image_tag:
+          type: string
+        internal_port:
+          type: integer
+        domain_prefix:
+          type: string
+        status:
+          type: string
+        desired_status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix timestamp
+        owner_id:
+          type: string
+          format: uuid
+        owner_username:
+          type: string
+
+    ContainerStats:
+      type: object
+      properties:
+        cpu_percentage:
+          type: number
+          format: double
+        memory_usage_bytes:
+          type: integer
+          format: int64
+        memory_limit_bytes:
+          type: integer
+          format: int64
+        network_rx_bytes:
+          type: integer
+          format: int64
+        network_tx_bytes:
+          type: integer
+          format: int64
+
+    # VOLUMES
+    CreateVolumeRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    Volume:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        docker_name:
+          type: string
+        driver:
+          type: string
+        status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        owner_id:
+          type: string
+          format: uuid
+        owner_username:
+          type: string
+
+    # IMAGES
+    Image:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tag:
+          type: string
+        size_mb:
+          type: integer
+        status:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        owner_id:
+          type: string
+          format: uuid
+        owner_username:
+          type: string
+
+    # BUILDS
+    Build:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        image_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        started_at:
+          type: integer
+          format: int64
+        finished_at:
+          type: integer
+          format: int64
+        log_file_path:
+          type: string
+        owner_id:
+          type: string
+          format: uuid
+        owner_username:
+          type: string
+
+    # PROJECTS
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+        error_message:
+          type: string
+        last_error:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+        owner_id:
+          type: string
+          format: uuid
+        owner_username:
+          type: string
+
+    # STATS
+    UserStats:
+      type: object
+      properties:
+        containers_total:
+          type: integer
+        containers_running:
+          type: integer
+        containers_quota:
+          type: integer
+        ram_used_bytes:
+          type: integer
+          format: int64
+        ram_quota_bytes:
+          type: integer
+          format: int64
+        disk_used_mb:
+          type: integer
+        disk_quota_mb:
+          type: integer
+        volumes_total:
+          type: integer
+        volumes_quota:
+          type: integer
+        images_total:
+          type: integer
+        projects_total:
+          type: integer
+
+    # SYSTEM CONFIG
+    SystemConfig:
+      type: object
+      properties:
+        base_domain:
+          type: string
+        default_memory_reservation_bytes:
+          type: integer
+          format: int64
+        reserved_system_memory_bytes:
+          type: integer
+          format: int64
+        overcommit_factor:
+          type: number
+          format: double
+        max_burst_multiplier:
+          type: integer
+          format: int64
+        default_cpu_shares:
+          type: integer
+          format: int64
+        high_load_cpu_shares:
+          type: integer
+          format: int64
+        high_load_container_count:
+          type: integer
+        container_stop_timeout:
+          type: integer
+        max_log_size:
+          type: string
+        max_log_files:
+          type: string
+        container_disk_quota:
+          type: string
+        max_volumes_per_user:
+          type: integer
+        max_containers_per_user:
+          type: integer
+        registry_api_url:
+          type: string
+        registry_public_url:
+          type: string
+        container_ttl_hours:
+          type: integer
+          format: int64
+        container_pids_limit:
+          type: integer
+          format: int64
+        container_memory_swap_multiplier:
+          type: number
+          format: double
+        proxy_network_name:
+          type: string
+        registry_container_name:
+          type: string
+        build_memory_bytes:
+          type: integer
+          format: int64
+        build_cpu_quota:
+          type: integer
+          format: int64
+        build_cpu_period:
+          type: integer
+          format: int64
+        build_memory_swap_multiplier:
+          type: number
+          format: double
+        build_pids_limit:
+          type: integer
+          format: int64
+        build_network_name:
+          type: string
+        kaniko_image:
+          type: string
+        max_build_time_minutes:
+          type: integer
+          format: int64
+        max_concurrent_builds:
+          type: integer
+        max_upload_size_bytes:
+          type: integer
+          format: int64
+        max_archive_size_bytes:
+          type: integer
+          format: int64
+        max_unpacked_size_bytes:
+          type: integer
+          format: int64
+        max_build_log_size_bytes:
+          type: integer
+          format: int64
+        ttl_worker_interval_seconds:
+          type: integer
+          format: int64
+        gc_worker_interval_minutes:
+          type: integer
+          format: int64
+        stale_build_timeout_minutes:
+          type: integer
+          format: int64
+        event_sync_interval_seconds:
+          type: integer
+          format: int64
+        event_reconnect_delay_seconds:
+          type: integer
+          format: int64
+        build_outbox_interval_seconds:
+          type: integer
+          format: int64
+        build_outbox_batch_size:
+          type: integer
+        compose_upload_max_bytes:
+          type: integer
+          format: int64
+        compose_pipeline_timeout_minutes:
+          type: integer
+          format: int64
+        compose_builder_http_timeout_seconds:
+          type: integer
+          format: int64
+        compose_build_poll_interval_seconds:
+          type: integer
+          format: int64
+        compose_dependency_wait_timeout_minutes:
+          type: integer
+          format: int64
+        compose_dependency_poll_interval_seconds:
+          type: integer
+          format: int64
