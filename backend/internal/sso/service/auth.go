@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -73,6 +74,12 @@ type AuthService struct {
 	tokenProvider TokenProvider
 }
 
+type BootstrapAdminConfig struct {
+	Username string
+	Email    string
+	Password string
+}
+
 func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
 	userID, err := s.tokenProvider.ValidateAccessToken(accessToken)
 	if err != nil {
@@ -121,6 +128,41 @@ func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthServi
 		repo:          repo,
 		tokenProvider: tokenProvider,
 	}
+}
+
+func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdminConfig) error {
+	existing, err := s.repo.GetUserByUsername(ctx, cfg.Username)
+	if err == nil {
+		if existing.Role == model.RoleAdmin {
+			return nil
+		}
+		return apperrors.New(apperrors.ErrConflict, "bootstrap admin username already exists with non-admin role")
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		return fmt.Errorf("failed to check bootstrap admin: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(cfg.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return apperrors.ErrInternal
+	}
+
+	user := model.User{
+		ID:           uuid.New(),
+		Username:     cfg.Username,
+		Email:        cfg.Email,
+		PasswordHash: string(hash),
+		Role:         model.RoleAdmin,
+	}
+
+	if err := s.repo.SaveUser(ctx, user); err != nil {
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return apperrors.New(apperrors.ErrConflict, "bootstrap admin email or username already exists")
+		}
+		return fmt.Errorf("failed to save bootstrap admin: %w", err)
+	}
+
+	return nil
 }
 
 func (s *AuthService) Register(ctx context.Context, username, email, password string) (uuid.UUID, error) {

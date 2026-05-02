@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,6 +39,13 @@ func main() {
 		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
 
+	adminUsername := getEnvString("SSO_ADMIN_USERNAME", "admin")
+	adminEmail := getEnvString("SSO_ADMIN_EMAIL", "admin@example.local")
+	adminPassword := os.Getenv("SSO_ADMIN_PASSWORD")
+	if adminPassword == "" {
+		fatal(logger, "required environment variable is not set", "env_var", "SSO_ADMIN_PASSWORD")
+	}
+
 	accessTTL := 15 * time.Minute
 	refreshTTL := 30 * 24 * time.Hour
 
@@ -48,6 +56,11 @@ func main() {
 		InternalToken: internalToken,
 		AccessTTL:     accessTTL,
 		RefreshTTL:    refreshTTL,
+		BootstrapAdmin: app.BootstrapAdminConfig{
+			Username: adminUsername,
+			Email:    adminEmail,
+			Password: adminPassword,
+		},
 	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize sso application", "error", err)
@@ -69,4 +82,12 @@ func main() {
 func fatal(logger *slog.Logger, msg string, args ...any) {
 	logger.Error(msg, args...)
 	os.Exit(1)
+}
+
+func getEnvString(key, fallback string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	return value
 }

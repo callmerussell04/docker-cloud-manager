@@ -1,10 +1,12 @@
 package app
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
@@ -25,12 +27,19 @@ type App struct {
 }
 
 type Config struct {
-	Port          int
-	DBURL         string
-	JWTSecret     string
-	InternalToken string
-	AccessTTL     time.Duration
-	RefreshTTL    time.Duration
+	Port           int
+	DBURL          string
+	JWTSecret      string
+	InternalToken  string
+	AccessTTL      time.Duration
+	RefreshTTL     time.Duration
+	BootstrapAdmin BootstrapAdminConfig
+}
+
+type BootstrapAdminConfig struct {
+	Username string
+	Email    string
+	Password string
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -46,6 +55,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	repo := repository.NewUserRepository(db)
 	tokenProvider := jwt.NewProvider(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
 	authService := service.NewAuthService(repo, tokenProvider)
+	if err := ensureBootstrapAdmin(authService, cfg.BootstrapAdmin, logger); err != nil {
+		return nil, err
+	}
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -59,6 +71,33 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		port:       cfg.Port,
 		logger:     logging.WithComponent(logger, "app"),
 	}, nil
+}
+
+func ensureBootstrapAdmin(authService *service.AuthService, cfg BootstrapAdminConfig, logger *slog.Logger) error {
+	if strings.TrimSpace(cfg.Username) == "" {
+		return fmt.Errorf("bootstrap admin username is required")
+	}
+	if strings.TrimSpace(cfg.Email) == "" {
+		return fmt.Errorf("bootstrap admin email is required")
+	}
+	if cfg.Password == "" {
+		return fmt.Errorf("bootstrap admin password is required")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	serviceCfg := service.BootstrapAdminConfig{
+		Username: strings.TrimSpace(cfg.Username),
+		Email:    strings.TrimSpace(cfg.Email),
+		Password: cfg.Password,
+	}
+	if err := authService.EnsureBootstrapAdmin(ctx, serviceCfg); err != nil {
+		return fmt.Errorf("failed to ensure bootstrap admin: %w", err)
+	}
+
+	logger.Info("bootstrap admin ensured", "username", serviceCfg.Username)
+	return nil
 }
 
 func (a *App) Run() error {

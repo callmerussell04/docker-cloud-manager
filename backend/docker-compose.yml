@@ -123,6 +123,9 @@ services:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      SSO_ADMIN_USERNAME: "${SSO_ADMIN_USERNAME:-admin}"
+      SSO_ADMIN_EMAIL: "${SSO_ADMIN_EMAIL:-admin@example.local}"
+      SSO_ADMIN_PASSWORD: "${SSO_ADMIN_PASSWORD:?SSO_ADMIN_PASSWORD is required}"
       SSO_GRPC_PORT: "50051"
     networks:
       - dcm_net
