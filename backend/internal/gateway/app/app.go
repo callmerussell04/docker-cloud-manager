@@ -25,9 +25,11 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
 	httprouter "github.com/callmerussell04/docker-cloud-manager/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 )
 
 type App struct {
@@ -55,6 +57,8 @@ type Config struct {
 	Proxy     ProxyConfig
 	GRPC      GRPCConfig
 	Readiness ReadinessConfig
+
+	TelemetryTicketTTL time.Duration
 }
 
 type HTTPServerConfig struct {
@@ -120,6 +124,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coreClient := grpcclient.NewCoreClient(coreConn)
 	coreService := service.NewCore(coreClient)
 	coreHandler := handler.NewCoreHandler(coreService)
+	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
+	telemetryTicketHandler := handler.NewTelemetryTicketHandler(telemetryTickets)
 
 	proxyTransport := newProxyTransport(cfg.Proxy)
 	builderProxy, err := handler.NewBuilderProxyHandler(handler.ProxyOptions{
@@ -161,17 +167,49 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Transport:      proxyTransport,
 		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
 	}
-	telemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts)
+	telemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
+		Tickets:    telemetryTickets,
+		Verifier:   authService,
+		StreamType: model.TelemetryStreamLogs,
+	})
 	if err != nil {
 		_ = ssoConn.Close()
 		_ = coreConn.Close()
 		return nil, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
 	}
-	telemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts)
+	telemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
+		Tickets:    telemetryTickets,
+		Verifier:   authService,
+		StreamType: model.TelemetryStreamTerminal,
+	})
 	if err != nil {
 		_ = ssoConn.Close()
 		_ = coreConn.Close()
 		return nil, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
+	}
+	adminTelemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
+		Tickets:    telemetryTickets,
+		Verifier:   authService,
+		Permission: permissions.ContainersAdminLogs,
+		StreamType: model.TelemetryStreamLogs,
+		AdminRoute: true,
+	})
+	if err != nil {
+		_ = ssoConn.Close()
+		_ = coreConn.Close()
+		return nil, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
+	}
+	adminTelemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
+		Tickets:    telemetryTickets,
+		Verifier:   authService,
+		Permission: permissions.ContainersAdminTerminal,
+		StreamType: model.TelemetryStreamTerminal,
+		AdminRoute: true,
+	})
+	if err != nil {
+		_ = ssoConn.Close()
+		_ = coreConn.Close()
+		return nil, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
 	}
 
 	readiness := &readinessChecker{
@@ -191,7 +229,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	healthHandler := handler.NewHealthHandler(readiness)
 
-	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, authService, logger)
+	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, adminTelemetryLogsProxy, adminTelemetryTerminalProxy, telemetryTicketHandler, authService, logger)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,

@@ -20,7 +20,7 @@ type Config struct {
 	UploadRateLimit    middleware.RateLimitConfig
 }
 
-func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, userHandler *handler.UserManagementHandler, healthHandler *handler.HealthHandler, builderProxy gin.HandlerFunc, buildProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, telemetryLogsProxy gin.HandlerFunc, telemetryTerminalProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
+func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, userHandler *handler.UserManagementHandler, healthHandler *handler.HealthHandler, builderProxy gin.HandlerFunc, buildProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, telemetryLogsProxy gin.HandlerFunc, telemetryTerminalProxy gin.HandlerFunc, adminTelemetryLogsProxy gin.HandlerFunc, adminTelemetryTerminalProxy gin.HandlerFunc, telemetryTicketHandler *handler.TelemetryTicketHandler, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(cfg.TrustedProxies)
 	limiter := middleware.NewRateLimiter()
@@ -55,8 +55,8 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 				containers.POST("/:id/action/:action", coreHandler.ActionContainer)
 				containers.POST("/:id/expose", coreHandler.ExposeContainer)
 				containers.GET("/:id/stats", coreHandler.GetContainerStats)
-				containers.GET("/:id/logs/stream", telemetryLogsProxy)
-				containers.GET("/:id/terminal", telemetryTerminalProxy)
+				containers.POST("/:id/logs/stream/ticket", telemetryTicketHandler.IssueLogsTicket(false))
+				containers.POST("/:id/terminal/ticket", telemetryTicketHandler.IssueTerminalTicket(false))
 			}
 
 			volumes := protected.Group("/volumes")
@@ -105,8 +105,8 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 			admin.GET("/containers", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminList), coreHandler.GetAllContainers)
 			admin.POST("/containers/:id/action/:action", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminAction), coreHandler.AdminActionContainer)
 			admin.GET("/containers/:id/stats", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminStats), coreHandler.AdminGetContainerStats)
-			admin.GET("/containers/:id/logs/stream", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminLogs), telemetryLogsProxy)
-			admin.GET("/containers/:id/terminal", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminTerminal), telemetryTerminalProxy)
+			admin.POST("/containers/:id/logs/stream/ticket", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminLogs), telemetryTicketHandler.IssueLogsTicket(true))
+			admin.POST("/containers/:id/terminal/ticket", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminTerminal), telemetryTicketHandler.IssueTerminalTicket(true))
 
 			admin.GET("/volumes", middleware.RequirePermission(tokenVerifier, permissions.VolumesAdminList), coreHandler.GetAllVolumes)
 			admin.DELETE("/volumes/:id", middleware.RequirePermission(tokenVerifier, permissions.VolumesAdminDelete), coreHandler.AdminDeleteVolume)
@@ -126,6 +126,11 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 		{
 			stats.GET("", coreHandler.GetUserStats)
 		}
+
+		v1.GET("/containers/:id/logs/stream", telemetryLogsProxy)
+		v1.GET("/containers/:id/terminal", telemetryTerminalProxy)
+		v1.GET("/admin/containers/:id/logs/stream", adminTelemetryLogsProxy)
+		v1.GET("/admin/containers/:id/terminal", adminTelemetryTerminalProxy)
 	}
 
 	return router

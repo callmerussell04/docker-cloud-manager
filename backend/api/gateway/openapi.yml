@@ -247,12 +247,16 @@ paths:
     get:
       summary: Stream container logs in real time
       tags: [Containers]
+      security:
+        - BearerAuth: []
+        - {}
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/LogTailParam'
         - $ref: '#/components/parameters/LogSinceParam'
         - $ref: '#/components/parameters/LogTimestampsParam'
         - $ref: '#/components/parameters/LogFollowParam'
+        - $ref: '#/components/parameters/TelemetryTicketParam'
       responses:
         '200':
           description: Server-Sent Events stream with log, error, and end events
@@ -267,16 +271,38 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /containers/{id}/logs/stream/ticket:
+    post:
+      summary: Issue a short-lived browser ticket for container logs
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '201':
+          description: Telemetry stream ticket issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryTicketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /containers/{id}/terminal:
     get:
       summary: Open an interactive terminal session for a running container
       tags: [Containers]
+      security:
+        - BearerAuth: []
+        - {}
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/TerminalCommandParam'
         - $ref: '#/components/parameters/TerminalArgParam'
         - $ref: '#/components/parameters/TerminalRowsParam'
         - $ref: '#/components/parameters/TerminalColsParam'
+        - $ref: '#/components/parameters/TelemetryTicketParam'
       responses:
         '101':
           description: WebSocket upgrade accepted
@@ -288,6 +314,24 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /containers/{id}/terminal/ticket:
+    post:
+      summary: Issue a short-lived browser ticket for a container terminal
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '201':
+          description: Telemetry terminal ticket issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryTicketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   # ================= VOLUMES =================
   /volumes:
@@ -811,12 +855,16 @@ paths:
     get:
       summary: Admin stream logs for any container
       tags: [Admin]
+      security:
+        - BearerAuth: []
+        - {}
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/LogTailParam'
         - $ref: '#/components/parameters/LogSinceParam'
         - $ref: '#/components/parameters/LogTimestampsParam'
         - $ref: '#/components/parameters/LogFollowParam'
+        - $ref: '#/components/parameters/TelemetryTicketParam'
       responses:
         '200':
           description: Server-Sent Events stream with log, error, and end events
@@ -833,16 +881,38 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /admin/containers/{id}/logs/stream/ticket:
+    post:
+      summary: Admin issue a short-lived browser ticket for any container logs
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '201':
+          description: Telemetry stream ticket issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryTicketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /admin/containers/{id}/terminal:
     get:
       summary: Admin open an interactive terminal session for any running container
       tags: [Admin]
+      security:
+        - BearerAuth: []
+        - {}
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/TerminalCommandParam'
         - $ref: '#/components/parameters/TerminalArgParam'
         - $ref: '#/components/parameters/TerminalRowsParam'
         - $ref: '#/components/parameters/TerminalColsParam'
+        - $ref: '#/components/parameters/TelemetryTicketParam'
       responses:
         '101':
           description: WebSocket upgrade accepted
@@ -854,6 +924,24 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+
+  /admin/containers/{id}/terminal/ticket:
+    post:
+      summary: Admin issue a short-lived browser ticket for any container terminal
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '201':
+          description: Telemetry terminal ticket issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryTicketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /admin/volumes:
     get:
@@ -1128,6 +1216,13 @@ components:
         type: integer
         default: 80
         minimum: 1
+    TelemetryTicketParam:
+      name: ticket
+      in: query
+      required: false
+      description: Short-lived browser stream ticket from the matching ticket endpoint.
+      schema:
+        type: string
 
   responses:
     BadRequest:
@@ -1193,6 +1288,17 @@ components:
       properties:
         message:
           type: string
+
+    TelemetryTicketResponse:
+      type: object
+      properties:
+        ticket:
+          type: string
+          description: Opaque, short-lived, single-use browser stream ticket.
+        expires_at:
+          type: integer
+          format: int64
+          description: Unix timestamp when the ticket expires.
 
     HealthStatus:
       type: object

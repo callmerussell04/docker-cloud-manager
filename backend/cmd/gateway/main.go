@@ -68,6 +68,7 @@ func main() {
 		Readiness: app.ReadinessConfig{
 			Timeout: durationSecondsEnv("GATEWAY_READINESS_TIMEOUT_SECONDS", 3*time.Second),
 		},
+		TelemetryTicketTTL: durationSecondsEnv("GATEWAY_TELEMETRY_TICKET_TTL_SECONDS", 60*time.Second),
 	}
 
 	if os.Getenv("APP_ENV") == "production" && !cfg.Cookie.Secure {
