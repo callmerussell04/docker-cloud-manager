@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -143,36 +144,6 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	return builds, rows.Err()
 }
 
-func (r *BuildRepository) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
-	query := `
-		SELECT b.id, b.image_id, b.owner_id, b.status, b.log_file_path, b.archive_object_key, b.started_at, b.finished_at 
-		FROM builds b
-		WHERE b.owner_id = $1 
-		ORDER BY b.started_at DESC
-	`
-	rows, err := r.db.QueryContext(ctx, query, ownerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var builds []model.Build
-	for rows.Next() {
-		var b model.Build
-		var finishedAt sql.NullTime
-
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
-			return nil, err
-		}
-
-		if finishedAt.Valid {
-			b.FinishedAt = &finishedAt.Time
-		}
-		builds = append(builds, b)
-	}
-	return builds, rows.Err()
-}
-
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
 		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at 
@@ -237,19 +208,28 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	return builds, rows.Err()
 }
 
-func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
+func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error) {
+	var args []any
+	where := ""
+	if opts.OwnerID != nil {
+		args = append(args, *opts.OwnerID)
+		where = " WHERE owner_id = $1"
+	}
+
 	var total int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`).Scan(&total)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM builds`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-		SELECT b.id, b.image_id, b.owner_id, b.status, b.log_file_path, b.archive_object_key, b.started_at, b.finished_at
-		FROM builds b
-		ORDER BY b.started_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at
+		FROM builds` + where + ` ORDER BY started_at DESC`
+	if opts.Limit > 0 {
+		args = append(args, opts.Limit, opts.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -257,13 +237,9 @@ func (r *BuildRepository) GetAllPaginated(ctx context.Context, limit, offset int
 
 	var builds []model.Build
 	for rows.Next() {
-		var b model.Build
-		var finishedAt sql.NullTime
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+		b, err := scanBuild(rows)
+		if err != nil {
 			return nil, 0, err
-		}
-		if finishedAt.Valid {
-			b.FinishedAt = &finishedAt.Time
 		}
 		builds = append(builds, b)
 	}
@@ -348,6 +324,18 @@ func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.
 		return apperrors.ErrNotFound
 	}
 	return nil
+}
+
+func scanBuild(s scanner) (model.Build, error) {
+	var b model.Build
+	var finishedAt sql.NullTime
+	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+		return model.Build{}, err
+	}
+	if finishedAt.Valid {
+		b.FinishedAt = &finishedAt.Time
+	}
+	return b, nil
 }
 
 func (r *BuildRepository) MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {

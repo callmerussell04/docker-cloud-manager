@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -69,34 +70,42 @@ func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Imag
 	return img, nil
 }
 
-func (r *ImageRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error) {
+func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error) {
+	var args []any
+	where := ""
+	if opts.OwnerID != nil {
+		args = append(args, *opts.OwnerID)
+		where = " WHERE owner_id = $1"
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM images`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	query := `
 		SELECT id, owner_id, tag, size_mb, metadata, status, last_observed_at, last_error, created_at
-		FROM images WHERE owner_id = $1
-	`
-	rows, err := r.db.QueryContext(ctx, query, ownerID)
+		FROM images` + where + ` ORDER BY created_at DESC`
+	if opts.Limit > 0 {
+		args = append(args, opts.Limit, opts.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	var images []model.Image
 	for rows.Next() {
-		var img model.Image
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
-			return nil, err
-		}
-		if lastObservedAt.Valid {
-			img.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			img.LastError = &lastError.String
+		img, err := scanImage(rows)
+		if err != nil {
+			return nil, 0, err
 		}
 		images = append(images, img)
 	}
-	return images, rows.Err()
+	return images, total, rows.Err()
 }
 
 func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
@@ -231,39 +240,18 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 	return tx.Commit()
 }
 
-func (r *ImageRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Image, int, error) {
-	var total int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM images`).Scan(&total)
-	if err != nil {
-		return nil, 0, err
+func scanImage(s scanner) (model.Image, error) {
+	var img model.Image
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
+	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
+		return model.Image{}, err
 	}
-
-	query := `
-		SELECT i.id, i.owner_id, i.tag, i.size_mb, i.metadata, i.status, i.last_observed_at, i.last_error, i.created_at
-		FROM images i
-		ORDER BY i.created_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
-	if err != nil {
-		return nil, 0, err
+	if lastObservedAt.Valid {
+		img.LastObservedAt = &lastObservedAt.Time
 	}
-	defer rows.Close()
-
-	var images []model.Image
-	for rows.Next() {
-		var img model.Image
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-		if err := rows.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
-			return nil, 0, err
-		}
-		if lastObservedAt.Valid {
-			img.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			img.LastError = &lastError.String
-		}
-		images = append(images, img)
+	if lastError.Valid {
+		img.LastError = &lastError.String
 	}
-	return images, total, rows.Err()
+	return img, nil
 }

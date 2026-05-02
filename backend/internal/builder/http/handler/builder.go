@@ -9,6 +9,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
@@ -38,9 +39,8 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 	cfg := h.config.Refresh(c.Request.Context())
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, cfg.MaxUploadSizeBytes)
 
-	ownerID := c.GetHeader("X-User-Id")
-	if ownerID == "" {
-		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
+	if _, err := accessscope.RequireUserOwner(c.Request.Context()); err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
 
@@ -69,14 +69,12 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 				return
 			}
 			req := dto.BuildImageRequest{
-				OwnerID:    ownerID,
 				Tag:        tag,
 				ContextDir: contextDir,
 				Dockerfile: dockerfile,
 				BuildArgs:  buildArgs,
 			}
 			job := model.BuildJob{
-				OwnerID:    req.OwnerID,
 				Tag:        req.Tag,
 				ContextDir: req.ContextDir,
 				Dockerfile: req.Dockerfile,

@@ -8,9 +8,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error) {
-	req := &coreapi.GetUserRequest{OwnerId: ownerID}
-	resp, err := c.statsAPI.GetUserStats(ctx, req)
+func (c *CoreClient) GetUserStats(ctx context.Context) (model.UserStats, error) {
+	resp, err := c.statsAPI.GetUserStats(ctx, &coreapi.Empty{})
 	if err != nil {
 		return model.UserStats{}, grpcerrors.FromGRPC(err)
 	}

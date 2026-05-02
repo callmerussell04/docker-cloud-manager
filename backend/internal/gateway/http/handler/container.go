@@ -13,18 +13,14 @@ import (
 )
 
 type ContainerService interface {
-	CreateContainer(ctx context.Context, ownerID string, input model.CreateContainerInput) (string, error)
-	GetUserContainers(ctx context.Context, ownerID string) ([]model.Container, error)
-	ActionContainer(ctx context.Context, ownerID, containerID, action string) error
-	ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error
+	CreateContainer(ctx context.Context, input model.CreateContainerInput) (string, error)
+	ActionContainer(ctx context.Context, containerID, action string) error
+	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
 	GetAllContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
-	AdminActionContainer(ctx context.Context, containerID, action string) error
-	GetContainerStats(ctx context.Context, ownerID, containerID string) (model.ContainerStats, error)
-	AdminGetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
+	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
 func (h *CoreHandler) CreateContainer(c *gin.Context) {
-	userID := c.GetString("user_id")
 	var createContainerDTO dto.CreateContainerDTO
 
 	if err := c.ShouldBindJSON(&createContainerDTO); err != nil {
@@ -35,7 +31,7 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 		return
 	}
 
-	containerID, err := h.service.CreateContainer(c.Request.Context(), userID, createContainerInputFromDTO(createContainerDTO))
+	containerID, err := h.service.CreateContainer(c.Request.Context(), createContainerInputFromDTO(createContainerDTO))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -45,23 +41,28 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetContainers(c *gin.Context) {
-	userID := c.GetString("user_id")
-
-	containers, err := h.service.GetUserContainers(c.Request.Context(), userID)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.GetAllContainers(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
+	containers := resp.Containers
 	if containers == nil {
-		containers = make([]model.Container, 0)
+		containers = []model.Container{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"containers": containersToUserDTO(containers)})
+	c.JSON(http.StatusOK, gin.H{
+		"containers":  containersToUserDTO(containers),
+		"total_count": resp.TotalCount,
+	})
 }
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {
-	userID := c.GetString("user_id")
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -71,7 +72,7 @@ func (h *CoreHandler) ActionContainer(c *gin.Context) {
 		return
 	}
 
-	err := h.service.ActionContainer(c.Request.Context(), userID, containerID, action)
+	err := h.service.ActionContainer(c.Request.Context(), containerID, action)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -81,7 +82,6 @@ func (h *CoreHandler) ActionContainer(c *gin.Context) {
 }
 
 func (h *CoreHandler) ExposeContainer(c *gin.Context) {
-	userID := c.GetString("user_id")
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -96,7 +96,7 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 		return
 	}
 
-	err := h.service.ExposeContainer(c.Request.Context(), userID, containerID, exposeContainerDTO.DomainPrefix, exposeContainerDTO.InternalPort)
+	err := h.service.ExposeContainer(c.Request.Context(), containerID, exposeContainerDTO.DomainPrefix, exposeContainerDTO.InternalPort)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -131,7 +131,7 @@ func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
 		return
 	}
 
-	err := h.service.AdminActionContainer(c.Request.Context(), containerID, action)
+	err := h.service.ActionContainer(c.Request.Context(), containerID, action)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -140,13 +140,12 @@ func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetContainerStats(c *gin.Context) {
-	userID := c.GetString("user_id")
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
-	stats, err := h.service.GetContainerStats(c.Request.Context(), userID, containerID)
+	stats, err := h.service.GetContainerStats(c.Request.Context(), containerID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -161,7 +160,7 @@ func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.service.AdminGetContainerStats(c.Request.Context(), containerID)
+	stats, err := h.service.GetContainerStats(c.Request.Context(), containerID)
 	if err != nil {
 		h.handleError(c, err)
 		return

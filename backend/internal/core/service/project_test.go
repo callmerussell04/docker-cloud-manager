@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/google/uuid"
 )
 
 func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	projectID := uuid.New()
 
 	repo := &projectRepoFake{
@@ -29,7 +30,7 @@ func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
 
 	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
 
-	if err := svc.Delete(ctx, ownerID, projectID); err != nil {
+	if err := svc.Delete(ctx, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -42,8 +43,8 @@ func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
 }
 
 func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	projectID := uuid.New()
 	otherProjectID := uuid.New()
 
@@ -64,7 +65,7 @@ func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *
 
 	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
 
-	if err := svc.Delete(ctx, ownerID, projectID); err != nil {
+	if err := svc.Delete(ctx, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
@@ -76,16 +77,6 @@ func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *
 type projectRepoFake struct {
 	projects map[uuid.UUID]model.Project
 	onDelete func(uuid.UUID)
-}
-
-func (f *projectRepoFake) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
-	var projects []model.Project
-	for _, p := range f.projects {
-		if p.OwnerID == ownerID {
-			projects = append(projects, p)
-		}
-	}
-	return projects, nil
 }
 
 func (f *projectRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {
@@ -100,8 +91,14 @@ func (f *projectRepoFake) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (f *projectRepoFake) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
-	return nil, 0, nil
+func (f *projectRepoFake) List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error) {
+	var projects []model.Project
+	for _, p := range f.projects {
+		if opts.OwnerID == nil || p.OwnerID == *opts.OwnerID {
+			projects = append(projects, p)
+		}
+	}
+	return projects, len(projects), nil
 }
 
 func (f *projectRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
@@ -169,11 +166,11 @@ type projectContainerLifecycleFake struct {
 	cleanedOwnerIDs []uuid.UUID
 }
 
-func (f *projectContainerLifecycleFake) Start(ctx context.Context, ownerID, containerID uuid.UUID) error {
+func (f *projectContainerLifecycleFake) Start(ctx context.Context, containerID uuid.UUID) error {
 	return nil
 }
 
-func (f *projectContainerLifecycleFake) Stop(ctx context.Context, ownerID, containerID uuid.UUID) error {
+func (f *projectContainerLifecycleFake) Stop(ctx context.Context, containerID uuid.UUID) error {
 	return nil
 }
 

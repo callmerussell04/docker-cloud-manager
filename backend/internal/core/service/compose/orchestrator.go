@@ -4,17 +4,15 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime/multipart"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
@@ -31,14 +29,14 @@ type BuildRepository interface {
 }
 
 type VolumeService interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error)
-	Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error
+	Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error)
+	Delete(ctx context.Context, volumeID uuid.UUID) error
 }
 
 type ContainerService interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error)
-	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
-	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
+	Create(ctx context.Context, params model.ContainerCreateParams) (uuid.UUID, error)
+	Start(ctx context.Context, containerID uuid.UUID) error
+	Delete(ctx context.Context, containerID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
@@ -50,19 +48,22 @@ type ConfigProvider interface {
 	Get() config.SystemConfig
 }
 
+type BuilderClient interface {
+	TriggerBuild(ctx context.Context, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error)
+	CancelBuild(ctx context.Context, buildID uuid.UUID) error
+}
+
 type Orchestrator struct {
-	parentCtx      context.Context
-	parser         *Parser
-	projectRepo    ProjectRepository
-	buildRepo      BuildRepository
-	volumeService  VolumeService
-	contService    ContainerService
-	dockerAPI      ComposeDockerAPI
-	cfg            ConfigProvider
-	builderHTTPUrl string
-	httpClient     *http.Client
-	internalToken  string
-	logger         *slog.Logger
+	parentCtx     context.Context
+	parser        *Parser
+	projectRepo   ProjectRepository
+	buildRepo     BuildRepository
+	volumeService VolumeService
+	contService   ContainerService
+	dockerAPI     ComposeDockerAPI
+	cfg           ConfigProvider
+	builderClient BuilderClient
+	logger        *slog.Logger
 }
 
 func NewOrchestrator(
@@ -81,23 +82,29 @@ func NewOrchestrator(
 		parentCtx = context.Background()
 	}
 	return &Orchestrator{
-		parentCtx:      parentCtx,
-		parser:         NewParser(),
-		projectRepo:    projectRepo,
-		buildRepo:      buildRepo,
-		volumeService:  volumeService,
-		contService:    contService,
-		dockerAPI:      dockerAPI,
-		cfg:            cfg,
-		builderHTTPUrl: builderHTTPUrl,
-		httpClient:     &http.Client{},
-		internalToken:  internalToken,
-		logger:         logging.WithComponent(logger, "compose_orchestrator"),
+		parentCtx:     parentCtx,
+		parser:        NewParser(),
+		projectRepo:   projectRepo,
+		buildRepo:     buildRepo,
+		volumeService: volumeService,
+		contService:   contService,
+		dockerAPI:     dockerAPI,
+		cfg:           cfg,
+		builderClient: NewHTTPBuilderClient(builderHTTPUrl, internalToken, cfg, nil),
+		logger:        logging.WithComponent(logger, "compose_orchestrator"),
 	}
 }
 
 // StartDeployment - Точка входа. Создает проект и запускает горутину оркестрации
-func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, projectName string, archiveBytes []byte) (uuid.UUID, error) {
+func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, archiveBytes []byte) (uuid.UUID, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	projectID := uuid.New()
 	p := model.Project{
 		ID:      projectID,
@@ -112,15 +119,17 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, ownerID uuid.UUID, p
 
 	// Запускаем асинхронный процесс (Этап 3 и 4)
 	requestID := logging.RequestIDFromContext(ctx)
-	go o.runPipeline(projectID, ownerID, projectName, archiveBytes, requestID)
+	go o.runPipeline(projectID, scope, projectName, archiveBytes, requestID)
 
 	return projectID, nil
 }
 
-func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName string, archiveBytes []byte, requestID string) {
+func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope, projectName string, archiveBytes []byte, requestID string) {
 	baseCtx, cancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
 	defer cancel()
 	ctx := logging.ContextWithRequestID(baseCtx, requestID)
+	ctx = accessscope.WithScope(ctx, scope)
+	ownerID := scope.UserID
 	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "compose deployment pipeline started", "project_name", projectName)
 
@@ -154,7 +163,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 				return
 			}
 
-			buildID, err := o.triggerBuild(ctx, ownerID, srv, archiveBytes)
+			buildID, err := o.builderClient.TriggerBuild(ctx, srv, archiveBytes)
 			if err != nil {
 				o.cancelBuilds(ctx, buildIDs)
 				failProject(fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err))
@@ -186,11 +195,11 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		logger.WarnContext(ctx, "compose deployment failed; rolling back", "error", deployErr)
 		// Сначала контейнеры (они зависят от томов)
 		for _, cid := range createdContainers {
-			_ = o.contService.Delete(ctx, ownerID, cid)
+			_ = o.contService.Delete(ctx, cid)
 		}
 		// Затем тома
 		for _, vid := range createdVolumes {
-			_ = o.volumeService.Delete(ctx, ownerID, vid)
+			_ = o.volumeService.Delete(ctx, vid)
 		}
 		failProject(deployErr)
 	}
@@ -202,7 +211,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 	for _, volParams := range parsedProject.Volumes {
 		volParams.ProjectID = &projectID
 
-		volID, err := o.volumeService.Create(ctx, ownerID, volParams)
+		volID, err := o.volumeService.Create(ctx, volParams)
 		if err != nil {
 			rollback(fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
 			return
@@ -243,7 +252,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 			Healthcheck:  srv.Healthcheck,
 		}
 
-		contID, err := o.contService.Create(ctx, ownerID, createParams)
+		contID, err := o.contService.Create(ctx, createParams)
 		if err != nil {
 			// Если нет квоты или Docker упал -> откатываем весь проект
 			rollback(fmt.Errorf("failed to create service %s: %w", srv.Name, err))
@@ -291,7 +300,7 @@ func (o *Orchestrator) runPipeline(projectID, ownerID uuid.UUID, projectName str
 		}
 
 		// 2. Все зависимости готовы, запускаем сам сервис
-		err := o.contService.Start(ctx, ownerID, contID)
+		err := o.contService.Start(ctx, contID)
 		if err != nil {
 			rollback(fmt.Errorf("failed to start service %s: %w", srv.Name, err))
 			return
@@ -345,58 +354,6 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 	return graph, nil
 }
 
-func (o *Orchestrator) triggerBuild(ctx context.Context, ownerID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-
-	_ = writer.WriteField("tag", srv.ImageTag)
-	_ = writer.WriteField("context", srv.BuildContext)
-	_ = writer.WriteField("dockerfile", srv.Dockerfile)
-	if len(srv.BuildArgs) > 0 {
-		argsJSON, _ := json.Marshal(srv.BuildArgs)
-		_ = writer.WriteField("build_args", string(argsJSON))
-	}
-
-	part, err := writer.CreateFormFile("archive", "compose.zip")
-	if err == nil {
-		_, _ = part.Write(archiveBytes)
-	}
-	writer.Close()
-
-	httpCtx, cancel := context.WithTimeout(ctx, time.Duration(o.cfg.Get().ComposeBuilderHTTPTimeoutSeconds)*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, o.builderHTTPUrl+"/api/v1/images/build", body)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("X-User-Id", ownerID.String())
-	req.Header.Set("X-Internal-Token", o.internalToken)
-	if requestID := logging.RequestIDFromContext(ctx); requestID != "" {
-		req.Header.Set(logging.RequestIDHeader, requestID)
-	}
-
-	resp, err := o.httpClient.Do(req)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusAccepted {
-		return uuid.Nil, builderHTTPError(resp)
-	}
-
-	var result struct {
-		BuildID string `json:"build_id"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return uuid.Nil, err
-	}
-
-	return uuid.Parse(result.BuildID)
-}
-
 func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) error {
 	ticker := time.NewTicker(time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second)
 	defer ticker.Stop()
@@ -443,27 +400,8 @@ func (o *Orchestrator) failedBuildStatus(ctx context.Context, buildIDs []uuid.UU
 
 func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {
 	for _, buildID := range buildIDs {
-		httpCtx, cancel := context.WithTimeout(ctx, time.Duration(o.cfg.Get().ComposeBuilderHTTPTimeoutSeconds)*time.Second)
-		req, err := http.NewRequestWithContext(httpCtx, http.MethodPost, o.builderHTTPUrl+"/api/v1/builds/"+buildID.String()+"/cancel", nil)
-		if err != nil {
-			cancel()
-			o.logger.WarnContext(ctx, "failed to create build cancellation request", "build_id", buildID, "error", err)
-			continue
-		}
-		req.Header.Set("X-Internal-Token", o.internalToken)
-		if requestID := logging.RequestIDFromContext(ctx); requestID != "" {
-			req.Header.Set(logging.RequestIDHeader, requestID)
-		}
-
-		resp, err := o.httpClient.Do(req)
-		cancel()
-		if err != nil {
+		if err := o.builderClient.CancelBuild(ctx, buildID); err != nil {
 			o.logger.WarnContext(ctx, "failed to cancel build", "build_id", buildID, "error", err)
-			continue
-		}
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
-			o.logger.WarnContext(ctx, "builder returned unexpected cancellation status", "build_id", buildID, "status", resp.StatusCode)
 		}
 	}
 }
@@ -493,32 +431,6 @@ func extractComposeFile(archiveBytes []byte) ([]byte, error) {
 	}
 
 	return nil, apperrors.New(apperrors.ErrBadRequest, "invalid file format: expected zip archive or raw docker-compose.yml")
-}
-
-func builderHTTPError(resp *http.Response) error {
-	message := fmt.Sprintf("builder returned status %d", resp.StatusCode)
-
-	var body struct {
-		Error string `json:"error"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err == nil && body.Error != "" {
-		message = body.Error
-	}
-
-	switch resp.StatusCode {
-	case http.StatusBadRequest:
-		return apperrors.New(apperrors.ErrBadRequest, message)
-	case http.StatusUnauthorized:
-		return apperrors.New(apperrors.ErrUnauthorized, message)
-	case http.StatusForbidden:
-		return apperrors.New(apperrors.ErrForbidden, message)
-	case http.StatusNotFound:
-		return apperrors.New(apperrors.ErrNotFound, message)
-	case http.StatusConflict:
-		return apperrors.New(apperrors.ErrConflict, message)
-	default:
-		return apperrors.New(apperrors.ErrInternal, apperrors.ErrInternal.Error())
-	}
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, dockerID string, condition string) error {

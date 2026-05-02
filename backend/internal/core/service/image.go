@@ -8,14 +8,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type ImageRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Image, int, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
 }
 
 type imageStateRepository interface {
@@ -60,21 +60,17 @@ func NewImageService(
 	}
 }
 
-func (s *ImageService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error) {
-	return s.repo.GetByOwnerID(ctx, ownerID)
-}
-
-func (s *ImageService) Delete(ctx context.Context, ownerID, imageID uuid.UUID) error {
+func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 	img, err := s.repo.GetByID(ctx, imageID)
 	if err != nil {
 		return err
 	}
 
-	if img.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, img.OwnerID); err != nil {
+		return err
 	}
 
-	inUse, err := s.contRepo.IsImageInUse(ctx, ownerID, img.Tag)
+	inUse, err := s.contRepo.IsImageInUse(ctx, img.OwnerID, img.Tag)
 	if err != nil {
 		return err
 	}
@@ -112,41 +108,16 @@ func parseImageTag(rawTag string) (baseName, version string) {
 	return parts[0], parts[1]
 }
 
-func (s *ImageService) GetAllPaginatedImages(ctx context.Context, limit, offset int) ([]model.Image, int, error) {
-	return s.repo.GetAllPaginated(ctx, limit, offset)
-}
-
-func (s *ImageService) AdminDeleteImage(ctx context.Context, imageID uuid.UUID) error {
-	img, err := s.repo.GetByID(ctx, imageID)
+func (s *ImageService) List(ctx context.Context, limit, offset int) ([]model.Image, int, error) {
+	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-
-	inUse, err := s.contRepo.IsImageInUse(ctx, img.OwnerID, img.Tag)
-	if err != nil {
-		return err
-	}
-	if inUse {
-		return apperrors.New(apperrors.ErrResourceInUse, "image is currently used by a container")
-	}
-
-	baseName, version := parseImageTag(img.Tag)
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
-	s.setImageStatus(ctx, imageID, model.ImageStatusDeleting)
-
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
-	if err == nil && digest != "" {
-		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
-	}
-
-	fullTag := fmt.Sprintf("%s/%s:%s", s.cfg.Get().RegistryPublicURL, repoName, version)
-	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
-
-	if err := s.repo.Delete(ctx, imageID); err != nil {
-		s.markImageError(ctx, imageID, model.ImageStatusError, err)
-		return err
-	}
-	return nil
+	return s.repo.List(ctx, model.ListOptions{
+		OwnerID: scope.OwnerFilter(),
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func (s *ImageService) setImageStatus(ctx context.Context, imageID uuid.UUID, status string) {

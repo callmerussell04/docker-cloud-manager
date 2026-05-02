@@ -7,29 +7,19 @@ import (
 )
 
 type BuildProvider interface {
-	GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error)
-	GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error)
-	DeleteBuild(ctx context.Context, ownerID, buildID string) error
+	GetBuild(ctx context.Context, buildID string) (model.Build, error)
+	DeleteBuild(ctx context.Context, buildID string) error
 	GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error)
-	AdminDeleteBuild(ctx context.Context, buildID string) error
 }
 
-func (s *Core) GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error) {
-	return s.provider.GetUserBuilds(ctx, ownerID)
+func (s *Core) GetBuild(ctx context.Context, buildID string) (model.Build, error) {
+	return s.provider.GetBuild(ctx, buildID)
 }
 
-func (s *Core) GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error) {
-	return s.provider.GetBuild(ctx, ownerID, buildID)
-}
-
-func (s *Core) DeleteBuild(ctx context.Context, ownerID, buildID string) error {
-	return s.provider.DeleteBuild(ctx, ownerID, buildID)
+func (s *Core) DeleteBuild(ctx context.Context, buildID string) error {
+	return s.provider.DeleteBuild(ctx, buildID)
 }
 
 func (s *Core) GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error) {
 	return s.provider.GetAllBuilds(ctx, page, limit)
-}
-
-func (s *Core) AdminDeleteBuild(ctx context.Context, buildID string) error {
-	return s.provider.AdminDeleteBuild(ctx, buildID)
 }

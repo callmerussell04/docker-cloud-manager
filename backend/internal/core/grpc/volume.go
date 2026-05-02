@@ -14,11 +14,9 @@ import (
 )
 
 type VolumeLogic interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error)
-	Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
-	AdminDelete(ctx context.Context, volumeID uuid.UUID) error
+	Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error)
+	Delete(ctx context.Context, volumeID uuid.UUID) error
+	List(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
 }
 
 type VolumeHandler struct {
@@ -32,11 +30,6 @@ func RegisterVolumeAPI(gRPCServer *grpc.Server, logic VolumeLogic, users UserDir
 }
 
 func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVolumeRequest) (*coreapi.CreateVolumeResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
@@ -45,7 +38,7 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 		Name: req.GetName(),
 	}
 
-	volumeID, err := h.logic.Create(ctx, ownerID, params)
+	volumeID, err := h.logic.Create(ctx, params)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -56,17 +49,12 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 }
 
 func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeActionRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	volumeID, err := uuid.Parse(req.GetVolumeId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
 	}
 
-	err = h.logic.Delete(ctx, ownerID, volumeID)
+	err = h.logic.Delete(ctx, volumeID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -74,48 +62,9 @@ func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeAct
 	return &coreapi.Empty{}, nil
 }
 
-func (h *VolumeHandler) GetUserVolumes(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.VolumeListResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	volumes, err := h.logic.GetByOwner(ctx, ownerID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	var pbVolumes []*coreapi.VolumeData
-
-	for _, v := range volumes {
-		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
-			Id:              v.ID.String(),
-			DockerName:      v.DockerName,
-			Driver:          v.Driver,
-			CreatedAt:       v.CreatedAt.Unix(),
-			Status:          v.Status,
-			LastError:       stringValue(v.LastError),
-			UsedBytes:       v.UsedBytes,
-			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
-		})
-	}
-
-	return &coreapi.VolumeListResponse{
-		Volumes: pbVolumes,
-	}, nil
-}
-
-func (h *VolumeHandler) GetAllVolumes(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
-	limit := int(req.GetLimit())
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset := (int(req.GetPage()) - 1) * limit
-	if offset < 0 {
-		offset = 0
-	}
-
-	volumes, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
+func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
+	limit, offset := pagination(req)
+	volumes, total, err := h.logic.List(ctx, limit, offset)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -154,18 +103,4 @@ func (h *VolumeHandler) usernamesByOwner(ctx context.Context, volumes []model.Vo
 		ids = append(ids, v.OwnerID)
 	}
 	return usernamesByID(ctx, h.users, ids)
-}
-
-func (h *VolumeHandler) AdminDeleteVolume(ctx context.Context, req *coreapi.VolumeActionRequest) (*coreapi.Empty, error) {
-	volumeID, err := uuid.Parse(req.GetVolumeId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
-	}
-
-	err = h.logic.AdminDelete(ctx, volumeID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.Empty{}, nil
 }

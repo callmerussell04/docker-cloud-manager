@@ -9,6 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/google/uuid"
 )
@@ -56,9 +57,9 @@ func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
 		nil,
 	)
 
-	buildID, err := svc.InitBuild(context.Background(), model.BuildJob{
-		OwnerID: uuid.NewString(),
-		Tag:     "demo-app",
+	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
+	buildID, err := svc.InitBuild(ctx, model.BuildJob{
+		Tag: "demo-app",
 	}, "upload.zip", strings.NewReader("archive"))
 	if err != nil {
 		t.Fatalf("InitBuild returned error: %v", err)
@@ -126,9 +127,9 @@ func TestBuilderServiceInitBuildDeletesArchiveObjectOnCoreError(t *testing.T) {
 		nil,
 	)
 
-	_, err := svc.InitBuild(context.Background(), model.BuildJob{
-		OwnerID: uuid.NewString(),
-		Tag:     "demo-app:latest",
+	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
+	_, err := svc.InitBuild(ctx, model.BuildJob{
+		Tag: "demo-app:latest",
 	}, "upload.tar.gz", strings.NewReader("archive"))
 	if err == nil {
 		t.Fatal("InitBuild returned nil error")
@@ -273,7 +274,7 @@ type builderCoreFake struct {
 	startStatus      string
 }
 
-func (f *builderCoreFake) CreateBuildJob(ctx context.Context, ownerID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
+func (f *builderCoreFake) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
 	f.archiveObjectKey = archiveObjectKey
 	f.logObjectKey = logObjectKey
 	if f.createErr != nil {

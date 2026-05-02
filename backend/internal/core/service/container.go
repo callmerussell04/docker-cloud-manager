@@ -10,6 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
@@ -20,7 +21,6 @@ import (
 type ContainerRepository interface {
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
@@ -32,7 +32,7 @@ type ContainerRepository interface {
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
 }
 
 type containerCreateRepository interface {
@@ -79,7 +79,7 @@ type HostMetricsProvider interface {
 }
 
 type ContainerImageRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
 }
 
 type containerImageDiskRepository interface {
@@ -142,7 +142,11 @@ func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater)
 	s.projects = updater
 }
 
-func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
+func (s *ContainerService) Create(ctx context.Context, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -229,7 +233,7 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 
 	isCustom := false
 	var customImage *model.Image
-	userImages, err := s.imageRepo.GetByOwnerID(ctx, ownerID)
+	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
 	if err == nil {
 		for _, img := range userImages {
 			// Сравниваем с нормализованным тегом из БД
@@ -432,14 +436,15 @@ func (s *ContainerService) Create(ctx context.Context, ownerID uuid.UUID, params
 	return containerID, nil
 }
 
-func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error {
+func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if c.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return err
 	}
+	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -578,14 +583,15 @@ func (s *ContainerService) Expose(ctx context.Context, ownerID, containerID uuid
 	return nil
 }
 
-func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.UUID) error {
+func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if c.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return err
 	}
+	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -643,14 +649,15 @@ func (s *ContainerService) Start(ctx context.Context, ownerID, containerID uuid.
 	return err
 }
 
-func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.UUID) error {
+func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if c.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return err
 	}
+	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -686,14 +693,15 @@ func (s *ContainerService) Stop(ctx context.Context, ownerID, containerID uuid.U
 	return err
 }
 
-func (s *ContainerService) Delete(ctx context.Context, ownerID, containerID uuid.UUID) error {
+func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
 	}
-	if c.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return err
 	}
+	ownerID := c.OwnerID
 	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusDeleting)
 	s.createContainerOperation(ctx, containerID, ownerID, model.OperationDelete)
 
@@ -749,8 +757,16 @@ func userNetworkName(ownerID uuid.UUID) string {
 	return fmt.Sprintf("net_user_%s", ownerID.String())
 }
 
-func (s *ContainerService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
-	return s.repo.GetByOwnerID(ctx, ownerID)
+func (s *ContainerService) List(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.List(ctx, model.ListOptions{
+		OwnerID: scope.OwnerFilter(),
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func (s *ContainerService) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
@@ -1005,108 +1021,17 @@ func resourceUnavailableError(resource string) error {
 	return apperrors.New(apperrors.ErrConflict, resource+" is missing in Docker and can only be deleted")
 }
 
-func (s *ContainerService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
-	return s.repo.GetAllPaginated(ctx, limit, offset)
-}
-
-func (s *ContainerService) AdminDelete(ctx context.Context, containerID uuid.UUID) error {
-	c, err := s.repo.GetByID(ctx, containerID)
-	if err != nil {
-		return err
+func (s *ContainerService) Action(ctx context.Context, containerID uuid.UUID, action string) error {
+	switch action {
+	case "start":
+		return s.Start(ctx, containerID)
+	case "stop":
+		return s.Stop(ctx, containerID)
+	case "delete":
+		return s.Delete(ctx, containerID)
+	default:
+		return fmt.Errorf("%w: invalid container action", apperrors.ErrBadRequest)
 	}
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusDeleting)
-	s.createContainerOperation(ctx, containerID, c.OwnerID, model.OperationDelete)
-	if c.DockerID != "" {
-		if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !isDockerNotFound(err) {
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return err
-		}
-	}
-	if err := s.repo.Delete(ctx, containerID); err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return err
-	}
-	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-	s.cleanupUserNetworkIfUnused(ctx, c.OwnerID)
-	s.refreshProjectStatus(ctx, c.ProjectID)
-	return nil
-}
-
-func (s *ContainerService) AdminStart(ctx context.Context, containerID uuid.UUID) error {
-	c, err := s.repo.GetByID(ctx, containerID)
-	if err != nil {
-		return err
-	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
-	}
-	unlock, err := s.acquireOwnerCapacityLock(ctx, c.OwnerID)
-	if err != nil {
-		return err
-	}
-	if unlock != nil {
-		defer unlock()
-	}
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusRunning)
-	s.createContainerOperation(ctx, containerID, c.OwnerID, model.OperationStart)
-	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
-		if isDockerNotFound(err) {
-			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return resourceUnavailableError("container")
-		}
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return err
-	}
-	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning)
-	if err == nil {
-		s.logger.InfoContext(ctx, "container started by admin", "container_id", containerID)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-		s.RequestRebalance()
-		s.refreshProjectStatus(ctx, c.ProjectID)
-	} else {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-	}
-	return err
-}
-
-func (s *ContainerService) AdminStop(ctx context.Context, containerID uuid.UUID) error {
-	c, err := s.repo.GetByID(ctx, containerID)
-	if err != nil {
-		return err
-	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
-	}
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusExited)
-	s.createContainerOperation(ctx, containerID, c.OwnerID, model.OperationStop)
-	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
-		if !isDockerNotFound(err) {
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return err
-		}
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return resourceUnavailableError("container")
-	}
-	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
-	if err == nil {
-		s.logger.InfoContext(ctx, "container stopped by admin", "container_id", containerID)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-		s.RequestRebalance()
-		s.refreshProjectStatus(ctx, c.ProjectID)
-	} else {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-	}
-	return err
 }
 
 func (s *ContainerService) refreshProjectStatus(ctx context.Context, projectID *uuid.UUID) {
@@ -1118,31 +1043,12 @@ func (s *ContainerService) refreshProjectStatus(ctx context.Context, projectID *
 	}
 }
 
-func (s *ContainerService) GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (model.ContainerStats, error) {
+func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return model.ContainerStats{}, err
 	}
-	if c.OwnerID != ownerID {
-		return model.ContainerStats{}, apperrors.ErrNotFound
-	}
-	if c.Status == model.ContainerStatusMissing {
-		return model.ContainerStats{}, resourceUnavailableError("container")
-	}
-	if c.Status != model.ContainerStatusRunning {
-		return model.ContainerStats{}, nil
-	}
-	stats, err := s.dockerAPI.GetContainerStats(ctx, c.DockerID)
-	if err != nil && isDockerNotFound(err) {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return model.ContainerStats{}, resourceUnavailableError("container")
-	}
-	return stats, err
-}
-
-func (s *ContainerService) AdminGetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
-	c, err := s.repo.GetByID(ctx, containerID)
-	if err != nil {
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return model.ContainerStats{}, err
 	}
 	if c.Status == model.ContainerStatusMissing {

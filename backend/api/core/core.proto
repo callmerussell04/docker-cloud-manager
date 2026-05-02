@@ -9,48 +9,35 @@ service ContainerAPI {
   rpc StartContainer (ContainerActionRequest) returns (Empty);
   rpc StopContainer (ContainerActionRequest) returns (Empty);
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
-  rpc GetUserContainers (GetUserRequest) returns (ContainerListResponse);
+  rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
-  rpc GetAllContainers (PaginationRequest) returns (PaginatedContainerResponse);
-  rpc AdminActionContainer (ContainerActionRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
-  rpc AdminGetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
 }
 
 service ImageAPI {
-  rpc GetUserImages (GetUserRequest) returns (ImageListResponse);
+  rpc ListImages (PaginationRequest) returns (PaginatedImageResponse);
   rpc DeleteImage (ImageActionRequest) returns (Empty);
   rpc InitBuildRecord (InitBuildRequest) returns (InitBuildResponse);
   rpc CreateBuildJob (CreateBuildJobRequest) returns (InitBuildResponse);
   rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
   rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
-  rpc GetUserBuilds (GetUserRequest) returns (BuildListResponse);
+  rpc ListBuilds (PaginationRequest) returns (PaginatedBuildResponse);
   rpc GetBuild (BuildActionRequest) returns (BuildData);
   rpc DeleteBuild (BuildActionRequest) returns (Empty);
-  rpc GetAllImages (PaginationRequest) returns (PaginatedImageResponse);
-  rpc AdminDeleteImage (ImageActionRequest) returns (Empty);
-  rpc GetAllBuilds (PaginationRequest) returns (PaginatedBuildResponse);
-  rpc AdminDeleteBuild (BuildActionRequest) returns (Empty);
 }
 
 service VolumeAPI {
   rpc CreateVolume (CreateVolumeRequest) returns (CreateVolumeResponse);
   rpc DeleteVolume (VolumeActionRequest) returns (Empty);
-  rpc GetUserVolumes (GetUserRequest) returns (VolumeListResponse);
-  rpc GetAllVolumes (PaginationRequest) returns (PaginatedVolumeResponse);
-  rpc AdminDeleteVolume (VolumeActionRequest) returns (Empty);
+  rpc ListVolumes (PaginationRequest) returns (PaginatedVolumeResponse);
 }
 
 service ProjectAPI {
-  rpc GetUserProjects (GetUserRequest) returns (ProjectListResponse);
+  rpc ListProjects (PaginationRequest) returns (PaginatedProjectResponse);
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
   rpc StartProject (ProjectActionRequest) returns (Empty);
   rpc StopProject (ProjectActionRequest) returns (Empty);
-  rpc GetAllProjects (PaginationRequest) returns (PaginatedProjectResponse);
-  rpc AdminDeleteProject (ProjectActionRequest) returns (Empty);
-  rpc AdminStartProject (ProjectActionRequest) returns (Empty);
-  rpc AdminStopProject (ProjectActionRequest) returns (Empty);
 
 }
 
@@ -60,7 +47,7 @@ service SystemAPI {
 }
 
 service StatsAPI {
-  rpc GetUserStats (GetUserRequest) returns (UserStatsResponse);
+  rpc GetUserStats (Empty) returns (UserStatsResponse);
 }
 
 message UserStatsResponse {
@@ -90,7 +77,8 @@ message VolumeMount {
 }
 
 message CreateContainerRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string name = 2;
   string image_tag = 3;
   int32 internal_port = 4;
@@ -104,13 +92,15 @@ message CreateContainerResponse {
 }
 
 message ContainerActionRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string container_id = 2;
   string action = 3;
 }
 
 message ExposeRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string container_id = 2;
   string domain_prefix = 3;
   int32 internal_port = 4;
@@ -136,18 +126,21 @@ message ContainerListResponse {
 }
 
 message ImageActionRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string image_id = 2;
 }
 
 message InitBuildRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string tag = 2;
   string log_file_path = 3;
 }
 
 message CreateBuildJobRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string tag = 2;
   string archive_object_key = 3;
   string log_object_key = 4;
@@ -193,7 +186,8 @@ message ImageListResponse {
 }
 
 message CreateVolumeRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string name = 2;
   reserved 3, 4;
   reserved "driver", "driver_opts";
@@ -204,7 +198,8 @@ message CreateVolumeResponse {
 }
 
 message VolumeActionRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string volume_id = 2;
 }
 
@@ -226,7 +221,8 @@ message VolumeListResponse {
 }
 
 message BuildActionRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string build_id = 2;
 }
 
@@ -261,7 +257,8 @@ message ProjectListResponse {
 }
 
 message ProjectActionRequest {
-  string owner_id = 1;
+  reserved 1;
+  reserved "owner_id";
   string project_id = 2;
 }
 

@@ -4,11 +4,12 @@ import (
 	"context"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/google/uuid"
 )
 
 type StatsImageRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Image, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
@@ -39,7 +40,11 @@ func NewStatsService(
 	}
 }
 
-func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (model.UserStats, error) {
+func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return model.UserStats{}, err
+	}
 	var stats model.UserStats
 
 	cfg := s.cfg.Get()
@@ -51,10 +56,19 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (mod
 		return model.UserStats{}, err
 	}
 	stats.RamQuotaBytes = user.QuotaRAMMB * 1024 * 1024
-	stats.RamUsedBytes, _ = s.contRepo.GetUserReservedMemory(ctx, ownerID)
+	stats.RamUsedBytes, err = s.contRepo.GetUserReservedMemory(ctx, ownerID)
+	if err != nil {
+		return model.UserStats{}, err
+	}
 
-	stats.ContainersTotal, _ = s.contRepo.CountByOwnerID(ctx, ownerID)
-	containers, _ := s.contRepo.GetByOwnerID(ctx, ownerID)
+	stats.ContainersTotal, err = s.contRepo.CountByOwnerID(ctx, ownerID)
+	if err != nil {
+		return model.UserStats{}, err
+	}
+	containers, _, err := s.contRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
+	if err != nil {
+		return model.UserStats{}, err
+	}
 	for _, c := range containers {
 		if c.Status == model.ContainerStatusRunning {
 			stats.ContainersRunning++
@@ -62,20 +76,35 @@ func (s *StatsService) GetUserStats(ctx context.Context, ownerID uuid.UUID) (mod
 	}
 
 	stats.DiskQuotaMB = int(user.QuotaDiskMB)
-	diskUsed, _ := s.imgRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	diskUsed, err := s.imgRepo.GetUserUsedDiskSpace(ctx, ownerID)
+	if err != nil {
+		return model.UserStats{}, err
+	}
 	if volumeRepo, ok := s.volRepo.(volumeDiskUsageRepository); ok {
-		volumeBytes, _ := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		volumeBytes, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		if err != nil {
+			return model.UserStats{}, err
+		}
 		diskUsed += bytesToMBRoundedUp(volumeBytes)
 	}
 	stats.DiskUsedMB = int(diskUsed)
 
-	images, _ := s.imgRepo.GetByOwnerID(ctx, ownerID)
-	stats.ImagesTotal = len(images)
+	_, imagesTotal, err := s.imgRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
+	if err != nil {
+		return model.UserStats{}, err
+	}
+	stats.ImagesTotal = imagesTotal
 
-	stats.VolumesTotal, _ = s.volRepo.CountByOwnerID(ctx, ownerID)
+	stats.VolumesTotal, err = s.volRepo.CountByOwnerID(ctx, ownerID)
+	if err != nil {
+		return model.UserStats{}, err
+	}
 
-	projects, _ := s.projRepo.GetByOwnerID(ctx, ownerID)
-	stats.ProjectsTotal = len(projects)
+	_, projectsTotal, err := s.projRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
+	if err != nil {
+		return model.UserStats{}, err
+	}
+	stats.ProjectsTotal = projectsTotal
 
 	return stats, nil
 }

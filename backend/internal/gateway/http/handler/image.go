@@ -9,36 +9,39 @@ import (
 )
 
 type ImageService interface {
-	GetUserImages(ctx context.Context, ownerID string) ([]model.Image, error)
-	DeleteImage(ctx context.Context, ownerID, imageID string) error
+	DeleteImage(ctx context.Context, imageID string) error
 	GetAllImages(ctx context.Context, page, limit int) (model.PaginatedImages, error)
-	AdminDeleteImage(ctx context.Context, imageID string) error
 }
 
 func (h *CoreHandler) GetImages(c *gin.Context) {
-	userID := c.GetString("user_id")
-
-	images, err := h.service.GetUserImages(c.Request.Context(), userID)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.GetAllImages(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
+	images := resp.Images
 	if images == nil {
-		images = make([]model.Image, 0)
+		images = []model.Image{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"images": imagesToUserDTO(images)})
+	c.JSON(http.StatusOK, gin.H{
+		"images":      imagesToUserDTO(images),
+		"total_count": resp.TotalCount,
+	})
 }
 
 func (h *CoreHandler) DeleteImage(c *gin.Context) {
-	userID := c.GetString("user_id")
 	imageID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
-	err := h.service.DeleteImage(c.Request.Context(), userID, imageID)
+	err := h.service.DeleteImage(c.Request.Context(), imageID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -68,7 +71,7 @@ func (h *CoreHandler) AdminDeleteImage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	err := h.service.AdminDeleteImage(c.Request.Context(), imageID)
+	err := h.service.DeleteImage(c.Request.Context(), imageID)
 	if err != nil {
 		h.handleError(c, err)
 		return

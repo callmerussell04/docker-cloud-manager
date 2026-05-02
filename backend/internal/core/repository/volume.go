@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -64,25 +65,6 @@ func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Vol
 		return model.Volume{}, err
 	}
 	return v, nil
-}
-
-func (r *VolumeRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error) {
-	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE owner_id = $1`
-	rows, err := r.db.QueryContext(ctx, query, ownerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var volumes []model.Volume
-	for rows.Next() {
-		v, err := scanVolume(rows)
-		if err != nil {
-			return nil, err
-		}
-		volumes = append(volumes, v)
-	}
-	return volumes, rows.Err()
 }
 
 func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
@@ -236,19 +218,26 @@ func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UU
 	return volumes, rows.Err()
 }
 
-func (r *VolumeRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error) {
+func (r *VolumeRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Volume, int, error) {
+	var args []any
+	where := ""
+	if opts.OwnerID != nil {
+		args = append(args, *opts.OwnerID)
+		where = " WHERE owner_id = $1"
+	}
+
 	var total int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM volumes`).Scan(&total)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM volumes`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	query := `
-		SELECT v.id, v.owner_id, v.project_id, v.docker_name, v.driver, v.driver_opts, v.status, v.last_observed_at, v.last_error, v.used_bytes, v.usage_observed_at, v.created_at
-		FROM volumes v
-		ORDER BY v.created_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	query := `SELECT ` + volumeColumns + ` FROM volumes` + where + ` ORDER BY created_at DESC`
+	if opts.Limit > 0 {
+		args = append(args, opts.Limit, opts.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}

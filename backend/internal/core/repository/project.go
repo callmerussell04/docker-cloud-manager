@@ -68,38 +68,6 @@ func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Pr
 	return p, nil
 }
 
-func (r *ProjectRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
-	query := `
-		SELECT id, owner_id, name, status, error_message, created_at 
-		FROM projects 
-		WHERE owner_id = $1 
-		ORDER BY created_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, ownerID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var projects []model.Project
-	for rows.Next() {
-		var p model.Project
-		var errMsg sql.NullString
-
-		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-
-		if errMsg.Valid {
-			p.ErrorMessage = &errMsg.String
-		}
-
-		projects = append(projects, p)
-	}
-	return projects, rows.Err()
-}
-
 func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	query := `
 		UPDATE projects 
@@ -271,19 +239,28 @@ func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
+func (r *ProjectRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error) {
+	var args []any
+	where := ""
+	if opts.OwnerID != nil {
+		args = append(args, *opts.OwnerID)
+		where = " WHERE owner_id = $1"
+	}
+
 	var total int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&total)
-	if err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	query := `
-		SELECT p.id, p.owner_id, p.name, p.status, p.error_message, p.created_at
-		FROM projects p
-		ORDER BY p.created_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+		SELECT id, owner_id, name, status, error_message, created_at
+		FROM projects` + where + ` ORDER BY created_at DESC`
+	if opts.Limit > 0 {
+		args = append(args, opts.Limit, opts.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -291,15 +268,23 @@ func (r *ProjectRepository) GetAllPaginated(ctx context.Context, limit, offset i
 
 	var projects []model.Project
 	for rows.Next() {
-		var p model.Project
-		var errMsg sql.NullString
-		if err := rows.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
+		p, err := scanProject(rows)
+		if err != nil {
 			return nil, 0, err
-		}
-		if errMsg.Valid {
-			p.ErrorMessage = &errMsg.String
 		}
 		projects = append(projects, p)
 	}
 	return projects, total, rows.Err()
+}
+
+func scanProject(s scanner) (model.Project, error) {
+	var p model.Project
+	var errMsg sql.NullString
+	if err := s.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Status, &errMsg, &p.CreatedAt); err != nil {
+		return model.Project{}, err
+	}
+	if errMsg.Valid {
+		p.ErrorMessage = &errMsg.String
+	}
+	return p, nil
 }

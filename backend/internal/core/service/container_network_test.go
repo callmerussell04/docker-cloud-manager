@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/google/uuid"
 )
 
@@ -45,8 +46,8 @@ func TestContainerServiceCleanupUserNetworkIfUnusedKeepsNetwork(t *testing.T) {
 	}
 }
 
-func TestContainerServiceAdminDeleteCleansUserNetwork(t *testing.T) {
-	ctx := context.Background()
+func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
+	ctx := accessscope.WithAdminScope(context.Background(), uuid.New(), "", "admin")
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	repo := &containerCleanupRepoFake{
@@ -55,8 +56,8 @@ func TestContainerServiceAdminDeleteCleansUserNetwork(t *testing.T) {
 	dockerAPI := &containerCleanupDockerFake{}
 	svc := &ContainerService{repo: repo, dockerAPI: dockerAPI, logger: slog.Default()}
 
-	if err := svc.AdminDelete(ctx, containerID); err != nil {
-		t.Fatalf("AdminDelete() error = %v", err)
+	if err := svc.Delete(ctx, containerID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
 	}
 
 	if len(dockerAPI.removedNetworks) != 1 {
@@ -80,13 +81,6 @@ func (f *containerCleanupRepoFake) GetByID(ctx context.Context, id uuid.UUID) (m
 		return f.container, nil
 	}
 	return model.Container{}, errors.New("not found")
-}
-
-func (f *containerCleanupRepoFake) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
-	if f.container.OwnerID == ownerID {
-		return []model.Container{f.container}, nil
-	}
-	return nil, nil
 }
 
 func (f *containerCleanupRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
@@ -138,8 +132,14 @@ func (f *containerCleanupRepoFake) CheckDomainPrefixExists(ctx context.Context, 
 	return false, nil
 }
 
-func (f *containerCleanupRepoFake) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
-	return nil, 0, nil
+func (f *containerCleanupRepoFake) List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error) {
+	if opts.OwnerID != nil && f.container.OwnerID != *opts.OwnerID {
+		return nil, 0, nil
+	}
+	if f.container.ID == uuid.Nil {
+		return nil, 0, nil
+	}
+	return []model.Container{f.container}, 1, nil
 }
 
 func (f *containerCleanupRepoFake) SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error {

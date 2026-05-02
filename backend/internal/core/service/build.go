@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -20,10 +21,9 @@ type BuildRepository interface {
 	Save(ctx context.Context, b model.Build) error
 	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
-	GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Build, int, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error)
 }
 
 type BuildImageRepository interface {
@@ -79,7 +79,11 @@ func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID)
 	return usedMB, nil
 }
 
-func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error) {
+func (s *BuildService) InitBuildRecord(ctx context.Context, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
 	if err := validation.ImageTag(tag); err != nil {
 		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -131,7 +135,11 @@ func (s *BuildService) InitBuildRecord(ctx context.Context, ownerID uuid.UUID, t
 	return buildID, imageID, nil
 }
 
-func (s *BuildService) CreateBuildJob(ctx context.Context, ownerID uuid.UUID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
+func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
 	if err := validation.ImageTag(tag); err != nil {
 		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -294,36 +302,38 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	return nil
 }
 
-func (s *BuildService) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
-	return s.repo.GetUserBuilds(ctx, ownerID)
+func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return model.Build{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
+		return model.Build{}, err
+	}
+	return b, nil
 }
 
-func (s *BuildService) GetBuildByID(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
-	return s.repo.GetByID(ctx, buildID)
-}
-
-func (s *BuildService) DeleteBuild(ctx context.Context, ownerID, buildID uuid.UUID) error {
+func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error {
 	b, err := s.repo.GetByID(ctx, buildID)
 	if err != nil {
 		return err
 	}
-	if b.OwnerID != ownerID {
-		return apperrors.ErrNotFound
-	}
-
-	return s.repo.Delete(ctx, buildID)
-}
-
-func (s *BuildService) GetAllPaginatedBuilds(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
-	return s.repo.GetAllPaginated(ctx, limit, offset)
-}
-
-func (s *BuildService) AdminDeleteBuild(ctx context.Context, buildID uuid.UUID) error {
-	_, err := s.repo.GetByID(ctx, buildID)
-	if err != nil {
+	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
 	}
 	return s.repo.Delete(ctx, buildID)
+}
+
+func (s *BuildService) List(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.List(ctx, model.ListOptions{
+		OwnerID: scope.OwnerFilter(),
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func normalizeFailedBuildStatus(status string) string {

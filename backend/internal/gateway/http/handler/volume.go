@@ -13,15 +13,12 @@ import (
 )
 
 type VolumeService interface {
-	CreateVolume(ctx context.Context, ownerID string, input model.CreateVolumeInput) (string, error)
-	DeleteVolume(ctx context.Context, ownerID, volumeID string) error
-	GetUserVolumes(ctx context.Context, ownerID string) ([]model.Volume, error)
+	CreateVolume(ctx context.Context, input model.CreateVolumeInput) (string, error)
+	DeleteVolume(ctx context.Context, volumeID string) error
 	GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
-	AdminDeleteVolume(ctx context.Context, volumeID string) error
 }
 
 func (h *CoreHandler) CreateVolume(c *gin.Context) {
-	userID := c.GetString("user_id")
 	var createVolumeDTO dto.CreateVolumeDTO
 
 	if err := c.ShouldBindJSON(&createVolumeDTO); err != nil {
@@ -33,7 +30,7 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 		return
 	}
 
-	volumeID, err := h.service.CreateVolume(c.Request.Context(), userID, createVolumeInputFromDTO(createVolumeDTO))
+	volumeID, err := h.service.CreateVolume(c.Request.Context(), createVolumeInputFromDTO(createVolumeDTO))
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -43,29 +40,34 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetVolumes(c *gin.Context) {
-	userID := c.GetString("user_id")
-
-	volumes, err := h.service.GetUserVolumes(c.Request.Context(), userID)
+	page, limit, ok := getPaginationParams(c)
+	if !ok {
+		return
+	}
+	resp, err := h.service.GetAllVolumes(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
+	volumes := resp.Volumes
 	if volumes == nil {
-		volumes = make([]model.Volume, 0)
+		volumes = []model.Volume{}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"volumes": volumesToUserDTO(volumes)})
+	c.JSON(http.StatusOK, gin.H{
+		"volumes":     volumesToUserDTO(volumes),
+		"total_count": resp.TotalCount,
+	})
 }
 
 func (h *CoreHandler) DeleteVolume(c *gin.Context) {
-	userID := c.GetString("user_id")
 	volumeID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
-	err := h.service.DeleteVolume(c.Request.Context(), userID, volumeID)
+	err := h.service.DeleteVolume(c.Request.Context(), volumeID)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -95,7 +97,7 @@ func (h *CoreHandler) AdminDeleteVolume(c *gin.Context) {
 	if !ok {
 		return
 	}
-	err := h.service.AdminDeleteVolume(c.Request.Context(), volumeID)
+	err := h.service.DeleteVolume(c.Request.Context(), volumeID)
 	if err != nil {
 		h.handleError(c, err)
 		return

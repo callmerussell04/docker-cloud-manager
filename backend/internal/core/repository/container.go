@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -378,47 +379,43 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ContainerRepository) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
+func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error) {
+	var args []any
+	where := ""
+	if opts.OwnerID != nil {
+		args = append(args, *opts.OwnerID)
+		where = " WHERE owner_id = $1"
+	}
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM containers`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error, docker_generation
-		FROM containers WHERE owner_id = $1
-	`
-	rows, err := r.db.QueryContext(ctx, query, ownerID)
+			status, desired_status, base_memory_reservation, last_observed_at, last_error, docker_generation, created_at
+		FROM containers` + where + ` ORDER BY created_at DESC`
+	if opts.Limit > 0 {
+		args = append(args, opts.Limit, opts.Offset)
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
 	var containers []model.Container
 	for rows.Next() {
-		var c model.Container
-		var projectID sql.NullString
-		var dockerID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-		if err := rows.Scan(
-			&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &c.DockerGeneration,
-		); err != nil {
-			return nil, err
-		}
-		if projectID.Valid {
-			parsed, _ := uuid.Parse(projectID.String)
-			c.ProjectID = &parsed
-		}
-		if dockerID.Valid {
-			c.DockerID = dockerID.String
-		}
-		if lastObservedAt.Valid {
-			c.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			c.LastError = &lastError.String
+		c, err := scanContainerListItem(rows)
+		if err != nil {
+			return nil, 0, err
 		}
 		containers = append(containers, c)
 	}
-	return containers, rows.Err()
+	return containers, total, rows.Err()
 }
 
 func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
@@ -572,58 +569,6 @@ func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefi
 	var exists bool
 	err := r.db.QueryRowContext(ctx, query, prefix).Scan(&exists)
 	return exists, err
-}
-
-func (r *ContainerRepository) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
-	var total int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM containers`).Scan(&total)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	query := `
-		SELECT c.id, c.owner_id, c.project_id, c.docker_id, c.name, c.image_tag, c.internal_port,
-			c.domain_prefix, c.status, c.desired_status, c.base_memory_reservation, c.last_observed_at,
-			c.last_error, c.docker_generation, c.created_at
-		FROM containers c
-		ORDER BY c.created_at DESC LIMIT $1 OFFSET $2
-	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var containers []model.Container
-	for rows.Next() {
-		var c model.Container
-		var projectID sql.NullString
-		var dockerID sql.NullString
-		var lastObservedAt sql.NullTime
-		var lastError sql.NullString
-		if err := rows.Scan(
-			&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort,
-			&c.DomainPrefix, &c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt,
-			&lastError, &c.DockerGeneration, &c.CreatedAt,
-		); err != nil {
-			return nil, 0, err
-		}
-		if projectID.Valid {
-			parsed, _ := uuid.Parse(projectID.String)
-			c.ProjectID = &parsed
-		}
-		if dockerID.Valid {
-			c.DockerID = dockerID.String
-		}
-		if lastObservedAt.Valid {
-			c.LastObservedAt = &lastObservedAt.Time
-		}
-		if lastError.Valid {
-			c.LastError = &lastError.String
-		}
-		containers = append(containers, c)
-	}
-	return containers, total, rows.Err()
 }
 
 func (r *ContainerRepository) SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error {
@@ -847,4 +792,32 @@ func insertResourceOperationTx(ctx context.Context, tx *sql.Tx, op model.Resourc
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, op.ID, op.ResourceType, op.ResourceID, op.OwnerID, op.Operation, op.Status, op.Attempts, lastError)
 	return err
+}
+
+func scanContainerListItem(s scanner) (model.Container, error) {
+	var c model.Container
+	var projectID sql.NullString
+	var dockerID sql.NullString
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
+	if err := s.Scan(
+		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
+		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &c.DockerGeneration, &c.CreatedAt,
+	); err != nil {
+		return model.Container{}, err
+	}
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		c.ProjectID = &parsed
+	}
+	if dockerID.Valid {
+		c.DockerID = dockerID.String
+	}
+	if lastObservedAt.Valid {
+		c.LastObservedAt = &lastObservedAt.Time
+	}
+	if lastError.Valid {
+		c.LastError = &lastError.String
+	}
+	return c, nil
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/google/uuid"
 )
@@ -16,10 +17,10 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	users := &buildUsersFake{quotaDiskMB: 1024}
 	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil)
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
 	buildID, imageID, err := svc.CreateBuildJob(
-		context.Background(),
-		ownerID,
+		ctx,
 		"demo-app",
 		"build-archives/source.zip",
 		"build-logs/source.log",
@@ -109,14 +110,11 @@ func (f *buildRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status s
 	f.build.Status = status
 	return nil
 }
-func (f *buildRepoFake) GetUserBuilds(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
-	return nil, nil
-}
 func (f *buildRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	return f.build, nil
 }
 func (f *buildRepoFake) Delete(ctx context.Context, id uuid.UUID) error { return nil }
-func (f *buildRepoFake) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
+func (f *buildRepoFake) List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error) {
 	return nil, 0, nil
 }
 

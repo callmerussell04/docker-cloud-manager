@@ -9,13 +9,11 @@ import (
 )
 
 type StatsService interface {
-	GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error)
+	GetUserStats(ctx context.Context) (model.UserStats, error)
 }
 
 func (h *CoreHandler) GetUserStats(c *gin.Context) {
-	userID := c.GetString("user_id")
-
-	stats, err := h.service.GetUserStats(c.Request.Context(), userID)
+	stats, err := h.service.GetUserStats(c.Request.Context())
 	if err != nil {
 		h.handleError(c, err)
 		return

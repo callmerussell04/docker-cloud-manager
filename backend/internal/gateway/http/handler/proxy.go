@@ -18,7 +18,7 @@ import (
 )
 
 type BuildOwnerService interface {
-	GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error)
+	GetBuild(ctx context.Context, buildID string) (model.Build, error)
 }
 
 type ProxyOptions struct {
@@ -46,18 +46,17 @@ func NewAuthorizedBuildProxyHandler(opts ProxyOptions, buildService BuildOwnerSe
 	}
 
 	return func(c *gin.Context) {
-		userID := c.GetString("user_id")
 		buildID, ok := pathUUID(c, "id")
 		if !ok {
 			return
 		}
 
-		build, err := buildService.GetBuild(c.Request.Context(), userID, buildID)
+		build, err := buildService.GetBuild(c.Request.Context(), buildID)
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
 		}
-		if build.ID == "" || (build.OwnerID != "" && build.OwnerID != userID) {
+		if build.ID == "" {
 			httpresponse.Respond(c, httpresponse.Status(apperrors.ErrNotFound), apperrors.ErrNotFound)
 			return
 		}
@@ -94,7 +93,7 @@ func newGatewayProxy(opts ProxyOptions) (*httputil.ReverseProxy, error) {
 
 func prepareProxyRequest(c *gin.Context, internalToken string) {
 	clearProxyIdentityHeaders(c.Request.Header)
-	c.Request.Header.Set("X-User-Id", c.GetString("user_id"))
+	internalauth.SetScopeHeadersFromContext(c.Request.Header, c.Request.Context())
 	c.Request.Header.Set(internalauth.HeaderName, internalToken)
 	if requestID := logging.RequestIDFromContext(c.Request.Context()); requestID != "" {
 		c.Request.Header.Set(logging.RequestIDHeader, requestID)
@@ -104,7 +103,10 @@ func prepareProxyRequest(c *gin.Context, internalToken string) {
 func clearProxyIdentityHeaders(header http.Header) {
 	header.Del("Authorization")
 	header.Del("Cookie")
-	header.Del("X-User-Id")
+	header.Del(internalauth.HeaderUserID)
+	header.Del(internalauth.HeaderUsername)
+	header.Del(internalauth.HeaderRole)
+	header.Del(internalauth.HeaderScope)
 	header.Del(internalauth.HeaderName)
 	header.Del("X-Forwarded-User")
 	header.Del("X-Forwarded-Email")

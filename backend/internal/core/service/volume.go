@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	cerrdefs "github.com/containerd/errdefs"
@@ -14,11 +15,10 @@ import (
 type VolumeRepository interface {
 	Save(ctx context.Context, vol model.Volume) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Volume, int, error)
 }
 
 type volumeDiskUsageRepository interface {
@@ -89,7 +89,11 @@ func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uu
 	return nil
 }
 
-func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params model.VolumeCreateParams) (uuid.UUID, error) {
+func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -141,14 +145,14 @@ func (s *VolumeService) Create(ctx context.Context, ownerID uuid.UUID, params mo
 	return volID, nil
 }
 
-func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID) error {
+func (s *VolumeService) Delete(ctx context.Context, volumeID uuid.UUID) error {
 	vol, err := s.repo.GetByID(ctx, volumeID)
 	if err != nil {
 		return err
 	}
 
-	if vol.OwnerID != ownerID {
-		return apperrors.ErrNotFound
+	if err := accessscope.RequireOwnerAccess(ctx, vol.OwnerID); err != nil {
+		return err
 	}
 
 	inUse, err := s.repo.IsVolumeInUse(ctx, volumeID)
@@ -168,35 +172,16 @@ func (s *VolumeService) Delete(ctx context.Context, ownerID, volumeID uuid.UUID)
 	return s.repo.Delete(ctx, volumeID)
 }
 
-func (s *VolumeService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Volume, error) {
-	return s.repo.GetByOwnerID(ctx, ownerID)
-}
-
-func (s *VolumeService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Volume, int, error) {
-	return s.repo.GetAllPaginated(ctx, limit, offset)
-}
-
-func (s *VolumeService) AdminDelete(ctx context.Context, volumeID uuid.UUID) error {
-	vol, err := s.repo.GetByID(ctx, volumeID)
+func (s *VolumeService) List(ctx context.Context, limit, offset int) ([]model.Volume, int, error) {
+	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-
-	inUse, err := s.repo.IsVolumeInUse(ctx, volumeID)
-	if err != nil {
-		return err
-	}
-	if inUse {
-		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
-	}
-	s.setVolumeStatus(ctx, volumeID, model.VolumeStatusDeleting)
-
-	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil && !cerrdefs.IsNotFound(err) {
-		s.markVolumeError(ctx, volumeID, model.VolumeStatusError, err)
-		return err
-	}
-
-	return s.repo.Delete(ctx, volumeID)
+	return s.repo.List(ctx, model.ListOptions{
+		OwnerID: scope.OwnerFilter(),
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func (s *VolumeService) setVolumeStatus(ctx context.Context, volumeID uuid.UUID, status string) {

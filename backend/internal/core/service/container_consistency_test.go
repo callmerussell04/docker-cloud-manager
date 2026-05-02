@@ -9,13 +9,14 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
 func TestContainerServiceExposeFailureKeepsOldContainer(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	containerID := uuid.New()
 	repo := &containerCleanupRepoFake{
 		container: model.Container{
@@ -46,7 +47,7 @@ func TestContainerServiceExposeFailureKeepsOldContainer(t *testing.T) {
 		rebalanceCh: make(chan struct{}, 1),
 	}
 
-	if err := svc.Expose(ctx, ownerID, containerID, "app", 8080); err == nil {
+	if err := svc.Expose(ctx, containerID, "app", 8080); err == nil {
 		t.Fatal("Expose() error = nil, want error")
 	}
 
@@ -56,8 +57,8 @@ func TestContainerServiceExposeFailureKeepsOldContainer(t *testing.T) {
 }
 
 func TestContainerServiceDeleteIgnoresMissingDockerContainer(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	containerID := uuid.New()
 	repo := &containerCleanupRepoFake{
 		container:      model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"},
@@ -72,7 +73,7 @@ func TestContainerServiceDeleteIgnoresMissingDockerContainer(t *testing.T) {
 		rebalanceCh: make(chan struct{}, 1),
 	}
 
-	if err := svc.Delete(ctx, ownerID, containerID); err != nil {
+	if err := svc.Delete(ctx, containerID); err != nil {
 		t.Fatalf("Delete() error = %v, want nil", err)
 	}
 	if repo.container.ID != uuid.Nil {
@@ -81,8 +82,8 @@ func TestContainerServiceDeleteIgnoresMissingDockerContainer(t *testing.T) {
 }
 
 func TestContainerServiceStopMarksMissingDockerContainerAndBlocksUse(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	containerID := uuid.New()
 	repo := &containerCleanupRepoFake{
 		container: model.Container{
@@ -102,7 +103,7 @@ func TestContainerServiceStopMarksMissingDockerContainerAndBlocksUse(t *testing.
 		rebalanceCh: make(chan struct{}, 1),
 	}
 
-	if err := svc.Stop(ctx, ownerID, containerID); err == nil {
+	if err := svc.Stop(ctx, containerID); err == nil {
 		t.Fatal("Stop() error = nil, want error")
 	}
 	if repo.container.Status != model.ContainerStatusMissing {
@@ -111,8 +112,8 @@ func TestContainerServiceStopMarksMissingDockerContainerAndBlocksUse(t *testing.
 }
 
 func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
-	ctx := context.Background()
 	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	containerID := uuid.New()
 	repo := &containerCleanupRepoFake{
 		container: model.Container{
@@ -132,7 +133,7 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 		rebalanceCh: make(chan struct{}, 1),
 	}
 
-	if err := svc.Start(ctx, ownerID, containerID); err == nil {
+	if err := svc.Start(ctx, containerID); err == nil {
 		t.Fatal("Start() error = nil, want error")
 	}
 	if dockerAPI.startCalls != 0 {
@@ -241,9 +242,6 @@ func (f *rebalancerRepoFake) Save(ctx context.Context, c model.Container) error 
 func (f *rebalancerRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	return model.Container{}, nil
 }
-func (f *rebalancerRepoFake) GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
-	return nil, nil
-}
 func (f *rebalancerRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	return nil
 }
@@ -275,7 +273,7 @@ func (f *rebalancerRepoFake) GetNonExited(ctx context.Context) ([]model.Containe
 func (f *rebalancerRepoFake) CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error) {
 	return false, nil
 }
-func (f *rebalancerRepoFake) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
+func (f *rebalancerRepoFake) List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error) {
 	return nil, 0, nil
 }
 

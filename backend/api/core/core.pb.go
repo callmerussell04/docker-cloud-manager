@@ -287,7 +287,6 @@ func (x *VolumeMount) GetIsReadonly() bool {
 
 type CreateContainerRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	ImageTag      string                 `protobuf:"bytes,3,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
 	InternalPort  int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
@@ -326,13 +325,6 @@ func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateContainerRequest.ProtoReflect.Descriptor instead.
 func (*CreateContainerRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *CreateContainerRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *CreateContainerRequest) GetName() string {
@@ -423,7 +415,6 @@ func (x *CreateContainerResponse) GetContainerId() string {
 
 type ContainerActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	ContainerId   string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	Action        string                 `protobuf:"bytes,3,opt,name=action,proto3" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -460,13 +451,6 @@ func (*ContainerActionRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ContainerActionRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
-}
-
 func (x *ContainerActionRequest) GetContainerId() string {
 	if x != nil {
 		return x.ContainerId
@@ -483,7 +467,6 @@ func (x *ContainerActionRequest) GetAction() string {
 
 type ExposeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	ContainerId   string                 `protobuf:"bytes,2,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
 	DomainPrefix  string                 `protobuf:"bytes,3,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
 	InternalPort  int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
@@ -519,13 +502,6 @@ func (x *ExposeRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ExposeRequest.ProtoReflect.Descriptor instead.
 func (*ExposeRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *ExposeRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *ExposeRequest) GetContainerId() string {
@@ -727,7 +703,6 @@ func (x *ContainerListResponse) GetContainers() []*ContainerData {
 
 type ImageActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	ImageId       string                 `protobuf:"bytes,2,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -763,13 +738,6 @@ func (*ImageActionRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ImageActionRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
-}
-
 func (x *ImageActionRequest) GetImageId() string {
 	if x != nil {
 		return x.ImageId
@@ -779,7 +747,6 @@ func (x *ImageActionRequest) GetImageId() string {
 
 type InitBuildRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	Tag           string                 `protobuf:"bytes,2,opt,name=tag,proto3" json:"tag,omitempty"`
 	LogFilePath   string                 `protobuf:"bytes,3,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -816,13 +783,6 @@ func (*InitBuildRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *InitBuildRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
-}
-
 func (x *InitBuildRequest) GetTag() string {
 	if x != nil {
 		return x.Tag
@@ -839,7 +799,6 @@ func (x *InitBuildRequest) GetLogFilePath() string {
 
 type CreateBuildJobRequest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId          string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	Tag              string                 `protobuf:"bytes,2,opt,name=tag,proto3" json:"tag,omitempty"`
 	ArchiveObjectKey string                 `protobuf:"bytes,3,opt,name=archive_object_key,json=archiveObjectKey,proto3" json:"archive_object_key,omitempty"`
 	LogObjectKey     string                 `protobuf:"bytes,4,opt,name=log_object_key,json=logObjectKey,proto3" json:"log_object_key,omitempty"`
@@ -879,13 +838,6 @@ func (x *CreateBuildJobRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateBuildJobRequest.ProtoReflect.Descriptor instead.
 func (*CreateBuildJobRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *CreateBuildJobRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *CreateBuildJobRequest) GetTag() string {
@@ -1263,7 +1215,6 @@ func (x *ImageListResponse) GetImages() []*ImageData {
 
 type CreateVolumeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1297,13 +1248,6 @@ func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateVolumeRequest.ProtoReflect.Descriptor instead.
 func (*CreateVolumeRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *CreateVolumeRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *CreateVolumeRequest) GetName() string {
@@ -1359,7 +1303,6 @@ func (x *CreateVolumeResponse) GetVolumeId() string {
 
 type VolumeActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	VolumeId      string                 `protobuf:"bytes,2,opt,name=volume_id,json=volumeId,proto3" json:"volume_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1393,13 +1336,6 @@ func (x *VolumeActionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use VolumeActionRequest.ProtoReflect.Descriptor instead.
 func (*VolumeActionRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{20}
-}
-
-func (x *VolumeActionRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *VolumeActionRequest) GetVolumeId() string {
@@ -1571,7 +1507,6 @@ func (x *VolumeListResponse) GetVolumes() []*VolumeData {
 
 type BuildActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	BuildId       string                 `protobuf:"bytes,2,opt,name=build_id,json=buildId,proto3" json:"build_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1605,13 +1540,6 @@ func (x *BuildActionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use BuildActionRequest.ProtoReflect.Descriptor instead.
 func (*BuildActionRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{23}
-}
-
-func (x *BuildActionRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *BuildActionRequest) GetBuildId() string {
@@ -1911,7 +1839,6 @@ func (x *ProjectListResponse) GetProjects() []*ProjectData {
 
 type ProjectActionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	OwnerId       string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	ProjectId     string                 `protobuf:"bytes,2,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1945,13 +1872,6 @@ func (x *ProjectActionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ProjectActionRequest.ProtoReflect.Descriptor instead.
 func (*ProjectActionRequest) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{28}
-}
-
-func (x *ProjectActionRequest) GetOwnerId() string {
-	if x != nil {
-		return x.OwnerId
-	}
-	return ""
 }
 
 func (x *ProjectActionRequest) GetProjectId() string {
@@ -2796,9 +2716,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"mount_path\x18\x02 \x01(\tR\tmountPath\x12\x1f\n" +
 	"\vis_readonly\x18\x03 \x01(\bR\n" +
-	"isReadonly\"\xe8\x02\n" +
-	"\x16CreateContainerRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x12\n" +
+	"isReadonly\"\xdd\x02\n" +
+	"\x16CreateContainerRequest\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
 	"\timage_tag\x18\x03 \x01(\tR\bimageTag\x12#\n" +
 	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\x12D\n" +
@@ -2807,18 +2726,16 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rdomain_prefix\x18\a \x01(\tR\fdomainPrefix\x1a:\n" +
 	"\fEnvVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"<\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x01\x10\x02R\bowner_id\"<\n" +
 	"\x17CreateContainerResponse\x12!\n" +
-	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"n\n" +
-	"\x16ContainerActionRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12!\n" +
+	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"c\n" +
+	"\x16ContainerActionRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12\x16\n" +
-	"\x06action\x18\x03 \x01(\tR\x06action\"\x97\x01\n" +
-	"\rExposeRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12!\n" +
+	"\x06action\x18\x03 \x01(\tR\x06actionJ\x04\b\x01\x10\x02R\bowner_id\"\x8c\x01\n" +
+	"\rExposeRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\"\xf6\x02\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xf6\x02\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -2838,16 +2755,13 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x15ContainerListResponse\x123\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\v2\x13.core.ContainerDataR\n" +
-	"containers\"J\n" +
+	"containers\"?\n" +
 	"\x12ImageActionRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x19\n" +
-	"\bimage_id\x18\x02 \x01(\tR\aimageId\"c\n" +
-	"\x10InitBuildRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x10\n" +
+	"\bimage_id\x18\x02 \x01(\tR\aimageIdJ\x04\b\x01\x10\x02R\bowner_id\"X\n" +
+	"\x10InitBuildRequest\x12\x10\n" +
 	"\x03tag\x18\x02 \x01(\tR\x03tag\x12\"\n" +
-	"\rlog_file_path\x18\x03 \x01(\tR\vlogFilePath\"\x81\x03\n" +
-	"\x15CreateBuildJobRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x10\n" +
+	"\rlog_file_path\x18\x03 \x01(\tR\vlogFilePathJ\x04\b\x01\x10\x02R\bowner_id\"\xf6\x02\n" +
+	"\x15CreateBuildJobRequest\x12\x10\n" +
 	"\x03tag\x18\x02 \x01(\tR\x03tag\x12,\n" +
 	"\x12archive_object_key\x18\x03 \x01(\tR\x10archiveObjectKey\x12$\n" +
 	"\x0elog_object_key\x18\x04 \x01(\tR\flogObjectKey\x12\x1f\n" +
@@ -2862,7 +2776,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"request_id\x18\b \x01(\tR\trequestId\x1a<\n" +
 	"\x0eBuildArgsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"I\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x01\x10\x02R\bowner_id\"I\n" +
 	"\x11InitBuildResponse\x12\x19\n" +
 	"\bimage_id\x18\x01 \x01(\tR\aimageId\x12\x19\n" +
 	"\bbuild_id\x18\x02 \x01(\tR\abuildId\"g\n" +
@@ -2887,15 +2801,13 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"last_error\x18\t \x01(\tR\tlastErrorJ\x04\b\x04\x10\x05R\tis_custom\"<\n" +
 	"\x11ImageListResponse\x12'\n" +
-	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"e\n" +
-	"\x13CreateVolumeRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04nameJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\x06driverR\vdriver_opts\"3\n" +
+	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"Z\n" +
+	"\x13CreateVolumeRequest\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04nameJ\x04\b\x01\x10\x02J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\bowner_idR\x06driverR\vdriver_opts\"3\n" +
 	"\x14CreateVolumeResponse\x12\x1b\n" +
-	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"M\n" +
-	"\x13VolumeActionRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x1b\n" +
-	"\tvolume_id\x18\x02 \x01(\tR\bvolumeId\"\xb8\x02\n" +
+	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"B\n" +
+	"\x13VolumeActionRequest\x12\x1b\n" +
+	"\tvolume_id\x18\x02 \x01(\tR\bvolumeIdJ\x04\b\x01\x10\x02R\bowner_id\"\xb8\x02\n" +
 	"\n" +
 	"VolumeData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
@@ -2914,10 +2826,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x11usage_observed_at\x18\n" +
 	" \x01(\x03R\x0fusageObservedAt\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
-	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"J\n" +
+	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildId\"\xf4\x01\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xf4\x01\n" +
 	"\tBuildData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
@@ -2943,11 +2854,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"last_error\x18\b \x01(\tR\tlastError\"D\n" +
 	"\x13ProjectListResponse\x12-\n" +
-	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\"P\n" +
-	"\x14ProjectActionRequest\x12\x19\n" +
-	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x1d\n" +
+	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\"E\n" +
+	"\x14ProjectActionRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectId\"=\n" +
+	"project_id\x18\x02 \x01(\tR\tprojectIdJ\x04\b\x01\x10\x02R\bowner_id\"=\n" +
 	"\x11PaginationRequest\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x05R\x05limit\"r\n" +
@@ -3030,54 +2940,43 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +
 	"\x12memory_limit_bytes\x18\x03 \x01(\x03R\x10memoryLimitBytes\x12(\n" +
 	"\x10network_rx_bytes\x18\x04 \x01(\x03R\x0enetworkRxBytes\x12(\n" +
-	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes2\xcb\x05\n" +
+	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes2\xe8\x03\n" +
 	"\fContainerAPI\x12N\n" +
 	"\x0fCreateContainer\x12\x1c.core.CreateContainerRequest\x1a\x1d.core.CreateContainerResponse\x12;\n" +
 	"\x0eStartContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12:\n" +
 	"\rStopContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12<\n" +
-	"\x0fDeleteContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12F\n" +
-	"\x11GetUserContainers\x12\x14.core.GetUserRequest\x1a\x1b.core.ContainerListResponse\x123\n" +
-	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty\x12M\n" +
-	"\x10GetAllContainers\x12\x17.core.PaginationRequest\x1a .core.PaginatedContainerResponse\x12A\n" +
-	"\x14AdminActionContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12O\n" +
-	"\x11GetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse\x12T\n" +
-	"\x16AdminGetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse2\x87\a\n" +
-	"\bImageAPI\x12>\n" +
-	"\rGetUserImages\x12\x14.core.GetUserRequest\x1a\x17.core.ImageListResponse\x124\n" +
+	"\x0fDeleteContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12K\n" +
+	"\x0eListContainers\x12\x17.core.PaginationRequest\x1a .core.PaginatedContainerResponse\x123\n" +
+	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty\x12O\n" +
+	"\x11GetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse2\x8d\x05\n" +
+	"\bImageAPI\x12C\n" +
+	"\n" +
+	"ListImages\x12\x17.core.PaginationRequest\x1a\x1c.core.PaginatedImageResponse\x124\n" +
 	"\vDeleteImage\x12\x18.core.ImageActionRequest\x1a\v.core.Empty\x12B\n" +
 	"\x0fInitBuildRecord\x12\x16.core.InitBuildRequest\x1a\x17.core.InitBuildResponse\x12F\n" +
 	"\x0eCreateBuildJob\x12\x1b.core.CreateBuildJobRequest\x1a\x17.core.InitBuildResponse\x12L\n" +
 	"\x10StartBuildRecord\x12\x18.core.BuildActionRequest\x1a\x1e.core.StartBuildRecordResponse\x12:\n" +
 	"\x11CancelBuildRecord\x12\x18.core.BuildActionRequest\x1a\v.core.Empty\x12>\n" +
-	"\x13CompleteBuildRecord\x12\x1a.core.CompleteBuildRequest\x1a\v.core.Empty\x12>\n" +
-	"\rGetUserBuilds\x12\x14.core.GetUserRequest\x1a\x17.core.BuildListResponse\x125\n" +
+	"\x13CompleteBuildRecord\x12\x1a.core.CompleteBuildRequest\x1a\v.core.Empty\x12C\n" +
+	"\n" +
+	"ListBuilds\x12\x17.core.PaginationRequest\x1a\x1c.core.PaginatedBuildResponse\x125\n" +
 	"\bGetBuild\x12\x18.core.BuildActionRequest\x1a\x0f.core.BuildData\x124\n" +
-	"\vDeleteBuild\x12\x18.core.BuildActionRequest\x1a\v.core.Empty\x12E\n" +
-	"\fGetAllImages\x12\x17.core.PaginationRequest\x1a\x1c.core.PaginatedImageResponse\x129\n" +
-	"\x10AdminDeleteImage\x12\x18.core.ImageActionRequest\x1a\v.core.Empty\x12E\n" +
-	"\fGetAllBuilds\x12\x17.core.PaginationRequest\x1a\x1c.core.PaginatedBuildResponse\x129\n" +
-	"\x10AdminDeleteBuild\x12\x18.core.BuildActionRequest\x1a\v.core.Empty2\xd2\x02\n" +
+	"\vDeleteBuild\x12\x18.core.BuildActionRequest\x1a\v.core.Empty2\xd1\x01\n" +
 	"\tVolumeAPI\x12E\n" +
 	"\fCreateVolume\x12\x19.core.CreateVolumeRequest\x1a\x1a.core.CreateVolumeResponse\x126\n" +
-	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12@\n" +
-	"\x0eGetUserVolumes\x12\x14.core.GetUserRequest\x1a\x18.core.VolumeListResponse\x12G\n" +
-	"\rGetAllVolumes\x12\x17.core.PaginationRequest\x1a\x1d.core.PaginatedVolumeResponse\x12;\n" +
-	"\x11AdminDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty2\x80\x04\n" +
+	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12E\n" +
+	"\vListVolumes\x12\x17.core.PaginationRequest\x1a\x1d.core.PaginatedVolumeResponse2\x80\x02\n" +
 	"\n" +
-	"ProjectAPI\x12B\n" +
-	"\x0fGetUserProjects\x12\x14.core.GetUserRequest\x1a\x19.core.ProjectListResponse\x128\n" +
+	"ProjectAPI\x12G\n" +
+	"\fListProjects\x12\x17.core.PaginationRequest\x1a\x1e.core.PaginatedProjectResponse\x128\n" +
 	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x127\n" +
 	"\fStartProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x126\n" +
-	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12I\n" +
-	"\x0eGetAllProjects\x12\x17.core.PaginationRequest\x1a\x1e.core.PaginatedProjectResponse\x12=\n" +
-	"\x12AdminDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12<\n" +
-	"\x11AdminStartProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x12;\n" +
-	"\x10AdminStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
+	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
 	"\tSystemAPI\x120\n" +
 	"\tGetConfig\x12\v.core.Empty\x1a\x16.core.SystemConfigData\x123\n" +
-	"\fUpdateConfig\x12\x16.core.SystemConfigData\x1a\v.core.Empty2I\n" +
-	"\bStatsAPI\x12=\n" +
-	"\fGetUserStats\x12\x14.core.GetUserRequest\x1a\x17.core.UserStatsResponseBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
+	"\fUpdateConfig\x12\x16.core.SystemConfigData\x1a\v.core.Empty2@\n" +
+	"\bStatsAPI\x124\n" +
+	"\fGetUserStats\x12\v.core.Empty\x1a\x17.core.UserStatsResponseBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
 
 var (
 	file_api_core_core_proto_rawDescOnce sync.Once
@@ -3151,84 +3050,58 @@ var file_api_core_core_proto_depIdxs = []int32{
 	6,  // 14: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
 	6,  // 15: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
 	6,  // 16: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
-	2,  // 17: core.ContainerAPI.GetUserContainers:input_type -> core.GetUserRequest
+	29, // 17: core.ContainerAPI.ListContainers:input_type -> core.PaginationRequest
 	7,  // 18: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
-	29, // 19: core.ContainerAPI.GetAllContainers:input_type -> core.PaginationRequest
-	6,  // 20: core.ContainerAPI.AdminActionContainer:input_type -> core.ContainerActionRequest
-	6,  // 21: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
-	6,  // 22: core.ContainerAPI.AdminGetContainerStats:input_type -> core.ContainerActionRequest
-	2,  // 23: core.ImageAPI.GetUserImages:input_type -> core.GetUserRequest
-	10, // 24: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
-	11, // 25: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
-	12, // 26: core.ImageAPI.CreateBuildJob:input_type -> core.CreateBuildJobRequest
-	23, // 27: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
-	23, // 28: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
-	15, // 29: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
-	2,  // 30: core.ImageAPI.GetUserBuilds:input_type -> core.GetUserRequest
-	23, // 31: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
-	23, // 32: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
-	29, // 33: core.ImageAPI.GetAllImages:input_type -> core.PaginationRequest
-	10, // 34: core.ImageAPI.AdminDeleteImage:input_type -> core.ImageActionRequest
-	29, // 35: core.ImageAPI.GetAllBuilds:input_type -> core.PaginationRequest
-	23, // 36: core.ImageAPI.AdminDeleteBuild:input_type -> core.BuildActionRequest
-	18, // 37: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	20, // 38: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	2,  // 39: core.VolumeAPI.GetUserVolumes:input_type -> core.GetUserRequest
-	29, // 40: core.VolumeAPI.GetAllVolumes:input_type -> core.PaginationRequest
-	20, // 41: core.VolumeAPI.AdminDeleteVolume:input_type -> core.VolumeActionRequest
-	2,  // 42: core.ProjectAPI.GetUserProjects:input_type -> core.GetUserRequest
-	28, // 43: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	28, // 44: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
-	28, // 45: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	29, // 46: core.ProjectAPI.GetAllProjects:input_type -> core.PaginationRequest
-	28, // 47: core.ProjectAPI.AdminDeleteProject:input_type -> core.ProjectActionRequest
-	28, // 48: core.ProjectAPI.AdminStartProject:input_type -> core.ProjectActionRequest
-	28, // 49: core.ProjectAPI.AdminStopProject:input_type -> core.ProjectActionRequest
-	1,  // 50: core.SystemAPI.GetConfig:input_type -> core.Empty
-	35, // 51: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	2,  // 52: core.StatsAPI.GetUserStats:input_type -> core.GetUserRequest
-	5,  // 53: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	1,  // 54: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	1,  // 55: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	1,  // 56: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	9,  // 57: core.ContainerAPI.GetUserContainers:output_type -> core.ContainerListResponse
-	1,  // 58: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	30, // 59: core.ContainerAPI.GetAllContainers:output_type -> core.PaginatedContainerResponse
-	1,  // 60: core.ContainerAPI.AdminActionContainer:output_type -> core.Empty
-	36, // 61: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
-	36, // 62: core.ContainerAPI.AdminGetContainerStats:output_type -> core.ContainerStatsResponse
-	17, // 63: core.ImageAPI.GetUserImages:output_type -> core.ImageListResponse
-	1,  // 64: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	13, // 65: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
-	13, // 66: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
-	14, // 67: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
-	1,  // 68: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
-	1,  // 69: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	25, // 70: core.ImageAPI.GetUserBuilds:output_type -> core.BuildListResponse
-	24, // 71: core.ImageAPI.GetBuild:output_type -> core.BuildData
-	1,  // 72: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	32, // 73: core.ImageAPI.GetAllImages:output_type -> core.PaginatedImageResponse
-	1,  // 74: core.ImageAPI.AdminDeleteImage:output_type -> core.Empty
-	33, // 75: core.ImageAPI.GetAllBuilds:output_type -> core.PaginatedBuildResponse
-	1,  // 76: core.ImageAPI.AdminDeleteBuild:output_type -> core.Empty
-	19, // 77: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	1,  // 78: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	22, // 79: core.VolumeAPI.GetUserVolumes:output_type -> core.VolumeListResponse
-	31, // 80: core.VolumeAPI.GetAllVolumes:output_type -> core.PaginatedVolumeResponse
-	1,  // 81: core.VolumeAPI.AdminDeleteVolume:output_type -> core.Empty
-	27, // 82: core.ProjectAPI.GetUserProjects:output_type -> core.ProjectListResponse
-	1,  // 83: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	1,  // 84: core.ProjectAPI.StartProject:output_type -> core.Empty
-	1,  // 85: core.ProjectAPI.StopProject:output_type -> core.Empty
-	34, // 86: core.ProjectAPI.GetAllProjects:output_type -> core.PaginatedProjectResponse
-	1,  // 87: core.ProjectAPI.AdminDeleteProject:output_type -> core.Empty
-	1,  // 88: core.ProjectAPI.AdminStartProject:output_type -> core.Empty
-	1,  // 89: core.ProjectAPI.AdminStopProject:output_type -> core.Empty
-	35, // 90: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	1,  // 91: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	0,  // 92: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
-	53, // [53:93] is the sub-list for method output_type
-	13, // [13:53] is the sub-list for method input_type
+	6,  // 19: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
+	29, // 20: core.ImageAPI.ListImages:input_type -> core.PaginationRequest
+	10, // 21: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
+	11, // 22: core.ImageAPI.InitBuildRecord:input_type -> core.InitBuildRequest
+	12, // 23: core.ImageAPI.CreateBuildJob:input_type -> core.CreateBuildJobRequest
+	23, // 24: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
+	23, // 25: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
+	15, // 26: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
+	29, // 27: core.ImageAPI.ListBuilds:input_type -> core.PaginationRequest
+	23, // 28: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
+	23, // 29: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	18, // 30: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	20, // 31: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	29, // 32: core.VolumeAPI.ListVolumes:input_type -> core.PaginationRequest
+	29, // 33: core.ProjectAPI.ListProjects:input_type -> core.PaginationRequest
+	28, // 34: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
+	28, // 35: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
+	28, // 36: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	1,  // 37: core.SystemAPI.GetConfig:input_type -> core.Empty
+	35, // 38: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	1,  // 39: core.StatsAPI.GetUserStats:input_type -> core.Empty
+	5,  // 40: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	1,  // 41: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	1,  // 42: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	1,  // 43: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	30, // 44: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
+	1,  // 45: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	36, // 46: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	32, // 47: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
+	1,  // 48: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	13, // 49: core.ImageAPI.InitBuildRecord:output_type -> core.InitBuildResponse
+	13, // 50: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
+	14, // 51: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
+	1,  // 52: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
+	1,  // 53: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	33, // 54: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
+	24, // 55: core.ImageAPI.GetBuild:output_type -> core.BuildData
+	1,  // 56: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	19, // 57: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	1,  // 58: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	31, // 59: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
+	34, // 60: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
+	1,  // 61: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	1,  // 62: core.ProjectAPI.StartProject:output_type -> core.Empty
+	1,  // 63: core.ProjectAPI.StopProject:output_type -> core.Empty
+	35, // 64: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	1,  // 65: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	0,  // 66: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
+	40, // [40:67] is the sub-list for method output_type
+	13, // [13:40] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name

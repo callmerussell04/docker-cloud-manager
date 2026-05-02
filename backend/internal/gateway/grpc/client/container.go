@@ -9,7 +9,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, createContainerDTO model.CreateContainerInput) (string, error) {
+func (c *CoreClient) CreateContainer(ctx context.Context, createContainerDTO model.CreateContainerInput) (string, error) {
 	var mounts []*coreapi.VolumeMount
 	for _, m := range createContainerDTO.VolumeMounts {
 		mounts = append(mounts, &coreapi.VolumeMount{
@@ -20,7 +20,6 @@ func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, create
 	}
 
 	req := &coreapi.CreateContainerRequest{
-		OwnerId:      ownerID,
 		Name:         createContainerDTO.Name,
 		ImageTag:     createContainerDTO.ImageTag,
 		InternalPort: int32(createContainerDTO.InternalPort),
@@ -37,18 +36,8 @@ func (c *CoreClient) CreateContainer(ctx context.Context, ownerID string, create
 	return resp.GetContainerId(), nil
 }
 
-func (c *CoreClient) GetUserContainers(ctx context.Context, ownerID string) ([]model.Container, error) {
-	req := &coreapi.GetUserRequest{OwnerId: ownerID}
-	resp, err := c.containerAPI.GetUserContainers(ctx, req)
-	if err != nil {
-		return nil, grpcerrors.FromGRPC(err)
-	}
-	return containersFromProto(resp.GetContainers()), nil
-}
-
-func (c *CoreClient) ActionContainer(ctx context.Context, ownerID, containerID, action string) error {
+func (c *CoreClient) ActionContainer(ctx context.Context, containerID, action string) error {
 	req := &coreapi.ContainerActionRequest{
-		OwnerId:     ownerID,
 		ContainerId: containerID,
 	}
 
@@ -70,9 +59,8 @@ func (c *CoreClient) ActionContainer(ctx context.Context, ownerID, containerID, 
 	return nil
 }
 
-func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, domainPrefix string, internalPort int) error {
+func (c *CoreClient) ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error {
 	req := &coreapi.ExposeRequest{
-		OwnerId:      ownerID,
 		ContainerId:  containerID,
 		DomainPrefix: domainPrefix,
 		InternalPort: int32(internalPort),
@@ -86,7 +74,7 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, ownerID, containerID, 
 
 func (c *CoreClient) GetAllContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
-	resp, err := c.containerAPI.GetAllContainers(ctx, req)
+	resp, err := c.containerAPI.ListContainers(ctx, req)
 	if err != nil {
 		return model.PaginatedContainers{}, grpcerrors.FromGRPC(err)
 	}
@@ -96,36 +84,11 @@ func (c *CoreClient) GetAllContainers(ctx context.Context, page, limit int) (mod
 	}, nil
 }
 
-func (c *CoreClient) AdminActionContainer(ctx context.Context, containerID, action string) error {
+func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error) {
 	req := &coreapi.ContainerActionRequest{
-		ContainerId: containerID,
-		Action:      action,
-	}
-
-	_, err := c.containerAPI.AdminActionContainer(ctx, req)
-	if err != nil {
-		return grpcerrors.FromGRPC(err)
-	}
-	return nil
-}
-
-func (c *CoreClient) GetContainerStats(ctx context.Context, ownerID, containerID string) (model.ContainerStats, error) {
-	req := &coreapi.ContainerActionRequest{
-		OwnerId:     ownerID,
 		ContainerId: containerID,
 	}
 	resp, err := c.containerAPI.GetContainerStats(ctx, req)
-	if err != nil {
-		return model.ContainerStats{}, grpcerrors.FromGRPC(err)
-	}
-	return containerStatsFromProto(resp), nil
-}
-
-func (c *CoreClient) AdminGetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error) {
-	req := &coreapi.ContainerActionRequest{
-		ContainerId: containerID,
-	}
-	resp, err := c.containerAPI.AdminGetContainerStats(ctx, req)
 	if err != nil {
 		return model.ContainerStats{}, grpcerrors.FromGRPC(err)
 	}

@@ -45,9 +45,8 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 	}, nil
 }
 
-func (c *CoreClient) InitBuildRecord(ctx context.Context, ownerID, tag, logFilePath string) (string, string, error) {
+func (c *CoreClient) InitBuildRecord(ctx context.Context, tag, logFilePath string) (string, string, error) {
 	req := &coreapi.InitBuildRequest{
-		OwnerId:     ownerID,
 		Tag:         tag,
 		LogFilePath: logFilePath,
 	}
@@ -60,9 +59,8 @@ func (c *CoreClient) InitBuildRecord(ctx context.Context, ownerID, tag, logFileP
 	return resp.GetBuildId(), resp.GetImageId(), nil
 }
 
-func (c *CoreClient) CreateBuildJob(ctx context.Context, ownerID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
+func (c *CoreClient) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
 	req := &coreapi.CreateBuildJobRequest{
-		OwnerId:          ownerID,
 		Tag:              tag,
 		ArchiveObjectKey: archiveObjectKey,
 		LogObjectKey:     logObjectKey,

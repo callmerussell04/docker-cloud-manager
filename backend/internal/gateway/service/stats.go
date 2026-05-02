@@ -7,9 +7,9 @@ import (
 )
 
 type StatsProvider interface {
-	GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error)
+	GetUserStats(ctx context.Context) (model.UserStats, error)
 }
 
-func (s *Core) GetUserStats(ctx context.Context, ownerID string) (model.UserStats, error) {
-	return s.provider.GetUserStats(ctx, ownerID)
+func (s *Core) GetUserStats(ctx context.Context) (model.UserStats, error) {
+	return s.provider.GetUserStats(ctx)
 }

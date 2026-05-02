@@ -14,18 +14,14 @@ import (
 )
 
 type ContainerLogic interface {
-	Create(ctx context.Context, ownerID uuid.UUID, params model.ContainerCreateParams) (uuid.UUID, error)
-	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
-	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
-	Delete(ctx context.Context, ownerID, containerID uuid.UUID) error
-	GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
-	Expose(ctx context.Context, ownerID, containerID uuid.UUID, domainPrefix string, internalPort int) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Container, int, error)
-	AdminDelete(ctx context.Context, containerID uuid.UUID) error
-	AdminStart(ctx context.Context, containerID uuid.UUID) error
-	AdminStop(ctx context.Context, containerID uuid.UUID) error
-	GetStats(ctx context.Context, ownerID, containerID uuid.UUID) (model.ContainerStats, error)
-	AdminGetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
+	Create(ctx context.Context, params model.ContainerCreateParams) (uuid.UUID, error)
+	Start(ctx context.Context, containerID uuid.UUID) error
+	Stop(ctx context.Context, containerID uuid.UUID) error
+	Delete(ctx context.Context, containerID uuid.UUID) error
+	List(ctx context.Context, limit, offset int) ([]model.Container, int, error)
+	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
+	Action(ctx context.Context, containerID uuid.UUID, action string) error
+	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
 }
 
 type ContainerHandler struct {
@@ -43,11 +39,6 @@ func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic, users U
 }
 
 func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	if req.GetName() == "" || req.GetImageTag() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name and image_tag are required")
 	}
@@ -74,7 +65,7 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		DomainPrefix: req.GetDomainPrefix(),
 	}
 
-	containerID, err := h.logic.Create(ctx, ownerID, params)
+	containerID, err := h.logic.Create(ctx, params)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -85,17 +76,12 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 }
 
 func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
 	}
 
-	err = h.logic.Start(ctx, ownerID, containerID)
+	err = h.logic.Start(ctx, containerID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -104,17 +90,12 @@ func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.Cont
 }
 
 func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
 	}
 
-	err = h.logic.Stop(ctx, ownerID, containerID)
+	err = h.logic.Stop(ctx, containerID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -123,17 +104,12 @@ func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.Conta
 }
 
 func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
 	}
 
-	err = h.logic.Delete(ctx, ownerID, containerID)
+	err = h.logic.Delete(ctx, containerID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -141,72 +117,9 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 	return &coreapi.Empty{}, nil
 }
 
-func (h *ContainerHandler) GetUserContainers(ctx context.Context, req *coreapi.GetUserRequest) (*coreapi.ContainerListResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	containers, err := h.logic.GetByOwner(ctx, ownerID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	var pbContainers []*coreapi.ContainerData
-	for _, c := range containers {
-		pbContainers = append(pbContainers, &coreapi.ContainerData{
-			Id:            c.ID.String(),
-			DockerId:      c.DockerID,
-			Name:          c.Name,
-			ImageTag:      c.ImageTag,
-			InternalPort:  int32(c.InternalPort),
-			DomainPrefix:  c.DomainPrefix,
-			Status:        c.Status,
-			CreatedAt:     c.CreatedAt.Unix(),
-			DesiredStatus: c.DesiredStatus,
-			LastError:     stringValue(c.LastError),
-		})
-	}
-
-	return &coreapi.ContainerListResponse{
-		Containers: pbContainers,
-	}, nil
-}
-
-func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id format")
-	}
-
-	containerID, err := uuid.Parse(req.GetContainerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
-	}
-
-	if req.GetDomainPrefix() == "" || req.GetInternalPort() <= 0 {
-		return nil, status.Error(codes.InvalidArgument, "domain_prefix and internal_port are required")
-	}
-
-	err = h.logic.Expose(ctx, ownerID, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.Empty{}, nil
-}
-
-func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
-	limit := int(req.GetLimit())
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	offset := (int(req.GetPage()) - 1) * limit
-	if offset < 0 {
-		offset = 0
-	}
-
-	containers, total, err := h.logic.GetAllPaginated(ctx, limit, offset)
+func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+	limit, offset := pagination(req)
+	containers, total, err := h.logic.List(ctx, limit, offset)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -234,6 +147,24 @@ func (h *ContainerHandler) GetAllContainers(ctx context.Context, req *coreapi.Pa
 		Containers: pbContainers,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	if req.GetDomainPrefix() == "" || req.GetInternalPort() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "domain_prefix and internal_port are required")
+	}
+
+	err = h.logic.Expose(ctx, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
 }
 
 func (h *ContainerHandler) usernamesByOwner(ctx context.Context, containers []model.Container) map[uuid.UUID]string {
@@ -264,24 +195,16 @@ func usernamesByID(ctx context.Context, users UserDirectory, ids []uuid.UUID) ma
 	return result
 }
 
-func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+func (h *ContainerHandler) ActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
 	}
 
-	action := req.GetAction()
-
-	switch action {
-	case "start":
-		err = h.logic.AdminStart(ctx, containerID)
-	case "stop":
-		err = h.logic.AdminStop(ctx, containerID)
-	case "delete":
-		err = h.logic.AdminDelete(ctx, containerID)
-	default:
+	if req.GetAction() == "" {
 		return nil, status.Error(codes.InvalidArgument, "invalid action, expected start, stop, or delete")
 	}
+	err = h.logic.Action(ctx, containerID, req.GetAction())
 
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
@@ -291,36 +214,12 @@ func (h *ContainerHandler) AdminActionContainer(ctx context.Context, req *coreap
 }
 
 func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
-	ownerID, err := uuid.Parse(req.GetOwnerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid owner_id")
-	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
 	}
 
-	stats, err := h.logic.GetStats(ctx, ownerID, containerID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.ContainerStatsResponse{
-		CpuPercentage:    stats.CPUPercentage,
-		MemoryUsageBytes: stats.MemoryUsageBytes,
-		MemoryLimitBytes: stats.MemoryLimitBytes,
-		NetworkRxBytes:   stats.NetworkRxBytes,
-		NetworkTxBytes:   stats.NetworkTxBytes,
-	}, nil
-}
-
-func (h *ContainerHandler) AdminGetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
-	containerID, err := uuid.Parse(req.GetContainerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
-	}
-
-	stats, err := h.logic.AdminGetStats(ctx, containerID)
+	stats, err := h.logic.GetStats(ctx, containerID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}

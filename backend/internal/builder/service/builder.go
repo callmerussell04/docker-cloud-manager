@@ -13,6 +13,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -51,7 +52,7 @@ type ObjectStorage interface {
 }
 
 type CoreClient interface {
-	CreateBuildJob(ctx context.Context, ownerID, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error)
+	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error)
 	StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
 	CancelBuildRecord(ctx context.Context, buildID string) error
@@ -98,8 +99,8 @@ func NewBuilderService(
 
 func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, archiveName string, archive io.Reader) (string, error) {
 	cfg := s.config.Refresh(ctx)
-	if _, err := uuid.Parse(job.OwnerID); err != nil {
-		return "", apperrors.ErrUnauthorized
+	if _, err := accessscope.RequireUserOwner(ctx); err != nil {
+		return "", err
 	}
 	if err := validation.ImageTag(job.Tag); err != nil {
 		return "", fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
@@ -129,7 +130,6 @@ func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, arch
 
 	buildID, _, err := s.coreClient.CreateBuildJob(
 		ctx,
-		job.OwnerID,
 		normalizedTag,
 		archiveObjectKey,
 		logObjectKey,

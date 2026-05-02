@@ -8,16 +8,16 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
 type ProjectRepository interface {
-	GetByOwnerID(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Project, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error)
+	List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 	GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error)
 }
@@ -38,8 +38,8 @@ type ProjectNetworkCleaner interface {
 }
 
 type ProjectContainerLifecycle interface {
-	Start(ctx context.Context, ownerID, containerID uuid.UUID) error
-	Stop(ctx context.Context, ownerID, containerID uuid.UUID) error
+	Start(ctx context.Context, containerID uuid.UUID) error
+	Stop(ctx context.Context, containerID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
@@ -68,69 +68,49 @@ func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepos
 	}
 }
 
-func (s *ProjectService) GetByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Project, error) {
-	return s.repo.GetByOwnerID(ctx, ownerID)
-}
-
-func (s *ProjectService) Start(ctx context.Context, ownerID, projectID uuid.UUID) error {
+func (s *ProjectService) Start(ctx context.Context, projectID uuid.UUID) error {
 	p, err := s.repo.GetByID(ctx, projectID)
 	if err != nil {
 		return err
 	}
-	if p.OwnerID != ownerID {
-		return apperrors.ErrNotFound
-	}
-	return s.startProject(ctx, p)
-}
-
-func (s *ProjectService) Stop(ctx context.Context, ownerID, projectID uuid.UUID) error {
-	p, err := s.repo.GetByID(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	if p.OwnerID != ownerID {
-		return apperrors.ErrNotFound
-	}
-	return s.stopProject(ctx, p)
-}
-
-func (s *ProjectService) Delete(ctx context.Context, ownerID, projectID uuid.UUID) error {
-	p, err := s.repo.GetByID(ctx, projectID)
-	if err != nil {
-		return err
-	}
-	if p.OwnerID != ownerID {
-		return apperrors.ErrNotFound
-	}
-	return s.deleteProject(ctx, p)
-}
-
-func (s *ProjectService) GetAllPaginated(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
-	return s.repo.GetAllPaginated(ctx, limit, offset)
-}
-
-func (s *ProjectService) AdminStart(ctx context.Context, projectID uuid.UUID) error {
-	p, err := s.repo.GetByID(ctx, projectID)
-	if err != nil {
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
 		return err
 	}
 	return s.startProject(ctx, p)
 }
 
-func (s *ProjectService) AdminStop(ctx context.Context, projectID uuid.UUID) error {
+func (s *ProjectService) Stop(ctx context.Context, projectID uuid.UUID) error {
 	p, err := s.repo.GetByID(ctx, projectID)
 	if err != nil {
+		return err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
 		return err
 	}
 	return s.stopProject(ctx, p)
 }
 
-func (s *ProjectService) AdminDelete(ctx context.Context, projectID uuid.UUID) error {
+func (s *ProjectService) Delete(ctx context.Context, projectID uuid.UUID) error {
 	p, err := s.repo.GetByID(ctx, projectID)
 	if err != nil {
 		return err
 	}
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
+		return err
+	}
 	return s.deleteProject(ctx, p)
+}
+
+func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.List(ctx, model.ListOptions{
+		OwnerID: scope.OwnerFilter(),
+		Limit:   limit,
+		Offset:  offset,
+	})
 }
 
 func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {
@@ -203,7 +183,7 @@ func (s *ProjectService) startProject(ctx context.Context, p model.Project) erro
 		if current.Status == model.ContainerStatusRunning {
 			continue
 		}
-		if err := s.containers.Start(ctx, p.OwnerID, node.ContainerID); err != nil {
+		if err := s.containers.Start(ctx, node.ContainerID); err != nil {
 			err = fmt.Errorf("failed to start service %s: %w", node.ServiceName, err)
 			s.failProject(ctx, p.ID, err)
 			return err
@@ -229,7 +209,7 @@ func (s *ProjectService) stopProject(ctx context.Context, p model.Project) error
 		if current.Status == model.ContainerStatusCreated || current.Status == model.ContainerStatusExited {
 			continue
 		}
-		if err := s.containers.Stop(ctx, p.OwnerID, node.ContainerID); err != nil {
+		if err := s.containers.Stop(ctx, node.ContainerID); err != nil {
 			err = fmt.Errorf("failed to stop service %s: %w", node.ServiceName, err)
 			s.failProject(ctx, p.ID, err)
 			return err

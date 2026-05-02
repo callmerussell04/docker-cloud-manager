@@ -142,9 +142,12 @@ paths:
     get:
       summary: Get all containers for current user
       tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         '200':
-          description: List of containers
+          description: Paginated list of containers
           content:
             application/json:
               schema:
@@ -154,6 +157,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/UserContainer'
+                  total_count:
+                    type: integer
+                    format: int64
     post:
       summary: Create a new container
       tags: [Containers]
@@ -242,9 +248,12 @@ paths:
     get:
       summary: Get all volumes for current user
       tags: [Volumes]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         '200':
-          description: List of volumes
+          description: Paginated list of volumes
           content:
             application/json:
               schema:
@@ -254,6 +263,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/UserVolume'
+                  total_count:
+                    type: integer
+                    format: int64
     post:
       summary: Create a new volume
       tags: [Volumes]
@@ -298,9 +310,12 @@ paths:
     get:
       summary: Get all images for current user
       tags: [Images]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         '200':
-          description: List of images
+          description: Paginated list of images
           content:
             application/json:
               schema:
@@ -310,6 +325,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/UserImage'
+                  total_count:
+                    type: integer
+                    format: int64
 
   /images/{id}:
     delete:
@@ -374,9 +392,12 @@ paths:
     get:
       summary: Get user builds history
       tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         '200':
-          description: List of builds
+          description: Paginated list of builds
           content:
             application/json:
               schema:
@@ -386,6 +407,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/UserBuild'
+                  total_count:
+                    type: integer
+                    format: int64
 
   /builds/{id}:
     delete:
@@ -436,9 +460,12 @@ paths:
     get:
       summary: Get all compose projects for current user
       tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
       responses:
         '200':
-          description: List of projects
+          description: Paginated list of projects
           content:
             application/json:
               schema:
@@ -448,6 +475,9 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/UserProject'
+                  total_count:
+                    type: integer
+                    format: int64
 
   /projects/compose:
     post:

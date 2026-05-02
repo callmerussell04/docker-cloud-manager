@@ -8,20 +8,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) GetUserBuilds(ctx context.Context, ownerID string) ([]model.Build, error) {
-	req := &coreapi.GetUserRequest{OwnerId: ownerID}
-	resp, err := c.imageAPI.GetUserBuilds(ctx, req)
-	if err != nil {
-		return nil, grpcerrors.FromGRPC(err)
-	}
-	return buildsFromProto(resp.GetBuilds()), nil
-}
-
-func (c *CoreClient) GetBuild(ctx context.Context, ownerID, buildID string) (model.Build, error) {
-	req := &coreapi.BuildActionRequest{
-		OwnerId: ownerID,
-		BuildId: buildID,
-	}
+func (c *CoreClient) GetBuild(ctx context.Context, buildID string) (model.Build, error) {
+	req := &coreapi.BuildActionRequest{BuildId: buildID}
 	resp, err := c.imageAPI.GetBuild(ctx, req)
 	if err != nil {
 		return model.Build{}, grpcerrors.FromGRPC(err)
@@ -29,11 +17,8 @@ func (c *CoreClient) GetBuild(ctx context.Context, ownerID, buildID string) (mod
 	return buildFromProto(resp), nil
 }
 
-func (c *CoreClient) DeleteBuild(ctx context.Context, ownerID, buildID string) error {
-	req := &coreapi.BuildActionRequest{
-		OwnerId: ownerID,
-		BuildId: buildID,
-	}
+func (c *CoreClient) DeleteBuild(ctx context.Context, buildID string) error {
+	req := &coreapi.BuildActionRequest{BuildId: buildID}
 	_, err := c.imageAPI.DeleteBuild(ctx, req)
 	if err != nil {
 		return grpcerrors.FromGRPC(err)
@@ -43,7 +28,7 @@ func (c *CoreClient) DeleteBuild(ctx context.Context, ownerID, buildID string) e
 
 func (c *CoreClient) GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
-	resp, err := c.imageAPI.GetAllBuilds(ctx, req)
+	resp, err := c.imageAPI.ListBuilds(ctx, req)
 	if err != nil {
 		return model.PaginatedBuilds{}, grpcerrors.FromGRPC(err)
 	}
@@ -51,15 +36,6 @@ func (c *CoreClient) GetAllBuilds(ctx context.Context, page, limit int) (model.P
 		Builds:     buildsFromProto(resp.GetBuilds()),
 		TotalCount: resp.GetTotalCount(),
 	}, nil
-}
-
-func (c *CoreClient) AdminDeleteBuild(ctx context.Context, buildID string) error {
-	req := &coreapi.BuildActionRequest{BuildId: buildID}
-	_, err := c.imageAPI.AdminDeleteBuild(ctx, req)
-	if err != nil {
-		return grpcerrors.FromGRPC(err)
-	}
-	return nil
 }
 
 func buildsFromProto(items []*coreapi.BuildData) []model.Build {

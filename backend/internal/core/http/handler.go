@@ -13,7 +13,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type ComposeHandler struct {
@@ -32,7 +31,6 @@ func NewComposeHandler(orchestrator *compose.Orchestrator, cfg ConfigProvider) *
 func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().ComposeUploadMaxBytes)
 
-	ownerIDStr := c.GetHeader("X-User-Id")
 	projectName := c.PostForm("project_name")
 	if projectName == "" {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
@@ -46,15 +44,8 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	}
 
 	req := dto.DeployComposeRequest{
-		OwnerID:     ownerIDStr,
 		ProjectName: projectName,
 		Archive:     file,
-	}
-
-	ownerID, err := uuid.Parse(req.OwnerID)
-	if err != nil {
-		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
-		return
 	}
 
 	src, err := req.Archive.Open()
@@ -70,7 +61,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		return
 	}
 
-	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), ownerID, req.ProjectName, archiveBytes)
+	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), req.ProjectName, archiveBytes)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
