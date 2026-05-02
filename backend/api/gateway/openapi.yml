@@ -243,6 +243,52 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContainerStats'
 
+  /containers/{id}/logs/stream:
+    get:
+      summary: Stream container logs in real time
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/LogTailParam'
+        - $ref: '#/components/parameters/LogSinceParam'
+        - $ref: '#/components/parameters/LogTimestampsParam'
+        - $ref: '#/components/parameters/LogFollowParam'
+      responses:
+        '200':
+          description: Server-Sent Events stream with log, error, and end events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /containers/{id}/terminal:
+    get:
+      summary: Open an interactive terminal session for a running container
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/TerminalCommandParam'
+        - $ref: '#/components/parameters/TerminalArgParam'
+        - $ref: '#/components/parameters/TerminalRowsParam'
+        - $ref: '#/components/parameters/TerminalColsParam'
+      responses:
+        '101':
+          description: WebSocket upgrade accepted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   # ================= VOLUMES =================
   /volumes:
     get:
@@ -761,6 +807,54 @@ paths:
               schema:
                 $ref: '#/components/schemas/ContainerStats'
 
+  /admin/containers/{id}/logs/stream:
+    get:
+      summary: Admin stream logs for any container
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/LogTailParam'
+        - $ref: '#/components/parameters/LogSinceParam'
+        - $ref: '#/components/parameters/LogTimestampsParam'
+        - $ref: '#/components/parameters/LogFollowParam'
+      responses:
+        '200':
+          description: Server-Sent Events stream with log, error, and end events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/containers/{id}/terminal:
+    get:
+      summary: Admin open an interactive terminal session for any running container
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/TerminalCommandParam'
+        - $ref: '#/components/parameters/TerminalArgParam'
+        - $ref: '#/components/parameters/TerminalRowsParam'
+        - $ref: '#/components/parameters/TerminalColsParam'
+      responses:
+        '101':
+          description: WebSocket upgrade accepted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
   /admin/volumes:
     get:
       summary: Get paginated list of all volumes (all users)
@@ -971,6 +1065,69 @@ components:
         default: 20
         minimum: 1
         maximum: 100
+    LogTailParam:
+      name: tail
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 200
+        minimum: 1
+    LogSinceParam:
+      name: since
+      in: query
+      required: false
+      description: Unix timestamp or RFC3339 timestamp.
+      schema:
+        type: string
+    LogTimestampsParam:
+      name: timestamps
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: true
+    LogFollowParam:
+      name: follow
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: true
+    TerminalCommandParam:
+      name: cmd
+      in: query
+      required: false
+      description: Allowed exec command. Defaults to the first configured shell.
+      schema:
+        type: string
+    TerminalArgParam:
+      name: arg
+      in: query
+      required: false
+      description: Repeated command arguments.
+      schema:
+        type: array
+        items:
+          type: string
+      style: form
+      explode: true
+    TerminalRowsParam:
+      name: rows
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 24
+        minimum: 1
+    TerminalColsParam:
+      name: cols
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 80
+        minimum: 1
 
   responses:
     BadRequest:
@@ -1640,5 +1797,28 @@ components:
           type: integer
           format: int64
         compose_dependency_poll_interval_seconds:
+          type: integer
+          format: int64
+        telemetry_max_log_tail_lines:
+          type: integer
+        telemetry_max_log_streams_per_user:
+          type: integer
+        telemetry_max_terminal_sessions_per_user:
+          type: integer
+        telemetry_terminal_idle_timeout_seconds:
+          type: integer
+          format: int64
+        telemetry_terminal_max_duration_seconds:
+          type: integer
+          format: int64
+        telemetry_allowed_exec_commands:
+          type: array
+          items:
+            type: string
+        telemetry_max_command_args:
+          type: integer
+        telemetry_max_command_arg_bytes:
+          type: integer
+        telemetry_ws_read_limit_bytes:
           type: integer
           format: int64

@@ -16,9 +16,11 @@ const (
 	PermissionSystemConfigRead   = permissions.SystemConfigRead
 	PermissionSystemConfigUpdate = permissions.SystemConfigUpdate
 
-	PermissionContainersAdminList   = permissions.ContainersAdminList
-	PermissionContainersAdminAction = permissions.ContainersAdminAction
-	PermissionContainersAdminStats  = permissions.ContainersAdminStats
+	PermissionContainersAdminList     = permissions.ContainersAdminList
+	PermissionContainersAdminAction   = permissions.ContainersAdminAction
+	PermissionContainersAdminStats    = permissions.ContainersAdminStats
+	PermissionContainersAdminLogs     = permissions.ContainersAdminLogs
+	PermissionContainersAdminTerminal = permissions.ContainersAdminTerminal
 
 	PermissionVolumesAdminList   = permissions.VolumesAdminList
 	PermissionVolumesAdminDelete = permissions.VolumesAdminDelete
@@ -49,26 +51,28 @@ const (
 
 var rolePermissions = map[string]map[string]struct{}{
 	model.RoleAdmin: {
-		PermissionSystemConfigRead:      {},
-		PermissionSystemConfigUpdate:    {},
-		PermissionContainersAdminList:   {},
-		PermissionContainersAdminAction: {},
-		PermissionContainersAdminStats:  {},
-		PermissionVolumesAdminList:      {},
-		PermissionVolumesAdminDelete:    {},
-		PermissionImagesAdminList:       {},
-		PermissionImagesAdminDelete:     {},
-		PermissionBuildsAdminList:       {},
-		PermissionBuildsAdminDelete:     {},
-		PermissionProjectsAdminList:     {},
-		PermissionProjectsAdminDelete:   {},
-		PermissionProjectsAdminStart:    {},
-		PermissionProjectsAdminStop:     {},
-		PermissionUsersAdminList:        {},
-		PermissionUsersAdminRead:        {},
-		PermissionUsersAdminCreate:      {},
-		PermissionUsersAdminUpdate:      {},
-		PermissionUsersAdminDelete:      {},
+		PermissionSystemConfigRead:        {},
+		PermissionSystemConfigUpdate:      {},
+		PermissionContainersAdminList:     {},
+		PermissionContainersAdminAction:   {},
+		PermissionContainersAdminStats:    {},
+		PermissionContainersAdminLogs:     {},
+		PermissionContainersAdminTerminal: {},
+		PermissionVolumesAdminList:        {},
+		PermissionVolumesAdminDelete:      {},
+		PermissionImagesAdminList:         {},
+		PermissionImagesAdminDelete:       {},
+		PermissionBuildsAdminList:         {},
+		PermissionBuildsAdminDelete:       {},
+		PermissionProjectsAdminList:       {},
+		PermissionProjectsAdminDelete:     {},
+		PermissionProjectsAdminStart:      {},
+		PermissionProjectsAdminStop:       {},
+		PermissionUsersAdminList:          {},
+		PermissionUsersAdminRead:          {},
+		PermissionUsersAdminCreate:        {},
+		PermissionUsersAdminUpdate:        {},
+		PermissionUsersAdminDelete:        {},
 	},
 	model.RoleUser: {},
 }

@@ -41,12 +41,13 @@ type App struct {
 }
 
 type Config struct {
-	Port              int
-	SSOTarget         string
-	CoreTarget        string
-	BuilderHTTPTarget string
-	CoreHTTPTarget    string
-	InternalToken     string
+	Port                int
+	SSOTarget           string
+	CoreTarget          string
+	BuilderHTTPTarget   string
+	CoreHTTPTarget      string
+	TelemetryHTTPTarget string
+	InternalToken       string
 
 	HTTP      HTTPServerConfig
 	Router    httprouter.Config
@@ -154,6 +155,25 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
+	telemetryProxyOpts := handler.ProxyOptions{
+		TargetURL:      cfg.TelemetryHTTPTarget,
+		InternalToken:  cfg.InternalToken,
+		Transport:      proxyTransport,
+		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
+	}
+	telemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts)
+	if err != nil {
+		_ = ssoConn.Close()
+		_ = coreConn.Close()
+		return nil, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
+	}
+	telemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts)
+	if err != nil {
+		_ = ssoConn.Close()
+		_ = coreConn.Close()
+		return nil, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
+	}
+
 	readiness := &readinessChecker{
 		timeout: cfg.Readiness.Timeout,
 		grpcTargets: map[string]*grpc.ClientConn{
@@ -164,13 +184,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 			Transport: newProxyTransport(cfg.Proxy),
 		},
 		httpTargets: map[string]string{
-			"builder_http": cfg.BuilderHTTPTarget,
-			"core_http":    cfg.CoreHTTPTarget,
+			"builder_http":   cfg.BuilderHTTPTarget,
+			"core_http":      cfg.CoreHTTPTarget,
+			"telemetry_http": cfg.TelemetryHTTPTarget,
 		},
 	}
 	healthHandler := handler.NewHealthHandler(readiness)
 
-	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, authService, logger)
+	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, authService, logger)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,

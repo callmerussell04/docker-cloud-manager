@@ -128,5 +128,14 @@ func validSystemConfig() SystemConfig {
 		ComposeBuildPollIntervalSeconds:      3,
 		ComposeDependencyWaitTimeoutMinutes:  5,
 		ComposeDependencyPollIntervalSeconds: 2,
+		TelemetryMaxLogTailLines:             1000,
+		TelemetryMaxLogStreamsPerUser:        5,
+		TelemetryMaxTerminalSessionsPerUser:  2,
+		TelemetryTerminalIdleTimeoutSeconds:  300,
+		TelemetryTerminalMaxDurationSeconds:  3600,
+		TelemetryAllowedExecCommands:         []string{"/bin/sh", "/bin/bash", "/busybox/sh"},
+		TelemetryMaxCommandArgs:              8,
+		TelemetryMaxCommandArgBytes:          128,
+		TelemetryWSReadLimitBytes:            4096,
 	}
 }

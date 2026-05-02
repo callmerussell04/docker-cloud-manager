@@ -49,4 +49,13 @@ type SystemConfig struct {
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64
+	TelemetryMaxLogTailLines             int
+	TelemetryMaxLogStreamsPerUser        int
+	TelemetryMaxTerminalSessionsPerUser  int
+	TelemetryTerminalIdleTimeoutSeconds  int64
+	TelemetryTerminalMaxDurationSeconds  int64
+	TelemetryAllowedExecCommands         []string
+	TelemetryMaxCommandArgs              int
+	TelemetryMaxCommandArgBytes          int
+	TelemetryWSReadLimitBytes            int64
 }

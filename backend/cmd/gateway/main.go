@@ -20,12 +20,13 @@ func main() {
 	slog.SetDefault(logger)
 
 	cfg := app.Config{
-		Port:              intEnv("GATEWAY_PORT", 8081),
-		SSOTarget:         requiredEnv(logger, "SSO_GRPC_TARGET"),
-		CoreTarget:        requiredEnv(logger, "CORE_GRPC_TARGET"),
-		BuilderHTTPTarget: requiredEnv(logger, "BUILDER_HTTP_TARGET"),
-		CoreHTTPTarget:    requiredEnv(logger, "CORE_HTTP_TARGET"),
-		InternalToken:     requiredEnv(logger, "INTERNAL_SERVICE_TOKEN"),
+		Port:                intEnv("GATEWAY_PORT", 8081),
+		SSOTarget:           requiredEnv(logger, "SSO_GRPC_TARGET"),
+		CoreTarget:          requiredEnv(logger, "CORE_GRPC_TARGET"),
+		BuilderHTTPTarget:   requiredEnv(logger, "BUILDER_HTTP_TARGET"),
+		CoreHTTPTarget:      requiredEnv(logger, "CORE_HTTP_TARGET"),
+		TelemetryHTTPTarget: requiredEnv(logger, "TELEMETRY_HTTP_TARGET"),
+		InternalToken:       requiredEnv(logger, "INTERNAL_SERVICE_TOKEN"),
 		HTTP: app.HTTPServerConfig{
 			ReadHeaderTimeout: durationSecondsEnv("GATEWAY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
 			ReadTimeout:       durationSecondsEnv("GATEWAY_READ_TIMEOUT_SECONDS", 300*time.Second),

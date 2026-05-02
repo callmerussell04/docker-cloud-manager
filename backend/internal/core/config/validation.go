@@ -100,5 +100,27 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
 		return fmt.Errorf("compose polling settings must be positive")
 	}
+	if cfg.TelemetryMaxLogTailLines <= 0 || cfg.TelemetryMaxLogStreamsPerUser <= 0 || cfg.TelemetryMaxTerminalSessionsPerUser <= 0 {
+		return fmt.Errorf("telemetry stream limits must be positive")
+	}
+	if cfg.TelemetryTerminalIdleTimeoutSeconds <= 0 || cfg.TelemetryTerminalMaxDurationSeconds <= 0 {
+		return fmt.Errorf("telemetry terminal timeouts must be positive")
+	}
+	if len(cfg.TelemetryAllowedExecCommands) == 0 {
+		return fmt.Errorf("telemetry allowed exec commands are required")
+	}
+	seenCommands := make(map[string]struct{}, len(cfg.TelemetryAllowedExecCommands))
+	for _, command := range cfg.TelemetryAllowedExecCommands {
+		if command == "" || strings.ContainsAny(command, "\x00\r\n") {
+			return fmt.Errorf("telemetry allowed exec commands must not contain empty or control values")
+		}
+		if _, ok := seenCommands[command]; ok {
+			return fmt.Errorf("telemetry allowed exec commands must be unique")
+		}
+		seenCommands[command] = struct{}{}
+	}
+	if cfg.TelemetryMaxCommandArgs < 0 || cfg.TelemetryMaxCommandArgBytes <= 0 || cfg.TelemetryWSReadLimitBytes <= 0 {
+		return fmt.Errorf("telemetry command and websocket limits must be positive")
+	}
 	return nil
 }

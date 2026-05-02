@@ -74,6 +74,15 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		ComposeBuildPollIntervalSeconds:      cfg.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  cfg.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: cfg.ComposeDependencyPollIntervalSeconds,
+		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
+		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
+		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
+		TelemetryTerminalIdleTimeoutSeconds:  cfg.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds:  cfg.TelemetryTerminalMaxDurationSeconds,
+		TelemetryAllowedExecCommands:         cfg.TelemetryAllowedExecCommands,
+		TelemetryMaxCommandArgs:              int32(cfg.TelemetryMaxCommandArgs),
+		TelemetryMaxCommandArgBytes:          int32(cfg.TelemetryMaxCommandArgBytes),
+		TelemetryWsReadLimitBytes:            cfg.TelemetryWSReadLimitBytes,
 	}, nil
 }
 
@@ -127,6 +136,15 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 		ComposeBuildPollIntervalSeconds:      req.GetComposeBuildPollIntervalSeconds(),
 		ComposeDependencyWaitTimeoutMinutes:  req.GetComposeDependencyWaitTimeoutMinutes(),
 		ComposeDependencyPollIntervalSeconds: req.GetComposeDependencyPollIntervalSeconds(),
+		TelemetryMaxLogTailLines:             int(req.GetTelemetryMaxLogTailLines()),
+		TelemetryMaxLogStreamsPerUser:        int(req.GetTelemetryMaxLogStreamsPerUser()),
+		TelemetryMaxTerminalSessionsPerUser:  int(req.GetTelemetryMaxTerminalSessionsPerUser()),
+		TelemetryTerminalIdleTimeoutSeconds:  req.GetTelemetryTerminalIdleTimeoutSeconds(),
+		TelemetryTerminalMaxDurationSeconds:  req.GetTelemetryTerminalMaxDurationSeconds(),
+		TelemetryAllowedExecCommands:         req.GetTelemetryAllowedExecCommands(),
+		TelemetryMaxCommandArgs:              int(req.GetTelemetryMaxCommandArgs()),
+		TelemetryMaxCommandArgBytes:          int(req.GetTelemetryMaxCommandArgBytes()),
+		TelemetryWSReadLimitBytes:            req.GetTelemetryWsReadLimitBytes(),
 	}
 
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {

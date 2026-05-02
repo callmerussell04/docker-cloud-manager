@@ -257,6 +257,15 @@ func systemConfigFromDTO(data dto.SystemConfigDTO) model.SystemConfig {
 		ComposeBuildPollIntervalSeconds:      data.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  data.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: data.ComposeDependencyPollIntervalSeconds,
+		TelemetryMaxLogTailLines:             data.TelemetryMaxLogTailLines,
+		TelemetryMaxLogStreamsPerUser:        data.TelemetryMaxLogStreamsPerUser,
+		TelemetryMaxTerminalSessionsPerUser:  data.TelemetryMaxTerminalSessionsPerUser,
+		TelemetryTerminalIdleTimeoutSeconds:  data.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds:  data.TelemetryTerminalMaxDurationSeconds,
+		TelemetryAllowedExecCommands:         data.TelemetryAllowedExecCommands,
+		TelemetryMaxCommandArgs:              data.TelemetryMaxCommandArgs,
+		TelemetryMaxCommandArgBytes:          data.TelemetryMaxCommandArgBytes,
+		TelemetryWSReadLimitBytes:            data.TelemetryWSReadLimitBytes,
 	}
 }
 
@@ -310,6 +319,15 @@ func systemConfigToDTO(data model.SystemConfig) dto.SystemConfigDTO {
 		ComposeBuildPollIntervalSeconds:      data.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  data.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: data.ComposeDependencyPollIntervalSeconds,
+		TelemetryMaxLogTailLines:             data.TelemetryMaxLogTailLines,
+		TelemetryMaxLogStreamsPerUser:        data.TelemetryMaxLogStreamsPerUser,
+		TelemetryMaxTerminalSessionsPerUser:  data.TelemetryMaxTerminalSessionsPerUser,
+		TelemetryTerminalIdleTimeoutSeconds:  data.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds:  data.TelemetryTerminalMaxDurationSeconds,
+		TelemetryAllowedExecCommands:         data.TelemetryAllowedExecCommands,
+		TelemetryMaxCommandArgs:              data.TelemetryMaxCommandArgs,
+		TelemetryMaxCommandArgBytes:          data.TelemetryMaxCommandArgBytes,
+		TelemetryWSReadLimitBytes:            data.TelemetryWSReadLimitBytes,
 	}
 }
 

@@ -157,6 +157,15 @@ func main() {
 		ComposeBuildPollIntervalSeconds:      int64(getEnvInt("COMPOSE_BUILD_POLL_INTERVAL_SECONDS", 3)),
 		ComposeDependencyWaitTimeoutMinutes:  int64(getEnvInt("COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES", 5)),
 		ComposeDependencyPollIntervalSeconds: int64(getEnvInt("COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS", 2)),
+		TelemetryMaxLogTailLines:             getEnvInt("TELEMETRY_MAX_LOG_TAIL_LINES", 1000),
+		TelemetryMaxLogStreamsPerUser:        getEnvInt("TELEMETRY_MAX_LOG_STREAMS_PER_USER", 5),
+		TelemetryMaxTerminalSessionsPerUser:  getEnvInt("TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER", 2),
+		TelemetryTerminalIdleTimeoutSeconds:  int64(getEnvInt("TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS", 300)),
+		TelemetryTerminalMaxDurationSeconds:  int64(getEnvInt("TELEMETRY_TERMINAL_MAX_DURATION_SECONDS", 3600)),
+		TelemetryAllowedExecCommands:         getEnvStringList("TELEMETRY_ALLOWED_EXEC_COMMANDS", []string{"/bin/sh", "/bin/bash", "/busybox/sh"}),
+		TelemetryMaxCommandArgs:              getEnvInt("TELEMETRY_MAX_COMMAND_ARGS", 8),
+		TelemetryMaxCommandArgBytes:          getEnvInt("TELEMETRY_MAX_COMMAND_ARG_BYTES", 128),
+		TelemetryWSReadLimitBytes:            getEnvInt64("TELEMETRY_WS_READ_LIMIT_BYTES", 4096),
 	}
 
 	cfgManager, err := config.NewManager("./config/config.json", defaultCfg)

@@ -74,6 +74,15 @@ func systemConfigFromProto(data *coreapi.SystemConfigData) model.SystemConfig {
 		ComposeBuildPollIntervalSeconds:      data.GetComposeBuildPollIntervalSeconds(),
 		ComposeDependencyWaitTimeoutMinutes:  data.GetComposeDependencyWaitTimeoutMinutes(),
 		ComposeDependencyPollIntervalSeconds: data.GetComposeDependencyPollIntervalSeconds(),
+		TelemetryMaxLogTailLines:             int(data.GetTelemetryMaxLogTailLines()),
+		TelemetryMaxLogStreamsPerUser:        int(data.GetTelemetryMaxLogStreamsPerUser()),
+		TelemetryMaxTerminalSessionsPerUser:  int(data.GetTelemetryMaxTerminalSessionsPerUser()),
+		TelemetryTerminalIdleTimeoutSeconds:  data.GetTelemetryTerminalIdleTimeoutSeconds(),
+		TelemetryTerminalMaxDurationSeconds:  data.GetTelemetryTerminalMaxDurationSeconds(),
+		TelemetryAllowedExecCommands:         data.GetTelemetryAllowedExecCommands(),
+		TelemetryMaxCommandArgs:              int(data.GetTelemetryMaxCommandArgs()),
+		TelemetryMaxCommandArgBytes:          int(data.GetTelemetryMaxCommandArgBytes()),
+		TelemetryWSReadLimitBytes:            data.GetTelemetryWsReadLimitBytes(),
 	}
 }
 
@@ -127,5 +136,14 @@ func systemConfigToProto(data model.SystemConfig) *coreapi.SystemConfigData {
 		ComposeBuildPollIntervalSeconds:      data.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  data.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: data.ComposeDependencyPollIntervalSeconds,
+		TelemetryMaxLogTailLines:             int32(data.TelemetryMaxLogTailLines),
+		TelemetryMaxLogStreamsPerUser:        int32(data.TelemetryMaxLogStreamsPerUser),
+		TelemetryMaxTerminalSessionsPerUser:  int32(data.TelemetryMaxTerminalSessionsPerUser),
+		TelemetryTerminalIdleTimeoutSeconds:  data.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds:  data.TelemetryTerminalMaxDurationSeconds,
+		TelemetryAllowedExecCommands:         data.TelemetryAllowedExecCommands,
+		TelemetryMaxCommandArgs:              int32(data.TelemetryMaxCommandArgs),
+		TelemetryMaxCommandArgBytes:          int32(data.TelemetryMaxCommandArgBytes),
+		TelemetryWsReadLimitBytes:            data.TelemetryWSReadLimitBytes,
 	}
 }

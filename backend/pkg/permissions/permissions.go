@@ -4,9 +4,11 @@ const (
 	SystemConfigRead   = "system.config.read"
 	SystemConfigUpdate = "system.config.update"
 
-	ContainersAdminList   = "containers.admin.list"
-	ContainersAdminAction = "containers.admin.action"
-	ContainersAdminStats  = "containers.admin.stats"
+	ContainersAdminList     = "containers.admin.list"
+	ContainersAdminAction   = "containers.admin.action"
+	ContainersAdminStats    = "containers.admin.stats"
+	ContainersAdminLogs     = "containers.admin.logs"
+	ContainersAdminTerminal = "containers.admin.terminal"
 
 	VolumesAdminList   = "volumes.admin.list"
 	VolumesAdminDelete = "volumes.admin.delete"
@@ -30,26 +32,28 @@ const (
 )
 
 var all = map[string]struct{}{
-	SystemConfigRead:      {},
-	SystemConfigUpdate:    {},
-	ContainersAdminList:   {},
-	ContainersAdminAction: {},
-	ContainersAdminStats:  {},
-	VolumesAdminList:      {},
-	VolumesAdminDelete:    {},
-	ImagesAdminList:       {},
-	ImagesAdminDelete:     {},
-	BuildsAdminList:       {},
-	BuildsAdminDelete:     {},
-	ProjectsAdminList:     {},
-	ProjectsAdminDelete:   {},
-	ProjectsAdminStart:    {},
-	ProjectsAdminStop:     {},
-	UsersAdminList:        {},
-	UsersAdminRead:        {},
-	UsersAdminCreate:      {},
-	UsersAdminUpdate:      {},
-	UsersAdminDelete:      {},
+	SystemConfigRead:        {},
+	SystemConfigUpdate:      {},
+	ContainersAdminList:     {},
+	ContainersAdminAction:   {},
+	ContainersAdminStats:    {},
+	ContainersAdminLogs:     {},
+	ContainersAdminTerminal: {},
+	VolumesAdminList:        {},
+	VolumesAdminDelete:      {},
+	ImagesAdminList:         {},
+	ImagesAdminDelete:       {},
+	BuildsAdminList:         {},
+	BuildsAdminDelete:       {},
+	ProjectsAdminList:       {},
+	ProjectsAdminDelete:     {},
+	ProjectsAdminStart:      {},
+	ProjectsAdminStop:       {},
+	UsersAdminList:          {},
+	UsersAdminRead:          {},
+	UsersAdminCreate:        {},
+	UsersAdminUpdate:        {},
+	UsersAdminDelete:        {},
 }
 
 func Exists(permission string) bool {

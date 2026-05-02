@@ -12,6 +12,7 @@ service ContainerAPI {
   rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
+  rpc GetContainerRuntimeTarget (ContainerRuntimeTargetRequest) returns (ContainerRuntimeTarget);
 }
 
 service ImageAPI {
@@ -119,6 +120,18 @@ message ContainerData {
   string owner_username = 10;
   string desired_status = 11;
   string last_error = 12;
+}
+
+message ContainerRuntimeTargetRequest {
+  string container_id = 1;
+}
+
+message ContainerRuntimeTarget {
+  string container_id = 1;
+  string docker_id = 2;
+  string status = 3;
+  string owner_id = 4;
+  int32 docker_generation = 5;
 }
 
 message ContainerListResponse {
@@ -341,6 +354,15 @@ message SystemConfigData {
   int64 compose_dependency_wait_timeout_minutes = 46;
   int64 compose_dependency_poll_interval_seconds = 47;
   repeated string reserved_domain_prefixes = 48;
+  int32 telemetry_max_log_tail_lines = 49;
+  int32 telemetry_max_log_streams_per_user = 50;
+  int32 telemetry_max_terminal_sessions_per_user = 51;
+  int64 telemetry_terminal_idle_timeout_seconds = 52;
+  int64 telemetry_terminal_max_duration_seconds = 53;
+  repeated string telemetry_allowed_exec_commands = 54;
+  int32 telemetry_max_command_args = 55;
+  int32 telemetry_max_command_arg_bytes = 56;
+  int64 telemetry_ws_read_limit_bytes = 57;
 }
 
 message ContainerStatsResponse {

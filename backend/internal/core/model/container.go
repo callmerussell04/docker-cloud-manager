@@ -67,3 +67,11 @@ type ContainerStats struct {
 	NetworkRxBytes   int64
 	NetworkTxBytes   int64
 }
+
+type ContainerRuntimeTarget struct {
+	ContainerID      uuid.UUID
+	DockerID         string
+	Status           string
+	OwnerID          uuid.UUID
+	DockerGeneration int
+}

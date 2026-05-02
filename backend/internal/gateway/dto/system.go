@@ -49,4 +49,13 @@ type SystemConfigDTO struct {
 	ComposeBuildPollIntervalSeconds      int64    `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64    `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64    `json:"compose_dependency_poll_interval_seconds"`
+	TelemetryMaxLogTailLines             int      `json:"telemetry_max_log_tail_lines"`
+	TelemetryMaxLogStreamsPerUser        int      `json:"telemetry_max_log_streams_per_user"`
+	TelemetryMaxTerminalSessionsPerUser  int      `json:"telemetry_max_terminal_sessions_per_user"`
+	TelemetryTerminalIdleTimeoutSeconds  int64    `json:"telemetry_terminal_idle_timeout_seconds"`
+	TelemetryTerminalMaxDurationSeconds  int64    `json:"telemetry_terminal_max_duration_seconds"`
+	TelemetryAllowedExecCommands         []string `json:"telemetry_allowed_exec_commands"`
+	TelemetryMaxCommandArgs              int      `json:"telemetry_max_command_args"`
+	TelemetryMaxCommandArgBytes          int      `json:"telemetry_max_command_arg_bytes"`
+	TelemetryWSReadLimitBytes            int64    `json:"telemetry_ws_read_limit_bytes"`
 }

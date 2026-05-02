@@ -1064,3 +1064,26 @@ func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) 
 	}
 	return stats, err
 }
+
+func (s *ContainerService) GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error) {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return model.ContainerRuntimeTarget{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return model.ContainerRuntimeTarget{}, err
+	}
+	if c.Status == model.ContainerStatusMissing {
+		return model.ContainerRuntimeTarget{}, resourceUnavailableError("container")
+	}
+	if c.DockerID == "" {
+		return model.ContainerRuntimeTarget{}, apperrors.ErrNotFound
+	}
+	return model.ContainerRuntimeTarget{
+		ContainerID:      c.ID,
+		DockerID:         c.DockerID,
+		Status:           c.Status,
+		OwnerID:          c.OwnerID,
+		DockerGeneration: c.DockerGeneration,
+	}, nil
+}
