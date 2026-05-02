@@ -33,6 +33,18 @@ const (
 	PermissionProjectsAdminDelete = permissions.ProjectsAdminDelete
 	PermissionProjectsAdminStart  = permissions.ProjectsAdminStart
 	PermissionProjectsAdminStop   = permissions.ProjectsAdminStop
+
+	PermissionUsersAdminList   = permissions.UsersAdminList
+	PermissionUsersAdminRead   = permissions.UsersAdminRead
+	PermissionUsersAdminCreate = permissions.UsersAdminCreate
+	PermissionUsersAdminUpdate = permissions.UsersAdminUpdate
+	PermissionUsersAdminDelete = permissions.UsersAdminDelete
+)
+
+const (
+	defaultQuotaCPU    = 1.0
+	defaultQuotaRAMMB  = 2048
+	defaultQuotaDiskMB = 5120
 )
 
 var rolePermissions = map[string]map[string]struct{}{
@@ -52,15 +64,23 @@ var rolePermissions = map[string]map[string]struct{}{
 		PermissionProjectsAdminDelete:   {},
 		PermissionProjectsAdminStart:    {},
 		PermissionProjectsAdminStop:     {},
+		PermissionUsersAdminList:        {},
+		PermissionUsersAdminRead:        {},
+		PermissionUsersAdminCreate:      {},
+		PermissionUsersAdminUpdate:      {},
+		PermissionUsersAdminDelete:      {},
 	},
 	model.RoleUser: {},
 }
 
 type UserRepository interface {
 	SaveUser(ctx context.Context, user model.User) error
+	UpdateUser(ctx context.Context, user model.User) error
 	GetUserByUsername(ctx context.Context, username string) (model.User, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error)
 	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
+	ListUsers(ctx context.Context, opts model.ListUsersOptions) ([]model.User, int, error)
+	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
 type TokenProvider interface {
@@ -80,6 +100,28 @@ type BootstrapAdminConfig struct {
 	Password string
 }
 
+type CreateUserInput struct {
+	Username    string
+	Email       string
+	Password    string
+	Role        string
+	Status      string
+	QuotaCPU    float64
+	QuotaRAMMB  int64
+	QuotaDiskMB int64
+}
+
+type UpdateUserInput struct {
+	Username    string
+	Email       string
+	Password    string
+	Role        string
+	Status      string
+	QuotaCPU    float64
+	QuotaRAMMB  int64
+	QuotaDiskMB int64
+}
+
 func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
 	userID, err := s.tokenProvider.ValidateAccessToken(accessToken)
 	if err != nil {
@@ -88,6 +130,9 @@ func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string)
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
+		return model.User{}, apperrors.ErrInvalidToken
+	}
+	if user.Status != model.StatusActive {
 		return model.User{}, apperrors.ErrInvalidToken
 	}
 	return user, nil
@@ -123,6 +168,10 @@ func (s *AuthService) GetUsers(ctx context.Context, ids []uuid.UUID) ([]model.Us
 	return s.repo.GetUsersByIDs(ctx, ids)
 }
 
+func (s *AuthService) ListUsers(ctx context.Context, limit, offset int) ([]model.User, int, error) {
+	return s.repo.ListUsers(ctx, model.ListUsersOptions{Limit: limit, Offset: offset})
+}
+
 func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthService {
 	return &AuthService{
 		repo:          repo,
@@ -134,6 +183,12 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdm
 	existing, err := s.repo.GetUserByUsername(ctx, cfg.Username)
 	if err == nil {
 		if existing.Role == model.RoleAdmin {
+			if existing.Status != model.StatusActive {
+				existing.Status = model.StatusActive
+				if err := s.repo.UpdateUser(ctx, existing); err != nil {
+					return fmt.Errorf("failed to activate bootstrap admin: %w", err)
+				}
+			}
 			return nil
 		}
 		return apperrors.New(apperrors.ErrConflict, "bootstrap admin username already exists with non-admin role")
@@ -153,6 +208,10 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdm
 		Email:        cfg.Email,
 		PasswordHash: string(hash),
 		Role:         model.RoleAdmin,
+		Status:       model.StatusActive,
+		QuotaCPU:     defaultQuotaCPU,
+		QuotaRAMMB:   defaultQuotaRAMMB,
+		QuotaDiskMB:  defaultQuotaDiskMB,
 	}
 
 	if err := s.repo.SaveUser(ctx, user); err != nil {
@@ -177,6 +236,10 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 		Email:        email,
 		PasswordHash: string(hash),
 		Role:         model.RoleUser,
+		Status:       model.StatusActive,
+		QuotaCPU:     defaultQuotaCPU,
+		QuotaRAMMB:   defaultQuotaRAMMB,
+		QuotaDiskMB:  defaultQuotaDiskMB,
 	}
 
 	err = s.repo.SaveUser(ctx, user)
@@ -197,6 +260,9 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (str
 			return "", "", apperrors.ErrInvalidCredentials
 		}
 		return "", "", apperrors.ErrInternal
+	}
+	if user.Status != model.StatusActive {
+		return "", "", apperrors.ErrInvalidCredentials
 	}
 
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
@@ -222,6 +288,9 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 	if err != nil {
 		return "", "", apperrors.ErrInvalidToken
 	}
+	if user.Status != model.StatusActive {
+		return "", "", apperrors.ErrInvalidToken
+	}
 
 	accessToken, newRefreshToken, err := s.tokenProvider.GenerateTokens(user)
 	if err != nil {
@@ -229,4 +298,136 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string,
 	}
 
 	return accessToken, newRefreshToken, nil
+}
+
+func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (model.User, error) {
+	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+		return model.User{}, err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return model.User{}, apperrors.ErrInternal
+	}
+
+	user := model.User{
+		ID:           uuid.New(),
+		Username:     input.Username,
+		Email:        input.Email,
+		PasswordHash: string(hash),
+		Role:         input.Role,
+		Status:       input.Status,
+		QuotaCPU:     input.QuotaCPU,
+		QuotaRAMMB:   input.QuotaRAMMB,
+		QuotaDiskMB:  input.QuotaDiskMB,
+	}
+	if err := s.repo.SaveUser(ctx, user); err != nil {
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return model.User{}, apperrors.ErrAlreadyExists
+		}
+		return model.User{}, fmt.Errorf("failed to create user: %w", err)
+	}
+	return user, nil
+}
+
+func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input UpdateUserInput) (model.User, error) {
+	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+		return model.User{}, err
+	}
+
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := s.ensureNotLastActiveAdmin(ctx, user, input.Role, input.Status); err != nil {
+		return model.User{}, err
+	}
+
+	user.Username = input.Username
+	user.Email = input.Email
+	user.Role = input.Role
+	user.Status = input.Status
+	user.QuotaCPU = input.QuotaCPU
+	user.QuotaRAMMB = input.QuotaRAMMB
+	user.QuotaDiskMB = input.QuotaDiskMB
+	if input.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return model.User{}, apperrors.ErrInternal
+		}
+		user.PasswordHash = string(hash)
+	}
+
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		if errors.Is(err, apperrors.ErrAlreadyExists) {
+			return model.User{}, apperrors.ErrAlreadyExists
+		}
+		return model.User{}, fmt.Errorf("failed to update user: %w", err)
+	}
+	return user, nil
+}
+
+func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return model.User{}, err
+	}
+	if err := s.ensureNotLastActiveAdmin(ctx, user, user.Role, model.StatusDeactivated); err != nil {
+		return model.User{}, err
+	}
+	user.Status = model.StatusDeactivated
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return model.User{}, fmt.Errorf("failed to deactivate user: %w", err)
+	}
+	return user, nil
+}
+
+func (s *AuthService) ReactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error) {
+	user, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return model.User{}, err
+	}
+	user.Status = model.StatusActive
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return model.User{}, fmt.Errorf("failed to reactivate user: %w", err)
+	}
+	return user, nil
+}
+
+func validateUserInput(role, status string, quotaCPU float64, quotaRAMMB, quotaDiskMB int64) error {
+	if !validRole(role) {
+		return apperrors.New(apperrors.ErrBadRequest, "role must be one of: admin, user")
+	}
+	if !validStatus(status) {
+		return apperrors.New(apperrors.ErrBadRequest, "status must be one of: active, deactivated")
+	}
+	if quotaCPU <= 0 || quotaRAMMB <= 0 || quotaDiskMB <= 0 {
+		return apperrors.New(apperrors.ErrBadRequest, "quotas must be positive")
+	}
+	return nil
+}
+
+func validRole(role string) bool {
+	return role == model.RoleAdmin || role == model.RoleUser
+}
+
+func validStatus(status string) bool {
+	return status == model.StatusActive || status == model.StatusDeactivated
+}
+
+func (s *AuthService) ensureNotLastActiveAdmin(ctx context.Context, current model.User, nextRole, nextStatus string) error {
+	if current.Role != model.RoleAdmin || current.Status != model.StatusActive {
+		return nil
+	}
+	if nextRole == model.RoleAdmin && nextStatus == model.StatusActive {
+		return nil
+	}
+	count, err := s.repo.CountActiveAdmins(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to count active admins: %w", err)
+	}
+	if count <= 1 {
+		return apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
+	}
+	return nil
 }

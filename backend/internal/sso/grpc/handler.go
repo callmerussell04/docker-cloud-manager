@@ -5,6 +5,7 @@ import (
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
+	ssoservice "github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )
@@ -17,6 +18,11 @@ type AuthService interface {
 	CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error)
 	GetUser(ctx context.Context, userID uuid.UUID) (model.User, error)
 	GetUsers(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
+	ListUsers(ctx context.Context, limit, offset int) ([]model.User, int, error)
+	CreateUser(ctx context.Context, input ssoservice.CreateUserInput) (model.User, error)
+	UpdateUser(ctx context.Context, userID uuid.UUID, input ssoservice.UpdateUserInput) (model.User, error)
+	DeactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error)
+	ReactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error)
 }
 
 type Handler struct {
@@ -39,5 +45,6 @@ func userToProto(user model.User) *sso.UserData {
 		QuotaRamMb:  user.QuotaRAMMB,
 		QuotaDiskMb: user.QuotaDiskMB,
 		QuotaCpu:    user.QuotaCPU,
+		Status:      user.Status,
 	}
 }

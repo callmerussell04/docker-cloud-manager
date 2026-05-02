@@ -21,6 +21,12 @@ const (
 	ProjectsAdminDelete = "projects.admin.delete"
 	ProjectsAdminStart  = "projects.admin.start"
 	ProjectsAdminStop   = "projects.admin.stop"
+
+	UsersAdminList   = "users.admin.list"
+	UsersAdminRead   = "users.admin.read"
+	UsersAdminCreate = "users.admin.create"
+	UsersAdminUpdate = "users.admin.update"
+	UsersAdminDelete = "users.admin.delete"
 )
 
 var all = map[string]struct{}{
@@ -39,6 +45,11 @@ var all = map[string]struct{}{
 	ProjectsAdminDelete:   {},
 	ProjectsAdminStart:    {},
 	ProjectsAdminStop:     {},
+	UsersAdminList:        {},
+	UsersAdminRead:        {},
+	UsersAdminCreate:      {},
+	UsersAdminUpdate:      {},
+	UsersAdminDelete:      {},
 }
 
 func Exists(permission string) bool {

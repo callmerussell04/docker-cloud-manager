@@ -126,3 +126,97 @@ func accessTokenFromHeader(authHeader string) (string, error) {
 	}
 	return parts[1], nil
 }
+
+func (c *SSOClient) ListUsers(ctx context.Context, page, limit int) (model.PaginatedAdminUsers, error) {
+	resp, err := c.userAPI.ListUsers(ctx, &sso.ListUsersRequest{
+		Page:  int32(page),
+		Limit: int32(limit),
+	})
+	if err != nil {
+		return model.PaginatedAdminUsers{}, grpcerrors.FromGRPC(err)
+	}
+
+	users := make([]model.AdminUser, 0, len(resp.GetUsers()))
+	for _, pbUser := range resp.GetUsers() {
+		users = append(users, adminUserFromProto(pbUser))
+	}
+	return model.PaginatedAdminUsers{
+		Users:      users,
+		TotalCount: resp.GetTotalCount(),
+	}, nil
+}
+
+func (c *SSOClient) GetUser(ctx context.Context, userID string) (model.AdminUser, error) {
+	resp, err := c.userAPI.GetUser(ctx, &sso.GetUserRequest{UserId: userID})
+	if err != nil {
+		return model.AdminUser{}, grpcerrors.FromGRPC(err)
+	}
+	return adminUserFromProto(resp), nil
+}
+
+func (c *SSOClient) CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error) {
+	resp, err := c.userAPI.CreateUser(ctx, &sso.CreateUserRequest{
+		Username:    input.Username,
+		Email:       input.Email,
+		Password:    input.Password,
+		Role:        input.Role,
+		Status:      input.Status,
+		QuotaCpu:    input.QuotaCPU,
+		QuotaRamMb:  input.QuotaRAMMB,
+		QuotaDiskMb: input.QuotaDiskMB,
+	})
+	if err != nil {
+		return model.AdminUser{}, grpcerrors.FromGRPC(err)
+	}
+	return adminUserFromProto(resp), nil
+}
+
+func (c *SSOClient) UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error) {
+	resp, err := c.userAPI.UpdateUser(ctx, &sso.UpdateUserRequest{
+		UserId:      userID,
+		Username:    input.Username,
+		Email:       input.Email,
+		Password:    input.Password,
+		Role:        input.Role,
+		Status:      input.Status,
+		QuotaCpu:    input.QuotaCPU,
+		QuotaRamMb:  input.QuotaRAMMB,
+		QuotaDiskMb: input.QuotaDiskMB,
+	})
+	if err != nil {
+		return model.AdminUser{}, grpcerrors.FromGRPC(err)
+	}
+	return adminUserFromProto(resp), nil
+}
+
+func (c *SSOClient) DeactivateUser(ctx context.Context, userID string) (model.AdminUser, error) {
+	resp, err := c.userAPI.DeactivateUser(ctx, &sso.UserIDRequest{UserId: userID})
+	if err != nil {
+		return model.AdminUser{}, grpcerrors.FromGRPC(err)
+	}
+	return adminUserFromProto(resp), nil
+}
+
+func (c *SSOClient) ReactivateUser(ctx context.Context, userID string) (model.AdminUser, error) {
+	resp, err := c.userAPI.ReactivateUser(ctx, &sso.UserIDRequest{UserId: userID})
+	if err != nil {
+		return model.AdminUser{}, grpcerrors.FromGRPC(err)
+	}
+	return adminUserFromProto(resp), nil
+}
+
+func adminUserFromProto(user *sso.UserData) model.AdminUser {
+	if user == nil {
+		return model.AdminUser{}
+	}
+	return model.AdminUser{
+		UserID:      user.GetUserId(),
+		Username:    user.GetUsername(),
+		Email:       user.GetEmail(),
+		Role:        user.GetRole(),
+		Status:      user.GetStatus(),
+		QuotaCPU:    user.GetQuotaCpu(),
+		QuotaRAMMB:  user.GetQuotaRamMb(),
+		QuotaDiskMB: user.GetQuotaDiskMb(),
+	}
+}

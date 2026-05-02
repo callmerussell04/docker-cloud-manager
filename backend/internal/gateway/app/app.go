@@ -113,6 +113,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ssoClient := grpcclient.NewSSOClient(ssoConn)
 	authService := service.NewAuth(ssoClient)
 	authHandler := handler.NewAuthHandler(authService, cfg.Cookie)
+	userService := service.NewUserManagement(ssoClient)
+	userHandler := handler.NewUserManagementHandler(userService)
 
 	coreClient := grpcclient.NewCoreClient(coreConn)
 	coreService := service.NewCore(coreClient)
@@ -168,7 +170,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	healthHandler := handler.NewHealthHandler(readiness)
 
-	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, healthHandler, builderProxy, buildProxy, coreProxy, authService, logger)
+	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, authService, logger)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,

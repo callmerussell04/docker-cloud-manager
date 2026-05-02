@@ -517,6 +517,50 @@ func (x *GetUserRequest) GetUserId() string {
 	return ""
 }
 
+type UserIDRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserIDRequest) Reset() {
+	*x = UserIDRequest{}
+	mi := &file_api_sso_sso_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserIDRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserIDRequest) ProtoMessage() {}
+
+func (x *UserIDRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserIDRequest.ProtoReflect.Descriptor instead.
+func (*UserIDRequest) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *UserIDRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
 type BatchGetUsersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserIds       []string               `protobuf:"bytes,1,rep,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
@@ -526,7 +570,7 @@ type BatchGetUsersRequest struct {
 
 func (x *BatchGetUsersRequest) Reset() {
 	*x = BatchGetUsersRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[10]
+	mi := &file_api_sso_sso_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -538,7 +582,7 @@ func (x *BatchGetUsersRequest) String() string {
 func (*BatchGetUsersRequest) ProtoMessage() {}
 
 func (x *BatchGetUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[10]
+	mi := &file_api_sso_sso_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -551,7 +595,7 @@ func (x *BatchGetUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetUsersRequest.ProtoReflect.Descriptor instead.
 func (*BatchGetUsersRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{10}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *BatchGetUsersRequest) GetUserIds() []string {
@@ -570,13 +614,14 @@ type UserData struct {
 	QuotaRamMb    int64                  `protobuf:"varint,5,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
 	QuotaDiskMb   int64                  `protobuf:"varint,6,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
 	QuotaCpu      float64                `protobuf:"fixed64,7,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
+	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UserData) Reset() {
 	*x = UserData{}
-	mi := &file_api_sso_sso_proto_msgTypes[11]
+	mi := &file_api_sso_sso_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -588,7 +633,7 @@ func (x *UserData) String() string {
 func (*UserData) ProtoMessage() {}
 
 func (x *UserData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[11]
+	mi := &file_api_sso_sso_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -601,7 +646,7 @@ func (x *UserData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserData.ProtoReflect.Descriptor instead.
 func (*UserData) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{11}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UserData) GetUserId() string {
@@ -653,6 +698,13 @@ func (x *UserData) GetQuotaCpu() float64 {
 	return 0
 }
 
+func (x *UserData) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 type BatchGetUsersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Users         []*UserData            `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
@@ -662,7 +714,7 @@ type BatchGetUsersResponse struct {
 
 func (x *BatchGetUsersResponse) Reset() {
 	*x = BatchGetUsersResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[12]
+	mi := &file_api_sso_sso_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -674,7 +726,7 @@ func (x *BatchGetUsersResponse) String() string {
 func (*BatchGetUsersResponse) ProtoMessage() {}
 
 func (x *BatchGetUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[12]
+	mi := &file_api_sso_sso_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -687,7 +739,7 @@ func (x *BatchGetUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetUsersResponse.ProtoReflect.Descriptor instead.
 func (*BatchGetUsersResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{12}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BatchGetUsersResponse) GetUsers() []*UserData {
@@ -695,6 +747,318 @@ func (x *BatchGetUsersResponse) GetUsers() []*UserData {
 		return x.Users
 	}
 	return nil
+}
+
+type ListUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Page          int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListUsersRequest) Reset() {
+	*x = ListUsersRequest{}
+	mi := &file_api_sso_sso_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListUsersRequest) ProtoMessage() {}
+
+func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
+func (*ListUsersRequest) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListUsersRequest) GetPage() int32 {
+	if x != nil {
+		return x.Page
+	}
+	return 0
+}
+
+func (x *ListUsersRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type ListUsersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*UserData            `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	TotalCount    int32                  `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListUsersResponse) Reset() {
+	*x = ListUsersResponse{}
+	mi := &file_api_sso_sso_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListUsersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListUsersResponse) ProtoMessage() {}
+
+func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
+func (*ListUsersResponse) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListUsersResponse) GetUsers() []*UserData {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+func (x *ListUsersResponse) GetTotalCount() int32 {
+	if x != nil {
+		return x.TotalCount
+	}
+	return 0
+}
+
+type CreateUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
+	QuotaCpu      float64                `protobuf:"fixed64,6,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
+	QuotaRamMb    int64                  `protobuf:"varint,7,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
+	QuotaDiskMb   int64                  `protobuf:"varint,8,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateUserRequest) Reset() {
+	*x = CreateUserRequest{}
+	mi := &file_api_sso_sso_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateUserRequest) ProtoMessage() {}
+
+func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
+func (*CreateUserRequest) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *CreateUserRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *CreateUserRequest) GetQuotaCpu() float64 {
+	if x != nil {
+		return x.QuotaCpu
+	}
+	return 0
+}
+
+func (x *CreateUserRequest) GetQuotaRamMb() int64 {
+	if x != nil {
+		return x.QuotaRamMb
+	}
+	return 0
+}
+
+func (x *CreateUserRequest) GetQuotaDiskMb() int64 {
+	if x != nil {
+		return x.QuotaDiskMb
+	}
+	return 0
+}
+
+type UpdateUserRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
+	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
+	QuotaCpu      float64                `protobuf:"fixed64,7,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
+	QuotaRamMb    int64                  `protobuf:"varint,8,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
+	QuotaDiskMb   int64                  `protobuf:"varint,9,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateUserRequest) Reset() {
+	*x = UpdateUserRequest{}
+	mi := &file_api_sso_sso_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateUserRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateUserRequest) ProtoMessage() {}
+
+func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateUserRequest.ProtoReflect.Descriptor instead.
+func (*UpdateUserRequest) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UpdateUserRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *UpdateUserRequest) GetQuotaCpu() float64 {
+	if x != nil {
+		return x.QuotaCpu
+	}
+	return 0
+}
+
+func (x *UpdateUserRequest) GetQuotaRamMb() int64 {
+	if x != nil {
+		return x.QuotaRamMb
+	}
+	return 0
+}
+
+func (x *UpdateUserRequest) GetQuotaDiskMb() int64 {
+	if x != nil {
+		return x.QuotaDiskMb
+	}
+	return 0
 }
 
 var File_api_sso_sso_proto protoreflect.FileDescriptor
@@ -730,9 +1094,11 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\aallowed\x18\x01 \x01(\bR\aallowed\x12!\n" +
 	"\x04user\x18\x02 \x01(\v2\r.sso.UserDataR\x04user\")\n" +
 	"\x0eGetUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"(\n" +
+	"\rUserIDRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"1\n" +
 	"\x14BatchGetUsersRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\xcc\x01\n" +
+	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\xe4\x01\n" +
 	"\bUserData\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
@@ -741,18 +1107,54 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\fquota_ram_mb\x18\x05 \x01(\x03R\n" +
 	"quotaRamMb\x12\"\n" +
 	"\rquota_disk_mb\x18\x06 \x01(\x03R\vquotaDiskMb\x12\x1b\n" +
-	"\tquota_cpu\x18\a \x01(\x01R\bquotaCpu\"<\n" +
+	"\tquota_cpu\x18\a \x01(\x01R\bquotaCpu\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06status\"<\n" +
 	"\x15BatchGetUsersResponse\x12#\n" +
-	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users2\xa5\x01\n" +
+	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users\"<\n" +
+	"\x10ListUsersRequest\x12\x12\n" +
+	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\"Y\n" +
+	"\x11ListUsersResponse\x12#\n" +
+	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users\x12\x1f\n" +
+	"\vtotal_count\x18\x02 \x01(\x05R\n" +
+	"totalCount\"\xf0\x01\n" +
+	"\x11CreateUserRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1a\n" +
+	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1b\n" +
+	"\tquota_cpu\x18\x06 \x01(\x01R\bquotaCpu\x12 \n" +
+	"\fquota_ram_mb\x18\a \x01(\x03R\n" +
+	"quotaRamMb\x12\"\n" +
+	"\rquota_disk_mb\x18\b \x01(\x03R\vquotaDiskMb\"\x89\x02\n" +
+	"\x11UpdateUserRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
+	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
+	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
+	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1b\n" +
+	"\tquota_cpu\x18\a \x01(\x01R\bquotaCpu\x12 \n" +
+	"\fquota_ram_mb\x18\b \x01(\x03R\n" +
+	"quotaRamMb\x12\"\n" +
+	"\rquota_disk_mb\x18\t \x01(\x03R\vquotaDiskMb2\xa5\x01\n" +
 	"\x04Auth\x127\n" +
 	"\bRegister\x12\x14.sso.RegisterRequest\x1a\x15.sso.RegisterResponse\x12.\n" +
 	"\x05Login\x12\x11.sso.LoginRequest\x1a\x12.sso.LoginResponse\x124\n" +
-	"\aRefresh\x12\x13.sso.RefreshRequest\x1a\x14.sso.RefreshResponse2\x8b\x02\n" +
+	"\aRefresh\x12\x13.sso.RefreshRequest\x1a\x14.sso.RefreshResponse2\x9b\x04\n" +
 	"\aUserAPI\x12;\n" +
 	"\x11VerifyAccessToken\x12\x17.sso.VerifyTokenRequest\x1a\r.sso.UserData\x12L\n" +
 	"\x0fCheckPermission\x12\x1b.sso.CheckPermissionRequest\x1a\x1c.sso.CheckPermissionResponse\x12-\n" +
 	"\aGetUser\x12\x13.sso.GetUserRequest\x1a\r.sso.UserData\x12F\n" +
-	"\rBatchGetUsers\x12\x19.sso.BatchGetUsersRequest\x1a\x1a.sso.BatchGetUsersResponseBEZCgithub.com/callmerussell04/docker-cloud-manager/backend/api/sso;ssob\x06proto3"
+	"\rBatchGetUsers\x12\x19.sso.BatchGetUsersRequest\x1a\x1a.sso.BatchGetUsersResponse\x12:\n" +
+	"\tListUsers\x12\x15.sso.ListUsersRequest\x1a\x16.sso.ListUsersResponse\x123\n" +
+	"\n" +
+	"CreateUser\x12\x16.sso.CreateUserRequest\x1a\r.sso.UserData\x123\n" +
+	"\n" +
+	"UpdateUser\x12\x16.sso.UpdateUserRequest\x1a\r.sso.UserData\x123\n" +
+	"\x0eDeactivateUser\x12\x12.sso.UserIDRequest\x1a\r.sso.UserData\x123\n" +
+	"\x0eReactivateUser\x12\x12.sso.UserIDRequest\x1a\r.sso.UserDataBEZCgithub.com/callmerussell04/docker-cloud-manager/backend/api/sso;ssob\x06proto3"
 
 var (
 	file_api_sso_sso_proto_rawDescOnce sync.Once
@@ -766,7 +1168,7 @@ func file_api_sso_sso_proto_rawDescGZIP() []byte {
 	return file_api_sso_sso_proto_rawDescData
 }
 
-var file_api_sso_sso_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_api_sso_sso_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_api_sso_sso_proto_goTypes = []any{
 	(*RegisterRequest)(nil),         // 0: sso.RegisterRequest
 	(*RegisterResponse)(nil),        // 1: sso.RegisterResponse
@@ -778,32 +1180,48 @@ var file_api_sso_sso_proto_goTypes = []any{
 	(*CheckPermissionRequest)(nil),  // 7: sso.CheckPermissionRequest
 	(*CheckPermissionResponse)(nil), // 8: sso.CheckPermissionResponse
 	(*GetUserRequest)(nil),          // 9: sso.GetUserRequest
-	(*BatchGetUsersRequest)(nil),    // 10: sso.BatchGetUsersRequest
-	(*UserData)(nil),                // 11: sso.UserData
-	(*BatchGetUsersResponse)(nil),   // 12: sso.BatchGetUsersResponse
+	(*UserIDRequest)(nil),           // 10: sso.UserIDRequest
+	(*BatchGetUsersRequest)(nil),    // 11: sso.BatchGetUsersRequest
+	(*UserData)(nil),                // 12: sso.UserData
+	(*BatchGetUsersResponse)(nil),   // 13: sso.BatchGetUsersResponse
+	(*ListUsersRequest)(nil),        // 14: sso.ListUsersRequest
+	(*ListUsersResponse)(nil),       // 15: sso.ListUsersResponse
+	(*CreateUserRequest)(nil),       // 16: sso.CreateUserRequest
+	(*UpdateUserRequest)(nil),       // 17: sso.UpdateUserRequest
 }
 var file_api_sso_sso_proto_depIdxs = []int32{
-	11, // 0: sso.CheckPermissionResponse.user:type_name -> sso.UserData
-	11, // 1: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
-	0,  // 2: sso.Auth.Register:input_type -> sso.RegisterRequest
-	2,  // 3: sso.Auth.Login:input_type -> sso.LoginRequest
-	4,  // 4: sso.Auth.Refresh:input_type -> sso.RefreshRequest
-	6,  // 5: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
-	7,  // 6: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
-	9,  // 7: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
-	10, // 8: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
-	1,  // 9: sso.Auth.Register:output_type -> sso.RegisterResponse
-	3,  // 10: sso.Auth.Login:output_type -> sso.LoginResponse
-	5,  // 11: sso.Auth.Refresh:output_type -> sso.RefreshResponse
-	11, // 12: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
-	8,  // 13: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
-	11, // 14: sso.UserAPI.GetUser:output_type -> sso.UserData
-	12, // 15: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
-	9,  // [9:16] is the sub-list for method output_type
-	2,  // [2:9] is the sub-list for method input_type
-	2,  // [2:2] is the sub-list for extension type_name
-	2,  // [2:2] is the sub-list for extension extendee
-	0,  // [0:2] is the sub-list for field type_name
+	12, // 0: sso.CheckPermissionResponse.user:type_name -> sso.UserData
+	12, // 1: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
+	12, // 2: sso.ListUsersResponse.users:type_name -> sso.UserData
+	0,  // 3: sso.Auth.Register:input_type -> sso.RegisterRequest
+	2,  // 4: sso.Auth.Login:input_type -> sso.LoginRequest
+	4,  // 5: sso.Auth.Refresh:input_type -> sso.RefreshRequest
+	6,  // 6: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
+	7,  // 7: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
+	9,  // 8: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
+	11, // 9: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
+	14, // 10: sso.UserAPI.ListUsers:input_type -> sso.ListUsersRequest
+	16, // 11: sso.UserAPI.CreateUser:input_type -> sso.CreateUserRequest
+	17, // 12: sso.UserAPI.UpdateUser:input_type -> sso.UpdateUserRequest
+	10, // 13: sso.UserAPI.DeactivateUser:input_type -> sso.UserIDRequest
+	10, // 14: sso.UserAPI.ReactivateUser:input_type -> sso.UserIDRequest
+	1,  // 15: sso.Auth.Register:output_type -> sso.RegisterResponse
+	3,  // 16: sso.Auth.Login:output_type -> sso.LoginResponse
+	5,  // 17: sso.Auth.Refresh:output_type -> sso.RefreshResponse
+	12, // 18: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
+	8,  // 19: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
+	12, // 20: sso.UserAPI.GetUser:output_type -> sso.UserData
+	13, // 21: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
+	15, // 22: sso.UserAPI.ListUsers:output_type -> sso.ListUsersResponse
+	12, // 23: sso.UserAPI.CreateUser:output_type -> sso.UserData
+	12, // 24: sso.UserAPI.UpdateUser:output_type -> sso.UserData
+	12, // 25: sso.UserAPI.DeactivateUser:output_type -> sso.UserData
+	12, // 26: sso.UserAPI.ReactivateUser:output_type -> sso.UserData
+	15, // [15:27] is the sub-list for method output_type
+	3,  // [3:15] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_api_sso_sso_proto_init() }
@@ -817,7 +1235,7 @@ func file_api_sso_sso_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_sso_sso_proto_rawDesc), len(file_api_sso_sso_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

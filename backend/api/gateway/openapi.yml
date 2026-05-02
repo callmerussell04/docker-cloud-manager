@@ -598,6 +598,113 @@ paths:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
 
+  /admin/users:
+    get:
+      summary: Get paginated list of users
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAdminUsers'
+    post:
+      summary: Create a user as admin
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAdminUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/users/{id}:
+    get:
+      summary: Get a user by id
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Update a user as admin
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      summary: Deactivate a user
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: User deactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/users/{id}/activate:
+    post:
+      summary: Reactivate a user
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: User reactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /admin/containers:
     get:
       summary: Get paginated list of all containers (all users)
@@ -976,6 +1083,108 @@ components:
           type: string
         password:
           type: string
+
+    # ADMIN USERS
+    AdminUser:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+        quota_cpu:
+          type: number
+          format: double
+        quota_ram_mb:
+          type: integer
+          format: int64
+        quota_disk_mb:
+          type: integer
+          format: int64
+
+    PaginatedAdminUsers:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        total_count:
+          type: integer
+
+    CreateAdminUserRequest:
+      type: object
+      required: [username, email, password, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+        quota_cpu:
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+        quota_ram_mb:
+          type: integer
+          format: int64
+          minimum: 1
+        quota_disk_mb:
+          type: integer
+          format: int64
+          minimum: 1
+
+    UpdateAdminUserRequest:
+      type: object
+      required: [username, email, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+        quota_cpu:
+          type: number
+          format: double
+          minimum: 0
+          exclusiveMinimum: true
+        quota_ram_mb:
+          type: integer
+          format: int64
+          minimum: 1
+        quota_disk_mb:
+          type: integer
+          format: int64
+          minimum: 1
 
     # CONTAINERS
     CreateContainerRequest:

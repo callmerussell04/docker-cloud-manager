@@ -15,6 +15,11 @@ service UserAPI {
   rpc CheckPermission (CheckPermissionRequest) returns (CheckPermissionResponse);
   rpc GetUser (GetUserRequest) returns (UserData);
   rpc BatchGetUsers (BatchGetUsersRequest) returns (BatchGetUsersResponse);
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
+  rpc CreateUser (CreateUserRequest) returns (UserData);
+  rpc UpdateUser (UpdateUserRequest) returns (UserData);
+  rpc DeactivateUser (UserIDRequest) returns (UserData);
+  rpc ReactivateUser (UserIDRequest) returns (UserData);
 }
 
 message RegisterRequest {
@@ -64,6 +69,10 @@ message GetUserRequest {
   string user_id = 1;
 }
 
+message UserIDRequest {
+  string user_id = 1;
+}
+
 message BatchGetUsersRequest {
   repeated string user_ids = 1;
 }
@@ -76,8 +85,42 @@ message UserData {
   int64 quota_ram_mb = 5;
   int64 quota_disk_mb = 6;
   double quota_cpu = 7;
+  string status = 8;
 }
 
 message BatchGetUsersResponse {
   repeated UserData users = 1;
+}
+
+message ListUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListUsersResponse {
+  repeated UserData users = 1;
+  int32 total_count = 2;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  string role = 4;
+  string status = 5;
+  double quota_cpu = 6;
+  int64 quota_ram_mb = 7;
+  int64 quota_disk_mb = 8;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string password = 4;
+  string role = 5;
+  string status = 6;
+  double quota_cpu = 7;
+  int64 quota_ram_mb = 8;
+  int64 quota_disk_mb = 9;
 }

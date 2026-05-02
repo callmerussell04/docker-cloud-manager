@@ -20,7 +20,7 @@ type Config struct {
 	UploadRateLimit    middleware.RateLimitConfig
 }
 
-func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, healthHandler *handler.HealthHandler, builderProxy gin.HandlerFunc, buildProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
+func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, userHandler *handler.UserManagementHandler, healthHandler *handler.HealthHandler, builderProxy gin.HandlerFunc, buildProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(cfg.TrustedProxies)
 	limiter := middleware.NewRateLimiter()
@@ -92,6 +92,13 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 		{
 			admin.GET("/config", middleware.RequirePermission(tokenVerifier, permissions.SystemConfigRead), coreHandler.GetSystemConfig)
 			admin.PUT("/config", middleware.RequirePermission(tokenVerifier, permissions.SystemConfigUpdate), coreHandler.UpdateSystemConfig)
+
+			admin.GET("/users", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminList), userHandler.ListUsers)
+			admin.GET("/users/:id", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminRead), userHandler.GetUser)
+			admin.POST("/users", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminCreate), userHandler.CreateUser)
+			admin.PUT("/users/:id", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminUpdate), userHandler.UpdateUser)
+			admin.DELETE("/users/:id", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminDelete), userHandler.DeactivateUser)
+			admin.POST("/users/:id/activate", middleware.RequirePermission(tokenVerifier, permissions.UsersAdminUpdate), userHandler.ReactivateUser)
 
 			admin.GET("/containers", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminList), coreHandler.GetAllContainers)
 			admin.POST("/containers/:id/action/:action", middleware.RequirePermission(tokenVerifier, permissions.ContainersAdminAction), coreHandler.AdminActionContainer)
