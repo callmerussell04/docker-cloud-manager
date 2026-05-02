@@ -1,6 +1,7 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box } from 'lucide-react';
+import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText } from 'lucide-react';
+import { useState } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -8,6 +9,8 @@ import { getContainerStatsFn } from '@/features/containers/api';
 import { adminGetContainerStatsFn } from '@/features/admin/api';
 import { formatBytes } from '@/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
+import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
+import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 
 export function ContainerDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -16,8 +19,11 @@ export function ContainerDetailsPage() {
   
   const container = location.state?.container as ContainerData | undefined;
 
+  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
+  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
+
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['container_stats', id, isAdminRoute],
+    queryKey:['container_stats', id, isAdminRoute],
     queryFn: () => isAdminRoute ? adminGetContainerStatsFn(id!) : getContainerStatsFn(id!),
     enabled: !!id,
     refetchInterval: container?.status === 'running' ? 3000 : false,
@@ -39,25 +45,47 @@ export function ContainerDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Link 
-          to={isAdminRoute ? '/admin/resources' : '/containers'} 
-          className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
-            {getStatusBadge(container?.status)}
-          </div>
-          {container && (
-            <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
-              <Box className="w-4 h-4" />
-              <span>{container.image_tag}</span>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link 
+            to={isAdminRoute ? '/admin/resources' : '/containers'} 
+            className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
+              {getStatusBadge(container?.status)}
             </div>
-          )}
+            {container && (
+              <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
+                <Box className="w-4 h-4" />
+                <span>{container.image_tag}</span>
+              </div>
+            )}
+          </div>
         </div>
+
+        {container && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTerminalContainer(container)}
+              disabled={container.status !== 'running'}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+            >
+              <Terminal className="w-4 h-4" />
+              <span className="hidden sm:inline font-medium text-sm">Терминал</span>
+            </button>
+            <button
+              onClick={() => setLogsContainer(container)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+            >
+              <ScrollText className="w-4 h-4" />
+              <span className="hidden sm:inline font-medium text-sm">Логи</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {container?.status !== 'running' && (
@@ -146,6 +174,18 @@ export function ContainerDetailsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ContainerLogsModal 
+        container={logsContainer}
+        isAdmin={isAdminRoute}
+        onClose={() => setLogsContainer(null)}
+      />
+
+      <ContainerTerminalModal
+        container={terminalContainer}
+        isAdmin={isAdminRoute}
+        onClose={() => setTerminalContainer(null)}
+      />
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import { privateApi } from '@/api/axios';
-import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats } from '../types';
+import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats, TelemetryTicketResponse } from '../types';
 
 export const getContainersFn = async (): Promise<ContainerData[]> => {
   const response = await privateApi.get<{ containers: ContainerData[] }>('/containers');
-  return response.data.containers || [];
+  return response.data.containers ||[];
 };
 
 export const createContainerFn = async (data: CreateContainerDTO): Promise<{ container_id: string }> => {
@@ -21,5 +21,17 @@ export const exposeContainerFn = async ({ id, data }: { id: string; data: Expose
 
 export const getContainerStatsFn = async (id: string): Promise<ContainerStats> => {
   const response = await privateApi.get<ContainerStats>(`/containers/${id}/stats`);
+  return response.data;
+};
+
+export const getLogsTicketFn = async (id: string, isAdmin = false): Promise<TelemetryTicketResponse> => {
+  const prefix = isAdmin ? '/admin' : '';
+  const response = await privateApi.post(`${prefix}/containers/${id}/logs/stream/ticket`);
+  return response.data;
+};
+
+export const getTerminalTicketFn = async (id: string, isAdmin = false): Promise<TelemetryTicketResponse> => {
+  const prefix = isAdmin ? '/admin' : '';
+  const response = await privateApi.post(`${prefix}/containers/${id}/terminal/ticket`);
   return response.data;
 };

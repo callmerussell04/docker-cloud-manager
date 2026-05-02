@@ -1,4 +1,4 @@
-import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity } from 'lucide-react';
+import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ContainerData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,9 +10,11 @@ import { Link } from 'react-router-dom';
 interface ContainerRowProps {
   container: ContainerData;
   onExpose: (container: ContainerData) => void;
+  onViewLogs: (container: ContainerData) => void;
+  onOpenTerminal: (container: ContainerData) => void;
 }
 
-export function ContainerRow({ container, onExpose }: ContainerRowProps) {
+export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }: ContainerRowProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
 
@@ -23,7 +25,6 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
       addToast(`Команда ${variables.action} успешно отправлена`, 'success');
     },
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onError: (error: any) => {
       addToast(error.response?.data?.error || 'Ошибка при выполнении действия', 'error');
     },
@@ -95,9 +96,28 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
         </Link>
 
         <button
+          onClick={() => onOpenTerminal(container)}
+          disabled={container.status !== 'running'}
+          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+          title="Терминал"
+        >
+          <Terminal className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => onViewLogs(container)}
+          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+          title="Логи"
+        >
+          <ScrollText className="w-4 h-4" />
+        </button>
+
+        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
+
+        <button
           onClick={() => handleAction('start')}
           disabled={container.status === 'running' || actionMutation.isPending}
-          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors ml-2"
+          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title="Запустить"
         >
           <Play className="w-4 h-4" />
@@ -124,7 +144,7 @@ export function ContainerRow({ container, onExpose }: ContainerRowProps) {
         <button
           onClick={() => handleAction('delete')}
           disabled={actionMutation.isPending}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-4"
+          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить"
         >
           <Trash2 className="w-4 h-4" />

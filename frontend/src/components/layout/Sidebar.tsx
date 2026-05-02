@@ -26,7 +26,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
           <Box className="w-6 h-6 stroke-[2.5]" />
           <span className="font-bold text-lg tracking-tight text-slate-900 dark:text-slate-100">
-            CloudManager
+            DCM
           </span>
         </div>
       </div>

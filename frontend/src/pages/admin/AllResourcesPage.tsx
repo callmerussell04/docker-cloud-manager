@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity } from 'lucide-react';
+import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
@@ -14,13 +13,19 @@ import {
   getAllContainersFn, getAllVolumesFn, getAllImagesFn, getAllProjectsFn,
   adminActionContainerFn, adminDeleteVolumeFn, adminDeleteImageFn, adminActionProjectFn
 } from '@/features/admin/api';
+import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
+import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
+import { type ContainerData } from '@/features/containers/types';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'projects';
 
 export function AllResourcesPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('containers');
+  const[activeTab, setActiveTab] = useState<Tab>('containers');
   const [page, setPage] = useState(1);
   const limit = 20;
+
+  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
+  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
 
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
@@ -191,6 +196,24 @@ export function AllResourcesPage() {
                         <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
                           <Activity className="w-4 h-4" />
                         </Link>
+
+                        <button
+                          onClick={() => setTerminalContainer(c)}
+                          disabled={c.status !== 'running'}
+                          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <Terminal className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => setLogsContainer(c)}
+                          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <ScrollText className="w-4 h-4" />
+                        </button>
+
+                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
+
                         <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'start'})}><Play className="w-4 h-4 text-green-500"/></Button>
                         <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'stop'})}><Square className="w-4 h-4 text-yellow-500"/></Button>
                         <Button variant="danger" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
@@ -280,6 +303,19 @@ export function AllResourcesPage() {
           </div>
         </div>
       </div>
+
+      <ContainerLogsModal 
+        container={logsContainer}
+        isAdmin={true}
+        onClose={() => setLogsContainer(null)}
+      />
+
+      <ContainerTerminalModal
+        container={terminalContainer}
+        isAdmin={true}
+        onClose={() => setTerminalContainer(null)}
+      />
+
     </div>
   );
 }

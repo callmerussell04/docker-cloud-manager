@@ -44,7 +44,7 @@ export function RegisterPage() {
       <div className="mb-8 flex items-center gap-3 text-indigo-600 dark:text-indigo-400">
         <Box className="w-10 h-10 stroke-[2]" />
         <span className="font-bold text-3xl tracking-tight text-slate-900 dark:text-slate-100">
-          CloudManager
+          Docker Cloud Manager
         </span>
       </div>
 

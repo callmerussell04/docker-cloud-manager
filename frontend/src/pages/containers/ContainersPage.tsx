@@ -7,16 +7,20 @@ import { Input } from '@/components/ui/Input';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
+import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
+import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { getContainersFn } from '@/features/containers/api';
 import { type ContainerData } from '@/features/containers/types';
 
 export function ContainersPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
+  const[logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
+  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
   const [search, setSearch] = useState('');
 
   const { data: containers = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['containers'],
+    queryKey:['containers'],
     queryFn: getContainersFn,
   });
 
@@ -80,6 +84,8 @@ export function ContainersPage() {
                     key={container.id} 
                     container={container} 
                     onExpose={setExposeContainer}
+                    onViewLogs={setLogsContainer}
+                    onOpenTerminal={setTerminalContainer}
                   />
                 ))
               ) : (
@@ -107,6 +113,16 @@ export function ContainersPage() {
       <ExposeContainerModal 
         container={exposeContainer} 
         onClose={() => setExposeContainer(null)} 
+      />
+
+      <ContainerLogsModal 
+        container={logsContainer}
+        onClose={() => setLogsContainer(null)}
+      />
+
+      <ContainerTerminalModal
+        container={terminalContainer}
+        onClose={() => setTerminalContainer(null)}
       />
     </div>
   );

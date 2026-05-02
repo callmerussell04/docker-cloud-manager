@@ -21,6 +21,11 @@ export interface ContainerStats {
   network_tx_bytes: number;
 }
 
+export interface TelemetryTicketResponse {
+  ticket: string;
+  expires_at: number;
+}
+
 export const createContainerSchema = z.object({
   name: z.string().min(1, 'Имя обязательно'),
   image_tag: z.string().min(1, 'Укажите образ'),
