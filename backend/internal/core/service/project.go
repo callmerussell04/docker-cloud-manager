@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -166,11 +167,31 @@ func (s *ProjectService) startProject(ctx context.Context, p model.Project) erro
 		for _, dep := range node.Dependencies {
 			depContainer, err := s.containers.GetByID(ctx, dep.DependsOnContainerID)
 			if err != nil {
+				if dep.Optional {
+					slog.WarnContext(ctx, "optional compose dependency unavailable; continuing project start",
+						"project_id", p.ID,
+						"service_name", node.ServiceName,
+						"dependency_service_name", dep.DependsOnServiceName,
+						"condition", dep.Condition,
+						"error", err,
+					)
+					continue
+				}
 				s.failProject(ctx, p.ID, err)
 				return err
 			}
 			if err := s.waitForCondition(ctx, depContainer.DockerID, dep.Condition); err != nil {
 				err = fmt.Errorf("dependency %s failed condition %s: %w", dep.DependsOnServiceName, dep.Condition, err)
+				if dep.Optional {
+					slog.WarnContext(ctx, "optional compose dependency failed; continuing project start",
+						"project_id", p.ID,
+						"service_name", node.ServiceName,
+						"dependency_service_name", dep.DependsOnServiceName,
+						"condition", dep.Condition,
+						"error", err,
+					)
+					continue
+				}
 				s.failProject(ctx, p.ID, err)
 				return err
 			}

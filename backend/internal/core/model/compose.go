@@ -34,6 +34,7 @@ type ComposeService struct {
 type ComposeDependency struct {
 	ServiceName string
 	Condition   string
+	Optional    bool
 }
 
 func IsValidComposeDependencyCondition(condition string) bool {

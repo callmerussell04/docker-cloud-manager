@@ -121,8 +121,8 @@ func (r *ProjectRepository) SaveServiceGraph(ctx context.Context, projectID uuid
 	defer serviceStmt.Close()
 
 	depStmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO project_service_dependencies (project_id, container_id, depends_on_container_id, condition)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO project_service_dependencies (project_id, container_id, depends_on_container_id, condition, required)
+		VALUES ($1, $2, $3, $4, $5)
 	`)
 	if err != nil {
 		return err
@@ -137,7 +137,7 @@ func (r *ProjectRepository) SaveServiceGraph(ctx context.Context, projectID uuid
 			if !model.IsValidComposeDependencyCondition(dep.Condition) {
 				return fmt.Errorf("%w: invalid compose dependency condition", apperrors.ErrBadRequest)
 			}
-			if _, err := depStmt.ExecContext(ctx, projectID, svc.ContainerID, dep.DependsOnContainerID, dep.Condition); err != nil {
+			if _, err := depStmt.ExecContext(ctx, projectID, svc.ContainerID, dep.DependsOnContainerID, dep.Condition, !dep.Optional); err != nil {
 				return err
 			}
 		}
@@ -177,7 +177,7 @@ func (r *ProjectRepository) GetServiceGraph(ctx context.Context, projectID uuid.
 	}
 
 	depRows, err := r.db.QueryContext(ctx, `
-		SELECT d.container_id, d.depends_on_container_id, dep.service_name, d.condition
+		SELECT d.container_id, d.depends_on_container_id, dep.service_name, d.condition, d.required
 		FROM project_service_dependencies d
 		JOIN project_services dep
 			ON dep.project_id = d.project_id
@@ -191,12 +191,14 @@ func (r *ProjectRepository) GetServiceGraph(ctx context.Context, projectID uuid.
 
 	for depRows.Next() {
 		var containerID uuid.UUID
+		var required bool
 		var dep model.ProjectServiceDependency
 		dep.ProjectID = projectID
-		if err := depRows.Scan(&containerID, &dep.DependsOnContainerID, &dep.DependsOnServiceName, &dep.Condition); err != nil {
+		if err := depRows.Scan(&containerID, &dep.DependsOnContainerID, &dep.DependsOnServiceName, &dep.Condition, &required); err != nil {
 			return nil, err
 		}
 		dep.ContainerID = containerID
+		dep.Optional = !required
 		idx, ok := byContainer[containerID]
 		if !ok {
 			continue

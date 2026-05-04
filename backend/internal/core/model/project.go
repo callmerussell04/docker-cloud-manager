@@ -42,4 +42,5 @@ type ProjectServiceDependency struct {
 	DependsOnContainerID uuid.UUID
 	DependsOnServiceName string
 	Condition            string
+	Optional             bool
 }

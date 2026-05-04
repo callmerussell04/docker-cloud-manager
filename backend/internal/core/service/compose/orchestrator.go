@@ -310,13 +310,34 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 		for _, dep := range srv.DependsOn {
 			depContID, ok := serviceToContainerID[dep.ServiceName]
 			if !ok {
-				rollback(fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name))
+				err := fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
+				if dep.Optional {
+					logger.WarnContext(ctx, "optional compose dependency unavailable; continuing deployment",
+						"project_id", projectID,
+						"service_name", srv.Name,
+						"dependency_service_name", dep.ServiceName,
+						"condition", dep.Condition,
+						"error", err,
+					)
+					continue
+				}
+				rollback(err)
 				return
 			}
 
 			// Получаем DockerID зависимости из БД
 			depContInfo, err := o.contService.GetByID(ctx, depContID)
 			if err != nil {
+				if dep.Optional {
+					logger.WarnContext(ctx, "optional compose dependency unavailable; continuing deployment",
+						"project_id", projectID,
+						"service_name", srv.Name,
+						"dependency_service_name", dep.ServiceName,
+						"condition", dep.Condition,
+						"error", err,
+					)
+					continue
+				}
 				rollback(err)
 				return
 			}
@@ -324,6 +345,16 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 			// Блокирующий поллинг состояния
 			err = o.waitForCondition(ctx, depContInfo.DockerID, dep.Condition)
 			if err != nil {
+				if dep.Optional {
+					logger.WarnContext(ctx, "optional compose dependency failed; continuing deployment",
+						"project_id", projectID,
+						"service_name", srv.Name,
+						"dependency_service_name", dep.ServiceName,
+						"condition", dep.Condition,
+						"error", err,
+					)
+					continue
+				}
 				rollback(fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err))
 				return
 			}
@@ -362,6 +393,9 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 		for _, dep := range srv.DependsOn {
 			depOrder, ok := serviceOrder[dep.ServiceName]
 			if !ok {
+				if dep.Optional {
+					continue
+				}
 				return nil, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
 			}
 			if depOrder >= i {
@@ -369,6 +403,9 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 			}
 			depContainerID, ok := serviceToContainerID[dep.ServiceName]
 			if !ok {
+				if dep.Optional {
+					continue
+				}
 				return nil, fmt.Errorf("container mapping not found for dependency %s", dep.ServiceName)
 			}
 			node.Dependencies = append(node.Dependencies, model.ProjectServiceDependency{
@@ -377,6 +414,7 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 				DependsOnContainerID: depContainerID,
 				DependsOnServiceName: dep.ServiceName,
 				Condition:            dep.Condition,
+				Optional:             dep.Optional,
 			})
 		}
 		graph = append(graph, node)

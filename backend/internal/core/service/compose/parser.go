@@ -188,8 +188,8 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			domainSrv.Entrypoint = srv.Entrypoint
 		}
 		if srv.Restart != "" {
-			if srv.Restart != "no" && srv.Restart != "on-failure" {
-				return fmt.Errorf("%w: restart policy %s is not allowed", apperrors.ErrBadRequest, srv.Restart)
+			if err := validateRestartPolicy(srv.Restart); err != nil {
+				return fmt.Errorf("%w: service %s has invalid restart policy: %v", apperrors.ErrBadRequest, srv.Name, err)
 			}
 			domainSrv.Restart = srv.Restart
 		}
@@ -247,9 +247,6 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			if depConfig.Restart {
 				return fmt.Errorf("%w: depends_on.restart is not supported for service %s dependency %s", apperrors.ErrBadRequest, srv.Name, depName)
 			}
-			if !depConfig.Required {
-				return fmt.Errorf("%w: depends_on.required=false is not supported for service %s dependency %s", apperrors.ErrBadRequest, srv.Name, depName)
-			}
 			condition := depConfig.Condition
 			if condition == "" {
 				condition = model.ComposeDependencyConditionStarted
@@ -260,6 +257,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			domainSrv.DependsOn = append(domainSrv.DependsOn, model.ComposeDependency{
 				ServiceName: depName,
 				Condition:   condition,
+				Optional:    !depConfig.Required,
 			})
 		}
 		sort.Slice(domainSrv.DependsOn, func(i, j int) bool {
@@ -298,6 +296,17 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	}
 
 	return result, nil
+}
+
+func validateRestartPolicy(policy string) error {
+	switch policy {
+	case "no", "on-failure":
+		return nil
+	}
+	if strings.HasPrefix(policy, "on-failure:") {
+		return fmt.Errorf("restart policy on-failure max retries are not supported")
+	}
+	return fmt.Errorf("restart policy %s is not allowed", policy)
 }
 
 func validateRelativeComposePath(path string) error {
