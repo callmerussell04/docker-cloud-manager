@@ -12,6 +12,7 @@ import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import { getImagesFn, getBuildsFn } from '@/features/images/api';
 import { type BuildData } from '@/features/images/types';
 import { cn } from '@/lib/utils';
+import { tableLayouts } from '@/components/ui/tableLayouts';
 
 type Tab = 'images' | 'builds';
 
@@ -42,6 +43,13 @@ export function ImagesPage() {
 
   const totalSizeMB = images.reduce((sum, img) => sum + img.size_mb, 0);
 
+  const handleTabChange = (tab: Tab) => {
+    setActiveTab(tab);
+    setSearch('');
+    if (tab === 'images') setImagesPage(1);
+    else setBuildsPage(1);
+  };
+
   const handleRefresh = () => {
     if (activeTab === 'images') refetchImages();
     else refetchBuilds();
@@ -66,7 +74,11 @@ export function ImagesPage() {
             <Input 
               placeholder="Поиск..." 
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setImagesPage(1);
+                setBuildsPage(1);
+              }}
               className="pl-9"
             />
           </div>
@@ -80,9 +92,10 @@ export function ImagesPage() {
         </div>
       </div>
 
-      <div className="flex bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl w-fit border border-white/50 dark:border-slate-700/50 shrink-0">
+      <div className="max-w-full overflow-x-auto pb-1 shrink-0">
+        <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
         <button
-          onClick={() => setActiveTab('images')}
+          onClick={() => handleTabChange('images')}
           className={cn(
             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
             activeTab === 'images' 
@@ -94,7 +107,7 @@ export function ImagesPage() {
           Мои образы
         </button>
         <button
-          onClick={() => setActiveTab('builds')}
+          onClick={() => handleTabChange('builds')}
           className={cn(
             "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
             activeTab === 'builds' 
@@ -105,26 +118,27 @@ export function ImagesPage() {
           <Hammer className="w-4 h-4" />
           История сборок
         </button>
+        </div>
       </div>
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
-          <div className={activeTab === 'images' ? 'min-w-[800px]' : 'min-w-[800px]'}>
+          <div className={activeTab === 'images' ? tableLayouts.images.minWidth : tableLayouts.builds.minWidth}>
             {activeTab === 'images' ? (
-              <div className="grid grid-cols-[3fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.images.grid)}>
                 <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Тег</div></div>
                 <div>Размер</div>
                 <div>Статус</div>
                 <div>Дата создания</div>
-                <div className="text-right pr-2">Действия</div>
+                <div className="flex justify-end">Действия</div>
               </div>
             ) : (
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.builds.grid)}>
                 <div>ID</div>
                 <div>Статус</div>
                 <div>Длительность</div>
                 <div>Дата запуска</div>
-                <div className="text-right pr-2">Действия</div>
+                <div className="flex justify-end">Действия</div>
               </div>
             )}
 
@@ -176,13 +190,17 @@ export function ImagesPage() {
             </div>
           </div>
         </div>
+        {activeTab === 'images' && imagesData && (
+          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
+            <Pagination currentPage={imagesPage} pageSize={limit} totalItems={imagesData.total_count} onPageChange={setImagesPage} />
+          </div>
+        )}
+        {activeTab === 'builds' && buildsData && (
+          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
+            <Pagination currentPage={buildsPage} pageSize={limit} totalItems={buildsData.total_count} onPageChange={setBuildsPage} />
+          </div>
+        )}
       </div>
-      {activeTab === 'images' && imagesData && (
-        <Pagination currentPage={imagesPage} pageSize={limit} totalItems={imagesData.total_count} onPageChange={setImagesPage} />
-      )}
-      {activeTab === 'builds' && buildsData && (
-        <Pagination currentPage={buildsPage} pageSize={limit} totalItems={buildsData.total_count} onPageChange={setBuildsPage} />
-      )}
 
       <CreateBuildModal 
         isOpen={isCreateModalOpen} 

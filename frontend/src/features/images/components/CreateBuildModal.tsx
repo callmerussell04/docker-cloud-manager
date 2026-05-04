@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, UploadCloud, X } from 'lucide-react';
+import { z } from 'zod';
 
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -13,12 +13,15 @@ import { useToastStore } from '@/store/toastStore';
 import { createBuildFn, getBuildAvailabilityFn } from '../api';
 import { type CreateBuildForm, createBuildSchema } from '../types';
 import { formatBytes } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface CreateBuildModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccessSwitchTab: () => void;
 }
+
+type CreateBuildValues = z.output<typeof createBuildSchema>;
 
 export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: CreateBuildModalProps) {
   const queryClient = useQueryClient();
@@ -32,7 +35,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
     enabled: isOpen,
   });
 
-  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateBuildForm>({
+  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateBuildForm, unknown, CreateBuildValues>({
     resolver: zodResolver(createBuildSchema),
     defaultValues: {
       context: '.',
@@ -54,12 +57,13 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
       handleClose();
       onSuccessSwitchTab();
     },
-    onError: (error: any) => {
-      addToast(error.response?.data?.error || 'Ошибка при инициализации сборки', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось инициировать сборку');
+      addToast(message, 'error', { requestId });
     },
   });
 
-  const onSubmit = (data: any) => {
+  const onSubmit = (data: CreateBuildValues) => {
     if (!file) {
       addToast('Пожалуйста, выберите архив с кодом', 'error');
       return;
@@ -71,7 +75,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
     if (data.dockerfile) formData.append('dockerfile', data.dockerfile);
 
     if (data.build_args && data.build_args.length > 0) {
-      const argsMap = data.build_args.reduce((acc: Record<string, string>, curr: any) => {
+      const argsMap = data.build_args.reduce((acc: Record<string, string>, curr) => {
         if (curr.key) acc[curr.key] = curr.value || '';
         return acc;
       }, {});
@@ -106,7 +110,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Собрать образ" className="max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Собрать образ" className="max-w-2xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {availability && !availability.enabled && (
           <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-300">

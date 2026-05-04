@@ -6,6 +6,9 @@ import { actionContainerFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
 import { BASE_DOMAIN } from '@/config';
 import { Link } from 'react-router-dom';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
+import { cn } from '@/lib/utils';
 
 interface ContainerRowProps {
   container: ContainerData;
@@ -25,8 +28,9 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
       addToast(`Команда ${variables.action} успешно отправлена`, 'success');
     },
-    onError: (error: any) => {
-      addToast(error.response?.data?.error || 'Ошибка при выполнении действия', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -35,6 +39,8 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
       case 'running': return <Badge variant="success">Запущен</Badge>;
       case 'exited': return <Badge variant="default">Остановлен</Badge>;
       case 'creating': return <Badge variant="warning">Создается</Badge>;
+      case 'starting': return <Badge variant="info">Запускается</Badge>;
+      case 'stopping': return <Badge variant="warning">Останавливается</Badge>;
       case 'created': return <Badge variant="default">Создан</Badge>;
       case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
       case 'missing': return <Badge variant="error">Missing</Badge>;
@@ -45,11 +51,14 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   };
 
   const handleAction = (action: 'start' | 'stop' | 'delete') => {
+    if (action === 'delete' && !window.confirm(`Удалить контейнер "${container.name}"?`)) {
+      return;
+    }
     actionMutation.mutate({ id: container.id, action });
   };
 
   return (
-    <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[900px]">
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.containers.grid, tableLayouts.containers.minWidth)}>
       <div className="flex items-center gap-4 min-w-0 pr-4">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <Box className="w-5 h-5" />
@@ -126,7 +135,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => handleAction('start')}
-          disabled={['running', 'creating', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
+          disabled={['running', 'creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title="Запустить"
         >
@@ -144,7 +153,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => onExpose(container)}
-          disabled={['deleting', 'missing'].includes(container.status) || actionMutation.isPending}
+          disabled={['creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
           title="Настройки маршрутизации"
         >

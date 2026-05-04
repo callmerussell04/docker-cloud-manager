@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { registerFn } from '@/features/auth/api';
 import { type RegisterData, registerSchema } from '@/features/auth/types';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function RegisterPage() {
   const navigate = useNavigate();
@@ -30,8 +31,9 @@ export function RegisterPage() {
       addToast('Регистрация прошла успешно. Теперь вы можете войти.', 'success');
       navigate('/login');
     },
-    onError: () => {
-      addToast('Ошибка регистрации. Возможно, пользователь уже существует.', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось зарегистрироваться');
+      addToast(message, 'error', { requestId });
     },
   });
 

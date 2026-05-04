@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { createVolumeFn } from '../api';
 import { type CreateVolumeForm, createVolumeSchema, type CreateVolumeDTO } from '../types';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface CreateVolumeModalProps {
   isOpen: boolean;
@@ -31,8 +32,9 @@ export function CreateVolumeModal({ isOpen, onClose }: CreateVolumeModalProps) {
       reset();
       onClose();
     },
-    onError: () => {
-      addToast('Ошибка при создании тома', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать том');
+      addToast(message, 'error', { requestId });
     },
   });
 

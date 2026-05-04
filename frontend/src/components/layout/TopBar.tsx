@@ -1,11 +1,16 @@
-import { Moon, Sun, LogOut, User } from 'lucide-react';
+import { Menu, Moon, Sun, LogOut, User } from 'lucide-react';
 import { useThemeStore } from '@/store/themeStore';
 import { useAuthStore } from '@/store/authStore';
 import { logoutFn } from '@/features/auth/api';
 import { useToastStore } from '@/store/toastStore';
 import { useNavigate } from 'react-router-dom';
+import { getApiErrorMessage } from '@/lib/apiError';
 
-export function TopBar() {
+interface TopBarProps {
+  onMenuClick?: () => void;
+}
+
+export function TopBar({ onMenuClick }: TopBarProps) {
   const { theme, toggleTheme } = useThemeStore();
   const { logout, username } = useAuthStore();
   const addToast = useToastStore((state) => state.addToast);
@@ -16,14 +21,22 @@ export function TopBar() {
       await logoutFn();
       logout();
       navigate('/login');
-    } catch {
-      addToast('Ошибка при выходе из системы', 'error');
+    } catch (error) {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выйти из системы');
+      addToast(message, 'error', { requestId });
     }
   };
 
   return (
     <header className="h-16 shrink-0 border-b border-white/20 dark:border-slate-700/50 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl flex items-center justify-between px-6 z-10 transition-colors">
       <div className="flex items-center gap-4">
+        <button
+          onClick={onMenuClick}
+          className="rounded-xl border border-white/50 bg-white/50 p-2.5 text-slate-700 transition-colors hover:bg-white/80 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-700/50 md:hidden"
+          aria-label="Открыть навигацию"
+        >
+          <Menu className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="flex items-center gap-3">

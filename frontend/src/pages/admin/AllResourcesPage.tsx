@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
+import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
@@ -18,8 +18,32 @@ import { ContainerTerminalModal } from '@/features/containers/components/Contain
 import { type AdminContainerData } from '@/features/containers/types';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
+type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
+const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_internal', 'canceled']);
+
+const adminTabMinWidths: Record<Tab, string> = {
+  containers: tableLayouts.adminContainers.minWidth,
+  volumes: tableLayouts.adminVolumes.minWidth,
+  images: tableLayouts.adminImages.minWidth,
+  builds: tableLayouts.adminBuilds.minWidth,
+  projects: tableLayouts.adminProjects.minWidth,
+};
+
+function statusVariant(status: string): BadgeVariant {
+  if (['running', 'success', 'available', 'active'].includes(status)) return 'success';
+  if (['pending', 'creating', 'starting', 'reconciling', 'deploying', 'building'].includes(status)) return 'info';
+  if (['stopping', 'deleting', 'canceled'].includes(status)) return 'warning';
+  if (status === 'missing' || status === 'failed' || status.startsWith('failed') || status === 'error') return 'error';
+  return 'default';
+}
+
+function isContainerActionBlocked(status: string) {
+  return ['creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(status);
+}
 
 export function AllResourcesPage() {
   const [activeTab, setActiveTab] = useState<Tab>('containers');
@@ -75,7 +99,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
       addToast('Действие выполнено', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const delVolMut = useMutation({
@@ -84,7 +111,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_volumes'] });
       addToast('Том удален', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить том');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const delImgMut = useMutation({
@@ -93,7 +123,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_images'] });
       addToast('Образ удален', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить образ');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const actionProjMut = useMutation({
@@ -102,7 +135,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey:['admin_projects'] });
       addToast('Действие выполнено', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const delBuildMut = useMutation({
@@ -111,7 +147,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
       addToast('Сборка удалена', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить сборку');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const cancelBuildMut = useMutation({
@@ -120,7 +159,10 @@ export function AllResourcesPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
       addToast('Отмена сборки запрошена', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить сборку');
+      addToast(message, 'error', { requestId });
+    }
   });
 
   const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj || isFetchingBuilds;
@@ -141,7 +183,8 @@ export function AllResourcesPage() {
         </Button>
       </div>
 
-      <div className="flex bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl w-fit border border-white/50 dark:border-slate-700/50 shrink-0">
+      <div className="max-w-full overflow-x-auto pb-1 shrink-0">
+        <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
         {[
           { id: 'containers', label: 'Контейнеры', icon: Box },
           { id: 'volumes', label: 'Тома', icon: HardDrive },
@@ -163,51 +206,52 @@ export function AllResourcesPage() {
             {tab.label}
           </button>
         ))}
+        </div>
       </div>
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col relative">
         <div className="overflow-x-auto flex-1">
-          <div className="min-w-[900px] flex flex-col h-full">
+          <div className={cn("flex flex-col h-full", adminTabMinWidths[activeTab])}>
             
             {activeTab === 'containers' && (
-              <div className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminContainers.grid)}>
                 <div className="pl-2">Контейнер / ID</div>
                 <div>Статус</div>
                 <div>User ID / Docker ID</div>
-                <div className="text-right pr-2">Управление</div>
+                <div className="flex justify-end">Управление</div>
               </div>
             )}
             {activeTab === 'volumes' && (
-              <div className="grid grid-cols-[3fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminVolumes.grid)}>
                 <div className="pl-2">Имя тома</div>
-                <div>Дата / User ID</div>
-                <div className="text-right pr-2">Управление</div>
+                <div>Статус / Дата / User</div>
+                <div className="flex justify-end">Управление</div>
               </div>
             )}
             {activeTab === 'images' && (
-              <div className="grid grid-cols-[3fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminImages.grid)}>
                 <div className="pl-2">Тег</div>
-                <div>Размер</div>
+                <div>Размер / Статус</div>
                 <div>User ID</div>
-                <div className="text-right pr-2">Управление</div>
+                <div className="flex justify-end">Управление</div>
               </div>
             )}
             {activeTab === 'builds' && (
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminBuilds.grid)}>
                 <div className="pl-2">Build ID</div>
                 <div>Статус</div>
                 <div>Image ID</div>
                 <div>User</div>
                 <div>Дата запуска</div>
-                <div className="text-right pr-2">Управление</div>
+                <div className="flex justify-end">Управление</div>
               </div>
             )}
             {activeTab === 'projects' && (
-              <div className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminProjects.grid)}>
                 <div className="pl-2">Проект</div>
                 <div>Статус</div>
                 <div>User ID</div>
-                <div className="text-right pr-2">Управление</div>
+                <div className="flex justify-end">Управление</div>
               </div>
             )}
 
@@ -217,13 +261,19 @@ export function AllResourcesPage() {
               ) : (
                 <>
                   {activeTab === 'containers' && containersData?.items.map((c) => (
-                    <div key={c.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                    <div key={c.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminContainers.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
                         <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="font-medium block truncate hover:underline text-slate-900 dark:text-slate-100">{c.name}</Link>
                         <div className="text-xs text-slate-500 block truncate font-mono">{c.id}</div>
                       </div>
                       <div className="min-w-0">
-                        <Badge variant={c.status === 'running' ? 'success' : 'default'}>{c.status}</Badge>
+                        <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
+                        {c.last_error && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={c.last_error}>
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{c.last_error}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
                         <div className="block truncate" title={c.owner_username}>User: {c.owner_username || 'unknown'}</div>
@@ -251,67 +301,141 @@ export function AllResourcesPage() {
 
                         <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
 
-                        <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'start'})}><Play className="w-4 h-4 text-green-500"/></Button>
-                        <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'stop'})}><Square className="w-4 h-4 text-yellow-500"/></Button>
-                        <Button variant="danger" className="h-8 px-2" disabled={actionContainerMut.isPending} onClick={() => actionContainerMut.mutate({id: c.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
+                        <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending || c.status === 'running' || isContainerActionBlocked(c.status)} onClick={() => actionContainerMut.mutate({id: c.id, action: 'start'})}><Play className="w-4 h-4 text-green-500"/></Button>
+                        <Button variant="secondary" className="h-8 px-2" disabled={actionContainerMut.isPending || c.status !== 'running'} onClick={() => actionContainerMut.mutate({id: c.id, action: 'stop'})}><Square className="w-4 h-4 text-yellow-500"/></Button>
+                        <Button
+                          variant="danger"
+                          className="h-8 px-2"
+                          disabled={actionContainerMut.isPending || c.status === 'deleting'}
+                          onClick={() => {
+                            if (window.confirm(`Удалить контейнер "${c.name}"?`)) {
+                              actionContainerMut.mutate({ id: c.id, action: 'delete' });
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </Button>
                       </div>
                     </div>
                   ))}
 
                   {activeTab === 'volumes' && volumesData?.items.map((v) => (
-                    <div key={v.id} className="grid grid-cols-[3fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                    <div key={v.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminVolumes.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
                         <div className="font-medium block truncate font-mono">{v.docker_name}</div>
                         <div className="text-xs text-slate-500 block truncate font-mono">{v.id}</div>
+                        {v.last_error && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={v.last_error}>
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{v.last_error}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
+                        <Badge variant={statusVariant(v.status)}>{v.status}</Badge>
                         <div className="block truncate">{format(v.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
                         <div className="block truncate" title={v.owner_username}>User: {v.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
-                        <Button variant="danger" className="h-8 px-2" disabled={delVolMut.isPending} onClick={() => delVolMut.mutate(v.id)}><Trash2 className="w-4 h-4"/></Button>
+                        <Button
+                          variant="danger"
+                          className="h-8 px-2"
+                          disabled={delVolMut.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Удалить том "${v.docker_name || v.id}"?`)) {
+                              delVolMut.mutate(v.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </Button>
                       </div>
                     </div>
                   ))}
 
                   {activeTab === 'images' && imagesData?.items.map((img) => (
-                    <div key={img.id} className="grid grid-cols-[3fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                    <div key={img.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminImages.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
                         <div className="font-medium block truncate" title={img.tag}>{img.tag}</div>
+                        {img.last_error && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={img.last_error}>
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{img.last_error}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-0">
                         <Badge variant="info">{img.size_mb} MB</Badge>
+                        <div className="mt-1">
+                          <Badge variant={statusVariant(img.status)}>{img.status}</Badge>
+                        </div>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
                         <div className="block truncate" title={img.owner_username}>User: {img.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
-                        <Button variant="danger" className="h-8 px-2" disabled={delImgMut.isPending} onClick={() => delImgMut.mutate(img.id)}><Trash2 className="w-4 h-4"/></Button>
+                        <Button
+                          variant="danger"
+                          className="h-8 px-2"
+                          disabled={delImgMut.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Удалить образ "${img.tag}"?`)) {
+                              delImgMut.mutate(img.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </Button>
                       </div>
                     </div>
                   ))}
 
                   {activeTab === 'builds' && buildsData?.items.map((build) => {
                     const canCancel = build.status === 'pending' || build.status === 'running';
+                    const canViewLogs = terminalBuildStatuses.has(build.status);
                     return (
-                      <div key={build.id} className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                      <div key={build.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminBuilds.grid)}>
                         <div className="min-w-0 pr-4 pl-2">
                           <div className="font-medium block truncate font-mono" title={build.id}>{build.id}</div>
                         </div>
                         <div className="min-w-0">
-                          <Badge variant={build.status === 'success' ? 'success' : build.status === 'running' ? 'info' : build.status.startsWith('failed') ? 'error' : 'default'}>{build.status}</Badge>
+                        <Badge variant={statusVariant(build.status)}>{build.status}</Badge>
                         </div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>User: {build.owner_username || build.owner_id || 'unknown'}</div>
                         <div className="min-w-0 text-xs text-slate-500 truncate">{format(build.started_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
                         <div className="flex gap-2 justify-end shrink-0">
-                          <Button variant="secondary" className="h-8 px-2" onClick={() => setViewLogsBuild(build)}>
+                          <Button
+                            variant="secondary"
+                            className="h-8 px-2"
+                            disabled={!canViewLogs}
+                            title={canViewLogs ? 'Просмотр логов' : 'Логи доступны после завершения сборки'}
+                            onClick={() => setViewLogsBuild(build)}
+                          >
                             <ScrollText className="w-4 h-4" />
                           </Button>
-                          <Button variant="secondary" className="h-8 px-2" disabled={!canCancel || cancelBuildMut.isPending} onClick={() => cancelBuildMut.mutate(build.id)}>
+                          <Button
+                            variant="secondary"
+                            className="h-8 px-2"
+                            disabled={!canCancel || cancelBuildMut.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Отменить сборку "${build.id}"?`)) {
+                                cancelBuildMut.mutate(build.id);
+                              }
+                            }}
+                          >
                             <XCircle className="w-4 h-4 text-yellow-500" />
                           </Button>
-                          <Button variant="danger" className="h-8 px-2" disabled={canCancel || delBuildMut.isPending} onClick={() => delBuildMut.mutate(build.id)}>
+                          <Button
+                            variant="danger"
+                            className="h-8 px-2"
+                            disabled={canCancel || delBuildMut.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Удалить запись сборки "${build.id}"?`)) {
+                                delBuildMut.mutate(build.id);
+                              }
+                            }}
+                          >
                             <Trash2 className="w-4 h-4"/>
                           </Button>
                         </div>
@@ -319,16 +443,24 @@ export function AllResourcesPage() {
                     );
                   })}
 
-                  {activeTab === 'projects' && projectsData?.items.map((p) => (
-                    <div key={p.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                  {activeTab === 'projects' && projectsData?.items.map((p) => {
+                    const isProjectBusy = ['building', 'deploying', 'pending', 'starting', 'stopping', 'deleting'].includes(p.status);
+                    return (
+                    <div key={p.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminProjects.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
                         <div className="font-medium block truncate" title={p.name}>{p.name}</div>
                         <div className="text-xs text-slate-500 block truncate font-mono">{p.id}</div>
                       </div>
                       <div className="min-w-0">
-                        <Badge variant={p.status === 'running' ? 'success' : p.status === 'failed' ? 'error' : 'default'}>
+                        <Badge variant={statusVariant(p.status)}>
                           {p.status === 'stopped' ? 'Остановлен' : p.status}
                         </Badge>
+                        {p.last_error && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={p.last_error}>
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{p.last_error}</span>
+                          </div>
+                        )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
                         <div className="block truncate">{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
@@ -338,7 +470,7 @@ export function AllResourcesPage() {
                         <Button 
                           variant="secondary" 
                           className="h-8 px-2" 
-                          disabled={actionProjMut.isPending || p.status === 'running'} 
+                          disabled={actionProjMut.isPending || isProjectBusy || p.status === 'running'}
                           onClick={() => actionProjMut.mutate({id: p.id, action: 'start'})}
                         >
                           <Play className="w-4 h-4 text-green-500"/>
@@ -346,15 +478,27 @@ export function AllResourcesPage() {
                         <Button 
                           variant="secondary" 
                           className="h-8 px-2" 
-                          disabled={actionProjMut.isPending || p.status === 'stopped'} 
+                          disabled={actionProjMut.isPending || isProjectBusy || p.status === 'failed' || p.status === 'stopped'}
                           onClick={() => actionProjMut.mutate({id: p.id, action: 'stop'})}
                         >
                           <Square className="w-4 h-4 text-yellow-500"/>
                         </Button>
-                        <Button variant="danger" className="h-8 px-2" disabled={actionProjMut.isPending} onClick={() => actionProjMut.mutate({id: p.id, action: 'delete'})}><Trash2 className="w-4 h-4"/></Button>
+                        <Button
+                          variant="danger"
+                          className="h-8 px-2"
+                          disabled={actionProjMut.isPending || isProjectBusy}
+                          onClick={() => {
+                            if (window.confirm(`Удалить проект "${p.name}"?`)) {
+                              actionProjMut.mutate({ id: p.id, action: 'delete' });
+                            }
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4"/>
+                        </Button>
                       </div>
                     </div>
-                  ))}
+                  );
+                  })}
                 </>
               )}
             </div>

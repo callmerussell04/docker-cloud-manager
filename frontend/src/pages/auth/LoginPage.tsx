@@ -12,6 +12,7 @@ import { useToastStore } from '@/store/toastStore';
 import { useAuthStore } from '@/store/authStore';
 import { loginFn } from '@/features/auth/api';
 import { type LoginData, loginSchema } from '@/features/auth/types';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -35,8 +36,9 @@ export function LoginPage() {
         navigate('/');
       }
     },
-    onError: () => {
-      addToast('Неверное имя пользователя или пароль', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось войти');
+      addToast(message, 'error', { requestId });
     },
   });
 

@@ -7,6 +7,7 @@ import { getLogsTicketFn } from '../api';
 import { API_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;
@@ -17,8 +18,11 @@ interface ContainerLogsModalProps {
 export function ContainerLogsModal({ container, isAdmin = false, onClose }: ContainerLogsModalProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const[tail, setTail] = useState('200');
+  const [appliedTail, setAppliedTail] = useState('200');
   const [timestamps, setTimestamps] = useState(true);
+  const [appliedTimestamps, setAppliedTimestamps] = useState(true);
   const [follow, setFollow] = useState(true);
+  const [appliedFollow, setAppliedFollow] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const scrollRef = useRef<HTMLPreElement>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -38,9 +42,9 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         const prefix = isAdmin ? '/admin' : '';
         const url = new URL(`${API_URL}${prefix}/containers/${container.id}/logs/stream`);
         url.searchParams.set('ticket', ticket);
-        url.searchParams.set('tail', tail);
-        url.searchParams.set('timestamps', timestamps.toString());
-        url.searchParams.set('follow', follow.toString());
+        url.searchParams.set('tail', appliedTail);
+        url.searchParams.set('timestamps', appliedTimestamps.toString());
+        url.searchParams.set('follow', appliedFollow.toString());
 
         const es = new EventSource(url.toString());
         esRef.current = es;
@@ -51,8 +55,8 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
           setLogs((prev) => [...prev, e.data]);
         });
 
-        es.addEventListener('error', (e: any) => {
-          addToast(e.data || 'Ошибка потока логов', 'error');
+        es.addEventListener('error', (event) => {
+          addToast(getStreamErrorMessage('data' in event ? event.data : undefined), 'error');
           es.close();
           setIsConnected(false);
         });
@@ -66,8 +70,9 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
           es.close();
           setIsConnected(false);
         };
-      } catch (e) {
-        addToast('Не удалось получить тикет для логов', 'error');
+      } catch (error) {
+        const { message, requestId } = getApiErrorMessage(error, 'Не удалось получить тикет для логов');
+        addToast(message, 'error', { requestId });
         onClose();
       }
     };
@@ -80,7 +85,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         esRef.current.close();
       }
     };
-  }, [container, isAdmin, tail, timestamps, follow]);
+  }, [container, isAdmin, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose]);
 
   useEffect(() => {
     if (follow && scrollRef.current) {
@@ -118,6 +123,18 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
             <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
             Follow
           </label>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setAppliedTail(tail);
+              setAppliedTimestamps(timestamps);
+              setAppliedFollow(follow);
+            }}
+            className="h-8 px-3 text-xs"
+          >
+            Применить
+          </Button>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -143,4 +160,17 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
       </div>
     </Modal>
   );
+}
+
+function getStreamErrorMessage(data: unknown) {
+  if (typeof data !== 'string' || !data) {
+    return 'Ошибка потока логов';
+  }
+
+  try {
+    const parsed = JSON.parse(data) as { error?: string };
+    return parsed.error || data;
+  } catch {
+    return data;
+  }
 }

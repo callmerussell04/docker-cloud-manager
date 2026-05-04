@@ -25,7 +25,6 @@ export function ContainerDetailsPage() {
     internal_port: container?.internal_port || 0,
     domain_prefix: container?.domain_prefix || '',
     status: container?.status || 'unknown',
-    desired_status: container?.desired_status || '',
     last_error: container?.last_error || '',
     created_at: container?.created_at || 0,
   } : null;
@@ -45,6 +44,11 @@ export function ContainerDetailsPage() {
       case 'running': return <Badge variant="success">Запущен</Badge>;
       case 'exited': return <Badge variant="default">Остановлен</Badge>;
       case 'creating': return <Badge variant="warning">Создается</Badge>;
+      case 'starting': return <Badge variant="info">Запускается</Badge>;
+      case 'stopping': return <Badge variant="warning">Останавливается</Badge>;
+      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
+      case 'missing': return <Badge variant="error">Missing</Badge>;
+      case 'reconciling': return <Badge variant="warning">Синхронизация</Badge>;
       case 'error': return <Badge variant="error">Ошибка</Badge>;
       default: return <Badge variant="info">{status || 'Неизвестно'}</Badge>;
     }

@@ -7,6 +7,7 @@ import { getTerminalTicketFn } from '../api';
 import { WS_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface ContainerTerminalModalProps {
   container: ContainerData | null;
@@ -72,7 +73,9 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
               } else if (msg.type === 'exit') {
                 term.writeln(`\r\n\x1b[33mProcess exited with code ${msg.exit_code}\x1b[0m\r\n`);
               }
-            } catch (e) {}
+            } catch {
+              term.write(event.data);
+            }
           } else {
             term.write(new Uint8Array(event.data));
           }
@@ -94,8 +97,9 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
             ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
           }
         });
-      } catch (e) {
-        addToast('Не удалось получить тикет для терминала', 'error');
+      } catch (error) {
+        const { message, requestId } = getApiErrorMessage(error, 'Не удалось получить тикет для терминала');
+        addToast(message, 'error', { requestId });
         onClose();
       }
     };
@@ -117,7 +121,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
       }
       term.dispose();
     };
-  }, [container, isAdmin]);
+  }, [container, isAdmin, addToast, onClose]);
 
   if (!container) return null;
 

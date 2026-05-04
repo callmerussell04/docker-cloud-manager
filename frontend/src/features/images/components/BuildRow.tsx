@@ -4,11 +4,16 @@ import { type BuildData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { cancelBuildFn, deleteBuildFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
+import { cn } from '@/lib/utils';
 
 interface BuildRowProps {
   build: BuildData;
   onViewLogs: (build: BuildData) => void;
 }
+
+const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_internal', 'canceled']);
 
 export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const queryClient = useQueryClient();
@@ -20,8 +25,9 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
       queryClient.invalidateQueries({ queryKey: ['builds'] });
       addToast('Запись о сборке удалена', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при удалении записи', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить запись сборки');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -31,8 +37,9 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
       queryClient.invalidateQueries({ queryKey: ['builds'] });
       addToast('Отмена сборки запрошена', 'success');
     },
-    onError: (error: any) => {
-      addToast(error.response?.data?.error || 'Ошибка при отмене сборки', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить сборку');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -64,9 +71,10 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const duration = build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
   const canCancel = build.status === 'pending' || build.status === 'running';
   const canDelete = !canCancel;
+  const canViewLogs = terminalBuildStatuses.has(build.status);
 
   return (
-    <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[800px]">
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.builds.grid, tableLayouts.builds.minWidth)}>
       <div className="min-w-0">
         <h3 className="font-semibold text-sm truncate" title={build.id}>{build.id}</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">ID сборки</p>
@@ -90,14 +98,19 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
           onClick={() => onViewLogs(build)}
-          className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 transition-colors"
-          title="Просмотр логов"
+          disabled={!canViewLogs}
+          className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+          title={canViewLogs ? 'Просмотр логов' : 'Логи доступны после завершения сборки'}
         >
           <Terminal className="w-4 h-4" />
         </button>
 
         <button
-          onClick={() => cancelMutation.mutate(build.id)}
+          onClick={() => {
+            if (window.confirm(`Отменить сборку "${build.id}"?`)) {
+              cancelMutation.mutate(build.id);
+            }
+          }}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title="Отменить сборку"
@@ -106,7 +119,11 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         </button>
 
         <button
-          onClick={() => deleteMutation.mutate(build.id)}
+          onClick={() => {
+            if (window.confirm(`Удалить запись сборки "${build.id}"?`)) {
+              deleteMutation.mutate(build.id);
+            }
+          }}
           disabled={deleteMutation.isPending || !canDelete}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить запись"

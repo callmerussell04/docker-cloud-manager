@@ -7,12 +7,12 @@ export interface ContainerData {
   internal_port: number;
   domain_prefix: string;
   status: string;
-  desired_status: string;
   last_error: string;
   created_at: number;
 }
 
 export interface AdminContainerData extends ContainerData {
+  desired_status?: string;
   docker_id: string;
   owner_id?: string;
   owner_username?: string;

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegister } from 'react-hook-form';
@@ -12,10 +11,18 @@ import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { getSystemConfigFn, updateSystemConfigFn } from '@/features/admin/api';
 import { type SystemConfig, type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
+import { getApiErrorMessage } from '@/lib/apiError';
+
+type ConfigFieldName = keyof SystemConfigForm & string;
+type ConfigFieldConfig = {
+  name: ConfigFieldName;
+  label: string;
+  type?: 'text' | 'number' | 'float' | 'boolean' | 'array';
+};
 
 const sections: Array<{
   title: string;
-  fields: Array<{ name: keyof SystemConfig; label: string; type?: 'text' | 'number' | 'float' | 'boolean' | 'array' }>;
+  fields: ConfigFieldConfig[];
 }> = [
   {
     title: 'Runtime resources',
@@ -132,8 +139,9 @@ export function SystemSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['systemConfig'] });
       addToast('Конфигурация успешно обновлена', 'success');
     },
-    onError: (error: any) => {
-      addToast(error.response?.data?.error || 'Ошибка при обновлении конфигурации', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить конфигурацию');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -141,7 +149,10 @@ export function SystemSettingsPage() {
     mutation.mutate(data as SystemConfig);
   };
 
-  const arrayText = (name: keyof SystemConfig) => ((watch(name as any) as string[] | undefined) || []).join('\n');
+  const arrayText = (name: ConfigFieldName) => {
+    const value = watch(name);
+    return Array.isArray(value) ? value.join('\n') : '';
+  };
 
   if (isLoading) {
     return <div className="h-96 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />;
@@ -173,7 +184,7 @@ export function SystemSettingsPage() {
                     error={errors[field.name as keyof SystemConfigForm]}
                     value={field.type === 'array' ? arrayText(field.name) : undefined}
                     onArrayChange={(value) => {
-                      setValue(field.name as any, value.split('\n').map((item) => item.trim()).filter(Boolean), { shouldDirty: true });
+                      setValue(field.name, value.split('\n').map((item) => item.trim()).filter(Boolean) as never, { shouldDirty: true });
                     }}
                   />
                 ))}
@@ -200,7 +211,7 @@ function ConfigField({
   value,
   onArrayChange,
 }: {
-  field: { name: keyof SystemConfig; label: string; type?: 'text' | 'number' | 'float' | 'boolean' | 'array' };
+  field: ConfigFieldConfig;
   register: UseFormRegister<SystemConfigForm>;
   error: unknown;
   value?: string;
@@ -209,7 +220,7 @@ function ConfigField({
   if (field.type === 'boolean') {
     return (
       <label className="flex items-center gap-3 rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/40 dark:bg-slate-900/40 px-4 py-3 text-sm">
-        <input type="checkbox" {...register(field.name as any)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+        <input type="checkbox" {...register(field.name)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
         <span>{field.label}</span>
       </label>
     );
@@ -239,7 +250,7 @@ function ConfigField({
         type={isNumber ? 'number' : 'text'}
         step={field.type === 'float' ? '0.1' : undefined}
         error={!!error}
-        {...register(field.name as any, isNumber ? { valueAsNumber: true } : undefined)}
+        {...register(field.name, isNumber ? { valueAsNumber: true } : undefined)}
       />
     </div>
   );

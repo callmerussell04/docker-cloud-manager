@@ -4,6 +4,9 @@ import { type ProjectData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { deleteProjectFn, stopProjectFn, startProjectFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
+import { cn } from '@/lib/utils';
 
 interface ProjectRowProps {
   project: ProjectData;
@@ -19,8 +22,9 @@ export function ProjectRow({ project }: ProjectRowProps) {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       addToast('Проект успешно удален', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при удалении проекта', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить проект');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -30,8 +34,9 @@ export function ProjectRow({ project }: ProjectRowProps) {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       addToast('Команда запуска отправлена', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при запуске проекта', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось запустить проект');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -41,8 +46,9 @@ export function ProjectRow({ project }: ProjectRowProps) {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       addToast('Команда остановки отправлена', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при остановке проекта', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось остановить проект');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -68,7 +74,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
   const isWorking = ['building', 'deploying', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
 
   return (
-    <div className="grid grid-cols-[1.5fr_1fr_2fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[900px] relative">
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", tableLayouts.projects.grid, tableLayouts.projects.minWidth)}>
       {project.status === 'failed' && (
         <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
       )}
@@ -124,7 +130,11 @@ export function ProjectRow({ project }: ProjectRowProps) {
         </button>
 
         <button
-          onClick={() => deleteMutation.mutate(project.id)}
+          onClick={() => {
+            if (window.confirm(`Удалить проект "${project.name}"?`)) {
+              deleteMutation.mutate(project.id);
+            }
+          }}
           disabled={deleteMutation.isPending || isWorking}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить проект"

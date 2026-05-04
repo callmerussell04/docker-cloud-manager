@@ -4,6 +4,9 @@ import { type ImageData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { deleteImageFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
+import { cn } from '@/lib/utils';
 
 interface ImageRowProps {
   image: ImageData;
@@ -19,8 +22,9 @@ export function ImageRow({ image }: ImageRowProps) {
       queryClient.invalidateQueries({ queryKey: ['images'] });
       addToast('Образ успешно удален', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при удалении образа. Возможно он используется.', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить образ');
+      addToast(message, 'error', { requestId });
     },
   });
 
@@ -29,7 +33,7 @@ export function ImageRow({ image }: ImageRowProps) {
   });
 
   return (
-    <div className="grid grid-cols-[3fr_1fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[800px]">
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.images.grid, tableLayouts.images.minWidth)}>
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <Disc className="w-5 h-5" />
@@ -61,7 +65,11 @@ export function ImageRow({ image }: ImageRowProps) {
 
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
-          onClick={() => deleteMutation.mutate(image.id)}
+          onClick={() => {
+            if (window.confirm(`Удалить образ "${image.tag}"?`)) {
+              deleteMutation.mutate(image.id);
+            }
+          }}
           disabled={deleteMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
           title="Удалить"

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
@@ -21,6 +20,9 @@ import {
   updateAdminUserFn,
 } from '@/features/admin/api';
 import { type AdminUser, type AdminUserForm, adminUserSchema } from '@/features/admin/types';
+import { getApiErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/components/ui/tableLayouts';
+import { cn } from '@/lib/utils';
 
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);
@@ -41,7 +43,10 @@ export function AdminUsersPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
       addToast('Пользователь деактивирован', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Ошибка деактивации', 'error'),
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось деактивировать пользователя');
+      addToast(message, 'error', { requestId });
+    },
   });
 
   const reactivateMutation = useMutation({
@@ -50,7 +55,10 @@ export function AdminUsersPage() {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
       addToast('Пользователь активирован', 'success');
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Ошибка активации', 'error'),
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось активировать пользователя');
+      addToast(message, 'error', { requestId });
+    },
   });
 
   const users = data?.items || [];
@@ -78,21 +86,21 @@ export function AdminUsersPage() {
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
-          <div className="min-w-[950px]">
-            <div className="grid grid-cols-[1.5fr_2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+          <div className={tableLayouts.adminUsers.minWidth}>
+            <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminUsers.grid)}>
               <div>Username</div>
               <div>Email / ID</div>
               <div>Role</div>
               <div>Status</div>
               <div>Quotas</div>
-              <div className="text-right pr-2">Управление</div>
+              <div className="flex justify-end">Управление</div>
             </div>
 
             {isFetching ? (
               <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
             ) : users.length > 0 ? (
               users.map((user) => (
-                <div key={user.user_id} className="grid grid-cols-[1.5fr_2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                <div key={user.user_id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminUsers.grid)}>
                   <div className="font-medium truncate">{user.username}</div>
                   <div className="min-w-0">
                     <div className="truncate">{user.email}</div>
@@ -110,7 +118,16 @@ export function AdminUsersPage() {
                       <Edit className="w-4 h-4" />
                     </Button>
                     {user.status === 'active' ? (
-                      <Button variant="danger" className="h-8 px-2" disabled={deactivateMutation.isPending} onClick={() => deactivateMutation.mutate(user.user_id)}>
+                      <Button
+                        variant="danger"
+                        className="h-8 px-2"
+                        disabled={deactivateMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(`Деактивировать пользователя "${user.username}"?`)) {
+                            deactivateMutation.mutate(user.user_id);
+                          }
+                        }}
+                      >
                         <UserX className="w-4 h-4" />
                       </Button>
                     ) : (
@@ -181,7 +198,10 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
       addToast('Пользователь создан', 'success');
       onClose();
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Ошибка создания пользователя', 'error'),
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать пользователя');
+      addToast(message, 'error', { requestId });
+    },
   });
 
   const updateMutation = useMutation({
@@ -191,7 +211,10 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
       addToast('Пользователь обновлен', 'success');
       onClose();
     },
-    onError: (error: any) => addToast(error.response?.data?.error || 'Ошибка обновления пользователя', 'error'),
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить пользователя');
+      addToast(message, 'error', { requestId });
+    },
   });
 
   const onSubmit = (data: AdminUserForm) => {

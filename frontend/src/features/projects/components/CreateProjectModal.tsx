@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,6 +12,7 @@ import { useToastStore } from '@/store/toastStore';
 import { createProjectFn } from '../api';
 import { type CreateProjectForm, createProjectSchema } from '../types';
 import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -38,12 +38,13 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
       addToast('Проект успешно запущен. Сборка и развертывание происходят в фоне.', 'success');
       handleClose();
     },
-    onError: (error: any) => {
-      addToast(error.response?.data?.error || 'Ошибка при развертывании проекта', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось развернуть проект');
+      addToast(message, 'error', { requestId });
     },
   });
 
-  const onSubmit = (data: any) => {
+  const onSubmit = (data: CreateProjectForm) => {
     if (!file) {
       addToast('Пожалуйста, выберите файл', 'error');
       return;
@@ -82,7 +83,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Развернуть Compose проект" className="max-w-2xl">
-      <div className="max-h-[75vh] overflow-y-auto pr-2 -mr-2">
+      <div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 mt-4 pb-2">
           
           <div className="space-y-2">

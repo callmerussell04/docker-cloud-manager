@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useForm, useFieldArray } from 'react-hook-form';
+import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
@@ -15,11 +15,14 @@ import { getVolumesFn } from '@/features/volumes/api';
 import { createContainerFn } from '../api';
 import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
 import { BASE_DOMAIN } from '@/config';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface CreateContainerModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+type CreateContainerValues = z.output<typeof createContainerSchema>;
 
 export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalProps) {
   const queryClient = useQueryClient();
@@ -39,7 +42,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     select: (data) => data.items,
   });
 
-  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateContainerForm>({
+  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateContainerForm, unknown, CreateContainerValues>({
     resolver: zodResolver(createContainerSchema),
     defaultValues: {
       env_vars: [],
@@ -67,12 +70,13 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
       reset();
       onClose();
     },
-    onError: () => {
-      addToast('Ошибка при создании контейнера', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать контейнер');
+      addToast(message, 'error', { requestId });
     },
   });
 
-  const onSubmit = (data: any) => {
+  const onSubmit = (data: CreateContainerValues) => {
     const dto: CreateContainerDTO = {
       name: data.name,
       image_tag: data.image_tag,
@@ -81,14 +85,14 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     };
 
     if (data.env_vars && data.env_vars.length > 0) {
-      dto.env_vars = data.env_vars.reduce((acc: Record<string, string>, curr: any) => {
+      dto.env_vars = data.env_vars.reduce((acc: Record<string, string>, curr) => {
         if (curr.key) acc[curr.key] = curr.value || '';
         return acc;
       }, {});
     }
 
     if (data.volume_mounts && data.volume_mounts.length > 0) {
-      dto.volume_mounts = data.volume_mounts.map((v: any) => ({
+      dto.volume_mounts = data.volume_mounts.map((v) => ({
         volume_id: v.volume_id,
         mount_path: v.mount_path,
         is_readonly: v.is_readonly
@@ -99,7 +103,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Создать контейнер" className="max-w-3xl max-h-[90vh] overflow-y-auto">
+    <Modal isOpen={isOpen} onClose={onClose} title="Создать контейнер" className="max-w-3xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">

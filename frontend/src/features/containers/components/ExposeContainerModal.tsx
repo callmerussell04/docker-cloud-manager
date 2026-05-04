@@ -12,6 +12,7 @@ import { useToastStore } from '@/store/toastStore';
 import { exposeContainerFn } from '../api';
 import { type ExposeContainerDTO, exposeContainerSchema, type ContainerData } from '../types';
 import { BASE_DOMAIN } from '@/config';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;
@@ -47,8 +48,9 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
       addToast('Настройки маршрутизации обновлены', 'success');
       onClose();
     },
-    onError: () => {
-      addToast('Ошибка при публикации контейнера', 'error');
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить маршрутизацию');
+      addToast(message, 'error', { requestId });
     },
   });
 

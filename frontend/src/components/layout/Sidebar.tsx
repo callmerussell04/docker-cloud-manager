@@ -17,12 +17,22 @@ const adminNavigation = [
   { name: 'Настройки системы', href: '/admin/settings', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  mobile?: boolean;
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
   const location = useLocation();
   const role = useAuthStore((state) => state.role);
 
   return (
-    <aside className="w-64 hidden md:flex flex-col border-r border-white/20 dark:border-slate-700/50 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl shrink-0 transition-colors">
+    <aside
+      className={cn(
+        "w-64 flex-col border-r border-white/20 bg-white/90 backdrop-blur-xl transition-colors dark:border-slate-700/50 dark:bg-slate-900/90",
+        mobile ? "flex h-full shadow-2xl" : "hidden shrink-0 md:flex"
+      )}
+    >
       <div className="h-16 flex items-center px-6 border-b border-white/20 dark:border-slate-700/50">
         <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
           <Box className="w-6 h-6 stroke-[2.5]" />
@@ -42,6 +52,7 @@ export function Sidebar() {
               <Link
                 key={item.name}
                 to={item.href}
+                onClick={onNavigate}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
                   isActive
@@ -69,6 +80,7 @@ export function Sidebar() {
                   <Link
                     key={item.name}
                     to={item.href}
+                    onClick={onNavigate}
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
                       isActive
