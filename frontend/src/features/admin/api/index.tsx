@@ -84,7 +84,7 @@ export const adminCancelBuildFn = async (id: string): Promise<void> => {
   await privateApi.post(`/admin/builds/${id}/cancel`);
 };
 
-export const adminActionProjectFn = async ({ id, action }: { id: string; action: 'start' | 'stop' | 'delete' }): Promise<void> => {
+export const adminActionProjectFn = async ({ id, action }: { id: string; action: 'start' | 'stop' | 'cancel' | 'delete' }): Promise<void> => {
   if (action === 'delete') {
     await privateApi.delete(`/admin/projects/${id}`);
   } else {

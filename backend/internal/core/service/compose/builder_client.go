@@ -19,6 +19,7 @@ type ObjectStorage interface {
 
 type BuildJobCreator interface {
 	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
+	CreateProjectBuildJob(ctx context.Context, projectID uuid.UUID, projectServiceName, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -34,7 +35,7 @@ func NewLocalBuilderClient(objectStore ObjectStorage, builds BuildJobCreator) *L
 	}
 }
 
-func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
+func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
 	if c.objectStore == nil || c.builds == nil {
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
@@ -48,7 +49,7 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, srv model.Compose
 		return uuid.Nil, err
 	}
 
-	buildID, _, err := c.builds.CreateBuildJob(ctx, srv.ImageTag, archiveObjectKey, logObjectKey, srv.BuildContext, srv.Dockerfile, srv.BuildArgs, logging.RequestIDFromContext(ctx))
+	buildID, _, err := c.builds.CreateProjectBuildJob(ctx, projectID, srv.Name, srv.ImageTag, archiveObjectKey, logObjectKey, srv.BuildContext, srv.Dockerfile, srv.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		_ = c.objectStore.DeleteObject(context.Background(), archiveObjectKey)
 		return uuid.Nil, err

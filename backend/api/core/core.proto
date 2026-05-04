@@ -38,7 +38,7 @@ service ProjectAPI {
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
   rpc StartProject (ProjectActionRequest) returns (Empty);
   rpc StopProject (ProjectActionRequest) returns (Empty);
-
+  rpc CancelProject (ProjectActionRequest) returns (Empty);
 }
 
 service SystemAPI {
@@ -241,6 +241,8 @@ message BuildData {
   string log_file_path = 6;
   string owner_id = 7;
   string owner_username = 8;
+  string project_id = 9;
+  string project_service_name = 10;
 }
 
 message BuildListResponse {

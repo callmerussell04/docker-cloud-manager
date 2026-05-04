@@ -17,6 +17,8 @@ export interface AdminImageData extends ImageData {
 export interface BuildData {
   id: string;
   image_id: string;
+  project_id?: string;
+  project_service_name?: string;
   status: string;
   started_at: number;
   finished_at: number;

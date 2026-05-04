@@ -41,6 +41,14 @@ type BuildVolumeDiskRepository interface {
 	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
+type BuildObjectStore interface {
+	DeleteObject(ctx context.Context, objectKey string) error
+}
+
+type BuildDeploymentCanceler interface {
+	CancelDeploymentForBuild(ctx context.Context, projectID, buildID uuid.UUID) error
+}
+
 type BuildConfigProvider interface {
 	Get() config.SystemConfig
 }
@@ -54,7 +62,21 @@ type BuildService struct {
 	registryAPI ImageRegistryAPI
 	users       UserInfoProvider
 	cfg         BuildConfigProvider
+	objectStore BuildObjectStore
+	deployments BuildDeploymentCanceler
 	logger      *slog.Logger
+}
+
+type createBuildJobInput struct {
+	Tag                string
+	ArchiveObjectKey   string
+	LogObjectKey       string
+	ContextDir         string
+	Dockerfile         string
+	BuildArgs          map[string]string
+	RequestID          string
+	ProjectID          *uuid.UUID
+	ProjectServiceName string
 }
 
 func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps ...any) *BuildService {
@@ -72,8 +94,18 @@ func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, regis
 		if v, ok := dep.(BuildConfigProvider); ok {
 			s.cfg = v
 		}
+		if v, ok := dep.(BuildObjectStore); ok {
+			s.objectStore = v
+		}
+		if v, ok := dep.(BuildDeploymentCanceler); ok {
+			s.deployments = v
+		}
 	}
 	return s
+}
+
+func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
+	s.deployments = canceler
 }
 
 func (s *BuildService) ensureImageBuildsEnabled() error {
@@ -99,6 +131,32 @@ func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID)
 }
 
 func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
+	return s.createBuildJob(ctx, createBuildJobInput{
+		Tag:              tag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       contextDir,
+		Dockerfile:       dockerfile,
+		BuildArgs:        buildArgs,
+		RequestID:        requestID,
+	})
+}
+
+func (s *BuildService) CreateProjectBuildJob(ctx context.Context, projectID uuid.UUID, projectServiceName, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
+	return s.createBuildJob(ctx, createBuildJobInput{
+		Tag:                tag,
+		ArchiveObjectKey:   archiveObjectKey,
+		LogObjectKey:       logObjectKey,
+		ContextDir:         contextDir,
+		Dockerfile:         dockerfile,
+		BuildArgs:          buildArgs,
+		RequestID:          requestID,
+		ProjectID:          &projectID,
+		ProjectServiceName: projectServiceName,
+	})
+}
+
+func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobInput) (uuid.UUID, uuid.UUID, error) {
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
@@ -106,10 +164,10 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey
 	if err := s.ensureImageBuildsEnabled(); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	if err := validation.ImageTag(tag); err != nil {
+	if err := validation.ImageTag(input.Tag); err != nil {
 		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
-	if archiveObjectKey == "" || logObjectKey == "" {
+	if input.ArchiveObjectKey == "" || input.LogObjectKey == "" {
 		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "build archive and log object keys are required")
 	}
 
@@ -126,7 +184,7 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey
 		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 
-	baseName, version := parseImageTag(tag)
+	baseName, version := parseImageTag(input.Tag)
 	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
 	imageID := uuid.New()
 	buildID := uuid.New()
@@ -137,12 +195,12 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey
 		ImageID:          imageID.String(),
 		OwnerID:          ownerID.String(),
 		Tag:              normalizedTag,
-		ArchiveObjectKey: archiveObjectKey,
-		LogObjectKey:     logObjectKey,
-		ContextDir:       contextDir,
-		Dockerfile:       dockerfile,
-		BuildArgs:        buildArgs,
-		RequestID:        requestID,
+		ArchiveObjectKey: input.ArchiveObjectKey,
+		LogObjectKey:     input.LogObjectKey,
+		ContextDir:       input.ContextDir,
+		Dockerfile:       input.Dockerfile,
+		BuildArgs:        input.BuildArgs,
+		RequestID:        input.RequestID,
 		CreatedAt:        now.Unix(),
 	}
 	payload, err := json.Marshal(message)
@@ -158,13 +216,15 @@ func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey
 		Status:  model.ImageStatusBuilding,
 	}
 	build := model.Build{
-		ID:               buildID,
-		ImageID:          imageID,
-		OwnerID:          ownerID,
-		Status:           model.BuildStatusPending,
-		LogFilePath:      logObjectKey,
-		ArchiveObjectKey: archiveObjectKey,
-		StartedAt:        now,
+		ID:                 buildID,
+		ImageID:            imageID,
+		OwnerID:            ownerID,
+		ProjectID:          input.ProjectID,
+		ProjectServiceName: input.ProjectServiceName,
+		Status:             model.BuildStatusPending,
+		LogFilePath:        input.LogObjectKey,
+		ArchiveObjectKey:   input.ArchiveObjectKey,
+		StartedAt:          now,
 	}
 	outbox := model.BuildQueueOutbox{
 		ID:         uuid.New(),
@@ -218,7 +278,30 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 		}
 	}
 	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
-	return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled)
+	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled); err != nil {
+		return err
+	}
+	s.cleanupBuildArchive(b)
+	s.cancelDeploymentForBuild(ctx, b)
+	return nil
+}
+
+func (s *BuildService) cleanupBuildArchive(build model.Build) {
+	if s.objectStore == nil || build.ArchiveObjectKey == "" {
+		return
+	}
+	if err := s.objectStore.DeleteObject(context.Background(), build.ArchiveObjectKey); err != nil {
+		s.logger.WarnContext(context.Background(), "failed to delete canceled build archive object", "build_id", build.ID, "archive_object_key", build.ArchiveObjectKey, "error", err)
+	}
+}
+
+func (s *BuildService) cancelDeploymentForBuild(ctx context.Context, build model.Build) {
+	if s.deployments == nil || build.ProjectID == nil {
+		return
+	}
+	if err := s.deployments.CancelDeploymentForBuild(ctx, *build.ProjectID, build.ID); err != nil {
+		s.logger.WarnContext(ctx, "failed to cascade compose deployment cancellation from build", "build_id", build.ID, "project_id", *build.ProjectID, "error", err)
+	}
 }
 
 func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {

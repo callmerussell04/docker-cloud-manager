@@ -10,6 +10,8 @@ const (
 	ProjectStatusPending   = "pending"
 	ProjectStatusBuilding  = "building"
 	ProjectStatusDeploying = "deploying"
+	ProjectStatusCanceling = "canceling"
+	ProjectStatusCanceled  = "canceled"
 	ProjectStatusStarting  = "starting"
 	ProjectStatusRunning   = "running"
 	ProjectStatusStopping  = "stopping"

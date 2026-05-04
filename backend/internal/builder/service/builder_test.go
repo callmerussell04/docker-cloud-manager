@@ -74,6 +74,38 @@ func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestBuilderServiceProcessBuildCompletesCanceledAndCleansContainer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	dockerAPI := &builderDockerFake{
+		logs:        io.NopCloser(strings.NewReader("log\n")),
+		waitUsesCtx: true,
+	}
+	logManager := &builderLogFake{onSave: cancel}
+	coreClient := &builderCoreFake{}
+	cfg := testBuilderRuntimeConfig(t)
+	svc := NewBuilderService(
+		&builderFileFake{},
+		&builderExtractorFake{},
+		dockerAPI,
+		logManager,
+		&builderObjectStoreFake{},
+		coreClient,
+		cfg,
+		nil,
+	)
+
+	err := svc.processBuild(ctx, cancel, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	if err != nil {
+		t.Fatalf("processBuild returned error: %v", err)
+	}
+	if coreClient.status != buildStatusCanceled {
+		t.Fatalf("completed status = %q, want %q", coreClient.status, buildStatusCanceled)
+	}
+	if dockerAPI.cleanCalls == 0 {
+		t.Fatal("CleanBuildContainer was not called for canceled build")
+	}
+}
+
 func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 	objectStore := &builderObjectStoreFake{}
 	coreClient := &builderCoreFake{startStarted: false, startStatus: buildStatusSuccess}
@@ -101,6 +133,9 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 	}
 	if len(objectStore.downloads) != 0 {
 		t.Fatalf("downloads = %v, want none", objectStore.downloads)
+	}
+	if len(objectStore.deletes) != 1 || objectStore.deletes[0] != "build-archives/archive.zip" {
+		t.Fatalf("deleted objects = %v, want skipped archive deleted", objectStore.deletes)
 	}
 }
 
@@ -145,16 +180,22 @@ func (f *builderExtractorFake) Extract(archivePath string, destDir string, maxUn
 }
 
 type builderDockerFake struct {
-	logs       io.ReadCloser
-	cleanCalls int
-	params     model.BuildRuntimeSpec
+	logs        io.ReadCloser
+	cleanCalls  int
+	params      model.BuildRuntimeSpec
+	waitUsesCtx bool
 }
 
 func (f *builderDockerFake) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
 	f.params = params
 	return "container-id", f.logs, nil
 }
-func (f *builderDockerFake) WaitForBuild(ctx context.Context, containerID string) error { return nil }
+func (f *builderDockerFake) WaitForBuild(ctx context.Context, containerID string) error {
+	if f.waitUsesCtx {
+		return ctx.Err()
+	}
+	return nil
+}
 func (f *builderDockerFake) CleanBuildContainer(ctx context.Context, containerID string) error {
 	f.cleanCalls++
 	return nil
@@ -163,10 +204,14 @@ func (f *builderDockerFake) CleanBuildContainer(ctx context.Context, containerID
 type builderLogFake struct {
 	saveErr    error
 	maxLogSize int64
+	onSave     func()
 }
 
 func (f *builderLogFake) SaveLogs(logID string, dockerStream io.Reader, maxLogSize int64) (string, error) {
 	f.maxLogSize = maxLogSize
+	if f.onSave != nil {
+		f.onSave()
+	}
 	return "", f.saveErr
 }
 func (f *builderLogFake) WriteSystemLog(logID string, message string) error { return nil }

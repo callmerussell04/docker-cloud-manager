@@ -161,14 +161,20 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 	if b.FinishedAt != nil {
 		finishedAt = b.FinishedAt.Unix()
 	}
+	projectID := ""
+	if b.ProjectID != nil {
+		projectID = b.ProjectID.String()
+	}
 	return &coreapi.BuildData{
-		Id:            b.ID.String(),
-		ImageId:       b.ImageID.String(),
-		Status:        b.Status,
-		StartedAt:     b.StartedAt.Unix(),
-		FinishedAt:    finishedAt,
-		LogFilePath:   b.LogFilePath,
-		OwnerId:       b.OwnerID.String(),
-		OwnerUsername: ownerUsername,
+		Id:                 b.ID.String(),
+		ImageId:            b.ImageID.String(),
+		Status:             b.Status,
+		StartedAt:          b.StartedAt.Unix(),
+		FinishedAt:         finishedAt,
+		LogFilePath:        b.LogFilePath,
+		OwnerId:            b.OwnerID.String(),
+		OwnerUsername:      ownerUsername,
+		ProjectId:          projectID,
+		ProjectServiceName: b.ProjectServiceName,
 	}
 }

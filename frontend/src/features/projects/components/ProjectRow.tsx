@@ -1,8 +1,8 @@
-import { Layers, Square, Trash2, AlertTriangle, Loader2, Play } from 'lucide-react';
+import { Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ProjectData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteProjectFn, stopProjectFn, startProjectFn } from '../api';
+import { cancelProjectFn, deleteProjectFn, stopProjectFn, startProjectFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
@@ -52,12 +52,27 @@ export function ProjectRow({ project }: ProjectRowProps) {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: cancelProjectFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['builds'] });
+      addToast('Отмена проекта запрошена', 'success');
+    },
+    onError: (error: unknown) => {
+      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить проект');
+      addToast(message, 'error', { requestId });
+    },
+  });
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'running': return <Badge variant="success">Запущен</Badge>;
       case 'stopped': return <Badge variant="default">Остановлен</Badge>;
       case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Сборка</Badge>;
       case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Развертывание</Badge>;
+      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Отмена</Badge>;
+      case 'canceled': return <Badge variant="default">Отменен</Badge>;
       case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Запуск</Badge>;
       case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Остановка</Badge>;
       case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
@@ -71,7 +86,8 @@ export function ProjectRow({ project }: ProjectRowProps) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 
-  const isWorking = ['building', 'deploying', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
+  const isWorking = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
+  const canCancel = project.status === 'building' || project.status === 'deploying';
 
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", tableLayouts.projects.grid, tableLayouts.projects.minWidth)}>
@@ -127,6 +143,19 @@ export function ProjectRow({ project }: ProjectRowProps) {
           title="Остановить сервисы"
         >
           <Square className="w-4 h-4" />
+        </button>
+
+        <button
+          onClick={() => {
+            if (window.confirm(`Отменить развертывание проекта "${project.name}"?`)) {
+              cancelMutation.mutate(project.id);
+            }
+          }}
+          disabled={!canCancel || cancelMutation.isPending}
+          className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
+          title="Отменить развертывание"
+        >
+          <XCircle className="w-4 h-4" />
         </button>
 
         <button

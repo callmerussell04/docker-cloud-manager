@@ -216,9 +216,9 @@ func (r *ProjectRepository) FailActiveDeployments(ctx context.Context, errorMess
 	query := `
 		UPDATE projects
 		SET status = $1, error_message = $2
-		WHERE status IN ($3, $4)
+		WHERE status IN ($3, $4, $5)
 	`
-	_, err := r.db.ExecContext(ctx, query, model.ProjectStatusFailed, errorMessage, model.ProjectStatusBuilding, model.ProjectStatusDeploying)
+	_, err := r.db.ExecContext(ctx, query, model.ProjectStatusFailed, errorMessage, model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling)
 	return err
 }
 

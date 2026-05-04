@@ -17,6 +17,7 @@ type ProjectLogic interface {
 	Delete(ctx context.Context, projectID uuid.UUID) error
 	Start(ctx context.Context, projectID uuid.UUID) error
 	Stop(ctx context.Context, projectID uuid.UUID) error
+	Cancel(ctx context.Context, projectID uuid.UUID) error
 }
 
 type ProjectHandler struct {
@@ -64,6 +65,20 @@ func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectAc
 	}
 
 	err = h.logic.Stop(ctx, projectID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ProjectHandler) CancelProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	projectID, err := uuid.Parse(req.GetProjectId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+	}
+
+	err = h.logic.Cancel(ctx, projectID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}

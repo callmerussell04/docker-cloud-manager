@@ -23,8 +23,8 @@ func NewBuildRepository(db *sql.DB) *BuildRepository {
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
 	var finishedAt sql.NullTime
 	if b.FinishedAt != nil {
@@ -32,7 +32,7 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 		finishedAt.Valid = true
 	}
 
-	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.OwnerID, b.Status, b.LogFilePath, b.ArchiveObjectKey, b.StartedAt, finishedAt)
+	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.OwnerID, nullableUUID(b.ProjectID), nullableStringValue(b.ProjectServiceName), b.Status, b.LogFilePath, b.ArchiveObjectKey, b.StartedAt, finishedAt)
 	return err
 }
 
@@ -64,9 +64,9 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		finishedAt.Valid = true
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO builds (id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, build.ID, build.ImageID, build.OwnerID, build.Status, build.LogFilePath, build.ArchiveObjectKey, build.StartedAt, finishedAt); err != nil {
+			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`, build.ID, build.ImageID, build.OwnerID, nullableUUID(build.ProjectID), nullableStringValue(build.ProjectServiceName), build.Status, build.LogFilePath, build.ArchiveObjectKey, build.StartedAt, finishedAt); err != nil {
 		return err
 	}
 
@@ -115,9 +115,9 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 
 func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at 
-		FROM builds 
-		WHERE image_id = $1 
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		FROM builds
+		WHERE image_id = $1
 		ORDER BY started_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, imageID)
@@ -131,10 +131,13 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	for rows.Next() {
 		var b model.Build
 		var finishedAt sql.NullTime
+		var projectID sql.NullString
+		var projectServiceName sql.NullString
 
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
 			return nil, err
 		}
+		applyBuildProjectFields(&b, projectID, projectServiceName)
 
 		if finishedAt.Valid {
 			b.FinishedAt = &finishedAt.Time
@@ -146,15 +149,17 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at 
-		FROM builds 
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		FROM builds
 		WHERE id = $1
 	`
 	var b model.Build
 	var finishedAt sql.NullTime
+	var projectID sql.NullString
+	var projectServiceName sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
+		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -166,6 +171,7 @@ func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Buil
 	if finishedAt.Valid {
 		b.FinishedAt = &finishedAt.Time
 	}
+	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }
 
@@ -187,8 +193,8 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at 
-		FROM builds 
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at
+		FROM builds
 		WHERE status IN ($1, $2) AND started_at < $3
 	`
 	rows, err := r.db.QueryContext(ctx, query, model.BuildStatusPending, model.BuildStatusRunning, threshold)
@@ -200,9 +206,12 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	var builds []model.Build
 	for rows.Next() {
 		var b model.Build
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt); err != nil {
+		var projectID sql.NullString
+		var projectServiceName sql.NullString
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt); err != nil {
 			return nil, err
 		}
+		applyBuildProjectFields(&b, projectID, projectServiceName)
 		builds = append(builds, b)
 	}
 	return builds, rows.Err()
@@ -222,7 +231,7 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	}
 
 	query := `
-		SELECT id, image_id, owner_id, status, log_file_path, archive_object_key, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
 		FROM builds` + where + ` ORDER BY started_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
@@ -329,12 +338,15 @@ func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.
 func scanBuild(s scanner) (model.Build, error) {
 	var b model.Build
 	var finishedAt sql.NullTime
-	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+	var projectID sql.NullString
+	var projectServiceName sql.NullString
+	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
 		return model.Build{}, err
 	}
 	if finishedAt.Valid {
 		b.FinishedAt = &finishedAt.Time
 	}
+	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }
 
@@ -368,4 +380,29 @@ func nullableString(value *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *value, Valid: true}
+}
+
+func nullableStringValue(value string) sql.NullString {
+	if value == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value, Valid: true}
+}
+
+func nullableUUID(value *uuid.UUID) sql.NullString {
+	if value == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: value.String(), Valid: true}
+}
+
+func applyBuildProjectFields(b *model.Build, projectID sql.NullString, projectServiceName sql.NullString) {
+	if projectID.Valid {
+		if parsed, err := uuid.Parse(projectID.String); err == nil {
+			b.ProjectID = &parsed
+		}
+	}
+	if projectServiceName.Valid {
+		b.ProjectServiceName = projectServiceName.String
+	}
 }

@@ -12,6 +12,7 @@ type ProjectService interface {
 	DeleteProject(ctx context.Context, projectID string) error
 	StartProject(ctx context.Context, projectID string) error
 	StopProject(ctx context.Context, projectID string) error
+	CancelProject(ctx context.Context, projectID string) error
 	GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
 }
 
@@ -82,6 +83,21 @@ func (h *CoreHandler) StopProject(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "project stopped successfully"})
 }
 
+func (h *CoreHandler) CancelProject(c *gin.Context) {
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	err := h.service.CancelProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "project cancellation requested"})
+}
+
 func (h *CoreHandler) GetAllProjects(c *gin.Context) {
 	page, limit, ok := getPaginationParams(c)
 	if !ok {
@@ -135,4 +151,17 @@ func (h *CoreHandler) AdminStopProject(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "project stopped by admin"})
+}
+
+func (h *CoreHandler) AdminCancelProject(c *gin.Context) {
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	err := h.service.CancelProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "project cancellation requested by admin"})
 }

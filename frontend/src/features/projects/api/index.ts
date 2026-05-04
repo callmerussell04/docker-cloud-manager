@@ -26,6 +26,10 @@ export const stopProjectFn = async (id: string): Promise<void> => {
   await privateApi.post(`/projects/${id}/stop`);
 };
 
+export const cancelProjectFn = async (id: string): Promise<void> => {
+  await privateApi.post(`/projects/${id}/cancel`);
+};
+
 export const deleteProjectFn = async (id: string): Promise<void> => {
   await privateApi.delete(`/projects/${id}`);
 };

@@ -4,10 +4,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -20,6 +22,7 @@ import (
 
 type ProjectRepository interface {
 	Save(ctx context.Context, p model.Project) error
+	GetByID(ctx context.Context, id uuid.UUID) (model.Project, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
 	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
 }
@@ -48,8 +51,12 @@ type ConfigProvider interface {
 	Get() config.SystemConfig
 }
 
+type ImageCleaner interface {
+	Delete(ctx context.Context, imageID uuid.UUID) error
+}
+
 type BuilderClient interface {
-	TriggerBuild(ctx context.Context, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error)
+	TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error)
 	CancelBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -62,11 +69,33 @@ type Orchestrator struct {
 	contService   ContainerService
 	dockerAPI     ComposeDockerAPI
 	cfg           ConfigProvider
+	imageCleaner  ImageCleaner
 	builderClient BuilderClient
+	activeMu      sync.Mutex
+	active        map[uuid.UUID]*deploymentState
+	wg            sync.WaitGroup
 	logger        *slog.Logger
 }
 
 const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
+
+var (
+	errComposeDeploymentCanceled    = errors.New("compose deployment canceled")
+	errComposeDeploymentInterrupted = errors.New("compose deployment interrupted")
+)
+
+type deploymentState struct {
+	projectID uuid.UUID
+	scope     accessscope.Scope
+	requestID string
+	cancel    context.CancelCauseFunc
+
+	mu                sync.Mutex
+	buildIDs          []uuid.UUID
+	createdVolumes    []uuid.UUID
+	createdContainers []uuid.UUID
+	running           bool
+}
 
 func NewOrchestrator(
 	parentCtx context.Context,
@@ -78,6 +107,7 @@ func NewOrchestrator(
 	cfg ConfigProvider,
 	objectStore ObjectStorage,
 	builds BuildJobCreator,
+	imageCleaner ImageCleaner,
 	logger *slog.Logger,
 ) *Orchestrator {
 	if parentCtx == nil {
@@ -92,9 +122,134 @@ func NewOrchestrator(
 		contService:   contService,
 		dockerAPI:     dockerAPI,
 		cfg:           cfg,
+		imageCleaner:  imageCleaner,
 		builderClient: NewLocalBuilderClient(objectStore, builds),
+		active:        make(map[uuid.UUID]*deploymentState),
 		logger:        logging.WithComponent(logger, "compose_orchestrator"),
 	}
+}
+
+func (s *deploymentState) addBuild(buildID uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buildIDs = append(s.buildIDs, buildID)
+}
+
+func (s *deploymentState) addVolume(volumeID uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createdVolumes = append(s.createdVolumes, volumeID)
+}
+
+func (s *deploymentState) addContainer(containerID uuid.UUID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.createdContainers = append(s.createdContainers, containerID)
+}
+
+func (s *deploymentState) markRunning() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.running = true
+}
+
+func (s *deploymentState) snapshot() (buildIDs []uuid.UUID, containerIDs []uuid.UUID, volumeIDs []uuid.UUID, running bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	buildIDs = append(buildIDs, s.buildIDs...)
+	containerIDs = append(containerIDs, s.createdContainers...)
+	volumeIDs = append(volumeIDs, s.createdVolumes...)
+	return buildIDs, containerIDs, volumeIDs, s.running
+}
+
+func (o *Orchestrator) registerDeployment(state *deploymentState) {
+	o.activeMu.Lock()
+	defer o.activeMu.Unlock()
+	o.active[state.projectID] = state
+}
+
+func (o *Orchestrator) unregisterDeployment(projectID uuid.UUID) {
+	o.activeMu.Lock()
+	defer o.activeMu.Unlock()
+	delete(o.active, projectID)
+}
+
+func (o *Orchestrator) activeDeployment(projectID uuid.UUID) (*deploymentState, bool) {
+	o.activeMu.Lock()
+	defer o.activeMu.Unlock()
+	state, ok := o.active[projectID]
+	return state, ok
+}
+
+func (o *Orchestrator) cleanupContext(state *deploymentState) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx = logging.ContextWithRequestID(ctx, state.requestID)
+	ctx = accessscope.WithScope(ctx, state.scope)
+	return ctx, cancel
+}
+
+func (o *Orchestrator) rollbackDeployment(state *deploymentState, logger *slog.Logger, deployErr error) {
+	cleanupCtx, cancel := o.cleanupContext(state)
+	defer cancel()
+	logger.WarnContext(cleanupCtx, "compose deployment failed; rolling back", "error", deployErr)
+
+	_, containerIDs, volumeIDs, _ := state.snapshot()
+	for i := len(containerIDs) - 1; i >= 0; i-- {
+		_ = o.contService.Delete(cleanupCtx, containerIDs[i])
+	}
+	for i := len(volumeIDs) - 1; i >= 0; i-- {
+		_ = o.volumeService.Delete(cleanupCtx, volumeIDs[i])
+	}
+
+	errMsg := apperrors.SafeMessage(deployErr)
+	_ = o.projectRepo.UpdateStatus(cleanupCtx, state.projectID, model.ProjectStatusFailed, &errMsg)
+}
+
+func (o *Orchestrator) cancelAndCleanupDeployment(state *deploymentState, cause error) {
+	cleanupCtx, cancel := o.cleanupContext(state)
+	defer cancel()
+	logger := o.logger.With("project_id", state.projectID, "owner_id", state.scope.UserID)
+	logger.WarnContext(cleanupCtx, "compose deployment canceled; cleaning up", "error", cause)
+
+	buildIDs, containerIDs, volumeIDs, running := state.snapshot()
+	o.cancelBuilds(cleanupCtx, buildIDs)
+	for i := len(containerIDs) - 1; i >= 0; i-- {
+		_ = o.contService.Delete(cleanupCtx, containerIDs[i])
+	}
+	for i := len(volumeIDs) - 1; i >= 0; i-- {
+		_ = o.volumeService.Delete(cleanupCtx, volumeIDs[i])
+	}
+	if !running {
+		o.deleteSuccessfulBuildImages(cleanupCtx, buildIDs, logger)
+	}
+
+	errMsg := "compose deployment canceled"
+	_ = o.projectRepo.UpdateStatus(cleanupCtx, state.projectID, model.ProjectStatusCanceled, &errMsg)
+}
+
+func (o *Orchestrator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs []uuid.UUID, logger *slog.Logger) {
+	if o.imageCleaner == nil {
+		return
+	}
+	for _, buildID := range buildIDs {
+		build, err := o.buildRepo.GetByID(ctx, buildID)
+		if err != nil {
+			continue
+		}
+		if build.Status != model.BuildStatusSuccess {
+			continue
+		}
+		if err := o.imageCleaner.Delete(ctx, build.ImageID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			logger.WarnContext(ctx, "failed to delete compose-built image during cancellation cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
+		}
+	}
+}
+
+func isDeploymentCanceled(ctx context.Context, err error) bool {
+	if errors.Is(err, errComposeDeploymentCanceled) {
+		return true
+	}
+	return errors.Is(context.Cause(ctx), errComposeDeploymentCanceled)
 }
 
 // StartDeployment - Точка входа. Создает проект и запускает горутину оркестрации
@@ -129,11 +284,92 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, 
 		return uuid.Nil, err
 	}
 
-	// Запускаем асинхронный процесс (Этап 3 и 4)
 	requestID := logging.RequestIDFromContext(ctx)
-	go o.runPipeline(projectID, scope, projectName, archiveBytes, requestID)
+	baseCtx, timeoutCancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
+	pipelineCtx, cancel := context.WithCancelCause(baseCtx)
+	pipelineCtx = logging.ContextWithRequestID(pipelineCtx, requestID)
+	pipelineCtx = accessscope.WithScope(pipelineCtx, scope)
+	state := &deploymentState{
+		projectID: projectID,
+		scope:     scope,
+		requestID: requestID,
+		cancel:    cancel,
+	}
+	o.registerDeployment(state)
+	o.wg.Add(1)
+	go func() {
+		defer o.wg.Done()
+		defer timeoutCancel()
+		defer o.unregisterDeployment(projectID)
+		o.runPipeline(pipelineCtx, state, projectName, archiveBytes)
+	}()
 
 	return projectID, nil
+}
+
+func (o *Orchestrator) CancelDeployment(ctx context.Context, projectID uuid.UUID) error {
+	return o.requestCancel(ctx, projectID, false)
+}
+
+func (o *Orchestrator) CancelDeploymentForBuild(ctx context.Context, projectID, _ uuid.UUID) error {
+	return o.requestCancel(ctx, projectID, true)
+}
+
+func (o *Orchestrator) requestCancel(ctx context.Context, projectID uuid.UUID, fromBuild bool) error {
+	project, err := o.projectRepo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, project.OwnerID); err != nil {
+		return err
+	}
+
+	switch project.Status {
+	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling:
+	case model.ProjectStatusCanceled:
+		return nil
+	default:
+		if fromBuild {
+			return nil
+		}
+		return apperrors.New(apperrors.ErrConflict, "compose deployment is not active")
+	}
+
+	if err := o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusCanceling, nil); err != nil {
+		return err
+	}
+	state, ok := o.activeDeployment(projectID)
+	if !ok {
+		msg := "compose deployment canceled"
+		return o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusCanceled, &msg)
+	}
+	state.cancel(errComposeDeploymentCanceled)
+	return nil
+}
+
+func (o *Orchestrator) Stop(ctx context.Context) error {
+	o.activeMu.Lock()
+	states := make([]*deploymentState, 0, len(o.active))
+	for _, state := range o.active {
+		states = append(states, state)
+	}
+	o.activeMu.Unlock()
+
+	for _, state := range states {
+		state.cancel(errComposeDeploymentInterrupted)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		o.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
+	}
 }
 
 func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, archiveBytes []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
@@ -156,20 +392,26 @@ func composeRequiresBuild(project *model.ComposeProject) bool {
 	return false
 }
 
-func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope, projectName string, archiveBytes []byte, requestID string) {
-	baseCtx, cancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
-	defer cancel()
-	ctx := logging.ContextWithRequestID(baseCtx, requestID)
-	ctx = accessscope.WithScope(ctx, scope)
-	ownerID := scope.UserID
+func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, projectName string, archiveBytes []byte) {
+	projectID := state.projectID
+	ownerID := state.scope.UserID
 	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "compose deployment pipeline started", "project_name", projectName)
 
-	// Вспомогательная функция для обновления статуса при ошибке
 	failProject := func(err error) {
+		if isDeploymentCanceled(ctx, err) {
+			o.cancelAndCleanupDeployment(state, err)
+			return
+		}
+		updateCtx := ctx
+		var cancel context.CancelFunc
+		if ctx.Err() != nil {
+			updateCtx, cancel = o.cleanupContext(state)
+			defer cancel()
+		}
 		errMsg := apperrors.SafeMessage(err)
-		logger.ErrorContext(ctx, "compose deployment failed", "error", err)
-		_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &errMsg)
+		logger.ErrorContext(updateCtx, "compose deployment failed", "error", err)
+		_ = o.projectRepo.UpdateStatus(updateCtx, projectID, model.ProjectStatusFailed, &errMsg)
 	}
 
 	// 1. Извлечение, парсинг и валидация YAML
@@ -187,19 +429,28 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 				failProject(apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage))
 				return
 			}
-			if status, ok := o.failedBuildStatus(ctx, buildIDs); ok {
+			if status, ok, err := o.abortBuildStatus(ctx, buildIDs); err != nil {
 				o.cancelBuilds(ctx, buildIDs)
-				failProject(apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", status)))
+				failProject(err)
+				return
+			} else if ok {
+				o.cancelBuilds(ctx, buildIDs)
+				if status == model.BuildStatusCanceled {
+					failProject(errComposeDeploymentCanceled)
+				} else {
+					failProject(apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", status)))
+				}
 				return
 			}
 
-			buildID, err := o.builderClient.TriggerBuild(ctx, srv, archiveBytes)
+			buildID, err := o.builderClient.TriggerBuild(ctx, projectID, srv, archiveBytes)
 			if err != nil {
 				o.cancelBuilds(ctx, buildIDs)
 				failProject(fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err))
 				return
 			}
 			buildIDs = append(buildIDs, buildID)
+			state.addBuild(buildID)
 		}
 	}
 
@@ -216,22 +467,12 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusDeploying, nil)
 	logger.InfoContext(ctx, "compose builds completed; starting deployment")
 
-	// Списки для Rollback
-	var createdVolumes []uuid.UUID
-	var createdContainers []uuid.UUID
-
-	// Функция отката (Rollback). Если что-то упало — удаляем уже созданное.
 	rollback := func(deployErr error) {
-		logger.WarnContext(ctx, "compose deployment failed; rolling back", "error", deployErr)
-		// Сначала контейнеры (они зависят от томов)
-		for _, cid := range createdContainers {
-			_ = o.contService.Delete(ctx, cid)
+		if isDeploymentCanceled(ctx, deployErr) {
+			o.cancelAndCleanupDeployment(state, deployErr)
+			return
 		}
-		// Затем тома
-		for _, vid := range createdVolumes {
-			_ = o.volumeService.Delete(ctx, vid)
-		}
-		failProject(deployErr)
+		o.rollbackDeployment(state, logger, deployErr)
 	}
 
 	// Создаем Именованные Тома (Volumes)
@@ -246,7 +487,7 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 			rollback(fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
 			return
 		}
-		createdVolumes = append(createdVolumes, volID)
+		state.addVolume(volID)
 		volumeNameMap[volParams.Name] = volID
 	}
 
@@ -288,7 +529,7 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 			rollback(fmt.Errorf("failed to create service %s: %w", srv.Name, err))
 			return
 		}
-		createdContainers = append(createdContainers, contID)
+		state.addContainer(contID)
 		serviceToContainerID[srv.Name] = contID
 	}
 
@@ -369,7 +610,15 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 	}
 
 	// 4. Финал
-	_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil)
+	if err := ctx.Err(); err != nil {
+		rollback(err)
+		return
+	}
+	if err := o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusRunning, nil); err != nil {
+		rollback(fmt.Errorf("failed to mark compose project running: %w", err))
+		return
+	}
+	state.markRunning()
 	logger.InfoContext(ctx, "compose deployment completed")
 }
 
@@ -423,47 +672,72 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 }
 
 func (o *Orchestrator) waitForBuilds(ctx context.Context, buildIDs []uuid.UUID) error {
-	ticker := time.NewTicker(time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second)
+	interval := time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
+		allSuccess, err := o.checkBuilds(ctx, buildIDs)
+		if err != nil {
+			return err
+		}
+		if allSuccess {
+			return nil
+		}
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			ticker.Reset(time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second)
-			allSuccess := true
-			for _, bid := range buildIDs {
-				b, err := o.buildRepo.GetByID(ctx, bid)
-				if err != nil {
-					continue // Ждем, пока запись появится
-				}
-				if model.IsBuildFailedStatus(b.Status) {
-					o.cancelBuilds(ctx, buildIDs)
-					return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", b.Status))
-				}
-				if b.Status != model.BuildStatusSuccess {
-					allSuccess = false
-				}
+			interval = time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second
+			if interval <= 0 {
+				interval = time.Second
 			}
-			if allSuccess {
-				return nil
-			}
+			ticker.Reset(interval)
 		}
 	}
 }
 
-func (o *Orchestrator) failedBuildStatus(ctx context.Context, buildIDs []uuid.UUID) (string, bool) {
+func (o *Orchestrator) checkBuilds(ctx context.Context, buildIDs []uuid.UUID) (bool, error) {
+	allSuccess := true
+	for _, bid := range buildIDs {
+		b, err := o.buildRepo.GetByID(ctx, bid)
+		if err != nil {
+			o.cancelBuilds(ctx, buildIDs)
+			return false, fmt.Errorf("build record %s unavailable: %w", bid, err)
+		}
+		if b.Status == model.BuildStatusCanceled {
+			o.cancelBuilds(ctx, buildIDs)
+			return false, errComposeDeploymentCanceled
+		}
+		if model.IsBuildFailedStatus(b.Status) {
+			o.cancelBuilds(ctx, buildIDs)
+			return false, apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", b.Status))
+		}
+		if b.Status != model.BuildStatusSuccess {
+			allSuccess = false
+		}
+	}
+	return allSuccess, nil
+}
+
+func (o *Orchestrator) abortBuildStatus(ctx context.Context, buildIDs []uuid.UUID) (string, bool, error) {
 	for _, buildID := range buildIDs {
 		b, err := o.buildRepo.GetByID(ctx, buildID)
 		if err != nil {
-			continue
+			return "", false, fmt.Errorf("build record %s unavailable: %w", buildID, err)
+		}
+		if b.Status == model.BuildStatusCanceled {
+			return b.Status, true, nil
 		}
 		if model.IsBuildFailedStatus(b.Status) {
-			return b.Status, true
+			return b.Status, true, nil
 		}
 	}
-	return "", false
+	return "", false, nil
 }
 
 func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {

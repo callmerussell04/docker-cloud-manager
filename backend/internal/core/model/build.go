@@ -48,15 +48,17 @@ func IsBuildFailedStatus(status string) bool {
 }
 
 type Build struct {
-	ID               uuid.UUID
-	ImageID          uuid.UUID
-	OwnerID          uuid.UUID
-	OwnerUsername    string
-	Status           string
-	LogFilePath      string
-	ArchiveObjectKey string
-	StartedAt        time.Time
-	FinishedAt       *time.Time
+	ID                 uuid.UUID
+	ImageID            uuid.UUID
+	OwnerID            uuid.UUID
+	ProjectID          *uuid.UUID
+	ProjectServiceName string
+	OwnerUsername      string
+	Status             string
+	LogFilePath        string
+	ArchiveObjectKey   string
+	StartedAt          time.Time
+	FinishedAt         *time.Time
 }
 
 type BuildQueueOutbox struct {

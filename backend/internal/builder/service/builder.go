@@ -152,6 +152,9 @@ func (s *BuilderService) Stop(ctx context.Context) error {
 }
 
 func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+	s.wg.Add(1)
+	defer s.wg.Done()
+
 	ctx = logging.ContextWithRequestID(ctx, msg.RequestID)
 	cfg := s.config.Refresh(ctx)
 	imageID, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
@@ -160,23 +163,50 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 	if !started {
 		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
+		if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
+			s.logger.WarnContext(ctx, "failed to delete skipped build archive object", "build_id", msg.BuildID, "error", deleteErr)
+		}
 		return nil
 	}
 	if imageID == "" {
 		imageID = msg.ImageID
 	}
 
+	buildCtx, cancel := context.WithTimeout(ctx, cfg.MaxBuildTime)
+	buildCtx = logging.ContextWithRequestID(buildCtx, msg.RequestID)
+
+	s.activeMu.Lock()
+	s.active[msg.BuildID] = cancel
+	s.activeMu.Unlock()
+	defer func() {
+		s.activeMu.Lock()
+		delete(s.active, msg.BuildID)
+		s.activeMu.Unlock()
+	}()
+
+	pollDone := s.watchBuildCancellation(buildCtx, cancel, msg.BuildID, cfg.BuildCancelPollInterval)
+	defer func() {
+		cancel()
+		<-pollDone
+	}()
+
 	archivePath := filepath.Join(cfg.StoragePath, msg.BuildID+buildobjects.ArchiveObjectExt(msg.ArchiveObjectKey))
-	if err := s.objectStore.DownloadFile(ctx, msg.ArchiveObjectKey, archivePath); err != nil {
+	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
+		if buildCtx.Err() != nil {
+			return s.completeCanceledBuild(msg, imageID, archivePath)
+		}
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath); err != nil {
 		defer s.fileManager.CleanUp(archivePath)
+		if buildCtx.Err() != nil {
+			return s.completeCanceledBuild(msg, imageID, archivePath)
+		}
 		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.")
-		if uploadErr := s.uploadBuildLog(ctx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
+		if uploadErr := s.uploadBuildLog(buildCtx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
 			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
 		}
-		if completeErr := s.coreClient.CompleteBuildRecord(ctx, msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
+		if completeErr := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
 			return completeErr
 		}
 		if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
@@ -186,28 +216,26 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 
 	baseName, version := parseImageTag(msg.Tag)
-	buildCtx, cancel := context.WithTimeout(context.Background(), cfg.MaxBuildTime)
-	buildCtx = logging.ContextWithRequestID(buildCtx, msg.RequestID)
-
-	s.activeMu.Lock()
-	s.active[msg.BuildID] = cancel
-	s.activeMu.Unlock()
-
-	pollDone := s.watchBuildCancellation(buildCtx, cancel, msg.BuildID, cfg.BuildCancelPollInterval)
-	defer func() {
-		if pollDone != nil {
-			<-pollDone
-		}
-	}()
-
-	s.wg.Add(1)
-	defer s.wg.Done()
-
 	if err := s.processBuild(buildCtx, cancel, cfg, archivePath, msg.BuildID, imageID, msg.OwnerID, baseName, version, msg.ContextDir, msg.Dockerfile, msg.BuildArgs, msg.RequestID, msg.LogObjectKey); err != nil {
 		return err
 	}
 	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
 		s.logger.WarnContext(ctx, "failed to delete build archive object", "build_id", msg.BuildID, "error", err)
+	}
+	return nil
+}
+
+func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID, archivePath string) error {
+	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
+	if archivePath != "" {
+		_ = s.fileManager.CleanUp(archivePath)
+	}
+	s.writeCancelledBuildLog(context.Background(), logger, msg.BuildID, msg.LogObjectKey)
+	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
+		return err
+	}
+	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
+		logger.WarnContext(context.Background(), "failed to delete canceled build archive object", "error", err)
 	}
 	return nil
 }
@@ -250,12 +278,6 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 
 	defer cancel()
 	ctx = logging.ContextWithRequestID(ctx, requestID)
-
-	defer func() {
-		s.activeMu.Lock()
-		delete(s.active, buildID)
-		s.activeMu.Unlock()
-	}()
 
 	logger := s.logger.With("build_id", buildID, "image_id", imageID, "owner_id", ownerID)
 	logger.InfoContext(ctx, "build started", "image_tag", fmt.Sprintf("%s:%s", baseName, version))
@@ -372,7 +394,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			logger.WarnContext(ctx, "failed to upload timeout build log", "error", uploadErr)
 		}
 	} else if ctx.Err() == context.Canceled {
-		status = buildStatusFailed
+		status = buildStatusCanceled
 		s.writeCancelledBuildLog(ctx, logger, buildID, logObjectKey)
 	}
 

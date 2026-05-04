@@ -89,6 +89,70 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	}
 }
 
+func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) {
+	buildID := uuid.New()
+	imageID := uuid.New()
+	ownerID := uuid.New()
+	repo := &buildRepoFake{build: model.Build{
+		ID:               buildID,
+		ImageID:          imageID,
+		OwnerID:          ownerID,
+		Status:           model.BuildStatusPending,
+		ArchiveObjectKey: "build-archives/source.zip",
+	}}
+	imageRepo := &buildImageRepoFake{}
+	objects := &buildObjectStoreFake{}
+	deployments := &buildDeploymentCancelerFake{}
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, objects, deployments)
+
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	if err := svc.CancelBuildRecord(ctx, buildID); err != nil {
+		t.Fatalf("CancelBuildRecord returned error: %v", err)
+	}
+	if !imageRepo.markFailedCalled || imageRepo.markFailedStatus != model.BuildStatusCanceled {
+		t.Fatalf("build was not marked canceled, called=%v status=%q", imageRepo.markFailedCalled, imageRepo.markFailedStatus)
+	}
+	if len(objects.deleted) != 1 || objects.deleted[0] != "build-archives/source.zip" {
+		t.Fatalf("deleted objects = %v, want canceled archive", objects.deleted)
+	}
+	if deployments.calls != 0 {
+		t.Fatalf("deployment cancel calls = %d, want 0", deployments.calls)
+	}
+}
+
+func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {
+	buildID := uuid.New()
+	imageID := uuid.New()
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	repo := &buildRepoFake{build: model.Build{
+		ID:        buildID,
+		ImageID:   imageID,
+		OwnerID:   ownerID,
+		ProjectID: &projectID,
+		Status:    model.BuildStatusPending,
+	}}
+	imageRepo := &buildImageRepoFake{onMarkFailed: func() {
+		repo.build.Status = model.BuildStatusCanceled
+	}}
+	deployments := &buildDeploymentCancelerFake{}
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, deployments)
+
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	if err := svc.CancelBuildRecord(ctx, buildID); err != nil {
+		t.Fatalf("CancelBuildRecord returned error: %v", err)
+	}
+	if deployments.calls != 1 || deployments.projectID != projectID || deployments.buildID != buildID {
+		t.Fatalf("deployment cancellation mismatch: calls=%d project=%s build=%s", deployments.calls, deployments.projectID, deployments.buildID)
+	}
+	if err := svc.CancelBuildRecord(ctx, buildID); err != nil {
+		t.Fatalf("second CancelBuildRecord returned error: %v", err)
+	}
+	if deployments.calls != 1 {
+		t.Fatalf("deployment cancel calls after idempotent retry = %d, want 1", deployments.calls)
+	}
+}
+
 type buildRepoFake struct {
 	build         model.Build
 	queuedImage   model.Image
@@ -121,6 +185,8 @@ func (f *buildRepoFake) List(ctx context.Context, opts model.ListOptions) ([]mod
 type buildImageRepoFake struct {
 	updateBuildAndImageCalled bool
 	markFailedCalled          bool
+	markFailedStatus          string
+	onMarkFailed              func()
 }
 
 func (f *buildImageRepoFake) Save(ctx context.Context, img model.Image) error { return nil }
@@ -137,6 +203,32 @@ func (f *buildImageRepoFake) UpdateBuildAndImageSizeTx(ctx context.Context, buil
 }
 func (f *buildImageRepoFake) MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error {
 	f.markFailedCalled = true
+	f.markFailedStatus = status
+	if f.onMarkFailed != nil {
+		f.onMarkFailed()
+	}
+	return nil
+}
+
+type buildObjectStoreFake struct {
+	deleted []string
+}
+
+func (f *buildObjectStoreFake) DeleteObject(ctx context.Context, objectKey string) error {
+	f.deleted = append(f.deleted, objectKey)
+	return nil
+}
+
+type buildDeploymentCancelerFake struct {
+	calls     int
+	projectID uuid.UUID
+	buildID   uuid.UUID
+}
+
+func (f *buildDeploymentCancelerFake) CancelDeploymentForBuild(ctx context.Context, projectID, buildID uuid.UUID) error {
+	f.calls++
+	f.projectID = projectID
+	f.buildID = buildID
 	return nil
 }
 

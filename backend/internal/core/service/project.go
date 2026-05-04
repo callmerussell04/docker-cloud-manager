@@ -48,6 +48,10 @@ type ProjectConfigProvider interface {
 	Get() config.SystemConfig
 }
 
+type ProjectDeploymentCanceler interface {
+	CancelDeployment(ctx context.Context, projectID uuid.UUID) error
+}
+
 type ProjectService struct {
 	repo           ProjectRepository
 	resourceRepo   ProjectResourceRepository
@@ -55,6 +59,7 @@ type ProjectService struct {
 	containers     ProjectContainerLifecycle
 	networkCleaner ProjectNetworkCleaner
 	cfg            ProjectConfigProvider
+	deployments    ProjectDeploymentCanceler
 }
 
 func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, containers ProjectContainerLifecycle, cfg ProjectConfigProvider) *ProjectService {
@@ -67,6 +72,10 @@ func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepos
 		networkCleaner: networkCleaner,
 		cfg:            cfg,
 	}
+}
+
+func (s *ProjectService) SetDeploymentCanceler(canceler ProjectDeploymentCanceler) {
+	s.deployments = canceler
 }
 
 func (s *ProjectService) Start(ctx context.Context, projectID uuid.UUID) error {
@@ -100,6 +109,20 @@ func (s *ProjectService) Delete(ctx context.Context, projectID uuid.UUID) error 
 		return err
 	}
 	return s.deleteProject(ctx, p)
+}
+
+func (s *ProjectService) Cancel(ctx context.Context, projectID uuid.UUID) error {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
+		return err
+	}
+	if s.deployments == nil {
+		return apperrors.New(apperrors.ErrConflict, "compose deployment cancellation is unavailable")
+	}
+	return s.deployments.CancelDeployment(ctx, projectID)
 }
 
 func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
@@ -341,7 +364,7 @@ func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, c
 
 func projectStatusBlocksAggregation(status string) bool {
 	switch status {
-	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting:
+	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling, model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting:
 		return true
 	default:
 		return false

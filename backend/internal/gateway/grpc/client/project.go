@@ -35,6 +35,15 @@ func (c *CoreClient) StopProject(ctx context.Context, projectID string) error {
 	return nil
 }
 
+func (c *CoreClient) CancelProject(ctx context.Context, projectID string) error {
+	req := &coreapi.ProjectActionRequest{ProjectId: projectID}
+	_, err := c.projectAPI.CancelProject(ctx, req)
+	if err != nil {
+		return grpcerrors.FromGRPC(err)
+	}
+	return nil
+}
+
 func (c *CoreClient) GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.projectAPI.ListProjects(ctx, req)

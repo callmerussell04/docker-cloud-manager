@@ -146,14 +146,16 @@ func buildsToDTO(items []model.Build) []dto.BuildDTO {
 	result := make([]dto.BuildDTO, 0, len(items))
 	for _, item := range items {
 		result = append(result, dto.BuildDTO{
-			ID:            item.ID,
-			ImageID:       item.ImageID,
-			Status:        item.Status,
-			StartedAt:     item.StartedAt,
-			FinishedAt:    item.FinishedAt,
-			LogFilePath:   item.LogFilePath,
-			OwnerID:       item.OwnerID,
-			OwnerUsername: item.OwnerUsername,
+			ID:                 item.ID,
+			ImageID:            item.ImageID,
+			ProjectID:          item.ProjectID,
+			ProjectServiceName: item.ProjectServiceName,
+			Status:             item.Status,
+			StartedAt:          item.StartedAt,
+			FinishedAt:         item.FinishedAt,
+			LogFilePath:        item.LogFilePath,
+			OwnerID:            item.OwnerID,
+			OwnerUsername:      item.OwnerUsername,
 		})
 	}
 	return result
@@ -163,11 +165,13 @@ func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
 	result := make([]dto.UserBuildDTO, 0, len(items))
 	for _, item := range items {
 		result = append(result, dto.UserBuildDTO{
-			ID:         item.ID,
-			ImageID:    item.ImageID,
-			Status:     item.Status,
-			StartedAt:  item.StartedAt,
-			FinishedAt: item.FinishedAt,
+			ID:                 item.ID,
+			ImageID:            item.ImageID,
+			ProjectID:          item.ProjectID,
+			ProjectServiceName: item.ProjectServiceName,
+			Status:             item.Status,
+			StartedAt:          item.StartedAt,
+			FinishedAt:         item.FinishedAt,
 		})
 	}
 	return result

@@ -75,6 +75,27 @@ func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *
 	}
 }
 
+func TestProjectServiceCancelDelegatesDeploymentCanceler(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	repo := &projectRepoFake{
+		projects: map[uuid.UUID]model.Project{
+			projectID: {ID: projectID, OwnerID: ownerID, Status: model.ProjectStatusBuilding},
+		},
+	}
+	canceler := &projectDeploymentCancelerFake{}
+	svc := NewProjectService(repo, &projectResourceRepoFake{}, &projectDockerFake{}, &projectContainerLifecycleFake{}, staticConfig{})
+	svc.SetDeploymentCanceler(canceler)
+
+	if err := svc.Cancel(ctx, projectID); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	if canceler.calls != 1 || canceler.projectID != projectID {
+		t.Fatalf("deployment cancel mismatch: calls=%d project=%s", canceler.calls, canceler.projectID)
+	}
+}
+
 func TestProjectServiceStartFailsWhenRequiredDependencyFails(t *testing.T) {
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
@@ -184,6 +205,17 @@ type projectRepoFake struct {
 	projects map[uuid.UUID]model.Project
 	graph    []model.ProjectServiceNode
 	onDelete func(uuid.UUID)
+}
+
+type projectDeploymentCancelerFake struct {
+	calls     int
+	projectID uuid.UUID
+}
+
+func (f *projectDeploymentCancelerFake) CancelDeployment(ctx context.Context, projectID uuid.UUID) error {
+	f.calls++
+	f.projectID = projectID
+	return nil
 }
 
 func (f *projectRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {

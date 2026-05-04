@@ -88,6 +88,7 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 				projects.DELETE("/:id", coreHandler.DeleteProject)
 				projects.POST("/:id/start", coreHandler.StartProject)
 				projects.POST("/:id/stop", coreHandler.StopProject)
+				projects.POST("/:id/cancel", coreHandler.CancelProject)
 				projects.POST("/compose", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose"), coreHttpProxy)
 			}
 		}
@@ -124,6 +125,7 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 			admin.DELETE("/projects/:id", middleware.RequirePermission(tokenVerifier, permissions.ProjectsAdminDelete), coreHandler.AdminDeleteProject)
 			admin.POST("/projects/:id/start", middleware.RequirePermission(tokenVerifier, permissions.ProjectsAdminStart), coreHandler.AdminStartProject)
 			admin.POST("/projects/:id/stop", middleware.RequirePermission(tokenVerifier, permissions.ProjectsAdminStop), coreHandler.AdminStopProject)
+			admin.POST("/projects/:id/cancel", middleware.RequirePermission(tokenVerifier, permissions.ProjectsAdminStop), coreHandler.AdminCancelProject)
 		}
 		stats := protected.Group("/stats")
 		{

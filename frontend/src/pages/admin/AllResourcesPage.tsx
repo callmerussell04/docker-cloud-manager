@@ -36,7 +36,7 @@ const adminTabMinWidths: Record<Tab, string> = {
 function statusVariant(status: string): BadgeVariant {
   if (['running', 'success', 'available', 'active'].includes(status)) return 'success';
   if (['pending', 'creating', 'starting', 'reconciling', 'deploying', 'building'].includes(status)) return 'info';
-  if (['stopping', 'deleting', 'canceled'].includes(status)) return 'warning';
+  if (['stopping', 'deleting', 'canceling', 'canceled'].includes(status)) return 'warning';
   if (status === 'missing' || status === 'failed' || status.startsWith('failed') || status === 'error') return 'error';
   return 'default';
 }
@@ -133,6 +133,7 @@ export function AllResourcesPage() {
     mutationFn: adminActionProjectFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey:['admin_projects'] });
+      queryClient.invalidateQueries({ queryKey:['admin_builds'] });
       addToast('Действие выполнено', 'success');
     },
     onError: (error: unknown) => {
@@ -444,7 +445,8 @@ export function AllResourcesPage() {
                   })}
 
                   {activeTab === 'projects' && projectsData?.items.map((p) => {
-                    const isProjectBusy = ['building', 'deploying', 'pending', 'starting', 'stopping', 'deleting'].includes(p.status);
+                    const isProjectBusy = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(p.status);
+                    const canCancelProject = p.status === 'building' || p.status === 'deploying';
                     return (
                     <div key={p.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminProjects.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
@@ -482,6 +484,18 @@ export function AllResourcesPage() {
                           onClick={() => actionProjMut.mutate({id: p.id, action: 'stop'})}
                         >
                           <Square className="w-4 h-4 text-yellow-500"/>
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          className="h-8 px-2"
+                          disabled={actionProjMut.isPending || !canCancelProject}
+                          onClick={() => {
+                            if (window.confirm(`Отменить развертывание проекта "${p.name}"?`)) {
+                              actionProjMut.mutate({ id: p.id, action: 'cancel' });
+                            }
+                          }}
+                        >
+                          <XCircle className="w-4 h-4 text-orange-500"/>
                         </Button>
                         <Button
                           variant="danger"

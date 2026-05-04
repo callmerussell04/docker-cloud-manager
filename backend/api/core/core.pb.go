@@ -1610,17 +1610,19 @@ func (x *BuildActionRequest) GetBuildId() string {
 }
 
 type BuildData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	ImageId       string                 `protobuf:"bytes,2,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
-	Status        string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	StartedAt     int64                  `protobuf:"varint,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
-	FinishedAt    int64                  `protobuf:"varint,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
-	LogFilePath   string                 `protobuf:"bytes,6,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
-	OwnerId       string                 `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	OwnerUsername string                 `protobuf:"bytes,8,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	Id                 string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ImageId            string                 `protobuf:"bytes,2,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	Status             string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
+	StartedAt          int64                  `protobuf:"varint,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	FinishedAt         int64                  `protobuf:"varint,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
+	LogFilePath        string                 `protobuf:"bytes,6,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
+	OwnerId            string                 `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerUsername      string                 `protobuf:"bytes,8,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	ProjectId          string                 `protobuf:"bytes,9,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	ProjectServiceName string                 `protobuf:"bytes,10,opt,name=project_service_name,json=projectServiceName,proto3" json:"project_service_name,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BuildData) Reset() {
@@ -1705,6 +1707,20 @@ func (x *BuildData) GetOwnerId() string {
 func (x *BuildData) GetOwnerUsername() string {
 	if x != nil {
 		return x.OwnerUsername
+	}
+	return ""
+}
+
+func (x *BuildData) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
+}
+
+func (x *BuildData) GetProjectServiceName() string {
+	if x != nil {
+		return x.ProjectServiceName
 	}
 	return ""
 }
@@ -2972,7 +2988,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xf4\x01\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xc5\x02\n" +
 	"\tBuildData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
@@ -2983,7 +2999,11 @@ const file_api_core_core_proto_rawDesc = "" +
 	"finishedAt\x12\"\n" +
 	"\rlog_file_path\x18\x06 \x01(\tR\vlogFilePath\x12\x19\n" +
 	"\bowner_id\x18\a \x01(\tR\aownerId\x12%\n" +
-	"\x0eowner_username\x18\b \x01(\tR\rownerUsername\"<\n" +
+	"\x0eowner_username\x18\b \x01(\tR\rownerUsername\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\t \x01(\tR\tprojectId\x120\n" +
+	"\x14project_service_name\x18\n" +
+	" \x01(\tR\x12projectServiceName\"<\n" +
 	"\x11BuildListResponse\x12'\n" +
 	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds\"\xee\x01\n" +
 	"\vProjectData\x12\x0e\n" +
@@ -3119,13 +3139,14 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\tVolumeAPI\x12E\n" +
 	"\fCreateVolume\x12\x19.core.CreateVolumeRequest\x1a\x1a.core.CreateVolumeResponse\x126\n" +
 	"\fDeleteVolume\x12\x19.core.VolumeActionRequest\x1a\v.core.Empty\x12E\n" +
-	"\vListVolumes\x12\x17.core.PaginationRequest\x1a\x1d.core.PaginatedVolumeResponse2\x80\x02\n" +
+	"\vListVolumes\x12\x17.core.PaginationRequest\x1a\x1d.core.PaginatedVolumeResponse2\xba\x02\n" +
 	"\n" +
 	"ProjectAPI\x12G\n" +
 	"\fListProjects\x12\x17.core.PaginationRequest\x1a\x1e.core.PaginatedProjectResponse\x128\n" +
 	"\rDeleteProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x127\n" +
 	"\fStartProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x126\n" +
-	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
+	"\vStopProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty\x128\n" +
+	"\rCancelProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
 	"\tSystemAPI\x120\n" +
 	"\tGetConfig\x12\v.core.Empty\x1a\x16.core.SystemConfigData\x123\n" +
 	"\fUpdateConfig\x12\x16.core.SystemConfigData\x1a\v.core.Empty2@\n" +
@@ -3225,38 +3246,40 @@ var file_api_core_core_proto_depIdxs = []int32{
 	29, // 34: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
 	29, // 35: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
 	29, // 36: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	1,  // 37: core.SystemAPI.GetConfig:input_type -> core.Empty
-	36, // 38: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	1,  // 39: core.StatsAPI.GetUserStats:input_type -> core.Empty
-	5,  // 40: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	1,  // 41: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	1,  // 42: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	1,  // 43: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	31, // 44: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
-	1,  // 45: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	37, // 46: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
-	10, // 47: core.ContainerAPI.GetContainerRuntimeTarget:output_type -> core.ContainerRuntimeTarget
-	33, // 48: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
-	1,  // 49: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	14, // 50: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
-	15, // 51: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
-	1,  // 52: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
-	1,  // 53: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	34, // 54: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
-	25, // 55: core.ImageAPI.GetBuild:output_type -> core.BuildData
-	1,  // 56: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	20, // 57: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	1,  // 58: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	32, // 59: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
-	35, // 60: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
-	1,  // 61: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	1,  // 62: core.ProjectAPI.StartProject:output_type -> core.Empty
-	1,  // 63: core.ProjectAPI.StopProject:output_type -> core.Empty
-	36, // 64: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	1,  // 65: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	0,  // 66: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
-	40, // [40:67] is the sub-list for method output_type
-	13, // [13:40] is the sub-list for method input_type
+	29, // 37: core.ProjectAPI.CancelProject:input_type -> core.ProjectActionRequest
+	1,  // 38: core.SystemAPI.GetConfig:input_type -> core.Empty
+	36, // 39: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	1,  // 40: core.StatsAPI.GetUserStats:input_type -> core.Empty
+	5,  // 41: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	1,  // 42: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	1,  // 43: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	1,  // 44: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	31, // 45: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
+	1,  // 46: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	37, // 47: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	10, // 48: core.ContainerAPI.GetContainerRuntimeTarget:output_type -> core.ContainerRuntimeTarget
+	33, // 49: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
+	1,  // 50: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	14, // 51: core.ImageAPI.CreateBuildJob:output_type -> core.InitBuildResponse
+	15, // 52: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
+	1,  // 53: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
+	1,  // 54: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	34, // 55: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
+	25, // 56: core.ImageAPI.GetBuild:output_type -> core.BuildData
+	1,  // 57: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	20, // 58: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	1,  // 59: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	32, // 60: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
+	35, // 61: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
+	1,  // 62: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	1,  // 63: core.ProjectAPI.StartProject:output_type -> core.Empty
+	1,  // 64: core.ProjectAPI.StopProject:output_type -> core.Empty
+	1,  // 65: core.ProjectAPI.CancelProject:output_type -> core.Empty
+	36, // 66: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	1,  // 67: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	0,  // 68: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
+	41, // [41:69] is the sub-list for method output_type
+	13, // [13:41] is the sub-list for method input_type
 	13, // [13:13] is the sub-list for extension type_name
 	13, // [13:13] is the sub-list for extension extendee
 	0,  // [0:13] is the sub-list for field type_name
