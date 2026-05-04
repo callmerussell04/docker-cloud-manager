@@ -198,8 +198,7 @@ func (a *Adapter) RemoveContainer(ctx context.Context, dockerID string, force bo
 
 func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error) {
 	vol, err := a.cli.VolumeCreate(ctx, volume.CreateOptions{
-		Name:   params.VolumeName,
-		Driver: "local",
+		Name: params.VolumeName,
 		Labels: map[string]string{
 			"managed_by":        "docker-cloud-manager",
 			"dcm.resource_type": "volume",
@@ -300,7 +299,6 @@ func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (model.V
 	}
 	return model.VolumeInspection{
 		Name:       vol.Name,
-		Driver:     vol.Driver,
 		Labels:     vol.Labels,
 		Mountpoint: vol.Mountpoint,
 	}, nil

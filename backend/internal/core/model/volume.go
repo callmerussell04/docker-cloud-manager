@@ -12,8 +12,6 @@ type Volume struct {
 	OwnerUsername   string
 	ProjectID       *uuid.UUID
 	DockerName      string
-	Driver          string
-	DriverOpts      []byte
 	Status          string
 	LastObservedAt  *time.Time
 	LastError       *string

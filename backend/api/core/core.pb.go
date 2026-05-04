@@ -1417,7 +1417,6 @@ type VolumeData struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	DockerName      string                 `protobuf:"bytes,2,opt,name=docker_name,json=dockerName,proto3" json:"docker_name,omitempty"`
-	Driver          string                 `protobuf:"bytes,3,opt,name=driver,proto3" json:"driver,omitempty"`
 	CreatedAt       int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId         string                 `protobuf:"bytes,5,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername   string                 `protobuf:"bytes,6,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
@@ -1469,13 +1468,6 @@ func (x *VolumeData) GetId() string {
 func (x *VolumeData) GetDockerName() string {
 	if x != nil {
 		return x.DockerName
-	}
-	return ""
-}
-
-func (x *VolumeData) GetDriver() string {
-	if x != nil {
-		return x.Driver
 	}
 	return ""
 }
@@ -2960,13 +2952,12 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x14CreateVolumeResponse\x12\x1b\n" +
 	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"B\n" +
 	"\x13VolumeActionRequest\x12\x1b\n" +
-	"\tvolume_id\x18\x02 \x01(\tR\bvolumeIdJ\x04\b\x01\x10\x02R\bowner_id\"\xb8\x02\n" +
+	"\tvolume_id\x18\x02 \x01(\tR\bvolumeIdJ\x04\b\x01\x10\x02R\bowner_id\"\xae\x02\n" +
 	"\n" +
 	"VolumeData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vdocker_name\x18\x02 \x01(\tR\n" +
-	"dockerName\x12\x16\n" +
-	"\x06driver\x18\x03 \x01(\tR\x06driver\x12\x1d\n" +
+	"dockerName\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x04 \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\x05 \x01(\tR\aownerId\x12%\n" +
@@ -2977,7 +2968,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"used_bytes\x18\t \x01(\x03R\tusedBytes\x12*\n" +
 	"\x11usage_observed_at\x18\n" +
-	" \x01(\x03R\x0fusageObservedAt\"@\n" +
+	" \x01(\x03R\x0fusageObservedAtJ\x04\b\x03\x10\x04R\x06driver\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +

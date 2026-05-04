@@ -3,7 +3,6 @@ package dto
 type VolumeDTO struct {
 	ID              string `json:"id"`
 	DockerName      string `json:"docker_name"`
-	Driver          string `json:"driver"`
 	Status          string `json:"status"`
 	LastError       string `json:"last_error"`
 	UsedBytes       int64  `json:"used_bytes"`
@@ -15,7 +14,6 @@ type VolumeDTO struct {
 
 type UserVolumeDTO struct {
 	ID              string `json:"id"`
-	Driver          string `json:"driver"`
 	Status          string `json:"status"`
 	LastError       string `json:"last_error"`
 	UsedBytes       int64  `json:"used_bytes"`

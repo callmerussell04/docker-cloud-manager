@@ -118,7 +118,6 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		OwnerID:    ownerID,
 		ProjectID:  params.ProjectID,
 		DockerName: dockerName,
-		Driver:     "local",
 		Status:     model.VolumeStatusCreating,
 	}
 

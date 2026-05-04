@@ -3,7 +3,6 @@ package model
 type Volume struct {
 	ID              string
 	DockerName      string
-	Driver          string
 	Status          string
 	LastError       string
 	UsedBytes       int64

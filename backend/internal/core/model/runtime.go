@@ -43,7 +43,6 @@ type VolumeRuntimeSpec struct {
 
 type VolumeInspection struct {
 	Name       string
-	Driver     string
 	Labels     map[string]string
 	Mountpoint string
 }

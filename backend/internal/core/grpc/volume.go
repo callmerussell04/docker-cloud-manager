@@ -75,7 +75,6 @@ func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.Pagination
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
 			Id:              v.ID.String(),
 			DockerName:      v.DockerName,
-			Driver:          v.Driver,
 			CreatedAt:       v.CreatedAt.Unix(),
 			OwnerId:         v.OwnerID.String(),
 			OwnerUsername:   usernames[v.OwnerID],

@@ -2,8 +2,6 @@ CREATE TABLE volumes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id UUID NOT NULL,
     docker_name VARCHAR(100) UNIQUE NOT NULL,
-    driver VARCHAR(50) DEFAULT 'local',
-    driver_opts JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

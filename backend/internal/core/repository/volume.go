@@ -16,7 +16,7 @@ type VolumeRepository struct {
 	db *sql.DB
 }
 
-const volumeColumns = `id, owner_id, project_id, docker_name, driver, driver_opts, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
+const volumeColumns = `id, owner_id, project_id, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -28,8 +28,8 @@ func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 
 func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 	query := `
-		INSERT INTO volumes (id, owner_id, project_id, docker_name, driver, driver_opts, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO volumes (id, owner_id, project_id, docker_name, status)
+		VALUES ($1, $2, $3, $4, $5)
 	`
 
 	var projectID sql.NullString
@@ -43,7 +43,7 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 		status = model.VolumeStatusAvailable
 	}
 
-	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, vol.Driver, vol.DriverOpts, status)
+	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, status)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -302,7 +302,7 @@ func scanVolume(s scanner) (model.Volume, error) {
 	var usageObservedAt sql.NullTime
 
 	if err := s.Scan(
-		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Driver, &v.DriverOpts, &v.Status,
+		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Status,
 		&lastObservedAt, &lastError, &v.UsedBytes, &usageObservedAt, &v.CreatedAt,
 	); err != nil {
 		return model.Volume{}, err
