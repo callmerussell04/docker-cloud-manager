@@ -25,19 +25,21 @@ type SystemConfig struct {
 	ProxyNetworkName              string  `json:"proxy_network_name"`
 	RegistryContainerName         string  `json:"registry_container_name"`
 
-	BuildMemoryBytes          int64   `json:"build_memory_bytes"`
-	BuildCPUQuota             int64   `json:"build_cpu_quota"`
-	BuildCPUPeriod            int64   `json:"build_cpu_period"`
-	BuildMemorySwapMultiplier float64 `json:"build_memory_swap_multiplier"`
-	BuildPidsLimit            int64   `json:"build_pids_limit"`
-	BuildNetworkName          string  `json:"build_network_name"`
-	KanikoImage               string  `json:"kaniko_image"`
-	MaxBuildTimeMinutes       int64   `json:"max_build_time_minutes"`
-	MaxConcurrentBuilds       int     `json:"max_concurrent_builds"`
-	MaxUploadSizeBytes        int64   `json:"max_upload_size_bytes"`
-	MaxArchiveSizeBytes       int64   `json:"max_archive_size_bytes"`
-	MaxUnpackedSizeBytes      int64   `json:"max_unpacked_size_bytes"`
-	MaxBuildLogSizeBytes      int64   `json:"max_build_log_size_bytes"`
+	ImageBuildsEnabled             bool    `json:"image_builds_enabled"`
+	BuildMemoryBytes               int64   `json:"build_memory_bytes"`
+	BuildCPUQuota                  int64   `json:"build_cpu_quota"`
+	BuildCPUPeriod                 int64   `json:"build_cpu_period"`
+	BuildMemorySwapMultiplier      float64 `json:"build_memory_swap_multiplier"`
+	BuildPidsLimit                 int64   `json:"build_pids_limit"`
+	BuildNetworkName               string  `json:"build_network_name"`
+	KanikoImage                    string  `json:"kaniko_image"`
+	MaxBuildTimeMinutes            int64   `json:"max_build_time_minutes"`
+	MaxConcurrentBuilds            int     `json:"max_concurrent_builds"`
+	MaxUploadSizeBytes             int64   `json:"max_upload_size_bytes"`
+	MaxArchiveSizeBytes            int64   `json:"max_archive_size_bytes"`
+	MaxUnpackedSizeBytes           int64   `json:"max_unpacked_size_bytes"`
+	MaxBuildLogSizeBytes           int64   `json:"max_build_log_size_bytes"`
+	BuildCancelPollIntervalSeconds int64   `json:"build_cancel_poll_interval_seconds"`
 
 	TTLWorkerIntervalSeconds             int64 `json:"ttl_worker_interval_seconds"`
 	GCWorkerIntervalMinutes              int64 `json:"gc_worker_interval_minutes"`
@@ -48,7 +50,6 @@ type SystemConfig struct {
 	BuildOutboxBatchSize                 int   `json:"build_outbox_batch_size"`
 	ComposeUploadMaxBytes                int64 `json:"compose_upload_max_bytes"`
 	ComposePipelineTimeoutMinutes        int64 `json:"compose_pipeline_timeout_minutes"`
-	ComposeBuilderHTTPTimeoutSeconds     int64 `json:"compose_builder_http_timeout_seconds"`
 	ComposeBuildPollIntervalSeconds      int64 `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64 `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64 `json:"compose_dependency_poll_interval_seconds"`

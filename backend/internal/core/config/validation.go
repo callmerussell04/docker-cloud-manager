@@ -85,6 +85,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxUploadSizeBytes <= 0 || cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
 		return fmt.Errorf("build size limits must be positive")
 	}
+	if cfg.BuildCancelPollIntervalSeconds <= 0 {
+		return fmt.Errorf("build cancel poll interval must be positive")
+	}
 	if cfg.TTLWorkerIntervalSeconds <= 0 || cfg.GCWorkerIntervalMinutes <= 0 || cfg.StaleBuildTimeoutMinutes <= 0 {
 		return fmt.Errorf("worker intervals and stale build timeout must be positive")
 	}
@@ -94,7 +97,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BuildOutboxIntervalSeconds <= 0 || cfg.BuildOutboxBatchSize <= 0 {
 		return fmt.Errorf("build outbox settings must be positive")
 	}
-	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 || cfg.ComposeBuilderHTTPTimeoutSeconds <= 0 {
+	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}
 	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {

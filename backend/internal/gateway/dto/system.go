@@ -23,6 +23,7 @@ type SystemConfigDTO struct {
 	ContainerMemorySwapMultiplier        float64  `json:"container_memory_swap_multiplier"`
 	ProxyNetworkName                     string   `json:"proxy_network_name"`
 	RegistryContainerName                string   `json:"registry_container_name"`
+	ImageBuildsEnabled                   bool     `json:"image_builds_enabled"`
 	BuildMemoryBytes                     int64    `json:"build_memory_bytes"`
 	BuildCpuQuota                        int64    `json:"build_cpu_quota"`
 	BuildCpuPeriod                       int64    `json:"build_cpu_period"`
@@ -36,6 +37,7 @@ type SystemConfigDTO struct {
 	MaxArchiveSizeBytes                  int64    `json:"max_archive_size_bytes"`
 	MaxUnpackedSizeBytes                 int64    `json:"max_unpacked_size_bytes"`
 	MaxBuildLogSizeBytes                 int64    `json:"max_build_log_size_bytes"`
+	BuildCancelPollIntervalSeconds       int64    `json:"build_cancel_poll_interval_seconds"`
 	TtlWorkerIntervalSeconds             int64    `json:"ttl_worker_interval_seconds"`
 	GcWorkerIntervalMinutes              int64    `json:"gc_worker_interval_minutes"`
 	StaleBuildTimeoutMinutes             int64    `json:"stale_build_timeout_minutes"`
@@ -45,7 +47,6 @@ type SystemConfigDTO struct {
 	BuildOutboxBatchSize                 int      `json:"build_outbox_batch_size"`
 	ComposeUploadMaxBytes                int64    `json:"compose_upload_max_bytes"`
 	ComposePipelineTimeoutMinutes        int64    `json:"compose_pipeline_timeout_minutes"`
-	ComposeBuilderHttpTimeoutSeconds     int64    `json:"compose_builder_http_timeout_seconds"`
 	ComposeBuildPollIntervalSeconds      int64    `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64    `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64    `json:"compose_dependency_poll_interval_seconds"`

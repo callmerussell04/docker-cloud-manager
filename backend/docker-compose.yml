@@ -142,8 +142,13 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       SSO_GRPC_TARGET: "sso:50051"
       BASE_DOMAIN: "localhost"
-      BUILDER_HTTP_TARGET: "http://builder:8082"
+      IMAGE_BUILDS_ENABLED: "${IMAGE_BUILDS_ENABLED:-true}"
       RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
+      OBJECT_STORAGE_ENDPOINT: "minio:9000"
+      OBJECT_STORAGE_BUCKET: "${OBJECT_STORAGE_BUCKET:-dcm-builds}"
+      OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER:-dcm_minio}"
+      OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
+      OBJECT_STORAGE_USE_SSL: "false"
       REGISTRY_API_URL: "registry:5000"
       REGISTRY_PUBLIC_URL: "localhost:5000"
       REGISTRY_CONTAINER_NAME: "registry"
@@ -163,6 +168,7 @@ services:
       MAX_ARCHIVE_SIZE_BYTES: 52428800
       MAX_UNPACKED_SIZE_BYTES: 524288000
       MAX_BUILD_LOG_SIZE_BYTES: 5242880
+      BUILD_CANCEL_POLL_INTERVAL_SECONDS: 2
       TTL_WORKER_INTERVAL_SECONDS: 60
       GC_WORKER_INTERVAL_MINUTES: 60
       STALE_BUILD_TIMEOUT_MINUTES: 30
@@ -172,7 +178,6 @@ services:
       BUILD_OUTBOX_BATCH_SIZE: 10
       COMPOSE_UPLOAD_MAX_BYTES: 104857600
       COMPOSE_PIPELINE_TIMEOUT_MINUTES: 30
-      COMPOSE_BUILDER_HTTP_TIMEOUT_SECONDS: 30
       COMPOSE_BUILD_POLL_INTERVAL_SECONDS: 3
       COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES: 5
       COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS: 2
@@ -199,14 +204,16 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+      minio:
+        condition: service_healthy
 
   builder:
     build:
       context: .
       dockerfile: dockerfiles/builder.Dockerfile
     environment:
-      BUILDER_PORT: "8082"
       CORE_GRPC_TARGET: "core:50052"
+      BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-}"
       REGISTRY_URL: "registry:5000"
       RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
       OBJECT_STORAGE_ENDPOINT: "minio:9000"
@@ -230,6 +237,7 @@ services:
       MAX_ARCHIVE_SIZE_BYTES: 52428800
       MAX_UNPACKED_SIZE_BYTES: 524288000
       MAX_BUILD_LOG_SIZE_BYTES: 5242880
+      BUILD_CANCEL_POLL_INTERVAL_SECONDS: 2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - builder_storage:/tmp/builds
@@ -276,9 +284,13 @@ services:
       GATEWAY_PORT: "8081"
       SSO_GRPC_TARGET: "sso:50051"
       CORE_GRPC_TARGET: "core:50052"
-      BUILDER_HTTP_TARGET: "http://builder:8082"
       CORE_HTTP_TARGET: "http://core:8083"
       TELEMETRY_HTTP_TARGET: "http://telemetry:8084"
+      OBJECT_STORAGE_ENDPOINT: "minio:9000"
+      OBJECT_STORAGE_BUCKET: "${OBJECT_STORAGE_BUCKET:-dcm-builds}"
+      OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER:-dcm_minio}"
+      OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
+      OBJECT_STORAGE_USE_SSL: "false"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}"
       GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-}"
@@ -327,7 +339,7 @@ services:
     depends_on:
       - sso
       - core
-      - builder
+      - minio
       - telemetry
 
 networks:

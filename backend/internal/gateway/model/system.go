@@ -23,6 +23,7 @@ type SystemConfig struct {
 	ContainerMemorySwapMultiplier        float64
 	ProxyNetworkName                     string
 	RegistryContainerName                string
+	ImageBuildsEnabled                   bool
 	BuildMemoryBytes                     int64
 	BuildCpuQuota                        int64
 	BuildCpuPeriod                       int64
@@ -36,6 +37,7 @@ type SystemConfig struct {
 	MaxArchiveSizeBytes                  int64
 	MaxUnpackedSizeBytes                 int64
 	MaxBuildLogSizeBytes                 int64
+	BuildCancelPollIntervalSeconds       int64
 	TtlWorkerIntervalSeconds             int64
 	GcWorkerIntervalMinutes              int64
 	StaleBuildTimeoutMinutes             int64
@@ -45,7 +47,6 @@ type SystemConfig struct {
 	BuildOutboxBatchSize                 int
 	ComposeUploadMaxBytes                int64
 	ComposePipelineTimeoutMinutes        int64
-	ComposeBuilderHttpTimeoutSeconds     int64
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64

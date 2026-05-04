@@ -18,7 +18,6 @@ service ContainerAPI {
 service ImageAPI {
   rpc ListImages (PaginationRequest) returns (PaginatedImageResponse);
   rpc DeleteImage (ImageActionRequest) returns (Empty);
-  rpc InitBuildRecord (InitBuildRequest) returns (InitBuildResponse);
   rpc CreateBuildJob (CreateBuildJobRequest) returns (InitBuildResponse);
   rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
   rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
@@ -142,13 +141,6 @@ message ImageActionRequest {
   reserved 1;
   reserved "owner_id";
   string image_id = 2;
-}
-
-message InitBuildRequest {
-  reserved 1;
-  reserved "owner_id";
-  string tag = 2;
-  string log_file_path = 3;
 }
 
 message CreateBuildJobRequest {
@@ -349,7 +341,6 @@ message SystemConfigData {
   int32 build_outbox_batch_size = 41;
   int64 compose_upload_max_bytes = 42;
   int64 compose_pipeline_timeout_minutes = 43;
-  int64 compose_builder_http_timeout_seconds = 44;
   int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
   int64 compose_dependency_poll_interval_seconds = 47;
@@ -363,6 +354,8 @@ message SystemConfigData {
   int32 telemetry_max_command_args = 55;
   int32 telemetry_max_command_arg_bytes = 56;
   int64 telemetry_ws_read_limit_bytes = 57;
+  bool image_builds_enabled = 58;
+  int64 build_cancel_poll_interval_seconds = 59;
 }
 
 message ContainerStatsResponse {

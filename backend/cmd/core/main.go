@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	_ "github.com/lib/pq"
 )
 
@@ -41,11 +42,28 @@ func getEnvFloat(key string, fallback float64) float64 {
 	return fallback
 }
 
+func getEnvBool(key string, fallback bool) bool {
+	if value, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(value); err == nil {
+			return b
+		}
+	}
+	return fallback
+}
+
 func getEnvString(key string, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
 	return fallback
+}
+
+func requiredEnv(logger *slog.Logger, key string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		fatal(logger, "required environment variable is not set", "env_var", key)
+	}
+	return value
 }
 
 func getEnvStringList(key string, fallback []string) []string {
@@ -82,11 +100,6 @@ func main() {
 	baseDomain := os.Getenv("BASE_DOMAIN")
 	if baseDomain == "" {
 		fatal(logger, "required environment variable is not set", "env_var", "BASE_DOMAIN")
-	}
-
-	builderHTTPUrl := os.Getenv("BUILDER_HTTP_TARGET")
-	if builderHTTPUrl == "" {
-		fatal(logger, "required environment variable is not set", "env_var", "BUILDER_HTTP_TARGET")
 	}
 
 	rabbitMQURL := os.Getenv("RABBITMQ_URL")
@@ -131,6 +144,7 @@ func main() {
 		ContainerMemorySwapMultiplier:        getEnvFloat("CONTAINER_MEMORY_SWAP_MULTIPLIER", 2),
 		ProxyNetworkName:                     getEnvString("PROXY_NETWORK_NAME", "proxy_net"),
 		RegistryContainerName:                registryContainerName,
+		ImageBuildsEnabled:                   getEnvBool("IMAGE_BUILDS_ENABLED", true),
 		BuildMemoryBytes:                     getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
 		BuildCPUQuota:                        getEnvInt64("BUILD_CPU_QUOTA", 100000),
 		BuildCPUPeriod:                       getEnvInt64("BUILD_CPU_PERIOD", 100000),
@@ -144,6 +158,7 @@ func main() {
 		MaxArchiveSizeBytes:                  getEnvInt64("MAX_ARCHIVE_SIZE_BYTES", 50<<20),
 		MaxUnpackedSizeBytes:                 getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
 		MaxBuildLogSizeBytes:                 getEnvInt64("MAX_BUILD_LOG_SIZE_BYTES", 5*1024*1024),
+		BuildCancelPollIntervalSeconds:       int64(getEnvInt("BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2)),
 		TTLWorkerIntervalSeconds:             int64(getEnvInt("TTL_WORKER_INTERVAL_SECONDS", 60)),
 		GCWorkerIntervalMinutes:              int64(getEnvInt("GC_WORKER_INTERVAL_MINUTES", 60)),
 		StaleBuildTimeoutMinutes:             int64(getEnvInt("STALE_BUILD_TIMEOUT_MINUTES", 30)),
@@ -153,7 +168,6 @@ func main() {
 		BuildOutboxBatchSize:                 getEnvInt("BUILD_OUTBOX_BATCH_SIZE", 10),
 		ComposeUploadMaxBytes:                getEnvInt64("COMPOSE_UPLOAD_MAX_BYTES", 100<<20),
 		ComposePipelineTimeoutMinutes:        int64(getEnvInt("COMPOSE_PIPELINE_TIMEOUT_MINUTES", 30)),
-		ComposeBuilderHTTPTimeoutSeconds:     int64(getEnvInt("COMPOSE_BUILDER_HTTP_TIMEOUT_SECONDS", 30)),
 		ComposeBuildPollIntervalSeconds:      int64(getEnvInt("COMPOSE_BUILD_POLL_INTERVAL_SECONDS", 3)),
 		ComposeDependencyWaitTimeoutMinutes:  int64(getEnvInt("COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES", 5)),
 		ComposeDependencyPollIntervalSeconds: int64(getEnvInt("COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS", 2)),
@@ -174,14 +188,20 @@ func main() {
 	}
 
 	application, err := app.New(app.Config{
-		Port:           port,
-		HTTPPort:       httpPort,
-		DBURL:          dbURL,
-		BuilderHTTPURL: builderHTTPUrl,
-		RabbitMQURL:    rabbitMQURL,
-		SSOTarget:      ssoTarget,
-		InternalToken:  internalToken,
-		ConfigManager:  cfgManager,
+		Port:          port,
+		HTTPPort:      httpPort,
+		DBURL:         dbURL,
+		RabbitMQURL:   rabbitMQURL,
+		SSOTarget:     ssoTarget,
+		InternalToken: internalToken,
+		ConfigManager: cfgManager,
+		ObjectStorage: objectstorage.Config{
+			Endpoint:  requiredEnv(logger, "OBJECT_STORAGE_ENDPOINT"),
+			Bucket:    getEnvString("OBJECT_STORAGE_BUCKET", "dcm-builds"),
+			AccessKey: requiredEnv(logger, "OBJECT_STORAGE_ACCESS_KEY"),
+			SecretKey: requiredEnv(logger, "OBJECT_STORAGE_SECRET_KEY"),
+			UseSSL:    getEnvBool("OBJECT_STORAGE_USE_SSL", false),
+		},
 	}, logger)
 	if err != nil {
 		fatal(logger, "failed to initialize core application", "error", err)

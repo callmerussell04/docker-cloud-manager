@@ -29,6 +29,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 )
 
@@ -46,10 +47,10 @@ type Config struct {
 	Port                int
 	SSOTarget           string
 	CoreTarget          string
-	BuilderHTTPTarget   string
 	CoreHTTPTarget      string
 	TelemetryHTTPTarget string
 	InternalToken       string
+	ObjectStorage       objectstorage.Config
 
 	HTTP      HTTPServerConfig
 	Router    httprouter.Config
@@ -123,33 +124,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	coreClient := grpcclient.NewCoreClient(coreConn)
 	coreService := service.NewCore(coreClient)
-	coreHandler := handler.NewCoreHandler(coreService)
+	buildObjectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
+	coreHandler := handler.NewCoreHandler(coreService, buildObjectStore)
 	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
 	telemetryTicketHandler := handler.NewTelemetryTicketHandler(telemetryTickets)
 
 	proxyTransport := newProxyTransport(cfg.Proxy)
-	builderProxy, err := handler.NewBuilderProxyHandler(handler.ProxyOptions{
-		TargetURL:     cfg.BuilderHTTPTarget,
-		InternalToken: cfg.InternalToken,
-		Transport:     proxyTransport,
-	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("builder proxy setup fail: %w", err)
-	}
-
-	buildProxy, err := handler.NewAuthorizedBuildProxyHandler(handler.ProxyOptions{
-		TargetURL:     cfg.BuilderHTTPTarget,
-		InternalToken: cfg.InternalToken,
-		Transport:     proxyTransport,
-	}, coreService)
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("builder build proxy setup fail: %w", err)
-	}
-
 	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
 		TargetURL:     cfg.CoreHTTPTarget,
 		InternalToken: cfg.InternalToken,
@@ -222,14 +202,13 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 			Transport: newProxyTransport(cfg.Proxy),
 		},
 		httpTargets: map[string]string{
-			"builder_http":   cfg.BuilderHTTPTarget,
 			"core_http":      cfg.CoreHTTPTarget,
 			"telemetry_http": cfg.TelemetryHTTPTarget,
 		},
 	}
 	healthHandler := handler.NewHealthHandler(readiness)
 
-	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, builderProxy, buildProxy, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, adminTelemetryLogsProxy, adminTelemetryTerminalProxy, telemetryTicketHandler, authService, logger)
+	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, adminTelemetryLogsProxy, adminTelemetryTerminalProxy, telemetryTicketHandler, authService, logger)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,

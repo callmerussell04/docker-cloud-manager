@@ -4,34 +4,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
-	deliveryhttp "github.com/callmerussell04/docker-cloud-manager/internal/builder/http"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/archive"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/gin-gonic/gin"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type App struct {
-	router         *gin.Engine
-	httpServer     *http.Server
 	coreConn       *grpc.ClientConn
 	dockerAdapter  *docker.Adapter
 	builderService *service.BuilderService
 	queueConsumer  *rabbitmq.Consumer
-	port           int
 	ctx            context.Context
 	cancel         context.CancelFunc
 	workerCount    int
@@ -39,12 +32,12 @@ type App struct {
 }
 
 type Config struct {
-	Port          int
 	CoreTarget    string
 	InternalToken string
 	Builder       config.BuilderConfig
 	StoragePath   string
 	RabbitMQURL   string
+	InstanceID    string
 	ObjectStorage objectstorage.Config
 }
 
@@ -73,10 +66,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	objectStore, err := objectstorage.NewMinIOStorage(context.Background(), cfg.ObjectStorage)
-	if err != nil {
-		return nil, err
-	}
+	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 
 	extractor := archive.NewExtractor()
 
@@ -88,25 +78,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, objectStore, coreClient, runtimeConfig, logger)
-	buildHandler := handler.NewBuildHandler(builderService, cfg.Builder.LogsDirPath, runtimeConfig)
-
-	router := deliveryhttp.NewRouter(buildHandler, cfg.InternalToken, logger)
-	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: router,
-	}
+	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, objectStore, coreClient, runtimeConfig, logger.With("builder_instance_id", cfg.InstanceID))
 	ctx, cancel := context.WithCancel(context.Background())
-	queueConsumer := rabbitmq.NewConsumer(cfg.RabbitMQURL, logger)
+	queueConsumer := rabbitmq.NewConsumer(cfg.RabbitMQURL, cfg.InstanceID, logger)
 
 	return &App{
-		router:         router,
-		httpServer:     httpServer,
 		coreConn:       coreConn,
 		dockerAdapter:  dockerAdapter,
 		builderService: builderService,
 		queueConsumer:  queueConsumer,
-		port:           cfg.Port,
 		ctx:            ctx,
 		cancel:         cancel,
 		workerCount:    cfg.Builder.MaxConcurrentBuilds,
@@ -115,13 +95,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 }
 
 func (a *App) Run() error {
-	a.logger.Info("builder server starting", "port", a.port)
+	a.logger.Info("builder worker starting")
 	if a.queueConsumer != nil {
 		a.queueConsumer.Run(a.ctx, a.workerCount, a.builderService.HandleBuildMessage)
 	}
-	if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return err
-	}
+	<-a.ctx.Done()
 	return nil
 }
 
@@ -134,9 +112,6 @@ func (a *App) Stop(ctx context.Context) {
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		_ = a.builderService.Stop(stopCtx)
 		cancel()
-	}
-	if a.httpServer != nil {
-		_ = a.httpServer.Shutdown(ctx)
 	}
 	if a.coreConn != nil {
 		_ = a.coreConn.Close()

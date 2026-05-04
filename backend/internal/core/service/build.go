@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -39,12 +41,19 @@ type BuildVolumeDiskRepository interface {
 	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
+type BuildConfigProvider interface {
+	Get() config.SystemConfig
+}
+
+const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
+
 type BuildService struct {
 	repo        BuildRepository
 	imageRepo   BuildImageRepository
 	volumeRepo  BuildVolumeDiskRepository
 	registryAPI ImageRegistryAPI
 	users       UserInfoProvider
+	cfg         BuildConfigProvider
 	logger      *slog.Logger
 }
 
@@ -60,8 +69,18 @@ func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, regis
 		if v, ok := dep.(BuildVolumeDiskRepository); ok {
 			s.volumeRepo = v
 		}
+		if v, ok := dep.(BuildConfigProvider); ok {
+			s.cfg = v
+		}
 	}
 	return s
+}
+
+func (s *BuildService) ensureImageBuildsEnabled() error {
+	if s.cfg != nil && !s.cfg.Get().ImageBuildsEnabled {
+		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	}
+	return nil
 }
 
 func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
@@ -79,65 +98,12 @@ func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID)
 	return usedMB, nil
 }
 
-func (s *BuildService) InitBuildRecord(ctx context.Context, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error) {
-	ownerID, err := accessscope.RequireUserOwner(ctx)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	if err := validation.ImageTag(tag); err != nil {
-		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-	}
-
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-
-	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	if usedMB >= user.QuotaDiskMB {
-		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	}
-
-	baseName, version := parseImageTag(tag)
-	imageID := uuid.New()
-	img := model.Image{
-		ID:      imageID,
-		OwnerID: ownerID,
-		Tag:     fmt.Sprintf("%s:%s", baseName, version),
-		SizeMB:  0,
-		Status:  model.ImageStatusBuilding,
-	}
-	if err := s.imageRepo.Save(ctx, img); err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-
-	buildID := uuid.New()
-	if logFilePath == "" {
-		logFilePath = buildID.String() + ".log"
-	}
-	build := model.Build{
-		ID:          buildID,
-		ImageID:     imageID,
-		OwnerID:     ownerID,
-		Status:      model.BuildStatusPending,
-		LogFilePath: logFilePath,
-		StartedAt:   time.Now(),
-	}
-	if err := s.repo.Save(ctx, build); err != nil {
-		_ = s.imageRepo.Delete(ctx, imageID)
-		return uuid.Nil, uuid.Nil, err
-	}
-
-	s.logger.InfoContext(ctx, "build record initialized", "build_id", buildID, "image_id", imageID, "owner_id", ownerID, "image_tag", img.Tag)
-	return buildID, imageID, nil
-}
-
 func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if err := s.ensureImageBuildsEnabled(); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 	if err := validation.ImageTag(tag); err != nil {
@@ -238,11 +204,21 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if err != nil {
 		return err
 	}
+	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
+		return err
+	}
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
+	if b.Status == model.BuildStatusRunning {
+		if img, err := s.imageRepo.GetByID(ctx, b.ImageID); err == nil {
+			s.cleanupBuiltImageManifestForImage(ctx, b.ID, img)
+		} else if !errors.Is(err, apperrors.ErrNotFound) {
+			s.logger.WarnContext(ctx, "failed to fetch running build image for cancel cleanup", "build_id", buildID, "image_id", b.ImageID, "error", err)
+		}
+	}
 	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
-	return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusFailed)
+	return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled)
 }
 
 func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, _ int) error {
@@ -251,6 +227,9 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return err
 	}
 	if model.IsBuildTerminalStatus(b.Status) {
+		if b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
+			s.cleanupBuiltImageManifest(ctx, b)
+		}
 		return nil
 	}
 
@@ -302,6 +281,40 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	return nil
 }
 
+func (s *BuildService) cleanupBuiltImageManifest(ctx context.Context, build model.Build) {
+	if s.registryAPI == nil {
+		return
+	}
+	img, err := s.imageRepo.GetByID(ctx, build.ImageID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to fetch canceled build image for registry cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
+		return
+	}
+	s.cleanupBuiltImageManifestForImage(ctx, build.ID, img)
+}
+
+func (s *BuildService) cleanupBuiltImageManifestForImage(ctx context.Context, buildID uuid.UUID, img model.Image) {
+	if s.registryAPI == nil {
+		return
+	}
+
+	baseName, version := parseImageTag(img.Tag)
+	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	if err != nil {
+		s.logger.DebugContext(ctx, "canceled build manifest is not available for registry cleanup", "build_id", buildID, "image_id", img.ID, "error", err)
+		return
+	}
+	if digest == "" {
+		return
+	}
+	if err := s.registryAPI.DeleteManifest(ctx, repoName, digest); err != nil {
+		s.logger.WarnContext(ctx, "failed to delete canceled build manifest", "build_id", buildID, "image_id", img.ID, "error", err)
+		return
+	}
+	s.logger.InfoContext(ctx, "deleted canceled build manifest", "build_id", buildID, "image_id", img.ID)
+}
+
 func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
 	b, err := s.repo.GetByID(ctx, buildID)
 	if err != nil {
@@ -339,6 +352,7 @@ func (s *BuildService) List(ctx context.Context, limit, offset int) ([]model.Bui
 func normalizeFailedBuildStatus(status string) string {
 	switch status {
 	case model.BuildStatusFailed,
+		model.BuildStatusCanceled,
 		model.BuildStatusFailedTimeout,
 		model.BuildStatusFailedQuotaExceeded,
 		model.BuildStatusFailedInternal:

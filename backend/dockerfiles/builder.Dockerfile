@@ -15,6 +15,4 @@ WORKDIR /app
 
 COPY --from=builder /app/core .
 
-EXPOSE 8082
-
 CMD ["./core"]

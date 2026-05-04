@@ -3,6 +3,7 @@ package config
 import "time"
 
 type BuilderConfig struct {
+	ImageBuildsEnabled        bool
 	BuildMemoryBytes          int64
 	BuildCPUQuota             int64
 	BuildCPUPeriod            int64
@@ -19,4 +20,5 @@ type BuilderConfig struct {
 	MaxArchiveSizeBytes       int64
 	MaxUnpackedSizeBytes      int64
 	MaxBuildLogSizeBytes      int64
+	BuildCancelPollInterval   time.Duration
 }

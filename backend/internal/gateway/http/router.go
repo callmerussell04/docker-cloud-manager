@@ -20,7 +20,7 @@ type Config struct {
 	UploadRateLimit    middleware.RateLimitConfig
 }
 
-func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, userHandler *handler.UserManagementHandler, healthHandler *handler.HealthHandler, builderProxy gin.HandlerFunc, buildProxy gin.HandlerFunc, coreHttpProxy gin.HandlerFunc, telemetryLogsProxy gin.HandlerFunc, telemetryTerminalProxy gin.HandlerFunc, adminTelemetryLogsProxy gin.HandlerFunc, adminTelemetryTerminalProxy gin.HandlerFunc, telemetryTicketHandler *handler.TelemetryTicketHandler, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
+func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handler.CoreHandler, userHandler *handler.UserManagementHandler, healthHandler *handler.HealthHandler, coreHttpProxy gin.HandlerFunc, telemetryLogsProxy gin.HandlerFunc, telemetryTerminalProxy gin.HandlerFunc, adminTelemetryLogsProxy gin.HandlerFunc, adminTelemetryTerminalProxy gin.HandlerFunc, telemetryTicketHandler *handler.TelemetryTicketHandler, tokenVerifier middleware.TokenVerifier, logger *slog.Logger) *gin.Engine {
 	router := gin.New()
 	_ = router.SetTrustedProxies(cfg.TrustedProxies)
 	limiter := middleware.NewRateLimiter()
@@ -70,15 +70,16 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 			{
 				images.GET("", coreHandler.GetImages)
 				images.DELETE("/:id", coreHandler.DeleteImage)
-				images.POST("/build", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build"), builderProxy)
+				images.GET("/build/availability", coreHandler.GetImageBuildAvailability)
+				images.POST("/build", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build"), coreHandler.BuildImage)
 			}
 
 			builds := protected.Group("/builds")
 			{
 				builds.GET("", coreHandler.GetBuilds)
 				builds.DELETE("/:id", coreHandler.DeleteBuild)
-				builds.GET("/:id/logs", buildProxy)
-				builds.POST("/:id/cancel", buildProxy)
+				builds.GET("/:id/logs", coreHandler.GetBuildLogs)
+				builds.POST("/:id/cancel", coreHandler.CancelBuild)
 			}
 
 			projects := protected.Group("/projects")
@@ -115,6 +116,8 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 			admin.DELETE("/images/:id", middleware.RequirePermission(tokenVerifier, permissions.ImagesAdminDelete), coreHandler.AdminDeleteImage)
 
 			admin.GET("/builds", middleware.RequirePermission(tokenVerifier, permissions.BuildsAdminList), coreHandler.GetAllBuilds)
+			admin.GET("/builds/:id/logs", middleware.RequirePermission(tokenVerifier, permissions.BuildsAdminList), coreHandler.AdminGetBuildLogs)
+			admin.POST("/builds/:id/cancel", middleware.RequirePermission(tokenVerifier, permissions.BuildsAdminDelete), coreHandler.AdminCancelBuild)
 			admin.DELETE("/builds/:id", middleware.RequirePermission(tokenVerifier, permissions.BuildsAdminDelete), coreHandler.AdminDeleteBuild)
 
 			admin.GET("/projects", middleware.RequirePermission(tokenVerifier, permissions.ProjectsAdminList), coreHandler.GetAllProjects)

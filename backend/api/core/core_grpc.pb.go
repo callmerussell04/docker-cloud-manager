@@ -389,7 +389,6 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 const (
 	ImageAPI_ListImages_FullMethodName          = "/core.ImageAPI/ListImages"
 	ImageAPI_DeleteImage_FullMethodName         = "/core.ImageAPI/DeleteImage"
-	ImageAPI_InitBuildRecord_FullMethodName     = "/core.ImageAPI/InitBuildRecord"
 	ImageAPI_CreateBuildJob_FullMethodName      = "/core.ImageAPI/CreateBuildJob"
 	ImageAPI_StartBuildRecord_FullMethodName    = "/core.ImageAPI/StartBuildRecord"
 	ImageAPI_CancelBuildRecord_FullMethodName   = "/core.ImageAPI/CancelBuildRecord"
@@ -405,7 +404,6 @@ const (
 type ImageAPIClient interface {
 	ListImages(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedImageResponse, error)
 	DeleteImage(ctx context.Context, in *ImageActionRequest, opts ...grpc.CallOption) (*Empty, error)
-	InitBuildRecord(ctx context.Context, in *InitBuildRequest, opts ...grpc.CallOption) (*InitBuildResponse, error)
 	CreateBuildJob(ctx context.Context, in *CreateBuildJobRequest, opts ...grpc.CallOption) (*InitBuildResponse, error)
 	StartBuildRecord(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*StartBuildRecordResponse, error)
 	CancelBuildRecord(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -437,16 +435,6 @@ func (c *imageAPIClient) DeleteImage(ctx context.Context, in *ImageActionRequest
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, ImageAPI_DeleteImage_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *imageAPIClient) InitBuildRecord(ctx context.Context, in *InitBuildRequest, opts ...grpc.CallOption) (*InitBuildResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(InitBuildResponse)
-	err := c.cc.Invoke(ctx, ImageAPI_InitBuildRecord_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +517,6 @@ func (c *imageAPIClient) DeleteBuild(ctx context.Context, in *BuildActionRequest
 type ImageAPIServer interface {
 	ListImages(context.Context, *PaginationRequest) (*PaginatedImageResponse, error)
 	DeleteImage(context.Context, *ImageActionRequest) (*Empty, error)
-	InitBuildRecord(context.Context, *InitBuildRequest) (*InitBuildResponse, error)
 	CreateBuildJob(context.Context, *CreateBuildJobRequest) (*InitBuildResponse, error)
 	StartBuildRecord(context.Context, *BuildActionRequest) (*StartBuildRecordResponse, error)
 	CancelBuildRecord(context.Context, *BuildActionRequest) (*Empty, error)
@@ -552,9 +539,6 @@ func (UnimplementedImageAPIServer) ListImages(context.Context, *PaginationReques
 }
 func (UnimplementedImageAPIServer) DeleteImage(context.Context, *ImageActionRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteImage not implemented")
-}
-func (UnimplementedImageAPIServer) InitBuildRecord(context.Context, *InitBuildRequest) (*InitBuildResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InitBuildRecord not implemented")
 }
 func (UnimplementedImageAPIServer) CreateBuildJob(context.Context, *CreateBuildJobRequest) (*InitBuildResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateBuildJob not implemented")
@@ -630,24 +614,6 @@ func _ImageAPI_DeleteImage_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ImageAPIServer).DeleteImage(ctx, req.(*ImageActionRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _ImageAPI_InitBuildRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InitBuildRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ImageAPIServer).InitBuildRecord(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ImageAPI_InitBuildRecord_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ImageAPIServer).InitBuildRecord(ctx, req.(*InitBuildRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -792,10 +758,6 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteImage",
 			Handler:    _ImageAPI_DeleteImage_Handler,
-		},
-		{
-			MethodName: "InitBuildRecord",
-			Handler:    _ImageAPI_InitBuildRecord_Handler,
 		},
 		{
 			MethodName: "CreateBuildJob",

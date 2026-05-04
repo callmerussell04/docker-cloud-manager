@@ -48,6 +48,9 @@ func (m *RuntimeManager) Refresh(ctx context.Context) BuilderConfig {
 	cfg.LogsDirPath = m.cfg.LogsDirPath
 	cfg.StoragePath = m.cfg.StoragePath
 	cfg.RegistryURL = m.cfg.RegistryURL
+	if cfg.BuildCancelPollInterval <= 0 {
+		cfg.BuildCancelPollInterval = m.cfg.BuildCancelPollInterval
+	}
 	m.cfg = cfg
 	m.mu.Unlock()
 	return cfg

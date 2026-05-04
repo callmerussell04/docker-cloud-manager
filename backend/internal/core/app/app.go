@@ -15,6 +15,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -42,14 +43,14 @@ type App struct {
 }
 
 type Config struct {
-	Port           int
-	HTTPPort       int
-	DBURL          string
-	BuilderHTTPURL string
-	RabbitMQURL    string
-	SSOTarget      string
-	InternalToken  string
-	ConfigManager  *config.Manager
+	Port          int
+	HTTPPort      int
+	DBURL         string
+	RabbitMQURL   string
+	SSOTarget     string
+	InternalToken string
+	ConfigManager *config.Manager
+	ObjectStorage objectstorage.Config
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -97,12 +98,13 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, logger)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, ssoClient, imgRepo)
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
-	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, volRepo)
+	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, volRepo, cfg.ConfigManager)
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
+	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -112,7 +114,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, cfg.BuilderHTTPURL, cfg.InternalToken, logger)
+	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, objectStore, buildService, logger)
 	composeHandler := corehttp.NewComposeHandler(orchestrator, cfg.ConfigManager)
 	router := corehttp.SetupRouter(composeHandler, cfg.InternalToken, logger)
 

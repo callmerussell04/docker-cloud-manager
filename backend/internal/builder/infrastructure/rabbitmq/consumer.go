@@ -13,14 +13,19 @@ import (
 )
 
 type Consumer struct {
-	url    string
-	logger *slog.Logger
+	url        string
+	instanceID string
+	logger     *slog.Logger
 }
 
-func NewConsumer(url string, logger *slog.Logger) *Consumer {
+func NewConsumer(url, instanceID string, logger *slog.Logger) *Consumer {
+	if instanceID == "" {
+		instanceID = "default"
+	}
 	return &Consumer{
-		url:    url,
-		logger: logging.WithComponent(logger, "build_queue_consumer"),
+		url:        url,
+		instanceID: instanceID,
+		logger:     logging.WithComponent(logger, "build_queue_consumer").With("builder_instance_id", instanceID),
 	}
 }
 
@@ -82,7 +87,7 @@ func (c *Consumer) consume(ctx context.Context, workerID int, handler func(conte
 
 	deliveries, err := ch.Consume(
 		buildqueue.QueueName,
-		fmt.Sprintf("builder-%d", workerID),
+		fmt.Sprintf("builder-%s-%d", c.instanceID, workerID),
 		false,
 		false,
 		false,

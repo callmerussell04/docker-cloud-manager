@@ -11,8 +11,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 )
 
 func getEnvInt(key string, fallback int) int {
@@ -62,8 +62,6 @@ func main() {
 	logger := logging.NewLogger("builder", logging.ConfigFromEnv())
 	slog.SetDefault(logger)
 
-	port := getEnvInt("BUILDER_PORT", 8082)
-
 	coreTarget := os.Getenv("CORE_GRPC_TARGET")
 	if coreTarget == "" {
 		fatal(logger, "required environment variable is not set", "env_var", "CORE_GRPC_TARGET")
@@ -97,8 +95,15 @@ func main() {
 	logsDirPath := getEnvString("BUILD_LOGS_PATH", "/tmp/build_logs")
 	registryURL := getEnvString("REGISTRY_URL", "registry:5000")
 	buildNetworkName := getEnvString("BUILD_NETWORK_NAME", "build_net")
+	instanceID := getEnvString("BUILDER_INSTANCE_ID", "")
+	if instanceID == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			instanceID = hostname
+		}
+	}
 
 	builderConfig := config.BuilderConfig{
+		ImageBuildsEnabled:        true,
 		BuildMemoryBytes:          getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
 		BuildCPUQuota:             getEnvInt64("BUILD_CPU_QUOTA", 100000),
 		BuildCPUPeriod:            getEnvInt64("BUILD_CPU_PERIOD", 100000),
@@ -115,15 +120,16 @@ func main() {
 		MaxArchiveSizeBytes:       getEnvInt64("MAX_ARCHIVE_SIZE_BYTES", 50<<20),
 		MaxUnpackedSizeBytes:      getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
 		MaxBuildLogSizeBytes:      getEnvInt64("MAX_BUILD_LOG_SIZE_BYTES", getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)),
+		BuildCancelPollInterval:   time.Duration(getEnvInt("BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2)) * time.Second,
 	}
 
 	application, err := app.New(app.Config{
-		Port:          port,
 		CoreTarget:    coreTarget,
 		InternalToken: internalToken,
 		Builder:       builderConfig,
 		StoragePath:   storagePath,
 		RabbitMQURL:   rabbitMQURL,
+		InstanceID:    instanceID,
 		ObjectStorage: objectstorage.Config{
 			Endpoint:  objectStorageEndpoint,
 			Bucket:    objectStorageBucket,

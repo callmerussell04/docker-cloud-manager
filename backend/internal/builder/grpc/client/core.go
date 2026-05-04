@@ -29,6 +29,7 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		return config.BuilderConfig{}, grpcerrors.FromGRPC(err)
 	}
 	return config.BuilderConfig{
+		ImageBuildsEnabled:        resp.GetImageBuildsEnabled(),
 		BuildMemoryBytes:          resp.GetBuildMemoryBytes(),
 		BuildCPUQuota:             resp.GetBuildCpuQuota(),
 		BuildCPUPeriod:            resp.GetBuildCpuPeriod(),
@@ -42,39 +43,8 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		MaxArchiveSizeBytes:       resp.GetMaxArchiveSizeBytes(),
 		MaxUnpackedSizeBytes:      resp.GetMaxUnpackedSizeBytes(),
 		MaxBuildLogSizeBytes:      resp.GetMaxBuildLogSizeBytes(),
+		BuildCancelPollInterval:   time.Duration(resp.GetBuildCancelPollIntervalSeconds()) * time.Second,
 	}, nil
-}
-
-func (c *CoreClient) InitBuildRecord(ctx context.Context, tag, logFilePath string) (string, string, error) {
-	req := &coreapi.InitBuildRequest{
-		Tag:         tag,
-		LogFilePath: logFilePath,
-	}
-
-	resp, err := c.imageAPI.InitBuildRecord(ctx, req)
-	if err != nil {
-		return "", "", grpcerrors.FromGRPC(err)
-	}
-
-	return resp.GetBuildId(), resp.GetImageId(), nil
-}
-
-func (c *CoreClient) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
-	req := &coreapi.CreateBuildJobRequest{
-		Tag:              tag,
-		ArchiveObjectKey: archiveObjectKey,
-		LogObjectKey:     logObjectKey,
-		ContextDir:       contextDir,
-		Dockerfile:       dockerfile,
-		BuildArgs:        buildArgs,
-		RequestId:        requestID,
-	}
-
-	resp, err := c.imageAPI.CreateBuildJob(ctx, req)
-	if err != nil {
-		return "", "", grpcerrors.FromGRPC(err)
-	}
-	return resp.GetBuildId(), resp.GetImageId(), nil
 }
 
 func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error) {
@@ -101,18 +71,10 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 	return nil
 }
 
-func (c *CoreClient) CancelBuildRecord(ctx context.Context, buildID string) error {
-	_, err := c.imageAPI.CancelBuildRecord(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
-	if err != nil {
-		return grpcerrors.FromGRPC(err)
-	}
-	return nil
-}
-
-func (c *CoreClient) GetBuildLogObjectKey(ctx context.Context, buildID string) (string, error) {
+func (c *CoreClient) GetBuildStatus(ctx context.Context, buildID string) (string, error) {
 	resp, err := c.imageAPI.GetBuild(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
 	}
-	return resp.GetLogFilePath(), nil
+	return resp.GetStatus(), nil
 }

@@ -66,6 +66,8 @@ type Orchestrator struct {
 	logger        *slog.Logger
 }
 
+const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
+
 func NewOrchestrator(
 	parentCtx context.Context,
 	projectRepo ProjectRepository,
@@ -74,8 +76,8 @@ func NewOrchestrator(
 	contService ContainerService,
 	dockerAPI ComposeDockerAPI,
 	cfg ConfigProvider,
-	builderHTTPUrl string,
-	internalToken string,
+	objectStore ObjectStorage,
+	builds BuildJobCreator,
 	logger *slog.Logger,
 ) *Orchestrator {
 	if parentCtx == nil {
@@ -90,7 +92,7 @@ func NewOrchestrator(
 		contService:   contService,
 		dockerAPI:     dockerAPI,
 		cfg:           cfg,
-		builderClient: NewHTTPBuilderClient(builderHTTPUrl, internalToken, cfg, nil),
+		builderClient: NewLocalBuilderClient(objectStore, builds),
 		logger:        logging.WithComponent(logger, "compose_orchestrator"),
 	}
 }
@@ -104,6 +106,16 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, 
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
 		return uuid.Nil, err
+	}
+	cfg := o.cfg.Get()
+	if !cfg.ImageBuildsEnabled {
+		parsedProject, err := o.parseComposeProject(ctx, projectName, archiveBytes, cfg.ReservedDomainPrefixes)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if composeRequiresBuild(parsedProject) {
+			return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+		}
 	}
 	projectID := uuid.New()
 	p := model.Project{
@@ -124,6 +136,26 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, 
 	return projectID, nil
 }
 
+func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, archiveBytes []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
+	composeYaml, err := extractComposeFile(archiveBytes)
+	if err != nil {
+		return nil, err
+	}
+	return o.parser.ParseAndValidate(ctx, projectName, composeYaml, reservedDomainPrefixes)
+}
+
+func composeRequiresBuild(project *model.ComposeProject) bool {
+	if project == nil {
+		return false
+	}
+	for _, srv := range project.Services {
+		if srv.BuildContext != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope, projectName string, archiveBytes []byte, requestID string) {
 	baseCtx, cancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
 	defer cancel()
@@ -140,15 +172,8 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 		_ = o.projectRepo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &errMsg)
 	}
 
-	// 1. Извлечение и парсинг YAML
-	composeYaml, err := extractComposeFile(archiveBytes)
-	if err != nil {
-		failProject(err)
-		return
-	}
-
-	// Парсинг и валидация
-	parsedProject, err := o.parser.ParseAndValidate(ctx, projectName, composeYaml, o.cfg.Get().ReservedDomainPrefixes)
+	// 1. Извлечение, парсинг и валидация YAML
+	parsedProject, err := o.parseComposeProject(ctx, projectName, archiveBytes, o.cfg.Get().ReservedDomainPrefixes)
 	if err != nil {
 		failProject(err)
 		return
@@ -157,6 +182,11 @@ func (o *Orchestrator) runPipeline(projectID uuid.UUID, scope accessscope.Scope,
 	var buildIDs []uuid.UUID
 	for _, srv := range parsedProject.Services {
 		if srv.BuildContext != "" { // Нужна сборка
+			if !o.cfg.Get().ImageBuildsEnabled {
+				o.cancelBuilds(ctx, buildIDs)
+				failProject(apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage))
+				return
+			}
 			if status, ok := o.failedBuildStatus(ctx, buildIDs); ok {
 				o.cancelBuilds(ctx, buildIDs)
 				failProject(apperrors.New(apperrors.ErrConflict, fmt.Sprintf("build failed with status: %s", status)))

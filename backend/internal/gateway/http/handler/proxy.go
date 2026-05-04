@@ -22,10 +22,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type BuildOwnerService interface {
-	GetBuild(ctx context.Context, buildID string) (model.Build, error)
-}
-
 type TelemetryAuthVerifier interface {
 	VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error)
 	CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error)
@@ -48,45 +44,6 @@ type TelemetryProxyAuthOptions struct {
 	Permission string
 	StreamType string
 	AdminRoute bool
-}
-
-func NewBuilderProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {
-	proxy, err := newGatewayProxy(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return func(c *gin.Context) {
-		prepareProxyRequest(c, opts.InternalToken)
-		proxy.ServeHTTP(c.Writer, c.Request)
-	}, nil
-}
-
-func NewAuthorizedBuildProxyHandler(opts ProxyOptions, buildService BuildOwnerService) (gin.HandlerFunc, error) {
-	proxy, err := newGatewayProxy(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	return func(c *gin.Context) {
-		buildID, ok := pathUUID(c, "id")
-		if !ok {
-			return
-		}
-
-		build, err := buildService.GetBuild(c.Request.Context(), buildID)
-		if err != nil {
-			httpresponse.Respond(c, httpresponse.Status(err), err)
-			return
-		}
-		if build.ID == "" {
-			httpresponse.Respond(c, httpresponse.Status(apperrors.ErrNotFound), apperrors.ErrNotFound)
-			return
-		}
-
-		prepareProxyRequest(c, opts.InternalToken)
-		proxy.ServeHTTP(c.Writer, c.Request)
-	}, nil
 }
 
 func NewCoreProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {

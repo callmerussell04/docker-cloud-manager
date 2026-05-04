@@ -65,9 +65,9 @@ func FromGRPC(err error) error {
 	case codes.FailedPrecondition, codes.Aborted:
 		return apperrors.New(conflictKind(message), message)
 	case codes.DeadlineExceeded:
-		return apperrors.New(apperrors.ErrTimeout, apperrors.ErrTimeout.Error())
+		return apperrors.New(apperrors.ErrTimeout, message)
 	case codes.Unavailable:
-		return apperrors.New(apperrors.ErrUnavailable, apperrors.ErrUnavailable.Error())
+		return apperrors.New(apperrors.ErrUnavailable, message)
 	default:
 		return apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), err)
 	}

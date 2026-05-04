@@ -10,6 +10,7 @@ const (
 	BuildStatusPending             = "pending"
 	BuildStatusRunning             = "running"
 	BuildStatusSuccess             = "success"
+	BuildStatusCanceled            = "canceled"
 	BuildStatusFailed              = "failed"
 	BuildStatusFailedTimeout       = "failed_timeout"
 	BuildStatusFailedQuotaExceeded = "failed_quota_exceeded"
@@ -23,6 +24,7 @@ const (
 func IsBuildTerminalStatus(status string) bool {
 	switch status {
 	case BuildStatusSuccess,
+		BuildStatusCanceled,
 		BuildStatusFailed,
 		BuildStatusFailedTimeout,
 		BuildStatusFailedQuotaExceeded,

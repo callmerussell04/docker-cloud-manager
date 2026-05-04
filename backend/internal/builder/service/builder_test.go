@@ -6,10 +6,10 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/google/uuid"
 )
@@ -42,45 +42,6 @@ func TestBuilderServiceLogLimitCleansBuildContainer(t *testing.T) {
 	}
 }
 
-func TestBuilderServiceInitBuildUploadsArchiveAndCreatesJob(t *testing.T) {
-	fileManager := &builderFileFake{savePath: "/tmp/upload.zip"}
-	objectStore := &builderObjectStoreFake{}
-	coreClient := &builderCoreFake{}
-	svc := NewBuilderService(
-		fileManager,
-		&builderExtractorFake{},
-		&builderDockerFake{},
-		&builderLogFake{},
-		objectStore,
-		coreClient,
-		testBuilderRuntimeConfig(t),
-		nil,
-	)
-
-	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
-	buildID, err := svc.InitBuild(ctx, model.BuildJob{
-		Tag: "demo-app",
-	}, "upload.zip", strings.NewReader("archive"))
-	if err != nil {
-		t.Fatalf("InitBuild returned error: %v", err)
-	}
-	if buildID != "build-id" {
-		t.Fatalf("buildID = %q, want build-id", buildID)
-	}
-	if len(objectStore.uploads) != 1 {
-		t.Fatalf("uploads = %d, want 1", len(objectStore.uploads))
-	}
-	if !strings.HasPrefix(objectStore.uploads[0], "build-archives/") || !strings.HasSuffix(objectStore.uploads[0], ".zip") {
-		t.Fatalf("archive object key = %q", objectStore.uploads[0])
-	}
-	if coreClient.archiveObjectKey != objectStore.uploads[0] {
-		t.Fatalf("core archive key = %q, want %q", coreClient.archiveObjectKey, objectStore.uploads[0])
-	}
-	if !strings.HasPrefix(coreClient.logObjectKey, "build-logs/") || !strings.HasSuffix(coreClient.logObjectKey, ".log") {
-		t.Fatalf("log object key = %q", coreClient.logObjectKey)
-	}
-}
-
 func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 	dockerAPI := &builderDockerFake{logs: io.NopCloser(strings.NewReader(""))}
 	logManager := &builderLogFake{}
@@ -110,32 +71,6 @@ func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 	}
 	if logManager.maxLogSize != (5 << 20) {
 		t.Fatalf("max log size = %d", logManager.maxLogSize)
-	}
-}
-
-func TestBuilderServiceInitBuildDeletesArchiveObjectOnCoreError(t *testing.T) {
-	objectStore := &builderObjectStoreFake{}
-	coreClient := &builderCoreFake{createErr: errors.New("core unavailable")}
-	svc := NewBuilderService(
-		&builderFileFake{savePath: "/tmp/upload.tar.gz"},
-		&builderExtractorFake{},
-		&builderDockerFake{},
-		&builderLogFake{},
-		objectStore,
-		coreClient,
-		testBuilderRuntimeConfig(t),
-		nil,
-	)
-
-	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
-	_, err := svc.InitBuild(ctx, model.BuildJob{
-		Tag: "demo-app:latest",
-	}, "upload.tar.gz", strings.NewReader("archive"))
-	if err == nil {
-		t.Fatal("InitBuild returned nil error")
-	}
-	if len(objectStore.deletes) != 1 {
-		t.Fatalf("deleted objects = %v, want one archive cleanup", objectStore.deletes)
 	}
 }
 
@@ -174,6 +109,7 @@ var errBuilderLogLimit = errors.New("log limit")
 func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
 	t.Helper()
 	return config.NewRuntimeManager(config.BuilderConfig{
+		ImageBuildsEnabled:        true,
 		StoragePath:               t.TempDir(),
 		RegistryURL:               "registry:5000",
 		BuildNetworkName:          "build_net",
@@ -187,6 +123,7 @@ func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
 		MaxArchiveSizeBytes:       50 << 20,
 		MaxUnpackedSizeBytes:      500 << 20,
 		MaxBuildLogSizeBytes:      5 << 20,
+		BuildCancelPollInterval:   2 * time.Second,
 	}, nil, nil)
 }
 
@@ -266,22 +203,11 @@ func (f *builderObjectStoreFake) OpenObject(ctx context.Context, objectKey strin
 }
 
 type builderCoreFake struct {
-	status           string
-	createErr        error
-	archiveObjectKey string
-	logObjectKey     string
-	startStarted     bool
-	startStatus      string
+	status       string
+	startStarted bool
+	startStatus  string
 }
 
-func (f *builderCoreFake) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
-	f.archiveObjectKey = archiveObjectKey
-	f.logObjectKey = logObjectKey
-	if f.createErr != nil {
-		return "", "", f.createErr
-	}
-	return "build-id", "image-id", nil
-}
 func (f *builderCoreFake) StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error) {
 	status := f.startStatus
 	if status == "" {
@@ -297,7 +223,6 @@ func (f *builderCoreFake) CompleteBuildRecord(ctx context.Context, buildID, imag
 	f.status = status
 	return nil
 }
-func (f *builderCoreFake) CancelBuildRecord(ctx context.Context, buildID string) error { return nil }
-func (f *builderCoreFake) GetBuildLogObjectKey(ctx context.Context, buildID string) (string, error) {
-	return "", nil
+func (f *builderCoreFake) GetBuildStatus(ctx context.Context, buildID string) (string, error) {
+	return "running", nil
 }

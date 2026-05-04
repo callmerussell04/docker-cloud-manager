@@ -436,6 +436,7 @@ paths:
   /images/build:
     post:
       summary: Build a new image from source archive
+      description: Multipart metadata fields (`tag`, optional `context`, `dockerfile`, `build_args`) must be sent before the `archive` file part. Non-file fields are limited to 1 MiB each.
       tags: [Images]
       requestBody:
         required: true
@@ -474,6 +475,25 @@ paths:
                   build_id:
                     type: string
                     format: uuid
+                  message:
+                    type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /images/build/availability:
+    get:
+      summary: Get image build availability
+      tags: [Images]
+      responses:
+        '200':
+          description: Current image build availability
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
                   message:
                     type: string
 
@@ -1050,6 +1070,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
+
+  /admin/builds/{id}/logs:
+    get:
+      summary: Admin get logs for any build
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Plain text logs stream
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /admin/builds/{id}/cancel:
+    post:
+      summary: Admin cancel a queued or running build
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: Build cancellation requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /admin/projects:
     get:
@@ -1893,7 +1943,7 @@ components:
         compose_pipeline_timeout_minutes:
           type: integer
           format: int64
-        compose_builder_http_timeout_seconds:
+        build_cancel_poll_interval_seconds:
           type: integer
           format: int64
         compose_build_poll_interval_seconds:

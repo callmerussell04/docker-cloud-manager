@@ -13,7 +13,6 @@ import (
 )
 
 type BuildLogic interface {
-	InitBuildRecord(ctx context.Context, tag string, logFilePath string) (uuid.UUID, uuid.UUID, error)
 	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error)
 	CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error
@@ -21,22 +20,6 @@ type BuildLogic interface {
 	List(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 	GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error)
 	DeleteBuild(ctx context.Context, buildID uuid.UUID) error
-}
-
-func (h *ImageHandler) InitBuildRecord(ctx context.Context, req *coreapi.InitBuildRequest) (*coreapi.InitBuildResponse, error) {
-	if req.GetTag() == "" {
-		return nil, status.Error(codes.InvalidArgument, "image tag is required")
-	}
-
-	buildID, imageID, err := h.buildLogic.InitBuildRecord(ctx, req.GetTag(), req.GetLogFilePath())
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.InitBuildResponse{
-		BuildId: buildID.String(),
-		ImageId: imageID.String(),
-	}, nil
 }
 
 func (h *ImageHandler) CreateBuildJob(ctx context.Context, req *coreapi.CreateBuildJobRequest) (*coreapi.InitBuildResponse, error) {

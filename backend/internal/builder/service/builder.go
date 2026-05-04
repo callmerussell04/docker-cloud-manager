@@ -13,12 +13,9 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
-	"github.com/google/uuid"
 )
 
 type FileManager interface {
@@ -52,12 +49,12 @@ type ObjectStorage interface {
 }
 
 type CoreClient interface {
-	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error)
 	StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
-	CancelBuildRecord(ctx context.Context, buildID string) error
-	GetBuildLogObjectKey(ctx context.Context, buildID string) (string, error)
+	GetBuildStatus(ctx context.Context, buildID string) (string, error)
 }
+
+const defaultBuildCancelPollInterval = 2 * time.Second
 
 type BuilderService struct {
 	fileManager  FileManager
@@ -95,55 +92,6 @@ func NewBuilderService(
 		active:      make(map[string]context.CancelFunc),
 		logger:      logging.WithComponent(logger, "builder_service"),
 	}
-}
-
-func (s *BuilderService) InitBuild(ctx context.Context, job model.BuildJob, archiveName string, archive io.Reader) (string, error) {
-	cfg := s.config.Refresh(ctx)
-	if _, err := accessscope.RequireUserOwner(ctx); err != nil {
-		return "", err
-	}
-	if err := validation.ImageTag(job.Tag); err != nil {
-		return "", fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-	}
-	if err := validateRelativeBuildPath(job.ContextDir); err != nil {
-		return "", fmt.Errorf("%w: invalid build context: %v", apperrors.ErrBadRequest, err)
-	}
-	if err := validateRelativeBuildPath(job.Dockerfile); err != nil {
-		return "", fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
-	}
-
-	if archive == nil || archiveName == "" {
-		return "", apperrors.ErrBadRequest
-	}
-
-	fileID := uuid.New().String()
-	baseName, version := parseImageTag(job.Tag)
-	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
-	archiveObjectKey := buildArchiveObjectKey(fileID, archiveName)
-	logObjectKey := buildLogObjectKey(fileID)
-
-	limitedArchive := &maxBytesReader{r: archive, remaining: cfg.MaxArchiveSizeBytes}
-	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
-		return "", err
-	}
-
-	buildID, _, err := s.coreClient.CreateBuildJob(
-		ctx,
-		normalizedTag,
-		archiveObjectKey,
-		logObjectKey,
-		job.ContextDir,
-		job.Dockerfile,
-		job.BuildArgs,
-		logging.RequestIDFromContext(ctx),
-	)
-	if err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
-		return "", err
-	}
-
-	return buildID, nil
 }
 
 func (s *BuilderService) acquireBuildSlot(ctx context.Context, maxConcurrent int) bool {
@@ -203,33 +151,6 @@ func (s *BuilderService) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *BuilderService) CancelBuild(ctx context.Context, buildID string) error {
-	s.activeMu.Lock()
-	cancel, ok := s.active[buildID]
-	s.activeMu.Unlock()
-
-	if ok {
-		cancel()
-	}
-
-	if err := s.coreClient.CancelBuildRecord(ctx, buildID); err != nil {
-		return err
-	}
-	s.logger.InfoContext(ctx, "build cancellation requested", "build_id", buildID)
-	return nil
-}
-
-func (s *BuilderService) GetLogs(ctx context.Context, buildID string) (io.ReadCloser, error) {
-	logObjectKey, err := s.coreClient.GetBuildLogObjectKey(ctx, buildID)
-	if err != nil {
-		return nil, err
-	}
-	if logObjectKey == "" {
-		return nil, apperrors.ErrNotFound
-	}
-	return s.objectStore.OpenObject(ctx, logObjectKey)
-}
-
 func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 	ctx = logging.ContextWithRequestID(ctx, msg.RequestID)
 	cfg := s.config.Refresh(ctx)
@@ -245,7 +166,7 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		imageID = msg.ImageID
 	}
 
-	archivePath := filepath.Join(cfg.StoragePath, msg.BuildID+archiveObjectExt(msg.ArchiveObjectKey))
+	archivePath := filepath.Join(cfg.StoragePath, msg.BuildID+buildobjects.ArchiveObjectExt(msg.ArchiveObjectKey))
 	if err := s.objectStore.DownloadFile(ctx, msg.ArchiveObjectKey, archivePath); err != nil {
 		return err
 	}
@@ -272,6 +193,13 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	s.active[msg.BuildID] = cancel
 	s.activeMu.Unlock()
 
+	pollDone := s.watchBuildCancellation(buildCtx, cancel, msg.BuildID, cfg.BuildCancelPollInterval)
+	defer func() {
+		if pollDone != nil {
+			<-pollDone
+		}
+	}()
+
 	s.wg.Add(1)
 	defer s.wg.Done()
 
@@ -282,6 +210,38 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		s.logger.WarnContext(ctx, "failed to delete build archive object", "build_id", msg.BuildID, "error", err)
 	}
 	return nil
+}
+
+func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel context.CancelFunc, buildID string, pollInterval time.Duration) <-chan struct{} {
+	if pollInterval <= 0 {
+		pollInterval = defaultBuildCancelPollInterval
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		startedAt := time.Now()
+		ticker := time.NewTicker(pollInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				status, err := s.coreClient.GetBuildStatus(ctx, buildID)
+				if err != nil {
+					s.logger.WarnContext(ctx, "failed to poll build status", "build_id", buildID, "error", err)
+					continue
+				}
+				if isTerminalBuildStatus(status) {
+					s.logger.InfoContext(ctx, "build cancellation detected", "build_id", buildID, "status", status, "duration_ms", time.Since(startedAt).Milliseconds())
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return done
 }
 
 func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, cfg config.BuilderConfig, archivePath, buildID, imageID, ownerID, baseName, version, contextDir, dockerfile string, buildArgs map[string]string, requestID string, logObjectKey string) error {
@@ -304,7 +264,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 	var sizeMB int
 
 	if !s.acquireBuildSlot(ctx, cfg.MaxConcurrentBuilds) {
-		status = buildStatusFailed
+		status = buildStatusCanceled
 		s.writeCancelledBuildLog(ctx, logger, buildID, logObjectKey)
 		if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), requestID), buildID, imageID, status, sizeMB); err != nil {
 			logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
@@ -441,7 +401,7 @@ func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog
 }
 
 func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build cancelled because the compose build phase was aborted."); err != nil {
+	if err := s.logManager.WriteSystemLog(buildID, "Build was canceled before it completed."); err != nil {
 		logger.WarnContext(ctx, "failed to write cancelled build log", "error", err)
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
@@ -469,6 +429,7 @@ func (s *BuilderService) uploadBuildLog(ctx context.Context, logger *slog.Logger
 
 const (
 	buildStatusSuccess        = "success"
+	buildStatusCanceled       = "canceled"
 	buildStatusFailed         = "failed"
 	buildStatusFailedTimeout  = "failed_timeout"
 	buildStatusFailedInternal = "failed_internal"
@@ -482,58 +443,16 @@ func parseImageTag(rawTag string) (baseName, version string) {
 	return parts[0], parts[1]
 }
 
-func buildArchiveObjectKey(fileID, filePath string) string {
-	return "build-archives/" + fileID + archiveObjectExt(filePath)
-}
-
-func buildLogObjectKey(fileID string) string {
-	return "build-logs/" + fileID + ".log"
-}
-
-func archiveObjectExt(path string) string {
-	lower := strings.ToLower(path)
-	if strings.HasSuffix(lower, ".tar.gz") {
-		return ".tar.gz"
+func isTerminalBuildStatus(status string) bool {
+	switch status {
+	case buildStatusSuccess,
+		buildStatusCanceled,
+		buildStatusFailed,
+		buildStatusFailedTimeout,
+		buildStatusFailedInternal,
+		"failed_quota_exceeded":
+		return true
+	default:
+		return false
 	}
-	ext := filepath.Ext(path)
-	if ext == "" {
-		return ".archive"
-	}
-	return ext
-}
-
-type maxBytesReader struct {
-	r         io.Reader
-	remaining int64
-}
-
-func (r *maxBytesReader) Read(p []byte) (int, error) {
-	if r.remaining <= 0 {
-		var one [1]byte
-		n, err := r.r.Read(one[:])
-		if n > 0 {
-			return 0, apperrors.ErrBadRequest
-		}
-		return 0, err
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.r.Read(p)
-	r.remaining -= int64(n)
-	return n, err
-}
-
-func validateRelativeBuildPath(path string) error {
-	if path == "" || path == "." {
-		return nil
-	}
-	if filepath.IsAbs(path) {
-		return fmt.Errorf("absolute paths are not allowed")
-	}
-	clean := filepath.Clean(path)
-	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "\x00") {
-		return fmt.Errorf("parent directory traversal is not allowed")
-	}
-	return nil
 }
