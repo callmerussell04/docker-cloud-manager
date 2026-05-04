@@ -1,8 +1,8 @@
-import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info } from 'lucide-react';
+import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type BuildData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteBuildFn } from '../api';
+import { cancelBuildFn, deleteBuildFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
 
 interface BuildRowProps {
@@ -25,6 +25,17 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: cancelBuildFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['builds'] });
+      addToast('Отмена сборки запрошена', 'success');
+    },
+    onError: (error: any) => {
+      addToast(error.response?.data?.error || 'Ошибка при отмене сборки', 'error');
+    },
+  });
+
   const getStatusDisplay = (status: string) => {
     switch (status) {
       case 'success': 
@@ -39,6 +50,10 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Таймаут' };
       case 'failed_quota_exceeded': 
         return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Квота превышена' };
+      case 'failed_internal':
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Внутренняя ошибка' };
+      case 'canceled':
+        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: 'Отменена' };
       default: 
         return { icon: <Info className="w-4 h-4" />, variant: 'default' as const, label: status };
     }
@@ -47,6 +62,8 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const display = getStatusDisplay(build.status);
   const startedDate = new Date(build.started_at * 1000).toLocaleString('ru-RU');
   const duration = build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
+  const canCancel = build.status === 'pending' || build.status === 'running';
+  const canDelete = !canCancel;
 
   return (
     <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[800px]">
@@ -80,8 +97,17 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         </button>
 
         <button
+          onClick={() => cancelMutation.mutate(build.id)}
+          disabled={!canCancel || cancelMutation.isPending}
+          className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
+          title="Отменить сборку"
+        >
+          <XCircle className="w-4 h-4" />
+        </button>
+
+        <button
           onClick={() => deleteMutation.mutate(build.id)}
-          disabled={deleteMutation.isPending || build.status === 'running'}
+          disabled={deleteMutation.isPending || !canDelete}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить запись"
         >

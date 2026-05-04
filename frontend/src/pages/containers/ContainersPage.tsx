@@ -4,6 +4,7 @@ import { Plus, RefreshCcw, Search, Box } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Pagination } from '@/components/ui/Pagination';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
@@ -18,11 +19,14 @@ export function ContainersPage() {
   const[logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const limit = 20;
 
-  const { data: containers = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey:['containers'],
-    queryFn: getContainersFn,
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey:['containers', page],
+    queryFn: () => getContainersFn(page, limit),
   });
+  const containers = data?.items || [];
 
   const filteredContainers = containers.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -104,6 +108,7 @@ export function ContainersPage() {
           </div>
         </div>
       </div>
+      {data && <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />}
 
       <CreateContainerModal 
         isOpen={isCreateModalOpen} 

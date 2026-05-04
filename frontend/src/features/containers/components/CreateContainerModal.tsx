@@ -27,14 +27,16 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
 
   const { data: images = [] } = useQuery({
     queryKey: ['images'],
-    queryFn: getImagesFn,
+    queryFn: () => getImagesFn(1, 100),
     enabled: isOpen,
+    select: (data) => data.items,
   });
 
   const { data: volumes = [] } = useQuery({
     queryKey: ['volumes'],
-    queryFn: getVolumesFn,
+    queryFn: () => getVolumesFn(1, 100),
     enabled: isOpen,
+    select: (data) => data.items,
   });
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateContainerForm>({
@@ -174,7 +176,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
                 <Select {...register(`volume_mounts.${index}.volume_id`)}>
                   <option value="">Выберите том</option>
                   {volumes.map(vol => (
-                    <option key={vol.id} value={vol.id}>{vol.docker_name}</option>
+                    <option key={vol.id} value={vol.id}>{`volume-${vol.id.slice(0, 8)}`}</option>
                   ))}
                 </Select>
                 {errors.volume_mounts?.[index]?.volume_id && <p className="text-xs text-red-500 mt-1">{errors.volume_mounts[index]?.volume_id?.message}</p>}

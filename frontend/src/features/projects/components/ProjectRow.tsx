@@ -52,6 +52,9 @@ export function ProjectRow({ project }: ProjectRowProps) {
       case 'stopped': return <Badge variant="default">Остановлен</Badge>;
       case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Сборка</Badge>;
       case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Развертывание</Badge>;
+      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Запуск</Badge>;
+      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Остановка</Badge>;
+      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
       case 'pending': return <Badge variant="default">В очереди</Badge>;
       case 'failed': return <Badge variant="error">Ошибка</Badge>;
       default: return <Badge variant="default">{status}</Badge>;
@@ -62,7 +65,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 
-  const isWorking = project.status === 'building' || project.status === 'deploying' || project.status === 'pending';
+  const isWorking = ['building', 'deploying', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
 
   return (
     <div className="grid grid-cols-[1.5fr_1fr_2fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[900px] relative">
@@ -84,13 +87,13 @@ export function ProjectRow({ project }: ProjectRowProps) {
       </div>
 
       <div className="min-w-0 flex items-center">
-        {project.status === 'failed' && project.error_message ? (
+        {project.status === 'failed' && (project.error_message || project.last_error) ? (
           <div 
             className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 truncate max-w-full cursor-help"
-            title={project.error_message}
+            title={project.error_message || project.last_error}
           >
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{project.error_message}</span>
+            <span className="truncate">{project.error_message || project.last_error}</span>
           </div>
         ) : (
           <span className="text-slate-400 dark:text-slate-500">-</span>

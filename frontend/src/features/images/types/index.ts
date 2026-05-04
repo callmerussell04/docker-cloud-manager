@@ -4,7 +4,12 @@ export interface ImageData {
   id: string;
   tag: string;
   size_mb: number;
+  status: string;
+  last_error: string;
   created_at: number;
+}
+
+export interface AdminImageData extends ImageData {
   owner_id?: string;
   owner_username?: string;
 }
@@ -15,9 +20,17 @@ export interface BuildData {
   status: string;
   started_at: number;
   finished_at: number;
+}
+
+export interface AdminBuildData extends BuildData {
   log_file_path: string;
   owner_id?: string;
   owner_username?: string;
+}
+
+export interface BuildAvailability {
+  enabled: boolean;
+  message: string;
 }
 
 export const createBuildSchema = z.object({

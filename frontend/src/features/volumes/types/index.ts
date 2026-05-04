@@ -2,9 +2,15 @@ import { z } from 'zod';
 
 export interface VolumeData {
   id: string;
-  docker_name: string;
-  driver: string;
+  status: string;
+  last_error: string;
+  used_bytes: number;
+  usage_observed_at: number;
   created_at: number;
+}
+
+export interface AdminVolumeData extends VolumeData {
+  docker_name: string;
   owner_id?: string;
   owner_username?: string;
 }

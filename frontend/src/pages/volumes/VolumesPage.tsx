@@ -4,6 +4,7 @@ import { Plus, RefreshCcw, Search, HardDrive } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Pagination } from '@/components/ui/Pagination';
 import { VolumeRow } from '@/features/volumes/components/VolumeRow';
 import { CreateVolumeModal } from '@/features/volumes/components/CreateVolumeModal';
 import { getVolumesFn } from '@/features/volumes/api';
@@ -11,14 +12,17 @@ import { getVolumesFn } from '@/features/volumes/api';
 export function VolumesPage() {
   const[isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const limit = 20;
 
-  const { data: volumes = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['volumes'],
-    queryFn: getVolumesFn,
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ['volumes', page],
+    queryFn: () => getVolumesFn(page, limit),
   });
+  const volumes = data?.items || [];
 
   const filteredVolumes = volumes.filter(v => 
-    v.docker_name.toLowerCase().includes(search.toLowerCase())
+    v.id.toLowerCase().includes(search.toLowerCase()) || v.status.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -51,9 +55,10 @@ export function VolumesPage() {
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto">
-          <div className="min-w-[500px]">
-            <div className="grid grid-cols-[2fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
+          <div className="min-w-[700px]">
+            <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
               <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Имя тома</div></div>
+              <div>Статус</div>
               <div>Дата создания</div>
               <div className="text-right pr-2">Действия</div>
             </div>
@@ -88,6 +93,7 @@ export function VolumesPage() {
           </div>
         </div>
       </div>
+      {data && <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />}
 
       <CreateVolumeModal 
         isOpen={isCreateModalOpen} 

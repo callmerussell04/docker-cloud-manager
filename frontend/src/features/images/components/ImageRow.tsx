@@ -1,4 +1,4 @@
-import { Trash2, Disc } from 'lucide-react';
+import { Trash2, Disc, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ImageData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -29,7 +29,7 @@ export function ImageRow({ image }: ImageRowProps) {
   });
 
   return (
-    <div className="grid grid-cols-[3fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[700px]">
+    <div className="grid grid-cols-[3fr_1fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[800px]">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <Disc className="w-5 h-5" />
@@ -43,8 +43,20 @@ export function ImageRow({ image }: ImageRowProps) {
         <Badge variant="info">{image.size_mb} MB</Badge>
       </div>
 
+      <div className="min-w-0 text-sm">
+        <Badge variant={image.status === 'available' ? 'success' : image.status === 'error' || image.status === 'missing' ? 'error' : 'default'}>
+          {image.status}
+        </Badge>
+      </div>
+
       <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
         {formattedDate}
+        {image.last_error && (
+          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={image.last_error}>
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span className="truncate">{image.last_error}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 justify-end shrink-0">

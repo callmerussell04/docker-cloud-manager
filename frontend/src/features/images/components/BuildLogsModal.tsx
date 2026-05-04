@@ -9,15 +9,16 @@ import { type BuildData } from '../types';
 
 interface BuildLogsModalProps {
   build: BuildData | null;
+  isAdmin?: boolean;
   onClose: () => void;
 }
 
-export function BuildLogsModal({ build, onClose }: BuildLogsModalProps) {
+export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsModalProps) {
   const scrollRef = useRef<HTMLPreElement>(null);
 
   const { data: logs, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['buildLogs', build?.id],
-    queryFn: () => getBuildLogsFn(build!.id),
+    queryFn: () => getBuildLogsFn(build!.id, isAdmin),
     enabled: !!build,
     refetchInterval: build?.status === 'running' ? 3000 : false,
     retry: false,

@@ -1,4 +1,4 @@
-import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText } from 'lucide-react';
+import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ContainerData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -35,6 +35,10 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
       case 'running': return <Badge variant="success">Запущен</Badge>;
       case 'exited': return <Badge variant="default">Остановлен</Badge>;
       case 'creating': return <Badge variant="warning">Создается</Badge>;
+      case 'created': return <Badge variant="default">Создан</Badge>;
+      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
+      case 'missing': return <Badge variant="error">Missing</Badge>;
+      case 'reconciling': return <Badge variant="warning">Синхронизация</Badge>;
       case 'error': return <Badge variant="error">Ошибка</Badge>;
       default: return <Badge variant="info">{status}</Badge>;
     }
@@ -62,6 +66,12 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
       <div className="min-w-0 shrink-0">
         {getStatusBadge(container.status)}
+        {container.last_error && (
+          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={container.last_error}>
+            <AlertTriangle className="w-3 h-3 shrink-0" />
+            <span className="truncate">{container.last_error}</span>
+          </div>
+        )}
       </div>
 
       <div className="min-w-0 flex items-center text-sm text-slate-600 dark:text-slate-300 pr-4">
@@ -116,7 +126,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => handleAction('start')}
-          disabled={container.status === 'running' || actionMutation.isPending}
+          disabled={['running', 'creating', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title="Запустить"
         >
@@ -134,7 +144,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => onExpose(container)}
-          disabled={actionMutation.isPending}
+          disabled={['deleting', 'missing'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
           title="Настройки маршрутизации"
         >
@@ -143,7 +153,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => handleAction('delete')}
-          disabled={actionMutation.isPending}
+          disabled={container.status === 'deleting' || actionMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title="Удалить"
         >

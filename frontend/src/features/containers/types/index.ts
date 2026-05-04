@@ -2,13 +2,18 @@ import { z } from 'zod';
 
 export interface ContainerData {
   id: string;
-  docker_id: string;
   name: string;
   image_tag: string;
   internal_port: number;
   domain_prefix: string;
   status: string;
+  desired_status: string;
+  last_error: string;
   created_at: number;
+}
+
+export interface AdminContainerData extends ContainerData {
+  docker_id: string;
   owner_id?: string;
   owner_username?: string;
 }
@@ -24,6 +29,11 @@ export interface ContainerStats {
 export interface TelemetryTicketResponse {
   ticket: string;
   expires_at: number;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total_count: number;
 }
 
 export const createContainerSchema = z.object({

@@ -5,7 +5,11 @@ export interface ProjectData {
   name: string;
   status: string;
   error_message: string;
+  last_error: string;
   created_at: number;
+}
+
+export interface AdminProjectData extends ProjectData {
   owner_id?: string;
   owner_username?: string;
 }

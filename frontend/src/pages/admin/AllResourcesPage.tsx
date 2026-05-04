@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText } from 'lucide-react';
+import { RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
@@ -10,22 +10,25 @@ import { Badge } from '@/components/ui/Badge';
 import { useToastStore } from '@/store/toastStore';
 import { cn } from '@/lib/utils';
 import { 
-  getAllContainersFn, getAllVolumesFn, getAllImagesFn, getAllProjectsFn,
-  adminActionContainerFn, adminDeleteVolumeFn, adminDeleteImageFn, adminActionProjectFn
+  getAllContainersFn, getAllVolumesFn, getAllImagesFn, getAllProjectsFn, getAllBuildsFn,
+  adminActionContainerFn, adminDeleteVolumeFn, adminDeleteImageFn, adminActionProjectFn, adminDeleteBuildFn, adminCancelBuildFn
 } from '@/features/admin/api';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
-import { type ContainerData } from '@/features/containers/types';
+import { type AdminContainerData } from '@/features/containers/types';
+import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
+import type { AdminBuildData } from '@/features/images/types';
 
-type Tab = 'containers' | 'volumes' | 'images' | 'projects';
+type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 
 export function AllResourcesPage() {
   const [activeTab, setActiveTab] = useState<Tab>('containers');
   const[page, setPage] = useState(1);
   const limit = 20;
 
-  const[logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
-  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
+  const[logsContainer, setLogsContainer] = useState<AdminContainerData | null>(null);
+  const [terminalContainer, setTerminalContainer] = useState<AdminContainerData | null>(null);
+  const [viewLogsBuild, setViewLogsBuild] = useState<AdminBuildData | null>(null);
 
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
@@ -57,6 +60,13 @@ export function AllResourcesPage() {
     queryKey: ['admin_projects', page],
     queryFn: () => getAllProjectsFn(page, limit),
     enabled: activeTab === 'projects',
+  });
+
+  const { data: buildsData, isFetching: isFetchingBuilds } = useQuery({
+    queryKey: ['admin_builds', page],
+    queryFn: () => getAllBuildsFn(page, limit),
+    enabled: activeTab === 'builds',
+    refetchInterval: activeTab === 'builds' ? 5000 : false,
   });
 
   const actionContainerMut = useMutation({
@@ -95,7 +105,25 @@ export function AllResourcesPage() {
     onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
   });
 
-  const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj;
+  const delBuildMut = useMutation({
+    mutationFn: adminDeleteBuildFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
+      addToast('Сборка удалена', 'success');
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+  });
+
+  const cancelBuildMut = useMutation({
+    mutationFn: adminCancelBuildFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
+      addToast('Отмена сборки запрошена', 'success');
+    },
+    onError: (error: any) => addToast(error.response?.data?.error || 'Произошла ошибка', 'error')
+  });
+
+  const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj || isFetchingBuilds;
 
   return (
     <div className="space-y-6 flex flex-col h-full">
@@ -118,6 +146,7 @@ export function AllResourcesPage() {
           { id: 'containers', label: 'Контейнеры', icon: Box },
           { id: 'volumes', label: 'Тома', icon: HardDrive },
           { id: 'images', label: 'Образы', icon: Disc },
+          { id: 'builds', label: 'Сборки', icon: Hammer },
           { id: 'projects', label: 'Проекты', icon: Layers },
         ].map((tab) => (
           <button
@@ -160,6 +189,16 @@ export function AllResourcesPage() {
                 <div className="pl-2">Тег</div>
                 <div>Размер</div>
                 <div>User ID</div>
+                <div className="text-right pr-2">Управление</div>
+              </div>
+            )}
+            {activeTab === 'builds' && (
+              <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500">
+                <div className="pl-2">Build ID</div>
+                <div>Статус</div>
+                <div>Image ID</div>
+                <div>User</div>
+                <div>Дата запуска</div>
                 <div className="text-right pr-2">Управление</div>
               </div>
             )}
@@ -252,6 +291,34 @@ export function AllResourcesPage() {
                     </div>
                   ))}
 
+                  {activeTab === 'builds' && buildsData?.items.map((build) => {
+                    const canCancel = build.status === 'pending' || build.status === 'running';
+                    return (
+                      <div key={build.id} className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
+                        <div className="min-w-0 pr-4 pl-2">
+                          <div className="font-medium block truncate font-mono" title={build.id}>{build.id}</div>
+                        </div>
+                        <div className="min-w-0">
+                          <Badge variant={build.status === 'success' ? 'success' : build.status === 'running' ? 'info' : build.status.startsWith('failed') ? 'error' : 'default'}>{build.status}</Badge>
+                        </div>
+                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
+                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>User: {build.owner_username || build.owner_id || 'unknown'}</div>
+                        <div className="min-w-0 text-xs text-slate-500 truncate">{format(build.started_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <div className="flex gap-2 justify-end shrink-0">
+                          <Button variant="secondary" className="h-8 px-2" onClick={() => setViewLogsBuild(build)}>
+                            <ScrollText className="w-4 h-4" />
+                          </Button>
+                          <Button variant="secondary" className="h-8 px-2" disabled={!canCancel || cancelBuildMut.isPending} onClick={() => cancelBuildMut.mutate(build.id)}>
+                            <XCircle className="w-4 h-4 text-yellow-500" />
+                          </Button>
+                          <Button variant="danger" className="h-8 px-2" disabled={canCancel || delBuildMut.isPending} onClick={() => delBuildMut.mutate(build.id)}>
+                            <Trash2 className="w-4 h-4"/>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
                   {activeTab === 'projects' && projectsData?.items.map((p) => (
                     <div key={p.id} className="grid grid-cols-[2fr_1fr_2fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center">
                       <div className="min-w-0 pr-4 pl-2">
@@ -296,6 +363,7 @@ export function AllResourcesPage() {
               {activeTab === 'containers' && containersData && <Pagination currentPage={page} pageSize={limit} totalItems={containersData.total_count} onPageChange={setPage} />}
               {activeTab === 'volumes' && volumesData && <Pagination currentPage={page} pageSize={limit} totalItems={volumesData.total_count} onPageChange={setPage} />}
               {activeTab === 'images' && imagesData && <Pagination currentPage={page} pageSize={limit} totalItems={imagesData.total_count} onPageChange={setPage} />}
+              {activeTab === 'builds' && buildsData && <Pagination currentPage={page} pageSize={limit} totalItems={buildsData.total_count} onPageChange={setPage} />}
               {activeTab === 'projects' && projectsData && <Pagination currentPage={page} pageSize={limit} totalItems={projectsData.total_count} onPageChange={setPage} />}
             </div>
           </div>
@@ -312,6 +380,12 @@ export function AllResourcesPage() {
         container={terminalContainer}
         isAdmin={true}
         onClose={() => setTerminalContainer(null)}
+      />
+
+      <BuildLogsModal
+        build={viewLogsBuild}
+        isAdmin={true}
+        onClose={() => setViewLogsBuild(null)}
       />
 
     </div>

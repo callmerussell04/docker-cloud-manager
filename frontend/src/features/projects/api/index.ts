@@ -1,9 +1,12 @@
 import { privateApi } from '@/api/axios';
 import { type ProjectData } from '../types';
+import type { PaginatedResponse } from '@/features/admin/types';
 
-export const getProjectsFn = async (): Promise<ProjectData[]> => {
-  const response = await privateApi.get<{ projects: ProjectData[] }>('/projects');
-  return response.data.projects ||[];
+export const getProjectsFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ProjectData>> => {
+  const response = await privateApi.get<{ projects: ProjectData[]; total_count: number }>('/projects', {
+    params: { page, limit },
+  });
+  return { items: response.data.projects || [], total_count: response.data.total_count || 0 };
 };
 
 export const createProjectFn = async (formData: FormData): Promise<{ project_id: string }> => {

@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Box, Disc, HardDrive, Layers, Settings, ShieldAlert } from 'lucide-react';
+import { LayoutDashboard, Box, Disc, HardDrive, Layers, Settings, ShieldAlert, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 
@@ -13,6 +13,7 @@ const navigation = [
 
 const adminNavigation = [
   { name: 'Все ресурсы', href: '/admin/resources', icon: ShieldAlert },
+  { name: 'Пользователи', href: '/admin/users', icon: Users },
   { name: 'Настройки системы', href: '/admin/settings', icon: Settings },
 ];
 

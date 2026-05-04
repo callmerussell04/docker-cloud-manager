@@ -4,6 +4,7 @@ import { Plus, RefreshCcw, Search, Layers } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Pagination } from '@/components/ui/Pagination';
 import { ProjectRow } from '@/features/projects/components/ProjectRow';
 import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
 import { getProjectsFn } from '@/features/projects/api';
@@ -11,12 +12,15 @@ import { getProjectsFn } from '@/features/projects/api';
 export function ProjectsPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const limit = 20;
 
-  const { data: projects = [], isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['projects'],
-    queryFn: getProjectsFn,
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ['projects', page],
+    queryFn: () => getProjectsFn(page, limit),
     refetchInterval: 5000,
   });
+  const projects = data?.items || [];
 
   const filteredProjects = projects.filter(p => 
     p.name.toLowerCase().includes(search.toLowerCase())
@@ -97,6 +101,7 @@ export function ProjectsPage() {
         isOpen={isCreateModalOpen} 
         onClose={() => setIsCreateModalOpen(false)} 
       />
+      {data && <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />}
     </div>
   );
 }

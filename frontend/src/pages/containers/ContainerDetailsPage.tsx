@@ -18,6 +18,17 @@ export function ContainerDetailsPage() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   
   const container = location.state?.container as ContainerData | undefined;
+  const streamContainer: ContainerData | null = id ? {
+    id,
+    name: container?.name || id,
+    image_tag: container?.image_tag || '',
+    internal_port: container?.internal_port || 0,
+    domain_prefix: container?.domain_prefix || '',
+    status: container?.status || 'unknown',
+    desired_status: container?.desired_status || '',
+    last_error: container?.last_error || '',
+    created_at: container?.created_at || 0,
+  } : null;
 
   const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
@@ -26,7 +37,7 @@ export function ContainerDetailsPage() {
     queryKey:['container_stats', id, isAdminRoute],
     queryFn: () => isAdminRoute ? adminGetContainerStatsFn(id!) : getContainerStatsFn(id!),
     enabled: !!id,
-    refetchInterval: container?.status === 'running' ? 3000 : false,
+    refetchInterval: !container || container.status === 'running' ? 3000 : false,
   });
 
   const getStatusBadge = (status?: string) => {
@@ -67,18 +78,18 @@ export function ContainerDetailsPage() {
           </div>
         </div>
 
-        {container && (
+        {streamContainer && (
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setTerminalContainer(container)}
-              disabled={container.status !== 'running'}
+              onClick={() => setTerminalContainer(streamContainer)}
+              disabled={!!container && container.status !== 'running'}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
               <Terminal className="w-4 h-4" />
               <span className="hidden sm:inline font-medium text-sm">Терминал</span>
             </button>
             <button
-              onClick={() => setLogsContainer(container)}
+              onClick={() => setLogsContainer(streamContainer)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
             >
               <ScrollText className="w-4 h-4" />

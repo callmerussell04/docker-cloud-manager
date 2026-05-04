@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, UploadCloud, X } from 'lucide-react';
 
 import { Modal } from '@/components/ui/Modal';
@@ -10,8 +10,9 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
-import { createBuildFn } from '../api';
+import { createBuildFn, getBuildAvailabilityFn } from '../api';
 import { type CreateBuildForm, createBuildSchema } from '../types';
+import { formatBytes } from '@/lib/utils';
 
 interface CreateBuildModalProps {
   isOpen: boolean;
@@ -25,6 +26,11 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { data: availability } = useQuery({
+    queryKey: ['imageBuildAvailability'],
+    queryFn: getBuildAvailabilityFn,
+    enabled: isOpen,
+  });
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateBuildForm>({
     resolver: zodResolver(createBuildSchema),
@@ -63,7 +69,6 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
     formData.append('tag', data.tag);
     if (data.context) formData.append('context', data.context);
     if (data.dockerfile) formData.append('dockerfile', data.dockerfile);
-    formData.append('archive', file);
 
     if (data.build_args && data.build_args.length > 0) {
       const argsMap = data.build_args.reduce((acc: Record<string, string>, curr: any) => {
@@ -72,6 +77,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
       }, {});
       formData.append('build_args', JSON.stringify(argsMap));
     }
+    formData.append('archive', file);
 
     mutation.mutate(formData);
   };
@@ -95,11 +101,6 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
         return;
       }
       
-      if (selected.size > 50 * 1024 * 1024) {
-        addToast('Размер файла не должен превышать 50MB', 'error');
-        return;
-      }
-
       setFile(selected);
     }
   };
@@ -107,6 +108,11 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Собрать образ" className="max-w-2xl max-h-[90vh] overflow-y-auto">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {availability && !availability.enabled && (
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-300">
+            {availability.message || 'Сборка образов сейчас недоступна.'}
+          </div>
+        )}
         
         <div className="p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center bg-slate-50/50 dark:bg-slate-900/50 transition-colors hover:bg-slate-100/50 dark:hover:bg-slate-800/50">
           <input 
@@ -134,10 +140,13 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
                 <UploadCloud className="w-6 h-6" />
               </div>
               <p className="font-medium cursor-pointer">Нажмите, чтобы загрузить архив</p>
-              <p className="text-xs text-slate-500 mt-1">Только .zip, .tar, .tar.gz до 50MB</p>
+              <p className="text-xs text-slate-500 mt-1">Только .zip, .tar, .tar.gz. Лимит проверяется backend.</p>
             </div>
           )}
         </div>
+        {file && (
+          <p className="text-xs text-slate-500 -mt-4">Размер файла: {formatBytes(file.size)}</p>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -182,7 +191,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
           <Button type="button" variant="ghost" onClick={handleClose}>Отмена</Button>
-          <Button type="submit" isLoading={mutation.isPending}>Собрать</Button>
+          <Button type="submit" isLoading={mutation.isPending} disabled={availability?.enabled === false}>Собрать</Button>
         </div>
       </form>
     </Modal>

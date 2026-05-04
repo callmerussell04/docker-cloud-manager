@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
+import { useForm, type UseFormRegister } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Settings, Save } from 'lucide-react';
 
@@ -10,8 +11,101 @@ import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { getSystemConfigFn, updateSystemConfigFn } from '@/features/admin/api';
-import { type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
-import { useEffect } from 'react';
+import { type SystemConfig, type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
+
+const sections: Array<{
+  title: string;
+  fields: Array<{ name: keyof SystemConfig; label: string; type?: 'text' | 'number' | 'float' | 'boolean' | 'array' }>;
+}> = [
+  {
+    title: 'Runtime resources',
+    fields: [
+      { name: 'base_domain', label: 'Base domain' },
+      { name: 'default_memory_reservation_bytes', label: 'Default memory reservation bytes', type: 'number' },
+      { name: 'reserved_system_memory_bytes', label: 'Reserved system memory bytes', type: 'number' },
+      { name: 'overcommit_factor', label: 'Overcommit factor', type: 'float' },
+      { name: 'max_burst_multiplier', label: 'Max burst multiplier', type: 'number' },
+      { name: 'default_cpu_shares', label: 'Default CPU shares', type: 'number' },
+      { name: 'high_load_cpu_shares', label: 'High load CPU shares', type: 'number' },
+      { name: 'high_load_container_count', label: 'High load container count', type: 'number' },
+      { name: 'container_stop_timeout', label: 'Container stop timeout seconds', type: 'number' },
+      { name: 'container_ttl_hours', label: 'Container TTL hours', type: 'number' },
+      { name: 'container_pids_limit', label: 'Container PIDs limit', type: 'number' },
+      { name: 'container_memory_swap_multiplier', label: 'Container memory swap multiplier', type: 'float' },
+      { name: 'max_volumes_per_user', label: 'Max volumes per user', type: 'number' },
+      { name: 'max_containers_per_user', label: 'Max containers per user', type: 'number' },
+      { name: 'container_disk_quota', label: 'Container disk quota' },
+      { name: 'max_log_size', label: 'Docker max log size' },
+      { name: 'max_log_files', label: 'Docker max log files' },
+    ],
+  },
+  {
+    title: 'Registry / Proxy',
+    fields: [
+      { name: 'registry_api_url', label: 'Registry API URL' },
+      { name: 'registry_public_url', label: 'Registry public URL' },
+      { name: 'proxy_network_name', label: 'Proxy network name' },
+      { name: 'registry_container_name', label: 'Registry container name' },
+      { name: 'reserved_domain_prefixes', label: 'Reserved domain prefixes', type: 'array' },
+    ],
+  },
+  {
+    title: 'Builds',
+    fields: [
+      { name: 'image_builds_enabled', label: 'Image builds enabled', type: 'boolean' },
+      { name: 'build_memory_bytes', label: 'Build memory bytes', type: 'number' },
+      { name: 'build_cpu_quota', label: 'Build CPU quota', type: 'number' },
+      { name: 'build_cpu_period', label: 'Build CPU period', type: 'number' },
+      { name: 'build_memory_swap_multiplier', label: 'Build memory swap multiplier', type: 'float' },
+      { name: 'build_pids_limit', label: 'Build PIDs limit', type: 'number' },
+      { name: 'build_network_name', label: 'Build network name' },
+      { name: 'kaniko_image', label: 'Kaniko image' },
+      { name: 'max_build_time_minutes', label: 'Max build time minutes', type: 'number' },
+      { name: 'max_concurrent_builds', label: 'Max concurrent builds', type: 'number' },
+      { name: 'max_upload_size_bytes', label: 'Max upload size bytes', type: 'number' },
+      { name: 'max_archive_size_bytes', label: 'Max archive size bytes', type: 'number' },
+      { name: 'max_unpacked_size_bytes', label: 'Max unpacked size bytes', type: 'number' },
+      { name: 'max_build_log_size_bytes', label: 'Max build log size bytes', type: 'number' },
+      { name: 'build_cancel_poll_interval_seconds', label: 'Build cancel poll interval seconds', type: 'number' },
+    ],
+  },
+  {
+    title: 'Compose',
+    fields: [
+      { name: 'compose_upload_max_bytes', label: 'Compose upload max bytes', type: 'number' },
+      { name: 'compose_pipeline_timeout_minutes', label: 'Compose pipeline timeout minutes', type: 'number' },
+      { name: 'compose_build_poll_interval_seconds', label: 'Compose build poll interval seconds', type: 'number' },
+      { name: 'compose_dependency_wait_timeout_minutes', label: 'Compose dependency wait timeout minutes', type: 'number' },
+      { name: 'compose_dependency_poll_interval_seconds', label: 'Compose dependency poll interval seconds', type: 'number' },
+    ],
+  },
+  {
+    title: 'Workers',
+    fields: [
+      { name: 'ttl_worker_interval_seconds', label: 'TTL worker interval seconds', type: 'number' },
+      { name: 'gc_worker_interval_minutes', label: 'GC worker interval minutes', type: 'number' },
+      { name: 'stale_build_timeout_minutes', label: 'Stale build timeout minutes', type: 'number' },
+      { name: 'event_sync_interval_seconds', label: 'Event sync interval seconds', type: 'number' },
+      { name: 'event_reconnect_delay_seconds', label: 'Event reconnect delay seconds', type: 'number' },
+      { name: 'build_outbox_interval_seconds', label: 'Build outbox interval seconds', type: 'number' },
+      { name: 'build_outbox_batch_size', label: 'Build outbox batch size', type: 'number' },
+    ],
+  },
+  {
+    title: 'Telemetry',
+    fields: [
+      { name: 'telemetry_max_log_tail_lines', label: 'Max log tail lines', type: 'number' },
+      { name: 'telemetry_max_log_streams_per_user', label: 'Max log streams per user', type: 'number' },
+      { name: 'telemetry_max_terminal_sessions_per_user', label: 'Max terminal sessions per user', type: 'number' },
+      { name: 'telemetry_terminal_idle_timeout_seconds', label: 'Terminal idle timeout seconds', type: 'number' },
+      { name: 'telemetry_terminal_max_duration_seconds', label: 'Terminal max duration seconds', type: 'number' },
+      { name: 'telemetry_allowed_exec_commands', label: 'Allowed exec commands', type: 'array' },
+      { name: 'telemetry_max_command_args', label: 'Max command args', type: 'number' },
+      { name: 'telemetry_max_command_arg_bytes', label: 'Max command arg bytes', type: 'number' },
+      { name: 'telemetry_ws_read_limit_bytes', label: 'WS read limit bytes', type: 'number' },
+    ],
+  },
+];
 
 export function SystemSettingsPage() {
   const queryClient = useQueryClient();
@@ -22,7 +116,7 @@ export function SystemSettingsPage() {
     queryFn: getSystemConfigFn,
   });
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<SystemConfigForm>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<SystemConfigForm>({
     resolver: zodResolver(systemConfigSchema),
   });
 
@@ -38,14 +132,16 @@ export function SystemSettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['systemConfig'] });
       addToast('Конфигурация успешно обновлена', 'success');
     },
-    onError: () => {
-      addToast('Ошибка при обновлении конфигурации', 'error');
+    onError: (error: any) => {
+      addToast(error.response?.data?.error || 'Ошибка при обновлении конфигурации', 'error');
     },
   });
 
   const onSubmit = (data: SystemConfigForm) => {
-    mutation.mutate(data as any);
+    mutation.mutate(data as SystemConfig);
   };
+
+  const arrayText = (name: keyof SystemConfig) => ((watch(name as any) as string[] | undefined) || []).join('\n');
 
   if (isLoading) {
     return <div className="h-96 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />;
@@ -55,119 +151,96 @@ export function SystemSettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Настройки системы</h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">Глобальная конфигурация платформы (dcm/config.json)</p>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">Runtime-конфигурация Core. Сохраняется полный объект без удаления новых полей.</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            Параметры
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {/* Базовые */}
-              <div className="space-y-2">
-                <Label htmlFor="base_domain">Базовый домен (Base Domain)</Label>
-                <Input id="base_domain" {...register('base_domain')} error={!!errors.base_domain} />
-                <p className="text-xs text-slate-500">Домен для проксирования (ex: yourdomain.com)</p>
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {sections.map((section) => (
+          <Card key={section.title}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Settings className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                {section.title}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {section.fields.map((field) => (
+                  <ConfigField
+                    key={field.name}
+                    field={field}
+                    register={register}
+                    error={errors[field.name as keyof SystemConfigForm]}
+                    value={field.type === 'array' ? arrayText(field.name) : undefined}
+                    onArrayChange={(value) => {
+                      setValue(field.name as any, value.split('\n').map((item) => item.trim()).filter(Boolean), { shouldDirty: true });
+                    }}
+                  />
+                ))}
               </div>
+            </CardContent>
+          </Card>
+        ))}
 
-              <div className="space-y-2">
-                <Label htmlFor="registry_url">Registry URL</Label>
-                <Input id="registry_url" {...register('registry_url')} error={!!errors.registry_url} />
-                <p className="text-xs text-slate-500">Хост или контейнер локального Docker Registry</p>
-              </div>
+        <div className="sticky bottom-4 flex justify-end pt-4">
+          <Button type="submit" isLoading={mutation.isPending}>
+            <Save className="w-4 h-4 mr-2" />
+            Сохранить изменения
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
-              {/* Память */}
-              <div className="space-y-2">
-                <Label htmlFor="default_memory_reservation_bytes">Дефолтная память (Bytes)</Label>
-                <Input id="default_memory_reservation_bytes" type="number" {...register('default_memory_reservation_bytes', { valueAsNumber: true })} />
-              </div>
+function ConfigField({
+  field,
+  register,
+  error,
+  value,
+  onArrayChange,
+}: {
+  field: { name: keyof SystemConfig; label: string; type?: 'text' | 'number' | 'float' | 'boolean' | 'array' };
+  register: UseFormRegister<SystemConfigForm>;
+  error: unknown;
+  value?: string;
+  onArrayChange: (value: string) => void;
+}) {
+  if (field.type === 'boolean') {
+    return (
+      <label className="flex items-center gap-3 rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/40 dark:bg-slate-900/40 px-4 py-3 text-sm">
+        <input type="checkbox" {...register(field.name as any)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+        <span>{field.label}</span>
+      </label>
+    );
+  }
 
-              <div className="space-y-2">
-                <Label htmlFor="reserved_system_memory_bytes">Резерв хоста (Bytes)</Label>
-                <Input id="reserved_system_memory_bytes" type="number" {...register('reserved_system_memory_bytes', { valueAsNumber: true })} />
-              </div>
+  if (field.type === 'array') {
+    return (
+      <div className="space-y-2 xl:col-span-1">
+        <Label htmlFor={field.name}>{field.label}</Label>
+        <textarea
+          id={field.name}
+          value={value || ''}
+          onChange={(event) => onArrayChange(event.target.value)}
+          className="min-h-28 flex w-full rounded-xl bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-white/40 dark:border-slate-700/50 px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          placeholder="По одному значению на строку"
+        />
+      </div>
+    );
+  }
 
-              <div className="space-y-2">
-                <Label htmlFor="overcommit_factor">Оверкоммит фактор (Float)</Label>
-                <Input id="overcommit_factor" type="number" step="0.1" {...register('overcommit_factor', { valueAsNumber: true })} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="max_burst_multiplier">Макс. Burst (Множитель)</Label>
-                <Input id="max_burst_multiplier" type="number" {...register('max_burst_multiplier', { valueAsNumber: true })} />
-              </div>
-
-              {/* Процессор */}
-              <div className="space-y-2">
-                <Label htmlFor="default_cpu_shares">Дефолтный приоритет CPU (Shares)</Label>
-                <Input id="default_cpu_shares" type="number" {...register('default_cpu_shares', { valueAsNumber: true })} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="high_load_cpu_shares">Приоритет под нагрузкой (Shares)</Label>
-                <Input id="high_load_cpu_shares" type="number" {...register('high_load_cpu_shares', { valueAsNumber: true })} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="high_load_container_count">Порог высокой нагрузки (Кол-во)</Label>
-                <Input id="high_load_container_count" type="number" {...register('high_load_container_count', { valueAsNumber: true })} />
-              </div>
-
-              {/* Лимиты пользователя */}
-              <div className="space-y-2">
-                <Label htmlFor="max_volumes_per_user">Макс. томов на юзера</Label>
-                <Input id="max_volumes_per_user" type="number" {...register('max_volumes_per_user', { valueAsNumber: true })} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="max_containers_per_user">Макс. контейнеров на юзера</Label>
-                <Input id="max_containers_per_user" type="number" {...register('max_containers_per_user', { valueAsNumber: true })} />
-              </div>
-
-              {/* Логи и Диск */}
-              <div className="space-y-2">
-                <Label htmlFor="max_log_size">Размер лог-файла (Docker)</Label>
-                <Input id="max_log_size" {...register('max_log_size')} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="max_log_files">Кол-во лог-файлов</Label>
-                <Input id="max_log_files" {...register('max_log_files')} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="container_disk_quota">Дисковая квота контейнера (Docker)</Label>
-                <Input id="container_disk_quota" {...register('container_disk_quota')} />
-              </div>
-
-              {/* Прочее */}
-              <div className="space-y-2">
-                <Label htmlFor="container_stop_timeout">Таймаут остановки (Сек)</Label>
-                <Input id="container_stop_timeout" type="number" {...register('container_stop_timeout', { valueAsNumber: true })} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="container_ttl_hours">TTL Контейнера (Часы)</Label>
-                <Input id="container_ttl_hours" type="number" {...register('container_ttl_hours', { valueAsNumber: true })} />
-                <p className="text-xs text-slate-500">0 - бесконечно (отключено)</p>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-6 border-t border-slate-200 dark:border-slate-700/50">
-              <Button type="submit" isLoading={mutation.isPending}>
-                <Save className="w-4 h-4 mr-2" />
-                Сохранить изменения
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+  const isNumber = field.type === 'number' || field.type === 'float';
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={field.name}>{field.label}</Label>
+      <Input
+        id={field.name}
+        type={isNumber ? 'number' : 'text'}
+        step={field.type === 'float' ? '0.1' : undefined}
+        error={!!error}
+        {...register(field.name as any, isNumber ? { valueAsNumber: true } : undefined)}
+      />
     </div>
   );
 }

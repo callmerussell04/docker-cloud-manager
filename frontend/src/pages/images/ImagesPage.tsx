@@ -4,6 +4,7 @@ import { Plus, RefreshCcw, Search, Layers, Hammer } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { Pagination } from '@/components/ui/Pagination';
 import { ImageRow } from '@/features/images/components/ImageRow';
 import { BuildRow } from '@/features/images/components/BuildRow';
 import { CreateBuildModal } from '@/features/images/components/CreateBuildModal';
@@ -19,17 +20,22 @@ export function ImagesPage() {
   const [search, setSearch] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewLogsBuild, setViewLogsBuild] = useState<BuildData | null>(null);
+  const [imagesPage, setImagesPage] = useState(1);
+  const [buildsPage, setBuildsPage] = useState(1);
+  const limit = 20;
 
-  const { data: images =[], isLoading: isLoadingImages, refetch: refetchImages, isFetching: isFetchingImages } = useQuery({
-    queryKey: ['images'],
-    queryFn: getImagesFn,
+  const { data: imagesData, isLoading: isLoadingImages, refetch: refetchImages, isFetching: isFetchingImages } = useQuery({
+    queryKey: ['images', imagesPage],
+    queryFn: () => getImagesFn(imagesPage, limit),
   });
+  const images = imagesData?.items || [];
 
-  const { data: builds =[], isLoading: isLoadingBuilds, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useQuery({
-    queryKey: ['builds'],
-    queryFn: getBuildsFn,
+  const { data: buildsData, isLoading: isLoadingBuilds, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useQuery({
+    queryKey: ['builds', buildsPage],
+    queryFn: () => getBuildsFn(buildsPage, limit),
     refetchInterval: activeTab === 'builds' ? 5000 : false,
   });
+  const builds = buildsData?.items || [];
 
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
   const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()));
@@ -50,7 +56,7 @@ export function ImagesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Образы и Сборки</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Занято места: <span className="font-semibold text-slate-900 dark:text-slate-100">{totalSizeMB} MB</span>
+            На странице: <span className="font-semibold text-slate-900 dark:text-slate-100">{totalSizeMB} MB</span>
           </p>
         </div>
         
@@ -103,11 +109,12 @@ export function ImagesPage() {
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
-          <div className={activeTab === 'images' ? 'min-w-[700px]' : 'min-w-[800px]'}>
+          <div className={activeTab === 'images' ? 'min-w-[800px]' : 'min-w-[800px]'}>
             {activeTab === 'images' ? (
-              <div className="grid grid-cols-[3fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
+              <div className="grid grid-cols-[3fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
                 <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Тег</div></div>
                 <div>Размер</div>
+                <div>Статус</div>
                 <div>Дата создания</div>
                 <div className="text-right pr-2">Действия</div>
               </div>
@@ -170,6 +177,12 @@ export function ImagesPage() {
           </div>
         </div>
       </div>
+      {activeTab === 'images' && imagesData && (
+        <Pagination currentPage={imagesPage} pageSize={limit} totalItems={imagesData.total_count} onPageChange={setImagesPage} />
+      )}
+      {activeTab === 'builds' && buildsData && (
+        <Pagination currentPage={buildsPage} pageSize={limit} totalItems={buildsData.total_count} onPageChange={setBuildsPage} />
+      )}
 
       <CreateBuildModal 
         isOpen={isCreateModalOpen} 
