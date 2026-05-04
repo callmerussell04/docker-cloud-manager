@@ -20,12 +20,12 @@ export function ImagesPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewLogsBuild, setViewLogsBuild] = useState<BuildData | null>(null);
 
-  const { data: images = [], isLoading: isLoadingImages, refetch: refetchImages, isFetching: isFetchingImages } = useQuery({
+  const { data: images =[], isLoading: isLoadingImages, refetch: refetchImages, isFetching: isFetchingImages } = useQuery({
     queryKey: ['images'],
     queryFn: getImagesFn,
   });
 
-  const { data: builds = [], isLoading: isLoadingBuilds, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useQuery({
+  const { data: builds =[], isLoading: isLoadingBuilds, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useQuery({
     queryKey: ['builds'],
     queryFn: getBuildsFn,
     refetchInterval: activeTab === 'builds' ? 5000 : false,
@@ -103,12 +103,11 @@ export function ImagesPage() {
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
-          <div className={activeTab === 'images' ? 'min-w-[800px]' : 'min-w-[800px]'}>
+          <div className={activeTab === 'images' ? 'min-w-[700px]' : 'min-w-[800px]'}>
             {activeTab === 'images' ? (
-              <div className="grid grid-cols-[2fr_1fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
+              <div className="grid grid-cols-[3fr_1fr_1.5fr_auto] gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400">
                 <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Тег</div></div>
                 <div>Размер</div>
-                <div>Тип</div>
                 <div>Дата создания</div>
                 <div className="text-right pr-2">Действия</div>
               </div>

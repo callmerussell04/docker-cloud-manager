@@ -3,7 +3,7 @@ import { type ProjectData } from '../types';
 
 export const getProjectsFn = async (): Promise<ProjectData[]> => {
   const response = await privateApi.get<{ projects: ProjectData[] }>('/projects');
-  return response.data.projects || [];
+  return response.data.projects ||[];
 };
 
 export const createProjectFn = async (formData: FormData): Promise<{ project_id: string }> => {
@@ -13,6 +13,10 @@ export const createProjectFn = async (formData: FormData): Promise<{ project_id:
     },
   });
   return response.data;
+};
+
+export const startProjectFn = async (id: string): Promise<void> => {
+  await privateApi.post(`/projects/${id}/start`);
 };
 
 export const stopProjectFn = async (id: string): Promise<void> => {

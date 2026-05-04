@@ -1,8 +1,8 @@
-import { Layers, Square, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Layers, Square, Trash2, AlertTriangle, Loader2, Play } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ProjectData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteProjectFn, stopProjectFn } from '../api';
+import { deleteProjectFn, stopProjectFn, startProjectFn } from '../api';
 import { useToastStore } from '@/store/toastStore';
 
 interface ProjectRowProps {
@@ -21,6 +21,17 @@ export function ProjectRow({ project }: ProjectRowProps) {
     },
     onError: () => {
       addToast('Ошибка при удалении проекта', 'error');
+    },
+  });
+
+  const startMutation = useMutation({
+    mutationFn: startProjectFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      addToast('Команда запуска отправлена', 'success');
+    },
+    onError: () => {
+      addToast('Ошибка при запуске проекта', 'error');
     },
   });
 
@@ -91,6 +102,15 @@ export function ProjectRow({ project }: ProjectRowProps) {
       </div>
 
       <div className="flex items-center gap-2 justify-end shrink-0">
+        <button
+          onClick={() => startMutation.mutate(project.id)}
+          disabled={startMutation.isPending || isWorking || project.status === 'running'}
+          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
+          title="Запустить сервисы"
+        >
+          <Play className="w-4 h-4" />
+        </button>
+
         <button
           onClick={() => stopMutation.mutate(project.id)}
           disabled={stopMutation.isPending || isWorking || project.status === 'failed' || project.status === 'stopped'}

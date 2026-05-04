@@ -1,5 +1,4 @@
 import { Trash2, HardDrive } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
 import { type VolumeData } from '../types';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { deleteVolumeFn } from '../api';
@@ -31,7 +30,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   const displayName = volume.docker_name.split('_').slice(2).join('_') || volume.docker_name;
 
   return (
-    <div className="grid grid-cols-[2fr_1fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[700px]">
+    <div className="grid grid-cols-[2fr_1.5fr_auto] gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 min-w-[500px]">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <HardDrive className="w-5 h-5" />
@@ -42,12 +41,6 @@ export function VolumeRow({ volume }: VolumeRowProps) {
             {volume.docker_name}
           </p>
         </div>
-      </div>
-
-      <div className="min-w-0">
-        <Badge variant="info" className="truncate max-w-full" title={volume.driver || 'local'}>
-          {volume.driver || 'local'}
-        </Badge>
       </div>
 
       <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
