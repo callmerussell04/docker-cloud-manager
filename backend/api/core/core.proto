@@ -359,6 +359,10 @@ message SystemConfigData {
   int64 telemetry_ws_read_limit_bytes = 57;
   bool image_builds_enabled = 58;
   int64 build_cancel_poll_interval_seconds = 59;
+  bool git_sources_enabled = 60;
+  repeated string git_allowed_hosts = 61;
+  int64 git_clone_timeout_seconds = 62;
+  int64 git_max_repository_bytes = 63;
 }
 
 message ContainerStatsResponse {

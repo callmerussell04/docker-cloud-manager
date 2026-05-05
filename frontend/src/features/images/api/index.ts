@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { ImageData, BuildData, BuildAvailability } from '../types';
+import type { ImageData, BuildData, BuildAvailability, CreateBuildGitPayload } from '../types';
 import type { PaginatedResponse } from '@/features/admin/types';
 
 export const getImagesFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ImageData>> => {
@@ -39,6 +39,11 @@ export const createBuildFn = async (formData: FormData): Promise<{ build_id: str
       'Content-Type': 'multipart/form-data',
     },
   });
+  return response.data;
+};
+
+export const createBuildFromGitFn = async (payload: CreateBuildGitPayload): Promise<{ build_id: string }> => {
+  const response = await privateApi.post('/images/build/git', payload);
   return response.data;
 };
 

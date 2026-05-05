@@ -24,8 +24,16 @@ func NewParser() *Parser {
 
 // ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
 func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
+	return p.ParseAndValidateWithBase(ctx, projectName, yamlContent, reservedDomainPrefixes, "")
+}
+
+func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
 	if err := validation.ProjectName(projectName); err != nil {
 		return nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	baseDir, err := cleanComposeBaseDir(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
 	}
 
 	header := fmt.Sprintf("name: %s\n", projectName)
@@ -52,7 +60,7 @@ func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlC
 	}
 
 	// Трансляция во внутренние структуры
-	return p.translateToDomain(projectName, project, reservedDomainPrefixes)
+	return p.translateToDomain(projectName, project, reservedDomainPrefixes, baseDir)
 }
 
 // validateSecurity блокирует опасные директивы, чтобы защитить хост-систему
@@ -93,7 +101,7 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 }
 
 // translateToDomain конвертирует структуру compose-go в нашу бизнес-модель
-func (p *Parser) translateToDomain(projectName string, project *types.Project, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
+func (p *Parser) translateToDomain(projectName string, project *types.Project, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
 	result := &model.ComposeProject{
 		Name: projectName,
 	}
@@ -139,11 +147,12 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 
 		// Обработка сборки (build)
 		if srv.Build != nil {
-			if err := validateRelativeComposePath(srv.Build.Context); err != nil {
+			buildContext, err := normalizeComposeBuildContext(baseDir, srv.Build.Context)
+			if err != nil {
 				return fmt.Errorf("%w: invalid build context for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 			}
 
-			domainSrv.BuildContext = srv.Build.Context
+			domainSrv.BuildContext = buildContext
 			if srv.Build.Dockerfile != "" {
 				if err := validateRelativeComposePath(srv.Build.Dockerfile); err != nil {
 					return fmt.Errorf("%w: invalid dockerfile path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
@@ -321,4 +330,38 @@ func validateRelativeComposePath(path string) error {
 		return fmt.Errorf("parent directory traversal is not allowed")
 	}
 	return nil
+}
+
+func cleanComposeBaseDir(path string) (string, error) {
+	if path == "" || path == "." {
+		return "", nil
+	}
+	if err := validateRelativeComposePath(path); err != nil {
+		return "", err
+	}
+	clean := filepath.ToSlash(filepath.Clean(path))
+	if clean == "." {
+		return "", nil
+	}
+	return clean, nil
+}
+
+func normalizeComposeBuildContext(baseDir, contextPath string) (string, error) {
+	if err := validateRelativeComposePath(contextPath); err != nil {
+		return "", err
+	}
+	if baseDir == "" {
+		if contextPath == "" {
+			return ".", nil
+		}
+		return filepath.ToSlash(filepath.Clean(contextPath)), nil
+	}
+	if contextPath == "" || contextPath == "." {
+		return baseDir, nil
+	}
+	joined := filepath.ToSlash(filepath.Clean(filepath.Join(baseDir, contextPath)))
+	if joined == ".." || strings.HasPrefix(joined, "../") {
+		return "", fmt.Errorf("build context escapes repository root")
+	}
+	return joined, nil
 }

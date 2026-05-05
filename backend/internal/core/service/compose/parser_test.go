@@ -249,6 +249,52 @@ services:
 	}
 }
 
+func TestParserNormalizesBuildContextFromComposeBaseDir(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  web:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    image: web:latest
+`)
+
+	project, err := NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "deploy")
+	if err != nil {
+		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+	}
+
+	web := findComposeService(t, project.Services, "web")
+	if web.BuildContext != "deploy/app" {
+		t.Fatalf("build context = %q, want deploy/app", web.BuildContext)
+	}
+	if web.Dockerfile != "Dockerfile" {
+		t.Fatalf("dockerfile = %q, want Dockerfile", web.Dockerfile)
+	}
+}
+
+func TestParserRejectsBuildContextEscapingComposeBaseDir(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  web:
+    build:
+      context: ../app
+    image: web:latest
+`)
+
+	_, err := NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "deploy")
+	if err == nil {
+		t.Fatalf("ParseAndValidateWithBase() error = nil, want invalid build context")
+	}
+	if !strings.Contains(err.Error(), "parent directory traversal is not allowed") {
+		t.Fatalf("ParseAndValidateWithBase() error = %q, want traversal error", err.Error())
+	}
+}
+
 func TestProjectServiceGraphSkipsMissingOptionalDependency(t *testing.T) {
 	t.Parallel()
 

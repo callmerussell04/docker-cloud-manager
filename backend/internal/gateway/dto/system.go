@@ -50,6 +50,10 @@ type SystemConfigDTO struct {
 	ComposeBuildPollIntervalSeconds      int64    `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64    `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64    `json:"compose_dependency_poll_interval_seconds"`
+	GitSourcesEnabled                    bool     `json:"git_sources_enabled"`
+	GitAllowedHosts                      []string `json:"git_allowed_hosts"`
+	GitCloneTimeoutSeconds               int64    `json:"git_clone_timeout_seconds"`
+	GitMaxRepositoryBytes                int64    `json:"git_max_repository_bytes"`
 	TelemetryMaxLogTailLines             int      `json:"telemetry_max_log_tail_lines"`
 	TelemetryMaxLogStreamsPerUser        int      `json:"telemetry_max_log_streams_per_user"`
 	TelemetryMaxTerminalSessionsPerUser  int      `json:"telemetry_max_terminal_sessions_per_user"`

@@ -66,6 +66,10 @@ export interface SystemConfig {
   compose_build_poll_interval_seconds: number;
   compose_dependency_wait_timeout_minutes: number;
   compose_dependency_poll_interval_seconds: number;
+  git_sources_enabled: boolean;
+  git_allowed_hosts: string[];
+  git_clone_timeout_seconds: number;
+  git_max_repository_bytes: number;
   telemetry_max_log_tail_lines: number;
   telemetry_max_log_streams_per_user: number;
   telemetry_max_terminal_sessions_per_user: number;
@@ -127,6 +131,10 @@ export const systemConfigSchema = z.object({
   compose_build_poll_interval_seconds: z.number().min(1),
   compose_dependency_wait_timeout_minutes: z.number().min(1),
   compose_dependency_poll_interval_seconds: z.number().min(1),
+  git_sources_enabled: z.boolean(),
+  git_allowed_hosts: z.array(z.string().min(1)),
+  git_clone_timeout_seconds: z.number().min(1),
+  git_max_repository_bytes: z.number().min(1),
   telemetry_max_log_tail_lines: z.number().min(1),
   telemetry_max_log_streams_per_user: z.number().min(1),
   telemetry_max_terminal_sessions_per_user: z.number().min(1),

@@ -2329,6 +2329,10 @@ type SystemConfigData struct {
 	TelemetryWsReadLimitBytes            int64                  `protobuf:"varint,57,opt,name=telemetry_ws_read_limit_bytes,json=telemetryWsReadLimitBytes,proto3" json:"telemetry_ws_read_limit_bytes,omitempty"`
 	ImageBuildsEnabled                   bool                   `protobuf:"varint,58,opt,name=image_builds_enabled,json=imageBuildsEnabled,proto3" json:"image_builds_enabled,omitempty"`
 	BuildCancelPollIntervalSeconds       int64                  `protobuf:"varint,59,opt,name=build_cancel_poll_interval_seconds,json=buildCancelPollIntervalSeconds,proto3" json:"build_cancel_poll_interval_seconds,omitempty"`
+	GitSourcesEnabled                    bool                   `protobuf:"varint,60,opt,name=git_sources_enabled,json=gitSourcesEnabled,proto3" json:"git_sources_enabled,omitempty"`
+	GitAllowedHosts                      []string               `protobuf:"bytes,61,rep,name=git_allowed_hosts,json=gitAllowedHosts,proto3" json:"git_allowed_hosts,omitempty"`
+	GitCloneTimeoutSeconds               int64                  `protobuf:"varint,62,opt,name=git_clone_timeout_seconds,json=gitCloneTimeoutSeconds,proto3" json:"git_clone_timeout_seconds,omitempty"`
+	GitMaxRepositoryBytes                int64                  `protobuf:"varint,63,opt,name=git_max_repository_bytes,json=gitMaxRepositoryBytes,proto3" json:"git_max_repository_bytes,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -2769,6 +2773,34 @@ func (x *SystemConfigData) GetBuildCancelPollIntervalSeconds() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetGitSourcesEnabled() bool {
+	if x != nil {
+		return x.GitSourcesEnabled
+	}
+	return false
+}
+
+func (x *SystemConfigData) GetGitAllowedHosts() []string {
+	if x != nil {
+		return x.GitAllowedHosts
+	}
+	return nil
+}
+
+func (x *SystemConfigData) GetGitCloneTimeoutSeconds() int64 {
+	if x != nil {
+		return x.GitCloneTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetGitMaxRepositoryBytes() int64 {
+	if x != nil {
+		return x.GitMaxRepositoryBytes
+	}
+	return 0
+}
+
 type ContainerStatsResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	CpuPercentage    float64                `protobuf:"fixed64,1,opt,name=cpu_percentage,json=cpuPercentage,proto3" json:"cpu_percentage,omitempty"`
@@ -3046,7 +3078,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xba\x1a\n" +
+	"totalCount\"\x8a\x1c\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -3108,7 +3140,11 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1ftelemetry_max_command_arg_bytes\x188 \x01(\x05R\x1btelemetryMaxCommandArgBytes\x12@\n" +
 	"\x1dtelemetry_ws_read_limit_bytes\x189 \x01(\x03R\x19telemetryWsReadLimitBytes\x120\n" +
 	"\x14image_builds_enabled\x18: \x01(\bR\x12imageBuildsEnabled\x12J\n" +
-	"\"build_cancel_poll_interval_seconds\x18; \x01(\x03R\x1ebuildCancelPollIntervalSeconds\"\xef\x01\n" +
+	"\"build_cancel_poll_interval_seconds\x18; \x01(\x03R\x1ebuildCancelPollIntervalSeconds\x12.\n" +
+	"\x13git_sources_enabled\x18< \x01(\bR\x11gitSourcesEnabled\x12*\n" +
+	"\x11git_allowed_hosts\x18= \x03(\tR\x0fgitAllowedHosts\x129\n" +
+	"\x19git_clone_timeout_seconds\x18> \x01(\x03R\x16gitCloneTimeoutSeconds\x127\n" +
+	"\x18git_max_repository_bytes\x18? \x01(\x03R\x15gitMaxRepositoryBytes\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

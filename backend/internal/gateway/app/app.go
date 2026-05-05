@@ -123,9 +123,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	userHandler := handler.NewUserManagementHandler(userService)
 
 	coreClient := grpcclient.NewCoreClient(coreConn)
-	coreService := service.NewCore(coreClient)
 	buildObjectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
-	coreHandler := handler.NewCoreHandler(coreService, buildObjectStore)
+	coreService := service.NewCore(coreClient, buildObjectStore, logger)
+	coreHandler := handler.NewCoreHandler(coreService)
 	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
 	telemetryTicketHandler := handler.NewTelemetryTicketHandler(telemetryTickets)
 

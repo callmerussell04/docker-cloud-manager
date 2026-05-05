@@ -84,6 +84,10 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		TelemetryMaxCommandArgs:              int32(cfg.TelemetryMaxCommandArgs),
 		TelemetryMaxCommandArgBytes:          int32(cfg.TelemetryMaxCommandArgBytes),
 		TelemetryWsReadLimitBytes:            cfg.TelemetryWSReadLimitBytes,
+		GitSourcesEnabled:                    cfg.GitSourcesEnabled,
+		GitAllowedHosts:                      cfg.GitAllowedHosts,
+		GitCloneTimeoutSeconds:               cfg.GitCloneTimeoutSeconds,
+		GitMaxRepositoryBytes:                cfg.GitMaxRepositoryBytes,
 	}, nil
 }
 
@@ -147,6 +151,10 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 		TelemetryMaxCommandArgs:              int(req.GetTelemetryMaxCommandArgs()),
 		TelemetryMaxCommandArgBytes:          int(req.GetTelemetryMaxCommandArgBytes()),
 		TelemetryWSReadLimitBytes:            req.GetTelemetryWsReadLimitBytes(),
+		GitSourcesEnabled:                    req.GetGitSourcesEnabled(),
+		GitAllowedHosts:                      req.GetGitAllowedHosts(),
+		GitCloneTimeoutSeconds:               req.GetGitCloneTimeoutSeconds(),
+		GitMaxRepositoryBytes:                req.GetGitMaxRepositoryBytes(),
 	}
 
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {

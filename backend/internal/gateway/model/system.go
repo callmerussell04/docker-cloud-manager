@@ -50,6 +50,10 @@ type SystemConfig struct {
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64
+	GitSourcesEnabled                    bool
+	GitAllowedHosts                      []string
+	GitCloneTimeoutSeconds               int64
+	GitMaxRepositoryBytes                int64
 	TelemetryMaxLogTailLines             int
 	TelemetryMaxLogStreamsPerUser        int
 	TelemetryMaxTerminalSessionsPerUser  int

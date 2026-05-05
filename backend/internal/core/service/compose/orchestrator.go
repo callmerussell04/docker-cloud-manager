@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
@@ -84,6 +87,11 @@ var (
 	errComposeDeploymentInterrupted = errors.New("compose deployment interrupted")
 )
 
+var (
+	cloneGitRepository            = gitsource.Clone
+	archiveGitRepositoryToZipFile = gitsource.ArchiveToZipFile
+)
+
 type deploymentState struct {
 	projectID uuid.UUID
 	scope     accessscope.Scope
@@ -95,6 +103,19 @@ type deploymentState struct {
 	createdVolumes    []uuid.UUID
 	createdContainers []uuid.UUID
 	running           bool
+}
+
+type deploymentSource struct {
+	ArchiveBytes []byte
+	Git          *model.GitSource
+}
+
+type preparedDeploymentSource struct {
+	ComposeYAML    []byte
+	ComposeBaseDir string
+	ArchiveBytes   []byte
+	RepoDir        string
+	Cleanup        func()
 }
 
 func NewOrchestrator(
@@ -254,6 +275,50 @@ func isDeploymentCanceled(ctx context.Context, err error) bool {
 
 // StartDeployment - Точка входа. Создает проект и запускает горутину оркестрации
 func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, archiveBytes []byte) (uuid.UUID, error) {
+	return o.startDeployment(ctx, projectName, deploymentSource{ArchiveBytes: archiveBytes}, true)
+}
+
+func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName string, source model.GitSource) (uuid.UUID, error) {
+	if source.RepoURL == "" {
+		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "git repository url is required")
+	}
+	if source.ComposeFile != "" {
+		composeFile, err := gitsource.CleanRelativePath(source.ComposeFile)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
+		}
+		source.ComposeFile = composeFile
+	}
+	cfg := o.cfg.Get()
+	if !cfg.GitSourcesEnabled {
+		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, "Git sources are currently unavailable. Upload an archive instead.")
+	}
+	if _, err := gitsource.ValidateRepoURL(source.RepoURL, cfg.GitAllowedHosts); err != nil {
+		return uuid.Nil, err
+	}
+	if err := gitsource.ValidateRef(source.Ref); err != nil {
+		return uuid.Nil, err
+	}
+	if !cfg.ImageBuildsEnabled {
+		prepared, err := o.prepareGitSource(ctx, source)
+		if prepared.Cleanup != nil {
+			defer prepared.Cleanup()
+		}
+		if err != nil {
+			return uuid.Nil, err
+		}
+		parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if composeRequiresBuild(parsedProject) {
+			return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+		}
+	}
+	return o.startDeployment(ctx, projectName, deploymentSource{Git: &source}, false)
+}
+
+func (o *Orchestrator) startDeployment(ctx context.Context, projectName string, source deploymentSource, validateArchiveSynchronously bool) (uuid.UUID, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
 		return uuid.Nil, err
@@ -263,8 +328,12 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, 
 		return uuid.Nil, err
 	}
 	cfg := o.cfg.Get()
-	if !cfg.ImageBuildsEnabled {
-		parsedProject, err := o.parseComposeProject(ctx, projectName, archiveBytes, cfg.ReservedDomainPrefixes)
+	if !cfg.ImageBuildsEnabled && validateArchiveSynchronously {
+		prepared, err := o.prepareArchiveSource(ctx, source.ArchiveBytes)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -301,7 +370,7 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName string, 
 		defer o.wg.Done()
 		defer timeoutCancel()
 		defer o.unregisterDeployment(projectID)
-		o.runPipeline(pipelineCtx, state, projectName, archiveBytes)
+		o.runPipeline(pipelineCtx, state, projectName, source)
 	}()
 
 	return projectID, nil
@@ -372,12 +441,8 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 	}
 }
 
-func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, archiveBytes []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
-	composeYaml, err := extractComposeFile(archiveBytes)
-	if err != nil {
-		return nil, err
-	}
-	return o.parser.ParseAndValidate(ctx, projectName, composeYaml, reservedDomainPrefixes)
+func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, composeYAML []byte, composeBaseDir string, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
+	return o.parser.ParseAndValidateWithBase(ctx, projectName, composeYAML, reservedDomainPrefixes, composeBaseDir)
 }
 
 func composeRequiresBuild(project *model.ComposeProject) bool {
@@ -392,7 +457,126 @@ func composeRequiresBuild(project *model.ComposeProject) bool {
 	return false
 }
 
-func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, projectName string, archiveBytes []byte) {
+func (o *Orchestrator) prepareArchiveSource(ctx context.Context, archiveBytes []byte) (preparedDeploymentSource, error) {
+	composeYAML, err := extractComposeFile(archiveBytes)
+	if err != nil {
+		return preparedDeploymentSource{}, err
+	}
+	return preparedDeploymentSource{
+		ComposeYAML:  composeYAML,
+		ArchiveBytes: archiveBytes,
+	}, nil
+}
+
+func (o *Orchestrator) prepareGitSource(ctx context.Context, source model.GitSource) (preparedDeploymentSource, error) {
+	cfg := o.cfg.Get()
+	tmpDir, err := os.MkdirTemp("", "dcm-compose-git-*")
+	if err != nil {
+		return preparedDeploymentSource{}, err
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(tmpDir)
+	}
+
+	repoDir := filepath.Join(tmpDir, "repo")
+	repoInfo, err := cloneGitRepository(ctx, gitsource.CloneRequest{
+		RepoURL:            source.RepoURL,
+		Ref:                source.Ref,
+		DestDir:            repoDir,
+		AllowedHosts:       cfg.GitAllowedHosts,
+		Timeout:            time.Duration(cfg.GitCloneTimeoutSeconds) * time.Second,
+		MaxRepositoryBytes: cfg.GitMaxRepositoryBytes,
+	})
+	if err != nil {
+		cleanup()
+		return preparedDeploymentSource{}, err
+	}
+
+	composeFile, err := selectComposeFile(repoDir, source.ComposeFile)
+	if err != nil {
+		cleanup()
+		return preparedDeploymentSource{}, err
+	}
+	composeYAML, err := os.ReadFile(filepath.Join(repoDir, composeFile))
+	if err != nil {
+		cleanup()
+		if errors.Is(err, os.ErrNotExist) {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose file not found in git repository")
+		}
+		return preparedDeploymentSource{}, err
+	}
+
+	o.logger.InfoContext(ctx, "git compose source cloned",
+		"git_host", repoInfo.Host,
+		"git_repo_path", repoInfo.Path,
+		"git_ref", repoInfo.Ref,
+		"compose_file", composeFile,
+	)
+
+	return preparedDeploymentSource{
+		ComposeYAML:    composeYAML,
+		ComposeBaseDir: filepath.ToSlash(filepath.Dir(composeFile)),
+		RepoDir:        repoDir,
+		Cleanup:        cleanup,
+	}, nil
+}
+
+func (o *Orchestrator) ensureGitArchive(ctx context.Context, prepared *preparedDeploymentSource) error {
+	if prepared.ArchiveBytes != nil || prepared.RepoDir == "" {
+		return nil
+	}
+	cfg := o.cfg.Get()
+	archivePath := filepath.Join(filepath.Dir(prepared.RepoDir), "source.zip")
+	stats, err := archiveGitRepositoryToZipFile(ctx, prepared.RepoDir, archivePath, gitsource.ArchiveLimits{
+		MaxRepositoryBytes: cfg.GitMaxRepositoryBytes,
+		MaxArchiveBytes:    cfg.ComposeUploadMaxBytes,
+	})
+	if err != nil {
+		return err
+	}
+	archiveBytes, err := os.ReadFile(archivePath)
+	if err != nil {
+		return err
+	}
+	prepared.ArchiveBytes = archiveBytes
+	o.logger.InfoContext(ctx, "git compose source archived",
+		"archive_bytes", stats.ArchiveBytes,
+		"repository_bytes", stats.RepositoryBytes,
+	)
+	return nil
+}
+
+func selectComposeFile(repoDir, requested string) (string, error) {
+	if requested != "" {
+		clean, err := gitsource.CleanRelativePath(requested)
+		if err != nil {
+			return "", fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
+		}
+		info, err := os.Stat(filepath.Join(repoDir, clean))
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", apperrors.New(apperrors.ErrBadRequest, "compose file not found in git repository")
+			}
+			return "", err
+		}
+		if info.IsDir() {
+			return "", apperrors.New(apperrors.ErrBadRequest, "compose file path points to a directory")
+		}
+		return clean, nil
+	}
+	for _, candidate := range []string{"docker-compose.yml", "docker-compose.yaml"} {
+		info, err := os.Stat(filepath.Join(repoDir, candidate))
+		if err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+	}
+	return "", apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in git repository")
+}
+
+func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, projectName string, source deploymentSource) {
 	projectID := state.projectID
 	ownerID := state.scope.UserID
 	logger := o.logger.With("project_id", projectID, "owner_id", ownerID)
@@ -415,7 +599,22 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 	}
 
 	// 1. Извлечение, парсинг и валидация YAML
-	parsedProject, err := o.parseComposeProject(ctx, projectName, archiveBytes, o.cfg.Get().ReservedDomainPrefixes)
+	var prepared preparedDeploymentSource
+	var err error
+	if source.Git != nil {
+		prepared, err = o.prepareGitSource(ctx, *source.Git)
+	} else {
+		prepared, err = o.prepareArchiveSource(ctx, source.ArchiveBytes)
+	}
+	if prepared.Cleanup != nil {
+		defer prepared.Cleanup()
+	}
+	if err != nil {
+		failProject(err)
+		return
+	}
+
+	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
 	if err != nil {
 		failProject(err)
 		return
@@ -427,6 +626,11 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 			if !o.cfg.Get().ImageBuildsEnabled {
 				o.cancelBuilds(ctx, buildIDs)
 				failProject(apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage))
+				return
+			}
+			if err := o.ensureGitArchive(ctx, &prepared); err != nil {
+				o.cancelBuilds(ctx, buildIDs)
+				failProject(err)
 				return
 			}
 			if status, ok, err := o.abortBuildStatus(ctx, buildIDs); err != nil {
@@ -443,7 +647,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 				return
 			}
 
-			buildID, err := o.builderClient.TriggerBuild(ctx, projectID, srv, archiveBytes)
+			buildID, err := o.builderClient.TriggerBuild(ctx, projectID, srv, prepared.ArchiveBytes)
 			if err != nil {
 				o.cancelBuilds(ctx, buildIDs)
 				failProject(fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err))

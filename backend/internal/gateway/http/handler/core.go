@@ -1,9 +1,7 @@
 package handler
 
 import (
-	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 
@@ -24,20 +22,12 @@ type CoreService interface {
 }
 
 type CoreHandler struct {
-	service     CoreService
-	objectStore BuildObjectStore
+	service CoreService
 }
 
-type BuildObjectStore interface {
-	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
-	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
-	DeleteObject(ctx context.Context, objectKey string) error
-}
-
-func NewCoreHandler(service CoreService, objectStore BuildObjectStore) *CoreHandler {
+func NewCoreHandler(service CoreService) *CoreHandler {
 	return &CoreHandler{
-		service:     service,
-		objectStore: objectStore,
+		service: service,
 	}
 }
 

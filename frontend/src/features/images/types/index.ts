@@ -35,10 +35,21 @@ export interface BuildAvailability {
   message: string;
 }
 
+export interface CreateBuildGitPayload {
+  repo_url: string;
+  ref?: string;
+  tag: string;
+  context?: string;
+  dockerfile?: string;
+  build_args?: Record<string, string>;
+}
+
 export const createBuildSchema = z.object({
   tag: z.string().min(1, 'Укажите тег образа (например, my-app:v1)'),
   context: z.string().optional().default('.'),
   dockerfile: z.string().optional().default('Dockerfile'),
+  repo_url: z.string().optional(),
+  ref: z.string().optional(),
   build_args: z.array(z.object({
     key: z.string().min(1, 'Ключ обязателен'),
     value: z.string()

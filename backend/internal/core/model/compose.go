@@ -6,6 +6,12 @@ type ComposeProject struct {
 	Volumes  []VolumeCreateParams
 }
 
+type GitSource struct {
+	RepoURL     string
+	Ref         string
+	ComposeFile string
+}
+
 const (
 	ComposeDependencyConditionStarted               = "service_started"
 	ComposeDependencyConditionHealthy               = "service_healthy"

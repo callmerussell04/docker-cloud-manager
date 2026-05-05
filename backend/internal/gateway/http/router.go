@@ -72,6 +72,7 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 				images.DELETE("/:id", coreHandler.DeleteImage)
 				images.GET("/build/availability", coreHandler.GetImageBuildAvailability)
 				images.POST("/build", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build"), coreHandler.BuildImage)
+				images.POST("/build/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build-git"), coreHandler.BuildImageFromGit)
 			}
 
 			builds := protected.Group("/builds")
@@ -90,6 +91,7 @@ func NewRouter(cfg Config, authHandler *handler.AuthHandler, coreHandler *handle
 				projects.POST("/:id/stop", coreHandler.StopProject)
 				projects.POST("/:id/cancel", coreHandler.CancelProject)
 				projects.POST("/compose", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose"), coreHttpProxy)
+				projects.POST("/compose/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose-git"), coreHttpProxy)
 			}
 		}
 		admin := v1.Group("/admin")

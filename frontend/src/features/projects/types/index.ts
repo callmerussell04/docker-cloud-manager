@@ -15,6 +15,16 @@ export interface AdminProjectData extends ProjectData {
 }
 export const createProjectSchema = z.object({
   project_name: z.string().min(1, 'Имя проекта обязательно'),
+  repo_url: z.string().optional(),
+  ref: z.string().optional(),
+  compose_file: z.string().optional(),
 });
 
 export type CreateProjectForm = z.input<typeof createProjectSchema>;
+
+export interface CreateProjectGitPayload {
+  project_name: string;
+  repo_url: string;
+  ref?: string;
+  compose_file?: string;
+}

@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import { type ProjectData } from '../types';
+import { type CreateProjectGitPayload, type ProjectData } from '../types';
 import type { PaginatedResponse } from '@/features/admin/types';
 
 export const getProjectsFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ProjectData>> => {
@@ -15,6 +15,11 @@ export const createProjectFn = async (formData: FormData): Promise<{ project_id:
       'Content-Type': 'multipart/form-data',
     },
   });
+  return response.data;
+};
+
+export const createProjectFromGitFn = async (payload: CreateProjectGitPayload): Promise<{ project_id: string }> => {
+  const response = await privateApi.post('/projects/compose/git', payload);
   return response.data;
 };
 

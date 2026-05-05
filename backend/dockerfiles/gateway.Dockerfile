@@ -13,6 +13,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
+RUN apk add --no-cache ca-certificates git
+
 COPY --from=builder /app/gateway .
 
 EXPOSE 8081

@@ -103,6 +103,23 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
 		return fmt.Errorf("compose polling settings must be positive")
 	}
+	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
+		return fmt.Errorf("git source limits must be positive")
+	}
+	if cfg.GitSourcesEnabled && len(cfg.GitAllowedHosts) == 0 {
+		return fmt.Errorf("git allowed hosts are required")
+	}
+	seenGitHosts := make(map[string]struct{}, len(cfg.GitAllowedHosts))
+	for _, host := range cfg.GitAllowedHosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host == "" || strings.ContainsAny(host, " :/\\\x00\r\n") || strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") {
+			return fmt.Errorf("invalid git allowed host")
+		}
+		if _, ok := seenGitHosts[host]; ok {
+			return fmt.Errorf("git allowed hosts must be unique")
+		}
+		seenGitHosts[host] = struct{}{}
+	}
 	if cfg.TelemetryMaxLogTailLines <= 0 || cfg.TelemetryMaxLogStreamsPerUser <= 0 || cfg.TelemetryMaxTerminalSessionsPerUser <= 0 {
 		return fmt.Errorf("telemetry stream limits must be positive")
 	}

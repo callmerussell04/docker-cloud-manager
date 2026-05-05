@@ -87,6 +87,15 @@ const sections: Array<{
     ],
   },
   {
+    title: 'Git sources',
+    fields: [
+      { name: 'git_sources_enabled', label: 'Git sources enabled', type: 'boolean' },
+      { name: 'git_allowed_hosts', label: 'Git allowed hosts', type: 'array' },
+      { name: 'git_clone_timeout_seconds', label: 'Git clone timeout seconds', type: 'number' },
+      { name: 'git_max_repository_bytes', label: 'Git max repository bytes', type: 'number' },
+    ],
+  },
+  {
     title: 'Workers',
     fields: [
       { name: 'ttl_worker_interval_seconds', label: 'TTL worker interval seconds', type: 'number' },

@@ -3,27 +3,21 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
-	"path/filepath"
-	"strings"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type BuildService interface {
 	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error)
+	CreateBuildFromArchive(ctx context.Context, input model.BuildArchiveInput) (model.BuildInitResult, error)
+	CreateBuildFromGit(ctx context.Context, input model.BuildGitInput) (model.BuildInitResult, error)
+	OpenBuildLogs(ctx context.Context, buildID string) (io.ReadCloser, error)
 	GetBuild(ctx context.Context, buildID string) (model.Build, error)
 	CancelBuildRecord(ctx context.Context, buildID string) error
 	DeleteBuild(ctx context.Context, buildID string) error
@@ -57,20 +51,9 @@ func (h *CoreHandler) GetBuilds(c *gin.Context) {
 }
 
 func (h *CoreHandler) BuildImage(c *gin.Context) {
-	if h.objectStore == nil {
-		err := apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
-		httpresponse.Respond(c, httpresponse.Status(err), err)
-		return
-	}
-
 	cfg, err := h.service.GetSystemConfig(c.Request.Context())
 	if err != nil {
 		h.handleError(c, err)
-		return
-	}
-	if !cfg.ImageBuildsEnabled {
-		err := apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
-		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, cfg.MaxUploadSizeBytes)
@@ -101,12 +84,24 @@ func (h *CoreHandler) BuildImage(c *gin.Context) {
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
 			}
-			if err := h.createBuildFromArchivePart(c, tag, contextDir, dockerfile, buildArgs, part.FileName(), part, cfg.MaxArchiveSizeBytes); err != nil {
+			result, err := h.service.CreateBuildFromArchive(c.Request.Context(), model.BuildArchiveInput{
+				Tag:         tag,
+				ContextDir:  contextDir,
+				Dockerfile:  dockerfile,
+				BuildArgs:   buildArgs,
+				ArchiveName: part.FileName(),
+				Archive:     part,
+			})
+			if err != nil {
 				_ = part.Close()
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
 			}
 			_ = part.Close()
+			c.JSON(http.StatusAccepted, gin.H{
+				"build_id": result.BuildID,
+				"message":  "build initialized",
+			})
 			return
 		}
 
@@ -137,6 +132,34 @@ func (h *CoreHandler) BuildImage(c *gin.Context) {
 	httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 }
 
+func (h *CoreHandler) BuildImageFromGit(c *gin.Context) {
+	var req dto.BuildImageGitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+		return
+	}
+	if req.BuildArgs == nil {
+		req.BuildArgs = map[string]string{}
+	}
+
+	result, err := h.service.CreateBuildFromGit(c.Request.Context(), model.BuildGitInput{
+		RepoURL:    req.RepoURL,
+		Ref:        req.Ref,
+		Tag:        req.Tag,
+		ContextDir: req.Context,
+		Dockerfile: req.Dockerfile,
+		BuildArgs:  req.BuildArgs,
+	})
+	if err != nil {
+		httpresponse.Respond(c, httpresponse.Status(err), err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{
+		"build_id": result.BuildID,
+		"message":  "build initialized",
+	})
+}
+
 func (h *CoreHandler) GetImageBuildAvailability(c *gin.Context) {
 	cfg, err := h.service.GetSystemConfig(c.Request.Context())
 	if err != nil {
@@ -154,84 +177,13 @@ func (h *CoreHandler) GetImageBuildAvailability(c *gin.Context) {
 	})
 }
 
-func (h *CoreHandler) createBuildFromArchivePart(c *gin.Context, tag, contextDir, dockerfile string, buildArgs map[string]string, archiveName string, archive io.Reader, maxArchiveSize int64) error {
-	if err := validation.ImageTag(tag); err != nil {
-		return fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-	}
-	if err := validateRelativeBuildPath(contextDir); err != nil {
-		return fmt.Errorf("%w: invalid build context: %v", apperrors.ErrBadRequest, err)
-	}
-	if err := validateRelativeBuildPath(dockerfile); err != nil {
-		return fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
-	}
-
-	fileID := uuid.New().String()
-	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, archiveName)
-	logObjectKey := buildobjects.LogObjectKey(fileID)
-
-	limitedArchive := &maxBytesReader{r: archive, remaining: maxArchiveSize}
-	if err := h.objectStore.UploadStream(c.Request.Context(), archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
-		_ = h.objectStore.DeleteObject(context.Background(), archiveObjectKey)
-		if errors.Is(err, apperrors.ErrBadRequest) {
-			return apperrors.New(apperrors.ErrBadRequest, "archive exceeds configured size limit")
-		}
-		return err
-	}
-
-	buildID, _, err := h.service.CreateBuildJob(
-		c.Request.Context(),
-		tag,
-		archiveObjectKey,
-		logObjectKey,
-		contextDir,
-		dockerfile,
-		buildArgs,
-		logging.RequestIDFromContext(c.Request.Context()),
-	)
-	if err != nil {
-		_ = h.objectStore.DeleteObject(context.Background(), archiveObjectKey)
-		return err
-	}
-
-	args := []any{
-		"request_id", logging.RequestIDFromContext(c.Request.Context()),
-		"build_id", buildID,
-		"archive_object_key", archiveObjectKey,
-		"log_object_key", logObjectKey,
-	}
-	if scope, ok := accessscope.FromContext(c.Request.Context()); ok {
-		args = append(args, "user_id", scope.UserID)
-	}
-	slog.InfoContext(c.Request.Context(), "build upload accepted", args...)
-
-	c.JSON(http.StatusAccepted, gin.H{
-		"build_id": buildID,
-		"message":  "build initialized",
-	})
-	return nil
-}
-
 func (h *CoreHandler) GetBuildLogs(c *gin.Context) {
-	if h.objectStore == nil {
-		err := apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
-		httpresponse.Respond(c, httpresponse.Status(err), err)
-		return
-	}
 	buildID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
-	build, err := h.service.GetBuild(c.Request.Context(), buildID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	if build.LogFilePath == "" {
-		httpresponse.Respond(c, httpresponse.Status(apperrors.ErrNotFound), apperrors.ErrNotFound)
-		return
-	}
-	logReader, err := h.objectStore.OpenObject(c.Request.Context(), build.LogFilePath)
+	logReader, err := h.service.OpenBuildLogs(c.Request.Context(), buildID)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
@@ -307,20 +259,6 @@ func (h *CoreHandler) AdminDeleteBuild(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "build deleted by admin"})
 }
 
-func validateRelativeBuildPath(path string) error {
-	if path == "" || path == "." {
-		return nil
-	}
-	if filepath.IsAbs(path) {
-		return fmt.Errorf("absolute paths are not allowed")
-	}
-	clean := filepath.Clean(path)
-	if clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(clean, "\x00") {
-		return fmt.Errorf("parent directory traversal is not allowed")
-	}
-	return nil
-}
-
 func readBuildFormField(r io.Reader, maxBytes int64) ([]byte, error) {
 	value, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
@@ -330,26 +268,4 @@ func readBuildFormField(r io.Reader, maxBytes int64) ([]byte, error) {
 		return nil, apperrors.New(apperrors.ErrBadRequest, "multipart form field is too large")
 	}
 	return value, nil
-}
-
-type maxBytesReader struct {
-	r         io.Reader
-	remaining int64
-}
-
-func (r *maxBytesReader) Read(p []byte) (int, error) {
-	if r.remaining <= 0 {
-		var one [1]byte
-		n, err := r.r.Read(one[:])
-		if n > 0 {
-			return 0, apperrors.ErrBadRequest
-		}
-		return 0, err
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.r.Read(p)
-	r.remaining -= int64(n)
-	return n, err
 }
