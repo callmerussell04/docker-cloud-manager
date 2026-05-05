@@ -87,6 +87,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
   });
 
   const isWorking = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
+  const isCanceled = project.status === 'canceled';
   const canCancel = project.status === 'building' || project.status === 'deploying';
 
   return (
@@ -129,7 +130,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
           onClick={() => startMutation.mutate(project.id)}
-          disabled={startMutation.isPending || isWorking || project.status === 'running'}
+          disabled={startMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'running'}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title="Запустить сервисы"
         >
@@ -138,7 +139,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
 
         <button
           onClick={() => stopMutation.mutate(project.id)}
-          disabled={stopMutation.isPending || isWorking || project.status === 'failed' || project.status === 'stopped'}
+          disabled={stopMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'stopped'}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title="Остановить сервисы"
         >

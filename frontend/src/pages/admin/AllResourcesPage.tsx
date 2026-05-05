@@ -446,6 +446,7 @@ export function AllResourcesPage() {
 
                   {activeTab === 'projects' && projectsData?.items.map((p) => {
                     const isProjectBusy = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(p.status);
+                    const isProjectCanceled = p.status === 'canceled';
                     const canCancelProject = p.status === 'building' || p.status === 'deploying';
                     return (
                     <div key={p.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminProjects.grid)}>
@@ -472,7 +473,7 @@ export function AllResourcesPage() {
                         <Button 
                           variant="secondary" 
                           className="h-8 px-2" 
-                          disabled={actionProjMut.isPending || isProjectBusy || p.status === 'running'}
+                          disabled={actionProjMut.isPending || isProjectBusy || isProjectCanceled || p.status === 'failed' || p.status === 'running'}
                           onClick={() => actionProjMut.mutate({id: p.id, action: 'start'})}
                         >
                           <Play className="w-4 h-4 text-green-500"/>
@@ -480,7 +481,7 @@ export function AllResourcesPage() {
                         <Button 
                           variant="secondary" 
                           className="h-8 px-2" 
-                          disabled={actionProjMut.isPending || isProjectBusy || p.status === 'failed' || p.status === 'stopped'}
+                          disabled={actionProjMut.isPending || isProjectBusy || isProjectCanceled || p.status === 'failed' || p.status === 'stopped'}
                           onClick={() => actionProjMut.mutate({id: p.id, action: 'stop'})}
                         >
                           <Square className="w-4 h-4 text-yellow-500"/>
