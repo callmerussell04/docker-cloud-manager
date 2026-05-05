@@ -339,6 +339,11 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		ttlDeadline = &t
 	}
 
+	networkAlias := params.NetworkAlias
+	if networkAlias == "" {
+		networkAlias = params.Name
+	}
+
 	c := model.Container{
 		ID:                    containerID,
 		ProjectID:             params.ProjectID,
@@ -353,7 +358,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
 		DockerGeneration:      1,
-		NetworkAlias:          params.NetworkAlias,
+		NetworkAlias:          networkAlias,
 		Command:               params.Command,
 		Entrypoint:            params.Entrypoint,
 		Restart:               params.Restart,
@@ -391,7 +396,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		OwnerID:              ownerID.String(),
 		Generation:           c.DockerGeneration,
 		ContainerName:        fmt.Sprintf("usr_%s", containerID.String()[:12]),
-		NetworkAlias:         params.NetworkAlias,
+		NetworkAlias:         networkAlias,
 		ImageName:            actualImageTag,
 		NetworkName:          networkName,
 		Domain:               fullDomain,
@@ -503,11 +508,17 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 		nextGeneration = 2
 	}
 
+	networkAlias := c.NetworkAlias
+	if networkAlias == "" {
+		networkAlias = c.Name
+	}
+
 	dockerParams := model.ContainerRuntimeSpec{
 		ContainerID:          containerID.String(),
 		OwnerID:              ownerID.String(),
 		Generation:           nextGeneration,
 		ContainerName:        fmt.Sprintf("%s_g%d", strings.TrimPrefix(inspect.Name, "/"), nextGeneration),
+		NetworkAlias:         networkAlias,
 		ImageName:            inspect.Image,
 		NetworkName:          networkName,
 		Domain:               fullDomain,

@@ -141,6 +141,49 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 	}
 }
 
+func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
+	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	containerID := uuid.New()
+	repo := &containerCleanupRepoFake{
+		container: model.Container{
+			ID:               containerID,
+			OwnerID:          ownerID,
+			DockerID:         "old-docker",
+			Name:             "project_api",
+			NetworkAlias:     "api",
+			Status:           model.ContainerStatusCreated,
+			DockerGeneration: 1,
+		},
+		containerCount: 1,
+	}
+	dockerAPI := &containerExposeDockerFake{
+		inspect: model.ContainerInspection{
+			Name:              "/usr_old",
+			Image:             "nginx:latest",
+			MemoryLimitBytes:  128,
+			MemoryReservation: 128,
+			CPUShares:         1024,
+			State:             model.ContainerState{Running: false},
+		},
+	}
+	svc := &ContainerService{
+		repo:        repo,
+		dockerAPI:   dockerAPI,
+		config:      staticConfig{},
+		logger:      slog.Default(),
+		rebalanceCh: make(chan struct{}, 1),
+	}
+
+	if err := svc.Expose(ctx, containerID, "app", 8080); err != nil {
+		t.Fatalf("Expose() error = %v", err)
+	}
+
+	if got, want := dockerAPI.createdParams.NetworkAlias, "api"; got != want {
+		t.Fatalf("docker network alias = %q, want %q", got, want)
+	}
+}
+
 func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -176,12 +219,13 @@ func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 }
 
 type containerExposeDockerFake struct {
-	createErr  error
-	removeErr  error
-	stopErr    error
-	inspect    model.ContainerInspection
-	removed    map[string]bool
-	startCalls int
+	createErr     error
+	removeErr     error
+	stopErr       error
+	inspect       model.ContainerInspection
+	removed       map[string]bool
+	startCalls    int
+	createdParams model.ContainerRuntimeSpec
 }
 
 func (f *containerExposeDockerFake) EnsureUserNetwork(ctx context.Context, networkName string) (string, error) {
@@ -199,6 +243,7 @@ func (f *containerExposeDockerFake) CreateContainer(ctx context.Context, params 
 	if f.createErr != nil {
 		return "", f.createErr
 	}
+	f.createdParams = params
 	return "new-docker", nil
 }
 

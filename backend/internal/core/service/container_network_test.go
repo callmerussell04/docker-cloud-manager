@@ -6,10 +6,56 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/google/uuid"
 )
+
+func TestContainerServiceCreateUsesNameAsDefaultNetworkAlias(t *testing.T) {
+	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	repo := &containerCleanupRepoFake{}
+	dockerAPI := &containerCleanupDockerFake{}
+	svc := newContainerCreateAliasService(repo, dockerAPI)
+
+	if _, err := svc.Create(ctx, model.ContainerCreateParams{
+		Name:     "api",
+		ImageTag: "nginx:latest",
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if got, want := repo.container.NetworkAlias, "api"; got != want {
+		t.Fatalf("saved network alias = %q, want %q", got, want)
+	}
+	if got, want := dockerAPI.createdParams.NetworkAlias, "api"; got != want {
+		t.Fatalf("docker network alias = %q, want %q", got, want)
+	}
+}
+
+func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
+	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	repo := &containerCleanupRepoFake{}
+	dockerAPI := &containerCleanupDockerFake{}
+	svc := newContainerCreateAliasService(repo, dockerAPI)
+
+	if _, err := svc.Create(ctx, model.ContainerCreateParams{
+		Name:         "project_api",
+		NetworkAlias: "api",
+		ImageTag:     "nginx:latest",
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if got, want := repo.container.NetworkAlias, "api"; got != want {
+		t.Fatalf("saved network alias = %q, want %q", got, want)
+	}
+	if got, want := dockerAPI.createdParams.NetworkAlias, "api"; got != want {
+		t.Fatalf("docker network alias = %q, want %q", got, want)
+	}
+}
 
 func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) {
 	ctx := context.Background()
@@ -63,6 +109,54 @@ func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 	if len(dockerAPI.removedNetworks) != 1 {
 		t.Fatalf("removed networks count = %d, want 1", len(dockerAPI.removedNetworks))
 	}
+}
+
+func newContainerCreateAliasService(repo *containerCleanupRepoFake, dockerAPI *containerCleanupDockerFake) *ContainerService {
+	return &ContainerService{
+		repo:        repo,
+		imageRepo:   containerImageRepoFake{},
+		dockerAPI:   dockerAPI,
+		metrics:     staticMetrics{totalMemory: 1024 * 1024 * 1024},
+		config:      containerCreateConfig{},
+		users:       containerUsersFake{},
+		logger:      slog.Default(),
+		rebalanceCh: make(chan struct{}, 1),
+	}
+}
+
+type containerCreateConfig struct{}
+
+func (containerCreateConfig) Get() config.SystemConfig {
+	return config.SystemConfig{
+		MaxContainersPerUser:                 10,
+		DefaultMemoryReservation:             128 * 1024 * 1024,
+		OvercommitFactor:                     1,
+		DefaultCPUShares:                     1024,
+		ContainerPidsLimit:                   256,
+		ContainerMemorySwapMultiplier:        2,
+		ProxyNetworkName:                     "proxy_net",
+		MaxLogSize:                           "10m",
+		MaxLogFiles:                          "3",
+		ContainerDiskQuota:                   "1G",
+		ComposeDependencyWaitTimeoutMinutes:  1,
+		ComposeDependencyPollIntervalSeconds: 1,
+	}
+}
+
+type containerUsersFake struct{}
+
+func (containerUsersFake) GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error) {
+	return model.UserInfo{
+		ID:          userID,
+		QuotaRAMMB:  1024,
+		QuotaDiskMB: 1024,
+	}, nil
+}
+
+type containerImageRepoFake struct{}
+
+func (containerImageRepoFake) List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error) {
+	return nil, 0, nil
 }
 
 type containerCleanupRepoFake struct {
@@ -170,6 +264,7 @@ func (f *containerCleanupRepoFake) CompleteLatestOperation(ctx context.Context, 
 
 type containerCleanupDockerFake struct {
 	removedNetworks []string
+	createdParams   model.ContainerRuntimeSpec
 }
 
 func (f *containerCleanupDockerFake) EnsureUserNetwork(ctx context.Context, networkName string) (string, error) {
@@ -186,6 +281,7 @@ func (f *containerCleanupDockerFake) PullImage(ctx context.Context, imageName st
 }
 
 func (f *containerCleanupDockerFake) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
+	f.createdParams = params
 	return "docker-id", nil
 }
 
