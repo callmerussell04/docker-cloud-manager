@@ -4,8 +4,10 @@ import { getDashboardStatsFn } from '@/features/dashboard/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatBytes } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
+import { useT } from '@/lib/i18n';
 
 export function DashboardPage() {
+  const t = useT();
   const { data: stats, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['dashboard_stats'],
     queryFn: getDashboardStatsFn,
@@ -37,7 +39,7 @@ export function DashboardPage() {
           />
         </div>
         <div className="text-right text-xs text-slate-500">
-          Использовано {percent.toFixed(1)}%
+          {t('dashboard.usedPercent', { percent: percent.toFixed(1) })}
         </div>
       </div>
     );
@@ -61,11 +63,11 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Дашборд</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Сводка по использованию ресурсов платформы</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('dashboard.title')}</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.subtitle')}</p>
         </div>
         <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
-          <RefreshCcw className="w-4 h-4 mr-2" /> Обновить
+          <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
         </Button>
       </div>
 
@@ -82,7 +84,7 @@ export function DashboardPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Server className="w-5 h-5 text-indigo-500" />
-                  Оперативная память (RAM)
+                  {t('dashboard.ram')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -94,7 +96,7 @@ export function DashboardPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Database className="w-5 h-5 text-emerald-500" />
-                  Дисковое пространство (Образы)
+                  {t('dashboard.disk')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -106,7 +108,7 @@ export function DashboardPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Box className="w-5 h-5 text-blue-500" />
-                  Лимит контейнеров
+                  {t('dashboard.containerLimit')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -118,7 +120,7 @@ export function DashboardPage() {
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
                   <HardDrive className="w-5 h-5 text-purple-500" />
-                  Лимит томов (Volumes)
+                  {t('dashboard.volumeLimit')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -134,7 +136,7 @@ export function DashboardPage() {
                   <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Запущенные контейнеры</p>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.runningContainers')}</p>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.containers_running}</h3>
                 </div>
               </CardContent>
@@ -146,7 +148,7 @@ export function DashboardPage() {
                   <Disc className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Собственные образы</p>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.customImages')}</p>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.images_total}</h3>
                 </div>
               </CardContent>
@@ -158,7 +160,7 @@ export function DashboardPage() {
                   <Layers className="w-6 h-6 text-amber-600 dark:text-amber-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Проекты Compose</p>
+                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.composeProjects')}</p>
                   <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.projects_total}</h3>
                 </div>
               </CardContent>
@@ -166,7 +168,7 @@ export function DashboardPage() {
           </div>
         </>
       ) : (
-        <div className="text-center p-8 text-slate-500">Не удалось загрузить статистику</div>
+        <div className="text-center p-8 text-slate-500">{t('dashboard.loadFailed')}</div>
       )}
     </div>
   );

@@ -2,19 +2,20 @@ import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Box, Disc, HardDrive, Layers, Settings, ShieldAlert, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
+import { useT, type TranslationKey } from '@/lib/i18n';
 
 const navigation = [
-  { name: 'Дашборд', href: '/', icon: LayoutDashboard },
-  { name: 'Контейнеры', href: '/containers', icon: Box },
-  { name: 'Образы', href: '/images', icon: Disc },
-  { name: 'Тома', href: '/volumes', icon: HardDrive },
-  { name: 'Docker Compose', href: '/projects', icon: Layers },
+  { nameKey: 'nav.dashboard', href: '/', icon: LayoutDashboard },
+  { nameKey: 'nav.containers', href: '/containers', icon: Box },
+  { nameKey: 'nav.images', href: '/images', icon: Disc },
+  { nameKey: 'nav.volumes', href: '/volumes', icon: HardDrive },
+  { nameKey: 'nav.projects', href: '/projects', icon: Layers },
 ];
 
 const adminNavigation = [
-  { name: 'Все ресурсы', href: '/admin/resources', icon: ShieldAlert },
-  { name: 'Пользователи', href: '/admin/users', icon: Users },
-  { name: 'Настройки системы', href: '/admin/settings', icon: Settings },
+  { nameKey: 'nav.adminResources', href: '/admin/resources', icon: ShieldAlert },
+  { nameKey: 'nav.adminUsers', href: '/admin/users', icon: Users },
+  { nameKey: 'nav.systemSettings', href: '/admin/settings', icon: Settings },
 ];
 
 interface SidebarProps {
@@ -25,6 +26,7 @@ interface SidebarProps {
 export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
   const location = useLocation();
   const role = useAuthStore((state) => state.role);
+  const t = useT();
 
   return (
     <aside
@@ -50,7 +52,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
             
             return (
               <Link
-                key={item.name}
+                key={item.nameKey}
                 to={item.href}
                 onClick={onNavigate}
                 className={cn(
@@ -61,7 +63,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                 )}
               >
                 <item.icon className={cn("w-5 h-5", isActive ? "text-indigo-600 dark:text-indigo-400" : "")} />
-                {item.name}
+                {t(item.nameKey as TranslationKey)}
               </Link>
             );
           })}
@@ -70,7 +72,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
         {role === 'admin' && (
           <div>
             <div className="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Администрирование
+              {t('common.admin')}
             </div>
             <div className="space-y-1">
               {adminNavigation.map((item) => {
@@ -78,7 +80,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                 
                 return (
                   <Link
-                    key={item.name}
+                    key={item.nameKey}
                     to={item.href}
                     onClick={onNavigate}
                     className={cn(
@@ -89,7 +91,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                     )}
                   >
                     <item.icon className={cn("w-5 h-5", isActive ? "text-red-600 dark:text-red-400" : "")} />
-                    {item.name}
+                    {t(item.nameKey as TranslationKey)}
                   </Link>
                 );
               })}

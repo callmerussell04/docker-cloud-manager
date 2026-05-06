@@ -13,20 +13,22 @@ import { exposeContainerFn } from '../api';
 import { type ExposeContainerDTO, exposeContainerSchema, type ContainerData } from '../types';
 import { BASE_DOMAIN } from '@/config';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;
   onClose: () => void;
 }
 
-type ExposeContainerFormValues = z.input<typeof exposeContainerSchema>;
+type ExposeContainerFormValues = z.input<ReturnType<typeof exposeContainerSchema>>;
 
 export function ExposeContainerModal({ container, onClose }: ExposeContainerModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ExposeContainerFormValues>({
-    resolver: zodResolver(exposeContainerSchema),
+    resolver: zodResolver(exposeContainerSchema(t)),
   });
 
   useEffect(() => {
@@ -45,11 +47,11 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['containers'] });
-      addToast('Настройки маршрутизации обновлены', 'success');
+      addToast(t('containers.routingUpdated'), 'success');
       onClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить маршрутизацию');
+      const { message, requestId } = getApiErrorMessage(error, t('containers.routingUpdateFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -62,10 +64,10 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
   };
 
   return (
-    <Modal isOpen={!!container} onClose={onClose} title={`Публикация: ${container?.name}`}>
+    <Modal isOpen={!!container} onClose={onClose} title={t('containers.exposeTitle', { name: container?.name || '' })}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
         <div className="space-y-2">
-          <Label htmlFor="domain_prefix">Доменный префикс</Label>
+          <Label htmlFor="domain_prefix">{t('containers.domainPrefix')}</Label>
           <div className="flex items-center gap-2">
             <Input
               id="domain_prefix"
@@ -79,7 +81,7 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="internal_port">Внутренний порт контейнера</Label>
+          <Label htmlFor="internal_port">{t('containers.internalContainerPort')}</Label>
           <Input
             id="internal_port"
             type="number"
@@ -87,17 +89,17 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
             error={!!errors.internal_port}
             {...register('internal_port')}
           />
-          <p className="text-xs text-slate-500">Порт, на котором приложение слушает внутри контейнера</p>
+          <p className="text-xs text-slate-500">{t('containers.internalPortHint')}</p>
           {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port.message}</p>}
         </div>
 
         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-900/50 mt-4 text-sm text-blue-800 dark:text-blue-300">
-          Контейнер будет пересоздан для применения новых сетевых настроек. Это может занять несколько секунд.
+          {t('containers.recreateNotice')}
         </div>
 
         <div className="flex justify-end gap-3 pt-6 border-t border-slate-200 dark:border-slate-700/50">
-          <Button type="button" variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button type="submit" isLoading={mutation.isPending}>Сохранить</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" isLoading={mutation.isPending}>{t('common.save')}</Button>
         </div>
       </form>
     </Modal>

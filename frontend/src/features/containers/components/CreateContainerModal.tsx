@@ -16,17 +16,19 @@ import { createContainerFn } from '../api';
 import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
 import { BASE_DOMAIN } from '@/config';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface CreateContainerModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type CreateContainerValues = z.output<typeof createContainerSchema>;
+type CreateContainerValues = z.output<ReturnType<typeof createContainerSchema>>;
 
 export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const { data: images = [] } = useQuery({
     queryKey: ['images'],
@@ -43,7 +45,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
   });
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateContainerForm, unknown, CreateContainerValues>({
-    resolver: zodResolver(createContainerSchema),
+    resolver: zodResolver(createContainerSchema(t)),
     defaultValues: {
       env_vars: [],
       volume_mounts: [],
@@ -66,12 +68,12 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     mutationFn: createContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['containers'] });
-      addToast('Контейнер успешно создан', 'success');
+      addToast(t('containers.created'), 'success');
       reset();
       onClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать контейнер');
+      const { message, requestId } = getApiErrorMessage(error, t('containers.createFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -103,17 +105,17 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Создать контейнер" className="max-w-3xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('containers.createTitle')} className="max-w-3xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Имя контейнера</Label>
+            <Label htmlFor="name">{t('containers.containerName')}</Label>
             <Input id="name" placeholder="my-app" error={!!errors.name} {...register('name')} />
             {errors.name && <p className="text-sm text-red-500">{errors.name?.message as string}</p>}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="image_tag">Образ</Label>
+            <Label htmlFor="image_tag">{t('containers.image')}</Label>
             <Input 
               id="image_tag" 
               list="image-suggestions" 
@@ -126,16 +128,16 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
                 <option key={img.id} value={img.tag} />
               ))}
             </datalist>
-            <p className="text-xs text-slate-500">Выберите из списка или введите тег из DockerHub</p>
+            <p className="text-xs text-slate-500">{t('containers.imageHint')}</p>
             {errors.image_tag && <p className="text-sm text-red-500">{errors.image_tag?.message as string}</p>}
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
-          <h4 className="font-medium">Маршрутизация (опционально)</h4>
+          <h4 className="font-medium">{t('containers.routingOptional')}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="domain_prefix">Доменный префикс</Label>
+              <Label htmlFor="domain_prefix">{t('containers.domainPrefix')}</Label>
               <div className="flex items-center gap-2">
                 <Input id="domain_prefix" placeholder="my-app" error={!!errors.domain_prefix} {...register('domain_prefix')} />
                 <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.{BASE_DOMAIN}</span>
@@ -144,7 +146,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="internal_port">Внутренний порт</Label>
+              <Label htmlFor="internal_port">{t('containers.internalPort')}</Label>
               <Input id="internal_port" type="number" placeholder="80" error={!!errors.internal_port} {...register('internal_port')} />
               {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port?.message as string}</p>}
             </div>
@@ -152,15 +154,15 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
-          <h4 className="font-medium">Переменные окружения</h4>
+          <h4 className="font-medium">{t('containers.envVars')}</h4>
           {envFields.map((field, index) => (
             <div key={field.id} className="flex gap-2 items-start">
               <div className="flex-1">
-                <Input placeholder="Ключ (например, PORT)" {...register(`env_vars.${index}.key`)} />
+                <Input placeholder={t('containers.envKeyPlaceholder')} {...register(`env_vars.${index}.key`)} />
                 {errors.env_vars?.[index]?.key && <p className="text-xs text-red-500 mt-1">{errors.env_vars[index]?.key?.message}</p>}
               </div>
               <div className="flex-1">
-                <Input placeholder="Значение" {...register(`env_vars.${index}.value`)} />
+                <Input placeholder={t('containers.envValuePlaceholder')} {...register(`env_vars.${index}.value`)} />
               </div>
               <Button type="button" variant="danger" onClick={() => removeEnv(index)} className="px-3">
                 <Trash2 className="w-4 h-4" />
@@ -168,17 +170,17 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
             </div>
           ))}
           <Button type="button" variant="secondary" onClick={() => appendEnv({ key: '', value: '' })} className="w-full text-sm">
-            <Plus className="w-4 h-4 mr-2" /> Добавить переменную
+            <Plus className="w-4 h-4 mr-2" /> {t('containers.addEnv')}
           </Button>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
-          <h4 className="font-medium">Тома (Volumes)</h4>
+          <h4 className="font-medium">{t('containers.volumes')}</h4>
           {volFields.map((field, index) => (
             <div key={field.id} className="flex gap-2 items-start flex-wrap md:flex-nowrap">
               <div className="flex-1 min-w-[200px]">
                 <Select {...register(`volume_mounts.${index}.volume_id`)}>
-                  <option value="">Выберите том</option>
+                  <option value="">{t('containers.selectVolume')}</option>
                   {volumes.map(vol => (
                     <option key={vol.id} value={vol.id}>{`volume-${vol.id.slice(0, 8)}`}</option>
                   ))}
@@ -199,13 +201,13 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
             </div>
           ))}
           <Button type="button" variant="secondary" onClick={() => appendVol({ volume_id: '', mount_path: '', is_readonly: false })} className="w-full text-sm">
-            <Plus className="w-4 h-4 mr-2" /> Примонтировать том
+            <Plus className="w-4 h-4 mr-2" /> {t('containers.mountVolume')}
           </Button>
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-          <Button type="button" variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button type="submit" isLoading={mutation.isPending}>Создать</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" isLoading={mutation.isPending}>{t('common.create')}</Button>
         </div>
       </form>
     </Modal>

@@ -6,6 +6,7 @@ import { useToastStore } from '@/store/toastStore';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 
 interface VolumeRowProps {
   volume: VolumeData;
@@ -14,20 +15,22 @@ interface VolumeRowProps {
 export function VolumeRow({ volume }: VolumeRowProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+  const locale = useLocale();
 
   const deleteMutation = useMutation({
     mutationFn: deleteVolumeFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['volumes'] });
-      addToast('Том успешно удален', 'success');
+      addToast(t('volumes.deleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить том');
+      const { message, requestId } = getApiErrorMessage(error, t('volumes.deleteFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
-  const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString('ru-RU', {
+  const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
   
@@ -50,7 +53,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
 
       <div className="min-w-0 text-sm">
         <span className={isMissing ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-          {volume.status}
+          {statusLabel(t, volume.status)}
         </span>
       </div>
 
@@ -67,13 +70,13 @@ export function VolumeRow({ volume }: VolumeRowProps) {
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
           onClick={() => {
-            if (window.confirm(`Удалить том "${displayName}"?`)) {
+            if (window.confirm(t('volumes.deleteConfirm', { name: displayName }))) {
               deleteMutation.mutate(volume.id);
             }
           }}
           disabled={deleteMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
-          title="Удалить"
+          title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

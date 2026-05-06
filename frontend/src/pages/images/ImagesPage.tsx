@@ -13,10 +13,12 @@ import { getImagesFn, getBuildsFn } from '@/features/images/api';
 import { type BuildData } from '@/features/images/types';
 import { cn } from '@/lib/utils';
 import { tableLayouts } from '@/components/ui/tableLayouts';
+import { useT } from '@/lib/i18n';
 
 type Tab = 'images' | 'builds';
 
 export function ImagesPage() {
+  const t = useT();
   const [activeTab, setActiveTab] = useState<Tab>('images');
   const [search, setSearch] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -62,9 +64,9 @@ export function ImagesPage() {
     <div className="space-y-6 flex flex-col h-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Образы и Сборки</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t('images.title')}</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            На странице: <span className="font-semibold text-slate-900 dark:text-slate-100">{totalSizeMB} MB</span>
+            {t('images.pageSize', { size: totalSizeMB })}
           </p>
         </div>
         
@@ -72,7 +74,7 @@ export function ImagesPage() {
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
-              placeholder="Поиск..." 
+              placeholder={t('common.search')}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -87,7 +89,7 @@ export function ImagesPage() {
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Собрать
+            {t('images.build')}
           </Button>
         </div>
       </div>
@@ -104,7 +106,7 @@ export function ImagesPage() {
           )}
         >
           <Layers className="w-4 h-4" />
-          Мои образы
+          {t('images.myImages')}
         </button>
         <button
           onClick={() => handleTabChange('builds')}
@@ -116,7 +118,7 @@ export function ImagesPage() {
           )}
         >
           <Hammer className="w-4 h-4" />
-          История сборок
+          {t('images.buildHistory')}
         </button>
         </div>
       </div>
@@ -126,19 +128,19 @@ export function ImagesPage() {
           <div className={activeTab === 'images' ? tableLayouts.images.minWidth : tableLayouts.builds.minWidth}>
             {activeTab === 'images' ? (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.images.grid)}>
-                <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Тег</div></div>
-                <div>Размер</div>
-                <div>Статус</div>
-                <div>Дата создания</div>
-                <div className="flex justify-end">Действия</div>
+                <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('images.tag')}</div></div>
+                <div>{t('images.size')}</div>
+                <div>{t('common.status')}</div>
+                <div>{t('images.createdAt')}</div>
+                <div className="flex justify-end">{t('common.actions')}</div>
               </div>
             ) : (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.builds.grid)}>
                 <div>ID</div>
-                <div>Статус</div>
-                <div>Длительность</div>
-                <div>Дата запуска</div>
-                <div className="flex justify-end">Действия</div>
+                <div>{t('common.status')}</div>
+                <div>{t('images.duration')}</div>
+                <div>{t('images.startedAt')}</div>
+                <div className="flex justify-end">{t('common.actions')}</div>
               </div>
             )}
 
@@ -163,11 +165,11 @@ export function ImagesPage() {
                     <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
                       <Layers className="w-8 h-8" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">Нет образов</h3>
+                    <h3 className="text-xl font-semibold mb-2">{t('images.noImages')}</h3>
                     <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                      У вас пока нет собранных образов. Инициируйте новую сборку, загрузив архив с кодом.
+                      {t('images.noImagesDescription')}
                     </p>
-                    <Button onClick={() => setIsCreateModalOpen(true)}>Собрать первый образ</Button>
+                    <Button onClick={() => setIsCreateModalOpen(true)}>{t('images.buildFirst')}</Button>
                   </div>
                 )
               ) : (
@@ -180,9 +182,9 @@ export function ImagesPage() {
                     <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-2xl flex items-center justify-center mb-4">
                       <Hammer className="w-8 h-8" />
                     </div>
-                    <h3 className="text-xl font-semibold mb-2">История пуста</h3>
+                    <h3 className="text-xl font-semibold mb-2">{t('images.emptyBuilds')}</h3>
                     <p className="text-slate-500 dark:text-slate-400 max-w-sm">
-                      Вы еще не запускали сборки образов.
+                      {t('images.emptyBuildsDescription')}
                     </p>
                   </div>
                 )

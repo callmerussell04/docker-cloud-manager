@@ -11,20 +11,22 @@ import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { useAuthStore } from '@/store/authStore';
 import { loginFn } from '@/features/auth/api';
-import { type LoginData, loginSchema } from '@/features/auth/types';
+import { type LoginData, createLoginSchema } from '@/features/auth/types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const addToast = useToastStore((state) => state.addToast);
   const setAccessToken = useAuthStore((state) => state.setAccessToken);
+  const t = useT();
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<LoginData>({
-    resolver: zodResolver(loginSchema),
+    resolver: zodResolver(createLoginSchema(t)),
   });
 
   const mutation = useMutation({
@@ -32,12 +34,12 @@ export function LoginPage() {
     onSuccess: (data) => {
       if (data.access_token) {
         setAccessToken(data.access_token);
-        addToast('Успешный вход', 'success');
+        addToast(t('auth.login.success'), 'success');
         navigate('/');
       }
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось войти');
+      const { message, requestId } = getApiErrorMessage(error, t('auth.login.failed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -57,15 +59,15 @@ export function LoginPage() {
 
       <Card className="w-full max-w-md">
         <CardHeader className="text-center pb-2">
-          <CardTitle>С возвращением</CardTitle>
+          <CardTitle>{t('auth.login.title')}</CardTitle>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            Введите свои данные для входа в панель управления
+            {t('auth.login.subtitle')}
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Имя пользователя</Label>
+              <Label htmlFor="username">{t('form.username')}</Label>
               <Input
                 id="username"
                 type="text"
@@ -80,7 +82,7 @@ export function LoginPage() {
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Пароль</Label>
+                <Label htmlFor="password">{t('form.password')}</Label>
               </div>
               <Input
                 id="password"
@@ -99,17 +101,17 @@ export function LoginPage() {
               className="w-full mt-2"
               isLoading={mutation.isPending}
             >
-              Войти
+              {t('auth.login.submit')}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-            Нет аккаунта?{' '}
+            {t('auth.login.noAccount')}{' '}
             <Link
               to="/register"
               className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
             >
-              Зарегистрироваться
+              {t('auth.login.registerLink')}
             </Link>
           </div>
         </CardContent>

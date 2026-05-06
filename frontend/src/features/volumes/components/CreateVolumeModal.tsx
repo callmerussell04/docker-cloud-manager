@@ -10,6 +10,7 @@ import { useToastStore } from '@/store/toastStore';
 import { createVolumeFn } from '../api';
 import { type CreateVolumeForm, createVolumeSchema, type CreateVolumeDTO } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface CreateVolumeModalProps {
   isOpen: boolean;
@@ -19,21 +20,22 @@ interface CreateVolumeModalProps {
 export function CreateVolumeModal({ isOpen, onClose }: CreateVolumeModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateVolumeForm>({
-    resolver: zodResolver(createVolumeSchema),
+    resolver: zodResolver(createVolumeSchema(t)),
   });
 
   const mutation = useMutation({
     mutationFn: createVolumeFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['volumes'] });
-      addToast('Том успешно создан', 'success');
+      addToast(t('volumes.created'), 'success');
       reset();
       onClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать том');
+      const { message, requestId } = getApiErrorMessage(error, t('volumes.createFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -46,17 +48,17 @@ export function CreateVolumeModal({ isOpen, onClose }: CreateVolumeModalProps) {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Создать том" className="max-w-lg">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('volumes.create')} className="max-w-lg">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         <div className="space-y-2">
-          <Label htmlFor="name">Имя тома</Label>
+          <Label htmlFor="name">{t('volumes.name')}</Label>
           <Input id="name" placeholder="data-volume" error={!!errors.name} {...register('name')} />
           {errors.name && <p className="text-sm text-red-500">{errors.name?.message as string}</p>}
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-          <Button type="button" variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button type="submit" isLoading={mutation.isPending}>Создать</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" isLoading={mutation.isPending}>{t('common.create')}</Button>
         </div>
       </form>
     </Modal>

@@ -8,6 +8,7 @@ import { API_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;
@@ -27,6 +28,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
   const scrollRef = useRef<HTMLPreElement>(null);
   const esRef = useRef<EventSource | null>(null);
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   useEffect(() => {
     if (!container) return;
@@ -56,7 +58,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         });
 
         es.addEventListener('error', (event) => {
-          addToast(getStreamErrorMessage('data' in event ? event.data : undefined), 'error');
+          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, t('containers.logsStreamError')), 'error');
           es.close();
           setIsConnected(false);
         });
@@ -71,7 +73,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
           setIsConnected(false);
         };
       } catch (error) {
-        const { message, requestId } = getApiErrorMessage(error, 'Не удалось получить тикет для логов');
+        const { message, requestId } = getApiErrorMessage(error, t('containers.logsTicketFailed'), t);
         addToast(message, 'error', { requestId });
         onClose();
       }
@@ -108,7 +110,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
   if (!container) return null;
 
   return (
-    <Modal isOpen={!!container} onClose={onClose} title="Логи контейнера" className="max-w-5xl">
+    <Modal isOpen={!!container} onClose={onClose} title={t('containers.logsTitle')} className="max-w-5xl">
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-4 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
           <div className="flex items-center gap-2">
@@ -133,16 +135,16 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
             }}
             className="h-8 px-3 text-xs"
           >
-            Применить
+            {t('common.apply')}
           </Button>
           <div className="flex-1" />
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-slate-500">{isConnected ? 'Подключено' : 'Отключено'}</span>
+            <span className="text-xs text-slate-500">{isConnected ? t('connection.connected') : t('connection.disconnected')}</span>
           </div>
           <Button variant="secondary" onClick={downloadLogs} className="h-8 px-3 text-xs">
             <Download className="w-3 h-3 mr-2" />
-            Скачать
+            {t('common.download')}
           </Button>
         </div>
         <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative group h-[60vh]">
@@ -153,7 +155,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
             </div>
           </div>
           <pre ref={scrollRef} className="p-4 pt-12 h-full w-full overflow-auto text-[13px] font-mono text-slate-300 whitespace-pre-wrap break-words">
-            {logs.length === 0 && isConnected && 'Ожидание логов...'}
+            {logs.length === 0 && isConnected && t('containers.logsWaiting')}
             {logs.join('\n')}
           </pre>
         </div>
@@ -162,9 +164,9 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
   );
 }
 
-function getStreamErrorMessage(data: unknown) {
+function getStreamErrorMessage(data: unknown, fallback: string) {
   if (typeof data !== 'string' || !data) {
-    return 'Ошибка потока логов';
+    return fallback;
   }
 
   try {

@@ -11,8 +11,10 @@ import { formatBytes } from '@/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
+import { statusLabel, useT } from '@/lib/i18n';
 
 export function ContainerDetailsPage() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
@@ -41,16 +43,16 @@ export function ContainerDetailsPage() {
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
-      case 'running': return <Badge variant="success">Запущен</Badge>;
-      case 'exited': return <Badge variant="default">Остановлен</Badge>;
-      case 'creating': return <Badge variant="warning">Создается</Badge>;
-      case 'starting': return <Badge variant="info">Запускается</Badge>;
-      case 'stopping': return <Badge variant="warning">Останавливается</Badge>;
-      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
-      case 'missing': return <Badge variant="error">Missing</Badge>;
-      case 'reconciling': return <Badge variant="warning">Синхронизация</Badge>;
-      case 'error': return <Badge variant="error">Ошибка</Badge>;
-      default: return <Badge variant="info">{status || 'Неизвестно'}</Badge>;
+      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
+      case 'exited': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
+      case 'stopping': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'missing': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
+      case 'reconciling': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'error': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
+      default: return <Badge variant="info">{statusLabel(t, status)}</Badge>;
     }
   };
 
@@ -90,14 +92,14 @@ export function ContainerDetailsPage() {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
             >
               <Terminal className="w-4 h-4" />
-              <span className="hidden sm:inline font-medium text-sm">Терминал</span>
+              <span className="hidden sm:inline font-medium text-sm">{t('containers.terminal')}</span>
             </button>
             <button
               onClick={() => setLogsContainer(streamContainer)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
             >
               <ScrollText className="w-4 h-4" />
-              <span className="hidden sm:inline font-medium text-sm">Логи</span>
+              <span className="hidden sm:inline font-medium text-sm">{t('containers.logs')}</span>
             </button>
           </div>
         )}
@@ -106,7 +108,7 @@ export function ContainerDetailsPage() {
       {container?.status !== 'running' && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 p-4 rounded-xl border border-yellow-200 dark:border-yellow-900/50 text-sm flex items-center gap-2">
           <Activity className="w-4 h-4" />
-          Статистика доступна только для запущенных контейнеров.
+          {t('containers.statsOnlyRunning')}
         </div>
       )}
 
@@ -115,7 +117,7 @@ export function ContainerDetailsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <Cpu className="w-5 h-5 text-indigo-500" />
-              Процессор (CPU)
+              {t('containers.cpu')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -141,7 +143,7 @@ export function ContainerDetailsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <HardDrive className="w-5 h-5 text-emerald-500" />
-              Оперативная память
+              {t('containers.memory')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -168,7 +170,7 @@ export function ContainerDetailsPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
               <Network className="w-5 h-5 text-blue-500" />
-              Сеть (I/O)
+              {t('containers.network')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -177,11 +179,11 @@ export function ContainerDetailsPage() {
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">Входящий (RX)</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">{t('containers.rx')}</span>
                   <span className="font-semibold">{formatBytes(stats?.network_rx_bytes || 0)}</span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-                  <span className="text-sm text-slate-500 dark:text-slate-400">Исходящий (TX)</span>
+                  <span className="text-sm text-slate-500 dark:text-slate-400">{t('containers.tx')}</span>
                   <span className="font-semibold">{formatBytes(stats?.network_tx_bytes || 0)}</span>
                 </div>
               </div>

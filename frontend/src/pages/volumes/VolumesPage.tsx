@@ -10,8 +10,10 @@ import { CreateVolumeModal } from '@/features/volumes/components/CreateVolumeMod
 import { getVolumesFn } from '@/features/volumes/api';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { useT } from '@/lib/i18n';
 
 export function VolumesPage() {
+  const t = useT();
   const[isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -31,15 +33,15 @@ export function VolumesPage() {
     <div className="space-y-6 flex flex-col h-full">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Тома данных (Volumes)</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Управление постоянным хранилищем</p>
+          <h1 className="text-3xl font-bold tracking-tight">{t('volumes.title')}</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('volumes.subtitle')}</p>
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
-              placeholder="Поиск..." 
+              placeholder={t('common.search')}
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -53,7 +55,7 @@ export function VolumesPage() {
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Создать
+            {t('common.create')}
           </Button>
         </div>
       </div>
@@ -62,10 +64,10 @@ export function VolumesPage() {
         <div className="overflow-x-auto flex-1">
           <div className={tableLayouts.volumes.minWidth}>
             <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.volumes.grid)}>
-              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>Имя тома</div></div>
-              <div>Статус</div>
-              <div>Дата создания</div>
-              <div className="flex justify-end">Действия</div>
+              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('volumes.name')}</div></div>
+              <div>{t('common.status')}</div>
+              <div>{t('images.createdAt')}</div>
+              <div className="flex justify-end">{t('common.actions')}</div>
             </div>
 
             <div className="flex flex-col">
@@ -87,11 +89,11 @@ export function VolumesPage() {
                   <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
                     <HardDrive className="w-8 h-8" />
                   </div>
-                  <h3 className="text-xl font-semibold mb-2">Нет томов</h3>
+                  <h3 className="text-xl font-semibold mb-2">{t('volumes.emptyTitle')}</h3>
                   <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                    У вас пока нет созданных томов. Создайте том для постоянного хранения данных ваших контейнеров.
+                    {t('volumes.emptyDescription')}
                   </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>Создать том</Button>
+                  <Button onClick={() => setIsCreateModalOpen(true)}>{t('volumes.create')}</Button>
                 </div>
               )}
             </div>

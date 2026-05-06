@@ -7,6 +7,7 @@ import { useToastStore } from '@/store/toastStore';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 
 interface ProjectRowProps {
   project: ProjectData;
@@ -15,15 +16,17 @@ interface ProjectRowProps {
 export function ProjectRow({ project }: ProjectRowProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+  const locale = useLocale();
 
   const deleteMutation = useMutation({
     mutationFn: deleteProjectFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast('Проект успешно удален', 'success');
+      addToast(t('projects.deleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить проект');
+      const { message, requestId } = getApiErrorMessage(error, t('projects.deleteFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -32,10 +35,10 @@ export function ProjectRow({ project }: ProjectRowProps) {
     mutationFn: startProjectFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast('Команда запуска отправлена', 'success');
+      addToast(t('projects.startSent'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось запустить проект');
+      const { message, requestId } = getApiErrorMessage(error, t('projects.startFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -44,10 +47,10 @@ export function ProjectRow({ project }: ProjectRowProps) {
     mutationFn: stopProjectFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast('Команда остановки отправлена', 'success');
+      addToast(t('projects.stopSent'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось остановить проект');
+      const { message, requestId } = getApiErrorMessage(error, t('projects.stopFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -57,32 +60,32 @@ export function ProjectRow({ project }: ProjectRowProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast('Отмена проекта запрошена', 'success');
+      addToast(t('projects.cancelRequested'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить проект');
+      const { message, requestId } = getApiErrorMessage(error, t('projects.cancelFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'running': return <Badge variant="success">Запущен</Badge>;
-      case 'stopped': return <Badge variant="default">Остановлен</Badge>;
-      case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Сборка</Badge>;
-      case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Развертывание</Badge>;
-      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Отмена</Badge>;
-      case 'canceled': return <Badge variant="default">Отменен</Badge>;
-      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Запуск</Badge>;
-      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>Остановка</Badge>;
-      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
-      case 'pending': return <Badge variant="default">В очереди</Badge>;
-      case 'failed': return <Badge variant="error">Ошибка</Badge>;
+      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
+      case 'stopped': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
+      case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
+      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
+      case 'canceled': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
+      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
+      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'pending': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'failed': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
       default: return <Badge variant="default">{status}</Badge>;
     }
   };
 
-  const formattedDate = new Date(project.created_at * 1000).toLocaleDateString('ru-RU', {
+  const formattedDate = new Date(project.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 
@@ -132,7 +135,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
           onClick={() => startMutation.mutate(project.id)}
           disabled={startMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'running'}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title="Запустить сервисы"
+          title={t('containers.start')}
         >
           <Play className="w-4 h-4" />
         </button>
@@ -141,33 +144,33 @@ export function ProjectRow({ project }: ProjectRowProps) {
           onClick={() => stopMutation.mutate(project.id)}
           disabled={stopMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'stopped'}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title="Остановить сервисы"
+          title={t('containers.stop')}
         >
           <Square className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => {
-            if (window.confirm(`Отменить развертывание проекта "${project.name}"?`)) {
+            if (window.confirm(t('projects.cancelConfirm', { name: project.name }))) {
               cancelMutation.mutate(project.id);
             }
           }}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
-          title="Отменить развертывание"
+          title={t('projects.cancelRequested')}
         >
           <XCircle className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => {
-            if (window.confirm(`Удалить проект "${project.name}"?`)) {
+            if (window.confirm(t('projects.deleteConfirm', { name: project.name }))) {
               deleteMutation.mutate(project.id);
             }
           }}
           disabled={deleteMutation.isPending || isWorking}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title="Удалить проект"
+          title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

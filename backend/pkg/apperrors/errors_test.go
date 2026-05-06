@@ -23,3 +23,11 @@ func TestSafeMessageKeepsClientErrors(t *testing.T) {
 		t.Fatalf("error does not match ErrResourceInUse")
 	}
 }
+
+func TestCodeReturnsStableClientCode(t *testing.T) {
+	err := New(ErrResourceInUse, "image is currently used by a container")
+
+	if got := Code(err); got != "resource_in_use" {
+		t.Fatalf("Code() = %q, want %q", got, "resource_in_use")
+	}
+}

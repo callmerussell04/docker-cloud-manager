@@ -2,7 +2,7 @@ import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
-import { DashboardPage } from '@/pages/dashboard/DashboardPage'; // ИМПОРТ ДАШБОРДА
+import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { ContainersPage } from '@/pages/containers/ContainersPage';
 import { ContainerDetailsPage } from '@/pages/containers/ContainerDetailsPage';
 import { ImagesPage } from '@/pages/images/ImagesPage';

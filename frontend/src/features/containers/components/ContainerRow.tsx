@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { statusLabel, useT, type TranslationKey } from '@/lib/i18n';
 
 interface ContainerRowProps {
   container: ContainerData;
@@ -20,38 +21,39 @@ interface ContainerRowProps {
 export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }: ContainerRowProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const actionMutation = useMutation({
     mutationFn: actionContainerFn,
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['containers'] });
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
-      addToast(`Команда ${variables.action} успешно отправлена`, 'success');
+      addToast(t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      const { message, requestId } = getApiErrorMessage(error, t('containers.actionFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'running': return <Badge variant="success">Запущен</Badge>;
-      case 'exited': return <Badge variant="default">Остановлен</Badge>;
-      case 'creating': return <Badge variant="warning">Создается</Badge>;
-      case 'starting': return <Badge variant="info">Запускается</Badge>;
-      case 'stopping': return <Badge variant="warning">Останавливается</Badge>;
-      case 'created': return <Badge variant="default">Создан</Badge>;
-      case 'deleting': return <Badge variant="warning">Удаляется</Badge>;
-      case 'missing': return <Badge variant="error">Missing</Badge>;
-      case 'reconciling': return <Badge variant="warning">Синхронизация</Badge>;
-      case 'error': return <Badge variant="error">Ошибка</Badge>;
+      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
+      case 'exited': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
+      case 'stopping': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'created': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
+      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'missing': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
+      case 'reconciling': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'error': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
       default: return <Badge variant="info">{status}</Badge>;
     }
   };
 
   const handleAction = (action: 'start' | 'stop' | 'delete') => {
-    if (action === 'delete' && !window.confirm(`Удалить контейнер "${container.name}"?`)) {
+    if (action === 'delete' && !window.confirm(t('containers.deleteConfirm', { name: container.name }))) {
       return;
     }
     actionMutation.mutate({ id: container.id, action });
@@ -97,9 +99,9 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
             <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
           </a>
         ) : (
-          <div className="flex items-center gap-2 text-slate-400 min-w-0" title="Не маршрутизируется">
+          <div className="flex items-center gap-2 text-slate-400 min-w-0" title={t('common.notRouted')}>
             <Globe className="w-4 h-4 shrink-0" />
-            <span className="truncate">Не маршрутизируется</span>
+            <span className="truncate">{t('common.notRouted')}</span>
           </div>
         )}
       </div>
@@ -109,7 +111,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           to={`/containers/${container.id}`}
           state={{ container }}
           className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors"
-          title="Статистика"
+          title={t('containers.stats')}
         >
           <Activity className="w-4 h-4" />
         </Link>
@@ -118,7 +120,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => onOpenTerminal(container)}
           disabled={container.status !== 'running'}
           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
-          title="Терминал"
+          title={t('containers.terminal')}
         >
           <Terminal className="w-4 h-4" />
         </button>
@@ -126,7 +128,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         <button
           onClick={() => onViewLogs(container)}
           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
-          title="Логи"
+          title={t('containers.logs')}
         >
           <ScrollText className="w-4 h-4" />
         </button>
@@ -137,7 +139,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('start')}
           disabled={['running', 'creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title="Запустить"
+          title={t('containers.start')}
         >
           <Play className="w-4 h-4" />
         </button>
@@ -146,7 +148,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('stop')}
           disabled={container.status !== 'running' || actionMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title="Остановить"
+          title={t('containers.stop')}
         >
           <Square className="w-4 h-4" />
         </button>
@@ -155,7 +157,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => onExpose(container)}
           disabled={['creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
-          title="Настройки маршрутизации"
+          title={t('containers.routingSettings')}
         >
           <Globe className="w-4 h-4" />
         </button>
@@ -164,7 +166,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('delete')}
           disabled={container.status === 'deleting' || actionMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title="Удалить"
+          title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

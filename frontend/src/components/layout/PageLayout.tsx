@@ -2,9 +2,11 @@ import { Outlet } from 'react-router-dom';
 import { useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { useT } from '@/lib/i18n';
 
 export function PageLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const t = useT();
 
   return (
     <div className="flex h-screen w-full overflow-hidden text-slate-900 dark:text-slate-100">
@@ -24,7 +26,7 @@ export function PageLayout() {
             type="button"
             className="absolute inset-0 bg-slate-950/40"
             onClick={() => setIsMobileNavOpen(false)}
-            aria-label="Закрыть навигацию"
+            aria-label={t('topbar.closeNavigation')}
           />
           <div className="relative h-full">
             <Sidebar mobile onNavigate={() => setIsMobileNavOpen(false)} />

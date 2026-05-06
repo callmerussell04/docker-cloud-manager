@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
-import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/Button';
@@ -20,6 +19,7 @@ import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
+import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
@@ -56,6 +56,8 @@ export function AllResourcesPage() {
 
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+  const locale = useLocale();
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
@@ -97,10 +99,10 @@ export function AllResourcesPage() {
     mutationFn: adminActionContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
-      addToast('Действие выполнено', 'success');
+      addToast(t('admin.resources.done'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.resources.actionFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -109,10 +111,10 @@ export function AllResourcesPage() {
     mutationFn: adminDeleteVolumeFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_volumes'] });
-      addToast('Том удален', 'success');
+      addToast(t('admin.resources.volumeDeleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить том');
+      const { message, requestId } = getApiErrorMessage(error, t('volumes.deleteFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -121,10 +123,10 @@ export function AllResourcesPage() {
     mutationFn: adminDeleteImageFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_images'] });
-      addToast('Образ удален', 'success');
+      addToast(t('admin.resources.imageDeleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить образ');
+      const { message, requestId } = getApiErrorMessage(error, t('images.deleteFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -134,10 +136,10 @@ export function AllResourcesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey:['admin_projects'] });
       queryClient.invalidateQueries({ queryKey:['admin_builds'] });
-      addToast('Действие выполнено', 'success');
+      addToast(t('admin.resources.done'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось выполнить действие');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.resources.actionFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -146,10 +148,10 @@ export function AllResourcesPage() {
     mutationFn: adminDeleteBuildFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
-      addToast('Сборка удалена', 'success');
+      addToast(t('admin.resources.buildDeleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить сборку');
+      const { message, requestId } = getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -158,10 +160,10 @@ export function AllResourcesPage() {
     mutationFn: adminCancelBuildFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
-      addToast('Отмена сборки запрошена', 'success');
+      addToast(t('images.cancelBuildRequested'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить сборку');
+      const { message, requestId } = getApiErrorMessage(error, t('images.cancelBuildFailed'), t);
       addToast(message, 'error', { requestId });
     }
   });
@@ -174,24 +176,24 @@ export function AllResourcesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center gap-3">
             <ShieldAlert className="w-8 h-8" />
-            Все ресурсы системы
+            {t('admin.resources.title')}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Управление ресурсами всех пользователей платформы</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.resources.subtitle')}</p>
         </div>
         
         <Button variant="secondary" onClick={() => queryClient.invalidateQueries()} isLoading={isFetching} className="px-3">
-          <RefreshCcw className="w-4 h-4 mr-2" /> Обновить
+          <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
         </Button>
       </div>
 
       <div className="max-w-full overflow-x-auto pb-1 shrink-0">
         <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
         {[
-          { id: 'containers', label: 'Контейнеры', icon: Box },
-          { id: 'volumes', label: 'Тома', icon: HardDrive },
-          { id: 'images', label: 'Образы', icon: Disc },
-          { id: 'builds', label: 'Сборки', icon: Hammer },
-          { id: 'projects', label: 'Проекты', icon: Layers },
+          { id: 'containers', label: t('nav.containers'), icon: Box },
+          { id: 'volumes', label: t('nav.volumes'), icon: HardDrive },
+          { id: 'images', label: t('nav.images'), icon: Disc },
+          { id: 'builds', label: t('images.buildHistory'), icon: Hammer },
+          { id: 'projects', label: t('projects.title'), icon: Layers },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -216,43 +218,43 @@ export function AllResourcesPage() {
             
             {activeTab === 'containers' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminContainers.grid)}>
-                <div className="pl-2">Контейнер / ID</div>
-                <div>Статус</div>
+                <div className="pl-2">{t('containers.name')} / ID</div>
+                <div>{t('common.status')}</div>
                 <div>User ID / Docker ID</div>
-                <div className="flex justify-end">Управление</div>
+                <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'volumes' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminVolumes.grid)}>
-                <div className="pl-2">Имя тома</div>
-                <div>Статус / Дата / User</div>
-                <div className="flex justify-end">Управление</div>
+                <div className="pl-2">{t('volumes.name')}</div>
+                <div>{t('common.status')} / {t('images.createdAt')} / User</div>
+                <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'images' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminImages.grid)}>
-                <div className="pl-2">Тег</div>
-                <div>Размер / Статус</div>
+                <div className="pl-2">{t('images.tag')}</div>
+                <div>{t('images.size')} / {t('common.status')}</div>
                 <div>User ID</div>
-                <div className="flex justify-end">Управление</div>
+                <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'builds' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminBuilds.grid)}>
                 <div className="pl-2">Build ID</div>
-                <div>Статус</div>
+                <div>{t('common.status')}</div>
                 <div>Image ID</div>
                 <div>User</div>
-                <div>Дата запуска</div>
-                <div className="flex justify-end">Управление</div>
+                <div>{t('images.startedAt')}</div>
+                <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'projects' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminProjects.grid)}>
-                <div className="pl-2">Проект</div>
-                <div>Статус</div>
+                <div className="pl-2">{t('projects.project')}</div>
+                <div>{t('common.status')}</div>
                 <div>User ID</div>
-                <div className="flex justify-end">Управление</div>
+                <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
 
@@ -268,7 +270,7 @@ export function AllResourcesPage() {
                         <div className="text-xs text-slate-500 block truncate font-mono">{c.id}</div>
                       </div>
                       <div className="min-w-0">
-                        <Badge variant={statusVariant(c.status)}>{c.status}</Badge>
+                        <Badge variant={statusVariant(c.status)}>{statusLabel(t, c.status)}</Badge>
                         {c.last_error && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={c.last_error}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -309,7 +311,7 @@ export function AllResourcesPage() {
                           className="h-8 px-2"
                           disabled={actionContainerMut.isPending || c.status === 'deleting'}
                           onClick={() => {
-                            if (window.confirm(`Удалить контейнер "${c.name}"?`)) {
+                            if (window.confirm(t('containers.deleteConfirm', { name: c.name }))) {
                               actionContainerMut.mutate({ id: c.id, action: 'delete' });
                             }
                           }}
@@ -333,8 +335,8 @@ export function AllResourcesPage() {
                         )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
-                        <Badge variant={statusVariant(v.status)}>{v.status}</Badge>
-                        <div className="block truncate">{format(v.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <Badge variant={statusVariant(v.status)}>{statusLabel(t, v.status)}</Badge>
+                        <div className="block truncate">{new Date(v.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
                         <div className="block truncate" title={v.owner_username}>User: {v.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
@@ -343,7 +345,7 @@ export function AllResourcesPage() {
                           className="h-8 px-2"
                           disabled={delVolMut.isPending}
                           onClick={() => {
-                            if (window.confirm(`Удалить том "${v.docker_name || v.id}"?`)) {
+                            if (window.confirm(t('volumes.deleteConfirm', { name: v.docker_name || v.id }))) {
                               delVolMut.mutate(v.id);
                             }
                           }}
@@ -368,7 +370,7 @@ export function AllResourcesPage() {
                       <div className="min-w-0">
                         <Badge variant="info">{img.size_mb} MB</Badge>
                         <div className="mt-1">
-                          <Badge variant={statusVariant(img.status)}>{img.status}</Badge>
+                          <Badge variant={statusVariant(img.status)}>{statusLabel(t, img.status)}</Badge>
                         </div>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
@@ -380,7 +382,7 @@ export function AllResourcesPage() {
                           className="h-8 px-2"
                           disabled={delImgMut.isPending}
                           onClick={() => {
-                            if (window.confirm(`Удалить образ "${img.tag}"?`)) {
+                            if (window.confirm(t('images.deleteConfirm', { name: img.tag }))) {
                               delImgMut.mutate(img.id);
                             }
                           }}
@@ -400,17 +402,17 @@ export function AllResourcesPage() {
                           <div className="font-medium block truncate font-mono" title={build.id}>{build.id}</div>
                         </div>
                         <div className="min-w-0">
-                        <Badge variant={statusVariant(build.status)}>{build.status}</Badge>
+                        <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
                         </div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>User: {build.owner_username || build.owner_id || 'unknown'}</div>
-                        <div className="min-w-0 text-xs text-slate-500 truncate">{format(build.started_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <div className="min-w-0 text-xs text-slate-500 truncate">{new Date(build.started_at * 1000).toLocaleString(dateLocale(locale))}</div>
                         <div className="flex gap-2 justify-end shrink-0">
                           <Button
                             variant="secondary"
                             className="h-8 px-2"
                             disabled={!canViewLogs}
-                            title={canViewLogs ? 'Просмотр логов' : 'Логи доступны после завершения сборки'}
+                            title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
                             onClick={() => setViewLogsBuild(build)}
                           >
                             <ScrollText className="w-4 h-4" />
@@ -420,7 +422,7 @@ export function AllResourcesPage() {
                             className="h-8 px-2"
                             disabled={!canCancel || cancelBuildMut.isPending}
                             onClick={() => {
-                              if (window.confirm(`Отменить сборку "${build.id}"?`)) {
+                              if (window.confirm(t('images.cancelBuildConfirm', { id: build.id }))) {
                                 cancelBuildMut.mutate(build.id);
                               }
                             }}
@@ -432,7 +434,7 @@ export function AllResourcesPage() {
                             className="h-8 px-2"
                             disabled={canCancel || delBuildMut.isPending}
                             onClick={() => {
-                              if (window.confirm(`Удалить запись сборки "${build.id}"?`)) {
+                              if (window.confirm(t('images.deleteBuildConfirm', { id: build.id }))) {
                                 delBuildMut.mutate(build.id);
                               }
                             }}
@@ -456,7 +458,7 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0">
                         <Badge variant={statusVariant(p.status)}>
-                          {p.status === 'stopped' ? 'Остановлен' : p.status}
+                          {statusLabel(t, p.status)}
                         </Badge>
                         {p.last_error && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={p.last_error}>
@@ -466,7 +468,7 @@ export function AllResourcesPage() {
                         )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
-                        <div className="block truncate">{format(p.created_at * 1000, 'dd.MM.yyyy HH:mm')}</div>
+                        <div className="block truncate">{new Date(p.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
                         <div className="block truncate" title={p.owner_username}>User: {p.owner_username || 'unknown'}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
@@ -491,7 +493,7 @@ export function AllResourcesPage() {
                           className="h-8 px-2"
                           disabled={actionProjMut.isPending || !canCancelProject}
                           onClick={() => {
-                            if (window.confirm(`Отменить развертывание проекта "${p.name}"?`)) {
+                            if (window.confirm(t('projects.cancelConfirm', { name: p.name }))) {
                               actionProjMut.mutate({ id: p.id, action: 'cancel' });
                             }
                           }}
@@ -503,7 +505,7 @@ export function AllResourcesPage() {
                           className="h-8 px-2"
                           disabled={actionProjMut.isPending || isProjectBusy}
                           onClick={() => {
-                            if (window.confirm(`Удалить проект "${p.name}"?`)) {
+                            if (window.confirm(t('projects.deleteConfirm', { name: p.name }))) {
                               actionProjMut.mutate({ id: p.id, action: 'delete' });
                             }
                           }}

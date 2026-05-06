@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './Button';
+import { useT } from '@/lib/i18n';
 
 interface PaginationProps {
   currentPage: number;
@@ -10,13 +11,18 @@ interface PaginationProps {
 
 export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: PaginationProps) {
   const totalPages = Math.ceil(totalItems / pageSize);
+  const t = useT();
 
   if (totalPages <= 1) return null;
 
   return (
     <div className="flex flex-col gap-3 border-t border-white/20 px-4 py-3 dark:border-slate-700/50 sm:flex-row sm:items-center sm:justify-between">
       <div className="text-sm text-slate-500 dark:text-slate-400">
-        Показано <span className="font-medium text-slate-900 dark:text-slate-100">{(currentPage - 1) * pageSize + 1}</span> — <span className="font-medium text-slate-900 dark:text-slate-100">{Math.min(currentPage * pageSize, totalItems)}</span> из <span className="font-medium text-slate-900 dark:text-slate-100">{totalItems}</span>
+        {t('pagination.summary', {
+          from: (currentPage - 1) * pageSize + 1,
+          to: Math.min(currentPage * pageSize, totalItems),
+          total: totalItems,
+        })}
       </div>
       <div className="flex items-center justify-end gap-2">
         <Button

@@ -224,6 +224,7 @@ func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 	rw.WriteHeader(statusCode)
 	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{
 		Error:     apperrors.SafeMessage(appErr),
+		ErrorCode: apperrors.Code(appErr),
 		RequestID: logging.RequestIDFromContext(req.Context()),
 	})
 }

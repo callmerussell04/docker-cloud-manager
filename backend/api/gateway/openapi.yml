@@ -1358,6 +1358,8 @@ components:
       properties:
         error:
           type: string
+        error_code:
+          type: string
         request_id:
           type: string
 

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { TFunction } from '@/lib/i18n';
 
 export interface ImageData {
   id: string;
@@ -44,16 +45,16 @@ export interface CreateBuildGitPayload {
   build_args?: Record<string, string>;
 }
 
-export const createBuildSchema = z.object({
-  tag: z.string().min(1, 'Укажите тег образа (например, my-app:v1)'),
+export const createBuildSchema = (t: TFunction) => z.object({
+  tag: z.string().min(1, t('validation.imageRequired')),
   context: z.string().optional().default('.'),
   dockerfile: z.string().optional().default('Dockerfile'),
   repo_url: z.string().optional(),
   ref: z.string().optional(),
   build_args: z.array(z.object({
-    key: z.string().min(1, 'Ключ обязателен'),
+    key: z.string().min(1, t('validation.keyRequired')),
     value: z.string()
   })).optional(),
 });
 
-export type CreateBuildForm = z.input<typeof createBuildSchema>;
+export type CreateBuildForm = z.input<ReturnType<typeof createBuildSchema>>;

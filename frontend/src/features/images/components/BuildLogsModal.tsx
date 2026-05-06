@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { getBuildLogsFn } from '../api';
 import { type BuildData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface BuildLogsModalProps {
   build: BuildData | null;
@@ -16,6 +17,7 @@ interface BuildLogsModalProps {
 
 export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsModalProps) {
   const scrollRef = useRef<HTMLPreElement>(null);
+  const t = useT();
 
   const { data: logs, error, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['buildLogs', build?.id, isAdmin],
@@ -32,10 +34,10 @@ export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsMod
   }, [logs]);
 
   if (!build) return null;
-  const logsError = isError ? getApiErrorMessage(error, 'Не удалось загрузить логи сборки') : null;
+  const logsError = isError ? getApiErrorMessage(error, t('images.loadLogsFailed'), t) : null;
 
   return (
-    <Modal isOpen={!!build} onClose={onClose} title="Логи сборки" className="max-w-4xl">
+    <Modal isOpen={!!build} onClose={onClose} title={t('images.buildLogsTitle')} className="max-w-4xl">
       <div className="flex-1 min-h-[400px] max-h-[60vh] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden relative group">
         <div className="absolute top-0 left-0 right-0 h-10 bg-slate-900 border-b border-slate-800 flex items-center px-4 justify-between z-10">
           <div className="flex items-center gap-2 text-slate-400">
@@ -51,15 +53,15 @@ export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsMod
           ref={scrollRef}
           className="p-4 pt-14 h-full w-full overflow-auto text-xs font-mono text-slate-300 leading-relaxed whitespace-pre-wrap break-all"
         >
-          {isLoading && !logs && 'Загрузка логов...'}
+          {isLoading && !logs && t('images.logsLoading')}
           {logsError && !logs && logsError.message}
-          {logs && !logs.trim() && 'Лог пуст'}
+          {logs && !logs.trim() && t('images.logsEmpty')}
           {logs}
         </pre>
       </div>
 
       <div className="flex justify-end gap-3 pt-6 mt-2">
-        <Button onClick={onClose}>Закрыть</Button>
+        <Button onClick={onClose}>{t('common.close')}</Button>
       </div>
     </Modal>
   );

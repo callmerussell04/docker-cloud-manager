@@ -23,6 +23,7 @@ import { type AdminUser, type AdminUserForm, adminUserSchema } from '@/features/
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { statusLabel, useT } from '@/lib/i18n';
 
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);
@@ -31,6 +32,7 @@ export function AdminUsersPage() {
   const limit = 20;
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const { data, isFetching, refetch } = useQuery({
     queryKey: ['admin_users', page],
@@ -41,10 +43,10 @@ export function AdminUsersPage() {
     mutationFn: deactivateAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast('Пользователь деактивирован', 'success');
+      addToast(t('admin.users.deactivated'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось деактивировать пользователя');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.users.deactivateFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -53,10 +55,10 @@ export function AdminUsersPage() {
     mutationFn: reactivateAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast('Пользователь активирован', 'success');
+      addToast(t('admin.users.activated'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось активировать пользователя');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.users.activateFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -69,9 +71,9 @@ export function AdminUsersPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center gap-3">
             <Users className="w-8 h-8" />
-            Пользователи
+            {t('admin.users.title')}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Роли, статус и квоты пользователей</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.users.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
@@ -79,7 +81,7 @@ export function AdminUsersPage() {
           </Button>
           <Button onClick={() => setIsCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
-            Создать
+            {t('admin.users.create')}
           </Button>
         </div>
       </div>
@@ -91,9 +93,9 @@ export function AdminUsersPage() {
               <div>Username</div>
               <div>Email / ID</div>
               <div>Role</div>
-              <div>Status</div>
+              <div>{t('common.status')}</div>
               <div>Quotas</div>
-              <div className="flex justify-end">Управление</div>
+              <div className="flex justify-end">{t('admin.users.management')}</div>
             </div>
 
             {isFetching ? (
@@ -107,7 +109,7 @@ export function AdminUsersPage() {
                     <div className="text-xs font-mono text-slate-500 truncate">{user.user_id}</div>
                   </div>
                   <div><Badge variant={user.role === 'admin' ? 'error' : 'default'}>{user.role}</Badge></div>
-                  <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{user.status}</Badge></div>
+                  <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{statusLabel(t, user.status)}</Badge></div>
                   <div className="text-xs text-slate-500 space-y-1">
                     <div>CPU: {user.quota_cpu}</div>
                     <div>RAM: {user.quota_ram_mb} MB</div>
@@ -123,7 +125,7 @@ export function AdminUsersPage() {
                         className="h-8 px-2"
                         disabled={deactivateMutation.isPending}
                         onClick={() => {
-                          if (window.confirm(`Деактивировать пользователя "${user.username}"?`)) {
+                          if (window.confirm(t('admin.users.deactivateConfirm', { name: user.username }))) {
                             deactivateMutation.mutate(user.user_id);
                           }
                         }}
@@ -139,7 +141,7 @@ export function AdminUsersPage() {
                 </div>
               ))
             ) : (
-              <div className="p-12 text-center text-slate-500">Пользователи не найдены</div>
+              <div className="p-12 text-center text-slate-500">{t('admin.users.notFound')}</div>
             )}
           </div>
         </div>
@@ -162,9 +164,10 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const isEdit = !!user;
+  const t = useT();
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<AdminUserForm>({
-    resolver: zodResolver(adminUserSchema),
+    resolver: zodResolver(adminUserSchema(t)),
     defaultValues: {
       role: 'user',
       status: 'active',
@@ -195,11 +198,11 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
     mutationFn: createAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast('Пользователь создан', 'success');
+      addToast(t('admin.users.created'), 'success');
       onClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось создать пользователя');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.users.createFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -208,18 +211,18 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
     mutationFn: updateAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast('Пользователь обновлен', 'success');
+      addToast(t('admin.users.updated'), 'success');
       onClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить пользователя');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.users.updateFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
   const onSubmit = (data: AdminUserForm) => {
     if (!isEdit && !data.password) {
-      addToast('Пароль обязателен для нового пользователя', 'error');
+      addToast(t('validation.passwordRequired'), 'error');
       return;
     }
     const payload = { ...data, password: data.password || undefined };
@@ -231,20 +234,20 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? 'Редактировать пользователя' : 'Создать пользователя'} className="max-w-2xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEdit ? t('admin.users.editTitle') : t('admin.users.createTitle')} className="max-w-2xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username">{t('form.username')}</Label>
             <Input id="username" {...register('username')} error={!!errors.username} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">{t('form.email')}</Label>
             <Input id="email" type="email" {...register('email')} error={!!errors.email} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" placeholder={isEdit ? 'Не менять' : ''} {...register('password')} error={!!errors.password} />
+            <Label htmlFor="password">{t('form.password')}</Label>
+            <Input id="password" type="password" placeholder={isEdit ? t('form.passwordKeep') : ''} {...register('password')} error={!!errors.password} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="role">Role</Label>
@@ -256,8 +259,8 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
           <div className="space-y-2">
             <Label htmlFor="status">Status</Label>
             <Select id="status" {...register('status')}>
-              <option value="active">active</option>
-              <option value="deactivated">deactivated</option>
+              <option value="active">{t('status.active')}</option>
+              <option value="deactivated">{t('status.deactivated')}</option>
             </Select>
           </div>
           <div className="space-y-2">
@@ -274,8 +277,8 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
           </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-          <Button type="button" variant="ghost" onClick={onClose}>Отмена</Button>
-          <Button type="submit" isLoading={createMutation.isPending || updateMutation.isPending}>Сохранить</Button>
+          <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" isLoading={createMutation.isPending || updateMutation.isPending}>{t('common.save')}</Button>
         </div>
       </form>
     </Modal>

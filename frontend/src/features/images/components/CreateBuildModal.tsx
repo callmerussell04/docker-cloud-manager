@@ -14,6 +14,7 @@ import { createBuildFn, createBuildFromGitFn, getBuildAvailabilityFn } from '../
 import { type CreateBuildForm, type CreateBuildGitPayload, createBuildSchema } from '../types';
 import { cn, formatBytes } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface CreateBuildModalProps {
   isOpen: boolean;
@@ -21,12 +22,13 @@ interface CreateBuildModalProps {
   onSuccessSwitchTab: () => void;
 }
 
-type CreateBuildValues = z.output<typeof createBuildSchema>;
+type CreateBuildValues = z.output<ReturnType<typeof createBuildSchema>>;
 type SourceMode = 'archive' | 'git';
 
 export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: CreateBuildModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
   const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
@@ -38,7 +40,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   });
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateBuildForm, unknown, CreateBuildValues>({
-    resolver: zodResolver(createBuildSchema),
+    resolver: zodResolver(createBuildSchema(t)),
     defaultValues: {
       context: '.',
       dockerfile: 'Dockerfile',
@@ -57,19 +59,19 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
     ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast('Сборка успешно инициирована', 'success');
+      addToast(t('images.buildStarted'), 'success');
       handleClose();
       onSuccessSwitchTab();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось инициировать сборку');
+      const { message, requestId } = getApiErrorMessage(error, t('images.buildStartFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
   const onSubmit = (data: CreateBuildValues) => {
     if (sourceMode === 'archive' && !file) {
-      addToast('Пожалуйста, выберите архив с кодом', 'error');
+      addToast(t('validation.archiveRequired'), 'error');
       return;
     }
 
@@ -82,7 +84,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
 
     if (sourceMode === 'git') {
       if (!data.repo_url?.trim()) {
-        addToast('Укажите URL Git-репозитория', 'error');
+        addToast(t('validation.gitUrlRequired'), 'error');
         return;
       }
       mutation.mutate({
@@ -124,7 +126,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
       const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
       
       if (!validTypes.includes(selected.type) && !isValidExt) {
-        addToast('Допустимы только архивы .zip, .tar, .tar.gz', 'error');
+        addToast(t('validation.buildFileType'), 'error');
         return;
       }
       
@@ -133,11 +135,11 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Собрать образ" className="max-w-2xl">
+    <Modal isOpen={isOpen} onClose={handleClose} title={t('images.createBuildTitle')} className="max-w-2xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {availability && !availability.enabled && (
           <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900/50 dark:bg-yellow-900/20 dark:text-yellow-300">
-            {availability.message || 'Сборка образов сейчас недоступна.'}
+            {availability.message || t('images.buildUnavailable')}
           </div>
         )}
 
@@ -153,7 +155,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
             )}
           >
             <UploadCloud className="h-4 w-4" />
-            Архив
+            {t('images.archive')}
           </button>
           <button
             type="button"
@@ -188,7 +190,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
                 <p className="font-medium">{file.name}</p>
                 <p className="text-xs text-slate-500 mb-4">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 <Button type="button" variant="ghost" onClick={() => setFile(null)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
-                  <X className="w-4 h-4 mr-2" /> Удалить файл
+                  <X className="w-4 h-4 mr-2" /> {t('images.removeFile')}
                 </Button>
               </div>
             ) : (
@@ -196,8 +198,8 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
                 <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full flex items-center justify-center mb-3 cursor-pointer">
                   <UploadCloud className="w-6 h-6" />
                 </div>
-                <p className="font-medium cursor-pointer">Нажмите, чтобы загрузить архив</p>
-                <p className="text-xs text-slate-500 mt-1">Только .zip, .tar, .tar.gz. Лимит проверяется backend.</p>
+                <p className="font-medium cursor-pointer">{t('images.uploadArchive')}</p>
+                <p className="text-xs text-slate-500 mt-1">{t('images.archiveHint')}</p>
               </div>
             )}
           </div>
@@ -215,39 +217,39 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
           </div>
         )}
         {sourceMode === 'archive' && file && (
-          <p className="text-xs text-slate-500 -mt-4">Размер файла: {formatBytes(file.size)}</p>
+          <p className="text-xs text-slate-500 -mt-4">{t('images.fileSize', { size: formatBytes(file.size) })}</p>
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="tag">Тег образа</Label>
+            <Label htmlFor="tag">{t('images.imageTag')}</Label>
             <Input id="tag" placeholder="my-app:v1" error={!!errors.tag} {...register('tag')} />
             {errors.tag && <p className="text-sm text-red-500">{errors.tag?.message as string}</p>}
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="context">Контекст сборки</Label>
+            <Label htmlFor="context">{t('images.buildContext')}</Label>
             <Input id="context" placeholder="." error={!!errors.context} {...register('context')} />
-            <p className="text-xs text-slate-500">Путь к папке внутри архива</p>
+            <p className="text-xs text-slate-500">{t('images.buildContextHint')}</p>
           </div>
 
           <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="dockerfile">Путь к Dockerfile</Label>
+            <Label htmlFor="dockerfile">{t('images.dockerfilePath')}</Label>
             <Input id="dockerfile" placeholder="Dockerfile" error={!!errors.dockerfile} {...register('dockerfile')} />
-            <p className="text-xs text-slate-500">Относительно контекста сборки</p>
+            <p className="text-xs text-slate-500">{t('images.dockerfileHint')}</p>
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
-          <h4 className="font-medium">Build Args (опционально)</h4>
+          <h4 className="font-medium">{t('images.buildArgs')}</h4>
           {argFields.map((field, index) => (
             <div key={field.id} className="flex gap-2 items-start">
               <div className="flex-1">
-                <Input placeholder="Ключ" {...register(`build_args.${index}.key`)} />
+                <Input placeholder={t('images.key')} {...register(`build_args.${index}.key`)} />
                 {errors.build_args?.[index]?.key && <p className="text-xs text-red-500 mt-1">{errors.build_args[index]?.key?.message}</p>}
               </div>
               <div className="flex-1">
-                <Input placeholder="Значение" {...register(`build_args.${index}.value`)} />
+                <Input placeholder={t('images.value')} {...register(`build_args.${index}.value`)} />
               </div>
               <Button type="button" variant="danger" onClick={() => removeArg(index)} className="px-3">
                 <Trash2 className="w-4 h-4" />
@@ -255,13 +257,13 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
             </div>
           ))}
           <Button type="button" variant="secondary" onClick={() => appendArg({ key: '', value: '' })} className="w-full text-sm">
-            <Plus className="w-4 h-4 mr-2" /> Добавить аргумент
+            <Plus className="w-4 h-4 mr-2" /> {t('images.addArg')}
           </Button>
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-          <Button type="button" variant="ghost" onClick={handleClose}>Отмена</Button>
-          <Button type="submit" isLoading={mutation.isPending} disabled={availability?.enabled === false}>Собрать</Button>
+          <Button type="button" variant="ghost" onClick={handleClose}>{t('common.cancel')}</Button>
+          <Button type="submit" isLoading={mutation.isPending} disabled={availability?.enabled === false}>{t('images.build')}</Button>
         </div>
       </form>
     </Modal>

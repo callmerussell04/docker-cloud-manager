@@ -11,6 +11,7 @@ import (
 
 type ErrorResponse struct {
 	Error     string `json:"error"`
+	ErrorCode string `json:"error_code"`
 	RequestID string `json:"request_id,omitempty"`
 }
 
@@ -18,6 +19,7 @@ func Respond(c *gin.Context, statusCode int, err error) {
 	_ = c.Error(err)
 	c.AbortWithStatusJSON(statusCode, ErrorResponse{
 		Error:     apperrors.SafeMessage(err),
+		ErrorCode: apperrors.Code(err),
 		RequestID: logging.RequestIDFromContext(c.Request.Context()),
 	})
 }

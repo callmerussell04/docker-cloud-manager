@@ -8,6 +8,7 @@ import { WS_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface ContainerTerminalModalProps {
   container: ContainerData | null;
@@ -22,6 +23,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
   const wsRef = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   useEffect(() => {
     if (!container || !terminalRef.current) return;
@@ -98,7 +100,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
           }
         });
       } catch (error) {
-        const { message, requestId } = getApiErrorMessage(error, 'Не удалось получить тикет для терминала');
+        const { message, requestId } = getApiErrorMessage(error, t('containers.terminalTicketFailed'), t);
         addToast(message, 'error', { requestId });
         onClose();
       }
@@ -126,15 +128,15 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
   if (!container) return null;
 
   return (
-    <Modal isOpen={!!container} onClose={onClose} title={`Терминал: ${container.name}`} className="max-w-5xl">
+    <Modal isOpen={!!container} onClose={onClose} title={t('containers.terminalTitle', { name: container.name })} className="max-w-5xl">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between px-2">
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-slate-500">{isConnected ? 'Подключено' : 'Отключено'}</span>
+            <span className="text-xs text-slate-500">{isConnected ? t('connection.connected') : t('connection.disconnected')}</span>
           </div>
           <span className="text-xs text-slate-500">
-            Для выхода закройте окно или введите exit
+            {t('containers.terminalExitHint')}
           </span>
         </div>
         <div className="bg-[#020617] rounded-xl border border-slate-800 p-2 overflow-hidden h-[60vh]">

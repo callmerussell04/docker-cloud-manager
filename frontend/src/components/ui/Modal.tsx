@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card } from './Card';
+import { useT } from '@/lib/i18n';
 
 interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   isOpen: boolean;
@@ -11,6 +12,8 @@ interface ModalProps extends HTMLAttributes<HTMLDivElement> {
 }
 
 export function Modal({ isOpen, onClose, title, children, className, ...props }: ModalProps) {
+  const t = useT();
+
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
 
@@ -57,7 +60,7 @@ export function Modal({ isOpen, onClose, title, children, className, ...props }:
           <button
             onClick={onClose}
             className="p-1.5 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors shrink-0"
-            aria-label="Закрыть окно"
+            aria-label={t('common.closeModal')}
           >
             <X className="w-5 h-5 opacity-70" />
           </button>

@@ -12,6 +12,7 @@ import { useToastStore } from '@/store/toastStore';
 import { getSystemConfigFn, updateSystemConfigFn } from '@/features/admin/api';
 import { type SystemConfig, type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 type ConfigFieldName = keyof SystemConfigForm & string;
 type ConfigFieldConfig = {
@@ -130,6 +131,7 @@ const sections: Array<{
 export function SystemSettingsPage() {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['systemConfig'],
@@ -150,10 +152,10 @@ export function SystemSettingsPage() {
     mutationFn: updateSystemConfigFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['systemConfig'] });
-      addToast('Конфигурация успешно обновлена', 'success');
+      addToast(t('admin.settings.updated'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось обновить конфигурацию');
+      const { message, requestId } = getApiErrorMessage(error, t('admin.settings.updateFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -174,8 +176,8 @@ export function SystemSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Настройки системы</h1>
-        <p className="text-slate-500 dark:text-slate-400 mt-1">Runtime-конфигурация Core. Сохраняется полный объект без удаления новых полей.</p>
+        <h1 className="text-3xl font-bold tracking-tight">{t('admin.settings.title')}</h1>
+        <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.settings.subtitle')}</p>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -196,6 +198,7 @@ export function SystemSettingsPage() {
                     register={register}
                     error={errors[field.name as keyof SystemConfigForm]}
                     value={field.type === 'array' ? arrayText(field.name) : undefined}
+                    placeholder={t('admin.settings.onePerLine')}
                     onArrayChange={(value) => {
                       setValue(field.name, value.split('\n').map((item) => item.trim()).filter(Boolean) as never, { shouldDirty: true });
                     }}
@@ -209,7 +212,7 @@ export function SystemSettingsPage() {
         <div className="sticky bottom-4 flex justify-end pt-4">
           <Button type="submit" isLoading={mutation.isPending}>
             <Save className="w-4 h-4 mr-2" />
-            Сохранить изменения
+            {t('common.saveChanges')}
           </Button>
         </div>
       </form>
@@ -222,12 +225,14 @@ function ConfigField({
   register,
   error,
   value,
+  placeholder,
   onArrayChange,
 }: {
   field: ConfigFieldConfig;
   register: UseFormRegister<SystemConfigForm>;
   error: unknown;
   value?: string;
+  placeholder: string;
   onArrayChange: (value: string) => void;
 }) {
   if (field.type === 'boolean') {
@@ -248,7 +253,7 @@ function ConfigField({
           value={value || ''}
           onChange={(event) => onArrayChange(event.target.value)}
           className="min-h-28 flex w-full rounded-xl bg-white/50 dark:bg-slate-900/50 backdrop-blur-md border border-white/40 dark:border-slate-700/50 px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-          placeholder="По одному значению на строку"
+          placeholder={placeholder}
         />
       </div>
     );

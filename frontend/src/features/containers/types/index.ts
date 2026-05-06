@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { TFunction } from '@/lib/i18n';
 
 export interface ContainerData {
   id: string;
@@ -36,23 +37,23 @@ export interface PaginatedResponse<T> {
   total_count: number;
 }
 
-export const createContainerSchema = z.object({
-  name: z.string().min(1, 'Имя обязательно'),
-  image_tag: z.string().min(1, 'Укажите образ'),
+export const createContainerSchema = (t: TFunction) => z.object({
+  name: z.string().min(1, t('validation.nameRequired')),
+  image_tag: z.string().min(1, t('validation.imageRequired')),
   internal_port: z.union([z.string(), z.number()]).optional().transform(v => v === '' ? undefined : Number(v)),
-  domain_prefix: z.string().max(30, 'Максимум 30 символов').optional().transform(v => v === '' ? undefined : v),
+  domain_prefix: z.string().max(30, t('validation.max30')).optional().transform(v => v === '' ? undefined : v),
   env_vars: z.array(z.object({
-    key: z.string().min(1, 'Ключ обязателен'),
+    key: z.string().min(1, t('validation.keyRequired')),
     value: z.string()
   })).optional(),
   volume_mounts: z.array(z.object({
-    volume_id: z.string().min(1, 'Выберите том'),
-    mount_path: z.string().min(1, 'Путь обязателен'),
+    volume_id: z.string().min(1, t('validation.volumeRequired')),
+    mount_path: z.string().min(1, t('validation.pathRequired')),
     is_readonly: z.boolean()
   })).optional()
 });
 
-export type CreateContainerForm = z.input<typeof createContainerSchema>;
+export type CreateContainerForm = z.input<ReturnType<typeof createContainerSchema>>;
 
 export interface CreateContainerDTO {
   name: string;
@@ -67,9 +68,9 @@ export interface CreateContainerDTO {
   }>;
 }
 
-export const exposeContainerSchema = z.object({
-  domain_prefix: z.string().min(1, 'Префикс обязателен').max(30, 'Максимум 30 символов'),
+export const exposeContainerSchema = (t: TFunction) => z.object({
+  domain_prefix: z.string().min(1, t('validation.prefixRequired')).max(30, t('validation.max30')),
   internal_port: z.union([z.string(), z.number()]).transform(v => Number(v)),
 });
 
-export type ExposeContainerDTO = z.infer<typeof exposeContainerSchema>;
+export type ExposeContainerDTO = z.infer<ReturnType<typeof exposeContainerSchema>>;

@@ -1,18 +1,19 @@
 import { z } from 'zod';
+import type { TFunction } from '@/lib/i18n';
 
-export const loginSchema = z.object({
-  username: z.string().min(1, 'Имя пользователя обязательно'),
-  password: z.string().min(6, 'Пароль должен содержать минимум 6 символов'),
+export const createLoginSchema = (t: TFunction) => z.object({
+  username: z.string().min(1, t('validation.usernameRequired')),
+  password: z.string().min(6, t('validation.passwordMin6')),
 });
 
-export const registerSchema = z.object({
-  username: z.string().min(3, 'Имя пользователя должно быть не короче 3 символов'),
-  email: z.string().email('Введите корректный email адрес'),
-  password: z.string().min(6, 'Пароль должен содержать минимум 6 символов'),
+export const createRegisterSchema = (t: TFunction) => z.object({
+  username: z.string().min(3, t('validation.usernameMin3')),
+  email: z.string().email(t('validation.emailInvalid')),
+  password: z.string().min(6, t('validation.passwordMin6')),
 });
 
-export type LoginData = z.infer<typeof loginSchema>;
-export type RegisterData = z.infer<typeof registerSchema>;
+export type LoginData = z.infer<ReturnType<typeof createLoginSchema>>;
+export type RegisterData = z.infer<ReturnType<typeof createRegisterSchema>>;
 
 export interface AuthResponse {
   access_token?: string;

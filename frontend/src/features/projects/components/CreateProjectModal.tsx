@@ -13,6 +13,7 @@ import { createProjectFn, createProjectFromGitFn } from '../api';
 import { type CreateProjectForm, type CreateProjectGitPayload, createProjectSchema } from '../types';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
@@ -24,6 +25,7 @@ type SourceMode = 'archive' | 'git';
 export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
   const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
@@ -31,7 +33,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectForm>({
-    resolver: zodResolver(createProjectSchema),
+    resolver: zodResolver(createProjectSchema(t)),
   });
 
   const mutation = useMutation({
@@ -40,24 +42,24 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast('Проект успешно запущен. Сборка и развертывание происходят в фоне.', 'success');
+      addToast(t('projects.deployed'), 'success');
       handleClose();
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось развернуть проект');
+      const { message, requestId } = getApiErrorMessage(error, t('projects.deployFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
 
   const onSubmit = (data: CreateProjectForm) => {
     if (sourceMode === 'archive' && !file) {
-      addToast('Пожалуйста, выберите файл', 'error');
+      addToast(t('validation.fileRequired'), 'error');
       return;
     }
 
     if (sourceMode === 'git') {
       if (!data.repo_url?.trim()) {
-        addToast('Укажите URL Git-репозитория', 'error');
+        addToast(t('validation.gitUrlRequired'), 'error');
         return;
       }
       mutation.mutate({
@@ -93,7 +95,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
       const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
       
       if (!validTypes.includes(selected.type) && !isValidExt) {
-        addToast('Допустимы только архивы (.zip, .tar.gz) или файлы .yml', 'error');
+        addToast(t('validation.projectFileType'), 'error');
         return;
       }
       
@@ -102,12 +104,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Развернуть Compose проект" className="max-w-2xl">
+    <Modal isOpen={isOpen} onClose={handleClose} title={t('projects.deployTitle')} className="max-w-2xl">
       <div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 mt-4 pb-2">
           
           <div className="space-y-2">
-            <Label htmlFor="project_name">Имя проекта</Label>
+            <Label htmlFor="project_name">{t('projects.projectName')}</Label>
             <Input id="project_name" placeholder="my-compose-app" error={!!errors.project_name} {...register('project_name')} />
             {errors.project_name && <p className="text-sm text-red-500">{errors.project_name?.message as string}</p>}
           </div>
@@ -124,7 +126,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
               )}
             >
               <UploadCloud className="h-4 w-4" />
-              Архив
+              {t('projects.archive')}
             </button>
             <button
               type="button"
@@ -159,7 +161,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                   <p className="font-medium">{file.name}</p>
                   <p className="text-xs text-slate-500 mb-4">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                   <Button type="button" variant="ghost" onClick={() => setFile(null)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
-                    <X className="w-4 h-4 mr-2" /> Выбрать другой файл
+                    <X className="w-4 h-4 mr-2" /> {t('projects.chooseOtherFile')}
                   </Button>
                 </div>
               ) : (
@@ -167,9 +169,9 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                   <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full flex items-center justify-center mb-3 cursor-pointer">
                     <UploadCloud className="w-6 h-6" />
                   </div>
-                  <p className="font-medium cursor-pointer">Нажмите для загрузки файла</p>
-                  <p className="text-xs text-slate-500 mt-1">Архив (.zip, .tar.gz), если требуется сборка образов (содержит docker-compose.yml + Dockerfile)</p>
-                  <p className="text-xs text-slate-500">Или файл .yml, если сборка не требуется</p>
+                  <p className="font-medium cursor-pointer">{t('projects.uploadFile')}</p>
+                  <p className="text-xs text-slate-500 mt-1">{t('projects.archiveHint')}</p>
+                  <p className="text-xs text-slate-500">{t('projects.ymlHint')}</p>
                 </div>
               )}
             </div>
@@ -200,7 +202,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             >
               <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
                 <Info className="w-4 h-4" />
-                Справка по поддерживаемым инструкциям
+                {t('projects.composeHelp')}
               </div>
               <ChevronDown className={cn("w-4 h-4 transition-transform text-slate-400", showInfo && "rotate-180")} />
             </button>
@@ -208,22 +210,19 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             {showInfo && (
               <div className="px-4 pb-4 pt-1 text-sm text-slate-600 dark:text-slate-300 space-y-4 border-t border-slate-200 dark:border-slate-700/50 mt-2 pt-4">
                 <div>
-                  <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">✅ Разрешенные директивы</h4>
+                  <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">{t('projects.allowedDirectives')}</h4>
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {['image', 'build', 'environment', 'command', 'entrypoint', 'restart', 'depends_on', 'healthcheck', 'volumes (именованные)'].map(tag => (
+                    {['image', 'build', 'environment', 'command', 'entrypoint', 'restart', 'depends_on', 'healthcheck', 'volumes (named)'].map(tag => (
                       <span key={tag} className="px-2 py-0.5 bg-slate-200/50 dark:bg-slate-700/50 rounded-md font-mono text-xs">{tag}</span>
                     ))}
                   </div>
-                  <p className="text-xs leading-relaxed">
-                    Для <span className="font-mono bg-slate-200/50 dark:bg-slate-700/50 px-1 rounded">build</span> поддерживаются <span className="font-mono">context</span>, <span className="font-mono">dockerfile</span> и <span className="font-mono">args</span>.
-                    Для <span className="font-mono bg-slate-200/50 dark:bg-slate-700/50 px-1 rounded">depends_on</span> доступны условия: <span className="font-mono">service_started</span>, <span className="font-mono">service_healthy</span>, <span className="font-mono">service_completed_successfully</span>.
-                  </p>
+                  <p className="text-xs leading-relaxed">{t('projects.buildDirectiveHelp')}</p>
                 </div>
 
                 <div>
-                  <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">🌐 Публикация в интернет (Routing)</h4>
+                  <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">{t('projects.routingHelp')}</h4>
                   <p className="text-xs leading-relaxed mb-2">
-                    Чтобы ваш сервис был доступен извне, добавьте специальные лейблы в секцию <span className="font-mono bg-slate-200/50 dark:bg-slate-700/50 px-1 rounded">labels</span>:
+                    {t('projects.routingLabelHelp')}
                   </p>
                   <pre className="text-[11px] font-mono bg-slate-900 text-slate-300 p-3 rounded-lg overflow-x-auto">
 {`services:
@@ -236,12 +235,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                 </div>
 
                 <div>
-                  <h4 className="font-semibold text-red-600 dark:text-red-400 mb-2">❌ Запрещено (в целях безопасности)</h4>
+                  <h4 className="font-semibold text-red-600 dark:text-red-400 mb-2">{t('projects.forbidden')}</h4>
                   <ul className="list-disc pl-4 space-y-1 text-xs text-red-800/80 dark:text-red-300/80">
-                    <li>Абсолютные пути в <span className="font-mono">volumes</span> (Bind mounts)</li>
-                    <li>Директива <span className="font-mono">privileged: true</span></li>
-                    <li>Сетевые режимы <span className="font-mono">network_mode: host</span> и <span className="font-mono">pid: host</span></li>
-                    <li>Создание кастомных <span className="font-mono">networks</span> (игнорируется, все сервисы в одной сети)</li>
+                    <li>{t('projects.forbiddenBindMounts')}</li>
+                    <li>{t('projects.forbiddenPrivileged')}</li>
+                    <li>{t('projects.forbiddenHostNetwork')}</li>
+                    <li>{t('projects.forbiddenCustomNetworks')}</li>
                   </ul>
                 </div>
               </div>
@@ -249,8 +248,8 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-            <Button type="button" variant="ghost" onClick={handleClose}>Отмена</Button>
-            <Button type="submit" isLoading={mutation.isPending}>Развернуть</Button>
+            <Button type="button" variant="ghost" onClick={handleClose}>{t('common.cancel')}</Button>
+            <Button type="submit" isLoading={mutation.isPending}>{t('projects.deploy')}</Button>
           </div>
         </form>
       </div>

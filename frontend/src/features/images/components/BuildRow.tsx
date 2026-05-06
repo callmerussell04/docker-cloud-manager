@@ -7,6 +7,7 @@ import { useToastStore } from '@/store/toastStore';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 
 interface BuildRowProps {
   build: BuildData;
@@ -18,15 +19,17 @@ const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'f
 export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+  const locale = useLocale();
 
   const deleteMutation = useMutation({
     mutationFn: deleteBuildFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast('Запись о сборке удалена', 'success');
+      addToast(t('images.buildRecordDeleted'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось удалить запись сборки');
+      const { message, requestId } = getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -35,10 +38,10 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
     mutationFn: cancelBuildFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast('Отмена сборки запрошена', 'success');
+      addToast(t('images.cancelBuildRequested'), 'success');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось отменить сборку');
+      const { message, requestId } = getApiErrorMessage(error, t('images.cancelBuildFailed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -46,28 +49,28 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const getStatusDisplay = (status: string) => {
     switch (status) {
       case 'success': 
-        return { icon: <CheckCircle2 className="w-4 h-4" />, variant: 'success' as const, label: 'Успешно' };
+        return { icon: <CheckCircle2 className="w-4 h-4" />, variant: 'success' as const, label: statusLabel(t, status) };
       case 'running': 
-        return { icon: <Loader2 className="w-4 h-4 animate-spin" />, variant: 'info' as const, label: 'Собирается' };
+        return { icon: <Loader2 className="w-4 h-4 animate-spin" />, variant: 'info' as const, label: t('status.runningBuild') };
       case 'pending': 
-        return { icon: <Clock className="w-4 h-4" />, variant: 'warning' as const, label: 'В очереди' };
+        return { icon: <Clock className="w-4 h-4" />, variant: 'warning' as const, label: statusLabel(t, status) };
       case 'failed': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Ошибка' };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'failed_timeout': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Таймаут' };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'failed_quota_exceeded': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Квота превышена' };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'failed_internal':
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: 'Внутренняя ошибка' };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'canceled':
-        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: 'Отменена' };
+        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: statusLabel(t, status) };
       default: 
         return { icon: <Info className="w-4 h-4" />, variant: 'default' as const, label: status };
     }
   };
 
   const display = getStatusDisplay(build.status);
-  const startedDate = new Date(build.started_at * 1000).toLocaleString('ru-RU');
+  const startedDate = new Date(build.started_at * 1000).toLocaleString(dateLocale(locale));
   const duration = build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
   const canCancel = build.status === 'pending' || build.status === 'running';
   const canDelete = !canCancel;
@@ -77,7 +80,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.builds.grid, tableLayouts.builds.minWidth)}>
       <div className="min-w-0">
         <h3 className="font-semibold text-sm truncate" title={build.id}>{build.id}</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400">ID сборки</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400">{t('images.buildId')}</p>
       </div>
 
       <div className="min-w-0">
@@ -88,7 +91,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
       </div>
 
       <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">
-        {duration !== null ? `${duration} сек` : '-'}
+        {duration !== null ? t('images.seconds', { value: duration }) : '-'}
       </div>
 
       <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300 truncate" title={startedDate}>
@@ -100,33 +103,33 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           onClick={() => onViewLogs(build)}
           disabled={!canViewLogs}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          title={canViewLogs ? 'Просмотр логов' : 'Логи доступны после завершения сборки'}
+          title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
         >
           <Terminal className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => {
-            if (window.confirm(`Отменить сборку "${build.id}"?`)) {
+            if (window.confirm(t('images.cancelBuildConfirm', { id: build.id }))) {
               cancelMutation.mutate(build.id);
             }
           }}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title="Отменить сборку"
+          title={t('images.cancelBuildRequested')}
         >
           <XCircle className="w-4 h-4" />
         </button>
 
         <button
           onClick={() => {
-            if (window.confirm(`Удалить запись сборки "${build.id}"?`)) {
+            if (window.confirm(t('images.deleteBuildConfirm', { id: build.id }))) {
               deleteMutation.mutate(build.id);
             }
           }}
           disabled={deleteMutation.isPending || !canDelete}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title="Удалить запись"
+          title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

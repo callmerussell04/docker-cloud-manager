@@ -10,29 +10,31 @@ import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { registerFn } from '@/features/auth/api';
-import { type RegisterData, registerSchema } from '@/features/auth/types';
+import { type RegisterData, createRegisterSchema } from '@/features/auth/types';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useT } from '@/lib/i18n';
 
 export function RegisterPage() {
   const navigate = useNavigate();
   const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
 
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<RegisterData>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(createRegisterSchema(t)),
   });
 
   const mutation = useMutation({
     mutationFn: registerFn,
     onSuccess: () => {
-      addToast('Регистрация прошла успешно. Теперь вы можете войти.', 'success');
+      addToast(t('auth.register.success'), 'success');
       navigate('/login');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, 'Не удалось зарегистрироваться');
+      const { message, requestId } = getApiErrorMessage(error, t('auth.register.failed'), t);
       addToast(message, 'error', { requestId });
     },
   });
@@ -52,15 +54,15 @@ export function RegisterPage() {
 
       <Card className="w-full max-w-md">
         <CardHeader className="text-center pb-2">
-          <CardTitle>Создать аккаунт</CardTitle>
+          <CardTitle>{t('auth.register.title')}</CardTitle>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-            Заполните форму ниже для регистрации в системе
+            {t('auth.register.subtitle')}
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
             <div className="space-y-2">
-              <Label htmlFor="username">Имя пользователя</Label>
+              <Label htmlFor="username">{t('form.username')}</Label>
               <Input
                 id="username"
                 type="text"
@@ -74,7 +76,7 @@ export function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Электронная почта</Label>
+              <Label htmlFor="email">{t('form.email')}</Label>
               <Input
                 id="email"
                 type="email"
@@ -88,7 +90,7 @@ export function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Пароль</Label>
+              <Label htmlFor="password">{t('form.password')}</Label>
               <Input
                 id="password"
                 type="password"
@@ -106,17 +108,17 @@ export function RegisterPage() {
               className="w-full mt-2"
               isLoading={mutation.isPending}
             >
-              Зарегистрироваться
+              {t('auth.register.submit')}
             </Button>
           </form>
 
           <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-            Уже есть аккаунт?{' '}
+            {t('auth.register.hasAccount')}{' '}
             <Link
               to="/login"
               className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
             >
-              Войти
+              {t('auth.register.loginLink')}
             </Link>
           </div>
         </CardContent>
