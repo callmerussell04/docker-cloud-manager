@@ -350,9 +350,14 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 				defer logStream.Close()
 				defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
 
+				sanitizedLogs := newBuildLogSanitizer(logStream, buildLogSanitizerOptions{
+					RegistryURL:    cfg.RegistryURL,
+					DestinationTag: destinationTag,
+				})
+
 				// Сохраняем логи. При превышении лимита закрываем stream и убираем контейнер,
 				// чтобы не оставить stdcopy goroutine заблокированной на pipe write.
-				_, logErr := s.logManager.SaveLogs(buildID, logStream, cfg.MaxBuildLogSizeBytes)
+				_, logErr := s.logManager.SaveLogs(buildID, sanitizedLogs, cfg.MaxBuildLogSizeBytes)
 				if uploadErr := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); uploadErr != nil {
 					logger.WarnContext(ctx, "failed to upload build log", "error", uploadErr)
 				}

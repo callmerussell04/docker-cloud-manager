@@ -31,26 +31,28 @@ func (m *LogManager) SaveLogs(buildID string, logStream io.Reader, maxLogSize in
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(logStream)
+	reader := bufio.NewReader(logStream)
 	var totalBytes int64
 
-	for scanner.Scan() {
-		line := scanner.Text() + "\n"
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			n, _ := file.WriteString(line)
+			totalBytes += int64(n)
 
-		n, _ := file.WriteString(line)
-		totalBytes += int64(n)
+			if totalBytes > maxLogSize {
+				file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
+				return logFilePath, ErrLogSizeLimitExceeded
+			}
+		}
 
-		if totalBytes > maxLogSize {
-			file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
-			return logFilePath, ErrLogSizeLimitExceeded
+		if errors.Is(err, io.EOF) {
+			return logFilePath, nil
+		}
+		if err != nil {
+			return logFilePath, err
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		return logFilePath, err
-	}
-
-	return logFilePath, nil
 }
 
 func (m *LogManager) WriteSystemLog(buildID string, message string) error {

@@ -74,6 +74,48 @@ func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestBuilderServiceProcessBuildSanitizesKanikoLogsBeforeSaving(t *testing.T) {
+	dockerAPI := &builderDockerFake{logs: io.NopCloser(strings.NewReader(strings.Join([]string{
+		"INFO[0001] RUN npm install",
+		"INFO[0002] Pushing image to registry:5000/owner-id_app:latest",
+		"INFO[0003] Pushed registry:5000/owner-id_app@sha256:abc123",
+		"npm WARN token=supersecret password=hunter2",
+		"build complete",
+	}, "\n") + "\n"))}
+	logManager := &builderLogFake{}
+	cfg := testBuilderRuntimeConfig(t)
+	svc := NewBuilderService(
+		&builderFileFake{},
+		&builderExtractorFake{},
+		dockerAPI,
+		logManager,
+		&builderObjectStoreFake{},
+		&builderCoreFake{},
+		cfg,
+		nil,
+	)
+
+	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	if err != nil {
+		t.Fatalf("processBuild returned error: %v", err)
+	}
+
+	if !strings.Contains(logManager.savedLogs, "RUN npm install") || !strings.Contains(logManager.savedLogs, "build complete") {
+		t.Fatalf("expected ordinary build output to be preserved, got:\n%s", logManager.savedLogs)
+	}
+	if !strings.Contains(logManager.savedLogs, publishNoticeLine) {
+		t.Fatalf("expected publish notice in sanitized logs, got:\n%s", logManager.savedLogs)
+	}
+	for _, sensitive := range []string{"registry:5000", "owner-id_app", "sha256:abc123", "supersecret", "hunter2"} {
+		if strings.Contains(logManager.savedLogs, sensitive) {
+			t.Fatalf("sanitized logs contain sensitive value %q:\n%s", sensitive, logManager.savedLogs)
+		}
+	}
+	if strings.Count(logManager.savedLogs, publishNoticeLine) != 1 {
+		t.Fatalf("publish notice count = %d, want 1; logs:\n%s", strings.Count(logManager.savedLogs, publishNoticeLine), logManager.savedLogs)
+	}
+}
+
 func TestBuilderServiceProcessBuildCompletesCanceledAndCleansContainer(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	dockerAPI := &builderDockerFake{
@@ -205,10 +247,13 @@ type builderLogFake struct {
 	saveErr    error
 	maxLogSize int64
 	onSave     func()
+	savedLogs  string
 }
 
 func (f *builderLogFake) SaveLogs(logID string, dockerStream io.Reader, maxLogSize int64) (string, error) {
 	f.maxLogSize = maxLogSize
+	data, _ := io.ReadAll(dockerStream)
+	f.savedLogs = string(data)
 	if f.onSave != nil {
 		f.onSave()
 	}
