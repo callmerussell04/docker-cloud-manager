@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,9 +8,11 @@ import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
+import { WarningBanner } from '@/components/ui/WarningBanner';
 import { useToastStore } from '@/store/toastStore';
 import { createProjectFn, createProjectFromGitFn } from '../api';
 import { type CreateProjectForm, type CreateProjectGitPayload, createProjectSchema } from '../types';
+import type { BuildAvailability } from '@/features/images/types';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
@@ -18,11 +20,29 @@ import { useT } from '@/lib/i18n';
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
+  buildAvailability?: BuildAvailability;
 }
 
 type SourceMode = 'archive' | 'git';
 
-export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps) {
+const supportedDirectives = [
+  'services',
+  'volumes (named)',
+  'image',
+  'build.context',
+  'build.dockerfile',
+  'build.args',
+  'environment',
+  'command',
+  'entrypoint',
+  'restart (no/on-failure)',
+  'depends_on',
+  'healthcheck',
+  'labels: dcm.domain_prefix',
+  'labels: dcm.internal_port',
+];
+
+export function CreateProjectModal({ isOpen, onClose, buildAvailability }: CreateProjectModalProps) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -30,7 +50,9 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
   const [file, setFile] = useState<File | null>(null);
   const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
   const [showInfo, setShowInfo] = useState(false);
+  const [isHintHidden, setIsHintHidden] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isGitDisabled = buildAvailability?.git_sources_enabled === false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectForm>({
     resolver: zodResolver(createProjectSchema(t)),
@@ -51,6 +73,12 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     },
   });
 
+  useEffect(() => {
+    if (isGitDisabled && sourceMode === 'git') {
+      setSourceMode('archive');
+    }
+  }, [isGitDisabled, sourceMode]);
+
   const onSubmit = (data: CreateProjectForm) => {
     if (sourceMode === 'archive' && !file) {
       addToast(t('validation.fileRequired'), 'error');
@@ -58,6 +86,10 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     }
 
     if (sourceMode === 'git') {
+      if (isGitDisabled) {
+        addToast(t('common.gitUnavailable'), 'error');
+        return;
+      }
       if (!data.repo_url?.trim()) {
         addToast(t('validation.gitUrlRequired'), 'error');
         return;
@@ -107,6 +139,18 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
     <Modal isOpen={isOpen} onClose={handleClose} title={t('projects.deployTitle')} className="max-w-2xl">
       <div>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 mt-4 pb-2">
+          {isGitDisabled && (
+            <WarningBanner>{t('common.gitUnavailable')}</WarningBanner>
+          )}
+
+          {!isHintHidden && (
+            <WarningBanner onDismiss={() => setIsHintHidden(true)} dismissLabel={t('common.close')}>
+              <div className="space-y-2">
+                <p>{t('projects.composeDirectiveLimitHint')}</p>
+                <p>{t('projects.serverResourceHint')}</p>
+              </div>
+            </WarningBanner>
+          )}
           
           <div className="space-y-2">
             <Label htmlFor="project_name">{t('projects.projectName')}</Label>
@@ -131,8 +175,9 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
             <button
               type="button"
               onClick={() => setSourceMode('git')}
+              disabled={isGitDisabled}
               className={cn(
-                'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                 sourceMode === 'git'
                   ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
                   : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
@@ -212,7 +257,7 @@ export function CreateProjectModal({ isOpen, onClose }: CreateProjectModalProps)
                 <div>
                   <h4 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">{t('projects.allowedDirectives')}</h4>
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {['image', 'build', 'environment', 'command', 'entrypoint', 'restart', 'depends_on', 'healthcheck', 'volumes (named)'].map(tag => (
+                    {supportedDirectives.map(tag => (
                       <span key={tag} className="px-2 py-0.5 bg-slate-200/50 dark:bg-slate-700/50 rounded-md font-mono text-xs">{tag}</span>
                     ))}
                   </div>

@@ -25,6 +25,7 @@ type BuildService interface {
 }
 
 const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
+const gitSourcesUnavailableMessage = "Git sources are currently unavailable. Upload an archive instead."
 
 const maxBuildFormFieldBytes = 1 << 20
 
@@ -171,9 +172,15 @@ func (h *CoreHandler) GetImageBuildAvailability(c *gin.Context) {
 	if !cfg.ImageBuildsEnabled {
 		message = imageBuildsUnavailableMessage
 	}
+	gitMessage := ""
+	if !cfg.GitSourcesEnabled {
+		gitMessage = gitSourcesUnavailableMessage
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"enabled": cfg.ImageBuildsEnabled,
-		"message": message,
+		"enabled":             cfg.ImageBuildsEnabled,
+		"message":             message,
+		"git_sources_enabled": cfg.GitSourcesEnabled,
+		"git_message":         gitMessage,
 	})
 }
 

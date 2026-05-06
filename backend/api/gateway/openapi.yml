@@ -496,6 +496,10 @@ paths:
                     type: boolean
                   message:
                     type: string
+                  git_sources_enabled:
+                    type: boolean
+                  git_message:
+                    type: string
 
   # ================= BUILDS =================
   /builds:

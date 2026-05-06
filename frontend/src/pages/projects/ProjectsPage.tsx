@@ -5,9 +5,11 @@ import { Plus, RefreshCcw, Search, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
+import { WarningBanner } from '@/components/ui/WarningBanner';
 import { ProjectRow } from '@/features/projects/components/ProjectRow';
 import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
 import { getProjectsFn } from '@/features/projects/api';
+import { getBuildAvailabilityFn } from '@/features/images/api';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -25,6 +27,12 @@ export function ProjectsPage() {
     refetchInterval: 5000,
   });
   const projects = data?.items || [];
+
+  const { data: buildAvailability } = useQuery({
+    queryKey: ['imageBuildAvailability'],
+    queryFn: getBuildAvailabilityFn,
+  });
+  const isBuildDisabled = buildAvailability?.enabled === false;
 
   const filteredProjects = projects.filter(p => 
     p.name.toLowerCase().includes(search.toLowerCase())
@@ -60,6 +68,12 @@ export function ProjectsPage() {
           </Button>
         </div>
       </div>
+
+      {isBuildDisabled && (
+        <WarningBanner className="shrink-0">
+          {t('projects.composeBuildUnavailable')}
+        </WarningBanner>
+      )}
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
@@ -112,6 +126,7 @@ export function ProjectsPage() {
       <CreateProjectModal 
         isOpen={isCreateModalOpen} 
         onClose={() => setIsCreateModalOpen(false)} 
+        buildAvailability={buildAvailability}
       />
     </div>
   );

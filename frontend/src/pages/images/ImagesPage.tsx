@@ -5,11 +5,12 @@ import { Plus, RefreshCcw, Search, Layers, Hammer } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
+import { WarningBanner } from '@/components/ui/WarningBanner';
 import { ImageRow } from '@/features/images/components/ImageRow';
 import { BuildRow } from '@/features/images/components/BuildRow';
 import { CreateBuildModal } from '@/features/images/components/CreateBuildModal';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
-import { getImagesFn, getBuildsFn } from '@/features/images/api';
+import { getImagesFn, getBuildsFn, getBuildAvailabilityFn } from '@/features/images/api';
 import { type BuildData } from '@/features/images/types';
 import { cn } from '@/lib/utils';
 import { tableLayouts } from '@/components/ui/tableLayouts';
@@ -39,6 +40,12 @@ export function ImagesPage() {
     refetchInterval: activeTab === 'builds' ? 5000 : false,
   });
   const builds = buildsData?.items || [];
+
+  const { data: buildAvailability } = useQuery({
+    queryKey: ['imageBuildAvailability'],
+    queryFn: getBuildAvailabilityFn,
+  });
+  const isBuildDisabled = buildAvailability?.enabled === false;
 
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
   const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()));
@@ -87,12 +94,18 @@ export function ImagesPage() {
           <Button variant="secondary" onClick={handleRefresh} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)}>
+          <Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>
             <Plus className="w-4 h-4 mr-2" />
             {t('images.build')}
           </Button>
         </div>
       </div>
+
+      {isBuildDisabled && (
+        <WarningBanner className="shrink-0">
+          {t('images.buildUnavailable')}
+        </WarningBanner>
+      )}
 
       <div className="max-w-full overflow-x-auto pb-1 shrink-0">
         <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
@@ -169,7 +182,7 @@ export function ImagesPage() {
                     <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
                       {t('images.noImagesDescription')}
                     </p>
-                    <Button onClick={() => setIsCreateModalOpen(true)}>{t('images.buildFirst')}</Button>
+                    <Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>{t('images.buildFirst')}</Button>
                   </div>
                 )
               ) : (

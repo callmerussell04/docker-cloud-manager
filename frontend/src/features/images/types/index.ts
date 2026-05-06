@@ -34,6 +34,8 @@ export interface AdminBuildData extends BuildData {
 export interface BuildAvailability {
   enabled: boolean;
   message: string;
+  git_sources_enabled?: boolean;
+  git_message?: string;
 }
 
 export interface CreateBuildGitPayload {
