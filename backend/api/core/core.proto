@@ -344,6 +344,7 @@ message SystemConfigData {
   int32 build_outbox_batch_size = 41;
   int64 compose_upload_max_bytes = 42;
   int64 compose_pipeline_timeout_minutes = 43;
+  int32 compose_deploy_worker_count = 44;
   int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
   int64 compose_dependency_poll_interval_seconds = 47;
@@ -363,6 +364,9 @@ message SystemConfigData {
   repeated string git_allowed_hosts = 61;
   int64 git_clone_timeout_seconds = 62;
   int64 git_max_repository_bytes = 63;
+  int64 compose_outbox_interval_seconds = 64;
+  int32 compose_outbox_batch_size = 65;
+  int32 compose_deploy_max_attempts = 66;
 }
 
 message ContainerStatsResponse {

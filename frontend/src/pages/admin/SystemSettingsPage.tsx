@@ -84,6 +84,10 @@ const sections: Array<{
       { name: 'compose_build_poll_interval_seconds', label: 'Compose build poll interval seconds', type: 'number' },
       { name: 'compose_dependency_wait_timeout_minutes', label: 'Compose dependency wait timeout minutes', type: 'number' },
       { name: 'compose_dependency_poll_interval_seconds', label: 'Compose dependency poll interval seconds', type: 'number' },
+      { name: 'compose_deploy_worker_count', label: 'Compose deploy worker count', type: 'number' },
+      { name: 'compose_outbox_interval_seconds', label: 'Compose outbox interval seconds', type: 'number' },
+      { name: 'compose_outbox_batch_size', label: 'Compose outbox batch size', type: 'number' },
+      { name: 'compose_deploy_max_attempts', label: 'Compose deploy max attempts', type: 'number' },
     ],
   },
   {

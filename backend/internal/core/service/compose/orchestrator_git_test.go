@@ -1,6 +1,8 @@
 package compose
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -62,7 +64,8 @@ func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T)
 	o := newComposeOrchestratorForTest(context.Background(), repo)
 
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
-	_, err := o.StartDeployment(ctx, "proj", []byte(gitComposeWithBuild))
+	archive := zipComposeArchive(t, gitComposeWithBuild)
+	_, err := o.StartDeployment(ctx, "proj", "source.zip", bytes.NewReader(archive))
 	if !errors.Is(err, apperrors.ErrUnavailable) {
 		t.Fatalf("StartDeployment() error = %v, want ErrUnavailable", err)
 	}
@@ -82,10 +85,12 @@ func newComposeOrchestratorForTest(parentCtx context.Context, repo *composeProje
 			GitCloneTimeoutSeconds:        1,
 			GitMaxRepositoryBytes:         1024 * 1024,
 			ImageBuildsEnabled:            false,
+			ComposeUploadMaxBytes:         1024 * 1024,
 			ComposePipelineTimeoutMinutes: 1,
 		}},
-		active: make(map[uuid.UUID]*deploymentState),
-		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		objectStore: &composeObjectStoreFake{objects: make(map[string][]byte)},
+		active:      make(map[uuid.UUID]*deploymentState),
+		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
 
@@ -118,8 +123,33 @@ func (f *composeProjectRepoFake) Save(ctx context.Context, p model.Project) erro
 	return nil
 }
 
+func (f *composeProjectRepoFake) CreateWithComposeDeploymentJob(ctx context.Context, p model.Project, job model.ComposeDeploymentJob, outbox model.ComposeDeploymentOutbox) error {
+	f.saved++
+	return nil
+}
+
 func (f *composeProjectRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {
 	return model.Project{ID: id}, nil
+}
+
+func (f *composeProjectRepoFake) GetComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, error) {
+	return model.ComposeDeploymentJob{ID: id}, nil
+}
+
+func (f *composeProjectRepoFake) GetActiveComposeDeploymentJobByProjectID(ctx context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error) {
+	return model.ComposeDeploymentJob{}, apperrors.ErrNotFound
+}
+
+func (f *composeProjectRepoFake) StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error) {
+	return model.ComposeDeploymentJob{}, false, nil
+}
+
+func (f *composeProjectRepoFake) CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
+	return nil
+}
+
+func (f *composeProjectRepoFake) RequestComposeDeploymentCancel(ctx context.Context, projectID uuid.UUID) error {
+	return nil
 }
 
 func (f *composeProjectRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error {
@@ -150,3 +180,59 @@ services:
   web:
     image: nginx:latest
 `
+
+type composeObjectStoreFake struct {
+	objects map[string][]byte
+}
+
+func (f *composeObjectStoreFake) UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	f.objects[objectKey] = data
+	return nil
+}
+
+func (f *composeObjectStoreFake) DeleteObject(ctx context.Context, objectKey string) error {
+	delete(f.objects, objectKey)
+	return nil
+}
+
+func (f *composeObjectStoreFake) CopyObject(ctx context.Context, sourceKey, destKey, contentType string) error {
+	f.objects[destKey] = append([]byte(nil), f.objects[sourceKey]...)
+	return nil
+}
+
+func (f *composeObjectStoreFake) OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	data, ok := f.objects[objectKey]
+	if !ok {
+		return nil, apperrors.ErrNotFound
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (f *composeObjectStoreFake) NewReaderAt(ctx context.Context, objectKey string) (io.ReaderAt, int64, error) {
+	data, ok := f.objects[objectKey]
+	if !ok {
+		return nil, 0, apperrors.ErrNotFound
+	}
+	return bytes.NewReader(data), int64(len(data)), nil
+}
+
+func zipComposeArchive(t *testing.T, composeYAML string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte(composeYAML)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}

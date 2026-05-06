@@ -24,7 +24,7 @@ func TestWaitForBuildsAbortsOnCanceledBuild(t *testing.T) {
 		cfg:           orchestratorConfigFake{},
 	}
 
-	err := o.waitForBuilds(context.Background(), []uuid.UUID{canceledBuildID, siblingBuildID})
+	err := o.waitForBuilds(context.Background(), nil, []uuid.UUID{canceledBuildID, siblingBuildID})
 	if !errors.Is(err, errComposeDeploymentCanceled) {
 		t.Fatalf("waitForBuilds error = %v, want compose cancellation", err)
 	}
@@ -42,7 +42,7 @@ func TestWaitForBuildsAbortsOnMissingBuild(t *testing.T) {
 		cfg:           orchestratorConfigFake{},
 	}
 
-	err := o.waitForBuilds(context.Background(), []uuid.UUID{buildID})
+	err := o.waitForBuilds(context.Background(), nil, []uuid.UUID{buildID})
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("waitForBuilds error = %v, want not found", err)
 	}
@@ -71,7 +71,7 @@ type orchestratorBuilderClientFake struct {
 	canceled []uuid.UUID
 }
 
-func (f *orchestratorBuilderClientFake) TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
+func (f *orchestratorBuilderClientFake) TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, sourceObjectKey string) (uuid.UUID, error) {
 	return uuid.Nil, nil
 }
 

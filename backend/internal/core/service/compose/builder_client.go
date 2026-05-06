@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"bytes"
 	"context"
 	"io"
 
@@ -15,6 +14,9 @@ import (
 type ObjectStorage interface {
 	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	DeleteObject(ctx context.Context, objectKey string) error
+	CopyObject(ctx context.Context, sourceKey, destKey, contentType string) error
+	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
+	NewReaderAt(ctx context.Context, objectKey string) (io.ReaderAt, int64, error)
 }
 
 type BuildJobCreator interface {
@@ -35,7 +37,7 @@ func NewLocalBuilderClient(objectStore ObjectStorage, builds BuildJobCreator) *L
 	}
 }
 
-func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, archiveBytes []byte) (uuid.UUID, error) {
+func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UUID, srv model.ComposeService, sourceObjectKey string) (uuid.UUID, error) {
 	if c.objectStore == nil || c.builds == nil {
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
@@ -44,7 +46,7 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, "compose.zip")
 	logObjectKey := buildobjects.LogObjectKey(fileID)
 
-	if err := c.objectStore.UploadStream(ctx, archiveObjectKey, bytes.NewReader(archiveBytes), int64(len(archiveBytes)), "application/zip"); err != nil {
+	if err := c.objectStore.CopyObject(ctx, sourceObjectKey, archiveObjectKey, "application/zip"); err != nil {
 		_ = c.objectStore.DeleteObject(context.Background(), archiveObjectKey)
 		return uuid.Nil, err
 	}

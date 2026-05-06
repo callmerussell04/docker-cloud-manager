@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -33,6 +34,57 @@ func (r *ProjectRepository) Save(ctx context.Context, p model.Project) error {
 
 	_, err := r.db.ExecContext(ctx, query, p.ID, p.OwnerID, p.Name, p.Status, errMsg)
 	return err
+}
+
+func (r *ProjectRepository) CreateWithComposeDeploymentJob(ctx context.Context, p model.Project, job model.ComposeDeploymentJob, outbox model.ComposeDeploymentOutbox) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var projectErrMsg sql.NullString
+	if p.ErrorMessage != nil {
+		projectErrMsg.String = *p.ErrorMessage
+		projectErrMsg.Valid = true
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO projects (id, owner_id, name, status, error_message)
+		VALUES ($1, $2, $3, $4, $5)
+	`, p.ID, p.OwnerID, p.Name, p.Status, projectErrMsg); err != nil {
+		return err
+	}
+
+	if job.ID == uuid.Nil {
+		job.ID = uuid.New()
+	}
+	status := job.Status
+	if status == "" {
+		status = model.ComposeDeploymentStatusQueued
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO compose_deployment_jobs (
+			id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, job.ID, job.ProjectID, job.OwnerID, job.SourceType, job.SourceObjectKey, job.ComposeFile,
+		status, job.Attempts, job.CancelRequested, nullableString(job.ErrorMessage), job.RequestID); err != nil {
+		return err
+	}
+
+	outboxStatus := outbox.Status
+	if outboxStatus == "" {
+		outboxStatus = model.ComposeOutboxStatusPending
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO compose_deployment_queue_outbox (id, job_id, exchange, routing_key, payload, status, attempts, last_error)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, outbox.ID, outbox.JobID, outbox.Exchange, outbox.RoutingKey, string(outbox.Payload), outboxStatus, outbox.Attempts, nullableString(outbox.LastError)); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {
@@ -68,6 +120,120 @@ func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Pr
 	return p, nil
 }
 
+func (r *ProjectRepository) GetComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE id = $1
+	`, id)
+	return scanComposeDeploymentJob(row)
+}
+
+func (r *ProjectRepository) GetActiveComposeDeploymentJobByProjectID(ctx context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE project_id = $1 AND status IN ($2, $3, $4)
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, projectID, model.ComposeDeploymentStatusQueued, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling)
+	return scanComposeDeploymentJob(row)
+}
+
+func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.ComposeDeploymentJob{}, false, err
+	}
+	defer tx.Rollback()
+
+	row := tx.QueryRowContext(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE id = $1
+		FOR UPDATE
+	`, id)
+	job, err := scanComposeDeploymentJob(row)
+	if err != nil {
+		return model.ComposeDeploymentJob{}, false, err
+	}
+	if isTerminalComposeDeploymentStatus(job.Status) || job.CancelRequested {
+		if err := tx.Commit(); err != nil {
+			return model.ComposeDeploymentJob{}, false, err
+		}
+		return job, false, nil
+	}
+	if job.Status != model.ComposeDeploymentStatusQueued {
+		if err := tx.Commit(); err != nil {
+			return model.ComposeDeploymentJob{}, false, err
+		}
+		return job, false, nil
+	}
+	row = tx.QueryRowContext(ctx, `
+		UPDATE compose_deployment_jobs
+		SET status = $1, attempts = attempts + 1, started_at = COALESCE(started_at, NOW()), updated_at = NOW()
+		WHERE id = $2
+		RETURNING id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			created_at, updated_at, started_at, finished_at
+	`, model.ComposeDeploymentStatusRunning, id)
+	job, err = scanComposeDeploymentJob(row)
+	if err != nil {
+		return model.ComposeDeploymentJob{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.ComposeDeploymentJob{}, false, err
+	}
+	return job, true, nil
+}
+
+func (r *ProjectRepository) CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE compose_deployment_jobs
+		SET status = $1, error_message = $2, finished_at = NOW(), updated_at = NOW()
+		WHERE id = $3
+	`, status, nullableString(errorMsg), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ProjectRepository) RequestComposeDeploymentCancel(ctx context.Context, projectID uuid.UUID) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE compose_deployment_jobs
+		SET cancel_requested = TRUE, status = CASE
+			WHEN status IN ($1, $2) THEN $3
+			ELSE status
+		END, updated_at = NOW()
+		WHERE project_id = $4 AND status IN ($1, $2, $3)
+	`, model.ComposeDeploymentStatusQueued, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling, projectID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	query := `
 		UPDATE projects 
@@ -95,6 +261,156 @@ func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 	}
 
 	return nil
+}
+
+func (r *ProjectRepository) LeasePendingComposeOutbox(ctx context.Context, limit int) ([]model.ComposeDeploymentOutbox, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		WITH next AS (
+			SELECT id
+			FROM compose_deployment_queue_outbox
+			WHERE status = $1
+			   OR (status = $2 AND updated_at < NOW() - INTERVAL '1 minute')
+			ORDER BY created_at
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE compose_deployment_queue_outbox o
+		SET status = $2, attempts = attempts + 1, updated_at = NOW()
+		FROM next
+		WHERE o.id = next.id
+		RETURNING o.id, o.job_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
+	`, model.ComposeOutboxStatusPending, model.ComposeOutboxStatusPublishing, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.ComposeDeploymentOutbox, 0)
+	for rows.Next() {
+		item, err := scanComposeOutbox(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *ProjectRepository) MarkComposeOutboxPublished(ctx context.Context, id uuid.UUID) error {
+	return r.updateComposeOutboxStatus(ctx, id, model.ComposeOutboxStatusPublished, nil)
+}
+
+func (r *ProjectRepository) MarkComposeOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {
+	return r.updateComposeOutboxStatus(ctx, id, model.ComposeOutboxStatusPending, cause)
+}
+
+func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Context, maxAttempts int, errorMessage string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, project_id, attempts
+		FROM compose_deployment_jobs
+		WHERE status IN ($1, $2)
+		FOR UPDATE
+	`, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling)
+	if err != nil {
+		return err
+	}
+	type interruptedJob struct {
+		id        uuid.UUID
+		projectID uuid.UUID
+		attempts  int
+	}
+	var jobs []interruptedJob
+	for rows.Next() {
+		var item interruptedJob
+		if err := rows.Scan(&item.id, &item.projectID, &item.attempts); err != nil {
+			rows.Close()
+			return err
+		}
+		jobs = append(jobs, item)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, job := range jobs {
+		hasPartialWork, err := composeDeploymentHasPartialWork(ctx, tx, job.projectID)
+		if err != nil {
+			return err
+		}
+		if hasPartialWork || (maxAttempts > 0 && job.attempts >= maxAttempts) {
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE compose_deployment_jobs
+				SET status = $1, error_message = $2, finished_at = NOW(), updated_at = NOW()
+				WHERE id = $3
+			`, model.ComposeDeploymentStatusFailed, errorMessage, job.id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE projects SET status = $1, error_message = $2 WHERE id = $3
+			`, model.ProjectStatusFailed, errorMessage, job.projectID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE compose_deployment_jobs
+			SET status = $1, error_message = NULL, updated_at = NOW()
+			WHERE id = $2
+		`, model.ComposeDeploymentStatusQueued, job.id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE projects SET status = $1, error_message = NULL WHERE id = $2
+		`, model.ProjectStatusBuilding, job.projectID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE compose_deployment_queue_outbox
+			SET status = $1, updated_at = NOW(), last_error = NULL
+			WHERE job_id = $2
+		`, model.ComposeOutboxStatusPending, job.id); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func composeDeploymentHasPartialWork(ctx context.Context, tx *sql.Tx, projectID uuid.UUID) (bool, error) {
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM containers WHERE project_id = $1
+			UNION ALL
+			SELECT 1 FROM volumes WHERE project_id = $1
+			UNION ALL
+			SELECT 1 FROM builds WHERE project_id = $1
+		)
+	`, projectID).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func (r *ProjectRepository) SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error {
@@ -289,4 +605,111 @@ func scanProject(s scanner) (model.Project, error) {
 		p.ErrorMessage = &errMsg.String
 	}
 	return p, nil
+}
+
+func scanComposeDeploymentJob(s scanner) (model.ComposeDeploymentJob, error) {
+	var job model.ComposeDeploymentJob
+	var errMsg sql.NullString
+	var startedAt sql.NullTime
+	var finishedAt sql.NullTime
+	err := s.Scan(
+		&job.ID,
+		&job.ProjectID,
+		&job.OwnerID,
+		&job.SourceType,
+		&job.SourceObjectKey,
+		&job.ComposeFile,
+		&job.Status,
+		&job.Attempts,
+		&job.CancelRequested,
+		&errMsg,
+		&job.RequestID,
+		&job.CreatedAt,
+		&job.UpdatedAt,
+		&startedAt,
+		&finishedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ComposeDeploymentJob{}, apperrors.ErrNotFound
+		}
+		return model.ComposeDeploymentJob{}, err
+	}
+	if errMsg.Valid {
+		job.ErrorMessage = &errMsg.String
+	}
+	if startedAt.Valid {
+		job.StartedAt = &startedAt.Time
+	}
+	if finishedAt.Valid {
+		job.FinishedAt = &finishedAt.Time
+	}
+	return job, nil
+}
+
+func scanComposeOutbox(s scanner) (model.ComposeDeploymentOutbox, error) {
+	var item model.ComposeDeploymentOutbox
+	var payload []byte
+	var lastError sql.NullString
+	if err := s.Scan(
+		&item.ID,
+		&item.JobID,
+		&item.Exchange,
+		&item.RoutingKey,
+		&payload,
+		&item.Status,
+		&item.Attempts,
+		&lastError,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	); err != nil {
+		return model.ComposeDeploymentOutbox{}, err
+	}
+	item.Payload = json.RawMessage(payload)
+	if lastError.Valid {
+		item.LastError = &lastError.String
+	}
+	return item, nil
+}
+
+func (r *ProjectRepository) updateComposeOutboxStatus(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	var lastError sql.NullString
+	if cause != nil {
+		lastError.String = cause.Error()
+		lastError.Valid = true
+	}
+	query := `
+		UPDATE compose_deployment_queue_outbox
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE id = $3
+	`
+	args := []any{status, lastError, id}
+	if status == model.ComposeOutboxStatusPublished {
+		query = `
+			UPDATE compose_deployment_queue_outbox
+			SET status = $1, published_at = NOW(), last_error = $2, updated_at = NOW()
+			WHERE id = $3
+		`
+	}
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func isTerminalComposeDeploymentStatus(status string) bool {
+	switch status {
+	case model.ComposeDeploymentStatusCanceled, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStatusFailed:
+		return true
+	default:
+		return false
+	}
 }

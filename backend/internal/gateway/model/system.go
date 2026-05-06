@@ -47,6 +47,10 @@ type SystemConfig struct {
 	BuildOutboxBatchSize                 int
 	ComposeUploadMaxBytes                int64
 	ComposePipelineTimeoutMinutes        int64
+	ComposeDeployWorkerCount             int
+	ComposeOutboxIntervalSeconds         int64
+	ComposeOutboxBatchSize               int
+	ComposeDeployMaxAttempts             int
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64

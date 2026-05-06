@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,22 @@ const (
 	ProjectStatusStopped   = "stopped"
 	ProjectStatusFailed    = "failed"
 	ProjectStatusDeleting  = "deleting"
+)
+
+const (
+	ComposeSourceTypeUpload = "upload"
+	ComposeSourceTypeGit    = "git"
+
+	ComposeDeploymentStatusQueued    = "queued"
+	ComposeDeploymentStatusRunning   = "running"
+	ComposeDeploymentStatusCanceling = "canceling"
+	ComposeDeploymentStatusCanceled  = "canceled"
+	ComposeDeploymentStatusSucceeded = "succeeded"
+	ComposeDeploymentStatusFailed    = "failed"
+
+	ComposeOutboxStatusPending    = "pending"
+	ComposeOutboxStatusPublishing = "publishing"
+	ComposeOutboxStatusPublished  = "published"
 )
 
 type Project struct {
@@ -45,4 +62,35 @@ type ProjectServiceDependency struct {
 	DependsOnServiceName string
 	Condition            string
 	Optional             bool
+}
+
+type ComposeDeploymentJob struct {
+	ID              uuid.UUID
+	ProjectID       uuid.UUID
+	OwnerID         uuid.UUID
+	SourceType      string
+	SourceObjectKey string
+	ComposeFile     string
+	Status          string
+	Attempts        int
+	CancelRequested bool
+	ErrorMessage    *string
+	RequestID       string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+}
+
+type ComposeDeploymentOutbox struct {
+	ID         uuid.UUID
+	JobID      uuid.UUID
+	Exchange   string
+	RoutingKey string
+	Payload    json.RawMessage
+	Status     string
+	Attempts   int
+	LastError  *string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }

@@ -69,6 +69,27 @@ func (s *MinIOStorage) UploadStream(ctx context.Context, objectKey string, reade
 	return nil
 }
 
+func (s *MinIOStorage) CopyObject(ctx context.Context, sourceKey, destKey, contentType string) error {
+	opts := minio.CopyDestOptions{Bucket: s.bucket, Object: destKey}
+	if contentType != "" {
+		opts.UserMetadata = map[string]string{"Content-Type": contentType}
+		opts.ReplaceMetadata = true
+	}
+	_, err := s.client.CopyObject(ctx, opts, minio.CopySrcOptions{Bucket: s.bucket, Object: sourceKey})
+	if err != nil {
+		return mapObjectStorageError(err)
+	}
+	return nil
+}
+
+func (s *MinIOStorage) StatObject(ctx context.Context, objectKey string) (ObjectInfo, error) {
+	info, err := s.client.StatObject(ctx, s.bucket, objectKey, minio.StatObjectOptions{})
+	if err != nil {
+		return ObjectInfo{}, mapObjectStorageError(err)
+	}
+	return ObjectInfo{Size: info.Size}, nil
+}
+
 func (s *MinIOStorage) DownloadFile(ctx context.Context, objectKey, filePath string) error {
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 		return err
@@ -96,6 +117,50 @@ func (s *MinIOStorage) OpenObject(ctx context.Context, objectKey string) (io.Rea
 		return nil, mapObjectStorageError(err)
 	}
 	return obj, nil
+}
+
+func (s *MinIOStorage) NewReaderAt(ctx context.Context, objectKey string) (io.ReaderAt, int64, error) {
+	info, err := s.StatObject(ctx, objectKey)
+	if err != nil {
+		return nil, 0, err
+	}
+	return &rangeReaderAt{ctx: ctx, storage: s, objectKey: objectKey, size: info.Size}, info.Size, nil
+}
+
+type rangeReaderAt struct {
+	ctx       context.Context
+	storage   *MinIOStorage
+	objectKey string
+	size      int64
+}
+
+func (r *rangeReaderAt) ReadAt(p []byte, off int64) (int, error) {
+	if off < 0 {
+		return 0, fmt.Errorf("negative range offset")
+	}
+	if off >= r.size {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > r.size-off {
+		p = p[:r.size-off]
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	opts := minio.GetObjectOptions{}
+	if err := opts.SetRange(off, off+int64(len(p))-1); err != nil {
+		return 0, err
+	}
+	obj, err := r.storage.client.GetObject(r.ctx, r.storage.bucket, r.objectKey, opts)
+	if err != nil {
+		return 0, mapObjectStorageError(err)
+	}
+	defer obj.Close()
+	n, err := io.ReadFull(obj, p)
+	if err == io.ErrUnexpectedEOF {
+		err = io.EOF
+	}
+	return n, err
 }
 
 func mapObjectStorageError(err error) error {

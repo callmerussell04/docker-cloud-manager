@@ -32,46 +32,53 @@ func NewComposeHandler(orchestrator *compose.Orchestrator, cfg ConfigProvider) *
 func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().ComposeUploadMaxBytes)
 
-	projectName := c.PostForm("project_name")
-	if projectName == "" {
-		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
-		return
-	}
-
-	file, err := c.FormFile("archive")
+	reader, err := c.Request.MultipartReader()
 	if err != nil {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 
-	req := dto.DeployComposeRequest{
-		ProjectName: projectName,
-		Archive:     file,
+	var projectName string
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+			return
+		}
+		name := part.FormName()
+		if name == "archive" {
+			if projectName == "" || part.FileName() == "" {
+				_ = part.Close()
+				httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
+				return
+			}
+			projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), projectName, part.FileName(), part)
+			_ = part.Close()
+			if err != nil {
+				httpresponse.Respond(c, httpresponse.Status(err), err)
+				return
+			}
+			c.JSON(http.StatusAccepted, gin.H{
+				"project_id": projectID,
+				"message":    "compose deployment started",
+			})
+			return
+		}
+		value, err := readComposeFormField(part, 1<<20)
+		_ = part.Close()
+		if err != nil {
+			httpresponse.Respond(c, httpresponse.Status(err), err)
+			return
+		}
+		if name == "project_name" {
+			projectName = string(value)
+		}
 	}
 
-	src, err := req.Archive.Open()
-	if err != nil {
-		httpresponse.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
-		return
-	}
-	defer src.Close()
-
-	archiveBytes, err := io.ReadAll(src)
-	if err != nil {
-		httpresponse.Respond(c, http.StatusInternalServerError, apperrors.ErrInternal)
-		return
-	}
-
-	projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), req.ProjectName, archiveBytes)
-	if err != nil {
-		httpresponse.Respond(c, httpresponse.Status(err), err)
-		return
-	}
-
-	c.JSON(http.StatusAccepted, gin.H{
-		"project_id": projectID,
-		"message":    "compose deployment started",
-	})
+	httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 }
 
 func (h *ComposeHandler) DeployComposeFromGit(c *gin.Context) {
@@ -99,6 +106,17 @@ func (h *ComposeHandler) DeployComposeFromGit(c *gin.Context) {
 		"project_id": projectID,
 		"message":    "compose deployment started",
 	})
+}
+
+func readComposeFormField(r io.Reader, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, apperrors.New(apperrors.ErrBadRequest, "compose form field exceeds size limit")
+	}
+	return data, nil
 }
 
 func SetupRouter(handler *ComposeHandler, internalToken string, logger *slog.Logger) *gin.Engine {

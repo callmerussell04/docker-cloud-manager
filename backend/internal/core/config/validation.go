@@ -100,6 +100,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}
+	if cfg.ComposeDeployWorkerCount <= 0 || cfg.ComposeOutboxIntervalSeconds <= 0 || cfg.ComposeOutboxBatchSize <= 0 || cfg.ComposeDeployMaxAttempts <= 0 {
+		return fmt.Errorf("compose queue and worker settings must be positive")
+	}
 	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
 		return fmt.Errorf("compose polling settings must be positive")
 	}

@@ -86,6 +86,9 @@ func (s *ProjectService) Start(ctx context.Context, projectID uuid.UUID) error {
 	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
 		return err
 	}
+	if projectStatusBlocksManualOperation(p.Status) {
+		return apperrors.New(apperrors.ErrConflict, "project operation is already in progress")
+	}
 	return s.startProject(ctx, p)
 }
 
@@ -97,6 +100,9 @@ func (s *ProjectService) Stop(ctx context.Context, projectID uuid.UUID) error {
 	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
 		return err
 	}
+	if projectStatusBlocksManualOperation(p.Status) {
+		return apperrors.New(apperrors.ErrConflict, "project operation is already in progress")
+	}
 	return s.stopProject(ctx, p)
 }
 
@@ -107,6 +113,9 @@ func (s *ProjectService) Delete(ctx context.Context, projectID uuid.UUID) error 
 	}
 	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
 		return err
+	}
+	if projectStatusBlocksManualOperation(p.Status) {
+		return apperrors.New(apperrors.ErrConflict, "project operation is already in progress")
 	}
 	return s.deleteProject(ctx, p)
 }
@@ -363,6 +372,15 @@ func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, c
 }
 
 func projectStatusBlocksAggregation(status string) bool {
+	switch status {
+	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling, model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting:
+		return true
+	default:
+		return false
+	}
+}
+
+func projectStatusBlocksManualOperation(status string) bool {
 	switch status {
 	case model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling, model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting:
 		return true

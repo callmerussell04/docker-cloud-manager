@@ -2314,6 +2314,7 @@ type SystemConfigData struct {
 	BuildOutboxBatchSize                 int32                  `protobuf:"varint,41,opt,name=build_outbox_batch_size,json=buildOutboxBatchSize,proto3" json:"build_outbox_batch_size,omitempty"`
 	ComposeUploadMaxBytes                int64                  `protobuf:"varint,42,opt,name=compose_upload_max_bytes,json=composeUploadMaxBytes,proto3" json:"compose_upload_max_bytes,omitempty"`
 	ComposePipelineTimeoutMinutes        int64                  `protobuf:"varint,43,opt,name=compose_pipeline_timeout_minutes,json=composePipelineTimeoutMinutes,proto3" json:"compose_pipeline_timeout_minutes,omitempty"`
+	ComposeDeployWorkerCount             int32                  `protobuf:"varint,44,opt,name=compose_deploy_worker_count,json=composeDeployWorkerCount,proto3" json:"compose_deploy_worker_count,omitempty"`
 	ComposeBuildPollIntervalSeconds      int64                  `protobuf:"varint,45,opt,name=compose_build_poll_interval_seconds,json=composeBuildPollIntervalSeconds,proto3" json:"compose_build_poll_interval_seconds,omitempty"`
 	ComposeDependencyWaitTimeoutMinutes  int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
 	ComposeDependencyPollIntervalSeconds int64                  `protobuf:"varint,47,opt,name=compose_dependency_poll_interval_seconds,json=composeDependencyPollIntervalSeconds,proto3" json:"compose_dependency_poll_interval_seconds,omitempty"`
@@ -2333,6 +2334,9 @@ type SystemConfigData struct {
 	GitAllowedHosts                      []string               `protobuf:"bytes,61,rep,name=git_allowed_hosts,json=gitAllowedHosts,proto3" json:"git_allowed_hosts,omitempty"`
 	GitCloneTimeoutSeconds               int64                  `protobuf:"varint,62,opt,name=git_clone_timeout_seconds,json=gitCloneTimeoutSeconds,proto3" json:"git_clone_timeout_seconds,omitempty"`
 	GitMaxRepositoryBytes                int64                  `protobuf:"varint,63,opt,name=git_max_repository_bytes,json=gitMaxRepositoryBytes,proto3" json:"git_max_repository_bytes,omitempty"`
+	ComposeOutboxIntervalSeconds         int64                  `protobuf:"varint,64,opt,name=compose_outbox_interval_seconds,json=composeOutboxIntervalSeconds,proto3" json:"compose_outbox_interval_seconds,omitempty"`
+	ComposeOutboxBatchSize               int32                  `protobuf:"varint,65,opt,name=compose_outbox_batch_size,json=composeOutboxBatchSize,proto3" json:"compose_outbox_batch_size,omitempty"`
+	ComposeDeployMaxAttempts             int32                  `protobuf:"varint,66,opt,name=compose_deploy_max_attempts,json=composeDeployMaxAttempts,proto3" json:"compose_deploy_max_attempts,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -2668,6 +2672,13 @@ func (x *SystemConfigData) GetComposePipelineTimeoutMinutes() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetComposeDeployWorkerCount() int32 {
+	if x != nil {
+		return x.ComposeDeployWorkerCount
+	}
+	return 0
+}
+
 func (x *SystemConfigData) GetComposeBuildPollIntervalSeconds() int64 {
 	if x != nil {
 		return x.ComposeBuildPollIntervalSeconds
@@ -2797,6 +2808,27 @@ func (x *SystemConfigData) GetGitCloneTimeoutSeconds() int64 {
 func (x *SystemConfigData) GetGitMaxRepositoryBytes() int64 {
 	if x != nil {
 		return x.GitMaxRepositoryBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeOutboxIntervalSeconds() int64 {
+	if x != nil {
+		return x.ComposeOutboxIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeOutboxBatchSize() int32 {
+	if x != nil {
+		return x.ComposeOutboxBatchSize
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeDeployMaxAttempts() int32 {
+	if x != nil {
+		return x.ComposeDeployMaxAttempts
 	}
 	return 0
 }
@@ -3078,7 +3110,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\x8a\x1c\n" +
+	"totalCount\"\x8a\x1e\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -3125,7 +3157,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1dbuild_outbox_interval_seconds\x18( \x01(\x03R\x1abuildOutboxIntervalSeconds\x125\n" +
 	"\x17build_outbox_batch_size\x18) \x01(\x05R\x14buildOutboxBatchSize\x127\n" +
 	"\x18compose_upload_max_bytes\x18* \x01(\x03R\x15composeUploadMaxBytes\x12G\n" +
-	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12L\n" +
+	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12=\n" +
+	"\x1bcompose_deploy_worker_count\x18, \x01(\x05R\x18composeDeployWorkerCount\x12L\n" +
 	"#compose_build_poll_interval_seconds\x18- \x01(\x03R\x1fcomposeBuildPollIntervalSeconds\x12T\n" +
 	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x12V\n" +
 	"(compose_dependency_poll_interval_seconds\x18/ \x01(\x03R$composeDependencyPollIntervalSeconds\x128\n" +
@@ -3144,7 +3177,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x13git_sources_enabled\x18< \x01(\bR\x11gitSourcesEnabled\x12*\n" +
 	"\x11git_allowed_hosts\x18= \x03(\tR\x0fgitAllowedHosts\x129\n" +
 	"\x19git_clone_timeout_seconds\x18> \x01(\x03R\x16gitCloneTimeoutSeconds\x127\n" +
-	"\x18git_max_repository_bytes\x18? \x01(\x03R\x15gitMaxRepositoryBytes\"\xef\x01\n" +
+	"\x18git_max_repository_bytes\x18? \x01(\x03R\x15gitMaxRepositoryBytes\x12E\n" +
+	"\x1fcompose_outbox_interval_seconds\x18@ \x01(\x03R\x1ccomposeOutboxIntervalSeconds\x129\n" +
+	"\x19compose_outbox_batch_size\x18A \x01(\x05R\x16composeOutboxBatchSize\x12=\n" +
+	"\x1bcompose_deploy_max_attempts\x18B \x01(\x05R\x18composeDeployMaxAttempts\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

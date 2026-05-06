@@ -47,6 +47,10 @@ type SystemConfigDTO struct {
 	BuildOutboxBatchSize                 int      `json:"build_outbox_batch_size"`
 	ComposeUploadMaxBytes                int64    `json:"compose_upload_max_bytes"`
 	ComposePipelineTimeoutMinutes        int64    `json:"compose_pipeline_timeout_minutes"`
+	ComposeDeployWorkerCount             int      `json:"compose_deploy_worker_count"`
+	ComposeOutboxIntervalSeconds         int64    `json:"compose_outbox_interval_seconds"`
+	ComposeOutboxBatchSize               int      `json:"compose_outbox_batch_size"`
+	ComposeDeployMaxAttempts             int      `json:"compose_deploy_max_attempts"`
 	ComposeBuildPollIntervalSeconds      int64    `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64    `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64    `json:"compose_dependency_poll_interval_seconds"`

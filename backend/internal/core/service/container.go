@@ -167,9 +167,13 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if unlock != nil {
-		defer unlock()
+	releaseLock := func() {
+		if unlock != nil {
+			unlock()
+			unlock = nil
+		}
 	}
+	defer releaseLock()
 
 	count, err := s.repo.CountByOwnerID(ctx, ownerID)
 	if err != nil {
@@ -216,18 +220,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		return uuid.Nil, err
 	}
 
-	// 4. Изоляция сети
-	networkName := userNetworkName(ownerID)
-	_, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName)
-	if err != nil {
-		return uuid.Nil, err
-	}
-	defer func() {
-		if err != nil {
-			s.cleanupUserNetworkIfUnused(ctx, ownerID)
-		}
-	}()
-
 	baseName, version := parseImageTag(params.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
 
@@ -255,29 +247,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		actualImageTag = fmt.Sprintf("%s/%s:%s", s.config.Get().RegistryPublicURL, repoName, version)
 	}
 
-	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
-	// Если публичный — пуллим только если его нет на хосте
-	if isCustom {
-		err = s.dockerAPI.PullImage(ctx, actualImageTag)
-		if err != nil {
-			if customImage != nil && isDockerNotFound(err) {
-				s.markImageMissing(ctx, customImage.ID)
-			}
-			return uuid.Nil, apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-		}
-	} else {
-		imageExists, err := s.dockerAPI.ImageExists(ctx, actualImageTag)
-		if err != nil {
-			return uuid.Nil, err
-		}
-		if !imageExists {
-			err = s.dockerAPI.PullImage(ctx, actualImageTag)
-			if err != nil {
-				return uuid.Nil, apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-			}
-		}
-	}
-
 	envBytes, err := json.Marshal(params.EnvVars)
 	if err != nil {
 		return uuid.Nil, err
@@ -288,6 +257,10 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	// Подготовка томов
 	var dockerMounts []model.ContainerMountSpec
 	var dbMounts []model.VolumeMount
+	var volumeChecks []struct {
+		id         uuid.UUID
+		dockerName string
+	}
 
 	for _, vm := range params.VolumeMounts {
 		if err := validation.MountPath(vm.MountPath); err != nil {
@@ -304,15 +277,10 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		if vol.Status == model.VolumeStatusMissing {
 			return uuid.Nil, resourceUnavailableError("volume")
 		}
-		if inspector, ok := s.dockerAPI.(containerVolumeInspector); ok {
-			if _, err := inspector.InspectVolume(ctx, vol.DockerName); err != nil {
-				if isDockerNotFound(err) {
-					s.markVolumeMissing(ctx, vol.ID)
-					return uuid.Nil, resourceUnavailableError("volume")
-				}
-				return uuid.Nil, err
-			}
-		}
+		volumeChecks = append(volumeChecks, struct {
+			id         uuid.UUID
+			dockerName string
+		}{id: vol.ID, dockerName: vol.DockerName})
 
 		dockerMounts = append(dockerMounts, model.ContainerMountSpec{
 			VolumeName: vol.DockerName,
@@ -384,6 +352,66 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		if len(dbMounts) > 0 {
 			if err := s.volumeRepo.SaveMounts(ctx, dbMounts); err != nil {
 				_ = s.repo.Delete(ctx, containerID)
+				return uuid.Nil, err
+			}
+		}
+	}
+	releaseLock()
+
+	if inspector, ok := s.dockerAPI.(containerVolumeInspector); ok {
+		for _, check := range volumeChecks {
+			if _, err := inspector.InspectVolume(ctx, check.dockerName); err != nil {
+				if isDockerNotFound(err) {
+					s.markVolumeMissing(ctx, check.id)
+					err = resourceUnavailableError("volume")
+				}
+				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+				return uuid.Nil, err
+			}
+		}
+	}
+
+	// 4. Изоляция сети
+	networkName := userNetworkName(ownerID)
+	_, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName)
+	if err != nil {
+		s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+		return uuid.Nil, err
+	}
+	defer func() {
+		if err != nil {
+			s.cleanupUserNetworkIfUnused(ctx, ownerID)
+		}
+	}()
+
+	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
+	// Если публичный — пуллим только если его нет на хосте
+	if isCustom {
+		err = s.dockerAPI.PullImage(ctx, actualImageTag)
+		if err != nil {
+			if customImage != nil && isDockerNotFound(err) {
+				s.markImageMissing(ctx, customImage.ID)
+			}
+			err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+			return uuid.Nil, err
+		}
+	} else {
+		imageExists, err := s.dockerAPI.ImageExists(ctx, actualImageTag)
+		if err != nil {
+			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+			return uuid.Nil, err
+		}
+		if !imageExists {
+			err = s.dockerAPI.PullImage(ctx, actualImageTag)
+			if err != nil {
+				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 				return uuid.Nil, err
 			}
 		}
@@ -615,9 +643,13 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err != nil {
 		return err
 	}
-	if unlock != nil {
-		defer unlock()
+	releaseLock := func() {
+		if unlock != nil {
+			unlock()
+			unlock = nil
+		}
 	}
+	defer releaseLock()
 	s.createContainerOperation(ctx, containerID, ownerID, model.OperationStart)
 
 	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
@@ -634,6 +666,7 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 		return err
 	}
 	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusRunning)
+	releaseLock()
 
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		if isDockerNotFound(err) {

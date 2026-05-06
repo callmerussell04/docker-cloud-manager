@@ -30,18 +30,19 @@ import (
 )
 
 type App struct {
-	gRPCServer     *grpc.Server
-	httpServer     *http.Server
-	db             *sql.DB
-	dockerCli      *docker.Adapter
-	orchestrator   *compose.Orchestrator
-	buildPublisher service.BuildQueuePublisher
-	ssoConn        *grpc.ClientConn
-	port           int
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             *sync.WaitGroup
-	logger         *slog.Logger
+	gRPCServer      *grpc.Server
+	httpServer      *http.Server
+	db              *sql.DB
+	dockerCli       *docker.Adapter
+	orchestrator    *compose.Orchestrator
+	buildPublisher  service.BuildQueuePublisher
+	composeConsumer *rabbitmq.ComposeConsumer
+	ssoConn         *grpc.ClientConn
+	port            int
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              *sync.WaitGroup
+	logger          *slog.Logger
 }
 
 type Config struct {
@@ -91,9 +92,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
-	if err := projRepo.FailActiveDeployments(context.Background(), "deployment interrupted by core service restart"); err != nil {
-		appLogger.Warn("failed to mark interrupted deployments", "error", err)
-	}
 
 	metricsProvider := metrics.NewSystemMetrics()
 
@@ -107,6 +105,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
+	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -117,6 +116,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	wg := &sync.WaitGroup{}
 
 	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, objectStore, buildService, imgService, logger)
+	if err := projRepo.RecoverInterruptedComposeDeployments(context.Background(), cfg.ConfigManager.Get().ComposeDeployMaxAttempts, "deployment interrupted by core service restart"); err != nil {
+		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
+	}
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)
 	composeHandler := corehttp.NewComposeHandler(orchestrator, cfg.ConfigManager)
@@ -139,8 +141,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
+	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
 
-	wg.Add(6)
+	wg.Add(7)
 	go func() {
 		defer wg.Done()
 		ttlWorker.Run(ctx)
@@ -165,20 +168,26 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		defer wg.Done()
 		buildOutboxWorker.Run(ctx)
 	}()
+	go func() {
+		defer wg.Done()
+		composeOutboxWorker.Run(ctx)
+	}()
+	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
 
 	return &App{
-		gRPCServer:     gRPCServer,
-		httpServer:     httpServer,
-		db:             db,
-		dockerCli:      dockerAdapter,
-		orchestrator:   orchestrator,
-		buildPublisher: buildPublisher,
-		ssoConn:        ssoConn,
-		port:           cfg.Port,
-		ctx:            ctx,
-		cancel:         cancel,
-		wg:             wg,
-		logger:         appLogger,
+		gRPCServer:      gRPCServer,
+		httpServer:      httpServer,
+		db:              db,
+		dockerCli:       dockerAdapter,
+		orchestrator:    orchestrator,
+		buildPublisher:  buildPublisher,
+		composeConsumer: composeConsumer,
+		ssoConn:         ssoConn,
+		port:            cfg.Port,
+		ctx:             ctx,
+		cancel:          cancel,
+		wg:              wg,
+		logger:          appLogger,
 	}, nil
 }
 
