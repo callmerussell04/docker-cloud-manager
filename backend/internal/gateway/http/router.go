@@ -18,6 +18,7 @@ type Config struct {
 	MaxJSONBodyBytes   int64
 	AuthRateLimit      middleware.RateLimitConfig
 	UploadRateLimit    middleware.RateLimitConfig
+	AuthRedirect       handler.AuthRedirectConfig
 }
 
 type RouterDeps struct {
@@ -64,6 +65,9 @@ func NewRouter(cfg Config, deps RouterDeps) *gin.Engine {
 func registerAuthRoutes(v1 *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
 	auth := v1.Group("/auth")
 	auth.Use(middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth"))
+	auth.GET("/providers", deps.AuthHandler.Providers)
+	auth.GET("/oidc/keycloak/start", deps.AuthHandler.StartKeycloakLogin)
+	auth.GET("/oidc/keycloak/callback", deps.AuthHandler.CompleteKeycloakCallback)
 	auth.POST("/register", deps.AuthHandler.Register)
 	auth.POST("/login", deps.AuthHandler.Login)
 	auth.POST("/refresh", deps.AuthHandler.Refresh)
@@ -173,6 +177,10 @@ func DefaultConfig() Config {
 		UploadRateLimit: middleware.RateLimitConfig{
 			Requests: 10,
 			Window:   time.Minute,
+		},
+		AuthRedirect: handler.AuthRedirectConfig{
+			AllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
+			CallbackPath:   "/auth/callback",
 		},
 	}
 }

@@ -87,6 +87,8 @@ func main() {
 func routerConfigFromEnv() gatewayhttp.Config {
 	cfg := gatewayhttp.DefaultConfig()
 	cfg.CORSAllowedOrigins = csvEnv("CORS_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
+	cfg.AuthRedirect.AllowedOrigins = csvEnv("GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
+	cfg.AuthRedirect.CallbackPath = getenv("GATEWAY_AUTH_CALLBACK_PATH", cfg.AuthRedirect.CallbackPath)
 	cfg.TrustedProxies = csvEnv("GATEWAY_TRUSTED_PROXIES", nil)
 	cfg.MaxJSONBodyBytes = int64Env("GATEWAY_MAX_JSON_BODY_BYTES", cfg.MaxJSONBodyBytes)
 	cfg.AuthRateLimit = middleware.RateLimitConfig{

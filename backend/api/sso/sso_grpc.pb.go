@@ -19,9 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Auth_Register_FullMethodName = "/sso.Auth/Register"
-	Auth_Login_FullMethodName    = "/sso.Auth/Login"
-	Auth_Refresh_FullMethodName  = "/sso.Auth/Refresh"
+	Auth_Register_FullMethodName             = "/sso.Auth/Register"
+	Auth_Login_FullMethodName                = "/sso.Auth/Login"
+	Auth_Refresh_FullMethodName              = "/sso.Auth/Refresh"
+	Auth_GetAuthConfig_FullMethodName        = "/sso.Auth/GetAuthConfig"
+	Auth_StartOIDCLogin_FullMethodName       = "/sso.Auth/StartOIDCLogin"
+	Auth_CompleteOIDCCallback_FullMethodName = "/sso.Auth/CompleteOIDCCallback"
 )
 
 // AuthClient is the client API for Auth service.
@@ -31,6 +34,9 @@ type AuthClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Refresh(ctx context.Context, in *RefreshRequest, opts ...grpc.CallOption) (*RefreshResponse, error)
+	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
+	StartOIDCLogin(ctx context.Context, in *StartOIDCLoginRequest, opts ...grpc.CallOption) (*StartOIDCLoginResponse, error)
+	CompleteOIDCCallback(ctx context.Context, in *CompleteOIDCCallbackRequest, opts ...grpc.CallOption) (*CompleteOIDCCallbackResponse, error)
 }
 
 type authClient struct {
@@ -71,6 +77,36 @@ func (c *authClient) Refresh(ctx context.Context, in *RefreshRequest, opts ...gr
 	return out, nil
 }
 
+func (c *authClient) GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAuthConfigResponse)
+	err := c.cc.Invoke(ctx, Auth_GetAuthConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authClient) StartOIDCLogin(ctx context.Context, in *StartOIDCLoginRequest, opts ...grpc.CallOption) (*StartOIDCLoginResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartOIDCLoginResponse)
+	err := c.cc.Invoke(ctx, Auth_StartOIDCLogin_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authClient) CompleteOIDCCallback(ctx context.Context, in *CompleteOIDCCallbackRequest, opts ...grpc.CallOption) (*CompleteOIDCCallbackResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompleteOIDCCallbackResponse)
+	err := c.cc.Invoke(ctx, Auth_CompleteOIDCCallback_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServer is the server API for Auth service.
 // All implementations must embed UnimplementedAuthServer
 // for forward compatibility.
@@ -78,6 +114,9 @@ type AuthServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error)
+	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
+	StartOIDCLogin(context.Context, *StartOIDCLoginRequest) (*StartOIDCLoginResponse, error)
+	CompleteOIDCCallback(context.Context, *CompleteOIDCCallbackRequest) (*CompleteOIDCCallbackResponse, error)
 	mustEmbedUnimplementedAuthServer()
 }
 
@@ -96,6 +135,15 @@ func (UnimplementedAuthServer) Login(context.Context, *LoginRequest) (*LoginResp
 }
 func (UnimplementedAuthServer) Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Refresh not implemented")
+}
+func (UnimplementedAuthServer) GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAuthConfig not implemented")
+}
+func (UnimplementedAuthServer) StartOIDCLogin(context.Context, *StartOIDCLoginRequest) (*StartOIDCLoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartOIDCLogin not implemented")
+}
+func (UnimplementedAuthServer) CompleteOIDCCallback(context.Context, *CompleteOIDCCallbackRequest) (*CompleteOIDCCallbackResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CompleteOIDCCallback not implemented")
 }
 func (UnimplementedAuthServer) mustEmbedUnimplementedAuthServer() {}
 func (UnimplementedAuthServer) testEmbeddedByValue()              {}
@@ -172,6 +220,60 @@ func _Auth_Refresh_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Auth_GetAuthConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAuthConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServer).GetAuthConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Auth_GetAuthConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServer).GetAuthConfig(ctx, req.(*GetAuthConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Auth_StartOIDCLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartOIDCLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServer).StartOIDCLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Auth_StartOIDCLogin_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServer).StartOIDCLogin(ctx, req.(*StartOIDCLoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Auth_CompleteOIDCCallback_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompleteOIDCCallbackRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServer).CompleteOIDCCallback(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Auth_CompleteOIDCCallback_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServer).CompleteOIDCCallback(ctx, req.(*CompleteOIDCCallbackRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Auth_ServiceDesc is the grpc.ServiceDesc for Auth service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -190,6 +292,18 @@ var Auth_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Refresh",
 			Handler:    _Auth_Refresh_Handler,
+		},
+		{
+			MethodName: "GetAuthConfig",
+			Handler:    _Auth_GetAuthConfig_Handler,
+		},
+		{
+			MethodName: "StartOIDCLogin",
+			Handler:    _Auth_StartOIDCLogin_Handler,
+		},
+		{
+			MethodName: "CompleteOIDCCallback",
+			Handler:    _Auth_CompleteOIDCCallback_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -15,6 +15,7 @@ import (
 
 	authgrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/oidc"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
 )
@@ -34,12 +35,29 @@ type Config struct {
 	AccessTTL      time.Duration
 	RefreshTTL     time.Duration
 	BootstrapAdmin BootstrapAdminConfig
+	Auth           AuthConfig
+	OIDC           OIDCConfig
 }
 
 type BootstrapAdminConfig struct {
 	Username string
 	Email    string
 	Password string
+}
+
+type AuthConfig struct {
+	LocalLoginEnabled    bool
+	LocalRegisterEnabled bool
+}
+
+type OIDCConfig struct {
+	Enabled      bool
+	IssuerURL    string
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	AdminGroups  []string
+	DefaultRole  string
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -54,7 +72,18 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	repo := repository.NewUserRepository(db)
 	tokenProvider := jwt.NewProvider(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
-	authService := service.NewAuthService(repo, tokenProvider)
+	oidcProvider, err := buildOIDCProvider(cfg.OIDC)
+	if err != nil {
+		return nil, err
+	}
+	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, oidcProvider, service.Config{
+		LocalLoginEnabled:    cfg.Auth.LocalLoginEnabled,
+		LocalRegisterEnabled: cfg.Auth.LocalRegisterEnabled,
+		OIDCEnabled:          cfg.OIDC.Enabled,
+		OIDCProviderName:     "keycloak",
+		OIDCAdminGroups:      cfg.OIDC.AdminGroups,
+		OIDCDefaultRole:      cfg.OIDC.DefaultRole,
+	})
 	if err := ensureBootstrapAdmin(authService, cfg.BootstrapAdmin, logger); err != nil {
 		return nil, err
 	}
@@ -71,6 +100,26 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		port:       cfg.Port,
 		logger:     logging.WithComponent(logger, "app"),
 	}, nil
+}
+
+func buildOIDCProvider(cfg OIDCConfig) (service.OIDCProvider, error) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	provider, err := oidc.NewProvider(ctx, oidc.Config{
+		IssuerURL:    cfg.IssuerURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		RedirectURL:  cfg.RedirectURL,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize oidc provider: %w", err)
+	}
+	return provider, nil
 }
 
 func ensureBootstrapAdmin(authService *service.AuthService, cfg BootstrapAdminConfig, logger *slog.Logger) error {

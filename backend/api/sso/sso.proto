@@ -8,6 +8,9 @@ service Auth {
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc Refresh (RefreshRequest) returns (RefreshResponse);
+  rpc GetAuthConfig (GetAuthConfigRequest) returns (GetAuthConfigResponse);
+  rpc StartOIDCLogin (StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
+  rpc CompleteOIDCCallback (CompleteOIDCCallbackRequest) returns (CompleteOIDCCallbackResponse);
 }
 
 service UserAPI {
@@ -49,6 +52,41 @@ message RefreshRequest {
 message RefreshResponse {
   string access_token = 1;
   string refresh_token = 2;
+}
+
+message GetAuthConfigRequest {}
+
+message OIDCProviderData {
+  string name = 1;
+}
+
+message GetAuthConfigResponse {
+  bool local_login_enabled = 1;
+  bool local_register_enabled = 2;
+  repeated OIDCProviderData oidc_providers = 3;
+}
+
+message StartOIDCLoginRequest {
+  string provider = 1;
+  string redirect_after = 2;
+}
+
+message StartOIDCLoginResponse {
+  string auth_url = 1;
+  string state_binding = 2;
+}
+
+message CompleteOIDCCallbackRequest {
+  string provider = 1;
+  string code = 2;
+  string state = 3;
+  string state_binding = 4;
+}
+
+message CompleteOIDCCallbackResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string redirect_after = 3;
 }
 
 message VerifyTokenRequest {

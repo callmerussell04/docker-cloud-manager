@@ -48,6 +48,7 @@ func main() {
 
 	accessTTL := 15 * time.Minute
 	refreshTTL := 30 * 24 * time.Hour
+	oidcEnabled := getEnvBool("SSO_OIDC_ENABLED", false)
 
 	application, err := app.New(app.Config{
 		Port:          port,
@@ -60,6 +61,19 @@ func main() {
 			Username: adminUsername,
 			Email:    adminEmail,
 			Password: adminPassword,
+		},
+		Auth: app.AuthConfig{
+			LocalLoginEnabled:    getEnvBool("SSO_LOCAL_LOGIN_ENABLED", true),
+			LocalRegisterEnabled: getEnvBool("SSO_LOCAL_REGISTER_ENABLED", true),
+		},
+		OIDC: app.OIDCConfig{
+			Enabled:      oidcEnabled,
+			IssuerURL:    getEnvString("SSO_OIDC_ISSUER_URL", ""),
+			ClientID:     getEnvString("SSO_OIDC_CLIENT_ID", ""),
+			ClientSecret: os.Getenv("SSO_OIDC_CLIENT_SECRET"),
+			RedirectURL:  getEnvString("SSO_OIDC_REDIRECT_URL", ""),
+			AdminGroups:  getEnvList("SSO_OIDC_ADMIN_GROUPS"),
+			DefaultRole:  getEnvString("SSO_OIDC_DEFAULT_ROLE", "user"),
 		},
 	}, logger)
 	if err != nil {
@@ -90,4 +104,32 @@ func getEnvString(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvList(key string) []string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return []string{}
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }

@@ -1,5 +1,5 @@
 import { publicApi } from '@/api/axios';
-import type { LoginData, RegisterData, AuthResponse } from '../types';
+import type { LoginData, RegisterData, AuthResponse, AuthConfig } from '../types';
 
 export const loginFn = async (data: LoginData): Promise<AuthResponse> => {
   const response = await publicApi.post<AuthResponse>('/auth/login', data);
@@ -8,6 +8,11 @@ export const loginFn = async (data: LoginData): Promise<AuthResponse> => {
 
 export const registerFn = async (data: RegisterData): Promise<AuthResponse> => {
   const response = await publicApi.post<AuthResponse>('/auth/register', data);
+  return response.data;
+};
+
+export const getAuthConfigFn = async (): Promise<AuthConfig> => {
+  const response = await publicApi.get<AuthConfig>('/auth/providers');
   return response.data;
 };
 

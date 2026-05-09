@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { ProtectedRoute } from './ProtectedRoute';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
+import { AuthCallbackPage } from '@/pages/auth/AuthCallbackPage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { ContainersPage } from '@/pages/containers/ContainersPage';
 import { ContainerDetailsPage } from '@/pages/containers/ContainerDetailsPage';
@@ -50,5 +51,6 @@ export const router = createBrowserRouter([
     ],
   },
   { path: '/login', element: <LoginPage /> },
+  { path: '/auth/callback', element: <AuthCallbackPage /> },
   { path: '/register', element: <RegisterPage /> },
 ]);

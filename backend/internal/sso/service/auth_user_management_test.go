@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -151,6 +152,251 @@ func TestCannotDeactivateLastActiveAdmin(t *testing.T) {
 	}
 }
 
+func TestLocalAuthDisabled(t *testing.T) {
+	repo := newAuthRepoFake()
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, nil, Config{
+		LocalLoginEnabled:    false,
+		LocalRegisterEnabled: false,
+		OIDCDefaultRole:      model.RoleUser,
+	})
+
+	if _, err := svc.Register(context.Background(), "alice", "alice@example.com", "secret123"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("Register error = %v, want ErrNotFound", err)
+	}
+	if _, _, err := svc.Login(context.Background(), "alice", "secret123"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("Login error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestOIDCCallbackCreatesAndUpdatesUser(t *testing.T) {
+	repo := newAuthRepoFake()
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "keycloak-subject-1",
+			PreferredUsername: "Alice.External",
+			Email:             "alice@example.com",
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		LocalLoginEnabled:    true,
+		LocalRegisterEnabled: true,
+		OIDCEnabled:          true,
+		OIDCProviderName:     "keycloak",
+		OIDCDefaultRole:      model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	accessToken, refreshToken, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding)
+	if err != nil {
+		t.Fatalf("CompleteOIDCCallback error = %v", err)
+	}
+	if accessToken != "access" || refreshToken != "refresh" {
+		t.Fatalf("tokens = %q/%q, want access/refresh", accessToken, refreshToken)
+	}
+
+	user, err := repo.GetUserByExternalIdentity(context.Background(), "keycloak", "keycloak-subject-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.AuthSource != model.AuthSourceOIDC || user.Username != "alice-external" || user.Role != model.RoleUser || user.LastLoginAt == nil {
+		t.Fatalf("unexpected oidc user: %+v", user)
+	}
+
+	provider.identity.Email = "alice.updated@example.com"
+	provider.identity.PreferredUsername = "alice-updated"
+	state, stateBinding = startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); err != nil {
+		t.Fatalf("second CompleteOIDCCallback error = %v", err)
+	}
+	updated, err := repo.GetUserByExternalIdentity(context.Background(), "keycloak", "keycloak-subject-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != user.ID || updated.Email != "alice.updated@example.com" || updated.Username != "alice-updated" {
+		t.Fatalf("user was not updated in place: before=%+v after=%+v", user, updated)
+	}
+}
+
+func TestOIDCCallbackMapsAdminGroup(t *testing.T) {
+	repo := newAuthRepoFake()
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "admin-subject",
+			PreferredUsername: "admin-user",
+			Email:             "admin.oidc@example.com",
+			Groups:            []string{"/dcm-admins"},
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		OIDCEnabled:      true,
+		OIDCProviderName: "keycloak",
+		OIDCAdminGroups:  []string{"/dcm-admins"},
+		OIDCDefaultRole:  model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); err != nil {
+		t.Fatalf("CompleteOIDCCallback error = %v", err)
+	}
+	user, err := repo.GetUserByExternalIdentity(context.Background(), "keycloak", "admin-subject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Role != model.RoleAdmin {
+		t.Fatalf("role = %q, want admin", user.Role)
+	}
+}
+
+func TestOIDCCallbackBlocksDeactivatedUser(t *testing.T) {
+	repo := newAuthRepoFake()
+	user := model.User{
+		ID:               uuid.New(),
+		Username:         "blocked-user",
+		Email:            "blocked@example.com",
+		Role:             model.RoleUser,
+		Status:           model.StatusDeactivated,
+		QuotaCPU:         1,
+		QuotaRAMMB:       2048,
+		QuotaDiskMB:      5120,
+		AuthSource:       model.AuthSourceOIDC,
+		ExternalProvider: "keycloak",
+		ExternalSubject:  "blocked-subject",
+	}
+	if err := repo.SaveUser(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "blocked-subject",
+			PreferredUsername: "blocked-user",
+			Email:             "blocked@example.com",
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		OIDCEnabled:      true,
+		OIDCProviderName: "keycloak",
+		OIDCDefaultRole:  model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); !errors.Is(err, apperrors.ErrInvalidCredentials) {
+		t.Fatalf("CompleteOIDCCallback error = %v, want ErrInvalidCredentials", err)
+	}
+}
+
+func TestOIDCCallbackRequiresStateBinding(t *testing.T) {
+	repo := newAuthRepoFake()
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "bound-subject",
+			PreferredUsername: "bound-user",
+			Email:             "bound@example.com",
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		OIDCEnabled:      true,
+		OIDCProviderName: "keycloak",
+		OIDCDefaultRole:  model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, "wrong-binding"); !errors.Is(err, apperrors.ErrInvalidCredentials) {
+		t.Fatalf("CompleteOIDCCallback with wrong binding error = %v, want ErrInvalidCredentials", err)
+	}
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); err != nil {
+		t.Fatalf("CompleteOIDCCallback with correct binding after failed attempt error = %v", err)
+	}
+}
+
+func TestOIDCCallbackPreventsLastAdminDowngrade(t *testing.T) {
+	repo := newAuthRepoFake()
+	admin := model.User{
+		ID:               uuid.New(),
+		Username:         "oidc-admin",
+		Email:            "oidc-admin@example.com",
+		Role:             model.RoleAdmin,
+		Status:           model.StatusActive,
+		QuotaCPU:         1,
+		QuotaRAMMB:       2048,
+		QuotaDiskMB:      5120,
+		AuthSource:       model.AuthSourceOIDC,
+		ExternalProvider: "keycloak",
+		ExternalSubject:  "oidc-admin-subject",
+	}
+	if err := repo.SaveUser(context.Background(), admin); err != nil {
+		t.Fatal(err)
+	}
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "oidc-admin-subject",
+			PreferredUsername: "oidc-admin",
+			Email:             "oidc-admin@example.com",
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		OIDCEnabled:      true,
+		OIDCProviderName: "keycloak",
+		OIDCDefaultRole:  model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("CompleteOIDCCallback error = %v, want ErrConflict", err)
+	}
+	updated, err := repo.GetUserByID(context.Background(), admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Role != model.RoleAdmin {
+		t.Fatalf("role = %q, want admin", updated.Role)
+	}
+}
+
+func TestOIDCCallbackAllowsAdminDowngradeWhenAnotherAdminExists(t *testing.T) {
+	repo := newAuthRepoFake()
+	seedUser(t, repo, "local-admin", model.RoleAdmin, model.StatusActive)
+	oidcAdmin := model.User{
+		ID:               uuid.New(),
+		Username:         "oidc-admin",
+		Email:            "oidc-admin@example.com",
+		Role:             model.RoleAdmin,
+		Status:           model.StatusActive,
+		QuotaCPU:         1,
+		QuotaRAMMB:       2048,
+		QuotaDiskMB:      5120,
+		AuthSource:       model.AuthSourceOIDC,
+		ExternalProvider: "keycloak",
+		ExternalSubject:  "oidc-admin-subject",
+	}
+	if err := repo.SaveUser(context.Background(), oidcAdmin); err != nil {
+		t.Fatal(err)
+	}
+	provider := &oidcProviderFake{
+		identity: OIDCIdentity{
+			Subject:           "oidc-admin-subject",
+			PreferredUsername: "oidc-admin",
+			Email:             "oidc-admin@example.com",
+		},
+	}
+	svc := NewAuthServiceWithConfig(repo, authTokenFake{userID: uuid.New()}, provider, Config{
+		OIDCEnabled:      true,
+		OIDCProviderName: "keycloak",
+		OIDCDefaultRole:  model.RoleUser,
+	})
+
+	state, stateBinding := startOIDCTestLogin(t, svc)
+	if _, _, _, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", state, stateBinding); err != nil {
+		t.Fatalf("CompleteOIDCCallback error = %v", err)
+	}
+	updated, err := repo.GetUserByID(context.Background(), oidcAdmin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Role != model.RoleUser {
+		t.Fatalf("role = %q, want user", updated.Role)
+	}
+}
+
 type authRepoFake struct {
 	users map[uuid.UUID]model.User
 }
@@ -162,6 +408,10 @@ func newAuthRepoFake() *authRepoFake {
 func (r *authRepoFake) SaveUser(ctx context.Context, user model.User) error {
 	for _, existing := range r.users {
 		if existing.Username == user.Username || existing.Email == user.Email {
+			return apperrors.ErrAlreadyExists
+		}
+		if user.ExternalProvider != "" && user.ExternalSubject != "" &&
+			existing.ExternalProvider == user.ExternalProvider && existing.ExternalSubject == user.ExternalSubject {
 			return apperrors.ErrAlreadyExists
 		}
 	}
@@ -177,6 +427,10 @@ func (r *authRepoFake) UpdateUser(ctx context.Context, user model.User) error {
 		if id != user.ID && (existing.Username == user.Username || existing.Email == user.Email) {
 			return apperrors.ErrAlreadyExists
 		}
+		if id != user.ID && user.ExternalProvider != "" && user.ExternalSubject != "" &&
+			existing.ExternalProvider == user.ExternalProvider && existing.ExternalSubject == user.ExternalSubject {
+			return apperrors.ErrAlreadyExists
+		}
 	}
 	r.users[user.ID] = user
 	return nil
@@ -185,6 +439,24 @@ func (r *authRepoFake) UpdateUser(ctx context.Context, user model.User) error {
 func (r *authRepoFake) GetUserByUsername(ctx context.Context, username string) (model.User, error) {
 	for _, user := range r.users {
 		if user.Username == username {
+			return user, nil
+		}
+	}
+	return model.User{}, apperrors.ErrNotFound
+}
+
+func (r *authRepoFake) GetUserByEmail(ctx context.Context, email string) (model.User, error) {
+	for _, user := range r.users {
+		if user.Email == email {
+			return user, nil
+		}
+	}
+	return model.User{}, apperrors.ErrNotFound
+}
+
+func (r *authRepoFake) GetUserByExternalIdentity(ctx context.Context, provider, subject string) (model.User, error) {
+	for _, user := range r.users {
+		if user.ExternalProvider == provider && user.ExternalSubject == subject {
 			return user, nil
 		}
 	}
@@ -254,6 +526,39 @@ func (f authTokenFake) ValidateRefreshToken(token string) (uuid.UUID, error) {
 	return f.userID, nil
 }
 
+type oidcProviderFake struct {
+	identity OIDCIdentity
+}
+
+func (f *oidcProviderFake) AuthCodeURL(state, nonce string) string {
+	return "https://keycloak.example/authorize?state=" + state + "&nonce=" + nonce
+}
+
+func (f *oidcProviderFake) ExchangeCode(ctx context.Context, code, nonce string) (OIDCIdentity, error) {
+	return f.identity, nil
+}
+
+func startOIDCTestLogin(t *testing.T, svc *AuthService) (string, string) {
+	t.Helper()
+	authURL, stateBinding, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+	if err != nil {
+		t.Fatalf("StartOIDCLogin error = %v", err)
+	}
+	if stateBinding == "" {
+		t.Fatal("StartOIDCLogin returned empty state binding")
+	}
+	prefix := "state="
+	idx := strings.Index(authURL, prefix)
+	if idx < 0 {
+		t.Fatalf("auth url does not contain state: %s", authURL)
+	}
+	state := authURL[idx+len(prefix):]
+	if end := strings.IndexByte(state, '&'); end >= 0 {
+		state = state[:end]
+	}
+	return state, stateBinding
+}
+
 func seedUser(t *testing.T, repo *authRepoFake, username, role, status string) model.User {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte("secret123"), bcrypt.DefaultCost)
@@ -270,6 +575,7 @@ func seedUser(t *testing.T, repo *authRepoFake, username, role, status string) m
 		QuotaCPU:     1,
 		QuotaRAMMB:   2048,
 		QuotaDiskMB:  5120,
+		AuthSource:   model.AuthSourceLocal,
 	}
 	if err := repo.SaveUser(context.Background(), user); err != nil {
 		t.Fatal(err)

@@ -72,6 +72,55 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 	}, nil
 }
 
+func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error) {
+	resp, err := c.authAPI.GetAuthConfig(ctx, &sso.GetAuthConfigRequest{})
+	if err != nil {
+		return model.AuthConfig{}, grpcerrors.FromGRPC(err)
+	}
+	providers := make([]model.OIDCProvider, 0, len(resp.GetOidcProviders()))
+	for _, provider := range resp.GetOidcProviders() {
+		providers = append(providers, model.OIDCProvider{Name: provider.GetName()})
+	}
+	return model.AuthConfig{
+		LocalLoginEnabled:    resp.GetLocalLoginEnabled(),
+		LocalRegisterEnabled: resp.GetLocalRegisterEnabled(),
+		OIDCProviders:        providers,
+	}, nil
+}
+
+func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error) {
+	resp, err := c.authAPI.StartOIDCLogin(ctx, &sso.StartOIDCLoginRequest{
+		Provider:      provider,
+		RedirectAfter: redirectAfter,
+	})
+	if err != nil {
+		return model.OIDCLoginStartResult{}, grpcerrors.FromGRPC(err)
+	}
+	return model.OIDCLoginStartResult{
+		AuthURL:      resp.GetAuthUrl(),
+		StateBinding: resp.GetStateBinding(),
+	}, nil
+}
+
+func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error) {
+	resp, err := c.authAPI.CompleteOIDCCallback(ctx, &sso.CompleteOIDCCallbackRequest{
+		Provider:     provider,
+		Code:         code,
+		State:        state,
+		StateBinding: stateBinding,
+	})
+	if err != nil {
+		return model.OIDCCallbackResult{}, grpcerrors.FromGRPC(err)
+	}
+	return model.OIDCCallbackResult{
+		Tokens: model.Tokens{
+			AccessToken:  resp.GetAccessToken(),
+			RefreshToken: resp.GetRefreshToken(),
+		},
+		RedirectAfter: resp.GetRedirectAfter(),
+	}, nil
+}
+
 func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error) {
 	token, err := accessTokenFromHeader(authHeader)
 	if err != nil {

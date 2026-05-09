@@ -1,6 +1,10 @@
 package model
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 const (
 	RoleUser  = "user"
@@ -12,16 +16,26 @@ const (
 	StatusDeactivated = "deactivated"
 )
 
+const (
+	AuthSourceLocal = "local"
+	AuthSourceOIDC  = "oidc"
+)
+
 type User struct {
-	ID           uuid.UUID
-	Username     string
-	Email        string
-	PasswordHash string
-	Role         string
-	Status       string
-	QuotaCPU     float64
-	QuotaRAMMB   int64
-	QuotaDiskMB  int64
+	ID               uuid.UUID
+	Username         string
+	Email            string
+	PasswordHash     string
+	Role             string
+	Status           string
+	QuotaCPU         float64
+	QuotaRAMMB       int64
+	QuotaDiskMB      int64
+	AuthSource       string
+	ExternalProvider string
+	ExternalSubject  string
+	ExternalUsername string
+	LastLoginAt      *time.Time
 }
 
 type ListUsersOptions struct {
