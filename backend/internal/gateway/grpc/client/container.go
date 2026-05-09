@@ -72,7 +72,7 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, containerID, domainPre
 	return nil
 }
 
-func (c *CoreClient) GetAllContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error) {
+func (c *CoreClient) ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.containerAPI.ListContainers(ctx, req)
 	if err != nil {

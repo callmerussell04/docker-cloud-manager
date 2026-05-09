@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
@@ -131,5 +133,61 @@ func TestContainersToDTO(t *testing.T) {
 	}
 	if got[0].ID != items[0].ID || got[0].OwnerUsername != items[0].OwnerUsername {
 		t.Fatalf("container was not mapped correctly: %+v", got[0])
+	}
+}
+
+func TestUserResourceDTOsOmitOperationalFields(t *testing.T) {
+	containers, err := json.Marshal(containersToUserDTO([]model.Container{{
+		ID:            "container-id",
+		DockerID:      "docker-id",
+		OwnerID:       "owner-id",
+		OwnerUsername: "alice",
+	}}))
+	if err != nil {
+		t.Fatalf("marshal containers: %v", err)
+	}
+	builds, err := json.Marshal(buildsToUserDTO([]model.Build{{
+		ID:            "build-id",
+		LogFilePath:   "build-logs/file.log",
+		OwnerID:       "owner-id",
+		OwnerUsername: "alice",
+	}}))
+	if err != nil {
+		t.Fatalf("marshal builds: %v", err)
+	}
+
+	payload := string(containers) + string(builds)
+	for _, forbidden := range []string{"docker_id", "owner_id", "owner_username", "log_file_path"} {
+		if strings.Contains(payload, forbidden) {
+			t.Fatalf("user DTO payload contains operational field %q: %s", forbidden, payload)
+		}
+	}
+}
+
+func TestAdminResourceDTOsIncludeOperationalFields(t *testing.T) {
+	containers, err := json.Marshal(containersToDTO([]model.Container{{
+		ID:            "container-id",
+		DockerID:      "docker-id",
+		OwnerID:       "owner-id",
+		OwnerUsername: "alice",
+	}}))
+	if err != nil {
+		t.Fatalf("marshal containers: %v", err)
+	}
+	builds, err := json.Marshal(buildsToDTO([]model.Build{{
+		ID:            "build-id",
+		LogFilePath:   "build-logs/file.log",
+		OwnerID:       "owner-id",
+		OwnerUsername: "alice",
+	}}))
+	if err != nil {
+		t.Fatalf("marshal builds: %v", err)
+	}
+
+	payload := string(containers) + string(builds)
+	for _, required := range []string{"docker_id", "owner_id", "owner_username", "log_file_path"} {
+		if !strings.Contains(payload, required) {
+			t.Fatalf("admin DTO payload does not contain operational field %q: %s", required, payload)
+		}
 	}
 }

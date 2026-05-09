@@ -18,7 +18,6 @@ service ContainerAPI {
 service ImageAPI {
   rpc ListImages (PaginationRequest) returns (PaginatedImageResponse);
   rpc DeleteImage (ImageActionRequest) returns (Empty);
-  rpc CreateBuildJob (CreateBuildJobRequest) returns (InitBuildResponse);
   rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
   rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
@@ -141,23 +140,6 @@ message ImageActionRequest {
   reserved 1;
   reserved "owner_id";
   string image_id = 2;
-}
-
-message CreateBuildJobRequest {
-  reserved 1;
-  reserved "owner_id";
-  string tag = 2;
-  string archive_object_key = 3;
-  string log_object_key = 4;
-  string context_dir = 5;
-  string dockerfile = 6;
-  map<string, string> build_args = 7;
-  string request_id = 8;
-}
-
-message InitBuildResponse {
-  string image_id = 1;
-  string build_id = 2;
 }
 
 message StartBuildRecordResponse {

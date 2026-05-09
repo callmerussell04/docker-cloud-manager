@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,7 +16,9 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -42,6 +47,8 @@ type BuildVolumeDiskRepository interface {
 }
 
 type BuildObjectStore interface {
+	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
+	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
 }
 
@@ -54,6 +61,29 @@ type BuildConfigProvider interface {
 }
 
 const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
+const gitSourcesUnavailableMessage = "Git sources are currently unavailable. Upload an archive instead."
+
+type BuildArchiveInput struct {
+	Tag         string
+	ContextDir  string
+	Dockerfile  string
+	BuildArgs   map[string]string
+	ArchiveName string
+	Archive     io.Reader
+}
+
+type BuildGitInput struct {
+	RepoURL    string
+	Ref        string
+	Tag        string
+	ContextDir string
+	Dockerfile string
+	BuildArgs  map[string]string
+}
+
+type BuildInitResult struct {
+	BuildID uuid.UUID
+}
 
 type BuildService struct {
 	repo        BuildRepository
@@ -154,6 +184,188 @@ func (s *BuildService) CreateProjectBuildJob(ctx context.Context, projectID uuid
 		ProjectID:          &projectID,
 		ProjectServiceName: projectServiceName,
 	})
+}
+
+func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildArchiveInput) (BuildInitResult, error) {
+	if s.objectStore == nil {
+		return BuildInitResult{}, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	}
+	if err := s.ensureImageBuildsEnabled(); err != nil {
+		return BuildInitResult{}, err
+	}
+	cfg := s.buildConfig()
+	if err := validation.ImageTag(input.Tag); err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := gitsource.ValidateRelativePath(input.ContextDir); err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: invalid build context: %v", apperrors.ErrBadRequest, err)
+	}
+	if err := gitsource.ValidateRelativePath(input.Dockerfile); err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
+	}
+	if input.Archive == nil || input.ArchiveName == "" {
+		return BuildInitResult{}, apperrors.New(apperrors.ErrBadRequest, "build archive is required")
+	}
+	if input.BuildArgs == nil {
+		input.BuildArgs = map[string]string{}
+	}
+
+	fileID := uuid.New().String()
+	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, input.ArchiveName)
+	logObjectKey := buildobjects.LogObjectKey(fileID)
+
+	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
+	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return BuildInitResult{}, apperrors.New(apperrors.ErrBadRequest, "archive exceeds configured size limit")
+		}
+		return BuildInitResult{}, err
+	}
+
+	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	if err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		return BuildInitResult{}, err
+	}
+
+	args := []any{
+		"request_id", logging.RequestIDFromContext(ctx),
+		"build_id", buildID,
+		"archive_object_key", archiveObjectKey,
+		"log_object_key", logObjectKey,
+	}
+	if scope, ok := accessscope.FromContext(ctx); ok {
+		args = append(args, "user_id", scope.UserID)
+	}
+	s.logger.InfoContext(ctx, "build upload accepted", args...)
+
+	return BuildInitResult{BuildID: buildID}, nil
+}
+
+func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInput) (BuildInitResult, error) {
+	if s.objectStore == nil {
+		return BuildInitResult{}, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	}
+	if err := s.ensureImageBuildsEnabled(); err != nil {
+		return BuildInitResult{}, err
+	}
+	cfg := s.buildConfig()
+	if !cfg.GitSourcesEnabled {
+		return BuildInitResult{}, apperrors.New(apperrors.ErrUnavailable, gitSourcesUnavailableMessage)
+	}
+	if err := validation.ImageTag(input.Tag); err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	contextDir, err := gitsource.CleanRelativePath(input.ContextDir)
+	if err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: invalid build context: %v", apperrors.ErrBadRequest, err)
+	}
+	dockerfile, err := gitsource.CleanRelativePath(input.Dockerfile)
+	if err != nil {
+		return BuildInitResult{}, fmt.Errorf("%w: invalid dockerfile path: %v", apperrors.ErrBadRequest, err)
+	}
+	if _, err := gitsource.ValidateRepoURL(input.RepoURL, cfg.GitAllowedHosts); err != nil {
+		return BuildInitResult{}, err
+	}
+	if err := gitsource.ValidateRef(input.Ref); err != nil {
+		return BuildInitResult{}, err
+	}
+	if input.BuildArgs == nil {
+		input.BuildArgs = map[string]string{}
+	}
+
+	tmpDir, err := os.MkdirTemp("", "dcm-git-build-*")
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repoDir := filepath.Join(tmpDir, "repo")
+	repoInfo, err := gitsource.Clone(ctx, gitsource.CloneRequest{
+		RepoURL:            input.RepoURL,
+		Ref:                input.Ref,
+		DestDir:            repoDir,
+		AllowedHosts:       cfg.GitAllowedHosts,
+		Timeout:            time.Duration(cfg.GitCloneTimeoutSeconds) * time.Second,
+		MaxRepositoryBytes: cfg.GitMaxRepositoryBytes,
+	})
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+
+	archivePath := filepath.Join(tmpDir, "source.zip")
+	stats, err := gitsource.ArchiveToZipFile(ctx, repoDir, archivePath, gitsource.ArchiveLimits{
+		MaxRepositoryBytes: cfg.GitMaxRepositoryBytes,
+		MaxArchiveBytes:    cfg.MaxArchiveSizeBytes,
+	})
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+
+	fileID := uuid.New().String()
+	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, "source.zip")
+	logObjectKey := buildobjects.LogObjectKey(fileID)
+
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+	defer archive.Close()
+
+	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		return BuildInitResult{}, err
+	}
+
+	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	if err != nil {
+		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		return BuildInitResult{}, err
+	}
+
+	args := []any{
+		"request_id", logging.RequestIDFromContext(ctx),
+		"build_id", buildID,
+		"git_host", repoInfo.Host,
+		"git_repo_path", repoInfo.Path,
+		"git_ref", repoInfo.Ref,
+		"archive_bytes", stats.ArchiveBytes,
+		"repository_bytes", stats.RepositoryBytes,
+	}
+	if scope, ok := accessscope.FromContext(ctx); ok {
+		args = append(args, "user_id", scope.UserID)
+	}
+	s.logger.InfoContext(ctx, "git build accepted", args...)
+
+	return BuildInitResult{BuildID: buildID}, nil
+}
+
+func (s *BuildService) OpenBuildLogs(ctx context.Context, buildID uuid.UUID) (io.ReadCloser, error) {
+	if s.objectStore == nil {
+		return nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	}
+	build, err := s.GetBuild(ctx, buildID)
+	if err != nil {
+		return nil, err
+	}
+	if build.LogFilePath == "" {
+		return nil, apperrors.ErrNotFound
+	}
+	return s.objectStore.OpenObject(ctx, build.LogFilePath)
+}
+
+func (s *BuildService) buildConfig() config.SystemConfig {
+	if s.cfg == nil {
+		return config.SystemConfig{
+			ImageBuildsEnabled:     true,
+			GitSourcesEnabled:      true,
+			MaxArchiveSizeBytes:    50 << 20,
+			GitCloneTimeoutSeconds: 60,
+			GitMaxRepositoryBytes:  200 * 1024 * 1024,
+		}
+	}
+	return s.cfg.Get()
 }
 
 func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobInput) (uuid.UUID, uuid.UUID, error) {
@@ -443,4 +655,26 @@ func normalizeFailedBuildStatus(status string) string {
 	default:
 		return model.BuildStatusFailedInternal
 	}
+}
+
+type maxBytesReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (r *maxBytesReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var one [1]byte
+		n, err := r.r.Read(one[:])
+		if n > 0 {
+			return 0, apperrors.ErrBadRequest
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }

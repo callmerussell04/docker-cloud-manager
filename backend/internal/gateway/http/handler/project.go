@@ -13,32 +13,43 @@ type ProjectService interface {
 	StartProject(ctx context.Context, projectID string) error
 	StopProject(ctx context.Context, projectID string) error
 	CancelProject(ctx context.Context, projectID string) error
-	GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
+	ListProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
 }
 
 func (h *CoreHandler) GetProjects(c *gin.Context) {
+	h.listProjects(c, func(items []model.Project) any {
+		return projectsToUserDTO(items)
+	})
+}
+
+func (h *CoreHandler) ListAdminProjects(c *gin.Context) {
+	h.listProjects(c, func(items []model.Project) any {
+		return projectsToDTO(items)
+	})
+}
+
+func (h *CoreHandler) listProjects(c *gin.Context, mapItems func([]model.Project) any) {
 	page, limit, ok := getPaginationParams(c)
 	if !ok {
 		return
 	}
-	resp, err := h.service.GetAllProjects(c.Request.Context(), page, limit)
+	resp, err := h.service.ListProjects(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	projects := resp.Projects
-	if projects == nil {
-		projects = []model.Project{}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"projects":    projectsToUserDTO(projects),
+		"projects":    mapItems(resp.Projects),
 		"total_count": resp.TotalCount,
 	})
 }
 
 func (h *CoreHandler) DeleteProject(c *gin.Context) {
+	h.deleteProject(c, "project deleted")
+}
+
+func (h *CoreHandler) deleteProject(c *gin.Context, message string) {
 	projectID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -50,118 +61,48 @@ func (h *CoreHandler) DeleteProject(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "project deleted"})
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }
 
 func (h *CoreHandler) StartProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-
-	err := h.service.StartProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "project started successfully"})
+	h.runProjectAction(c, h.service.StartProject, "project started successfully")
 }
 
 func (h *CoreHandler) StopProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-
-	err := h.service.StopProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "project stopped successfully"})
+	h.runProjectAction(c, h.service.StopProject, "project stopped successfully")
 }
 
 func (h *CoreHandler) CancelProject(c *gin.Context) {
+	h.runProjectAction(c, h.service.CancelProject, "project cancellation requested")
+}
+
+func (h *CoreHandler) runProjectAction(c *gin.Context, action func(context.Context, string) error, message string) {
 	projectID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
-	err := h.service.CancelProject(c.Request.Context(), projectID)
+	err := action(c.Request.Context(), projectID)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "project cancellation requested"})
-}
-
-func (h *CoreHandler) GetAllProjects(c *gin.Context) {
-	page, limit, ok := getPaginationParams(c)
-	if !ok {
-		return
-	}
-	resp, err := h.service.GetAllProjects(c.Request.Context(), page, limit)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"projects":    projectsToDTO(resp.Projects),
-		"total_count": resp.TotalCount,
-	})
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }
 
 func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	err := h.service.DeleteProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "project deleted by admin"})
+	h.deleteProject(c, "project deleted by admin")
 }
 
 func (h *CoreHandler) AdminStartProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	err := h.service.StartProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "project started by admin"})
+	h.runProjectAction(c, h.service.StartProject, "project started by admin")
 }
 
 func (h *CoreHandler) AdminStopProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	err := h.service.StopProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "project stopped by admin"})
+	h.runProjectAction(c, h.service.StopProject, "project stopped by admin")
 }
 
 func (h *CoreHandler) AdminCancelProject(c *gin.Context) {
-	projectID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	err := h.service.CancelProject(c.Request.Context(), projectID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "project cancellation requested by admin"})
+	h.runProjectAction(c, h.service.CancelProject, "project cancellation requested by admin")
 }

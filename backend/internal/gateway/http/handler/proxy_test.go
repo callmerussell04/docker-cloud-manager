@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
@@ -55,16 +57,117 @@ func TestTelemetryProxyConsumesTicketAndSetsInternalScope(t *testing.T) {
 	}
 }
 
-func TestTelemetryProxyWithoutTicketRequiresBearerAuth(t *testing.T) {
+func TestCoreProxyForwardsComposePathAndBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(r.URL.Path + "\n" + string(body) + "\n" + r.Header.Get(internalauth.HeaderName))),
+			Request:    r,
+		}, nil
+	})
+
+	proxy, err := NewCoreProxyHandler(ProxyOptions{
+		TargetURL:     "http://core:8083",
+		InternalToken: "internal-token",
+		Transport:     transport,
+	})
+	if err != nil {
+		t.Fatalf("NewCoreProxyHandler() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects/compose", strings.NewReader("compose-body"))
+	rec := newCloseNotifyRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = req
+
+	proxy(ctx)
+
+	if rec.ResponseRecorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.ResponseRecorder.Code, http.StatusAccepted)
+	}
+	got := rec.ResponseRecorder.Body.String()
+	want := "/api/v1/projects/compose\ncompose-body\ninternal-token"
+	if got != want {
+		t.Fatalf("proxied payload = %q, want %q", got, want)
+	}
+}
+
+func TestCoreProxyForwardsBuildPathAndBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body, _ := io.ReadAll(r.Body)
+		return &http.Response{
+			StatusCode: http.StatusAccepted,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(r.URL.Path + "\n" + string(body) + "\n" + r.Header.Get(internalauth.HeaderName))),
+			Request:    r,
+		}, nil
+	})
+
+	proxy, err := NewCoreProxyHandler(ProxyOptions{
+		TargetURL:     "http://core:8083",
+		InternalToken: "internal-token",
+		Transport:     transport,
+	})
+	if err != nil {
+		t.Fatalf("NewCoreProxyHandler() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/images/build/git", strings.NewReader("build-body"))
+	rec := newCloseNotifyRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	ctx.Request = req
+
+	proxy(ctx)
+
+	if rec.ResponseRecorder.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", rec.ResponseRecorder.Code, http.StatusAccepted)
+	}
+	got := rec.ResponseRecorder.Body.String()
+	want := "/api/v1/images/build/git\nbuild-body\ninternal-token"
+	if got != want {
+		t.Fatalf("proxied payload = %q, want %q", got, want)
+	}
+}
+
+func TestProxyStripsSpoofableIdentityHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Cookie", "refresh=token")
+	req.Header.Set(internalauth.HeaderName, "spoofed")
+	req.Header.Set(internalauth.HeaderScope, "admin")
+	req.Header.Set(internalauth.HeaderUserID, uuid.NewString())
+	req.Header.Set("X-Forwarded-User", "alice")
+
+	clearProxyIdentityHeaders(req.Header)
+
+	for _, header := range []string{
+		"Authorization",
+		"Cookie",
+		internalauth.HeaderName,
+		internalauth.HeaderScope,
+		internalauth.HeaderUserID,
+		"X-Forwarded-User",
+	} {
+		if got := req.Header.Get(header); got != "" {
+			t.Fatalf("%s header = %q, want empty", header, got)
+		}
+	}
+}
+
+func TestTelemetryProxyWithoutTicketIsUnauthorized(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	containerID := uuid.NewString()
 	rec := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(rec)
 	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/containers/"+containerID+"/logs/stream", nil)
+	ctx.Request.Header.Set("Authorization", "Bearer token")
 	ctx.Params = gin.Params{{Key: "id", Value: containerID}}
 
 	ok := authenticateTelemetryProxy(ctx, TelemetryProxyAuthOptions{
-		Verifier:   &authVerifierFake{err: apperrors.ErrUnauthorized},
 		StreamType: model.TelemetryStreamLogs,
 	}, containerID)
 	if ok {
@@ -88,20 +191,24 @@ func (f *ticketConsumerFake) Consume(ctx context.Context, token, expectedContain
 	return f.claims, nil
 }
 
-type authVerifierFake struct {
-	err error
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
-func (f *authVerifierFake) VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error) {
-	if f.err != nil {
-		return model.AuthUser{}, f.err
-	}
-	return model.AuthUser{UserID: uuid.NewString(), Username: "alice", Role: "user"}, nil
+type closeNotifyRecorder struct {
+	*httptest.ResponseRecorder
+	closeCh chan bool
 }
 
-func (f *authVerifierFake) CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error) {
-	if f.err != nil {
-		return model.AuthUser{}, f.err
+func newCloseNotifyRecorder() *closeNotifyRecorder {
+	return &closeNotifyRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		closeCh:          make(chan bool, 1),
 	}
-	return model.AuthUser{UserID: uuid.NewString(), Username: "admin", Role: "admin"}, nil
+}
+
+func (r *closeNotifyRecorder) CloseNotify() <-chan bool {
+	return r.closeCh
 }

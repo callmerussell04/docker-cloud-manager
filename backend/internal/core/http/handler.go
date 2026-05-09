@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -119,12 +121,30 @@ func readComposeFormField(r io.Reader, maxBytes int64) ([]byte, error) {
 	return data, nil
 }
 
-func SetupRouter(handler *ComposeHandler, internalToken string, logger *slog.Logger) *gin.Engine {
+func pathUUID(c *gin.Context, name string) (uuid.UUID, bool) {
+	value := c.Param(name)
+	id, err := uuid.Parse(value)
+	if err != nil {
+		httpresponse.Respond(c, http.StatusBadRequest, apperrors.New(apperrors.ErrBadRequest, name+" must be a valid UUID"))
+		return uuid.Nil, false
+	}
+	return id, true
+}
+
+func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, internalToken string, logger *slog.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(logging.RequestIDMiddleware())
 	r.Use(logging.AccessLogMiddleware(logger))
 	r.Use(logging.RecoveryMiddleware(logger))
-	r.POST("/api/v1/projects/compose", internalauth.Middleware(internalToken), handler.DeployCompose)
-	r.POST("/api/v1/projects/compose/git", internalauth.Middleware(internalToken), handler.DeployComposeFromGit)
+
+	internal := r.Group("/api/v1")
+	internal.Use(internalauth.Middleware(internalToken))
+	internal.POST("/projects/compose", composeHandler.DeployCompose)
+	internal.POST("/projects/compose/git", composeHandler.DeployComposeFromGit)
+	internal.GET("/images/build/availability", buildHandler.BuildAvailability)
+	internal.POST("/images/build", buildHandler.BuildImage)
+	internal.POST("/images/build/git", buildHandler.BuildImageFromGit)
+	internal.GET("/builds/:id/logs", buildHandler.BuildLogs)
+	internal.GET("/admin/builds/:id/logs", buildHandler.BuildLogs)
 	return r
 }

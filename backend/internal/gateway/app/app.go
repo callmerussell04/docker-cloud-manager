@@ -29,8 +29,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 )
 
 type App struct {
@@ -50,7 +48,6 @@ type Config struct {
 	CoreHTTPTarget      string
 	TelemetryHTTPTarget string
 	InternalToken       string
-	ObjectStorage       objectstorage.Config
 
 	HTTP      HTTPServerConfig
 	Router    httprouter.Config
@@ -100,115 +97,33 @@ type ReadinessConfig struct {
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
-	grpcOpts, err := grpcDialOptions(cfg, logger)
+	clients, err := newGRPCClients(cfg, logger)
 	if err != nil {
 		return nil, err
 	}
 
-	ssoConn, err := grpc.NewClient(cfg.SSOTarget, grpcOpts...)
+	useCases := newCoreUseCases(cfg, clients)
+	proxies, err := newProxyHandlers(cfg, useCases)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create sso grpc client: %w", err)
+		_ = clients.close()
+		return nil, err
 	}
 
-	coreConn, err := grpc.NewClient(cfg.CoreTarget, grpcOpts...)
-	if err != nil {
-		_ = ssoConn.Close()
-		return nil, fmt.Errorf("failed to create core grpc client: %w", err)
-	}
-
-	ssoClient := grpcclient.NewSSOClient(ssoConn)
-	authService := service.NewAuth(ssoClient)
-	authHandler := handler.NewAuthHandler(authService, cfg.Cookie)
-	userService := service.NewUserManagement(ssoClient)
-	userHandler := handler.NewUserManagementHandler(userService)
-
-	coreClient := grpcclient.NewCoreClient(coreConn)
-	buildObjectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
-	coreService := service.NewCore(coreClient, buildObjectStore, logger)
-	coreHandler := handler.NewCoreHandler(coreService)
-	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
-	telemetryTicketHandler := handler.NewTelemetryTicketHandler(telemetryTickets)
-
-	proxyTransport := newProxyTransport(cfg.Proxy)
-	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
-		TargetURL:     cfg.CoreHTTPTarget,
-		InternalToken: cfg.InternalToken,
-		Transport:     proxyTransport,
+	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
+	router := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
+		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie),
+		CoreHandler:                 handler.NewCoreHandler(useCases.core),
+		UserHandler:                 handler.NewUserManagementHandler(useCases.users),
+		HealthHandler:               healthHandler,
+		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(useCases.telemetryTickets),
+		CoreHTTPProxy:               proxies.coreHTTP,
+		TelemetryLogsProxy:          proxies.telemetryLogs,
+		TelemetryTerminalProxy:      proxies.telemetryTerminal,
+		AdminTelemetryLogsProxy:     proxies.adminTelemetryLogs,
+		AdminTelemetryTerminalProxy: proxies.adminTelemetryTerminal,
+		TokenVerifier:               useCases.auth,
+		Logger:                      logger,
 	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("core proxy setup fail: %w", err)
-	}
-
-	telemetryProxyOpts := handler.ProxyOptions{
-		TargetURL:      cfg.TelemetryHTTPTarget,
-		InternalToken:  cfg.InternalToken,
-		Transport:      proxyTransport,
-		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
-	}
-	telemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
-		Tickets:    telemetryTickets,
-		Verifier:   authService,
-		StreamType: model.TelemetryStreamLogs,
-	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
-	}
-	telemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
-		Tickets:    telemetryTickets,
-		Verifier:   authService,
-		StreamType: model.TelemetryStreamTerminal,
-	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
-	}
-	adminTelemetryLogsProxy, err := handler.NewTelemetryLogsProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
-		Tickets:    telemetryTickets,
-		Verifier:   authService,
-		Permission: permissions.ContainersAdminLogs,
-		StreamType: model.TelemetryStreamLogs,
-		AdminRoute: true,
-	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
-	}
-	adminTelemetryTerminalProxy, err := handler.NewTelemetryTerminalProxyHandler(telemetryProxyOpts, handler.TelemetryProxyAuthOptions{
-		Tickets:    telemetryTickets,
-		Verifier:   authService,
-		Permission: permissions.ContainersAdminTerminal,
-		StreamType: model.TelemetryStreamTerminal,
-		AdminRoute: true,
-	})
-	if err != nil {
-		_ = ssoConn.Close()
-		_ = coreConn.Close()
-		return nil, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
-	}
-
-	readiness := &readinessChecker{
-		timeout: cfg.Readiness.Timeout,
-		grpcTargets: map[string]*grpc.ClientConn{
-			"sso_grpc":  ssoConn,
-			"core_grpc": coreConn,
-		},
-		httpClient: &http.Client{
-			Transport: newProxyTransport(cfg.Proxy),
-		},
-		httpTargets: map[string]string{
-			"core_http":      cfg.CoreHTTPTarget,
-			"telemetry_http": cfg.TelemetryHTTPTarget,
-		},
-	}
-	healthHandler := handler.NewHealthHandler(readiness)
-
-	router := httprouter.NewRouter(cfg.Router, authHandler, coreHandler, userHandler, healthHandler, coreProxy, telemetryLogsProxy, telemetryTerminalProxy, adminTelemetryLogsProxy, adminTelemetryTerminalProxy, telemetryTicketHandler, authService, logger)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,
@@ -225,9 +140,152 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		port:            cfg.Port,
 		shutdownTimeout: cfg.HTTP.ShutdownTimeout,
 		logger:          logging.WithComponent(logger, "app"),
-		ssoConn:         ssoConn,
-		coreConn:        coreConn,
+		ssoConn:         clients.ssoConn,
+		coreConn:        clients.coreConn,
 	}, nil
+}
+
+type gatewayClients struct {
+	ssoConn    *grpc.ClientConn
+	coreConn   *grpc.ClientConn
+	ssoClient  *grpcclient.SSOClient
+	coreClient *grpcclient.CoreClient
+}
+
+func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
+	grpcOpts, err := grpcDialOptions(cfg, logger)
+	if err != nil {
+		return gatewayClients{}, err
+	}
+
+	ssoConn, err := grpc.NewClient(cfg.SSOTarget, grpcOpts...)
+	if err != nil {
+		return gatewayClients{}, fmt.Errorf("failed to create sso grpc client: %w", err)
+	}
+
+	coreConn, err := grpc.NewClient(cfg.CoreTarget, grpcOpts...)
+	if err != nil {
+		_ = ssoConn.Close()
+		return gatewayClients{}, fmt.Errorf("failed to create core grpc client: %w", err)
+	}
+
+	return gatewayClients{
+		ssoConn:    ssoConn,
+		coreConn:   coreConn,
+		ssoClient:  grpcclient.NewSSOClient(ssoConn),
+		coreClient: grpcclient.NewCoreClient(coreConn),
+	}, nil
+}
+
+func (c gatewayClients) close() error {
+	var err error
+	if c.ssoConn != nil {
+		err = errors.Join(err, c.ssoConn.Close())
+	}
+	if c.coreConn != nil {
+		err = errors.Join(err, c.coreConn.Close())
+	}
+	return err
+}
+
+type gatewayUseCases struct {
+	auth             *service.AuthService
+	users            *service.UserManagementService
+	core             *service.Core
+	telemetryTickets *service.TelemetryTicketStore
+}
+
+func newCoreUseCases(cfg Config, clients gatewayClients) gatewayUseCases {
+	return gatewayUseCases{
+		auth:             service.NewAuth(clients.ssoClient),
+		users:            service.NewUserManagement(clients.ssoClient),
+		core:             service.NewCore(clients.coreClient),
+		telemetryTickets: service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL),
+	}
+}
+
+type proxyHandlers struct {
+	coreHTTP               gin.HandlerFunc
+	telemetryLogs          gin.HandlerFunc
+	telemetryTerminal      gin.HandlerFunc
+	adminTelemetryLogs     gin.HandlerFunc
+	adminTelemetryTerminal gin.HandlerFunc
+}
+
+func newProxyHandlers(cfg Config, useCases gatewayUseCases) (proxyHandlers, error) {
+	proxyTransport := newProxyTransport(cfg.Proxy)
+	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
+		TargetURL:     cfg.CoreHTTPTarget,
+		InternalToken: cfg.InternalToken,
+		Transport:     proxyTransport,
+	})
+	if err != nil {
+		return proxyHandlers{}, fmt.Errorf("core proxy setup fail: %w", err)
+	}
+
+	telemetryProxyOpts := handler.ProxyOptions{
+		TargetURL:      cfg.TelemetryHTTPTarget,
+		InternalToken:  cfg.InternalToken,
+		Transport:      proxyTransport,
+		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
+	}
+	telemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, false)
+	if err != nil {
+		return proxyHandlers{}, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
+	}
+	telemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, false)
+	if err != nil {
+		return proxyHandlers{}, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
+	}
+	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, true)
+	if err != nil {
+		return proxyHandlers{}, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
+	}
+	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, true)
+	if err != nil {
+		return proxyHandlers{}, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
+	}
+
+	return proxyHandlers{
+		coreHTTP:               coreProxy,
+		telemetryLogs:          telemetryLogsProxy,
+		telemetryTerminal:      telemetryTerminalProxy,
+		adminTelemetryLogs:     adminTelemetryLogsProxy,
+		adminTelemetryTerminal: adminTelemetryTerminalProxy,
+	}, nil
+}
+
+func newTelemetryLogsProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+	return handler.NewTelemetryLogsProxyHandler(opts, handler.TelemetryProxyAuthOptions{
+		Tickets:    useCases.telemetryTickets,
+		StreamType: model.TelemetryStreamLogs,
+		AdminRoute: adminRoute,
+	})
+}
+
+func newTelemetryTerminalProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+	return handler.NewTelemetryTerminalProxyHandler(opts, handler.TelemetryProxyAuthOptions{
+		Tickets:    useCases.telemetryTickets,
+		StreamType: model.TelemetryStreamTerminal,
+		AdminRoute: adminRoute,
+	})
+}
+
+func newReadiness(cfg Config, clients gatewayClients) *readinessChecker {
+	return &readinessChecker{
+		timeout: cfg.Readiness.Timeout,
+		grpcTargets: map[string]*grpc.ClientConn{
+			"sso_grpc":  clients.ssoConn,
+			"core_grpc": clients.coreConn,
+		},
+		httpClient: &http.Client{
+			Transport: newProxyTransport(cfg.Proxy),
+		},
+		httpTargets: map[string]string{
+			"core_http":      cfg.CoreHTTPTarget,
+			"telemetry_http": cfg.TelemetryHTTPTarget,
+		},
+	}
 }
 
 func (a *App) Run() error {

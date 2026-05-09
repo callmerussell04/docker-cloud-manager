@@ -13,38 +13,12 @@ import (
 )
 
 type BuildLogic interface {
-	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error)
 	CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	List(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 	GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error)
 	DeleteBuild(ctx context.Context, buildID uuid.UUID) error
-}
-
-func (h *ImageHandler) CreateBuildJob(ctx context.Context, req *coreapi.CreateBuildJobRequest) (*coreapi.InitBuildResponse, error) {
-	if req.GetTag() == "" {
-		return nil, status.Error(codes.InvalidArgument, "image tag is required")
-	}
-
-	buildID, imageID, err := h.buildLogic.CreateBuildJob(
-		ctx,
-		req.GetTag(),
-		req.GetArchiveObjectKey(),
-		req.GetLogObjectKey(),
-		req.GetContextDir(),
-		req.GetDockerfile(),
-		req.GetBuildArgs(),
-		req.GetRequestId(),
-	)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.InitBuildResponse{
-		BuildId: buildID.String(),
-		ImageId: imageID.String(),
-	}, nil
 }
 
 func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.StartBuildRecordResponse, error) {

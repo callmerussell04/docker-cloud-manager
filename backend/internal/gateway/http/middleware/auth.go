@@ -3,12 +3,12 @@ package middleware
 import (
 	"context"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/authscope"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 )
 
 type TokenVerifier interface {
@@ -52,18 +52,13 @@ func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFun
 }
 
 func setAuthUser(c *gin.Context, user model.AuthUser, kind accessscope.Kind) bool {
-	c.Set("user_id", user.UserID)
-	c.Set("username", user.Username)
-	c.Set("role", user.Role)
-	userID, err := uuid.Parse(user.UserID)
+	scope, err := authscope.FromAuthUser(user, kind)
 	if err != nil {
 		return false
 	}
-	switch kind {
-	case accessscope.KindAdmin:
-		c.Request = c.Request.WithContext(accessscope.WithAdminScope(c.Request.Context(), userID, user.Username, user.Role))
-	default:
-		c.Request = c.Request.WithContext(accessscope.WithUserScope(c.Request.Context(), userID, user.Username, user.Role))
-	}
+	c.Set("user_id", user.UserID)
+	c.Set("username", user.Username)
+	c.Set("role", user.Role)
+	c.Request = c.Request.WithContext(accessscope.WithScope(c.Request.Context(), scope))
 	return true
 }

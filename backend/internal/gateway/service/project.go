@@ -11,7 +11,7 @@ type ProjectProvider interface {
 	StartProject(ctx context.Context, projectID string) error
 	StopProject(ctx context.Context, projectID string) error
 	CancelProject(ctx context.Context, projectID string) error
-	GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
+	ListProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
 }
 
 func (s *Core) DeleteProject(ctx context.Context, projectID string) error {
@@ -30,6 +30,6 @@ func (s *Core) CancelProject(ctx context.Context, projectID string) error {
 	return s.provider.CancelProject(ctx, projectID)
 }
 
-func (s *Core) GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error) {
-	return s.provider.GetAllProjects(ctx, page, limit)
+func (s *Core) ListProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error) {
+	return s.provider.ListProjects(ctx, page, limit)
 }

@@ -44,7 +44,7 @@ func (c *CoreClient) CancelProject(ctx context.Context, projectID string) error 
 	return nil
 }
 
-func (c *CoreClient) GetAllProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error) {
+func (c *CoreClient) ListProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.projectAPI.ListProjects(ctx, req)
 	if err != nil {

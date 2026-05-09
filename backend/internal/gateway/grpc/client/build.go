@@ -8,23 +8,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
-func (c *CoreClient) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (string, string, error) {
-	req := &coreapi.CreateBuildJobRequest{
-		Tag:              tag,
-		ArchiveObjectKey: archiveObjectKey,
-		LogObjectKey:     logObjectKey,
-		ContextDir:       contextDir,
-		Dockerfile:       dockerfile,
-		BuildArgs:        buildArgs,
-		RequestId:        requestID,
-	}
-	resp, err := c.imageAPI.CreateBuildJob(ctx, req)
-	if err != nil {
-		return "", "", grpcerrors.FromGRPC(err)
-	}
-	return resp.GetBuildId(), resp.GetImageId(), nil
-}
-
 func (c *CoreClient) GetBuild(ctx context.Context, buildID string) (model.Build, error) {
 	req := &coreapi.BuildActionRequest{BuildId: buildID}
 	resp, err := c.imageAPI.GetBuild(ctx, req)
@@ -52,7 +35,7 @@ func (c *CoreClient) DeleteBuild(ctx context.Context, buildID string) error {
 	return nil
 }
 
-func (c *CoreClient) GetAllBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error) {
+func (c *CoreClient) ListBuilds(ctx context.Context, page, limit int) (model.PaginatedBuilds, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.imageAPI.ListBuilds(ctx, req)
 	if err != nil {

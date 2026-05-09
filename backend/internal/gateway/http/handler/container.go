@@ -16,7 +16,7 @@ type ContainerService interface {
 	CreateContainer(ctx context.Context, input model.CreateContainerInput) (string, error)
 	ActionContainer(ctx context.Context, containerID, action string) error
 	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
-	GetAllContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
+	ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
 	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
@@ -41,28 +41,47 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetContainers(c *gin.Context) {
+	h.listContainers(c, func(items []model.Container) any {
+		return containersToUserDTO(items)
+	})
+}
+
+func (h *CoreHandler) ListAdminContainers(c *gin.Context) {
+	h.listContainers(c, func(items []model.Container) any {
+		return containersToDTO(items)
+	})
+}
+
+func (h *CoreHandler) listContainers(c *gin.Context, mapItems func([]model.Container) any) {
 	page, limit, ok := getPaginationParams(c)
 	if !ok {
 		return
 	}
-	resp, err := h.service.GetAllContainers(c.Request.Context(), page, limit)
+	resp, err := h.service.ListContainers(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	containers := resp.Containers
-	if containers == nil {
-		containers = []model.Container{}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"containers":  containersToUserDTO(containers),
+		"containers":  mapItems(resp.Containers),
 		"total_count": resp.TotalCount,
 	})
 }
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {
+	h.runContainerAction(c, func(action string) string {
+		return action + " successful"
+	})
+}
+
+func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
+	h.runContainerAction(c, func(action string) string {
+		return "admin action " + action + " successful"
+	})
+}
+
+func (h *CoreHandler) runContainerAction(c *gin.Context, message func(string) string) {
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -78,7 +97,7 @@ func (h *CoreHandler) ActionContainer(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": action + " successful"})
+	c.JSON(http.StatusOK, gin.H{"message": message(action)})
 }
 
 func (h *CoreHandler) ExposeContainer(c *gin.Context) {
@@ -105,56 +124,15 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "container exposed on prefix: " + exposeContainerDTO.DomainPrefix})
 }
 
-func (h *CoreHandler) GetAllContainers(c *gin.Context) {
-	page, limit, ok := getPaginationParams(c)
-	if !ok {
-		return
-	}
-	resp, err := h.service.GetAllContainers(c.Request.Context(), page, limit)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"containers":  containersToDTO(resp.Containers),
-		"total_count": resp.TotalCount,
-	})
-}
-
-func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
-	containerID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	action := c.Param("action")
-	if !validateContainerAction(c, action) {
-		return
-	}
-
-	err := h.service.ActionContainer(c.Request.Context(), containerID, action)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "admin action " + action + " successful"})
-}
-
 func (h *CoreHandler) GetContainerStats(c *gin.Context) {
-	containerID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-
-	stats, err := h.service.GetContainerStats(c.Request.Context(), containerID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-
-	c.JSON(http.StatusOK, containerStatsToDTO(stats))
+	h.writeContainerStats(c)
 }
 
 func (h *CoreHandler) AdminGetContainerStats(c *gin.Context) {
+	h.writeContainerStats(c)
+}
+
+func (h *CoreHandler) writeContainerStats(c *gin.Context) {
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return

@@ -28,7 +28,7 @@ func (c *CoreClient) DeleteVolume(ctx context.Context, volumeID string) error {
 	return nil
 }
 
-func (c *CoreClient) GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error) {
+func (c *CoreClient) ListVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.volumeAPI.ListVolumes(ctx, req)
 	if err != nil {

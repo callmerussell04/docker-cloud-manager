@@ -13,7 +13,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 )
 
 func main() {
@@ -27,13 +26,6 @@ func main() {
 		CoreHTTPTarget:      requiredEnv(logger, "CORE_HTTP_TARGET"),
 		TelemetryHTTPTarget: requiredEnv(logger, "TELEMETRY_HTTP_TARGET"),
 		InternalToken:       requiredEnv(logger, "INTERNAL_SERVICE_TOKEN"),
-		ObjectStorage: objectstorage.Config{
-			Endpoint:  requiredEnv(logger, "OBJECT_STORAGE_ENDPOINT"),
-			Bucket:    getenv("OBJECT_STORAGE_BUCKET", "dcm-builds"),
-			AccessKey: requiredEnv(logger, "OBJECT_STORAGE_ACCESS_KEY"),
-			SecretKey: requiredEnv(logger, "OBJECT_STORAGE_SECRET_KEY"),
-			UseSSL:    boolEnv("OBJECT_STORAGE_USE_SSL", false),
-		},
 		HTTP: app.HTTPServerConfig{
 			ReadHeaderTimeout: durationSecondsEnv("GATEWAY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
 			ReadTimeout:       durationSecondsEnv("GATEWAY_READ_TIMEOUT_SECONDS", 300*time.Second),

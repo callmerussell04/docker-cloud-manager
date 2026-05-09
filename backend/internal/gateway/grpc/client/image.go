@@ -19,7 +19,7 @@ func (c *CoreClient) DeleteImage(ctx context.Context, imageID string) error {
 	return nil
 }
 
-func (c *CoreClient) GetAllImages(ctx context.Context, page, limit int) (model.PaginatedImages, error) {
+func (c *CoreClient) ListImages(ctx context.Context, page, limit int) (model.PaginatedImages, error) {
 	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
 	resp, err := c.imageAPI.ListImages(ctx, req)
 	if err != nil {

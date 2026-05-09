@@ -9,7 +9,7 @@ import (
 type VolumeProvider interface {
 	CreateVolume(ctx context.Context, createVolumeDTO model.CreateVolumeInput) (string, error)
 	DeleteVolume(ctx context.Context, volumeID string) error
-	GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
+	ListVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
 }
 
 func (s *Core) CreateVolume(ctx context.Context, createVolumeDTO model.CreateVolumeInput) (string, error) {
@@ -20,6 +20,6 @@ func (s *Core) DeleteVolume(ctx context.Context, volumeID string) error {
 	return s.provider.DeleteVolume(ctx, volumeID)
 }
 
-func (s *Core) GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error) {
-	return s.provider.GetAllVolumes(ctx, page, limit)
+func (s *Core) ListVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error) {
+	return s.provider.ListVolumes(ctx, page, limit)
 }

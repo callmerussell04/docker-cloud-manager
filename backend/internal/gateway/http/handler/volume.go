@@ -15,7 +15,7 @@ import (
 type VolumeService interface {
 	CreateVolume(ctx context.Context, input model.CreateVolumeInput) (string, error)
 	DeleteVolume(ctx context.Context, volumeID string) error
-	GetAllVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
+	ListVolumes(ctx context.Context, page, limit int) (model.PaginatedVolumes, error)
 }
 
 func (h *CoreHandler) CreateVolume(c *gin.Context) {
@@ -40,28 +40,39 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 }
 
 func (h *CoreHandler) GetVolumes(c *gin.Context) {
+	h.listVolumes(c, func(items []model.Volume) any {
+		return volumesToUserDTO(items)
+	})
+}
+
+func (h *CoreHandler) ListAdminVolumes(c *gin.Context) {
+	h.listVolumes(c, func(items []model.Volume) any {
+		return volumesToDTO(items)
+	})
+}
+
+func (h *CoreHandler) listVolumes(c *gin.Context, mapItems func([]model.Volume) any) {
 	page, limit, ok := getPaginationParams(c)
 	if !ok {
 		return
 	}
-	resp, err := h.service.GetAllVolumes(c.Request.Context(), page, limit)
+	resp, err := h.service.ListVolumes(c.Request.Context(), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
-	volumes := resp.Volumes
-	if volumes == nil {
-		volumes = []model.Volume{}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"volumes":     volumesToUserDTO(volumes),
+		"volumes":     mapItems(resp.Volumes),
 		"total_count": resp.TotalCount,
 	})
 }
 
 func (h *CoreHandler) DeleteVolume(c *gin.Context) {
+	h.deleteVolume(c, "volume deleted")
+}
+
+func (h *CoreHandler) deleteVolume(c *gin.Context, message string) {
 	volumeID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -73,34 +84,9 @@ func (h *CoreHandler) DeleteVolume(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "volume deleted"})
-}
-
-func (h *CoreHandler) GetAllVolumes(c *gin.Context) {
-	page, limit, ok := getPaginationParams(c)
-	if !ok {
-		return
-	}
-	resp, err := h.service.GetAllVolumes(c.Request.Context(), page, limit)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"volumes":     volumesToDTO(resp.Volumes),
-		"total_count": resp.TotalCount,
-	})
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }
 
 func (h *CoreHandler) AdminDeleteVolume(c *gin.Context) {
-	volumeID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	err := h.service.DeleteVolume(c.Request.Context(), volumeID)
-	if err != nil {
-		h.handleError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "volume deleted by admin"})
+	h.deleteVolume(c, "volume deleted by admin")
 }

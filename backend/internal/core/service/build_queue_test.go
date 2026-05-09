@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -54,6 +56,57 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	}
 	if repo.queuedOutbox.Exchange != buildqueue.ExchangeName || repo.queuedOutbox.RoutingKey != buildqueue.RoutingKey {
 		t.Fatalf("outbox route = %s/%s", repo.queuedOutbox.Exchange, repo.queuedOutbox.RoutingKey)
+	}
+}
+
+func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
+	repo := &buildRepoFake{}
+	imageRepo := &buildImageRepoFake{}
+	objects := &buildObjectStoreFake{}
+	users := &buildUsersFake{quotaDiskMB: 1024}
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil, objects)
+	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	result, err := svc.CreateBuildFromArchive(ctx, BuildArchiveInput{
+		Tag:         "demo-app",
+		ContextDir:  ".",
+		Dockerfile:  "Dockerfile",
+		BuildArgs:   map[string]string{"VERSION": "1"},
+		ArchiveName: "source.zip",
+		Archive:     strings.NewReader("archive"),
+	})
+	if err != nil {
+		t.Fatalf("CreateBuildFromArchive returned error: %v", err)
+	}
+	if result.BuildID == uuid.Nil || repo.queuedBuild.ID != result.BuildID {
+		t.Fatalf("build id mismatch: result=%s queued=%s", result.BuildID, repo.queuedBuild.ID)
+	}
+	if len(objects.uploaded) != 1 || !strings.HasPrefix(objects.uploaded[0], "build-archives/") || !strings.HasSuffix(objects.uploaded[0], ".zip") {
+		t.Fatalf("uploaded objects = %v, want zip archive object", objects.uploaded)
+	}
+	if repo.queuedBuild.ArchiveObjectKey != objects.uploaded[0] || repo.queuedBuild.LogFilePath == "" {
+		t.Fatalf("queued build object keys not set: %+v", repo.queuedBuild)
+	}
+}
+
+func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing.T) {
+	ownerID := uuid.New()
+	repo := &buildRepoFake{build: model.Build{
+		ID:          uuid.New(),
+		ImageID:     uuid.New(),
+		OwnerID:     ownerID,
+		LogFilePath: "build-logs/source.log",
+	}}
+	objects := &buildObjectStoreFake{objects: map[string]string{"build-logs/source.log": "logs"}}
+	svc := NewBuildService(repo, &buildImageRepoFake{}, &buildRegistryFake{}, &buildUsersFake{}, nil, objects)
+	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
+
+	if _, err := svc.OpenBuildLogs(ctx, repo.build.ID); err == nil {
+		t.Fatal("OpenBuildLogs returned nil error for another user's build")
+	}
+	if objects.opened != 0 {
+		t.Fatalf("object store opens = %d, want 0 before access is authorized", objects.opened)
 	}
 }
 
@@ -211,7 +264,21 @@ func (f *buildImageRepoFake) MarkBuildFailedAndDeleteImageTx(ctx context.Context
 }
 
 type buildObjectStoreFake struct {
-	deleted []string
+	uploaded []string
+	deleted  []string
+	objects  map[string]string
+	opened   int
+}
+
+func (f *buildObjectStoreFake) UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
+	f.uploaded = append(f.uploaded, objectKey)
+	_, err := io.Copy(io.Discard, reader)
+	return err
+}
+
+func (f *buildObjectStoreFake) OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
+	f.opened++
+	return io.NopCloser(strings.NewReader(f.objects[objectKey])), nil
 }
 
 func (f *buildObjectStoreFake) DeleteObject(ctx context.Context, objectKey string) error {

@@ -122,7 +122,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)
 	composeHandler := corehttp.NewComposeHandler(orchestrator, cfg.ConfigManager)
-	router := corehttp.SetupRouter(composeHandler, cfg.InternalToken, logger)
+	buildHandler := corehttp.NewBuildHandler(buildService, cfg.ConfigManager)
+	router := corehttp.SetupRouter(composeHandler, buildHandler, cfg.InternalToken, logger)
 
 	httpServer := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
