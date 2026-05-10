@@ -47,13 +47,17 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 	logObjectKey := buildobjects.LogObjectKey(fileID)
 
 	if err := c.objectStore.CopyObject(ctx, sourceObjectKey, archiveObjectKey, "application/zip"); err != nil {
-		_ = c.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 
 	buildID, _, err := c.builds.CreateProjectBuildJob(ctx, projectID, srv.Name, srv.ImageTag, archiveObjectKey, logObjectKey, srv.BuildContext, srv.Dockerfile, srv.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
-		_ = c.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 	return buildID, nil

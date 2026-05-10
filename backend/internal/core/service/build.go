@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -97,6 +96,13 @@ type BuildService struct {
 	logger      *slog.Logger
 }
 
+type BuildServiceDeps struct {
+	VolumeRepo  BuildVolumeDiskRepository
+	Config      BuildConfigProvider
+	ObjectStore BuildObjectStore
+	Deployments BuildDeploymentCanceler
+}
+
 type createBuildJobInput struct {
 	Tag                string
 	ArchiveObjectKey   string
@@ -109,29 +115,18 @@ type createBuildJobInput struct {
 	ProjectServiceName string
 }
 
-func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps ...any) *BuildService {
-	s := &BuildService{
+func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps BuildServiceDeps) *BuildService {
+	return &BuildService{
 		repo:        repo,
 		imageRepo:   imageRepo,
+		volumeRepo:  deps.VolumeRepo,
 		registryAPI: registryAPI,
 		users:       users,
+		cfg:         deps.Config,
+		objectStore: deps.ObjectStore,
+		deployments: deps.Deployments,
 		logger:      logging.WithComponent(logger, "build_service"),
 	}
-	for _, dep := range deps {
-		if v, ok := dep.(BuildVolumeDiskRepository); ok {
-			s.volumeRepo = v
-		}
-		if v, ok := dep.(BuildConfigProvider); ok {
-			s.cfg = v
-		}
-		if v, ok := dep.(BuildObjectStore); ok {
-			s.objectStore = v
-		}
-		if v, ok := dep.(BuildDeploymentCanceler); ok {
-			s.deployments = v
-		}
-	}
-	return s
 }
 
 func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
@@ -146,18 +141,7 @@ func (s *BuildService) ensureImageBuildsEnabled() error {
 }
 
 func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
-	if err != nil {
-		return 0, err
-	}
-	if s.volumeRepo != nil {
-		usedBytes, err := s.volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
-		if err != nil {
-			return 0, err
-		}
-		usedMB += bytesToMBRoundedUp(usedBytes)
-	}
-	return usedMB, nil
+	return usedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
 func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
@@ -216,7 +200,9 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 
 	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		if errors.Is(err, apperrors.ErrBadRequest) {
 			return BuildInitResult{}, apperrors.New(apperrors.ErrBadRequest, "archive exceeds configured size limit")
 		}
@@ -225,7 +211,9 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		return BuildInitResult{}, err
 	}
 
@@ -314,13 +302,17 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	defer archive.Close()
 
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		return BuildInitResult{}, err
 	}
 
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
-		_ = s.objectStore.DeleteObject(context.Background(), archiveObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
 		return BuildInitResult{}, err
 	}
 
@@ -493,17 +485,19 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled); err != nil {
 		return err
 	}
-	s.cleanupBuildArchive(b)
+	s.cleanupBuildArchive(ctx, b)
 	s.cancelDeploymentForBuild(ctx, b)
 	return nil
 }
 
-func (s *BuildService) cleanupBuildArchive(build model.Build) {
+func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Build) {
 	if s.objectStore == nil || build.ArchiveObjectKey == "" {
 		return
 	}
-	if err := s.objectStore.DeleteObject(context.Background(), build.ArchiveObjectKey); err != nil {
-		s.logger.WarnContext(context.Background(), "failed to delete canceled build archive object", "build_id", build.ID, "archive_object_key", build.ArchiveObjectKey, "error", err)
+	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	defer cancel()
+	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil {
+		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "archive_object_key", build.ArchiveObjectKey, "error", err)
 	}
 }
 
@@ -540,7 +534,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	}
 
 	baseName, version := parseImageTag(img.Tag)
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
 	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
@@ -594,7 +588,7 @@ func (s *BuildService) cleanupBuiltImageManifestForImage(ctx context.Context, bu
 	}
 
 	baseName, version := parseImageTag(img.Tag)
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	repoName := customImageRepositoryName(img.OwnerID, baseName)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		s.logger.DebugContext(ctx, "canceled build manifest is not available for registry cleanup", "build_id", buildID, "image_id", img.ID, "error", err)

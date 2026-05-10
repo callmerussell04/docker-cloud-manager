@@ -97,11 +97,18 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, logger)
-	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, ssoClient, imgRepo)
+	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, service.VolumeServiceDeps{
+		Users:     ssoClient,
+		ImageRepo: imgRepo,
+	})
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
-	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, volRepo, cfg.ConfigManager, objectStore)
-	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, cfg.ConfigManager)
+	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, service.BuildServiceDeps{
+		VolumeRepo:  volRepo,
+		Config:      cfg.ConfigManager,
+		ObjectStore: objectStore,
+	})
+	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, volService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
@@ -145,35 +152,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
 
-	wg.Add(7)
-	go func() {
-		defer wg.Done()
-		ttlWorker.Run(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		eventWorker.Run(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		gcWorker.Run(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		volumeUsageWorker.Run(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		contService.RunRebalancer(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		buildOutboxWorker.Run(ctx)
-	}()
-	go func() {
-		defer wg.Done()
-		composeOutboxWorker.Run(ctx)
-	}()
+	startWorkers(ctx, wg,
+		ttlWorker.Run,
+		eventWorker.Run,
+		gcWorker.Run,
+		volumeUsageWorker.Run,
+		contService.RunRebalancer,
+		buildOutboxWorker.Run,
+		composeOutboxWorker.Run,
+	)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
 
 	return &App{
@@ -191,6 +178,17 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		wg:              wg,
 		logger:          appLogger,
 	}, nil
+}
+
+func startWorkers(ctx context.Context, wg *sync.WaitGroup, workers ...func(context.Context)) {
+	wg.Add(len(workers))
+	for _, worker := range workers {
+		worker := worker
+		go func() {
+			defer wg.Done()
+			worker(ctx)
+		}()
+	}
 }
 
 func (a *App) Run() error {

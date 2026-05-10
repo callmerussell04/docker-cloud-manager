@@ -29,7 +29,7 @@ func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
 	dockerAPI := &projectDockerFake{}
 	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
+	svc := NewProjectService(repo, resources, dockerAPI, containers, &projectVolumeLifecycleFake{}, staticConfig{})
 
 	if err := svc.Delete(ctx, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
@@ -64,7 +64,7 @@ func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *
 	dockerAPI := &projectDockerFake{}
 	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, resources, dockerAPI, containers, staticConfig{})
+	svc := NewProjectService(repo, resources, dockerAPI, containers, &projectVolumeLifecycleFake{}, staticConfig{})
 
 	if err := svc.Delete(ctx, projectID); err != nil {
 		t.Fatalf("Delete() error = %v", err)
@@ -85,7 +85,7 @@ func TestProjectServiceCancelDelegatesDeploymentCanceler(t *testing.T) {
 		},
 	}
 	canceler := &projectDeploymentCancelerFake{}
-	svc := NewProjectService(repo, &projectResourceRepoFake{}, &projectDockerFake{}, &projectContainerLifecycleFake{}, staticConfig{})
+	svc := NewProjectService(repo, &projectResourceRepoFake{}, &projectDockerFake{}, &projectContainerLifecycleFake{}, &projectVolumeLifecycleFake{}, staticConfig{})
 	svc.SetDeploymentCanceler(canceler)
 
 	if err := svc.Cancel(ctx, projectID); err != nil {
@@ -112,7 +112,7 @@ func TestProjectServiceStartFailsWhenRequiredDependencyFails(t *testing.T) {
 	dockerAPI := &projectDockerFake{}
 	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, staticConfig{})
+	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, &projectVolumeLifecycleFake{}, staticConfig{})
 
 	err := svc.Start(ctx, projectID)
 	if err == nil {
@@ -142,7 +142,7 @@ func TestProjectServiceStartContinuesWhenOptionalDependencyFails(t *testing.T) {
 	dockerAPI := &projectDockerFake{}
 	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, staticConfig{})
+	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, &projectVolumeLifecycleFake{}, staticConfig{})
 
 	if err := svc.Start(ctx, projectID); err != nil {
 		t.Fatalf("Start() error = %v, want nil for optional dependency failure", err)
@@ -190,7 +190,7 @@ func TestProjectServiceStartTreatsZeroValueDependencyAsRequired(t *testing.T) {
 	dockerAPI := &projectDockerFake{}
 	containers := &projectContainerLifecycleFake{}
 
-	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, staticConfig{})
+	svc := NewProjectService(repo, &projectResourceRepoFake{}, dockerAPI, containers, &projectVolumeLifecycleFake{}, staticConfig{})
 
 	err := svc.Start(ctx, projectID)
 	if err == nil {
@@ -318,12 +318,22 @@ func (f *projectContainerLifecycleFake) Stop(ctx context.Context, containerID uu
 	return nil
 }
 
+func (f *projectContainerLifecycleFake) Delete(ctx context.Context, containerID uuid.UUID) error {
+	return nil
+}
+
 func (f *projectContainerLifecycleFake) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	return model.Container{ID: id, DockerID: "docker-id"}, nil
 }
 
 func (f *projectContainerLifecycleFake) CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error {
 	f.cleanedOwnerIDs = append(f.cleanedOwnerIDs, ownerID)
+	return nil
+}
+
+type projectVolumeLifecycleFake struct{}
+
+func (f *projectVolumeLifecycleFake) Delete(ctx context.Context, volumeID uuid.UUID) error {
 	return nil
 }
 

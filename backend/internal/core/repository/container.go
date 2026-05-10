@@ -276,42 +276,12 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE id = $1
 	`
-	var c model.Container
-	var projectID sql.NullString
-	var dockerID sql.NullString
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
-	var command, entrypoint, healthcheck []byte
-
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
-		&c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
-	)
+	c, err := scanContainerFull(r.db.QueryRowContext(ctx, query, id))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Container{}, apperrors.ErrNotFound
 		}
 		return model.Container{}, err
-	}
-
-	if projectID.Valid {
-		parsed, _ := uuid.Parse(projectID.String)
-		c.ProjectID = &parsed
-	}
-	if dockerID.Valid {
-		c.DockerID = dockerID.String
-	}
-	if lastObservedAt.Valid {
-		c.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		c.LastError = &lastError.String
-	}
-	_ = json.Unmarshal(command, &c.Command)
-	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
-	if len(healthcheck) > 0 && string(healthcheck) != "null" {
-		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
 	}
 	return c, nil
 }
@@ -323,42 +293,12 @@ func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string
 			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE docker_id = $1
 	`
-	var c model.Container
-	var projectID sql.NullString
-	var dbDockerID sql.NullString
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
-	var command, entrypoint, healthcheck []byte
-
-	err := r.db.QueryRowContext(ctx, query, dockerID).Scan(
-		&c.ID, &c.OwnerID, &projectID, &dbDockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
-		&c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
-	)
+	c, err := scanContainerFull(r.db.QueryRowContext(ctx, query, dockerID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Container{}, apperrors.ErrNotFound
 		}
 		return model.Container{}, err
-	}
-
-	if projectID.Valid {
-		parsed, _ := uuid.Parse(projectID.String)
-		c.ProjectID = &parsed
-	}
-	if dbDockerID.Valid {
-		c.DockerID = dbDockerID.String
-	}
-	if lastObservedAt.Valid {
-		c.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		c.LastError = &lastError.String
-	}
-	_ = json.Unmarshal(command, &c.Command)
-	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
-	if len(healthcheck) > 0 && string(healthcheck) != "null" {
-		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
 	}
 	return c, nil
 }
@@ -840,6 +780,41 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	}
 	if lastError.Valid {
 		c.LastError = &lastError.String
+	}
+	return c, nil
+}
+
+func scanContainerFull(s scanner) (model.Container, error) {
+	var c model.Container
+	var projectID sql.NullString
+	var dockerID sql.NullString
+	var lastObservedAt sql.NullTime
+	var lastError sql.NullString
+	var command, entrypoint, healthcheck []byte
+	if err := s.Scan(
+		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
+		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
+		&c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
+	); err != nil {
+		return model.Container{}, err
+	}
+	if projectID.Valid {
+		parsed, _ := uuid.Parse(projectID.String)
+		c.ProjectID = &parsed
+	}
+	if dockerID.Valid {
+		c.DockerID = dockerID.String
+	}
+	if lastObservedAt.Valid {
+		c.LastObservedAt = &lastObservedAt.Time
+	}
+	if lastError.Valid {
+		c.LastError = &lastError.String
+	}
+	_ = json.Unmarshal(command, &c.Command)
+	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
+	if len(healthcheck) > 0 && string(healthcheck) != "null" {
+		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
 	}
 	return c, nil
 }

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -79,7 +78,7 @@ func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 	}
 
 	baseName, version := parseImageTag(img.Tag)
-	repoName := strings.ToLower(fmt.Sprintf("%s_%s", img.OwnerID.String(), baseName))
+	repoName := customImageRepositoryName(img.OwnerID, baseName)
 	s.setImageStatus(ctx, imageID, model.ImageStatusDeleting)
 
 	// Удаление из Registry (Soft Delete)
@@ -89,7 +88,7 @@ func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 	}
 
 	// Удаление из локального кэша Docker Engine
-	fullTag := fmt.Sprintf("%s/%s:%s", s.cfg.Get().RegistryPublicURL, repoName, version)
+	fullTag := customImageFullTag(s.cfg.Get().RegistryPublicURL, img.OwnerID, baseName, version)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
 
 	// Удаление записи из бд

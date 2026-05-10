@@ -47,46 +47,24 @@ type VolumeService struct {
 	imageRepo volumeImageDiskRepository
 }
 
-func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager, deps ...any) *VolumeService {
-	s := &VolumeService{
+type VolumeServiceDeps struct {
+	Users     UserInfoProvider
+	ImageRepo volumeImageDiskRepository
+}
+
+func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager, deps VolumeServiceDeps) *VolumeService {
+	return &VolumeService{
 		repo:      repo,
 		dockerAPI: dockerAPI,
 		cfg:       cfg,
+		users:     deps.Users,
+		imageRepo: deps.ImageRepo,
 	}
-	for _, dep := range deps {
-		switch v := dep.(type) {
-		case UserInfoProvider:
-			s.users = v
-		case volumeImageDiskRepository:
-			s.imageRepo = v
-		}
-	}
-	return s
 }
 
 func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID) error {
-	if s.users == nil || s.imageRepo == nil {
-		return nil
-	}
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB, err := s.imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	if volumeRepo, ok := s.repo.(volumeDiskUsageRepository); ok {
-		usedBytes, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
-		if err != nil {
-			return err
-		}
-		usedMB += bytesToMBRoundedUp(usedBytes)
-	}
-	if usedMB >= user.QuotaDiskMB {
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	}
-	return nil
+	volumeRepo, _ := s.repo.(volumeDiskUsageRepository)
+	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, volumeRepo)
 }
 
 func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {

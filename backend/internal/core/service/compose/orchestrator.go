@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/dependencywait"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -296,13 +297,17 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	}
 	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), archiveName)
 	if err := o.objectStore.UploadStream(ctx, sourceObjectKey, archive, -1, "application/octet-stream"); err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 
 	prepared, err := o.prepareObjectSource(ctx, sourceObjectKey, "")
 	if err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 	return o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeUpload, sourceObjectKey, "", prepared)
@@ -345,20 +350,28 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sourceType, sourceObjectKey, composeFile string, prepared preparedDeploymentSource) (uuid.UUID, error) {
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
 	if err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 	if composeRequiresBuild(parsedProject) && !prepared.Archive {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose build requires an archive source")
 	}
 	if composeRequiresBuild(parsedProject) && !o.cfg.Get().ImageBuildsEnabled {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
 
@@ -381,7 +394,9 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, fmt.Errorf("failed to marshal compose queue message: %w", err)
 	}
 	job := model.ComposeDeploymentJob{
@@ -403,7 +418,9 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		Status:     model.ComposeOutboxStatusPending,
 	}
 	if err := o.projectRepo.CreateWithComposeDeploymentJob(ctx, p, job, outbox); err != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		return uuid.Nil, err
 	}
 	o.logger.InfoContext(ctx, "compose deployment queued", "project_id", projectID, "job_id", jobID, "owner_id", ownerID, "source_type", sourceType)
@@ -555,12 +572,16 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, source model.GitSourc
 	}
 	archiveErr := <-errCh
 	if uploadErr != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		cleanup()
 		return preparedDeploymentSource{}, nil, uploadErr
 	}
 	if archiveErr != nil {
-		_ = o.objectStore.DeleteObject(context.Background(), sourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		cancel()
 		cleanup()
 		return preparedDeploymentSource{}, nil, archiveErr
 	}
@@ -623,7 +644,9 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		cancelMsg := "compose deployment canceled"
 		_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
 		_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
-		_ = o.objectStore.DeleteObject(context.Background(), job.SourceObjectKey)
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+		cancel()
 		return nil
 	}
 	if job.Status != model.ComposeDeploymentStatusQueued {
@@ -642,7 +665,9 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 			cancelMsg := "compose deployment canceled"
 			_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
 			_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
-			_ = o.objectStore.DeleteObject(context.Background(), job.SourceObjectKey)
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+			cancel()
 		}
 		return nil
 	}
@@ -683,7 +708,9 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 	cleanupSource := false
 	defer func() {
 		if cleanupSource {
-			_ = o.objectStore.DeleteObject(context.Background(), job.SourceObjectKey)
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+			cancel()
 		}
 	}()
 
@@ -700,7 +727,8 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 				_ = o.projectRepo.CompleteComposeDeploymentJob(updateCtx, job.ID, model.ComposeDeploymentStatusFailed, &errMsg)
 				return
 			}
-			logger.WarnContext(context.Background(), "compose deployment interrupted; leaving job recoverable", "error", err)
+			logCtx := context.WithoutCancel(ctx)
+			logger.WarnContext(logCtx, "compose deployment interrupted; leaving job recoverable", "error", err)
 			return
 		}
 		cleanupSource = true
@@ -1207,58 +1235,9 @@ func composeSourceObjectKey(fileID, fileName string) string {
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, state *deploymentState, dockerID string, condition string) error {
-	timeout := time.After(time.Duration(o.cfg.Get().ComposeDependencyWaitTimeoutMinutes) * time.Minute)
-	ticker := time.NewTicker(time.Duration(o.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			return apperrors.New(apperrors.ErrConflict, "timeout waiting for dependency state")
-		case <-ticker.C:
-			if err := o.checkCanceled(ctx, state); err != nil {
-				return err
-			}
-			ticker.Reset(time.Duration(o.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
-			inspect, err := o.dockerAPI.InspectContainer(ctx, dockerID)
-			if err != nil {
-				continue // Контейнер мог еще не успеть появиться, ждем дальше
-			}
-
-			state := inspect.State
-			switch condition {
-			case model.ComposeDependencyConditionHealthy:
-				if state.HealthStatus == nil {
-					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
-				}
-				if *state.HealthStatus == "healthy" {
-					return nil // Зависимость здорова, идем дальше!
-				}
-				if *state.HealthStatus == "unhealthy" {
-					return apperrors.New(apperrors.ErrConflict, "dependency became unhealthy")
-				}
-				if !state.Running && state.ExitCode != 0 {
-					return apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
-				}
-			case model.ComposeDependencyConditionCompletedSuccessfully:
-				if !state.Running {
-					if state.ExitCode == 0 {
-						return nil // Успешно завершил работу (идеально для migrate)
-					}
-					return apperrors.New(apperrors.ErrConflict, "dependency exited with non-zero code")
-				}
-			case model.ComposeDependencyConditionStarted:
-				if state.Running {
-					return nil // Просто запустился
-				}
-				if !state.Running && state.ExitCode != 0 {
-					return apperrors.New(apperrors.ErrConflict, "dependency failed to start")
-				}
-			default:
-				return apperrors.New(apperrors.ErrBadRequest, "unsupported dependency condition")
-			}
-		}
-	}
+	return dependencywait.Wait(ctx, o.cfg, o.dockerAPI, dockerID, condition, dependencywait.Options{
+		BeforePoll: func(ctx context.Context) error {
+			return o.checkCanceled(ctx, state)
+		},
+	})
 }

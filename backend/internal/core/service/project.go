@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/dependencywait"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -30,8 +30,6 @@ type ProjectResourceRepository interface {
 
 type ProjectDockerAPI interface {
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
-	RemoveContainer(ctx context.Context, dockerID string, force bool) error
-	RemoveVolume(ctx context.Context, volumeName string, force bool) error
 }
 
 type ProjectNetworkCleaner interface {
@@ -41,7 +39,12 @@ type ProjectNetworkCleaner interface {
 type ProjectContainerLifecycle interface {
 	Start(ctx context.Context, containerID uuid.UUID) error
 	Stop(ctx context.Context, containerID uuid.UUID) error
+	Delete(ctx context.Context, containerID uuid.UUID) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
+}
+
+type ProjectVolumeLifecycle interface {
+	Delete(ctx context.Context, volumeID uuid.UUID) error
 }
 
 type ProjectConfigProvider interface {
@@ -57,18 +60,20 @@ type ProjectService struct {
 	resourceRepo   ProjectResourceRepository
 	dockerAPI      ProjectDockerAPI
 	containers     ProjectContainerLifecycle
+	volumes        ProjectVolumeLifecycle
 	networkCleaner ProjectNetworkCleaner
 	cfg            ProjectConfigProvider
 	deployments    ProjectDeploymentCanceler
 }
 
-func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, containers ProjectContainerLifecycle, cfg ProjectConfigProvider) *ProjectService {
+func NewProjectService(repo ProjectRepository, resourceRepo ProjectResourceRepository, dockerAPI ProjectDockerAPI, containers ProjectContainerLifecycle, volumes ProjectVolumeLifecycle, cfg ProjectConfigProvider) *ProjectService {
 	networkCleaner, _ := containers.(ProjectNetworkCleaner)
 	return &ProjectService{
 		repo:           repo,
 		resourceRepo:   resourceRepo,
 		dockerAPI:      dockerAPI,
 		containers:     containers,
+		volumes:        volumes,
 		networkCleaner: networkCleaner,
 		cfg:            cfg,
 	}
@@ -278,7 +283,7 @@ func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) err
 	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
 	if err == nil {
 		for _, c := range containers {
-			if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !cerrdefs.IsNotFound(err) {
+			if err := s.containers.Delete(ctx, c.ID); err != nil && !cerrdefs.IsNotFound(err) {
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove container %s: %w", c.Name, err))
 			}
 		}
@@ -287,7 +292,11 @@ func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) err
 	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, p.ID)
 	if err == nil {
 		for _, v := range volumes {
-			if err := s.dockerAPI.RemoveVolume(ctx, v.DockerName, true); err != nil && !cerrdefs.IsNotFound(err) {
+			if s.volumes == nil {
+				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: volume lifecycle is unavailable", v.DockerName))
+				continue
+			}
+			if err := s.volumes.Delete(ctx, v.ID); err != nil && !cerrdefs.IsNotFound(err) {
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err))
 			}
 		}
@@ -307,63 +316,7 @@ func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) err
 }
 
 func (s *ProjectService) waitForCondition(ctx context.Context, dockerID string, condition string) error {
-	if dockerID == "" {
-		return resourceUnavailableError("container")
-	}
-	timeout := time.After(time.Duration(s.cfg.Get().ComposeDependencyWaitTimeoutMinutes) * time.Minute)
-	ticker := time.NewTicker(time.Duration(s.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			return apperrors.New(apperrors.ErrConflict, "timeout waiting for dependency state")
-		case <-ticker.C:
-			ticker.Reset(time.Duration(s.cfg.Get().ComposeDependencyPollIntervalSeconds) * time.Second)
-			inspect, err := s.dockerAPI.InspectContainer(ctx, dockerID)
-			if err != nil {
-				if cerrdefs.IsNotFound(err) {
-					return resourceUnavailableError("container")
-				}
-				continue
-			}
-
-			state := inspect.State
-			switch condition {
-			case model.ComposeDependencyConditionHealthy:
-				if state.HealthStatus == nil {
-					return apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
-				}
-				if *state.HealthStatus == "healthy" {
-					return nil
-				}
-				if *state.HealthStatus == "unhealthy" {
-					return apperrors.New(apperrors.ErrConflict, "dependency became unhealthy")
-				}
-				if !state.Running && state.ExitCode != 0 {
-					return apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
-				}
-			case model.ComposeDependencyConditionCompletedSuccessfully:
-				if !state.Running {
-					if state.ExitCode == 0 {
-						return nil
-					}
-					return apperrors.New(apperrors.ErrConflict, "dependency exited with non-zero code")
-				}
-			case model.ComposeDependencyConditionStarted:
-				if state.Running {
-					return nil
-				}
-				if !state.Running && state.ExitCode != 0 {
-					return apperrors.New(apperrors.ErrConflict, "dependency failed to start")
-				}
-			default:
-				return apperrors.New(apperrors.ErrBadRequest, "unsupported dependency condition")
-			}
-		}
-	}
+	return dependencywait.Wait(ctx, s.cfg, s.dockerAPI, dockerID, condition, dependencywait.Options{MissingIsUnavailable: true})
 }
 
 func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, cause error) {

@@ -17,7 +17,7 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	repo := &buildRepoFake{}
 	imageRepo := &buildImageRepoFake{}
 	users := &buildUsersFake{quotaDiskMB: 1024}
-	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil)
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil, BuildServiceDeps{})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
@@ -64,7 +64,7 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	imageRepo := &buildImageRepoFake{}
 	objects := &buildObjectStoreFake{}
 	users := &buildUsersFake{quotaDiskMB: 1024}
-	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil, objects)
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, users, nil, BuildServiceDeps{ObjectStore: objects})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
@@ -99,7 +99,7 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 		LogFilePath: "build-logs/source.log",
 	}}
 	objects := &buildObjectStoreFake{objects: map[string]string{"build-logs/source.log": "logs"}}
-	svc := NewBuildService(repo, &buildImageRepoFake{}, &buildRegistryFake{}, &buildUsersFake{}, nil, objects)
+	svc := NewBuildService(repo, &buildImageRepoFake{}, &buildRegistryFake{}, &buildUsersFake{}, nil, BuildServiceDeps{ObjectStore: objects})
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
 
 	if _, err := svc.OpenBuildLogs(ctx, repo.build.ID); err == nil {
@@ -113,7 +113,7 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 	buildID := uuid.New()
 	repo := &buildRepoFake{build: model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}}
-	svc := NewBuildService(repo, &buildImageRepoFake{}, &buildRegistryFake{}, &buildUsersFake{}, nil)
+	svc := NewBuildService(repo, &buildImageRepoFake{}, &buildRegistryFake{}, &buildUsersFake{}, nil, BuildServiceDeps{})
 
 	_, started, err := svc.StartBuildRecord(context.Background(), buildID)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	imageID := uuid.New()
 	repo := &buildRepoFake{build: model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusFailed}}
 	imageRepo := &buildImageRepoFake{}
-	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil)
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, BuildServiceDeps{})
 
 	if err := svc.CompleteBuildRecord(context.Background(), buildID, imageID, model.BuildStatusSuccess, 0); err != nil {
 		t.Fatalf("CompleteBuildRecord returned error: %v", err)
@@ -156,7 +156,7 @@ func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) 
 	imageRepo := &buildImageRepoFake{}
 	objects := &buildObjectStoreFake{}
 	deployments := &buildDeploymentCancelerFake{}
-	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, objects, deployments)
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, BuildServiceDeps{ObjectStore: objects, Deployments: deployments})
 
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	if err := svc.CancelBuildRecord(ctx, buildID); err != nil {
@@ -189,7 +189,7 @@ func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {
 		repo.build.Status = model.BuildStatusCanceled
 	}}
 	deployments := &buildDeploymentCancelerFake{}
-	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, deployments)
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{}, &buildUsersFake{}, nil, BuildServiceDeps{Deployments: deployments})
 
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	if err := svc.CancelBuildRecord(ctx, buildID); err != nil {
