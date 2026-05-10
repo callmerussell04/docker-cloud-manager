@@ -595,6 +595,13 @@ func (r *ProjectRepository) List(ctx context.Context, opts model.ListOptions) ([
 	return projects, total, rows.Err()
 }
 
+func (r *ProjectRepository) CountAll(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM projects`
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	return count, err
+}
+
 func scanProject(s scanner) (model.Project, error) {
 	var p model.Project
 	var errMsg sql.NullString

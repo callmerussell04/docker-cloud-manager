@@ -496,6 +496,28 @@ func (r *ContainerRepository) CountByOwnerID(ctx context.Context, ownerID uuid.U
 	return count, err
 }
 
+func (r *ContainerRepository) GetSystemStatusCounts(ctx context.Context) (model.ContainerStatusCounts, error) {
+	query := `
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE status = $1),
+			COUNT(*) FILTER (WHERE status = $2),
+			COUNT(*) FILTER (WHERE status = $3),
+			COUNT(*) FILTER (WHERE status = $4)
+		FROM containers
+	`
+	var counts model.ContainerStatusCounts
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		model.ContainerStatusRunning,
+		model.ContainerStatusExited,
+		model.ContainerStatusError,
+		model.ContainerStatusMissing,
+	).Scan(&counts.Total, &counts.Running, &counts.Stopped, &counts.Error, &counts.Missing)
+	return counts, err
+}
+
 func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) (int64, error) {
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 

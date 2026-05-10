@@ -136,6 +136,35 @@ func TestContainersToDTO(t *testing.T) {
 	}
 }
 
+func TestSystemMonitoringToDTO(t *testing.T) {
+	stats := model.SystemMonitoring{
+		CPUPercent:             42.5,
+		MemoryTotalBytes:       100,
+		MemoryUsedBytes:        70,
+		MemoryAvailableBytes:   30,
+		DiskTotalBytes:         200,
+		DiskUsedBytes:          150,
+		DiskFreeBytes:          50,
+		DCMReservedMemoryBytes: 64,
+		DCMDiskUsedBytes:       32,
+		ContainersTotal:        5,
+		ContainersRunning:      3,
+		ContainersStopped:      1,
+		ContainersError:        1,
+		ContainersMissing:      0,
+		VolumesTotal:           2,
+		ImagesTotal:            4,
+		BuildsTotal:            6,
+		ProjectsTotal:          7,
+		ObservedAt:             123,
+	}
+
+	got := systemMonitoringToDTO(stats)
+	if got.CPUPercent != stats.CPUPercent || got.DCMReservedMemoryBytes != stats.DCMReservedMemoryBytes || got.ProjectsTotal != stats.ProjectsTotal {
+		t.Fatalf("system monitoring was not mapped correctly: %+v", got)
+	}
+}
+
 func TestUserResourceDTOsOmitOperationalFields(t *testing.T) {
 	containers, err := json.Marshal(containersToUserDTO([]model.Container{{
 		ID:            "container-id",

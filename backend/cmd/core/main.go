@@ -91,6 +91,7 @@ func main() {
 
 	port := getEnvInt("CORE_GRPC_PORT", 50052)
 	httpPort := getEnvInt("CORE_HTTP_PORT", 8083)
+	hostDiskPath := getEnvString("CORE_HOST_DISK_PATH", "/")
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -202,6 +203,7 @@ func main() {
 		RabbitMQURL:   rabbitMQURL,
 		SSOTarget:     ssoTarget,
 		InternalToken: internalToken,
+		HostDiskPath:  hostDiskPath,
 		ConfigManager: cfgManager,
 		ObjectStorage: objectstorage.Config{
 			Endpoint:  requiredEnv(logger, "OBJECT_STORAGE_ENDPOINT"),

@@ -108,6 +108,13 @@ func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	return images, total, rows.Err()
 }
 
+func (r *ImageRepository) CountAll(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM images`
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	return count, err
+}
+
 func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM images WHERE id = $1`
 	res, err := r.db.ExecContext(ctx, query, id)
@@ -185,6 +192,13 @@ func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid
 	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE owner_id = $1 AND status != $2`
 	var usedMB int64
 	err := r.db.QueryRowContext(ctx, query, ownerID, model.ImageStatusDeleting).Scan(&usedMB)
+	return usedMB, err
+}
+
+func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE status != $1`
+	var usedMB int64
+	err := r.db.QueryRowContext(ctx, query, model.ImageStatusDeleting).Scan(&usedMB)
 	return usedMB, err
 }
 

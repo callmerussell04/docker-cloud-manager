@@ -12,6 +12,7 @@ import (
 
 type StatsLogic interface {
 	GetUserStats(ctx context.Context) (model.UserStats, error)
+	GetSystemMonitoring(ctx context.Context) (model.SystemMonitoring, error)
 }
 
 type StatsHandler struct {
@@ -41,5 +42,34 @@ func (h *StatsHandler) GetUserStats(ctx context.Context, _ *coreapi.Empty) (*cor
 		VolumesQuota:      int32(stats.VolumesQuota),
 		ImagesTotal:       int32(stats.ImagesTotal),
 		ProjectsTotal:     int32(stats.ProjectsTotal),
+	}, nil
+}
+
+func (h *StatsHandler) GetSystemMonitoring(ctx context.Context, _ *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
+	stats, err := h.logic.GetSystemMonitoring(ctx)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.SystemMonitoringResponse{
+		CpuPercent:             stats.CPUPercent,
+		MemoryTotalBytes:       stats.MemoryTotalBytes,
+		MemoryUsedBytes:        stats.MemoryUsedBytes,
+		MemoryAvailableBytes:   stats.MemoryAvailableBytes,
+		DiskTotalBytes:         stats.DiskTotalBytes,
+		DiskUsedBytes:          stats.DiskUsedBytes,
+		DiskFreeBytes:          stats.DiskFreeBytes,
+		DcmReservedMemoryBytes: stats.DCMReservedMemoryBytes,
+		DcmDiskUsedBytes:       stats.DCMDiskUsedBytes,
+		ContainersTotal:        int32(stats.ContainersTotal),
+		ContainersRunning:      int32(stats.ContainersRunning),
+		ContainersStopped:      int32(stats.ContainersStopped),
+		ContainersError:        int32(stats.ContainersError),
+		ContainersMissing:      int32(stats.ContainersMissing),
+		VolumesTotal:           int32(stats.VolumesTotal),
+		ImagesTotal:            int32(stats.ImagesTotal),
+		BuildsTotal:            int32(stats.BuildsTotal),
+		ProjectsTotal:          int32(stats.ProjectsTotal),
+		ObservedAt:             stats.ObservedAt.Unix(),
 	}, nil
 }

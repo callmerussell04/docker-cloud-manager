@@ -66,6 +66,7 @@ func TestRouterRegistersGatewayRoutes(t *testing.T) {
 		"GET /api/v1/stats",
 		"GET /api/v1/admin/config",
 		"PUT /api/v1/admin/config",
+		"GET /api/v1/admin/monitoring",
 		"GET /api/v1/admin/users",
 		"GET /api/v1/admin/users/:id",
 		"POST /api/v1/admin/users",

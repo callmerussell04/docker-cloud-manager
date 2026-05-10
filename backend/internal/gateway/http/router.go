@@ -123,6 +123,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin := v1.Group("/admin")
 	admin.GET("/config", adminPermission(deps, permissions.SystemConfigRead), deps.CoreHandler.GetSystemConfig)
 	admin.PUT("/config", adminPermission(deps, permissions.SystemConfigUpdate), deps.CoreHandler.UpdateSystemConfig)
+	admin.GET("/monitoring", adminPermission(deps, permissions.SystemMonitoringRead), deps.CoreHandler.GetSystemMonitoring)
 
 	admin.GET("/users", adminPermission(deps, permissions.UsersAdminList), deps.UserHandler.ListUsers)
 	admin.GET("/users/:id", adminPermission(deps, permissions.UsersAdminRead), deps.UserHandler.GetUser)

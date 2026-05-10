@@ -366,3 +366,27 @@ func userStatsToDTO(data model.UserStats) dto.UserStatsDTO {
 		ProjectsTotal:     data.ProjectsTotal,
 	}
 }
+
+func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO {
+	return dto.SystemMonitoringDTO{
+		CPUPercent:             data.CPUPercent,
+		MemoryTotalBytes:       data.MemoryTotalBytes,
+		MemoryUsedBytes:        data.MemoryUsedBytes,
+		MemoryAvailableBytes:   data.MemoryAvailableBytes,
+		DiskTotalBytes:         data.DiskTotalBytes,
+		DiskUsedBytes:          data.DiskUsedBytes,
+		DiskFreeBytes:          data.DiskFreeBytes,
+		DCMReservedMemoryBytes: data.DCMReservedMemoryBytes,
+		DCMDiskUsedBytes:       data.DCMDiskUsedBytes,
+		ContainersTotal:        data.ContainersTotal,
+		ContainersRunning:      data.ContainersRunning,
+		ContainersStopped:      data.ContainersStopped,
+		ContainersError:        data.ContainersError,
+		ContainersMissing:      data.ContainersMissing,
+		VolumesTotal:           data.VolumesTotal,
+		ImagesTotal:            data.ImagesTotal,
+		BuildsTotal:            data.BuildsTotal,
+		ProjectsTotal:          data.ProjectsTotal,
+		ObservedAt:             data.ObservedAt,
+	}
+}

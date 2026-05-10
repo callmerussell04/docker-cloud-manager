@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { AdminUser, AdminUserForm, SystemConfig } from '../types';
+import type { AdminUser, AdminUserForm, SystemConfig, SystemMonitoring } from '../types';
 import type { AdminContainerData, ContainerStats } from '@/features/containers/types';
 import type { AdminVolumeData } from '@/features/volumes/types';
 import type { AdminImageData, AdminBuildData } from '@/features/images/types';
@@ -12,6 +12,11 @@ export const getSystemConfigFn = async (): Promise<SystemConfig> => {
 
 export const updateSystemConfigFn = async (data: SystemConfig): Promise<void> => {
   await privateApi.put('/admin/config', data);
+};
+
+export const getSystemMonitoringFn = async (): Promise<SystemMonitoring> => {
+  const response = await privateApi.get<SystemMonitoring>('/admin/monitoring');
+  return response.data;
 };
 
 export const getAllContainersFn = async (page: number, limit: number) => {

@@ -145,6 +145,194 @@ func (x *UserStatsResponse) GetProjectsTotal() int32 {
 	return 0
 }
 
+type SystemMonitoringResponse struct {
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	CpuPercent             float64                `protobuf:"fixed64,1,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	MemoryTotalBytes       int64                  `protobuf:"varint,2,opt,name=memory_total_bytes,json=memoryTotalBytes,proto3" json:"memory_total_bytes,omitempty"`
+	MemoryUsedBytes        int64                  `protobuf:"varint,3,opt,name=memory_used_bytes,json=memoryUsedBytes,proto3" json:"memory_used_bytes,omitempty"`
+	MemoryAvailableBytes   int64                  `protobuf:"varint,4,opt,name=memory_available_bytes,json=memoryAvailableBytes,proto3" json:"memory_available_bytes,omitempty"`
+	DiskTotalBytes         int64                  `protobuf:"varint,5,opt,name=disk_total_bytes,json=diskTotalBytes,proto3" json:"disk_total_bytes,omitempty"`
+	DiskUsedBytes          int64                  `protobuf:"varint,6,opt,name=disk_used_bytes,json=diskUsedBytes,proto3" json:"disk_used_bytes,omitempty"`
+	DiskFreeBytes          int64                  `protobuf:"varint,7,opt,name=disk_free_bytes,json=diskFreeBytes,proto3" json:"disk_free_bytes,omitempty"`
+	DcmReservedMemoryBytes int64                  `protobuf:"varint,8,opt,name=dcm_reserved_memory_bytes,json=dcmReservedMemoryBytes,proto3" json:"dcm_reserved_memory_bytes,omitempty"`
+	DcmDiskUsedBytes       int64                  `protobuf:"varint,9,opt,name=dcm_disk_used_bytes,json=dcmDiskUsedBytes,proto3" json:"dcm_disk_used_bytes,omitempty"`
+	ContainersTotal        int32                  `protobuf:"varint,10,opt,name=containers_total,json=containersTotal,proto3" json:"containers_total,omitempty"`
+	ContainersRunning      int32                  `protobuf:"varint,11,opt,name=containers_running,json=containersRunning,proto3" json:"containers_running,omitempty"`
+	ContainersStopped      int32                  `protobuf:"varint,12,opt,name=containers_stopped,json=containersStopped,proto3" json:"containers_stopped,omitempty"`
+	ContainersError        int32                  `protobuf:"varint,13,opt,name=containers_error,json=containersError,proto3" json:"containers_error,omitempty"`
+	ContainersMissing      int32                  `protobuf:"varint,14,opt,name=containers_missing,json=containersMissing,proto3" json:"containers_missing,omitempty"`
+	VolumesTotal           int32                  `protobuf:"varint,15,opt,name=volumes_total,json=volumesTotal,proto3" json:"volumes_total,omitempty"`
+	ImagesTotal            int32                  `protobuf:"varint,16,opt,name=images_total,json=imagesTotal,proto3" json:"images_total,omitempty"`
+	BuildsTotal            int32                  `protobuf:"varint,17,opt,name=builds_total,json=buildsTotal,proto3" json:"builds_total,omitempty"`
+	ProjectsTotal          int32                  `protobuf:"varint,18,opt,name=projects_total,json=projectsTotal,proto3" json:"projects_total,omitempty"`
+	ObservedAt             int64                  `protobuf:"varint,19,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SystemMonitoringResponse) Reset() {
+	*x = SystemMonitoringResponse{}
+	mi := &file_api_core_core_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SystemMonitoringResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SystemMonitoringResponse) ProtoMessage() {}
+
+func (x *SystemMonitoringResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_core_core_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SystemMonitoringResponse.ProtoReflect.Descriptor instead.
+func (*SystemMonitoringResponse) Descriptor() ([]byte, []int) {
+	return file_api_core_core_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SystemMonitoringResponse) GetCpuPercent() float64 {
+	if x != nil {
+		return x.CpuPercent
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetMemoryTotalBytes() int64 {
+	if x != nil {
+		return x.MemoryTotalBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetMemoryUsedBytes() int64 {
+	if x != nil {
+		return x.MemoryUsedBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetMemoryAvailableBytes() int64 {
+	if x != nil {
+		return x.MemoryAvailableBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDiskTotalBytes() int64 {
+	if x != nil {
+		return x.DiskTotalBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDiskUsedBytes() int64 {
+	if x != nil {
+		return x.DiskUsedBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDiskFreeBytes() int64 {
+	if x != nil {
+		return x.DiskFreeBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDcmReservedMemoryBytes() int64 {
+	if x != nil {
+		return x.DcmReservedMemoryBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDcmDiskUsedBytes() int64 {
+	if x != nil {
+		return x.DcmDiskUsedBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetContainersTotal() int32 {
+	if x != nil {
+		return x.ContainersTotal
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetContainersRunning() int32 {
+	if x != nil {
+		return x.ContainersRunning
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetContainersStopped() int32 {
+	if x != nil {
+		return x.ContainersStopped
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetContainersError() int32 {
+	if x != nil {
+		return x.ContainersError
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetContainersMissing() int32 {
+	if x != nil {
+		return x.ContainersMissing
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetVolumesTotal() int32 {
+	if x != nil {
+		return x.VolumesTotal
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetImagesTotal() int32 {
+	if x != nil {
+		return x.ImagesTotal
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetBuildsTotal() int32 {
+	if x != nil {
+		return x.BuildsTotal
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetProjectsTotal() int32 {
+	if x != nil {
+		return x.ProjectsTotal
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetObservedAt() int64 {
+	if x != nil {
+		return x.ObservedAt
+	}
+	return 0
+}
+
 type Empty struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -153,7 +341,7 @@ type Empty struct {
 
 func (x *Empty) Reset() {
 	*x = Empty{}
-	mi := &file_api_core_core_proto_msgTypes[1]
+	mi := &file_api_core_core_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -165,7 +353,7 @@ func (x *Empty) String() string {
 func (*Empty) ProtoMessage() {}
 
 func (x *Empty) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[1]
+	mi := &file_api_core_core_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -178,7 +366,7 @@ func (x *Empty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Empty.ProtoReflect.Descriptor instead.
 func (*Empty) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{1}
+	return file_api_core_core_proto_rawDescGZIP(), []int{2}
 }
 
 type GetUserRequest struct {
@@ -190,7 +378,7 @@ type GetUserRequest struct {
 
 func (x *GetUserRequest) Reset() {
 	*x = GetUserRequest{}
-	mi := &file_api_core_core_proto_msgTypes[2]
+	mi := &file_api_core_core_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -202,7 +390,7 @@ func (x *GetUserRequest) String() string {
 func (*GetUserRequest) ProtoMessage() {}
 
 func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[2]
+	mi := &file_api_core_core_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -215,7 +403,7 @@ func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserRequest.ProtoReflect.Descriptor instead.
 func (*GetUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{2}
+	return file_api_core_core_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetUserRequest) GetOwnerId() string {
@@ -236,7 +424,7 @@ type VolumeMount struct {
 
 func (x *VolumeMount) Reset() {
 	*x = VolumeMount{}
-	mi := &file_api_core_core_proto_msgTypes[3]
+	mi := &file_api_core_core_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -248,7 +436,7 @@ func (x *VolumeMount) String() string {
 func (*VolumeMount) ProtoMessage() {}
 
 func (x *VolumeMount) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[3]
+	mi := &file_api_core_core_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -261,7 +449,7 @@ func (x *VolumeMount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeMount.ProtoReflect.Descriptor instead.
 func (*VolumeMount) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{3}
+	return file_api_core_core_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *VolumeMount) GetVolumeId() string {
@@ -299,7 +487,7 @@ type CreateContainerRequest struct {
 
 func (x *CreateContainerRequest) Reset() {
 	*x = CreateContainerRequest{}
-	mi := &file_api_core_core_proto_msgTypes[4]
+	mi := &file_api_core_core_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -311,7 +499,7 @@ func (x *CreateContainerRequest) String() string {
 func (*CreateContainerRequest) ProtoMessage() {}
 
 func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[4]
+	mi := &file_api_core_core_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -324,7 +512,7 @@ func (x *CreateContainerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContainerRequest.ProtoReflect.Descriptor instead.
 func (*CreateContainerRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{4}
+	return file_api_core_core_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CreateContainerRequest) GetName() string {
@@ -378,7 +566,7 @@ type CreateContainerResponse struct {
 
 func (x *CreateContainerResponse) Reset() {
 	*x = CreateContainerResponse{}
-	mi := &file_api_core_core_proto_msgTypes[5]
+	mi := &file_api_core_core_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -390,7 +578,7 @@ func (x *CreateContainerResponse) String() string {
 func (*CreateContainerResponse) ProtoMessage() {}
 
 func (x *CreateContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[5]
+	mi := &file_api_core_core_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -403,7 +591,7 @@ func (x *CreateContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateContainerResponse.ProtoReflect.Descriptor instead.
 func (*CreateContainerResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{5}
+	return file_api_core_core_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateContainerResponse) GetContainerId() string {
@@ -423,7 +611,7 @@ type ContainerActionRequest struct {
 
 func (x *ContainerActionRequest) Reset() {
 	*x = ContainerActionRequest{}
-	mi := &file_api_core_core_proto_msgTypes[6]
+	mi := &file_api_core_core_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -435,7 +623,7 @@ func (x *ContainerActionRequest) String() string {
 func (*ContainerActionRequest) ProtoMessage() {}
 
 func (x *ContainerActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[6]
+	mi := &file_api_core_core_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -448,7 +636,7 @@ func (x *ContainerActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerActionRequest.ProtoReflect.Descriptor instead.
 func (*ContainerActionRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{6}
+	return file_api_core_core_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ContainerActionRequest) GetContainerId() string {
@@ -476,7 +664,7 @@ type ExposeRequest struct {
 
 func (x *ExposeRequest) Reset() {
 	*x = ExposeRequest{}
-	mi := &file_api_core_core_proto_msgTypes[7]
+	mi := &file_api_core_core_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -488,7 +676,7 @@ func (x *ExposeRequest) String() string {
 func (*ExposeRequest) ProtoMessage() {}
 
 func (x *ExposeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[7]
+	mi := &file_api_core_core_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -501,7 +689,7 @@ func (x *ExposeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExposeRequest.ProtoReflect.Descriptor instead.
 func (*ExposeRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{7}
+	return file_api_core_core_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ExposeRequest) GetContainerId() string {
@@ -545,7 +733,7 @@ type ContainerData struct {
 
 func (x *ContainerData) Reset() {
 	*x = ContainerData{}
-	mi := &file_api_core_core_proto_msgTypes[8]
+	mi := &file_api_core_core_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -557,7 +745,7 @@ func (x *ContainerData) String() string {
 func (*ContainerData) ProtoMessage() {}
 
 func (x *ContainerData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[8]
+	mi := &file_api_core_core_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -570,7 +758,7 @@ func (x *ContainerData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerData.ProtoReflect.Descriptor instead.
 func (*ContainerData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{8}
+	return file_api_core_core_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ContainerData) GetId() string {
@@ -666,7 +854,7 @@ type ContainerRuntimeTargetRequest struct {
 
 func (x *ContainerRuntimeTargetRequest) Reset() {
 	*x = ContainerRuntimeTargetRequest{}
-	mi := &file_api_core_core_proto_msgTypes[9]
+	mi := &file_api_core_core_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +866,7 @@ func (x *ContainerRuntimeTargetRequest) String() string {
 func (*ContainerRuntimeTargetRequest) ProtoMessage() {}
 
 func (x *ContainerRuntimeTargetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[9]
+	mi := &file_api_core_core_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -691,7 +879,7 @@ func (x *ContainerRuntimeTargetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerRuntimeTargetRequest.ProtoReflect.Descriptor instead.
 func (*ContainerRuntimeTargetRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{9}
+	return file_api_core_core_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ContainerRuntimeTargetRequest) GetContainerId() string {
@@ -714,7 +902,7 @@ type ContainerRuntimeTarget struct {
 
 func (x *ContainerRuntimeTarget) Reset() {
 	*x = ContainerRuntimeTarget{}
-	mi := &file_api_core_core_proto_msgTypes[10]
+	mi := &file_api_core_core_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -726,7 +914,7 @@ func (x *ContainerRuntimeTarget) String() string {
 func (*ContainerRuntimeTarget) ProtoMessage() {}
 
 func (x *ContainerRuntimeTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[10]
+	mi := &file_api_core_core_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -739,7 +927,7 @@ func (x *ContainerRuntimeTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerRuntimeTarget.ProtoReflect.Descriptor instead.
 func (*ContainerRuntimeTarget) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{10}
+	return file_api_core_core_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ContainerRuntimeTarget) GetContainerId() string {
@@ -786,7 +974,7 @@ type ContainerListResponse struct {
 
 func (x *ContainerListResponse) Reset() {
 	*x = ContainerListResponse{}
-	mi := &file_api_core_core_proto_msgTypes[11]
+	mi := &file_api_core_core_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -798,7 +986,7 @@ func (x *ContainerListResponse) String() string {
 func (*ContainerListResponse) ProtoMessage() {}
 
 func (x *ContainerListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[11]
+	mi := &file_api_core_core_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -811,7 +999,7 @@ func (x *ContainerListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerListResponse.ProtoReflect.Descriptor instead.
 func (*ContainerListResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{11}
+	return file_api_core_core_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ContainerListResponse) GetContainers() []*ContainerData {
@@ -830,7 +1018,7 @@ type ImageActionRequest struct {
 
 func (x *ImageActionRequest) Reset() {
 	*x = ImageActionRequest{}
-	mi := &file_api_core_core_proto_msgTypes[12]
+	mi := &file_api_core_core_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -842,7 +1030,7 @@ func (x *ImageActionRequest) String() string {
 func (*ImageActionRequest) ProtoMessage() {}
 
 func (x *ImageActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[12]
+	mi := &file_api_core_core_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -855,7 +1043,7 @@ func (x *ImageActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageActionRequest.ProtoReflect.Descriptor instead.
 func (*ImageActionRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{12}
+	return file_api_core_core_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ImageActionRequest) GetImageId() string {
@@ -876,7 +1064,7 @@ type StartBuildRecordResponse struct {
 
 func (x *StartBuildRecordResponse) Reset() {
 	*x = StartBuildRecordResponse{}
-	mi := &file_api_core_core_proto_msgTypes[13]
+	mi := &file_api_core_core_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -888,7 +1076,7 @@ func (x *StartBuildRecordResponse) String() string {
 func (*StartBuildRecordResponse) ProtoMessage() {}
 
 func (x *StartBuildRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[13]
+	mi := &file_api_core_core_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -901,7 +1089,7 @@ func (x *StartBuildRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartBuildRecordResponse.ProtoReflect.Descriptor instead.
 func (*StartBuildRecordResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{13}
+	return file_api_core_core_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StartBuildRecordResponse) GetStarted() bool {
@@ -937,7 +1125,7 @@ type CompleteBuildRequest struct {
 
 func (x *CompleteBuildRequest) Reset() {
 	*x = CompleteBuildRequest{}
-	mi := &file_api_core_core_proto_msgTypes[14]
+	mi := &file_api_core_core_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1137,7 @@ func (x *CompleteBuildRequest) String() string {
 func (*CompleteBuildRequest) ProtoMessage() {}
 
 func (x *CompleteBuildRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[14]
+	mi := &file_api_core_core_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1150,7 @@ func (x *CompleteBuildRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteBuildRequest.ProtoReflect.Descriptor instead.
 func (*CompleteBuildRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{14}
+	return file_api_core_core_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *CompleteBuildRequest) GetBuildId() string {
@@ -1009,7 +1197,7 @@ type ImageData struct {
 
 func (x *ImageData) Reset() {
 	*x = ImageData{}
-	mi := &file_api_core_core_proto_msgTypes[15]
+	mi := &file_api_core_core_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1021,7 +1209,7 @@ func (x *ImageData) String() string {
 func (*ImageData) ProtoMessage() {}
 
 func (x *ImageData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[15]
+	mi := &file_api_core_core_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1034,7 +1222,7 @@ func (x *ImageData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageData.ProtoReflect.Descriptor instead.
 func (*ImageData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{15}
+	return file_api_core_core_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ImageData) GetId() string {
@@ -1102,7 +1290,7 @@ type ImageListResponse struct {
 
 func (x *ImageListResponse) Reset() {
 	*x = ImageListResponse{}
-	mi := &file_api_core_core_proto_msgTypes[16]
+	mi := &file_api_core_core_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1114,7 +1302,7 @@ func (x *ImageListResponse) String() string {
 func (*ImageListResponse) ProtoMessage() {}
 
 func (x *ImageListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[16]
+	mi := &file_api_core_core_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1127,7 +1315,7 @@ func (x *ImageListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageListResponse.ProtoReflect.Descriptor instead.
 func (*ImageListResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{16}
+	return file_api_core_core_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ImageListResponse) GetImages() []*ImageData {
@@ -1146,7 +1334,7 @@ type CreateVolumeRequest struct {
 
 func (x *CreateVolumeRequest) Reset() {
 	*x = CreateVolumeRequest{}
-	mi := &file_api_core_core_proto_msgTypes[17]
+	mi := &file_api_core_core_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1158,7 +1346,7 @@ func (x *CreateVolumeRequest) String() string {
 func (*CreateVolumeRequest) ProtoMessage() {}
 
 func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[17]
+	mi := &file_api_core_core_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1171,7 +1359,7 @@ func (x *CreateVolumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVolumeRequest.ProtoReflect.Descriptor instead.
 func (*CreateVolumeRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{17}
+	return file_api_core_core_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *CreateVolumeRequest) GetName() string {
@@ -1190,7 +1378,7 @@ type CreateVolumeResponse struct {
 
 func (x *CreateVolumeResponse) Reset() {
 	*x = CreateVolumeResponse{}
-	mi := &file_api_core_core_proto_msgTypes[18]
+	mi := &file_api_core_core_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1202,7 +1390,7 @@ func (x *CreateVolumeResponse) String() string {
 func (*CreateVolumeResponse) ProtoMessage() {}
 
 func (x *CreateVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[18]
+	mi := &file_api_core_core_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1215,7 +1403,7 @@ func (x *CreateVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateVolumeResponse.ProtoReflect.Descriptor instead.
 func (*CreateVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{18}
+	return file_api_core_core_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CreateVolumeResponse) GetVolumeId() string {
@@ -1234,7 +1422,7 @@ type VolumeActionRequest struct {
 
 func (x *VolumeActionRequest) Reset() {
 	*x = VolumeActionRequest{}
-	mi := &file_api_core_core_proto_msgTypes[19]
+	mi := &file_api_core_core_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1246,7 +1434,7 @@ func (x *VolumeActionRequest) String() string {
 func (*VolumeActionRequest) ProtoMessage() {}
 
 func (x *VolumeActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[19]
+	mi := &file_api_core_core_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1259,7 +1447,7 @@ func (x *VolumeActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeActionRequest.ProtoReflect.Descriptor instead.
 func (*VolumeActionRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{19}
+	return file_api_core_core_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *VolumeActionRequest) GetVolumeId() string {
@@ -1286,7 +1474,7 @@ type VolumeData struct {
 
 func (x *VolumeData) Reset() {
 	*x = VolumeData{}
-	mi := &file_api_core_core_proto_msgTypes[20]
+	mi := &file_api_core_core_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1298,7 +1486,7 @@ func (x *VolumeData) String() string {
 func (*VolumeData) ProtoMessage() {}
 
 func (x *VolumeData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[20]
+	mi := &file_api_core_core_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1311,7 +1499,7 @@ func (x *VolumeData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeData.ProtoReflect.Descriptor instead.
 func (*VolumeData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{20}
+	return file_api_core_core_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *VolumeData) GetId() string {
@@ -1386,7 +1574,7 @@ type VolumeListResponse struct {
 
 func (x *VolumeListResponse) Reset() {
 	*x = VolumeListResponse{}
-	mi := &file_api_core_core_proto_msgTypes[21]
+	mi := &file_api_core_core_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1398,7 +1586,7 @@ func (x *VolumeListResponse) String() string {
 func (*VolumeListResponse) ProtoMessage() {}
 
 func (x *VolumeListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[21]
+	mi := &file_api_core_core_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1411,7 +1599,7 @@ func (x *VolumeListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolumeListResponse.ProtoReflect.Descriptor instead.
 func (*VolumeListResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{21}
+	return file_api_core_core_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *VolumeListResponse) GetVolumes() []*VolumeData {
@@ -1430,7 +1618,7 @@ type BuildActionRequest struct {
 
 func (x *BuildActionRequest) Reset() {
 	*x = BuildActionRequest{}
-	mi := &file_api_core_core_proto_msgTypes[22]
+	mi := &file_api_core_core_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +1630,7 @@ func (x *BuildActionRequest) String() string {
 func (*BuildActionRequest) ProtoMessage() {}
 
 func (x *BuildActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[22]
+	mi := &file_api_core_core_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1643,7 @@ func (x *BuildActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildActionRequest.ProtoReflect.Descriptor instead.
 func (*BuildActionRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{22}
+	return file_api_core_core_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BuildActionRequest) GetBuildId() string {
@@ -1483,7 +1671,7 @@ type BuildData struct {
 
 func (x *BuildData) Reset() {
 	*x = BuildData{}
-	mi := &file_api_core_core_proto_msgTypes[23]
+	mi := &file_api_core_core_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1495,7 +1683,7 @@ func (x *BuildData) String() string {
 func (*BuildData) ProtoMessage() {}
 
 func (x *BuildData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[23]
+	mi := &file_api_core_core_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1508,7 +1696,7 @@ func (x *BuildData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildData.ProtoReflect.Descriptor instead.
 func (*BuildData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{23}
+	return file_api_core_core_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BuildData) GetId() string {
@@ -1590,7 +1778,7 @@ type BuildListResponse struct {
 
 func (x *BuildListResponse) Reset() {
 	*x = BuildListResponse{}
-	mi := &file_api_core_core_proto_msgTypes[24]
+	mi := &file_api_core_core_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1602,7 +1790,7 @@ func (x *BuildListResponse) String() string {
 func (*BuildListResponse) ProtoMessage() {}
 
 func (x *BuildListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[24]
+	mi := &file_api_core_core_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1615,7 +1803,7 @@ func (x *BuildListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuildListResponse.ProtoReflect.Descriptor instead.
 func (*BuildListResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{24}
+	return file_api_core_core_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BuildListResponse) GetBuilds() []*BuildData {
@@ -1641,7 +1829,7 @@ type ProjectData struct {
 
 func (x *ProjectData) Reset() {
 	*x = ProjectData{}
-	mi := &file_api_core_core_proto_msgTypes[25]
+	mi := &file_api_core_core_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1653,7 +1841,7 @@ func (x *ProjectData) String() string {
 func (*ProjectData) ProtoMessage() {}
 
 func (x *ProjectData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[25]
+	mi := &file_api_core_core_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1666,7 +1854,7 @@ func (x *ProjectData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectData.ProtoReflect.Descriptor instead.
 func (*ProjectData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{25}
+	return file_api_core_core_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ProjectData) GetId() string {
@@ -1734,7 +1922,7 @@ type ProjectListResponse struct {
 
 func (x *ProjectListResponse) Reset() {
 	*x = ProjectListResponse{}
-	mi := &file_api_core_core_proto_msgTypes[26]
+	mi := &file_api_core_core_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1746,7 +1934,7 @@ func (x *ProjectListResponse) String() string {
 func (*ProjectListResponse) ProtoMessage() {}
 
 func (x *ProjectListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[26]
+	mi := &file_api_core_core_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1759,7 +1947,7 @@ func (x *ProjectListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectListResponse.ProtoReflect.Descriptor instead.
 func (*ProjectListResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{26}
+	return file_api_core_core_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ProjectListResponse) GetProjects() []*ProjectData {
@@ -1778,7 +1966,7 @@ type ProjectActionRequest struct {
 
 func (x *ProjectActionRequest) Reset() {
 	*x = ProjectActionRequest{}
-	mi := &file_api_core_core_proto_msgTypes[27]
+	mi := &file_api_core_core_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1790,7 +1978,7 @@ func (x *ProjectActionRequest) String() string {
 func (*ProjectActionRequest) ProtoMessage() {}
 
 func (x *ProjectActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[27]
+	mi := &file_api_core_core_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1803,7 +1991,7 @@ func (x *ProjectActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectActionRequest.ProtoReflect.Descriptor instead.
 func (*ProjectActionRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{27}
+	return file_api_core_core_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ProjectActionRequest) GetProjectId() string {
@@ -1823,7 +2011,7 @@ type PaginationRequest struct {
 
 func (x *PaginationRequest) Reset() {
 	*x = PaginationRequest{}
-	mi := &file_api_core_core_proto_msgTypes[28]
+	mi := &file_api_core_core_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1835,7 +2023,7 @@ func (x *PaginationRequest) String() string {
 func (*PaginationRequest) ProtoMessage() {}
 
 func (x *PaginationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[28]
+	mi := &file_api_core_core_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1848,7 +2036,7 @@ func (x *PaginationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginationRequest.ProtoReflect.Descriptor instead.
 func (*PaginationRequest) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{28}
+	return file_api_core_core_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PaginationRequest) GetPage() int32 {
@@ -1875,7 +2063,7 @@ type PaginatedContainerResponse struct {
 
 func (x *PaginatedContainerResponse) Reset() {
 	*x = PaginatedContainerResponse{}
-	mi := &file_api_core_core_proto_msgTypes[29]
+	mi := &file_api_core_core_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1887,7 +2075,7 @@ func (x *PaginatedContainerResponse) String() string {
 func (*PaginatedContainerResponse) ProtoMessage() {}
 
 func (x *PaginatedContainerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[29]
+	mi := &file_api_core_core_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1900,7 +2088,7 @@ func (x *PaginatedContainerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedContainerResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedContainerResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{29}
+	return file_api_core_core_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *PaginatedContainerResponse) GetContainers() []*ContainerData {
@@ -1927,7 +2115,7 @@ type PaginatedVolumeResponse struct {
 
 func (x *PaginatedVolumeResponse) Reset() {
 	*x = PaginatedVolumeResponse{}
-	mi := &file_api_core_core_proto_msgTypes[30]
+	mi := &file_api_core_core_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +2127,7 @@ func (x *PaginatedVolumeResponse) String() string {
 func (*PaginatedVolumeResponse) ProtoMessage() {}
 
 func (x *PaginatedVolumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[30]
+	mi := &file_api_core_core_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +2140,7 @@ func (x *PaginatedVolumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedVolumeResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedVolumeResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{30}
+	return file_api_core_core_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *PaginatedVolumeResponse) GetVolumes() []*VolumeData {
@@ -1979,7 +2167,7 @@ type PaginatedImageResponse struct {
 
 func (x *PaginatedImageResponse) Reset() {
 	*x = PaginatedImageResponse{}
-	mi := &file_api_core_core_proto_msgTypes[31]
+	mi := &file_api_core_core_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1991,7 +2179,7 @@ func (x *PaginatedImageResponse) String() string {
 func (*PaginatedImageResponse) ProtoMessage() {}
 
 func (x *PaginatedImageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[31]
+	mi := &file_api_core_core_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2004,7 +2192,7 @@ func (x *PaginatedImageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedImageResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedImageResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{31}
+	return file_api_core_core_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PaginatedImageResponse) GetImages() []*ImageData {
@@ -2031,7 +2219,7 @@ type PaginatedBuildResponse struct {
 
 func (x *PaginatedBuildResponse) Reset() {
 	*x = PaginatedBuildResponse{}
-	mi := &file_api_core_core_proto_msgTypes[32]
+	mi := &file_api_core_core_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2043,7 +2231,7 @@ func (x *PaginatedBuildResponse) String() string {
 func (*PaginatedBuildResponse) ProtoMessage() {}
 
 func (x *PaginatedBuildResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[32]
+	mi := &file_api_core_core_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2056,7 +2244,7 @@ func (x *PaginatedBuildResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedBuildResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedBuildResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{32}
+	return file_api_core_core_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PaginatedBuildResponse) GetBuilds() []*BuildData {
@@ -2083,7 +2271,7 @@ type PaginatedProjectResponse struct {
 
 func (x *PaginatedProjectResponse) Reset() {
 	*x = PaginatedProjectResponse{}
-	mi := &file_api_core_core_proto_msgTypes[33]
+	mi := &file_api_core_core_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2095,7 +2283,7 @@ func (x *PaginatedProjectResponse) String() string {
 func (*PaginatedProjectResponse) ProtoMessage() {}
 
 func (x *PaginatedProjectResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[33]
+	mi := &file_api_core_core_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2108,7 +2296,7 @@ func (x *PaginatedProjectResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PaginatedProjectResponse.ProtoReflect.Descriptor instead.
 func (*PaginatedProjectResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{33}
+	return file_api_core_core_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *PaginatedProjectResponse) GetProjects() []*ProjectData {
@@ -2199,7 +2387,7 @@ type SystemConfigData struct {
 
 func (x *SystemConfigData) Reset() {
 	*x = SystemConfigData{}
-	mi := &file_api_core_core_proto_msgTypes[34]
+	mi := &file_api_core_core_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2211,7 +2399,7 @@ func (x *SystemConfigData) String() string {
 func (*SystemConfigData) ProtoMessage() {}
 
 func (x *SystemConfigData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[34]
+	mi := &file_api_core_core_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2224,7 +2412,7 @@ func (x *SystemConfigData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemConfigData.ProtoReflect.Descriptor instead.
 func (*SystemConfigData) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{34}
+	return file_api_core_core_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *SystemConfigData) GetBaseDomain() string {
@@ -2702,7 +2890,7 @@ type ContainerStatsResponse struct {
 
 func (x *ContainerStatsResponse) Reset() {
 	*x = ContainerStatsResponse{}
-	mi := &file_api_core_core_proto_msgTypes[35]
+	mi := &file_api_core_core_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2714,7 +2902,7 @@ func (x *ContainerStatsResponse) String() string {
 func (*ContainerStatsResponse) ProtoMessage() {}
 
 func (x *ContainerStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_core_core_proto_msgTypes[35]
+	mi := &file_api_core_core_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2727,7 +2915,7 @@ func (x *ContainerStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerStatsResponse.ProtoReflect.Descriptor instead.
 func (*ContainerStatsResponse) Descriptor() ([]byte, []int) {
-	return file_api_core_core_proto_rawDescGZIP(), []int{35}
+	return file_api_core_core_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ContainerStatsResponse) GetCpuPercentage() float64 {
@@ -2783,7 +2971,30 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\a\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xc5\x06\n" +
+	"\x18SystemMonitoringResponse\x12\x1f\n" +
+	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
+	"cpuPercent\x12,\n" +
+	"\x12memory_total_bytes\x18\x02 \x01(\x03R\x10memoryTotalBytes\x12*\n" +
+	"\x11memory_used_bytes\x18\x03 \x01(\x03R\x0fmemoryUsedBytes\x124\n" +
+	"\x16memory_available_bytes\x18\x04 \x01(\x03R\x14memoryAvailableBytes\x12(\n" +
+	"\x10disk_total_bytes\x18\x05 \x01(\x03R\x0ediskTotalBytes\x12&\n" +
+	"\x0fdisk_used_bytes\x18\x06 \x01(\x03R\rdiskUsedBytes\x12&\n" +
+	"\x0fdisk_free_bytes\x18\a \x01(\x03R\rdiskFreeBytes\x129\n" +
+	"\x19dcm_reserved_memory_bytes\x18\b \x01(\x03R\x16dcmReservedMemoryBytes\x12-\n" +
+	"\x13dcm_disk_used_bytes\x18\t \x01(\x03R\x10dcmDiskUsedBytes\x12)\n" +
+	"\x10containers_total\x18\n" +
+	" \x01(\x05R\x0fcontainersTotal\x12-\n" +
+	"\x12containers_running\x18\v \x01(\x05R\x11containersRunning\x12-\n" +
+	"\x12containers_stopped\x18\f \x01(\x05R\x11containersStopped\x12)\n" +
+	"\x10containers_error\x18\r \x01(\x05R\x0fcontainersError\x12-\n" +
+	"\x12containers_missing\x18\x0e \x01(\x05R\x11containersMissing\x12#\n" +
+	"\rvolumes_total\x18\x0f \x01(\x05R\fvolumesTotal\x12!\n" +
+	"\fimages_total\x18\x10 \x01(\x05R\vimagesTotal\x12!\n" +
+	"\fbuilds_total\x18\x11 \x01(\x05R\vbuildsTotal\x12%\n" +
+	"\x0eprojects_total\x18\x12 \x01(\x05R\rprojectsTotal\x12\x1f\n" +
+	"\vobserved_at\x18\x13 \x01(\x03R\n" +
+	"observedAt\"\a\n" +
 	"\x05Empty\"+\n" +
 	"\x0eGetUserRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\"j\n" +
@@ -3057,9 +3268,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rCancelProject\x12\x1a.core.ProjectActionRequest\x1a\v.core.Empty2r\n" +
 	"\tSystemAPI\x120\n" +
 	"\tGetConfig\x12\v.core.Empty\x1a\x16.core.SystemConfigData\x123\n" +
-	"\fUpdateConfig\x12\x16.core.SystemConfigData\x1a\v.core.Empty2@\n" +
+	"\fUpdateConfig\x12\x16.core.SystemConfigData\x1a\v.core.Empty2\x84\x01\n" +
 	"\bStatsAPI\x124\n" +
-	"\fGetUserStats\x12\v.core.Empty\x1a\x17.core.UserStatsResponseBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
+	"\fGetUserStats\x12\v.core.Empty\x1a\x17.core.UserStatsResponse\x12B\n" +
+	"\x13GetSystemMonitoring\x12\v.core.Empty\x1a\x1e.core.SystemMonitoringResponseBGZEgithub.com/callmerussell04/docker-cloud-manager/backend/api/core;coreb\x06proto3"
 
 var (
 	file_api_core_core_proto_rawDescOnce sync.Once
@@ -3073,115 +3285,118 @@ func file_api_core_core_proto_rawDescGZIP() []byte {
 	return file_api_core_core_proto_rawDescData
 }
 
-var file_api_core_core_proto_msgTypes = make([]protoimpl.MessageInfo, 37)
+var file_api_core_core_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_api_core_core_proto_goTypes = []any{
 	(*UserStatsResponse)(nil),             // 0: core.UserStatsResponse
-	(*Empty)(nil),                         // 1: core.Empty
-	(*GetUserRequest)(nil),                // 2: core.GetUserRequest
-	(*VolumeMount)(nil),                   // 3: core.VolumeMount
-	(*CreateContainerRequest)(nil),        // 4: core.CreateContainerRequest
-	(*CreateContainerResponse)(nil),       // 5: core.CreateContainerResponse
-	(*ContainerActionRequest)(nil),        // 6: core.ContainerActionRequest
-	(*ExposeRequest)(nil),                 // 7: core.ExposeRequest
-	(*ContainerData)(nil),                 // 8: core.ContainerData
-	(*ContainerRuntimeTargetRequest)(nil), // 9: core.ContainerRuntimeTargetRequest
-	(*ContainerRuntimeTarget)(nil),        // 10: core.ContainerRuntimeTarget
-	(*ContainerListResponse)(nil),         // 11: core.ContainerListResponse
-	(*ImageActionRequest)(nil),            // 12: core.ImageActionRequest
-	(*StartBuildRecordResponse)(nil),      // 13: core.StartBuildRecordResponse
-	(*CompleteBuildRequest)(nil),          // 14: core.CompleteBuildRequest
-	(*ImageData)(nil),                     // 15: core.ImageData
-	(*ImageListResponse)(nil),             // 16: core.ImageListResponse
-	(*CreateVolumeRequest)(nil),           // 17: core.CreateVolumeRequest
-	(*CreateVolumeResponse)(nil),          // 18: core.CreateVolumeResponse
-	(*VolumeActionRequest)(nil),           // 19: core.VolumeActionRequest
-	(*VolumeData)(nil),                    // 20: core.VolumeData
-	(*VolumeListResponse)(nil),            // 21: core.VolumeListResponse
-	(*BuildActionRequest)(nil),            // 22: core.BuildActionRequest
-	(*BuildData)(nil),                     // 23: core.BuildData
-	(*BuildListResponse)(nil),             // 24: core.BuildListResponse
-	(*ProjectData)(nil),                   // 25: core.ProjectData
-	(*ProjectListResponse)(nil),           // 26: core.ProjectListResponse
-	(*ProjectActionRequest)(nil),          // 27: core.ProjectActionRequest
-	(*PaginationRequest)(nil),             // 28: core.PaginationRequest
-	(*PaginatedContainerResponse)(nil),    // 29: core.PaginatedContainerResponse
-	(*PaginatedVolumeResponse)(nil),       // 30: core.PaginatedVolumeResponse
-	(*PaginatedImageResponse)(nil),        // 31: core.PaginatedImageResponse
-	(*PaginatedBuildResponse)(nil),        // 32: core.PaginatedBuildResponse
-	(*PaginatedProjectResponse)(nil),      // 33: core.PaginatedProjectResponse
-	(*SystemConfigData)(nil),              // 34: core.SystemConfigData
-	(*ContainerStatsResponse)(nil),        // 35: core.ContainerStatsResponse
-	nil,                                   // 36: core.CreateContainerRequest.EnvVarsEntry
+	(*SystemMonitoringResponse)(nil),      // 1: core.SystemMonitoringResponse
+	(*Empty)(nil),                         // 2: core.Empty
+	(*GetUserRequest)(nil),                // 3: core.GetUserRequest
+	(*VolumeMount)(nil),                   // 4: core.VolumeMount
+	(*CreateContainerRequest)(nil),        // 5: core.CreateContainerRequest
+	(*CreateContainerResponse)(nil),       // 6: core.CreateContainerResponse
+	(*ContainerActionRequest)(nil),        // 7: core.ContainerActionRequest
+	(*ExposeRequest)(nil),                 // 8: core.ExposeRequest
+	(*ContainerData)(nil),                 // 9: core.ContainerData
+	(*ContainerRuntimeTargetRequest)(nil), // 10: core.ContainerRuntimeTargetRequest
+	(*ContainerRuntimeTarget)(nil),        // 11: core.ContainerRuntimeTarget
+	(*ContainerListResponse)(nil),         // 12: core.ContainerListResponse
+	(*ImageActionRequest)(nil),            // 13: core.ImageActionRequest
+	(*StartBuildRecordResponse)(nil),      // 14: core.StartBuildRecordResponse
+	(*CompleteBuildRequest)(nil),          // 15: core.CompleteBuildRequest
+	(*ImageData)(nil),                     // 16: core.ImageData
+	(*ImageListResponse)(nil),             // 17: core.ImageListResponse
+	(*CreateVolumeRequest)(nil),           // 18: core.CreateVolumeRequest
+	(*CreateVolumeResponse)(nil),          // 19: core.CreateVolumeResponse
+	(*VolumeActionRequest)(nil),           // 20: core.VolumeActionRequest
+	(*VolumeData)(nil),                    // 21: core.VolumeData
+	(*VolumeListResponse)(nil),            // 22: core.VolumeListResponse
+	(*BuildActionRequest)(nil),            // 23: core.BuildActionRequest
+	(*BuildData)(nil),                     // 24: core.BuildData
+	(*BuildListResponse)(nil),             // 25: core.BuildListResponse
+	(*ProjectData)(nil),                   // 26: core.ProjectData
+	(*ProjectListResponse)(nil),           // 27: core.ProjectListResponse
+	(*ProjectActionRequest)(nil),          // 28: core.ProjectActionRequest
+	(*PaginationRequest)(nil),             // 29: core.PaginationRequest
+	(*PaginatedContainerResponse)(nil),    // 30: core.PaginatedContainerResponse
+	(*PaginatedVolumeResponse)(nil),       // 31: core.PaginatedVolumeResponse
+	(*PaginatedImageResponse)(nil),        // 32: core.PaginatedImageResponse
+	(*PaginatedBuildResponse)(nil),        // 33: core.PaginatedBuildResponse
+	(*PaginatedProjectResponse)(nil),      // 34: core.PaginatedProjectResponse
+	(*SystemConfigData)(nil),              // 35: core.SystemConfigData
+	(*ContainerStatsResponse)(nil),        // 36: core.ContainerStatsResponse
+	nil,                                   // 37: core.CreateContainerRequest.EnvVarsEntry
 }
 var file_api_core_core_proto_depIdxs = []int32{
-	36, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
-	3,  // 1: core.CreateContainerRequest.volume_mounts:type_name -> core.VolumeMount
-	8,  // 2: core.ContainerListResponse.containers:type_name -> core.ContainerData
-	15, // 3: core.ImageListResponse.images:type_name -> core.ImageData
-	20, // 4: core.VolumeListResponse.volumes:type_name -> core.VolumeData
-	23, // 5: core.BuildListResponse.builds:type_name -> core.BuildData
-	25, // 6: core.ProjectListResponse.projects:type_name -> core.ProjectData
-	8,  // 7: core.PaginatedContainerResponse.containers:type_name -> core.ContainerData
-	20, // 8: core.PaginatedVolumeResponse.volumes:type_name -> core.VolumeData
-	15, // 9: core.PaginatedImageResponse.images:type_name -> core.ImageData
-	23, // 10: core.PaginatedBuildResponse.builds:type_name -> core.BuildData
-	25, // 11: core.PaginatedProjectResponse.projects:type_name -> core.ProjectData
-	4,  // 12: core.ContainerAPI.CreateContainer:input_type -> core.CreateContainerRequest
-	6,  // 13: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
-	6,  // 14: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
-	6,  // 15: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
-	28, // 16: core.ContainerAPI.ListContainers:input_type -> core.PaginationRequest
-	7,  // 17: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
-	6,  // 18: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
-	9,  // 19: core.ContainerAPI.GetContainerRuntimeTarget:input_type -> core.ContainerRuntimeTargetRequest
-	28, // 20: core.ImageAPI.ListImages:input_type -> core.PaginationRequest
-	12, // 21: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
-	22, // 22: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
-	22, // 23: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
-	14, // 24: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
-	28, // 25: core.ImageAPI.ListBuilds:input_type -> core.PaginationRequest
-	22, // 26: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
-	22, // 27: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
-	17, // 28: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	19, // 29: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	28, // 30: core.VolumeAPI.ListVolumes:input_type -> core.PaginationRequest
-	28, // 31: core.ProjectAPI.ListProjects:input_type -> core.PaginationRequest
-	27, // 32: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	27, // 33: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
-	27, // 34: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	27, // 35: core.ProjectAPI.CancelProject:input_type -> core.ProjectActionRequest
-	1,  // 36: core.SystemAPI.GetConfig:input_type -> core.Empty
-	34, // 37: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	1,  // 38: core.StatsAPI.GetUserStats:input_type -> core.Empty
-	5,  // 39: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	1,  // 40: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	1,  // 41: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	1,  // 42: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	29, // 43: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
-	1,  // 44: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	35, // 45: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
-	10, // 46: core.ContainerAPI.GetContainerRuntimeTarget:output_type -> core.ContainerRuntimeTarget
-	31, // 47: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
-	1,  // 48: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	13, // 49: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
-	1,  // 50: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
-	1,  // 51: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	32, // 52: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
-	23, // 53: core.ImageAPI.GetBuild:output_type -> core.BuildData
-	1,  // 54: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	18, // 55: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	1,  // 56: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	30, // 57: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
-	33, // 58: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
-	1,  // 59: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	1,  // 60: core.ProjectAPI.StartProject:output_type -> core.Empty
-	1,  // 61: core.ProjectAPI.StopProject:output_type -> core.Empty
-	1,  // 62: core.ProjectAPI.CancelProject:output_type -> core.Empty
-	34, // 63: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	1,  // 64: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	0,  // 65: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
-	39, // [39:66] is the sub-list for method output_type
-	12, // [12:39] is the sub-list for method input_type
+	37, // 0: core.CreateContainerRequest.env_vars:type_name -> core.CreateContainerRequest.EnvVarsEntry
+	4,  // 1: core.CreateContainerRequest.volume_mounts:type_name -> core.VolumeMount
+	9,  // 2: core.ContainerListResponse.containers:type_name -> core.ContainerData
+	16, // 3: core.ImageListResponse.images:type_name -> core.ImageData
+	21, // 4: core.VolumeListResponse.volumes:type_name -> core.VolumeData
+	24, // 5: core.BuildListResponse.builds:type_name -> core.BuildData
+	26, // 6: core.ProjectListResponse.projects:type_name -> core.ProjectData
+	9,  // 7: core.PaginatedContainerResponse.containers:type_name -> core.ContainerData
+	21, // 8: core.PaginatedVolumeResponse.volumes:type_name -> core.VolumeData
+	16, // 9: core.PaginatedImageResponse.images:type_name -> core.ImageData
+	24, // 10: core.PaginatedBuildResponse.builds:type_name -> core.BuildData
+	26, // 11: core.PaginatedProjectResponse.projects:type_name -> core.ProjectData
+	5,  // 12: core.ContainerAPI.CreateContainer:input_type -> core.CreateContainerRequest
+	7,  // 13: core.ContainerAPI.StartContainer:input_type -> core.ContainerActionRequest
+	7,  // 14: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
+	7,  // 15: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
+	29, // 16: core.ContainerAPI.ListContainers:input_type -> core.PaginationRequest
+	8,  // 17: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
+	7,  // 18: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
+	10, // 19: core.ContainerAPI.GetContainerRuntimeTarget:input_type -> core.ContainerRuntimeTargetRequest
+	29, // 20: core.ImageAPI.ListImages:input_type -> core.PaginationRequest
+	13, // 21: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
+	23, // 22: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
+	23, // 23: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
+	15, // 24: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
+	29, // 25: core.ImageAPI.ListBuilds:input_type -> core.PaginationRequest
+	23, // 26: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
+	23, // 27: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	18, // 28: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	20, // 29: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	29, // 30: core.VolumeAPI.ListVolumes:input_type -> core.PaginationRequest
+	29, // 31: core.ProjectAPI.ListProjects:input_type -> core.PaginationRequest
+	28, // 32: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
+	28, // 33: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
+	28, // 34: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	28, // 35: core.ProjectAPI.CancelProject:input_type -> core.ProjectActionRequest
+	2,  // 36: core.SystemAPI.GetConfig:input_type -> core.Empty
+	35, // 37: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	2,  // 38: core.StatsAPI.GetUserStats:input_type -> core.Empty
+	2,  // 39: core.StatsAPI.GetSystemMonitoring:input_type -> core.Empty
+	6,  // 40: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	2,  // 41: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	2,  // 42: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	2,  // 43: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	30, // 44: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
+	2,  // 45: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	36, // 46: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	11, // 47: core.ContainerAPI.GetContainerRuntimeTarget:output_type -> core.ContainerRuntimeTarget
+	32, // 48: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
+	2,  // 49: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	14, // 50: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
+	2,  // 51: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
+	2,  // 52: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	33, // 53: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
+	24, // 54: core.ImageAPI.GetBuild:output_type -> core.BuildData
+	2,  // 55: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	19, // 56: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	2,  // 57: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	31, // 58: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
+	34, // 59: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
+	2,  // 60: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	2,  // 61: core.ProjectAPI.StartProject:output_type -> core.Empty
+	2,  // 62: core.ProjectAPI.StopProject:output_type -> core.Empty
+	2,  // 63: core.ProjectAPI.CancelProject:output_type -> core.Empty
+	35, // 64: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	2,  // 65: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	0,  // 66: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
+	1,  // 67: core.StatsAPI.GetSystemMonitoring:output_type -> core.SystemMonitoringResponse
+	40, // [40:68] is the sub-list for method output_type
+	12, // [12:40] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
@@ -3198,7 +3413,7 @@ func file_api_core_core_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_core_core_proto_rawDesc), len(file_api_core_core_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   37,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   6,
 		},

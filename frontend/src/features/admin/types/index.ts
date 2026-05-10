@@ -86,6 +86,28 @@ export interface SystemConfig {
   telemetry_ws_read_limit_bytes: number;
 }
 
+export interface SystemMonitoring {
+  cpu_percent: number;
+  memory_total_bytes: number;
+  memory_used_bytes: number;
+  memory_available_bytes: number;
+  disk_total_bytes: number;
+  disk_used_bytes: number;
+  disk_free_bytes: number;
+  dcm_reserved_memory_bytes: number;
+  dcm_disk_used_bytes: number;
+  containers_total: number;
+  containers_running: number;
+  containers_stopped: number;
+  containers_error: number;
+  containers_missing: number;
+  volumes_total: number;
+  images_total: number;
+  builds_total: number;
+  projects_total: number;
+  observed_at: number;
+}
+
 export const systemConfigSchema = z.object({
   base_domain: z.string().min(1),
   default_memory_reservation_bytes: z.number().min(1),

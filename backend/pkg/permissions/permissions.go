@@ -1,8 +1,9 @@
 package permissions
 
 const (
-	SystemConfigRead   = "system.config.read"
-	SystemConfigUpdate = "system.config.update"
+	SystemConfigRead     = "system.config.read"
+	SystemConfigUpdate   = "system.config.update"
+	SystemMonitoringRead = "system.monitoring.read"
 
 	ContainersAdminList     = "containers.admin.list"
 	ContainersAdminAction   = "containers.admin.action"
@@ -34,6 +35,7 @@ const (
 var all = map[string]struct{}{
 	SystemConfigRead:        {},
 	SystemConfigUpdate:      {},
+	SystemMonitoringRead:    {},
 	ContainersAdminList:     {},
 	ContainersAdminAction:   {},
 	ContainersAdminStats:    {},

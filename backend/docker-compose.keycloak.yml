@@ -26,17 +26,27 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: "${KEYCLOAK_ADMIN_USERNAME:-admin}"
       KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}"
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME: "${KEYCLOAK_HOSTNAME:-http://host.docker.internal:8081}"
+      KC_HOSTNAME: "${KEYCLOAK_HOSTNAME:-http://keycloak.localhost}"
       KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: "xforwarded"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`keycloak.localhost`)"
+      - "traefik.http.routers.keycloak.service=keycloak"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      - "traefik.docker.network=proxy_net"
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
       keycloak_db:
         condition: service_healthy
     networks:
+      - proxy_net
       - dcm_net
 
 networks:
+  proxy_net:
+    external: true
   dcm_net:
     name: dcm_net
 

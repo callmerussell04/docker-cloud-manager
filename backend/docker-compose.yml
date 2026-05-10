@@ -139,6 +139,7 @@ services:
       SSO_GRPC_PORT: "50051"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "keycloak.localhost:host-gateway"
     networks:
       - dcm_net
     depends_on:
@@ -212,8 +213,10 @@ services:
       TELEMETRY_WS_READ_LIMIT_BYTES: 4096
       CORE_GRPC_PORT: "50052"
       CORE_HTTP_PORT: "8083"
+      CORE_HOST_DISK_PATH: "${CORE_HOST_DISK_PATH:-/host}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /:/host:ro
       - ./config:/app/config
     networks:
       - dcm_net

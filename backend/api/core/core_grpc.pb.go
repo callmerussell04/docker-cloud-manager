@@ -1327,7 +1327,8 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	StatsAPI_GetUserStats_FullMethodName = "/core.StatsAPI/GetUserStats"
+	StatsAPI_GetUserStats_FullMethodName        = "/core.StatsAPI/GetUserStats"
+	StatsAPI_GetSystemMonitoring_FullMethodName = "/core.StatsAPI/GetSystemMonitoring"
 )
 
 // StatsAPIClient is the client API for StatsAPI service.
@@ -1335,6 +1336,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type StatsAPIClient interface {
 	GetUserStats(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*UserStatsResponse, error)
+	GetSystemMonitoring(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemMonitoringResponse, error)
 }
 
 type statsAPIClient struct {
@@ -1355,11 +1357,22 @@ func (c *statsAPIClient) GetUserStats(ctx context.Context, in *Empty, opts ...gr
 	return out, nil
 }
 
+func (c *statsAPIClient) GetSystemMonitoring(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemMonitoringResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SystemMonitoringResponse)
+	err := c.cc.Invoke(ctx, StatsAPI_GetSystemMonitoring_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StatsAPIServer is the server API for StatsAPI service.
 // All implementations must embed UnimplementedStatsAPIServer
 // for forward compatibility.
 type StatsAPIServer interface {
 	GetUserStats(context.Context, *Empty) (*UserStatsResponse, error)
+	GetSystemMonitoring(context.Context, *Empty) (*SystemMonitoringResponse, error)
 	mustEmbedUnimplementedStatsAPIServer()
 }
 
@@ -1372,6 +1385,9 @@ type UnimplementedStatsAPIServer struct{}
 
 func (UnimplementedStatsAPIServer) GetUserStats(context.Context, *Empty) (*UserStatsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetUserStats not implemented")
+}
+func (UnimplementedStatsAPIServer) GetSystemMonitoring(context.Context, *Empty) (*SystemMonitoringResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSystemMonitoring not implemented")
 }
 func (UnimplementedStatsAPIServer) mustEmbedUnimplementedStatsAPIServer() {}
 func (UnimplementedStatsAPIServer) testEmbeddedByValue()                  {}
@@ -1412,6 +1428,24 @@ func _StatsAPI_GetUserStats_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StatsAPI_GetSystemMonitoring_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StatsAPIServer).GetSystemMonitoring(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StatsAPI_GetSystemMonitoring_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StatsAPIServer).GetSystemMonitoring(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StatsAPI_ServiceDesc is the grpc.ServiceDesc for StatsAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1422,6 +1456,10 @@ var StatsAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetUserStats",
 			Handler:    _StatsAPI_GetUserStats_Handler,
+		},
+		{
+			MethodName: "GetSystemMonitoring",
+			Handler:    _StatsAPI_GetSystemMonitoring_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

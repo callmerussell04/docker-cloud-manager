@@ -184,6 +184,13 @@ func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID
 	return count, err
 }
 
+func (r *VolumeRepository) CountAll(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM volumes`
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	return count, err
+}
+
 func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error) {
 	query := `
 		SELECT EXISTS(
@@ -274,6 +281,13 @@ func (r *VolumeRepository) GetUserUsedVolumeBytes(ctx context.Context, ownerID u
 	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE owner_id = $1 AND status != $2`
 	var usedBytes int64
 	err := r.db.QueryRowContext(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&usedBytes)
+	return usedBytes, err
+}
+
+func (r *VolumeRepository) GetTotalUsedVolumeBytes(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE status != $1`
+	var usedBytes int64
+	err := r.db.QueryRowContext(ctx, query, model.VolumeStatusDeleting).Scan(&usedBytes)
 	return usedBytes, err
 }
 

@@ -255,6 +255,13 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	return builds, total, rows.Err()
 }
 
+func (r *BuildRepository) CountAll(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM builds`
+	var count int
+	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	return count, err
+}
+
 func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

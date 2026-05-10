@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	PermissionSystemConfigRead   = permissions.SystemConfigRead
-	PermissionSystemConfigUpdate = permissions.SystemConfigUpdate
+	PermissionSystemConfigRead     = permissions.SystemConfigRead
+	PermissionSystemConfigUpdate   = permissions.SystemConfigUpdate
+	PermissionSystemMonitoringRead = permissions.SystemMonitoringRead
 
 	PermissionContainersAdminList     = permissions.ContainersAdminList
 	PermissionContainersAdminAction   = permissions.ContainersAdminAction
@@ -63,6 +64,7 @@ var rolePermissions = map[string]map[string]struct{}{
 	model.RoleAdmin: {
 		PermissionSystemConfigRead:        {},
 		PermissionSystemConfigUpdate:      {},
+		PermissionSystemMonitoringRead:    {},
 		PermissionContainersAdminList:     {},
 		PermissionContainersAdminAction:   {},
 		PermissionContainersAdminStats:    {},

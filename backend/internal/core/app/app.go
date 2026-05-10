@@ -52,6 +52,7 @@ type Config struct {
 	RabbitMQURL   string
 	SSOTarget     string
 	InternalToken string
+	HostDiskPath  string
 	ConfigManager *config.Manager
 	ObjectStorage objectstorage.Config
 }
@@ -103,7 +104,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
-	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, projRepo, cfg.ConfigManager, ssoClient)
+	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 
