@@ -1,3 +1,0 @@
-ALTER TABLE volumes
-    ADD COLUMN IF NOT EXISTS driver VARCHAR(50) DEFAULT 'local',
-    ADD COLUMN IF NOT EXISTS driver_opts JSONB;

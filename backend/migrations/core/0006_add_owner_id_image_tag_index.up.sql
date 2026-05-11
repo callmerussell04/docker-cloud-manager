@@ -1,1 +1,0 @@
-CREATE INDEX idx_containers_owner_id_image_tag ON containers (owner_id, image_tag);

@@ -1,3 +1,6 @@
-DROP INDEX IF EXISTS idx_users_username;
 DROP TABLE IF EXISTS users;
+DROP TYPE IF EXISTS auth_source;
+DROP TYPE IF EXISTS user_status;
 DROP TYPE IF EXISTS user_role;
+DROP EXTENSION IF EXISTS pgcrypto;
+

@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX idx_containers_domain_prefix ON containers (domain_prefix) WHERE domain_prefix != '';
