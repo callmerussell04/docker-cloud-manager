@@ -2,13 +2,13 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	"github.com/google/uuid"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
 )
 
 type ImageRepository interface {
@@ -100,11 +100,7 @@ func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 }
 
 func parseImageTag(rawTag string) (baseName, version string) {
-	parts := strings.SplitN(rawTag, ":", 2)
-	if len(parts) == 1 || parts[1] == "" {
-		return parts[0], "latest"
-	}
-	return parts[0], parts[1]
+	return imageref.ParseTag(rawTag)
 }
 
 func (s *ImageService) List(ctx context.Context, limit, offset int) ([]model.Image, int, error) {

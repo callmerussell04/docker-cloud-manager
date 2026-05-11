@@ -3,7 +3,6 @@ package config
 import "time"
 
 type BuilderConfig struct {
-	ImageBuildsEnabled        bool
 	BuildMemoryBytes          int64
 	BuildCPUQuota             int64
 	BuildCPUPeriod            int64
@@ -16,8 +15,6 @@ type BuilderConfig struct {
 	KanikoImage               string
 	MaxBuildTime              time.Duration
 	MaxConcurrentBuilds       int
-	MaxUploadSizeBytes        int64
-	MaxArchiveSizeBytes       int64
 	MaxUnpackedSizeBytes      int64
 	MaxBuildLogSizeBytes      int64
 	BuildCancelPollInterval   time.Duration

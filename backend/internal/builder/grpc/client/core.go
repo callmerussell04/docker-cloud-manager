@@ -29,7 +29,6 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		return config.BuilderConfig{}, grpcerrors.FromGRPC(err)
 	}
 	return config.BuilderConfig{
-		ImageBuildsEnabled:        resp.GetImageBuildsEnabled(),
 		BuildMemoryBytes:          resp.GetBuildMemoryBytes(),
 		BuildCPUQuota:             resp.GetBuildCpuQuota(),
 		BuildCPUPeriod:            resp.GetBuildCpuPeriod(),
@@ -39,8 +38,6 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		KanikoImage:               resp.GetKanikoImage(),
 		MaxBuildTime:              time.Duration(resp.GetMaxBuildTimeMinutes()) * time.Minute,
 		MaxConcurrentBuilds:       int(resp.GetMaxConcurrentBuilds()),
-		MaxUploadSizeBytes:        resp.GetMaxUploadSizeBytes(),
-		MaxArchiveSizeBytes:       resp.GetMaxArchiveSizeBytes(),
 		MaxUnpackedSizeBytes:      resp.GetMaxUnpackedSizeBytes(),
 		MaxBuildLogSizeBytes:      resp.GetMaxBuildLogSizeBytes(),
 		BuildCancelPollInterval:   time.Duration(resp.GetBuildCancelPollIntervalSeconds()) * time.Second,

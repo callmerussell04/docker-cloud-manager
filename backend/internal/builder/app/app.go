@@ -66,6 +66,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	workspaceManager, err := storage.NewWorkspaceManager(cfg.StoragePath)
+	if err != nil {
+		return nil, err
+	}
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 
 	extractor := archive.NewExtractor()
@@ -78,7 +82,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)
 	}
 
-	builderService := service.NewBuilderService(fileManager, extractor, dockerAdapter, logManager, objectStore, coreClient, runtimeConfig, logger.With("builder_instance_id", cfg.InstanceID))
+	builderService := service.NewBuilderService(fileManager, workspaceManager, extractor, dockerAdapter, logManager, objectStore, coreClient, runtimeConfig, logger.With("builder_instance_id", cfg.InstanceID))
 	ctx, cancel := context.WithCancel(context.Background())
 	queueConsumer := rabbitmq.NewConsumer(cfg.RabbitMQURL, cfg.InstanceID, logger)
 
@@ -107,6 +111,11 @@ func (a *App) Stop(ctx context.Context) {
 	a.logger.Info("builder application stopping")
 	if a.cancel != nil {
 		a.cancel()
+	}
+	if a.queueConsumer != nil {
+		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_ = a.queueConsumer.Stop(stopCtx)
+		cancel()
 	}
 	if a.builderService != nil {
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)

@@ -142,6 +142,32 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	}
 }
 
+func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(t *testing.T) {
+	buildID := uuid.New()
+	imageID := uuid.New()
+	ownerID := uuid.New()
+	repo := &buildRepoFake{build: model.Build{
+		ID:               buildID,
+		ImageID:          imageID,
+		OwnerID:          ownerID,
+		Status:           model.BuildStatusRunning,
+		ArchiveObjectKey: "build-archives/source.zip",
+	}}
+	imageRepo := &buildImageRepoFake{imageOwnerID: ownerID, imageTag: "demo-app:latest"}
+	objects := &buildObjectStoreFake{}
+	svc := NewBuildService(repo, imageRepo, &buildRegistryFake{sizeBytes: 2 * 1024 * 1024}, &buildUsersFake{quotaDiskMB: 1}, nil, BuildServiceDeps{ObjectStore: objects})
+
+	if err := svc.CompleteBuildRecord(context.Background(), buildID, imageID, model.BuildStatusSuccess, 0); err != nil {
+		t.Fatalf("CompleteBuildRecord returned error: %v", err)
+	}
+	if !imageRepo.markFailedCalled || imageRepo.markFailedStatus != model.BuildStatusFailedQuotaExceeded {
+		t.Fatalf("quota failure status mismatch: called=%v status=%q", imageRepo.markFailedCalled, imageRepo.markFailedStatus)
+	}
+	if len(objects.deleted) != 1 || objects.deleted[0] != "build-archives/source.zip" {
+		t.Fatalf("deleted objects = %v, want archive cleanup", objects.deleted)
+	}
+}
+
 func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) {
 	buildID := uuid.New()
 	imageID := uuid.New()
@@ -227,6 +253,14 @@ func (f *buildRepoFake) UpdateStatus(ctx context.Context, id uuid.UUID, status s
 	f.build.Status = status
 	return nil
 }
+func (f *buildRepoFake) StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error) {
+	if f.build.Status != model.BuildStatusPending {
+		return f.build, false, nil
+	}
+	f.updatedStatus = model.BuildStatusRunning
+	f.build.Status = model.BuildStatusRunning
+	return f.build, true, nil
+}
 func (f *buildRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	return f.build, nil
 }
@@ -240,11 +274,21 @@ type buildImageRepoFake struct {
 	markFailedCalled          bool
 	markFailedStatus          string
 	onMarkFailed              func()
+	imageOwnerID              uuid.UUID
+	imageTag                  string
 }
 
 func (f *buildImageRepoFake) Save(ctx context.Context, img model.Image) error { return nil }
 func (f *buildImageRepoFake) GetByID(ctx context.Context, id uuid.UUID) (model.Image, error) {
-	return model.Image{ID: id, OwnerID: uuid.New(), Tag: "demo-app:latest"}, nil
+	ownerID := f.imageOwnerID
+	if ownerID == uuid.Nil {
+		ownerID = uuid.New()
+	}
+	tag := f.imageTag
+	if tag == "" {
+		tag = "demo-app:latest"
+	}
+	return model.Image{ID: id, OwnerID: ownerID, Tag: tag}, nil
 }
 func (f *buildImageRepoFake) Delete(ctx context.Context, id uuid.UUID) error { return nil }
 func (f *buildImageRepoFake) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error) {
@@ -299,9 +343,14 @@ func (f *buildDeploymentCancelerFake) CancelDeploymentForBuild(ctx context.Conte
 	return nil
 }
 
-type buildRegistryFake struct{}
+type buildRegistryFake struct {
+	sizeBytes int64
+}
 
 func (f *buildRegistryFake) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error) {
+	if f.sizeBytes > 0 {
+		return f.sizeBytes, "digest", nil
+	}
 	return 1, "digest", nil
 }
 func (f *buildRegistryFake) DeleteManifest(ctx context.Context, repo, digest string) error {

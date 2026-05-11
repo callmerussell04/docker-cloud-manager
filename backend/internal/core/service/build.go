@@ -18,6 +18,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -26,6 +27,7 @@ import (
 type BuildRepository interface {
 	Save(ctx context.Context, b model.Build) error
 	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
+	StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -388,8 +390,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 
-	baseName, version := parseImageTag(input.Tag)
-	normalizedTag := fmt.Sprintf("%s:%s", baseName, version)
+	normalizedTag := imageref.NormalizeTag(input.Tag)
 	imageID := uuid.New()
 	buildID := uuid.New()
 	now := time.Now()
@@ -448,17 +449,13 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 }
 
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
-	b, err := s.repo.GetByID(ctx, buildID)
+	b, started, err := s.repo.StartBuild(ctx, buildID)
 	if err != nil {
 		return model.Build{}, false, err
 	}
-	if model.IsBuildTerminalStatus(b.Status) {
+	if !started {
 		return b, false, nil
 	}
-	if err := s.repo.UpdateStatus(ctx, buildID, model.BuildStatusRunning); err != nil {
-		return model.Build{}, false, err
-	}
-	b.Status = model.BuildStatusRunning
 	s.logger.InfoContext(ctx, "build record started", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	return b, true, nil
 }
@@ -525,7 +522,12 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if status != model.BuildStatusSuccess {
 		status = normalizeFailedBuildStatus(status)
 		s.logger.WarnContext(ctx, "build record marked failed", "build_id", buildID, "image_id", imageID, "status", status)
-		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status)
+		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, status); err != nil {
+			return err
+		}
+		s.cleanupBuildArchive(ctx, b)
+		s.cancelDeploymentForBuild(ctx, b)
+		return nil
 	}
 
 	img, err := s.imageRepo.GetByID(ctx, imageID)
@@ -557,10 +559,14 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	}
 
 	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
+		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
+			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
+		}
 		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
-		_ = s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded)
+		s.cleanupBuildArchive(ctx, b)
+		s.cancelDeploymentForBuild(ctx, b)
 		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
-		return apperrors.New(apperrors.ErrQuotaExceeded, "image size exceeds user disk quota, image removed")
+		return nil
 	}
 
 	if err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB); err != nil {

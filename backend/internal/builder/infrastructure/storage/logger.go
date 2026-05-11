@@ -76,3 +76,14 @@ func (m *LogManager) IsLogSizeLimitExceeded(err error) bool {
 func (m *LogManager) LogPath(buildID string) string {
 	return filepath.Join(m.logDir, buildID+".log")
 }
+
+func (m *LogManager) Exists(buildID string) (bool, error) {
+	_, err := os.Stat(m.LogPath(buildID))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}

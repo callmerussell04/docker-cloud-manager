@@ -20,6 +20,7 @@ func TestBuilderServiceLogLimitCleansBuildContainer(t *testing.T) {
 	coreClient := &builderCoreFake{}
 	svc := NewBuilderService(
 		&builderFileFake{},
+		&builderWorkspaceFake{},
 		&builderExtractorFake{},
 		dockerAPI,
 		logManager,
@@ -29,7 +30,7 @@ func TestBuilderServiceLogLimitCleansBuildContainer(t *testing.T) {
 		nil,
 	)
 
-	err := svc.processBuild(context.Background(), func() {}, svc.config.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "")
+	err := svc.processBuild(context.Background(), func() {}, svc.config.Get(), "archive.zip", testBuildJob(""))
 	if err != nil {
 		t.Fatalf("processBuild returned error: %v", err)
 	}
@@ -48,6 +49,7 @@ func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 	cfg := testBuilderRuntimeConfig(t)
 	svc := NewBuilderService(
 		&builderFileFake{},
+		&builderWorkspaceFake{},
 		&builderExtractorFake{},
 		dockerAPI,
 		logManager,
@@ -57,7 +59,7 @@ func TestBuilderServiceProcessBuildUsesRuntimeConfig(t *testing.T) {
 		nil,
 	)
 
-	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", testBuildJob("build-logs/build.log"))
 	if err != nil {
 		t.Fatalf("processBuild returned error: %v", err)
 	}
@@ -86,6 +88,7 @@ func TestBuilderServiceProcessBuildSanitizesKanikoLogsBeforeSaving(t *testing.T)
 	cfg := testBuilderRuntimeConfig(t)
 	svc := NewBuilderService(
 		&builderFileFake{},
+		&builderWorkspaceFake{},
 		&builderExtractorFake{},
 		dockerAPI,
 		logManager,
@@ -95,7 +98,7 @@ func TestBuilderServiceProcessBuildSanitizesKanikoLogsBeforeSaving(t *testing.T)
 		nil,
 	)
 
-	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	err := svc.processBuild(context.Background(), func() {}, cfg.Get(), "archive.zip", testBuildJob("build-logs/build.log"))
 	if err != nil {
 		t.Fatalf("processBuild returned error: %v", err)
 	}
@@ -127,6 +130,7 @@ func TestBuilderServiceProcessBuildCompletesCanceledAndCleansContainer(t *testin
 	cfg := testBuilderRuntimeConfig(t)
 	svc := NewBuilderService(
 		&builderFileFake{},
+		&builderWorkspaceFake{},
 		&builderExtractorFake{},
 		dockerAPI,
 		logManager,
@@ -136,7 +140,7 @@ func TestBuilderServiceProcessBuildCompletesCanceledAndCleansContainer(t *testin
 		nil,
 	)
 
-	err := svc.processBuild(ctx, cancel, cfg.Get(), "archive.zip", "build-id", "image-id", "owner-id", "app", "latest", ".", "Dockerfile", nil, "", "build-logs/build.log")
+	err := svc.processBuild(ctx, cancel, cfg.Get(), "archive.zip", testBuildJob("build-logs/build.log"))
 	if err != nil {
 		t.Fatalf("processBuild returned error: %v", err)
 	}
@@ -153,6 +157,7 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 	coreClient := &builderCoreFake{startStarted: false, startStatus: buildStatusSuccess}
 	svc := NewBuilderService(
 		&builderFileFake{},
+		&builderWorkspaceFake{},
 		&builderExtractorFake{},
 		&builderDockerFake{},
 		&builderLogFake{},
@@ -181,12 +186,49 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalBuild(t *testing.T) {
 	}
 }
 
+func TestBuilderServiceHandleBuildMessageSkipsRunningDuplicateWithoutDeletingArchive(t *testing.T) {
+	objectStore := &builderObjectStoreFake{}
+	coreClient := &builderCoreFake{startStarted: false, startStatus: buildStatusRunning}
+	dockerAPI := &builderDockerFake{}
+	svc := NewBuilderService(
+		&builderFileFake{},
+		&builderWorkspaceFake{},
+		&builderExtractorFake{},
+		dockerAPI,
+		&builderLogFake{},
+		objectStore,
+		coreClient,
+		testBuilderRuntimeConfig(t),
+		nil,
+	)
+
+	err := svc.HandleBuildMessage(context.Background(), buildqueue.ImageBuildMessage{
+		BuildID:          "build-id",
+		ImageID:          "image-id",
+		OwnerID:          uuid.NewString(),
+		Tag:              "demo-app:latest",
+		ArchiveObjectKey: "build-archives/archive.zip",
+		LogObjectKey:     "build-logs/build.log",
+	})
+	if err != nil {
+		t.Fatalf("HandleBuildMessage returned error: %v", err)
+	}
+	if len(objectStore.downloads) != 0 {
+		t.Fatalf("downloads = %v, want none", objectStore.downloads)
+	}
+	if len(objectStore.deletes) != 0 {
+		t.Fatalf("deleted objects = %v, want none for duplicate running delivery", objectStore.deletes)
+	}
+	if dockerAPI.runCalls != 0 {
+		t.Fatalf("run calls = %d, want 0", dockerAPI.runCalls)
+	}
+}
+
 var errBuilderLogLimit = errors.New("log limit")
 
 func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
 	t.Helper()
 	return config.NewRuntimeManager(config.BuilderConfig{
-		ImageBuildsEnabled:        true,
 		StoragePath:               t.TempDir(),
 		RegistryURL:               "registry:5000",
 		BuildNetworkName:          "build_net",
@@ -197,11 +239,23 @@ func testBuilderRuntimeConfig(t *testing.T) *config.RuntimeManager {
 		BuildCPUPeriod:            100000,
 		BuildPidsLimit:            512,
 		MaxConcurrentBuilds:       1,
-		MaxArchiveSizeBytes:       50 << 20,
 		MaxUnpackedSizeBytes:      500 << 20,
 		MaxBuildLogSizeBytes:      5 << 20,
 		BuildCancelPollInterval:   2 * time.Second,
 	}, nil, nil)
+}
+
+func testBuildJob(logObjectKey string) buildJob {
+	return buildJob{
+		BuildID:      "build-id",
+		ImageID:      "image-id",
+		OwnerID:      "owner-id",
+		Tag:          "app:latest",
+		ContextDir:   ".",
+		Dockerfile:   "Dockerfile",
+		RequestID:    "request-id",
+		LogObjectKey: logObjectKey,
+	}
 }
 
 type builderFileFake struct {
@@ -209,10 +263,20 @@ type builderFileFake struct {
 	cleaned  []string
 }
 
-func (f *builderFileFake) ValidateArchive(filePath string) error { return nil }
+func (f *builderFileFake) ValidateArchive(filePath, contextDir, dockerfile string) error { return nil }
 func (f *builderFileFake) CleanUp(filePath string) error {
 	f.cleaned = append(f.cleaned, filePath)
 	return nil
+}
+
+type builderWorkspaceFake struct{}
+
+func (f *builderWorkspaceFake) ArchivePath(buildID, objectKey string) string {
+	return buildID + ".zip"
+}
+
+func (f *builderWorkspaceFake) Create(buildID string) (string, func(), error) {
+	return "workspace", func() {}, nil
 }
 
 type builderExtractorFake struct{}
@@ -224,11 +288,13 @@ func (f *builderExtractorFake) Extract(archivePath string, destDir string, maxUn
 type builderDockerFake struct {
 	logs        io.ReadCloser
 	cleanCalls  int
+	runCalls    int
 	params      model.BuildRuntimeSpec
 	waitUsesCtx bool
 }
 
 func (f *builderDockerFake) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
+	f.runCalls++
 	f.params = params
 	return "container-id", f.logs, nil
 }
@@ -264,6 +330,9 @@ func (f *builderLogFake) IsLogSizeLimitExceeded(err error) bool {
 	return errors.Is(err, errBuilderLogLimit)
 }
 func (f *builderLogFake) LogPath(logID string) string { return "" }
+func (f *builderLogFake) Exists(logID string) (bool, error) {
+	return true, nil
+}
 
 type builderObjectStoreFake struct {
 	uploads   []string
@@ -275,11 +344,6 @@ func (f *builderObjectStoreFake) UploadFile(ctx context.Context, objectKey, file
 	f.uploads = append(f.uploads, objectKey)
 	return nil
 }
-func (f *builderObjectStoreFake) UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error {
-	f.uploads = append(f.uploads, objectKey)
-	_, _ = io.Copy(io.Discard, reader)
-	return nil
-}
 func (f *builderObjectStoreFake) DownloadFile(ctx context.Context, objectKey, filePath string) error {
 	f.downloads = append(f.downloads, objectKey)
 	return nil
@@ -287,9 +351,6 @@ func (f *builderObjectStoreFake) DownloadFile(ctx context.Context, objectKey, fi
 func (f *builderObjectStoreFake) DeleteObject(ctx context.Context, objectKey string) error {
 	f.deletes = append(f.deletes, objectKey)
 	return nil
-}
-func (f *builderObjectStoreFake) OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error) {
-	return io.NopCloser(strings.NewReader("")), nil
 }
 
 type builderCoreFake struct {

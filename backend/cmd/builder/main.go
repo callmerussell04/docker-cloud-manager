@@ -103,7 +103,6 @@ func main() {
 	}
 
 	builderConfig := config.BuilderConfig{
-		ImageBuildsEnabled:        true,
 		BuildMemoryBytes:          getEnvInt64("BUILD_MEMORY_BYTES", 512*1024*1024),
 		BuildCPUQuota:             getEnvInt64("BUILD_CPU_QUOTA", 100000),
 		BuildCPUPeriod:            getEnvInt64("BUILD_CPU_PERIOD", 100000),
@@ -116,8 +115,6 @@ func main() {
 		KanikoImage:               getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor:latest"),
 		MaxBuildTime:              time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
 		MaxConcurrentBuilds:       getEnvInt("MAX_CONCURRENT_BUILDS", 2),
-		MaxUploadSizeBytes:        getEnvInt64("MAX_UPLOAD_SIZE_BYTES", 50<<20),
-		MaxArchiveSizeBytes:       getEnvInt64("MAX_ARCHIVE_SIZE_BYTES", 50<<20),
 		MaxUnpackedSizeBytes:      getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
 		MaxBuildLogSizeBytes:      getEnvInt64("MAX_BUILD_LOG_SIZE_BYTES", getEnvInt64("MAX_LOG_SIZE_BYTES", 5*1024*1024)),
 		BuildCancelPollInterval:   time.Duration(getEnvInt("BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2)) * time.Second,

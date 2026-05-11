@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/rabbitmqtopology"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -16,6 +18,7 @@ type Consumer struct {
 	url        string
 	instanceID string
 	logger     *slog.Logger
+	wg         sync.WaitGroup
 }
 
 func NewConsumer(url, instanceID string, logger *slog.Logger) *Consumer {
@@ -35,7 +38,25 @@ func (c *Consumer) Run(ctx context.Context, workers int, handler func(context.Co
 	}
 	for i := 0; i < workers; i++ {
 		workerID := i + 1
-		go c.workerLoop(ctx, workerID, handler)
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.workerLoop(ctx, workerID, handler)
+		}()
+	}
+}
+
+func (c *Consumer) Stop(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
 	}
 }
 
@@ -78,7 +99,7 @@ func (c *Consumer) consume(ctx context.Context, workerID int, handler func(conte
 	}
 	defer ch.Close()
 
-	if err := declareBuildTopology(ch); err != nil {
+	if err := rabbitmqtopology.DeclareBuild(ch); err != nil {
 		return err
 	}
 	if err := ch.Qos(1, 0, false); err != nil {
@@ -126,32 +147,4 @@ func (c *Consumer) handleDelivery(ctx context.Context, delivery amqp.Delivery, h
 		return
 	}
 	_ = delivery.Ack(false)
-}
-
-func declareBuildTopology(ch *amqp.Channel) error {
-	if err := ch.ExchangeDeclare(buildqueue.ExchangeName, "direct", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("failed to declare build exchange: %w", err)
-	}
-	if err := ch.ExchangeDeclare(buildqueue.DLXName, "direct", true, false, false, false, nil); err != nil {
-		return fmt.Errorf("failed to declare build dlx: %w", err)
-	}
-	if _, err := ch.QueueDeclare(buildqueue.DLQName, true, false, false, false, amqp.Table{
-		"x-queue-type": "quorum",
-	}); err != nil {
-		return fmt.Errorf("failed to declare build dlq: %w", err)
-	}
-	if err := ch.QueueBind(buildqueue.DLQName, buildqueue.DLQKey, buildqueue.DLXName, false, nil); err != nil {
-		return fmt.Errorf("failed to bind build dlq: %w", err)
-	}
-	if _, err := ch.QueueDeclare(buildqueue.QueueName, true, false, false, false, amqp.Table{
-		"x-queue-type":              "quorum",
-		"x-dead-letter-exchange":    buildqueue.DLXName,
-		"x-dead-letter-routing-key": buildqueue.DLQKey,
-	}); err != nil {
-		return fmt.Errorf("failed to declare build queue: %w", err)
-	}
-	if err := ch.QueueBind(buildqueue.QueueName, buildqueue.RoutingKey, buildqueue.ExchangeName, false, nil); err != nil {
-		return fmt.Errorf("failed to bind build queue: %w", err)
-	}
-	return nil
 }
