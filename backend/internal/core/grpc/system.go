@@ -96,75 +96,73 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 }
 
 func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {
-	newCfg := config.SystemConfig{
-		BaseDomain:                           req.GetBaseDomain(),
-		DefaultMemoryReservation:             req.GetDefaultMemoryReservationBytes(),
-		ReservedSystemMemory:                 req.GetReservedSystemMemoryBytes(),
-		OvercommitFactor:                     req.GetOvercommitFactor(),
-		MaxBurstMultiplier:                   req.GetMaxBurstMultiplier(),
-		DefaultCPUShares:                     req.GetDefaultCpuShares(),
-		HighLoadCPUShares:                    req.GetHighLoadCpuShares(),
-		HighLoadContainerCount:               int(req.GetHighLoadContainerCount()),
-		ContainerStopTimeout:                 int(req.GetContainerStopTimeout()),
-		MaxLogSize:                           req.GetMaxLogSize(),
-		MaxLogFiles:                          req.GetMaxLogFiles(),
-		ContainerDiskQuota:                   req.GetContainerDiskQuota(),
-		ReservedDomainPrefixes:               req.GetReservedDomainPrefixes(),
-		MaxVolumesPerUser:                    int(req.GetMaxVolumesPerUser()),
-		MaxContainersPerUser:                 int(req.GetMaxContainersPerUser()),
-		RegistryAPIURL:                       req.GetRegistryApiUrl(),
-		RegistryPublicURL:                    req.GetRegistryPublicUrl(),
-		ContainerTTLHours:                    req.GetContainerTtlHours(),
-		ContainerPidsLimit:                   req.GetContainerPidsLimit(),
-		ContainerMemorySwapMultiplier:        req.GetContainerMemorySwapMultiplier(),
-		ProxyNetworkName:                     req.GetProxyNetworkName(),
-		RegistryContainerName:                req.GetRegistryContainerName(),
-		ImageBuildsEnabled:                   req.GetImageBuildsEnabled(),
-		BuildMemoryBytes:                     req.GetBuildMemoryBytes(),
-		BuildCPUQuota:                        req.GetBuildCpuQuota(),
-		BuildCPUPeriod:                       req.GetBuildCpuPeriod(),
-		BuildMemorySwapMultiplier:            req.GetBuildMemorySwapMultiplier(),
-		BuildPidsLimit:                       req.GetBuildPidsLimit(),
-		BuildNetworkName:                     req.GetBuildNetworkName(),
-		KanikoImage:                          req.GetKanikoImage(),
-		MaxBuildTimeMinutes:                  req.GetMaxBuildTimeMinutes(),
-		MaxConcurrentBuilds:                  int(req.GetMaxConcurrentBuilds()),
-		MaxUploadSizeBytes:                   req.GetMaxUploadSizeBytes(),
-		MaxArchiveSizeBytes:                  req.GetMaxArchiveSizeBytes(),
-		MaxUnpackedSizeBytes:                 req.GetMaxUnpackedSizeBytes(),
-		MaxBuildLogSizeBytes:                 req.GetMaxBuildLogSizeBytes(),
-		BuildCancelPollIntervalSeconds:       req.GetBuildCancelPollIntervalSeconds(),
-		TTLWorkerIntervalSeconds:             req.GetTtlWorkerIntervalSeconds(),
-		GCWorkerIntervalMinutes:              req.GetGcWorkerIntervalMinutes(),
-		StaleBuildTimeoutMinutes:             req.GetStaleBuildTimeoutMinutes(),
-		EventSyncIntervalSeconds:             req.GetEventSyncIntervalSeconds(),
-		EventReconnectDelaySeconds:           req.GetEventReconnectDelaySeconds(),
-		BuildOutboxIntervalSeconds:           req.GetBuildOutboxIntervalSeconds(),
-		BuildOutboxBatchSize:                 int(req.GetBuildOutboxBatchSize()),
-		ComposeUploadMaxBytes:                req.GetComposeUploadMaxBytes(),
-		ComposePipelineTimeoutMinutes:        req.GetComposePipelineTimeoutMinutes(),
-		ComposeDeployWorkerCount:             int(req.GetComposeDeployWorkerCount()),
-		ComposeOutboxIntervalSeconds:         req.GetComposeOutboxIntervalSeconds(),
-		ComposeOutboxBatchSize:               int(req.GetComposeOutboxBatchSize()),
-		ComposeDeployMaxAttempts:             int(req.GetComposeDeployMaxAttempts()),
-		ComposeBuildPollIntervalSeconds:      req.GetComposeBuildPollIntervalSeconds(),
-		ComposeDependencyWaitTimeoutMinutes:  req.GetComposeDependencyWaitTimeoutMinutes(),
-		ComposeDependencyPollIntervalSeconds: req.GetComposeDependencyPollIntervalSeconds(),
-		TelemetryMaxLogTailLines:             int(req.GetTelemetryMaxLogTailLines()),
-		TelemetryMaxLogStreamsPerUser:        int(req.GetTelemetryMaxLogStreamsPerUser()),
-		TelemetryMaxTerminalSessionsPerUser:  int(req.GetTelemetryMaxTerminalSessionsPerUser()),
-		TelemetryTerminalIdleTimeoutSeconds:  req.GetTelemetryTerminalIdleTimeoutSeconds(),
-		TelemetryTerminalMaxDurationSeconds:  req.GetTelemetryTerminalMaxDurationSeconds(),
-		TelemetryAllowedExecCommands:         req.GetTelemetryAllowedExecCommands(),
-		TelemetryMaxCommandArgs:              int(req.GetTelemetryMaxCommandArgs()),
-		TelemetryMaxCommandArgBytes:          int(req.GetTelemetryMaxCommandArgBytes()),
-		TelemetryWSReadLimitBytes:            req.GetTelemetryWsReadLimitBytes(),
-		GitSourcesEnabled:                    req.GetGitSourcesEnabled(),
-		GitAllowedHosts:                      req.GetGitAllowedHosts(),
-		GitCloneTimeoutSeconds:               req.GetGitCloneTimeoutSeconds(),
-		GitMaxRepositoryBytes:                req.GetGitMaxRepositoryBytes(),
-	}
-
+	newCfg := h.logic.GetConfig(ctx)
+	newCfg.BaseDomain = req.GetBaseDomain()
+	newCfg.DefaultMemoryReservation = req.GetDefaultMemoryReservationBytes()
+	newCfg.ReservedSystemMemory = req.GetReservedSystemMemoryBytes()
+	newCfg.OvercommitFactor = req.GetOvercommitFactor()
+	newCfg.MaxBurstMultiplier = req.GetMaxBurstMultiplier()
+	newCfg.DefaultCPUShares = req.GetDefaultCpuShares()
+	newCfg.HighLoadCPUShares = req.GetHighLoadCpuShares()
+	newCfg.HighLoadContainerCount = int(req.GetHighLoadContainerCount())
+	newCfg.ContainerStopTimeout = int(req.GetContainerStopTimeout())
+	newCfg.MaxLogSize = req.GetMaxLogSize()
+	newCfg.MaxLogFiles = req.GetMaxLogFiles()
+	newCfg.ContainerDiskQuota = req.GetContainerDiskQuota()
+	newCfg.ReservedDomainPrefixes = req.GetReservedDomainPrefixes()
+	newCfg.MaxVolumesPerUser = int(req.GetMaxVolumesPerUser())
+	newCfg.MaxContainersPerUser = int(req.GetMaxContainersPerUser())
+	newCfg.RegistryAPIURL = req.GetRegistryApiUrl()
+	newCfg.RegistryPublicURL = req.GetRegistryPublicUrl()
+	newCfg.ContainerTTLHours = req.GetContainerTtlHours()
+	newCfg.ContainerPidsLimit = req.GetContainerPidsLimit()
+	newCfg.ContainerMemorySwapMultiplier = req.GetContainerMemorySwapMultiplier()
+	newCfg.ProxyNetworkName = req.GetProxyNetworkName()
+	newCfg.RegistryContainerName = req.GetRegistryContainerName()
+	newCfg.ImageBuildsEnabled = req.GetImageBuildsEnabled()
+	newCfg.BuildMemoryBytes = req.GetBuildMemoryBytes()
+	newCfg.BuildCPUQuota = req.GetBuildCpuQuota()
+	newCfg.BuildCPUPeriod = req.GetBuildCpuPeriod()
+	newCfg.BuildMemorySwapMultiplier = req.GetBuildMemorySwapMultiplier()
+	newCfg.BuildPidsLimit = req.GetBuildPidsLimit()
+	newCfg.BuildNetworkName = req.GetBuildNetworkName()
+	newCfg.KanikoImage = req.GetKanikoImage()
+	newCfg.MaxBuildTimeMinutes = req.GetMaxBuildTimeMinutes()
+	newCfg.MaxConcurrentBuilds = int(req.GetMaxConcurrentBuilds())
+	newCfg.MaxUploadSizeBytes = req.GetMaxUploadSizeBytes()
+	newCfg.MaxArchiveSizeBytes = req.GetMaxArchiveSizeBytes()
+	newCfg.MaxUnpackedSizeBytes = req.GetMaxUnpackedSizeBytes()
+	newCfg.MaxBuildLogSizeBytes = req.GetMaxBuildLogSizeBytes()
+	newCfg.BuildCancelPollIntervalSeconds = req.GetBuildCancelPollIntervalSeconds()
+	newCfg.TTLWorkerIntervalSeconds = req.GetTtlWorkerIntervalSeconds()
+	newCfg.GCWorkerIntervalMinutes = req.GetGcWorkerIntervalMinutes()
+	newCfg.StaleBuildTimeoutMinutes = req.GetStaleBuildTimeoutMinutes()
+	newCfg.EventSyncIntervalSeconds = req.GetEventSyncIntervalSeconds()
+	newCfg.EventReconnectDelaySeconds = req.GetEventReconnectDelaySeconds()
+	newCfg.BuildOutboxIntervalSeconds = req.GetBuildOutboxIntervalSeconds()
+	newCfg.BuildOutboxBatchSize = int(req.GetBuildOutboxBatchSize())
+	newCfg.ComposeUploadMaxBytes = req.GetComposeUploadMaxBytes()
+	newCfg.ComposePipelineTimeoutMinutes = req.GetComposePipelineTimeoutMinutes()
+	newCfg.ComposeDeployWorkerCount = int(req.GetComposeDeployWorkerCount())
+	newCfg.ComposeOutboxIntervalSeconds = req.GetComposeOutboxIntervalSeconds()
+	newCfg.ComposeOutboxBatchSize = int(req.GetComposeOutboxBatchSize())
+	newCfg.ComposeDeployMaxAttempts = int(req.GetComposeDeployMaxAttempts())
+	newCfg.ComposeBuildPollIntervalSeconds = req.GetComposeBuildPollIntervalSeconds()
+	newCfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
+	newCfg.ComposeDependencyPollIntervalSeconds = req.GetComposeDependencyPollIntervalSeconds()
+	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
+	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
+	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())
+	newCfg.TelemetryTerminalIdleTimeoutSeconds = req.GetTelemetryTerminalIdleTimeoutSeconds()
+	newCfg.TelemetryTerminalMaxDurationSeconds = req.GetTelemetryTerminalMaxDurationSeconds()
+	newCfg.TelemetryAllowedExecCommands = req.GetTelemetryAllowedExecCommands()
+	newCfg.TelemetryMaxCommandArgs = int(req.GetTelemetryMaxCommandArgs())
+	newCfg.TelemetryMaxCommandArgBytes = int(req.GetTelemetryMaxCommandArgBytes())
+	newCfg.TelemetryWSReadLimitBytes = req.GetTelemetryWsReadLimitBytes()
+	newCfg.GitSourcesEnabled = req.GetGitSourcesEnabled()
+	newCfg.GitAllowedHosts = req.GetGitAllowedHosts()
+	newCfg.GitCloneTimeoutSeconds = req.GetGitCloneTimeoutSeconds()
+	newCfg.GitMaxRepositoryBytes = req.GetGitMaxRepositoryBytes()
 	if err := h.logic.UpdateConfig(ctx, newCfg); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}

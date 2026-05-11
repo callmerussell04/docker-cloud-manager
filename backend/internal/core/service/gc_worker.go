@@ -24,25 +24,38 @@ type GCBuildRepo interface {
 	GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error)
 }
 
+type GCStagedObjectRepo interface {
+	ListStaleActive(ctx context.Context, cutoff time.Time, limit int) ([]model.StagedObjectReservation, error)
+	Release(ctx context.Context, objectKey string) error
+}
+
+type GCObjectStore interface {
+	DeleteObject(ctx context.Context, objectKey string) error
+}
+
 type GCConfigProvider interface {
 	Get() config.SystemConfig
 }
 
 type GCWorker struct {
-	dockerAPI GCDockerAPI
-	imgSvc    GCImageService
-	buildRepo GCBuildRepo
-	cfg       GCConfigProvider
-	logger    *slog.Logger
+	dockerAPI   GCDockerAPI
+	imgSvc      GCImageService
+	buildRepo   GCBuildRepo
+	stagedRepo  GCStagedObjectRepo
+	objectStore GCObjectStore
+	cfg         GCConfigProvider
+	logger      *slog.Logger
 }
 
-func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, cfg GCConfigProvider, logger *slog.Logger) *GCWorker {
+func NewGCWorker(dockerAPI GCDockerAPI, imgSvc GCImageService, buildRepo GCBuildRepo, stagedRepo GCStagedObjectRepo, objectStore GCObjectStore, cfg GCConfigProvider, logger *slog.Logger) *GCWorker {
 	return &GCWorker{
-		dockerAPI: dockerAPI,
-		imgSvc:    imgSvc,
-		buildRepo: buildRepo,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "gc_worker"),
+		dockerAPI:   dockerAPI,
+		imgSvc:      imgSvc,
+		buildRepo:   buildRepo,
+		stagedRepo:  stagedRepo,
+		objectStore: objectStore,
+		cfg:         cfg,
+		logger:      logging.WithComponent(logger, "gc_worker"),
 	}
 }
 
@@ -93,5 +106,28 @@ func (w *GCWorker) runPrune(ctx context.Context) {
 	for _, b := range staleBuilds {
 		w.logger.WarnContext(ctx, "failing stale build", "build_id", b.ID, "image_id", b.ImageID)
 		_ = w.imgSvc.CompleteBuildRecord(ctx, b.ID, b.ImageID, model.BuildStatusFailedTimeout, 0)
+	}
+
+	w.cleanupStaleStagedObjects(ctx)
+}
+
+func (w *GCWorker) cleanupStaleStagedObjects(ctx context.Context) {
+	if w.stagedRepo == nil || w.objectStore == nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Duration(w.cfg.Get().StaleBuildTimeoutMinutes) * time.Minute)
+	items, err := w.stagedRepo.ListStaleActive(ctx, cutoff, 100)
+	if err != nil {
+		w.logger.ErrorContext(ctx, "failed to fetch stale staged object reservations", "error", err)
+		return
+	}
+	for _, item := range items {
+		if err := w.objectStore.DeleteObject(ctx, item.ObjectKey); err != nil {
+			w.logger.WarnContext(ctx, "failed to delete stale staged object", "object_key", item.ObjectKey, "error", err)
+			continue
+		}
+		if err := w.stagedRepo.Release(ctx, item.ObjectKey); err != nil {
+			w.logger.WarnContext(ctx, "failed to release stale staged object reservation", "object_key", item.ObjectKey, "error", err)
+		}
 	}
 }

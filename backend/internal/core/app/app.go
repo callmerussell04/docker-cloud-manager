@@ -93,10 +93,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
+	stagedRepo := repository.NewStagedObjectRepository(db)
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, logger)
+	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, cfg.HostDiskPath, logger)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, service.VolumeServiceDeps{
 		Users:     ssoClient,
 		ImageRepo: imgRepo,
@@ -104,9 +105,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, service.BuildServiceDeps{
-		VolumeRepo:  volRepo,
-		Config:      cfg.ConfigManager,
-		ObjectStore: objectStore,
+		VolumeRepo:    volRepo,
+		Config:        cfg.ConfigManager,
+		ObjectStore:   objectStore,
+		StagedObjects: stagedRepo,
+		DiskMetrics:   metricsProvider,
+		HostDiskPath:  cfg.HostDiskPath,
 	})
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}
 	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
@@ -126,6 +130,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, objectStore, buildService, imgService, logger)
 	orchestrator.SetResourceRepository(resourceRepo)
+	orchestrator.SetStagedObjectRepository(stagedRepo)
+	orchestrator.SetHostDiskGuard(metricsProvider, cfg.HostDiskPath)
+	orchestrator.SetUserInfoProvider(ssoClient)
 	recoveryMessage := "deployment interrupted by core service restart"
 	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
 		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)
@@ -153,7 +160,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
-	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, cfg.ConfigManager, logger)
+	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)

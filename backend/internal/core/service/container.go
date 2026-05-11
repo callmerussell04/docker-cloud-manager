@@ -73,6 +73,10 @@ type ContainerDockerAPI interface {
 	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
 
+type containerImageRemover interface {
+	RemoveImage(ctx context.Context, imageID string, force bool) error
+}
+
 type HostMetricsProvider interface {
 	GetTotalMemory() (int64, error)
 	GetFreeMemory() (int64, error)
@@ -103,16 +107,17 @@ type ProjectStatusUpdater interface {
 }
 
 type ContainerService struct {
-	repo        ContainerRepository
-	volumeRepo  ContainerVolumeRepository
-	imageRepo   ContainerImageRepository
-	dockerAPI   ContainerDockerAPI
-	metrics     HostMetricsProvider
-	config      ConfigManager
-	users       UserInfoProvider
-	projects    ProjectStatusUpdater
-	logger      *slog.Logger
-	rebalanceCh chan struct{}
+	repo         ContainerRepository
+	volumeRepo   ContainerVolumeRepository
+	imageRepo    ContainerImageRepository
+	dockerAPI    ContainerDockerAPI
+	metrics      HostMetricsProvider
+	config       ConfigManager
+	users        UserInfoProvider
+	projects     ProjectStatusUpdater
+	hostDiskPath string
+	logger       *slog.Logger
+	rebalanceCh  chan struct{}
 }
 
 func NewContainerService(
@@ -123,18 +128,20 @@ func NewContainerService(
 	metrics HostMetricsProvider,
 	config ConfigManager,
 	users UserInfoProvider,
+	hostDiskPath string,
 	logger *slog.Logger,
 ) *ContainerService {
 	return &ContainerService{
-		repo:        repo,
-		volumeRepo:  volumeRepo,
-		imageRepo:   imageRepo,
-		dockerAPI:   dockerAPI,
-		metrics:     metrics,
-		config:      config,
-		users:       users,
-		logger:      logging.WithComponent(logger, "container_service"),
-		rebalanceCh: make(chan struct{}, 1),
+		repo:         repo,
+		volumeRepo:   volumeRepo,
+		imageRepo:    imageRepo,
+		dockerAPI:    dockerAPI,
+		metrics:      metrics,
+		config:       config,
+		users:        users,
+		hostDiskPath: hostDiskPath,
+		logger:       logging.WithComponent(logger, "container_service"),
+		rebalanceCh:  make(chan struct{}, 1),
 	}
 }
 
@@ -217,6 +224,9 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 
 	// 3. Admission Control: Проверка свободных ресурсов хоста (Защита сервера)
 	if err := s.checkHostCapacity(ctx, reqMem); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.checkHostDiskCapacity(); err != nil {
 		return uuid.Nil, err
 	}
 
@@ -387,6 +397,16 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 
 	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
 	// Если публичный — пуллим только если его нет на хосте
+	pulledPublicImage := false
+	defer func() {
+		if err != nil && pulledPublicImage {
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			if remover, ok := s.dockerAPI.(containerImageRemover); ok {
+				_ = remover.RemoveImage(cleanupCtx, actualImageTag, false)
+			}
+			cancel()
+		}
+	}()
 	if isCustom {
 		err = s.dockerAPI.PullImage(ctx, actualImageTag)
 		if err != nil {
@@ -399,13 +419,20 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			return uuid.Nil, err
 		}
 	} else {
-		imageExists, err := s.dockerAPI.ImageExists(ctx, actualImageTag)
-		if err != nil {
+		imageExists, imageErr := s.dockerAPI.ImageExists(ctx, actualImageTag)
+		if imageErr != nil {
+			err = imageErr
 			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return uuid.Nil, err
 		}
 		if !imageExists {
+			err = s.checkHostDiskCapacity()
+			if err != nil {
+				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
+				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+				return uuid.Nil, err
+			}
 			err = s.dockerAPI.PullImage(ctx, actualImageTag)
 			if err != nil {
 				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
@@ -413,6 +440,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 				return uuid.Nil, err
 			}
+			pulledPublicImage = true
 		}
 	}
 
@@ -575,6 +603,10 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	if err := s.createContainerOperation(ctx, containerID, ownerID, model.OperationExpose); err != nil {
 		return err
 	}
+	if err := s.checkHostDiskCapacity(); err != nil {
+		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
+		return err
+	}
 
 	// Создаем новый контейнер с лейблами Traefik до удаления старого.
 	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
@@ -667,6 +699,9 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 		return err
 	}
 	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
+		return err
+	}
+	if err := s.checkHostDiskCapacity(); err != nil {
 		return err
 	}
 	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationStart, model.ContainerStatusRunning); err != nil {

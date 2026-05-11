@@ -61,3 +61,11 @@ func (s *ContainerService) checkHostCapacity(ctx context.Context, requestedRam i
 
 	return nil
 }
+
+func (s *ContainerService) checkHostDiskCapacity() error {
+	diskMetrics, ok := s.metrics.(HostDiskMetricsProvider)
+	if !ok {
+		return nil
+	}
+	return ensureHostDiskFloor(diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes)
+}

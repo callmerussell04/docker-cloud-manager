@@ -259,6 +259,16 @@ func (r *ProjectRepository) RequestComposeDeploymentCancel(ctx context.Context, 
 	return nil
 }
 
+func (r *ProjectRepository) CountActiveComposeDeploymentsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM compose_deployment_jobs
+		WHERE owner_id = $1 AND status IN ($2, $3, $4)
+	`, ownerID, model.ComposeDeploymentStatusQueued, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling).Scan(&count)
+	return count, err
+}
+
 func (r *ProjectRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	query := `
 		UPDATE projects 

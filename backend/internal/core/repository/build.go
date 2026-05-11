@@ -317,6 +317,16 @@ func (r *BuildRepository) CountAll(ctx context.Context) (int, error) {
 	return count, err
 }
 
+func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM builds
+		WHERE owner_id = $1 AND status IN ($2, $3)
+	`, ownerID, model.BuildStatusPending, model.BuildStatusRunning).Scan(&count)
+	return count, err
+}
+
 func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

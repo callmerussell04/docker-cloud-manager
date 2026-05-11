@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS idx_staged_object_reservations_status_updated;
+DROP INDEX IF EXISTS idx_staged_object_reservations_owner_status;
+DROP TABLE IF EXISTS staged_object_reservations;

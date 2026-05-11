@@ -48,15 +48,19 @@ type SystemConfig struct {
 	EventReconnectDelaySeconds           int64 `json:"event_reconnect_delay_seconds"`
 	BuildOutboxIntervalSeconds           int64 `json:"build_outbox_interval_seconds"`
 	BuildOutboxBatchSize                 int   `json:"build_outbox_batch_size"`
+	MaxStagedSourceBytesPerUser          int64 `json:"max_staged_source_bytes_per_user"`
+	MaxQueuedBuildsPerUser               int   `json:"max_queued_builds_per_user"`
 	ComposeUploadMaxBytes                int64 `json:"compose_upload_max_bytes"`
 	ComposePipelineTimeoutMinutes        int64 `json:"compose_pipeline_timeout_minutes"`
 	ComposeDeployWorkerCount             int   `json:"compose_deploy_worker_count"`
 	ComposeOutboxIntervalSeconds         int64 `json:"compose_outbox_interval_seconds"`
 	ComposeOutboxBatchSize               int   `json:"compose_outbox_batch_size"`
 	ComposeDeployMaxAttempts             int   `json:"compose_deploy_max_attempts"`
+	MaxQueuedComposeDeploysPerUser       int   `json:"max_queued_compose_deploys_per_user"`
 	ComposeBuildPollIntervalSeconds      int64 `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64 `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64 `json:"compose_dependency_poll_interval_seconds"`
+	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

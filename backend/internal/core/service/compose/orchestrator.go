@@ -39,6 +39,10 @@ type ProjectRepository interface {
 	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
 }
 
+type activeComposeDeploymentCounter interface {
+	CountActiveComposeDeploymentsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
+}
+
 type BuildRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error)
@@ -47,6 +51,13 @@ type BuildRepository interface {
 type ResourceRepository interface {
 	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error)
 	GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error)
+}
+
+type StagedObjectRepository interface {
+	Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error
+	UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error
+	Release(ctx context.Context, objectKey string) error
+	ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type VolumeService interface {
@@ -67,6 +78,14 @@ type ComposeDockerAPI interface {
 
 type ConfigProvider interface {
 	Get() config.SystemConfig
+}
+
+type HostDiskMetricsProvider interface {
+	GetDiskUsage(path string) (model.HostDiskStats, error)
+}
+
+type UserInfoProvider interface {
+	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
 type ImageCleaner interface {
@@ -90,6 +109,10 @@ type Orchestrator struct {
 	cfg           ConfigProvider
 	imageCleaner  ImageCleaner
 	objectStore   ObjectStorage
+	stagedObjects StagedObjectRepository
+	diskMetrics   HostDiskMetricsProvider
+	hostDiskPath  string
+	users         UserInfoProvider
 	builderClient BuilderClient
 	activeMu      sync.Mutex
 	active        map[uuid.UUID]*deploymentState
@@ -168,6 +191,19 @@ func NewOrchestrator(
 
 func (o *Orchestrator) SetResourceRepository(repo ResourceRepository) {
 	o.resourceRepo = repo
+}
+
+func (o *Orchestrator) SetStagedObjectRepository(repo StagedObjectRepository) {
+	o.stagedObjects = repo
+}
+
+func (o *Orchestrator) SetHostDiskGuard(metrics HostDiskMetricsProvider, path string) {
+	o.diskMetrics = metrics
+	o.hostDiskPath = path
+}
+
+func (o *Orchestrator) SetUserInfoProvider(users UserInfoProvider) {
+	o.users = users
 }
 
 func (s *deploymentState) addBuild(buildID uuid.UUID) {
@@ -321,25 +357,62 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	if o.objectStore == nil {
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, "compose source storage is unavailable")
 	}
-	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), archiveName)
-	if err := o.objectStore.UploadStream(ctx, sourceObjectKey, archive, -1, "application/octet-stream"); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
-		cancel()
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
 		return uuid.Nil, err
+	}
+	if err := o.ensureHostDiskFloor(); err != nil {
+		return uuid.Nil, err
+	}
+	cfg := o.cfg.Get()
+	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), archiveName)
+	if err := o.reserveComposeSource(ctx, ownerID, sourceObjectKey, cfg.ComposeUploadMaxBytes); err != nil {
+		return uuid.Nil, err
+	}
+	reserved := true
+	releaseReservation := func() {
+		if reserved {
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
+			cancel()
+			reserved = false
+		}
+	}
+	limitedArchive := &composeMaxBytesReader{r: archive, remaining: cfg.ComposeUploadMaxBytes}
+	if err := o.objectStore.UploadStream(ctx, sourceObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
+		releaseReservation()
+		if errors.Is(err, apperrors.ErrBadRequest) {
+			return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose archive exceeds configured size limit")
+		}
+		return uuid.Nil, err
+	}
+	if readerAt, size, err := o.objectStore.NewReaderAt(ctx, sourceObjectKey); err == nil {
+		_ = readerAt
+		o.updateComposeSourceBytes(ctx, sourceObjectKey, size)
 	}
 
 	prepared, err := o.prepareObjectSource(ctx, sourceObjectKey, "")
 	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
-		cancel()
+		releaseReservation()
 		return uuid.Nil, err
 	}
-	return o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeUpload, sourceObjectKey, "", prepared)
+	projectID, err := o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeUpload, sourceObjectKey, "", prepared)
+	if err != nil {
+		releaseReservation()
+		return uuid.Nil, err
+	}
+	reserved = false
+	return projectID, nil
 }
 
 func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName string, source model.GitSource) (uuid.UUID, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := o.ensureHostDiskFloor(); err != nil {
+		return uuid.Nil, err
+	}
 	if source.RepoURL == "" {
 		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "git repository url is required")
 	}
@@ -363,7 +436,7 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 	if o.objectStore == nil {
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, "compose source storage is unavailable")
 	}
-	prepared, cleanup, err := o.stageGitSource(ctx, source)
+	prepared, cleanup, err := o.stageGitSource(ctx, ownerID, source)
 	if cleanup != nil {
 		defer cleanup()
 	}
@@ -377,26 +450,38 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, err
 	}
 	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
+		cancel()
+		return uuid.Nil, err
+	}
+	if len(parsedProject.Services) == 0 {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
+		cancel()
+		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose project must define at least one service")
+	}
+	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, err
 	}
 	if composeRequiresBuild(parsedProject) && !prepared.Archive {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose build requires an archive source")
 	}
 	if composeRequiresBuild(parsedProject) && !o.cfg.Get().ImageBuildsEnabled {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
@@ -421,7 +506,7 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, fmt.Errorf("failed to marshal compose queue message: %w", err)
 	}
@@ -445,7 +530,7 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	}
 	if err := o.projectRepo.CreateWithComposeDeploymentJob(ctx, p, job, outbox); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, err
 	}
@@ -587,15 +672,120 @@ func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job mod
 	if err := o.projectRepo.CompleteComposeDeploymentJob(cleanupCtx, job.ID, model.ComposeDeploymentStatusFailed, &cleanupMsg); err != nil {
 		return err
 	}
-	if o.objectStore != nil {
-		_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
-	}
+	o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
 	o.logger.WarnContext(cleanupCtx, "interrupted compose deployment cleaned up", "project_id", job.ProjectID, "job_id", job.ID)
 	return nil
 }
 
 func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, composeYAML []byte, composeBaseDir string, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
 	return o.parser.ParseAndValidateWithBase(ctx, projectName, composeYAML, reservedDomainPrefixes, composeBaseDir)
+}
+
+func (o *Orchestrator) ensureHostDiskFloor() error {
+	cfg := o.cfg.Get()
+	if o.diskMetrics == nil || cfg.HostMinFreeDiskBytes <= 0 {
+		return nil
+	}
+	path := o.hostDiskPath
+	if path == "" {
+		path = "/"
+	}
+	stats, err := o.diskMetrics.GetDiskUsage(path)
+	if err != nil {
+		return err
+	}
+	if stats.FreeBytes < cfg.HostMinFreeDiskBytes {
+		return apperrors.ErrHostExhausted
+	}
+	return nil
+}
+
+func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
+	limit := o.cfg.Get().MaxQueuedComposeDeploysPerUser
+	if limit <= 0 {
+		return nil
+	}
+	counter, ok := o.projectRepo.(activeComposeDeploymentCounter)
+	if !ok {
+		return nil
+	}
+	count, err := counter.CountActiveComposeDeploymentsByOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if count >= limit {
+		return apperrors.ErrLimitExceeded
+	}
+	return nil
+}
+
+func (o *Orchestrator) reserveComposeSource(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
+	if o.stagedObjects == nil || objectKey == "" {
+		return nil
+	}
+	if bytesReserved < 0 {
+		bytesReserved = 0
+	}
+	if err := o.ensureUserStagedDiskQuota(ctx, ownerID, bytesReserved); err != nil {
+		return err
+	}
+	return o.stagedObjects.Reserve(ctx, model.StagedObjectReservation{
+		ID:            uuid.New(),
+		OwnerID:       ownerID,
+		ObjectKey:     objectKey,
+		Kind:          model.StagedObjectKindComposeSource,
+		BytesReserved: bytesReserved,
+	}, o.cfg.Get().MaxStagedSourceBytesPerUser)
+}
+
+func (o *Orchestrator) ensureUserStagedDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
+	if o.stagedObjects == nil {
+		return nil
+	}
+	// Compose already creates containers/volumes/builds through scoped services. At staging time,
+	// only existing staged objects can bypass those regular disk quota checks.
+	stagedBytes, err := o.stagedObjects.ActiveBytesByOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	user, err := o.lookupUser(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if bytesToMBRoundedUp(stagedBytes+incomingBytes) > user.QuotaDiskMB {
+		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
+	}
+	return nil
+}
+
+func (o *Orchestrator) lookupUser(ctx context.Context, ownerID uuid.UUID) (model.UserInfo, error) {
+	if o.users == nil {
+		return model.UserInfo{ID: ownerID, QuotaDiskMB: 1<<62 - 1}, nil
+	}
+	return o.users.GetUser(ctx, ownerID)
+}
+
+func (o *Orchestrator) updateComposeSourceBytes(ctx context.Context, objectKey string, bytesReserved int64) {
+	if o.stagedObjects == nil || objectKey == "" {
+		return
+	}
+	if err := o.stagedObjects.UpdateBytes(ctx, objectKey, bytesReserved); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		o.logger.WarnContext(ctx, "failed to update staged compose source reservation", "source_object_key", objectKey, "error", err)
+	}
+}
+
+func (o *Orchestrator) deleteComposeSourceObject(ctx context.Context, objectKey string) {
+	if objectKey == "" {
+		return
+	}
+	if o.objectStore != nil {
+		_ = o.objectStore.DeleteObject(ctx, objectKey)
+	}
+	if o.stagedObjects != nil {
+		if err := o.stagedObjects.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			o.logger.WarnContext(ctx, "failed to release staged compose source reservation", "source_object_key", objectKey, "error", err)
+		}
+	}
 }
 
 func composeRequiresBuild(project *model.ComposeProject) bool {
@@ -610,7 +800,37 @@ func composeRequiresBuild(project *model.ComposeProject) bool {
 	return false
 }
 
-func (o *Orchestrator) stageGitSource(ctx context.Context, source model.GitSource) (preparedDeploymentSource, func(), error) {
+func bytesToMBRoundedUp(bytes int64) int64 {
+	if bytes <= 0 {
+		return 0
+	}
+	const mb = 1024 * 1024
+	return (bytes + mb - 1) / mb
+}
+
+type composeMaxBytesReader struct {
+	r         io.Reader
+	remaining int64
+}
+
+func (r *composeMaxBytesReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var one [1]byte
+		n, err := r.r.Read(one[:])
+		if n > 0 {
+			return 0, apperrors.ErrBadRequest
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, source model.GitSource) (preparedDeploymentSource, func(), error) {
 	cfg := o.cfg.Get()
 	tmpDir, err := os.MkdirTemp("", "dcm-compose-git-*")
 	if err != nil {
@@ -648,6 +868,15 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, source model.GitSourc
 		return preparedDeploymentSource{}, nil, err
 	}
 	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), "source.zip")
+	if err := o.reserveComposeSource(ctx, ownerID, sourceObjectKey, cfg.ComposeUploadMaxBytes); err != nil {
+		cleanup()
+		return preparedDeploymentSource{}, nil, err
+	}
+	releaseReservation := func() {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
+		cancel()
+	}
 	pr, pw := io.Pipe()
 	errCh := make(chan error, 1)
 	go func() {
@@ -672,18 +901,18 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, source model.GitSourc
 	}
 	archiveErr := <-errCh
 	if uploadErr != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
-		cancel()
+		releaseReservation()
 		cleanup()
 		return preparedDeploymentSource{}, nil, uploadErr
 	}
 	if archiveErr != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, sourceObjectKey)
-		cancel()
+		releaseReservation()
 		cleanup()
 		return preparedDeploymentSource{}, nil, archiveErr
+	}
+	if readerAt, size, err := o.objectStore.NewReaderAt(ctx, sourceObjectKey); err == nil {
+		_ = readerAt
+		o.updateComposeSourceBytes(ctx, sourceObjectKey, size)
 	}
 
 	o.logger.InfoContext(ctx, "git compose source cloned",
@@ -745,7 +974,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
 		_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+		o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
 		cancel()
 		return nil
 	}
@@ -766,7 +995,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 			_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
 			_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
 			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+			o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
 			cancel()
 		}
 		return nil
@@ -809,7 +1038,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 	defer func() {
 		if cleanupSource {
 			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+			o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
 			cancel()
 		}
 	}()

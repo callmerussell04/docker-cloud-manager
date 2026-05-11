@@ -20,6 +20,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
 )
@@ -32,6 +33,10 @@ type BuildRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error)
+}
+
+type activeBuildCounter interface {
+	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
 }
 
 type BuildImageRepository interface {
@@ -51,6 +56,10 @@ type BuildObjectStore interface {
 	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
+}
+
+type buildObjectStatter interface {
+	StatObject(ctx context.Context, objectKey string) (objectstorage.ObjectInfo, error)
 }
 
 type BuildDeploymentCanceler interface {
@@ -87,22 +96,28 @@ type BuildInitResult struct {
 }
 
 type BuildService struct {
-	repo        BuildRepository
-	imageRepo   BuildImageRepository
-	volumeRepo  BuildVolumeDiskRepository
-	registryAPI ImageRegistryAPI
-	users       UserInfoProvider
-	cfg         BuildConfigProvider
-	objectStore BuildObjectStore
-	deployments BuildDeploymentCanceler
-	logger      *slog.Logger
+	repo         BuildRepository
+	imageRepo    BuildImageRepository
+	volumeRepo   BuildVolumeDiskRepository
+	registryAPI  ImageRegistryAPI
+	users        UserInfoProvider
+	cfg          BuildConfigProvider
+	objectStore  BuildObjectStore
+	deployments  BuildDeploymentCanceler
+	staged       StagedObjectRepository
+	diskMetrics  HostDiskMetricsProvider
+	hostDiskPath string
+	logger       *slog.Logger
 }
 
 type BuildServiceDeps struct {
-	VolumeRepo  BuildVolumeDiskRepository
-	Config      BuildConfigProvider
-	ObjectStore BuildObjectStore
-	Deployments BuildDeploymentCanceler
+	VolumeRepo    BuildVolumeDiskRepository
+	Config        BuildConfigProvider
+	ObjectStore   BuildObjectStore
+	Deployments   BuildDeploymentCanceler
+	StagedObjects StagedObjectRepository
+	DiskMetrics   HostDiskMetricsProvider
+	HostDiskPath  string
 }
 
 type createBuildJobInput struct {
@@ -119,15 +134,18 @@ type createBuildJobInput struct {
 
 func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps BuildServiceDeps) *BuildService {
 	return &BuildService{
-		repo:        repo,
-		imageRepo:   imageRepo,
-		volumeRepo:  deps.VolumeRepo,
-		registryAPI: registryAPI,
-		users:       users,
-		cfg:         deps.Config,
-		objectStore: deps.ObjectStore,
-		deployments: deps.Deployments,
-		logger:      logging.WithComponent(logger, "build_service"),
+		repo:         repo,
+		imageRepo:    imageRepo,
+		volumeRepo:   deps.VolumeRepo,
+		registryAPI:  registryAPI,
+		users:        users,
+		cfg:          deps.Config,
+		objectStore:  deps.ObjectStore,
+		deployments:  deps.Deployments,
+		staged:       deps.StagedObjects,
+		diskMetrics:  deps.DiskMetrics,
+		hostDiskPath: deps.HostDiskPath,
+		logger:       logging.WithComponent(logger, "build_service"),
 	}
 }
 
@@ -144,6 +162,99 @@ func (s *BuildService) ensureImageBuildsEnabled() error {
 
 func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	return usedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
+}
+
+func (s *BuildService) ensureHostDiskFloor() error {
+	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes)
+}
+
+func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
+	cfg := s.buildConfig()
+	if cfg.MaxQueuedBuildsPerUser <= 0 {
+		return nil
+	}
+	counter, ok := s.repo.(activeBuildCounter)
+	if !ok {
+		return nil
+	}
+	count, err := counter.CountActiveByOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if count >= cfg.MaxQueuedBuildsPerUser {
+		return apperrors.ErrLimitExceeded
+	}
+	return nil
+}
+
+func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
+	if s.staged == nil || objectKey == "" {
+		return nil
+	}
+	if bytesReserved < 0 {
+		bytesReserved = 0
+	}
+	cfg := s.buildConfig()
+	if err := s.ensureUserStagedDiskQuota(ctx, ownerID, bytesReserved); err != nil {
+		return err
+	}
+	return s.staged.Reserve(ctx, model.StagedObjectReservation{
+		ID:            uuid.New(),
+		OwnerID:       ownerID,
+		ObjectKey:     objectKey,
+		Kind:          model.StagedObjectKindBuildArchive,
+		BytesReserved: bytesReserved,
+	}, cfg.MaxStagedSourceBytesPerUser)
+}
+
+func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
+	if s.users == nil || s.staged == nil {
+		return nil
+	}
+	user, err := s.users.GetUser(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	stagedBytes, err := s.staged.ActiveBytesByOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	usedMB += stagedBytesToMB(stagedBytes + incomingBytes)
+	if usedMB > user.QuotaDiskMB {
+		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
+	}
+	return nil
+}
+
+func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, objectKey string) {
+	if s.staged == nil || s.objectStore == nil || objectKey == "" {
+		return
+	}
+	statter, ok := s.objectStore.(buildObjectStatter)
+	if !ok {
+		return
+	}
+	info, err := statter.StatObject(ctx, objectKey)
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "archive_object_key", objectKey, "error", err)
+		return
+	}
+	if err := s.staged.UpdateBytes(ctx, objectKey, info.Size); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		s.logger.WarnContext(ctx, "failed to update staged build archive reservation", "archive_object_key", objectKey, "error", err)
+	}
+}
+
+func (s *BuildService) releaseStagedBuildArchive(ctx context.Context, objectKey string) {
+	if s.staged == nil || objectKey == "" {
+		return
+	}
+	if err := s.staged.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		s.logger.WarnContext(ctx, "failed to release staged build archive reservation", "archive_object_key", objectKey, "error", err)
+	}
 }
 
 func (s *BuildService) CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error) {
@@ -172,11 +283,44 @@ func (s *BuildService) CreateProjectBuildJob(ctx context.Context, projectID uuid
 	})
 }
 
+func (s *BuildService) ReserveBuildArchive(ctx context.Context, archiveObjectKey string) error {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return err
+	}
+	if archiveObjectKey == "" {
+		return apperrors.New(apperrors.ErrBadRequest, "build archive object key is required")
+	}
+	if s.objectStore == nil {
+		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	}
+	statter, ok := s.objectStore.(buildObjectStatter)
+	if !ok {
+		return nil
+	}
+	info, err := statter.StatObject(ctx, archiveObjectKey)
+	if err != nil {
+		return err
+	}
+	return s.reserveStagedBuildArchive(ctx, ownerID, archiveObjectKey, info.Size)
+}
+
+func (s *BuildService) ReleaseBuildArchive(ctx context.Context, archiveObjectKey string) {
+	s.releaseStagedBuildArchive(ctx, archiveObjectKey)
+}
+
 func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildArchiveInput) (BuildInitResult, error) {
 	if s.objectStore == nil {
 		return BuildInitResult{}, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
 	if err := s.ensureImageBuildsEnabled(); err != nil {
+		return BuildInitResult{}, err
+	}
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+	if err := s.ensureHostDiskFloor(); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -200,24 +344,41 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, input.ArchiveName)
 	logObjectKey := buildobjects.LogObjectKey(fileID)
 
+	if err := s.reserveStagedBuildArchive(ctx, ownerID, archiveObjectKey, cfg.MaxArchiveSizeBytes); err != nil {
+		return BuildInitResult{}, err
+	}
+	reserved := true
+	releaseReservation := func() {
+		if reserved {
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
+			cancel()
+			reserved = false
+		}
+	}
+
 	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
 		cancel()
+		releaseReservation()
 		if errors.Is(err, apperrors.ErrBadRequest) {
 			return BuildInitResult{}, apperrors.New(apperrors.ErrBadRequest, "archive exceeds configured size limit")
 		}
 		return BuildInitResult{}, err
 	}
+	s.updateStagedBuildArchiveBytes(ctx, archiveObjectKey)
 
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
 		cancel()
+		releaseReservation()
 		return BuildInitResult{}, err
 	}
+	reserved = false
 
 	args := []any{
 		"request_id", logging.RequestIDFromContext(ctx),
@@ -238,6 +399,13 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		return BuildInitResult{}, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
 	if err := s.ensureImageBuildsEnabled(); err != nil {
+		return BuildInitResult{}, err
+	}
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return BuildInitResult{}, err
+	}
+	if err := s.ensureHostDiskFloor(); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -297,8 +465,22 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, "source.zip")
 	logObjectKey := buildobjects.LogObjectKey(fileID)
 
+	if err := s.reserveStagedBuildArchive(ctx, ownerID, archiveObjectKey, stats.ArchiveBytes); err != nil {
+		return BuildInitResult{}, err
+	}
+	reserved := true
+	releaseReservation := func() {
+		if reserved {
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
+			cancel()
+			reserved = false
+		}
+	}
+
 	archive, err := os.Open(archivePath)
 	if err != nil {
+		releaseReservation()
 		return BuildInitResult{}, err
 	}
 	defer archive.Close()
@@ -307,6 +489,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
 		cancel()
+		releaseReservation()
 		return BuildInitResult{}, err
 	}
 
@@ -315,8 +498,10 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
 		cancel()
+		releaseReservation()
 		return BuildInitResult{}, err
 	}
+	reserved = false
 
 	args := []any{
 		"request_id", logging.RequestIDFromContext(ctx),
@@ -357,6 +542,7 @@ func (s *BuildService) buildConfig() config.SystemConfig {
 			MaxArchiveSizeBytes:    50 << 20,
 			GitCloneTimeoutSeconds: 60,
 			GitMaxRepositoryBytes:  200 * 1024 * 1024,
+			MaxQueuedBuildsPerUser: 10,
 		}
 	}
 	return s.cfg.Get()
@@ -379,6 +565,9 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 
 	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if err := s.ensureBuildQueueLimit(ctx, ownerID); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 
@@ -488,7 +677,11 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 }
 
 func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Build) {
-	if s.objectStore == nil || build.ArchiveObjectKey == "" {
+	if build.ArchiveObjectKey == "" {
+		return
+	}
+	s.releaseStagedBuildArchive(ctx, build.ArchiveObjectKey)
+	if s.objectStore == nil {
 		return
 	}
 	cleanupCtx, cancel := detachedCleanupContext(ctx)

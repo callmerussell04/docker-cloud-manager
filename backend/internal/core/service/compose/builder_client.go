@@ -22,6 +22,7 @@ type ObjectStorage interface {
 type BuildJobCreator interface {
 	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	CreateProjectBuildJob(ctx context.Context, projectID uuid.UUID, projectServiceName, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
+	ReserveBuildArchive(ctx context.Context, archiveObjectKey string) error
 	CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -52,11 +53,22 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 		cancel()
 		return uuid.Nil, err
 	}
+	if err := c.builds.ReserveBuildArchive(ctx, archiveObjectKey); err != nil {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		cancel()
+		return uuid.Nil, err
+	}
 
 	buildID, _, err := c.builds.CreateProjectBuildJob(ctx, projectID, srv.Name, srv.ImageTag, archiveObjectKey, logObjectKey, srv.BuildContext, srv.Dockerfile, srv.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		if releaser, ok := c.builds.(interface {
+			ReleaseBuildArchive(context.Context, string)
+		}); ok {
+			releaser.ReleaseBuildArchive(cleanupCtx, archiveObjectKey)
+		}
 		cancel()
 		return uuid.Nil, err
 	}
