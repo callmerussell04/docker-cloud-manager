@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/clickhouse"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
@@ -33,6 +34,7 @@ type App struct {
 	gRPCServer      *grpc.Server
 	httpServer      *http.Server
 	db              *sql.DB
+	reportsRepo     *clickhouserepo.ReportsRepository
 	dockerCli       *docker.Adapter
 	orchestrator    *compose.Orchestrator
 	buildPublisher  service.BuildQueuePublisher
@@ -55,6 +57,14 @@ type Config struct {
 	HostDiskPath  string
 	ConfigManager *config.Manager
 	ObjectStorage objectstorage.Config
+	ClickHouse    ClickHouseConfig
+}
+
+type ClickHouseConfig struct {
+	Addr     string
+	Database string
+	Username string
+	Password string
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -94,6 +104,13 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
 	stagedRepo := repository.NewStagedObjectRepository(db)
+	reportSnapshotRepo := repository.NewReportSnapshotRepository(db)
+	reportsRepo := clickhouserepo.NewReportsRepository(clickhouserepo.Config{
+		Addr:     cfg.ClickHouse.Addr,
+		Database: cfg.ClickHouse.Database,
+		Username: cfg.ClickHouse.Username,
+		Password: cfg.ClickHouse.Password,
+	})
 
 	metricsProvider := metrics.NewSystemMetrics()
 
@@ -117,6 +134,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
+	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, logger)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 
@@ -157,6 +175,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterProjectAPI(gRPCServer, projService, ssoClient)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
+	coregrpc.RegisterReportAPI(gRPCServer, reportService)
 
 	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
@@ -164,6 +183,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
+	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
 	startWorkers(ctx, wg,
 		ttlWorker.Run,
@@ -173,6 +193,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		contService.RunRebalancer,
 		buildOutboxWorker.Run,
 		composeOutboxWorker.Run,
+		reportsUsageWorker.Run,
 	)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
 
@@ -180,6 +201,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		gRPCServer:      gRPCServer,
 		httpServer:      httpServer,
 		db:              db,
+		reportsRepo:     reportsRepo,
 		dockerCli:       dockerAdapter,
 		orchestrator:    orchestrator,
 		buildPublisher:  buildPublisher,
@@ -251,6 +273,11 @@ func (a *App) Stop() {
 	a.wg.Wait()
 	if a.db != nil {
 		a.db.Close()
+	}
+	if a.reportsRepo != nil {
+		if err := a.reportsRepo.Close(); err != nil {
+			a.logger.Warn("clickhouse reports repository close failed", "error", err)
+		}
 	}
 	if a.dockerCli != nil {
 		a.dockerCli.Close()

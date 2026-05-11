@@ -26,6 +26,7 @@ const (
 	PermissionSystemConfigRead     = permissions.SystemConfigRead
 	PermissionSystemConfigUpdate   = permissions.SystemConfigUpdate
 	PermissionSystemMonitoringRead = permissions.SystemMonitoringRead
+	PermissionReportsAdminRead     = permissions.ReportsAdminRead
 
 	PermissionContainersAdminList     = permissions.ContainersAdminList
 	PermissionContainersAdminAction   = permissions.ContainersAdminAction
@@ -65,6 +66,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		PermissionSystemConfigRead:        {},
 		PermissionSystemConfigUpdate:      {},
 		PermissionSystemMonitoringRead:    {},
+		PermissionReportsAdminRead:        {},
 		PermissionContainersAdminList:     {},
 		PermissionContainersAdminAction:   {},
 		PermissionContainersAdminStats:    {},

@@ -13,6 +13,7 @@ type CoreClient struct {
 	projectAPI   coreapi.ProjectAPIClient
 	systemAPI    coreapi.SystemAPIClient
 	statsAPI     coreapi.StatsAPIClient
+	reportAPI    coreapi.ReportAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -23,5 +24,6 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		projectAPI:   coreapi.NewProjectAPIClient(cc),
 		systemAPI:    coreapi.NewSystemAPIClient(cc),
 		statsAPI:     coreapi.NewStatsAPIClient(cc),
+		reportAPI:    coreapi.NewReportAPIClient(cc),
 	}
 }

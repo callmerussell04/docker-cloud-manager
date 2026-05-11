@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -53,7 +54,16 @@ func (h *CoreHandler) cancelBuild(c *gin.Context, message string) {
 	if !ok {
 		return
 	}
-	if err := h.service.CancelBuildRecord(c.Request.Context(), buildID); err != nil {
+	err := h.service.CancelBuildRecord(c.Request.Context(), buildID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionBuildCancel,
+		ResourceType: auditlog.ResourceBuild,
+		ResourceID:   buildID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
+	if err != nil {
 		h.handleError(c, err)
 		return
 	}
@@ -75,6 +85,14 @@ func (h *CoreHandler) deleteBuild(c *gin.Context, message string) {
 	}
 
 	err := h.service.DeleteBuild(c.Request.Context(), buildID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionBuildDelete,
+		ResourceType: auditlog.ResourceBuild,
+		ResourceID:   buildID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return

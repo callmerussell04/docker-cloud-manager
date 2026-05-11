@@ -49,6 +49,33 @@ services:
     networks:
       - dcm_net
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.5
+    environment:
+      CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --user $${CLICKHOUSE_USER} --password $${CLICKHOUSE_PASSWORD} --query 'SELECT 1'"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - dcm_net
+
+  migrate_reports:
+    image: migrate/migrate
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./migrations/reports:/migrations
+    command: ["-path", "/migrations", "-database", "clickhouse://clickhouse:9000?username=${CLICKHOUSE_USER:-dcm_reports}&password=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}&database=${CLICKHOUSE_DB:-dcm_reports}&x-migrations-table-engine=MergeTree", "up"]
+    networks:
+      - dcm_net
+
   rabbitmq:
     image: rabbitmq:4-management
     environment:
@@ -162,6 +189,10 @@ services:
       OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER:-dcm_minio}"
       OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
       OBJECT_STORAGE_USE_SSL: "false"
+      CLICKHOUSE_ADDR: "clickhouse:9000"
+      CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}"
       REGISTRY_API_URL: "registry:5000"
       REGISTRY_PUBLIC_URL: "localhost:5000"
       REGISTRY_CONTAINER_NAME: "registry"
@@ -226,6 +257,8 @@ services:
       - dcm_net
     depends_on:
       migrate_core:
+        condition: service_completed_successfully
+      migrate_reports:
         condition: service_completed_successfully
       sso:
         condition: service_started
@@ -401,3 +434,4 @@ volumes:
   builder_logs:
   rabbitmq_data:
   minio_data:
+  clickhouse_data:

@@ -50,6 +50,14 @@ service StatsAPI {
   rpc GetSystemMonitoring (Empty) returns (SystemMonitoringResponse);
 }
 
+service ReportAPI {
+  rpc GetReportsOverview (ReportRangeRequest) returns (ReportsOverviewResponse);
+  rpc ListUserUsageReport (ListUserUsageReportRequest) returns (PaginatedUserUsageReportResponse);
+  rpc GetUserUsageTimeline (GetUserUsageTimelineRequest) returns (UserUsageTimelineResponse);
+  rpc ListAuditEvents (ListAuditEventsRequest) returns (PaginatedAuditEventResponse);
+  rpc RecordAuditEvent (AuditEventData) returns (Empty);
+}
+
 message UserStatsResponse {
   int32 containers_total = 1;
   int32 containers_running = 2;
@@ -87,6 +95,110 @@ message SystemMonitoringResponse {
 }
 
 message Empty {}
+
+message ReportRangeRequest {
+  int64 from = 1;
+  int64 to = 2;
+}
+
+message ActionCountData {
+  string action = 1;
+  int64 count = 2;
+}
+
+message ReportsOverviewResponse {
+  int64 from = 1;
+  int64 to = 2;
+  int64 audit_events_total = 3;
+  int64 failed_actions_total = 4;
+  int64 active_users_total = 5;
+  int64 reserved_memory_bytes = 6;
+  int64 total_disk_bytes = 7;
+  repeated ActionCountData top_actions = 8;
+}
+
+message ListUserUsageReportRequest {
+  int64 from = 1;
+  int64 to = 2;
+  string sort = 3;
+  int32 page = 4;
+  int32 limit = 5;
+}
+
+message UserUsageReportData {
+  string owner_id = 1;
+  string owner_username = 2;
+  int64 reserved_memory_bytes = 3;
+  int64 total_disk_bytes = 4;
+  int32 containers_total = 5;
+  int32 containers_running = 6;
+  int32 volumes_total = 7;
+  int32 images_total = 8;
+  int32 builds_total = 9;
+  int32 projects_total = 10;
+  int64 actions_total = 11;
+}
+
+message PaginatedUserUsageReportResponse {
+  repeated UserUsageReportData users = 1;
+  int32 total_count = 2;
+}
+
+message GetUserUsageTimelineRequest {
+  string owner_id = 1;
+  int64 from = 2;
+  int64 to = 3;
+}
+
+message UserUsagePointData {
+  int64 bucket_start = 1;
+  int64 reserved_memory_bytes = 2;
+  int64 total_disk_bytes = 3;
+  int32 containers_total = 4;
+  int32 containers_running = 5;
+  int64 actions_total = 6;
+}
+
+message UserUsageTimelineResponse {
+  repeated UserUsagePointData points = 1;
+}
+
+message ListAuditEventsRequest {
+  int64 from = 1;
+  int64 to = 2;
+  string actor_user_id = 3;
+  string action = 4;
+  string outcome = 5;
+  string resource_type = 6;
+  string search = 7;
+  int32 page = 8;
+  int32 limit = 9;
+}
+
+message AuditEventData {
+  string id = 1;
+  int64 occurred_at = 2;
+  string actor_user_id = 3;
+  string actor_username = 4;
+  string actor_scope = 5;
+  string action = 6;
+  string outcome = 7;
+  string resource_type = 8;
+  string resource_id = 9;
+  string resource_name = 10;
+  string owner_id = 11;
+  string owner_username = 12;
+  string request_id = 13;
+  string client_ip = 14;
+  string user_agent = 15;
+  string error_code = 16;
+  string details_json = 17;
+}
+
+message PaginatedAuditEventResponse {
+  repeated AuditEventData events = 1;
+  int32 total_count = 2;
+}
 
 message GetUserRequest {
   string owner_id = 1;

@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/gin-gonic/gin"
@@ -32,6 +33,16 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 	}
 
 	containerID, err := h.service.CreateContainer(c.Request.Context(), createContainerInputFromDTO(createContainerDTO))
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionContainerCreate,
+		ResourceType: auditlog.ResourceContainer,
+		ResourceID:   containerID,
+		ResourceName: createContainerDTO.Name,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+		DetailsJSON:  auditlog.SafeDetailsJSON(map[string]string{auditlog.DetailDomainPrefix: createContainerDTO.DomainPrefix, auditlog.DetailInternalPort: auditlog.IntDetail(createContainerDTO.InternalPort)}),
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -92,6 +103,14 @@ func (h *CoreHandler) runContainerAction(c *gin.Context, message func(string) st
 	}
 
 	err := h.service.ActionContainer(c.Request.Context(), containerID, action)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       containerAuditAction(action),
+		ResourceType: auditlog.ResourceContainer,
+		ResourceID:   containerID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -116,12 +135,34 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 	}
 
 	err := h.service.ExposeContainer(c.Request.Context(), containerID, exposeContainerDTO.DomainPrefix, exposeContainerDTO.InternalPort)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionContainerExpose,
+		ResourceType: auditlog.ResourceContainer,
+		ResourceID:   containerID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+		DetailsJSON:  auditlog.SafeDetailsJSON(map[string]string{auditlog.DetailDomainPrefix: exposeContainerDTO.DomainPrefix, auditlog.DetailInternalPort: auditlog.IntDetail(exposeContainerDTO.InternalPort)}),
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "container exposed on prefix: " + exposeContainerDTO.DomainPrefix})
+}
+
+func containerAuditAction(action string) string {
+	switch action {
+	case "start":
+		return auditlog.ActionContainerStart
+	case "stop":
+		return auditlog.ActionContainerStop
+	case "delete":
+		return auditlog.ActionContainerDelete
+	default:
+		return "container." + action
+	}
 }
 
 func (h *CoreHandler) GetContainerStats(c *gin.Context) {

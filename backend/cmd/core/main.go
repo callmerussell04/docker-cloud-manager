@@ -209,6 +209,12 @@ func main() {
 		InternalToken: internalToken,
 		HostDiskPath:  hostDiskPath,
 		ConfigManager: cfgManager,
+		ClickHouse: app.ClickHouseConfig{
+			Addr:     getEnvString("CLICKHOUSE_ADDR", ""),
+			Database: getEnvString("CLICKHOUSE_DB", "dcm_reports"),
+			Username: getEnvString("CLICKHOUSE_USER", ""),
+			Password: getEnvString("CLICKHOUSE_PASSWORD", ""),
+		},
 		ObjectStorage: objectstorage.Config{
 			Endpoint:  requiredEnv(logger, "OBJECT_STORAGE_ENDPOINT"),
 			Bucket:    getEnvString("OBJECT_STORAGE_BUCKET", "dcm-builds"),

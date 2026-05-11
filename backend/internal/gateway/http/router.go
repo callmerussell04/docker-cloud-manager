@@ -8,6 +8,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 )
@@ -93,8 +94,8 @@ func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middlew
 	images.GET("", deps.CoreHandler.GetImages)
 	images.DELETE("/:id", deps.CoreHandler.DeleteImage)
 	images.GET("/build/availability", deps.CoreHTTPProxy)
-	images.POST("/build", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build"), deps.CoreHTTPProxy)
-	images.POST("/build/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build-git"), deps.CoreHTTPProxy)
+	images.POST("/build", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build"), handler.AuditedProxy(deps.CoreHandler, deps.CoreHTTPProxy, auditlog.ActionBuildCreateArchive, auditlog.ResourceBuild, "upload"))
+	images.POST("/build/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "image-build-git"), handler.AuditedProxy(deps.CoreHandler, deps.CoreHTTPProxy, auditlog.ActionBuildCreateGit, auditlog.ResourceBuild, "git"))
 
 	builds := protected.Group("/builds")
 	builds.GET("", deps.CoreHandler.GetBuilds)
@@ -115,8 +116,8 @@ func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middlew
 }
 
 func registerComposeProxyRoutes(projects *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
-	projects.POST("/compose", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose"), deps.CoreHTTPProxy)
-	projects.POST("/compose/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose-git"), deps.CoreHTTPProxy)
+	projects.POST("/compose", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose"), handler.AuditedProxy(deps.CoreHandler, deps.CoreHTTPProxy, auditlog.ActionComposeUploadDeploy, auditlog.ResourceProject, "upload"))
+	projects.POST("/compose/git", middleware.RateLimit(limiter, cfg.UploadRateLimit, "compose-git"), handler.AuditedProxy(deps.CoreHandler, deps.CoreHTTPProxy, auditlog.ActionComposeGitDeploy, auditlog.ResourceProject, "git"))
 }
 
 func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
@@ -124,6 +125,10 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.GET("/config", adminPermission(deps, permissions.SystemConfigRead), deps.CoreHandler.GetSystemConfig)
 	admin.PUT("/config", adminPermission(deps, permissions.SystemConfigUpdate), deps.CoreHandler.UpdateSystemConfig)
 	admin.GET("/monitoring", adminPermission(deps, permissions.SystemMonitoringRead), deps.CoreHandler.GetSystemMonitoring)
+	admin.GET("/reports/overview", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.GetReportsOverview)
+	admin.GET("/reports/users", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.ListUserUsageReport)
+	admin.GET("/reports/users/:id/usage", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.GetUserUsageTimeline)
+	admin.GET("/reports/audit-events", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.ListAuditEvents)
 
 	admin.GET("/users", adminPermission(deps, permissions.UsersAdminList), deps.UserHandler.ListUsers)
 	admin.GET("/users/:id", adminPermission(deps, permissions.UsersAdminRead), deps.UserHandler.GetUser)

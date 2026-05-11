@@ -8,6 +8,7 @@ type CoreProvider interface {
 	ProjectProvider
 	SystemProvider
 	StatsProvider
+	ReportProvider
 }
 
 type Core struct {

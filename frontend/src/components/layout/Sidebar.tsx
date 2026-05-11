@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, LayoutDashboard, Box, Disc, HardDrive, Layers, Settings, ShieldAlert, Users } from 'lucide-react';
+import { Activity, BarChart3, LayoutDashboard, Box, Disc, HardDrive, Layers, Settings, ShieldAlert, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/authStore';
 import { useT, type TranslationKey } from '@/lib/i18n';
@@ -14,6 +14,7 @@ const navigation = [
 
 const adminNavigation = [
   { nameKey: 'nav.systemMonitoring', href: '/admin/monitoring', icon: Activity },
+  { nameKey: 'nav.adminReports', href: '/admin/reports', icon: BarChart3 },
   { nameKey: 'nav.adminResources', href: '/admin/resources', icon: ShieldAlert },
   { nameKey: 'nav.adminUsers', href: '/admin/users', icon: Users },
   { nameKey: 'nav.systemSettings', href: '/admin/settings', icon: Settings },

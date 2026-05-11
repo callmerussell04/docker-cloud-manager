@@ -13,6 +13,7 @@ import { SystemSettingsPage } from '@/pages/admin/SystemSettingsPage';
 import { AllResourcesPage } from '@/pages/admin/AllResourcesPage';
 import { AdminUsersPage } from '@/pages/admin/AdminUsersPage';
 import { AdminMonitoringPage } from '@/pages/admin/AdminMonitoringPage';
+import { AdminReportsPage } from '@/pages/admin/AdminReportsPage';
 import { useAuthStore } from '@/store/authStore';
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -45,6 +46,7 @@ export const router = createBrowserRouter([
         children: [
           { path: 'resources', element: <AllResourcesPage /> },
           { path: 'monitoring', element: <AdminMonitoringPage /> },
+          { path: 'reports', element: <AdminReportsPage /> },
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
           { path: 'containers/:id', element: <ContainerDetailsPage /> },

@@ -4,6 +4,7 @@ const (
 	SystemConfigRead     = "system.config.read"
 	SystemConfigUpdate   = "system.config.update"
 	SystemMonitoringRead = "system.monitoring.read"
+	ReportsAdminRead     = "reports.admin.read"
 
 	ContainersAdminList     = "containers.admin.list"
 	ContainersAdminAction   = "containers.admin.action"
@@ -36,6 +37,7 @@ var all = map[string]struct{}{
 	SystemConfigRead:        {},
 	SystemConfigUpdate:      {},
 	SystemMonitoringRead:    {},
+	ReportsAdminRead:        {},
 	ContainersAdminList:     {},
 	ContainersAdminAction:   {},
 	ContainersAdminStats:    {},

@@ -43,6 +43,13 @@ export const queryKeys = {
     },
     monitoring: ['admin', 'monitoring'] as const,
     systemConfig: ['admin', 'systemConfig'] as const,
+    reports: {
+      all: ['admin', 'reports'] as const,
+      overview: (params: unknown) => [...queryKeys.admin.reports.all, 'overview', params] as const,
+      users: (params: unknown) => [...queryKeys.admin.reports.all, 'users', params] as const,
+      userTimeline: (ownerId: string, params: unknown) => [...queryKeys.admin.reports.all, 'users', ownerId, 'timeline', params] as const,
+      audit: (params: unknown) => [...queryKeys.admin.reports.all, 'audit', params] as const,
+    },
     containers: {
       all: ['admin', 'containers'] as const,
       lists: () => [...queryKeys.admin.containers.all, 'list'] as const,

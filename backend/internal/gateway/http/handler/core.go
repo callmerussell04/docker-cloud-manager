@@ -19,6 +19,7 @@ type CoreService interface {
 	ProjectService
 	SystemService
 	StatsService
+	ReportService
 }
 
 type CoreHandler struct {

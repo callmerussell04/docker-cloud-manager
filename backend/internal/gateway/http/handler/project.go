@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -56,6 +57,14 @@ func (h *CoreHandler) deleteProject(c *gin.Context, message string) {
 	}
 
 	err := h.service.DeleteProject(c.Request.Context(), projectID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionProjectDelete,
+		ResourceType: auditlog.ResourceProject,
+		ResourceID:   projectID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -65,24 +74,32 @@ func (h *CoreHandler) deleteProject(c *gin.Context, message string) {
 }
 
 func (h *CoreHandler) StartProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StartProject, "project started successfully")
+	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project started successfully")
 }
 
 func (h *CoreHandler) StopProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StopProject, "project stopped successfully")
+	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stopped successfully")
 }
 
 func (h *CoreHandler) CancelProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.CancelProject, "project cancellation requested")
+	h.runProjectAction(c, h.service.CancelProject, auditlog.ActionProjectCancel, "project cancellation requested")
 }
 
-func (h *CoreHandler) runProjectAction(c *gin.Context, action func(context.Context, string) error, message string) {
+func (h *CoreHandler) runProjectAction(c *gin.Context, action func(context.Context, string) error, auditAction, message string) {
 	projectID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
 
 	err := action(c.Request.Context(), projectID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditAction,
+		ResourceType: auditlog.ResourceProject,
+		ResourceID:   projectID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -96,13 +113,13 @@ func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
 }
 
 func (h *CoreHandler) AdminStartProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StartProject, "project started by admin")
+	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project started by admin")
 }
 
 func (h *CoreHandler) AdminStopProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StopProject, "project stopped by admin")
+	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stopped by admin")
 }
 
 func (h *CoreHandler) AdminCancelProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.CancelProject, "project cancellation requested by admin")
+	h.runProjectAction(c, h.service.CancelProject, auditlog.ActionProjectCancel, "project cancellation requested by admin")
 }

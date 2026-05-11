@@ -1465,3 +1465,257 @@ var StatsAPI_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "api/core/core.proto",
 }
+
+const (
+	ReportAPI_GetReportsOverview_FullMethodName   = "/core.ReportAPI/GetReportsOverview"
+	ReportAPI_ListUserUsageReport_FullMethodName  = "/core.ReportAPI/ListUserUsageReport"
+	ReportAPI_GetUserUsageTimeline_FullMethodName = "/core.ReportAPI/GetUserUsageTimeline"
+	ReportAPI_ListAuditEvents_FullMethodName      = "/core.ReportAPI/ListAuditEvents"
+	ReportAPI_RecordAuditEvent_FullMethodName     = "/core.ReportAPI/RecordAuditEvent"
+)
+
+// ReportAPIClient is the client API for ReportAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ReportAPIClient interface {
+	GetReportsOverview(ctx context.Context, in *ReportRangeRequest, opts ...grpc.CallOption) (*ReportsOverviewResponse, error)
+	ListUserUsageReport(ctx context.Context, in *ListUserUsageReportRequest, opts ...grpc.CallOption) (*PaginatedUserUsageReportResponse, error)
+	GetUserUsageTimeline(ctx context.Context, in *GetUserUsageTimelineRequest, opts ...grpc.CallOption) (*UserUsageTimelineResponse, error)
+	ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*PaginatedAuditEventResponse, error)
+	RecordAuditEvent(ctx context.Context, in *AuditEventData, opts ...grpc.CallOption) (*Empty, error)
+}
+
+type reportAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewReportAPIClient(cc grpc.ClientConnInterface) ReportAPIClient {
+	return &reportAPIClient{cc}
+}
+
+func (c *reportAPIClient) GetReportsOverview(ctx context.Context, in *ReportRangeRequest, opts ...grpc.CallOption) (*ReportsOverviewResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReportsOverviewResponse)
+	err := c.cc.Invoke(ctx, ReportAPI_GetReportsOverview_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reportAPIClient) ListUserUsageReport(ctx context.Context, in *ListUserUsageReportRequest, opts ...grpc.CallOption) (*PaginatedUserUsageReportResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedUserUsageReportResponse)
+	err := c.cc.Invoke(ctx, ReportAPI_ListUserUsageReport_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reportAPIClient) GetUserUsageTimeline(ctx context.Context, in *GetUserUsageTimelineRequest, opts ...grpc.CallOption) (*UserUsageTimelineResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserUsageTimelineResponse)
+	err := c.cc.Invoke(ctx, ReportAPI_GetUserUsageTimeline_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reportAPIClient) ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*PaginatedAuditEventResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PaginatedAuditEventResponse)
+	err := c.cc.Invoke(ctx, ReportAPI_ListAuditEvents_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *reportAPIClient) RecordAuditEvent(ctx context.Context, in *AuditEventData, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ReportAPI_RecordAuditEvent_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ReportAPIServer is the server API for ReportAPI service.
+// All implementations must embed UnimplementedReportAPIServer
+// for forward compatibility.
+type ReportAPIServer interface {
+	GetReportsOverview(context.Context, *ReportRangeRequest) (*ReportsOverviewResponse, error)
+	ListUserUsageReport(context.Context, *ListUserUsageReportRequest) (*PaginatedUserUsageReportResponse, error)
+	GetUserUsageTimeline(context.Context, *GetUserUsageTimelineRequest) (*UserUsageTimelineResponse, error)
+	ListAuditEvents(context.Context, *ListAuditEventsRequest) (*PaginatedAuditEventResponse, error)
+	RecordAuditEvent(context.Context, *AuditEventData) (*Empty, error)
+	mustEmbedUnimplementedReportAPIServer()
+}
+
+// UnimplementedReportAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedReportAPIServer struct{}
+
+func (UnimplementedReportAPIServer) GetReportsOverview(context.Context, *ReportRangeRequest) (*ReportsOverviewResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetReportsOverview not implemented")
+}
+func (UnimplementedReportAPIServer) ListUserUsageReport(context.Context, *ListUserUsageReportRequest) (*PaginatedUserUsageReportResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListUserUsageReport not implemented")
+}
+func (UnimplementedReportAPIServer) GetUserUsageTimeline(context.Context, *GetUserUsageTimelineRequest) (*UserUsageTimelineResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserUsageTimeline not implemented")
+}
+func (UnimplementedReportAPIServer) ListAuditEvents(context.Context, *ListAuditEventsRequest) (*PaginatedAuditEventResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListAuditEvents not implemented")
+}
+func (UnimplementedReportAPIServer) RecordAuditEvent(context.Context, *AuditEventData) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RecordAuditEvent not implemented")
+}
+func (UnimplementedReportAPIServer) mustEmbedUnimplementedReportAPIServer() {}
+func (UnimplementedReportAPIServer) testEmbeddedByValue()                   {}
+
+// UnsafeReportAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ReportAPIServer will
+// result in compilation errors.
+type UnsafeReportAPIServer interface {
+	mustEmbedUnimplementedReportAPIServer()
+}
+
+func RegisterReportAPIServer(s grpc.ServiceRegistrar, srv ReportAPIServer) {
+	// If the following call pancis, it indicates UnimplementedReportAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ReportAPI_ServiceDesc, srv)
+}
+
+func _ReportAPI_GetReportsOverview_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReportRangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).GetReportsOverview(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_GetReportsOverview_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).GetReportsOverview(ctx, req.(*ReportRangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReportAPI_ListUserUsageReport_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListUserUsageReportRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).ListUserUsageReport(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_ListUserUsageReport_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).ListUserUsageReport(ctx, req.(*ListUserUsageReportRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReportAPI_GetUserUsageTimeline_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserUsageTimelineRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).GetUserUsageTimeline(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_GetUserUsageTimeline_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).GetUserUsageTimeline(ctx, req.(*GetUserUsageTimelineRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReportAPI_ListAuditEvents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListAuditEventsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).ListAuditEvents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_ListAuditEvents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).ListAuditEvents(ctx, req.(*ListAuditEventsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ReportAPI_RecordAuditEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuditEventData)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).RecordAuditEvent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_RecordAuditEvent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).RecordAuditEvent(ctx, req.(*AuditEventData))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ReportAPI_ServiceDesc is the grpc.ServiceDesc for ReportAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ReportAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.ReportAPI",
+	HandlerType: (*ReportAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetReportsOverview",
+			Handler:    _ReportAPI_GetReportsOverview_Handler,
+		},
+		{
+			MethodName: "ListUserUsageReport",
+			Handler:    _ReportAPI_ListUserUsageReport_Handler,
+		},
+		{
+			MethodName: "GetUserUsageTimeline",
+			Handler:    _ReportAPI_GetUserUsageTimeline_Handler,
+		},
+		{
+			MethodName: "ListAuditEvents",
+			Handler:    _ReportAPI_ListAuditEvents_Handler,
+		},
+		{
+			MethodName: "RecordAuditEvent",
+			Handler:    _ReportAPI_RecordAuditEvent_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/core/core.proto",
+}

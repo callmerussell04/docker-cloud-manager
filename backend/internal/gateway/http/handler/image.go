@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/gin-gonic/gin"
 )
 
@@ -53,6 +54,14 @@ func (h *CoreHandler) deleteImage(c *gin.Context, message string) {
 	}
 
 	err := h.service.DeleteImage(c.Request.Context(), imageID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionImageDelete,
+		ResourceType: auditlog.ResourceImage,
+		ResourceID:   imageID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return

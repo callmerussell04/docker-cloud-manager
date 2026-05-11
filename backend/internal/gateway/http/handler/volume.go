@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,15 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 	}
 
 	volumeID, err := h.service.CreateVolume(c.Request.Context(), createVolumeInputFromDTO(createVolumeDTO))
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionVolumeCreate,
+		ResourceType: auditlog.ResourceVolume,
+		ResourceID:   volumeID,
+		ResourceName: createVolumeDTO.Name,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -79,6 +89,14 @@ func (h *CoreHandler) deleteVolume(c *gin.Context, message string) {
 	}
 
 	err := h.service.DeleteVolume(c.Request.Context(), volumeID)
+	outcome, errorCode := auditOutcome(err)
+	h.recordAudit(c, auditInput{
+		Action:       auditlog.ActionVolumeDelete,
+		ResourceType: auditlog.ResourceVolume,
+		ResourceID:   volumeID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+	})
 	if err != nil {
 		h.handleError(c, err)
 		return
