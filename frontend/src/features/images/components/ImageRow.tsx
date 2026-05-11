@@ -1,35 +1,22 @@
 import { Trash2, Disc, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ImageData } from '../types';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteImageFn } from '../api';
-import { useToastStore } from '@/store/toastStore';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { useDeleteImage } from '../hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useState } from 'react';
 
 interface ImageRowProps {
   image: ImageData;
 }
 
 export function ImageRow({ image }: ImageRowProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   const locale = useLocale();
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteImageFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['images'] });
-      addToast(t('images.deleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.deleteFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const deleteMutation = useDeleteImage();
 
   const formattedDate = new Date(image.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -68,17 +55,22 @@ export function ImageRow({ image }: ImageRowProps) {
 
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
-          onClick={() => {
-            if (window.confirm(t('images.deleteConfirm', { name: image.tag }))) {
-              deleteMutation.mutate(image.id);
-            }
-          }}
+          onClick={() => setIsConfirmOpen(true)}
           disabled={deleteMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
           title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        <ConfirmDialog
+          isOpen={isConfirmOpen}
+          title={t('confirm.title')}
+          message={t('images.deleteConfirm', { name: image.tag })}
+          confirmLabel={t('common.delete')}
+          isLoading={deleteMutation.isPending}
+          onCancel={() => setIsConfirmOpen(false)}
+          onConfirm={() => deleteMutation.mutate(image.id, { onSuccess: () => setIsConfirmOpen(false) })}
+        />
       </div>
     </div>
   );

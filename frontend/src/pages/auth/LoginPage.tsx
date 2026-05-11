@@ -15,6 +15,7 @@ import { type LoginData, createLoginSchema } from '@/features/auth/types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
 import { API_URL } from '@/config';
+import { queryKeys } from '@/shared/api/queryKeys';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -22,7 +23,7 @@ export function LoginPage() {
   const setAccessToken = useAuthStore((state) => state.setAccessToken);
   const t = useT();
   const { data: authConfig } = useQuery({
-    queryKey: ['auth-config'],
+    queryKey: queryKeys.auth.config,
     queryFn: getAuthConfigFn,
   });
   const localLoginEnabled = authConfig?.local_login_enabled ?? true;
@@ -47,8 +48,8 @@ export function LoginPage() {
       }
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('auth.login.failed'), t);
-      addToast(message, 'error', { requestId });
+      const { message } = getApiErrorMessage(error, t('auth.login.failed'), t);
+      addToast(message, 'error');
     },
   });
 

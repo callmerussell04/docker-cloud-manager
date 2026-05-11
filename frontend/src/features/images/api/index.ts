@@ -1,6 +1,6 @@
 import { privateApi } from '@/api/axios';
 import type { ImageData, BuildData, BuildAvailability, CreateBuildGitPayload } from '../types';
-import type { PaginatedResponse } from '@/features/admin/types';
+import type { PaginatedResponse } from '@/shared/api/pagination';
 
 export const getImagesFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ImageData>> => {
   const response = await privateApi.get<{ images: ImageData[]; total_count: number }>('/images', {

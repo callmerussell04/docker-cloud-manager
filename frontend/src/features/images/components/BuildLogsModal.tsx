@@ -1,13 +1,12 @@
-import { useQuery } from '@tanstack/react-query';
 import { RefreshCcw, Terminal } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { getBuildLogsFn } from '../api';
 import { type BuildData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { useBuildLogs } from '../hooks';
 
 interface BuildLogsModalProps {
   build: BuildData | null;
@@ -19,13 +18,7 @@ export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsMod
   const scrollRef = useRef<HTMLPreElement>(null);
   const t = useT();
 
-  const { data: logs, error, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ['buildLogs', build?.id, isAdmin],
-    queryFn: () => getBuildLogsFn(build!.id, isAdmin),
-    enabled: !!build,
-    refetchInterval: build?.status === 'running' ? 3000 : false,
-    retry: false,
-  });
+  const { data: logs, error, isLoading, isError, refetch, isFetching } = useBuildLogs(build?.id, isAdmin, !!build, build?.status === 'running');
 
   useEffect(() => {
     if (scrollRef.current) {

@@ -33,11 +33,6 @@ export interface TelemetryTicketResponse {
   expires_at: number;
 }
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total_count: number;
-}
-
 export const createContainerSchema = (t: TFunction) => z.object({
   name: z.string().min(1, t('validation.nameRequired')),
   image_tag: z.string().min(1, t('validation.imageRequired')),

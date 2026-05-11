@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, RefreshCcw, Search, HardDrive } from 'lucide-react';
+import { Plus, RefreshCcw, HardDrive } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
 import { VolumeRow } from '@/features/volumes/components/VolumeRow';
 import { CreateVolumeModal } from '@/features/volumes/components/CreateVolumeModal';
-import { getVolumesFn } from '@/features/volumes/api';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import { useVolumes } from '@/features/volumes/hooks';
+import { SearchInput } from '@/components/common/SearchInput';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function VolumesPage() {
   const t = useT();
@@ -19,10 +21,7 @@ export function VolumesPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['volumes', page],
-    queryFn: () => getVolumesFn(page, limit),
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useVolumes(page, limit);
   const volumes = data?.items || [];
 
   const filteredVolumes = volumes.filter(v => 
@@ -38,18 +37,15 @@ export function VolumesPage() {
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input 
-              placeholder={t('common.search')}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="pl-9"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('common.search')}
+            title={t('common.searchCurrentPage')}
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+          />
           <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
@@ -80,21 +76,26 @@ export function VolumesPage() {
                     </div>
                   </div>
                 ))
+              ) : isError ? (
+                <div className="p-4">
+                  <ErrorState
+                    title={t('volumes.loadFailed')}
+                    message={getApiErrorMessage(error, t('volumes.loadFailed'), t).message}
+                    onRetry={() => refetch()}
+                    isRetrying={isFetching}
+                  />
+                </div>
               ) : filteredVolumes.length > 0 ? (
                 filteredVolumes.map((volume) => (
                   <VolumeRow key={volume.id} volume={volume} />
                 ))
               ) : (
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                  <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
-                    <HardDrive className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">{t('volumes.emptyTitle')}</h3>
-                  <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                    {t('volumes.emptyDescription')}
-                  </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>{t('volumes.create')}</Button>
-                </div>
+                <EmptyState
+                  icon={<HardDrive className="h-8 w-8" />}
+                  title={t('volumes.emptyTitle')}
+                  description={t('volumes.emptyDescription')}
+                  action={<Button onClick={() => setIsCreateModalOpen(true)}>{t('volumes.create')}</Button>}
+                />
               )}
             </div>
           </div>

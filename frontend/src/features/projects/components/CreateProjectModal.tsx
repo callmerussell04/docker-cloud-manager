@@ -1,8 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { UploadCloud, X, CheckCircle2, Info, ChevronDown, GitBranch } from 'lucide-react';
+import { Info, ChevronDown } from 'lucide-react';
 
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
@@ -10,20 +9,19 @@ import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { WarningBanner } from '@/components/ui/WarningBanner';
 import { useToastStore } from '@/store/toastStore';
-import { createProjectFn, createProjectFromGitFn } from '../api';
-import { type CreateProjectForm, type CreateProjectGitPayload, createProjectSchema } from '../types';
+import { type CreateProjectForm, createProjectSchema } from '../types';
 import type { BuildAvailability } from '@/features/images/types';
 import { cn } from '@/lib/utils';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { FileDropzone } from '@/components/common/FileDropzone';
+import { SourceModeSwitch, type SourceMode } from '@/components/common/SourceModeSwitch';
+import { useCreateProject } from '../hooks';
 
 interface CreateProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
   buildAvailability?: BuildAvailability;
 }
-
-type SourceMode = 'archive' | 'git';
 
 const supportedDirectives = [
   'services',
@@ -43,7 +41,6 @@ const supportedDirectives = [
 ];
 
 export function CreateProjectModal({ isOpen, onClose, buildAvailability }: CreateProjectModalProps) {
-  const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   
@@ -51,27 +48,13 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
   const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
   const [showInfo, setShowInfo] = useState(false);
   const [isHintHidden, setIsHintHidden] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const isGitDisabled = buildAvailability?.git_sources_enabled === false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectForm>({
     resolver: zodResolver(createProjectSchema(t)),
   });
 
-  const mutation = useMutation({
-    mutationFn: (payload: FormData | CreateProjectGitPayload) => (
-      payload instanceof FormData ? createProjectFn(payload) : createProjectFromGitFn(payload)
-    ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast(t('projects.deployed'), 'success');
-      handleClose();
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('projects.deployFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const mutation = useCreateProject();
 
   useEffect(() => {
     if (isGitDisabled && sourceMode === 'git') {
@@ -99,6 +82,8 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
         repo_url: data.repo_url.trim(),
         ref: data.ref?.trim() || undefined,
         compose_file: data.compose_file?.trim() || undefined,
+      }, {
+        onSuccess: handleClose,
       });
       return;
     }
@@ -107,7 +92,9 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
     formData.append('project_name', data.project_name);
     formData.append('archive', file as File);
 
-    mutation.mutate(formData);
+    mutation.mutate(formData, {
+      onSuccess: handleClose,
+    });
   };
 
   const handleClose = () => {
@@ -118,21 +105,17 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
     onClose();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selected = e.target.files[0];
-      const validTypes = ['application/zip', 'application/gzip', 'application/x-tar', 'application/x-yaml', 'text/yaml'];
-      const validExtensions = ['.zip', '.tar.gz', '.tgz', '.tar', '.yml', '.yaml'];
-      
-      const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
-      
-      if (!validTypes.includes(selected.type) && !isValidExt) {
-        addToast(t('validation.projectFileType'), 'error');
-        return;
-      }
-      
-      setFile(selected);
+  const handleFileChange = (selected: File) => {
+    const validTypes = ['application/zip', 'application/gzip', 'application/x-tar', 'application/x-yaml', 'text/yaml'];
+    const validExtensions = ['.zip', '.tar.gz', '.tgz', '.tar', '.yml', '.yaml'];
+    const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
+
+    if (!validTypes.includes(selected.type) && !isValidExt) {
+      addToast(t('validation.projectFileType'), 'error');
+      return;
     }
+
+    setFile(selected);
   };
 
   return (
@@ -158,82 +141,39 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
             {errors.project_name && <p className="text-sm text-red-500">{errors.project_name?.message as string}</p>}
           </div>
 
-          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700/50 bg-slate-100/70 dark:bg-slate-900/60 p-1">
-            <button
-              type="button"
-              onClick={() => setSourceMode('archive')}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                sourceMode === 'archive'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
-              )}
-            >
-              <UploadCloud className="h-4 w-4" />
-              {t('projects.archive')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSourceMode('git')}
-              disabled={isGitDisabled}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                sourceMode === 'git'
-                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-slate-100'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100'
-              )}
-            >
-              <GitBranch className="h-4 w-4" />
-              Git
-            </button>
-          </div>
+          <SourceModeSwitch
+            value={sourceMode}
+            onChange={setSourceMode}
+            archiveLabel={t('projects.archive')}
+            gitLabel={t('common.git')}
+            gitDisabled={isGitDisabled}
+          />
 
           {sourceMode === 'archive' && (
-            <div className="p-6 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-2xl flex flex-col items-center justify-center bg-slate-50/50 dark:bg-slate-900/50 transition-colors hover:bg-slate-100/50 dark:hover:bg-slate-800/50">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                className="hidden"
-                accept=".zip,.tar,.tar.gz,.tgz,.yml,.yaml"
-              />
-
-              {file ? (
-                <div className="flex flex-col items-center text-center">
-                  <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-full flex items-center justify-center mb-3">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                  <p className="font-medium">{file.name}</p>
-                  <p className="text-xs text-slate-500 mb-4">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                  <Button type="button" variant="ghost" onClick={() => setFile(null)} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-950">
-                    <X className="w-4 h-4 mr-2" /> {t('projects.chooseOtherFile')}
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center text-center" onClick={() => fileInputRef.current?.click()}>
-                  <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-full flex items-center justify-center mb-3 cursor-pointer">
-                    <UploadCloud className="w-6 h-6" />
-                  </div>
-                  <p className="font-medium cursor-pointer">{t('projects.uploadFile')}</p>
-                  <p className="text-xs text-slate-500 mt-1">{t('projects.archiveHint')}</p>
-                  <p className="text-xs text-slate-500">{t('projects.ymlHint')}</p>
-                </div>
-              )}
-            </div>
+            <FileDropzone
+              file={file}
+              accept=".zip,.tar,.tar.gz,.tgz,.yml,.yaml"
+              title={t('projects.uploadFile')}
+              hint={t('projects.archiveHint')}
+              extraHint={t('projects.ymlHint')}
+              removeLabel={t('projects.chooseOtherFile')}
+              onFileChange={handleFileChange}
+              onRemove={() => setFile(null)}
+            />
           )}
 
           {sourceMode === 'git' && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="repo_url">Git repository URL</Label>
+                <Label htmlFor="repo_url">{t('form.gitRepositoryUrl')}</Label>
                 <Input id="repo_url" placeholder="https://github.com/org/repo.git" {...register('repo_url')} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="ref">Ref</Label>
+                <Label htmlFor="ref">{t('form.ref')}</Label>
                 <Input id="ref" placeholder="main" {...register('ref')} />
               </div>
               <div className="space-y-2 md:col-span-3">
-                <Label htmlFor="compose_file">Compose file</Label>
+                <Label htmlFor="compose_file">{t('projects.composeFile')}</Label>
                 <Input id="compose_file" placeholder="docker-compose.yml" {...register('compose_file')} />
               </div>
             </div>

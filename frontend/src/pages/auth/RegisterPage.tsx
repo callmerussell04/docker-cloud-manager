@@ -34,8 +34,8 @@ export function RegisterPage() {
       navigate('/login');
     },
     onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('auth.register.failed'), t);
-      addToast(message, 'error', { requestId });
+      const { message } = getApiErrorMessage(error, t('auth.register.failed'), t);
+      addToast(message, 'error');
     },
   });
 

@@ -27,8 +27,8 @@ export function TopBar({ onMenuClick }: TopBarProps) {
       logout();
       navigate('/login');
     } catch (error) {
-      const { message, requestId } = getApiErrorMessage(error, t('topbar.logoutFailed'), t);
-      addToast(message, 'error', { requestId });
+      const { message } = getApiErrorMessage(error, t('topbar.logoutFailed'), t);
+      addToast(message, 'error');
     }
   };
 

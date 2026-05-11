@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatBytes } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { useT } from '@/lib/i18n';
+import { queryKeys } from '@/shared/api/queryKeys';
+import { ErrorState } from '@/components/common/ErrorState';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function DashboardPage() {
   const t = useT();
-  const { data: stats, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['dashboard_stats'],
+  const { data: stats, isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: queryKeys.dashboard.stats,
     queryFn: getDashboardStatsFn,
   });
 
@@ -77,6 +80,13 @@ export function DashboardPage() {
             <div key={i} className="h-48 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />
           ))}
         </div>
+      ) : isError ? (
+        <ErrorState
+          title={t('dashboard.loadFailed')}
+          message={getApiErrorMessage(error, t('dashboard.loadFailed'), t).message}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+        />
       ) : stats ? (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

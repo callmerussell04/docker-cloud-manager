@@ -1,18 +1,20 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, RefreshCcw, Search, Layers } from 'lucide-react';
+import { Plus, RefreshCcw, Layers } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
 import { WarningBanner } from '@/components/ui/WarningBanner';
 import { ProjectRow } from '@/features/projects/components/ProjectRow';
 import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
-import { getProjectsFn } from '@/features/projects/api';
-import { getBuildAvailabilityFn } from '@/features/images/api';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import { useProjects } from '@/features/projects/hooks';
+import { useBuildAvailability } from '@/features/images/hooks';
+import { SearchInput } from '@/components/common/SearchInput';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function ProjectsPage() {
   const t = useT();
@@ -21,17 +23,10 @@ export function ProjectsPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ['projects', page],
-    queryFn: () => getProjectsFn(page, limit),
-    refetchInterval: 5000,
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useProjects(page, limit);
   const projects = data?.items || [];
 
-  const { data: buildAvailability } = useQuery({
-    queryKey: ['imageBuildAvailability'],
-    queryFn: getBuildAvailabilityFn,
-  });
+  const { data: buildAvailability } = useBuildAvailability();
   const isBuildDisabled = buildAvailability?.enabled === false;
 
   const filteredProjects = projects.filter(p => 
@@ -47,18 +42,15 @@ export function ProjectsPage() {
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input 
-              placeholder={t('common.search')}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="pl-9"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('common.search')}
+            title={t('common.searchCurrentPage')}
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+          />
           <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
@@ -97,21 +89,26 @@ export function ProjectsPage() {
                     </div>
                   </div>
                 ))
+              ) : isError ? (
+                <div className="p-4">
+                  <ErrorState
+                    title={t('projects.loadFailed')}
+                    message={getApiErrorMessage(error, t('projects.loadFailed'), t).message}
+                    onRetry={() => refetch()}
+                    isRetrying={isFetching}
+                  />
+                </div>
               ) : filteredProjects.length > 0 ? (
                 filteredProjects.map((project) => (
                   <ProjectRow key={project.id} project={project} />
                 ))
               ) : (
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                  <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
-                    <Layers className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">{t('projects.emptyTitle')}</h3>
-                  <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                    {t('projects.emptyDescription')}
-                  </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>{t('projects.deploy')}</Button>
-                </div>
+                <EmptyState
+                  icon={<Layers className="h-8 w-8" />}
+                  title={t('projects.emptyTitle')}
+                  description={t('projects.emptyDescription')}
+                  action={<Button onClick={() => setIsCreateModalOpen(true)}>{t('projects.deploy')}</Button>}
+                />
               )}
             </div>
           </div>

@@ -1,25 +1,35 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { Badge } from '@/components/ui/Badge';
-import { useToastStore } from '@/store/toastStore';
 import { cn } from '@/lib/utils';
-import { 
-  getAllContainersFn, getAllVolumesFn, getAllImagesFn, getAllProjectsFn, getAllBuildsFn,
-  adminActionContainerFn, adminDeleteVolumeFn, adminDeleteImageFn, adminActionProjectFn, adminDeleteBuildFn, adminCancelBuildFn
-} from '@/features/admin/api';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { type AdminContainerData } from '@/features/containers/types';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import {
+  useAdminBuilds,
+  useAdminCancelBuild,
+  useAdminContainerAction,
+  useAdminContainers,
+  useAdminDeleteBuild,
+  useAdminDeleteImage,
+  useAdminDeleteVolume,
+  useAdminImages,
+  useAdminProjectAction,
+  useAdminProjects,
+  useAdminVolumes,
+} from '@/features/admin/hooks';
+import { queryKeys } from '@/shared/api/queryKeys';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { TabSwitcher } from '@/components/common/TabSwitcher';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
@@ -53,9 +63,14 @@ export function AllResourcesPage() {
   const[logsContainer, setLogsContainer] = useState<AdminContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<AdminContainerData | null>(null);
   const [viewLogsBuild, setViewLogsBuild] = useState<AdminBuildData | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    message: string;
+    confirmLabel: string;
+    variant?: 'danger' | 'secondary';
+    run: () => void;
+  } | null>(null);
 
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   const locale = useLocale();
 
@@ -64,111 +79,36 @@ export function AllResourcesPage() {
     setPage(1);
   };
 
-  const { data: containersData, isFetching: isFetchingCont } = useQuery({
-    queryKey: ['admin_containers', page],
-    queryFn: () => getAllContainersFn(page, limit),
-    enabled: activeTab === 'containers',
-  });
+  const { data: containersData, isFetching: isFetchingCont } = useAdminContainers(page, limit, activeTab === 'containers');
+  const { data: volumesData, isFetching: isFetchingVol } = useAdminVolumes(page, limit, activeTab === 'volumes');
+  const { data: imagesData, isFetching: isFetchingImg } = useAdminImages(page, limit, activeTab === 'images');
+  const { data: projectsData, isFetching: isFetchingProj } = useAdminProjects(page, limit, activeTab === 'projects');
+  const { data: buildsData, isFetching: isFetchingBuilds } = useAdminBuilds(page, limit, activeTab === 'builds');
 
-  const { data: volumesData, isFetching: isFetchingVol } = useQuery({
-    queryKey: ['admin_volumes', page],
-    queryFn: () => getAllVolumesFn(page, limit),
-    enabled: activeTab === 'volumes',
-  });
+  const actionContainerMut = useAdminContainerAction();
+  const delVolMut = useAdminDeleteVolume();
+  const delImgMut = useAdminDeleteImage();
+  const actionProjMut = useAdminProjectAction();
+  const delBuildMut = useAdminDeleteBuild();
+  const cancelBuildMut = useAdminCancelBuild();
 
-  const { data: imagesData, isFetching: isFetchingImg } = useQuery({
-    queryKey: ['admin_images', page],
-    queryFn: () => getAllImagesFn(page, limit),
-    enabled: activeTab === 'images',
-  });
-
-  const { data: projectsData, isFetching: isFetchingProj } = useQuery({
-    queryKey: ['admin_projects', page],
-    queryFn: () => getAllProjectsFn(page, limit),
-    enabled: activeTab === 'projects',
-  });
-
-  const { data: buildsData, isFetching: isFetchingBuilds } = useQuery({
-    queryKey: ['admin_builds', page],
-    queryFn: () => getAllBuildsFn(page, limit),
-    enabled: activeTab === 'builds',
-    refetchInterval: activeTab === 'builds' ? 5000 : false,
-  });
-
-  const actionContainerMut = useMutation({
-    mutationFn: adminActionContainerFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
-      addToast(t('admin.resources.done'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.resources.actionFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
-
-  const delVolMut = useMutation({
-    mutationFn: adminDeleteVolumeFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_volumes'] });
-      addToast(t('admin.resources.volumeDeleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('volumes.deleteFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
-
-  const delImgMut = useMutation({
-    mutationFn: adminDeleteImageFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_images'] });
-      addToast(t('admin.resources.imageDeleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.deleteFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
-
-  const actionProjMut = useMutation({
-    mutationFn: adminActionProjectFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey:['admin_projects'] });
-      queryClient.invalidateQueries({ queryKey:['admin_builds'] });
-      addToast(t('admin.resources.done'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.resources.actionFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
-
-  const delBuildMut = useMutation({
-    mutationFn: adminDeleteBuildFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
-      addToast(t('admin.resources.buildDeleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
-
-  const cancelBuildMut = useMutation({
-    mutationFn: adminCancelBuildFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_builds'] });
-      addToast(t('images.cancelBuildRequested'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.cancelBuildFailed'), t);
-      addToast(message, 'error', { requestId });
-    }
-  });
+  const refreshActiveTab = () => {
+    const keys = {
+      containers: queryKeys.admin.containers.all,
+      volumes: queryKeys.admin.volumes.all,
+      images: queryKeys.admin.images.all,
+      builds: queryKeys.admin.builds.all,
+      projects: queryKeys.admin.projects.all,
+    } as const;
+    queryClient.invalidateQueries({ queryKey: keys[activeTab] });
+  };
 
   const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj || isFetchingBuilds;
+  const isMutating = actionContainerMut.isPending || delVolMut.isPending || delImgMut.isPending || actionProjMut.isPending || delBuildMut.isPending || cancelBuildMut.isPending;
+
+  const requestConfirm = (message: string, run: () => void, confirmLabel = t('common.delete'), variant: 'danger' | 'secondary' = 'danger') => {
+    setConfirmAction({ message, run, confirmLabel, variant });
+  };
 
   return (
     <div className="space-y-6 flex flex-col h-full">
@@ -181,36 +121,23 @@ export function AllResourcesPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.resources.subtitle')}</p>
         </div>
         
-        <Button variant="secondary" onClick={() => queryClient.invalidateQueries()} isLoading={isFetching} className="px-3">
+        <Button variant="secondary" onClick={refreshActiveTab} isLoading={isFetching} className="px-3">
           <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
         </Button>
       </div>
 
-      <div className="max-w-full overflow-x-auto pb-1 shrink-0">
-        <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
-        {[
+      <TabSwitcher
+        tone="danger"
+        activeTab={activeTab}
+        onChange={handleTabChange}
+        items={[
           { id: 'containers', label: t('nav.containers'), icon: Box },
           { id: 'volumes', label: t('nav.volumes'), icon: HardDrive },
           { id: 'images', label: t('nav.images'), icon: Disc },
           { id: 'builds', label: t('images.buildHistory'), icon: Hammer },
           { id: 'projects', label: t('projects.title'), icon: Layers },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id as Tab)}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-              activeTab === tab.id 
-                ? "bg-white dark:bg-slate-800 shadow-sm text-red-600 dark:text-red-400" 
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-            )}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-          </button>
-        ))}
-        </div>
-      </div>
+        ]}
+      />
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col relative">
         <div className="overflow-x-auto flex-1">
@@ -241,10 +168,10 @@ export function AllResourcesPage() {
             )}
             {activeTab === 'builds' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminBuilds.grid)}>
-                <div className="pl-2">Build ID</div>
+                <div className="pl-2">{t('admin.resources.buildId')}</div>
                 <div>{t('common.status')}</div>
-                <div>Image ID</div>
-                <div>User</div>
+                <div>{t('admin.resources.imageId')}</div>
+                <div>{t('common.user')}</div>
                 <div>{t('images.startedAt')}</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
@@ -279,8 +206,8 @@ export function AllResourcesPage() {
                         )}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div className="block truncate" title={c.owner_username}>User: {c.owner_username || 'unknown'}</div>
-                        <div className="block truncate text-slate-400">Doc: {c.docker_id?.slice(0, 12) || 'N/A'}</div>
+                        <div className="block truncate" title={c.owner_username}>{t('admin.resources.userLabel', { value: c.owner_username || 'unknown' })}</div>
+                        <div className="block truncate text-slate-400">{t('admin.resources.dockerIdLabel', { value: c.docker_id?.slice(0, 12) || 'N/A' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
@@ -310,11 +237,7 @@ export function AllResourcesPage() {
                           variant="danger"
                           className="h-8 px-2"
                           disabled={actionContainerMut.isPending || c.status === 'deleting'}
-                          onClick={() => {
-                            if (window.confirm(t('containers.deleteConfirm', { name: c.name }))) {
-                              actionContainerMut.mutate({ id: c.id, action: 'delete' });
-                            }
-                          }}
+                          onClick={() => requestConfirm(t('containers.deleteConfirm', { name: c.name }), () => actionContainerMut.mutate({ id: c.id, action: 'delete' }))}
                         >
                           <Trash2 className="w-4 h-4"/>
                         </Button>
@@ -337,18 +260,14 @@ export function AllResourcesPage() {
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
                         <Badge variant={statusVariant(v.status)}>{statusLabel(t, v.status)}</Badge>
                         <div className="block truncate">{new Date(v.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
-                        <div className="block truncate" title={v.owner_username}>User: {v.owner_username || 'unknown'}</div>
+                        <div className="block truncate" title={v.owner_username}>{t('admin.resources.userLabel', { value: v.owner_username || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button
                           variant="danger"
                           className="h-8 px-2"
                           disabled={delVolMut.isPending}
-                          onClick={() => {
-                            if (window.confirm(t('volumes.deleteConfirm', { name: v.docker_name || v.id }))) {
-                              delVolMut.mutate(v.id);
-                            }
-                          }}
+                          onClick={() => requestConfirm(t('volumes.deleteConfirm', { name: v.docker_name || v.id }), () => delVolMut.mutate(v.id))}
                         >
                           <Trash2 className="w-4 h-4"/>
                         </Button>
@@ -374,18 +293,14 @@ export function AllResourcesPage() {
                         </div>
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
-                        <div className="block truncate" title={img.owner_username}>User: {img.owner_username || 'unknown'}</div>
+                        <div className="block truncate" title={img.owner_username}>{t('admin.resources.userLabel', { value: img.owner_username || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button
                           variant="danger"
                           className="h-8 px-2"
                           disabled={delImgMut.isPending}
-                          onClick={() => {
-                            if (window.confirm(t('images.deleteConfirm', { name: img.tag }))) {
-                              delImgMut.mutate(img.id);
-                            }
-                          }}
+                          onClick={() => requestConfirm(t('images.deleteConfirm', { name: img.tag }), () => delImgMut.mutate(img.id))}
                         >
                           <Trash2 className="w-4 h-4"/>
                         </Button>
@@ -405,7 +320,7 @@ export function AllResourcesPage() {
                         <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
                         </div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
-                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>User: {build.owner_username || build.owner_id || 'unknown'}</div>
+                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>{t('admin.resources.userLabel', { value: build.owner_username || build.owner_id || 'unknown' })}</div>
                         <div className="min-w-0 text-xs text-slate-500 truncate">{new Date(build.started_at * 1000).toLocaleString(dateLocale(locale))}</div>
                         <div className="flex gap-2 justify-end shrink-0">
                           <Button
@@ -421,11 +336,7 @@ export function AllResourcesPage() {
                             variant="secondary"
                             className="h-8 px-2"
                             disabled={!canCancel || cancelBuildMut.isPending}
-                            onClick={() => {
-                              if (window.confirm(t('images.cancelBuildConfirm', { id: build.id }))) {
-                                cancelBuildMut.mutate(build.id);
-                              }
-                            }}
+                            onClick={() => requestConfirm(t('images.cancelBuildConfirm', { id: build.id }), () => cancelBuildMut.mutate(build.id), t('projects.cancelRequested'), 'secondary')}
                           >
                             <XCircle className="w-4 h-4 text-yellow-500" />
                           </Button>
@@ -433,11 +344,7 @@ export function AllResourcesPage() {
                             variant="danger"
                             className="h-8 px-2"
                             disabled={canCancel || delBuildMut.isPending}
-                            onClick={() => {
-                              if (window.confirm(t('images.deleteBuildConfirm', { id: build.id }))) {
-                                delBuildMut.mutate(build.id);
-                              }
-                            }}
+                            onClick={() => requestConfirm(t('images.deleteBuildConfirm', { id: build.id }), () => delBuildMut.mutate(build.id))}
                           >
                             <Trash2 className="w-4 h-4"/>
                           </Button>
@@ -469,7 +376,7 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
                         <div className="block truncate">{new Date(p.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
-                        <div className="block truncate" title={p.owner_username}>User: {p.owner_username || 'unknown'}</div>
+                        <div className="block truncate" title={p.owner_username}>{t('admin.resources.userLabel', { value: p.owner_username || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button 
@@ -492,11 +399,7 @@ export function AllResourcesPage() {
                           variant="secondary"
                           className="h-8 px-2"
                           disabled={actionProjMut.isPending || !canCancelProject}
-                          onClick={() => {
-                            if (window.confirm(t('projects.cancelConfirm', { name: p.name }))) {
-                              actionProjMut.mutate({ id: p.id, action: 'cancel' });
-                            }
-                          }}
+                          onClick={() => requestConfirm(t('projects.cancelConfirm', { name: p.name }), () => actionProjMut.mutate({ id: p.id, action: 'cancel' }), t('projects.cancelRequested'), 'secondary')}
                         >
                           <XCircle className="w-4 h-4 text-orange-500"/>
                         </Button>
@@ -504,11 +407,7 @@ export function AllResourcesPage() {
                           variant="danger"
                           className="h-8 px-2"
                           disabled={actionProjMut.isPending || isProjectBusy}
-                          onClick={() => {
-                            if (window.confirm(t('projects.deleteConfirm', { name: p.name }))) {
-                              actionProjMut.mutate({ id: p.id, action: 'delete' });
-                            }
-                          }}
+                          onClick={() => requestConfirm(t('projects.deleteConfirm', { name: p.name }), () => actionProjMut.mutate({ id: p.id, action: 'delete' }))}
                         >
                           <Trash2 className="w-4 h-4"/>
                         </Button>
@@ -547,6 +446,20 @@ export function AllResourcesPage() {
         build={viewLogsBuild}
         isAdmin={true}
         onClose={() => setViewLogsBuild(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={!!confirmAction}
+        title={t('confirm.title')}
+        message={confirmAction?.message || ''}
+        confirmLabel={confirmAction?.confirmLabel || t('common.delete')}
+        variant={confirmAction?.variant || 'danger'}
+        isLoading={isMutating}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          confirmAction?.run();
+          setConfirmAction(null);
+        }}
       />
 
     </div>

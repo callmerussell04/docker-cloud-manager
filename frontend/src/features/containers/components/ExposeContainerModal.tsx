@@ -2,18 +2,15 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
-import { useToastStore } from '@/store/toastStore';
-import { exposeContainerFn } from '../api';
 import { type ExposeContainerDTO, exposeContainerSchema, type ContainerData } from '../types';
 import { BASE_DOMAIN } from '@/config';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { useExposeContainer } from '../hooks';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;
@@ -23,8 +20,6 @@ interface ExposeContainerModalProps {
 type ExposeContainerFormValues = z.input<ReturnType<typeof exposeContainerSchema>>;
 
 export function ExposeContainerModal({ container, onClose }: ExposeContainerModalProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ExposeContainerFormValues>({
@@ -40,27 +35,17 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
     }
   }, [container, reset]);
 
-  const mutation = useMutation({
-    mutationFn: (data: ExposeContainerDTO) => {
-      if (!container) throw new Error('No container');
-      return exposeContainerFn({ id: container.id, data });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['containers'] });
-      addToast(t('containers.routingUpdated'), 'success');
-      onClose();
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('containers.routingUpdateFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const mutation = useExposeContainer();
 
   const onSubmit = (data: ExposeContainerFormValues) => {
+    if (!container) return;
     mutation.mutate({
-      ...data,
-      internal_port: data.internal_port !== undefined ? Number(data.internal_port) : undefined,
-    });
+      id: container.id,
+      data: {
+        domain_prefix: data.domain_prefix,
+        internal_port: Number(data.internal_port),
+      },
+    }, { onSuccess: onClose });
   };
 
   return (

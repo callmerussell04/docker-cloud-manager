@@ -1,6 +1,6 @@
 import { privateApi } from '@/api/axios';
 import { type CreateProjectGitPayload, type ProjectData } from '../types';
-import type { PaginatedResponse } from '@/features/admin/types';
+import type { PaginatedResponse } from '@/shared/api/pagination';
 
 export const getProjectsFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ProjectData>> => {
   const response = await privateApi.get<{ projects: ProjectData[]; total_count: number }>('/projects', {

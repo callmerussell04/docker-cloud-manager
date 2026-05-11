@@ -20,32 +20,44 @@ export const getSystemMonitoringFn = async (): Promise<SystemMonitoring> => {
 };
 
 export const getAllContainersFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ containers: AdminContainerData[], total_count: number }>(`/admin/containers?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ containers: AdminContainerData[], total_count: number }>('/admin/containers', {
+    params: { page, limit },
+  });
   return { items: response.data.containers ||[], total_count: response.data.total_count || 0 };
 };
 
 export const getAllVolumesFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ volumes: AdminVolumeData[], total_count: number }>(`/admin/volumes?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ volumes: AdminVolumeData[], total_count: number }>('/admin/volumes', {
+    params: { page, limit },
+  });
   return { items: response.data.volumes ||[], total_count: response.data.total_count || 0 };
 };
 
 export const getAllImagesFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ images: AdminImageData[], total_count: number }>(`/admin/images?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ images: AdminImageData[], total_count: number }>('/admin/images', {
+    params: { page, limit },
+  });
   return { items: response.data.images ||[], total_count: response.data.total_count || 0 };
 };
 
 export const getAllBuildsFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ builds: AdminBuildData[], total_count: number }>(`/admin/builds?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ builds: AdminBuildData[], total_count: number }>('/admin/builds', {
+    params: { page, limit },
+  });
   return { items: response.data.builds ||[], total_count: response.data.total_count || 0 };
 };
 
 export const getAllProjectsFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ projects: AdminProjectData[], total_count: number }>(`/admin/projects?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ projects: AdminProjectData[], total_count: number }>('/admin/projects', {
+    params: { page, limit },
+  });
   return { items: response.data.projects ||[], total_count: response.data.total_count || 0 };
 };
 
 export const getAdminUsersFn = async (page: number, limit: number) => {
-  const response = await privateApi.get<{ users: AdminUser[], total_count: number }>(`/admin/users?page=${page}&limit=${limit}`);
+  const response = await privateApi.get<{ users: AdminUser[], total_count: number }>('/admin/users', {
+    params: { page, limit },
+  });
   return { items: response.data.users || [], total_count: response.data.total_count || 0 };
 };
 

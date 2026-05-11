@@ -1,7 +1,6 @@
 import { useForm, useFieldArray } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 
 import { Modal } from '@/components/ui/Modal';
@@ -9,14 +8,13 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
-import { useToastStore } from '@/store/toastStore';
-import { getImagesFn } from '@/features/images/api';
-import { getVolumesFn } from '@/features/volumes/api';
-import { createContainerFn } from '../api';
 import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
 import { BASE_DOMAIN } from '@/config';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { useImages } from '@/features/images/hooks';
+import { useVolumes } from '@/features/volumes/hooks';
+import { useCreateContainer } from '../hooks';
+import { KeyValueFieldArray } from '@/components/common/KeyValueFieldArray';
 
 interface CreateContainerModalProps {
   isOpen: boolean;
@@ -26,23 +24,12 @@ interface CreateContainerModalProps {
 type CreateContainerValues = z.output<ReturnType<typeof createContainerSchema>>;
 
 export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
-  const { data: images = [] } = useQuery({
-    queryKey: ['images'],
-    queryFn: () => getImagesFn(1, 100),
-    enabled: isOpen,
-    select: (data) => data.items,
-  });
-
-  const { data: volumes = [] } = useQuery({
-    queryKey: ['volumes'],
-    queryFn: () => getVolumesFn(1, 100),
-    enabled: isOpen,
-    select: (data) => data.items,
-  });
+  const { data: imagesData } = useImages(1, 100, isOpen);
+  const { data: volumesData } = useVolumes(1, 100, isOpen);
+  const images = isOpen ? imagesData?.items || [] : [];
+  const volumes = isOpen ? volumesData?.items || [] : [];
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<CreateContainerForm, unknown, CreateContainerValues>({
     resolver: zodResolver(createContainerSchema(t)),
@@ -54,29 +41,12 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
     }
   });
 
-  const { fields: envFields, append: appendEnv, remove: removeEnv } = useFieldArray({
-    control,
-    name: "env_vars"
-  });
-
   const { fields: volFields, append: appendVol, remove: removeVol } = useFieldArray({
     control,
     name: "volume_mounts"
   });
 
-  const mutation = useMutation({
-    mutationFn: createContainerFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['containers'] });
-      addToast(t('containers.created'), 'success');
-      reset();
-      onClose();
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('containers.createFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const mutation = useCreateContainer();
 
   const onSubmit = (data: CreateContainerValues) => {
     const dto: CreateContainerDTO = {
@@ -101,7 +71,12 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
       }));
     }
 
-    mutation.mutate(dto);
+    mutation.mutate(dto, {
+      onSuccess: () => {
+        reset();
+        onClose();
+      },
+    });
   };
 
   return (
@@ -155,23 +130,14 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
           <h4 className="font-medium">{t('containers.envVars')}</h4>
-          {envFields.map((field, index) => (
-            <div key={field.id} className="flex gap-2 items-start">
-              <div className="flex-1">
-                <Input placeholder={t('containers.envKeyPlaceholder')} {...register(`env_vars.${index}.key`)} />
-                {errors.env_vars?.[index]?.key && <p className="text-xs text-red-500 mt-1">{errors.env_vars[index]?.key?.message}</p>}
-              </div>
-              <div className="flex-1">
-                <Input placeholder={t('containers.envValuePlaceholder')} {...register(`env_vars.${index}.value`)} />
-              </div>
-              <Button type="button" variant="danger" onClick={() => removeEnv(index)} className="px-3">
-                <Trash2 className="w-4 h-4" />
-              </Button>
-            </div>
-          ))}
-          <Button type="button" variant="secondary" onClick={() => appendEnv({ key: '', value: '' })} className="w-full text-sm">
-            <Plus className="w-4 h-4 mr-2" /> {t('containers.addEnv')}
-          </Button>
+          <KeyValueFieldArray
+            control={control}
+            register={register}
+            name="env_vars"
+            keyPlaceholder={t('containers.envKeyPlaceholder')}
+            valuePlaceholder={t('containers.envValuePlaceholder')}
+            addLabel={t('containers.addEnv')}
+          />
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">

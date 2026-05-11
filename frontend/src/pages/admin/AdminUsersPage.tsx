@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Edit, Plus, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
@@ -12,56 +11,30 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { useToastStore } from '@/store/toastStore';
-import {
-  createAdminUserFn,
-  deactivateAdminUserFn,
-  getAdminUsersFn,
-  reactivateAdminUserFn,
-  updateAdminUserFn,
-} from '@/features/admin/api';
 import { type AdminUser, type AdminUserForm, adminUserSchema } from '@/features/admin/types';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { statusLabel, useT } from '@/lib/i18n';
+import {
+  useAdminUsers,
+  useCreateAdminUser,
+  useDeactivateAdminUser,
+  useReactivateAdminUser,
+  useUpdateAdminUser,
+} from '@/features/admin/hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [deactivateUser, setDeactivateUser] = useState<AdminUser | null>(null);
   const limit = 20;
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
-  const { data, isFetching, refetch } = useQuery({
-    queryKey: ['admin_users', page],
-    queryFn: () => getAdminUsersFn(page, limit),
-  });
-
-  const deactivateMutation = useMutation({
-    mutationFn: deactivateAdminUserFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast(t('admin.users.deactivated'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.users.deactivateFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const reactivateMutation = useMutation({
-    mutationFn: reactivateAdminUserFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast(t('admin.users.activated'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.users.activateFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const { data, isFetching, refetch } = useAdminUsers(page, limit);
+  const deactivateMutation = useDeactivateAdminUser();
+  const reactivateMutation = useReactivateAdminUser();
 
   const users = data?.items || [];
 
@@ -90,11 +63,11 @@ export function AdminUsersPage() {
         <div className="overflow-x-auto flex-1">
           <div className={tableLayouts.adminUsers.minWidth}>
             <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminUsers.grid)}>
-              <div>Username</div>
-              <div>Email / ID</div>
-              <div>Role</div>
+              <div>{t('admin.users.username')}</div>
+              <div>{t('admin.users.emailId')}</div>
+              <div>{t('admin.users.role')}</div>
               <div>{t('common.status')}</div>
-              <div>Quotas</div>
+              <div>{t('admin.users.quotas')}</div>
               <div className="flex justify-end">{t('admin.users.management')}</div>
             </div>
 
@@ -124,11 +97,7 @@ export function AdminUsersPage() {
                         variant="danger"
                         className="h-8 px-2"
                         disabled={deactivateMutation.isPending}
-                        onClick={() => {
-                          if (window.confirm(t('admin.users.deactivateConfirm', { name: user.username }))) {
-                            deactivateMutation.mutate(user.user_id);
-                          }
-                        }}
+                        onClick={() => setDeactivateUser(user)}
                       >
                         <UserX className="w-4 h-4" />
                       </Button>
@@ -156,12 +125,24 @@ export function AdminUsersPage() {
           setEditingUser(null);
         }}
       />
+      <ConfirmDialog
+        isOpen={!!deactivateUser}
+        title={t('confirm.title')}
+        message={t('admin.users.deactivateConfirm', { name: deactivateUser?.username || '' })}
+        confirmLabel={t('admin.users.deactivate')}
+        isLoading={deactivateMutation.isPending}
+        onCancel={() => setDeactivateUser(null)}
+        onConfirm={() => {
+          if (deactivateUser) {
+            deactivateMutation.mutate(deactivateUser.user_id, { onSuccess: () => setDeactivateUser(null) });
+          }
+        }}
+      />
     </div>
   );
 }
 
 function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: AdminUser | null; onClose: () => void }) {
-  const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const isEdit = !!user;
   const t = useT();
@@ -194,31 +175,8 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
     }
   }, [user, reset]);
 
-  const createMutation = useMutation({
-    mutationFn: createAdminUserFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast(t('admin.users.created'), 'success');
-      onClose();
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.users.createFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: updateAdminUserFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin_users'] });
-      addToast(t('admin.users.updated'), 'success');
-      onClose();
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('admin.users.updateFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const createMutation = useCreateAdminUser();
+  const updateMutation = useUpdateAdminUser();
 
   const onSubmit = (data: AdminUserForm) => {
     if (!isEdit && !data.password) {
@@ -227,9 +185,9 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
     }
     const payload = { ...data, password: data.password || undefined };
     if (isEdit && user) {
-      updateMutation.mutate({ id: user.user_id, data: payload });
+      updateMutation.mutate({ id: user.user_id, data: payload }, { onSuccess: onClose });
     } else {
-      createMutation.mutate(payload);
+      createMutation.mutate(payload, { onSuccess: onClose });
     }
   };
 
@@ -250,29 +208,29 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
             <Input id="password" type="password" placeholder={isEdit ? t('form.passwordKeep') : ''} {...register('password')} error={!!errors.password} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="role">Role</Label>
+            <Label htmlFor="role">{t('admin.users.role')}</Label>
             <Select id="role" {...register('role')}>
               <option value="user">user</option>
               <option value="admin">admin</option>
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="status">Status</Label>
+            <Label htmlFor="status">{t('common.status')}</Label>
             <Select id="status" {...register('status')}>
               <option value="active">{t('status.active')}</option>
               <option value="deactivated">{t('status.deactivated')}</option>
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quota_cpu">CPU quota</Label>
+            <Label htmlFor="quota_cpu">{t('admin.users.cpuQuota')}</Label>
             <Input id="quota_cpu" type="number" step="0.1" {...register('quota_cpu', { valueAsNumber: true })} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quota_ram_mb">RAM quota MB</Label>
+            <Label htmlFor="quota_ram_mb">{t('admin.users.ramQuotaMb')}</Label>
             <Input id="quota_ram_mb" type="number" {...register('quota_ram_mb', { valueAsNumber: true })} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="quota_disk_mb">Disk quota MB</Label>
+            <Label htmlFor="quota_disk_mb">{t('admin.users.diskQuotaMb')}</Label>
             <Input id="quota_disk_mb" type="number" {...register('quota_disk_mb', { valueAsNumber: true })} />
           </div>
         </div>

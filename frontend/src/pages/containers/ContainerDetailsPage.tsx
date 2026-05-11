@@ -12,6 +12,7 @@ import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { statusLabel, useT } from '@/lib/i18n';
+import { queryKeys } from '@/shared/api/queryKeys';
 
 export function ContainerDetailsPage() {
   const t = useT();
@@ -35,7 +36,7 @@ export function ContainerDetailsPage() {
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
 
   const { data: stats, isLoading } = useQuery({
-    queryKey:['container_stats', id, isAdminRoute],
+    queryKey: queryKeys.containers.stats(id || '', isAdminRoute),
     queryFn: () => isAdminRoute ? adminGetContainerStatsFn(id!) : getContainerStatsFn(id!),
     enabled: !!id,
     refetchInterval: !container || container.status === 'running' ? 3000 : false,

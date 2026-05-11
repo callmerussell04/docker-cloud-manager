@@ -1,13 +1,12 @@
 import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type BuildData } from '../types';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { cancelBuildFn, deleteBuildFn } from '../api';
-import { useToastStore } from '@/store/toastStore';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { useCancelBuild, useDeleteBuild } from '../hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useState } from 'react';
 
 interface BuildRowProps {
   build: BuildData;
@@ -17,34 +16,11 @@ interface BuildRowProps {
 const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_internal', 'canceled']);
 
 export function BuildRow({ build, onViewLogs }: BuildRowProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   const locale = useLocale();
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteBuildFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast(t('images.buildRecordDeleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: cancelBuildFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast(t('images.cancelBuildRequested'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('images.cancelBuildFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
+  const deleteMutation = useDeleteBuild();
+  const cancelMutation = useCancelBuild();
 
   const getStatusDisplay = (status: string) => {
     switch (status) {
@@ -109,11 +85,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         </button>
 
         <button
-          onClick={() => {
-            if (window.confirm(t('images.cancelBuildConfirm', { id: build.id }))) {
-              cancelMutation.mutate(build.id);
-            }
-          }}
+          onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title={t('images.cancelBuildRequested')}
@@ -122,17 +94,29 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         </button>
 
         <button
-          onClick={() => {
-            if (window.confirm(t('images.deleteBuildConfirm', { id: build.id }))) {
-              deleteMutation.mutate(build.id);
-            }
-          }}
+          onClick={() => setConfirmAction('delete')}
           disabled={deleteMutation.isPending || !canDelete}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        <ConfirmDialog
+          isOpen={confirmAction !== null}
+          title={t('confirm.title')}
+          message={confirmAction === 'cancel' ? t('images.cancelBuildConfirm', { id: build.id }) : t('images.deleteBuildConfirm', { id: build.id })}
+          confirmLabel={confirmAction === 'cancel' ? t('projects.cancelRequested') : t('common.delete')}
+          isLoading={cancelMutation.isPending || deleteMutation.isPending}
+          variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            if (confirmAction === 'cancel') {
+              cancelMutation.mutate(build.id, { onSuccess: () => setConfirmAction(null) });
+            } else if (confirmAction === 'delete') {
+              deleteMutation.mutate(build.id, { onSuccess: () => setConfirmAction(null) });
+            }
+          }}
+        />
       </div>
     </div>
   );

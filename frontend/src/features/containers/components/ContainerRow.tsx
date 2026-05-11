@@ -1,15 +1,14 @@
 import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ContainerData } from '../types';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { actionContainerFn } from '../api';
-import { useToastStore } from '@/store/toastStore';
 import { BASE_DOMAIN } from '@/config';
 import { Link } from 'react-router-dom';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
-import { statusLabel, useT, type TranslationKey } from '@/lib/i18n';
+import { statusLabel, useT } from '@/lib/i18n';
+import { useContainerAction } from '../hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useState } from 'react';
 
 interface ContainerRowProps {
   container: ContainerData;
@@ -19,22 +18,9 @@ interface ContainerRowProps {
 }
 
 export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }: ContainerRowProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
-
-  const actionMutation = useMutation({
-    mutationFn: actionContainerFn,
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['containers'] });
-      queryClient.invalidateQueries({ queryKey: ['admin_containers'] });
-      addToast(t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('containers.actionFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const actionMutation = useContainerAction();
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -53,7 +39,8 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   };
 
   const handleAction = (action: 'start' | 'stop' | 'delete') => {
-    if (action === 'delete' && !window.confirm(t('containers.deleteConfirm', { name: container.name }))) {
+    if (action === 'delete') {
+      setIsDeleteConfirmOpen(true);
       return;
     }
     actionMutation.mutate({ id: container.id, action });
@@ -170,6 +157,15 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        <ConfirmDialog
+          isOpen={isDeleteConfirmOpen}
+          title={t('confirm.title')}
+          message={t('containers.deleteConfirm', { name: container.name })}
+          confirmLabel={t('common.delete')}
+          isLoading={actionMutation.isPending}
+          onCancel={() => setIsDeleteConfirmOpen(false)}
+          onConfirm={() => actionMutation.mutate({ id: container.id, action: 'delete' }, { onSuccess: () => setIsDeleteConfirmOpen(false) })}
+        />
       </div>
     </div>
   );

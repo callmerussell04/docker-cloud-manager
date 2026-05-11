@@ -2,6 +2,10 @@ import { create } from 'zustand';
 
 interface AuthState {
   accessToken: string | null;
+  sessionUser: {
+    role: 'admin' | 'user' | null;
+    username: string | null;
+  };
   role: 'admin' | 'user' | null;
   username: string | null;
   isInitialized: boolean;
@@ -28,17 +32,18 @@ function parseJwtPayload(token: string): { role: 'admin' | 'user' | null, userna
 
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
+  sessionUser: { role: null, username: null },
   role: null,
   username: null,
   isInitialized: false,
   setAccessToken: (token) => {
     if (token) {
       const { role, username } = parseJwtPayload(token);
-      set({ accessToken: token, role, username });
+      set({ accessToken: token, sessionUser: { role, username }, role, username });
     } else {
-      set({ accessToken: null, role: null, username: null });
+      set({ accessToken: null, sessionUser: { role: null, username: null }, role: null, username: null });
     }
   },
   setInitialized: (status) => set({ isInitialized: status }),
-  logout: () => set({ accessToken: null, role: null, username: null }),
+  logout: () => set({ accessToken: null, sessionUser: { role: null, username: null }, role: null, username: null }),
 }));

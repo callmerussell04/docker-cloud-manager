@@ -1,12 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
 import { Activity, Box, Cpu, Database, Disc, HardDrive, Layers, RefreshCcw, Server, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { getSystemMonitoringFn } from '@/features/admin/api';
 import type { SystemMonitoring } from '@/features/admin/types';
 import { dateLocale, useLocale, useT } from '@/lib/i18n';
 import { formatBytes } from '@/lib/utils';
+import { useSystemMonitoring } from '@/features/admin/hooks';
 
 function progressColor(percent: number) {
   if (percent < 70) return 'bg-emerald-500';
@@ -105,11 +104,7 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
 export function AdminMonitoringPage() {
   const t = useT();
   const locale = useLocale();
-  const { data, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ['admin_monitoring'],
-    queryFn: getSystemMonitoringFn,
-    refetchInterval: 5000,
-  });
+  const { data, isLoading, isFetching, refetch } = useSystemMonitoring();
   const stats = safeStats(data);
   const observedAt = stats.observed_at
     ? new Date(stats.observed_at * 1000).toLocaleString(dateLocale(locale))

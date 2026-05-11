@@ -1,6 +1,6 @@
 import { privateApi } from '@/api/axios';
 import type { VolumeData, CreateVolumeDTO } from '../types';
-import type { PaginatedResponse } from '@/features/admin/types';
+import type { PaginatedResponse } from '@/shared/api/pagination';
 
 export const getVolumesFn = async (page = 1, limit = 20): Promise<PaginatedResponse<VolumeData>> => {
   const response = await privateApi.get<{ volumes: VolumeData[]; total_count: number }>('/volumes', {

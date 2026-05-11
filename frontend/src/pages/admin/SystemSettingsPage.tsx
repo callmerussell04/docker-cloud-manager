@@ -1,5 +1,4 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, Plus, RefreshCcw, Save, Settings, X } from 'lucide-react';
@@ -9,12 +8,11 @@ import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
-import { useToastStore } from '@/store/toastStore';
-import { getSystemConfigFn, updateSystemConfigFn } from '@/features/admin/api';
 import { type SystemConfig, type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { type TFunction, type TranslationKey, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { useSystemConfig, useUpdateSystemConfig } from '@/features/admin/hooks';
 
 type ConfigFieldName = keyof SystemConfigForm & string;
 type ConfigFieldType = 'text' | 'number' | 'float' | 'boolean' | 'array' | 'bytes';
@@ -158,14 +156,9 @@ function getErrorMessage(error: unknown) {
 }
 
 export function SystemSettingsPage() {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
-  const { data: config, isLoading, isError, error, isFetching, refetch } = useQuery({
-    queryKey: ['systemConfig'],
-    queryFn: getSystemConfigFn,
-  });
+  const { data: config, isLoading, isError, error, isFetching, refetch } = useSystemConfig();
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<SystemConfigForm>({
     resolver: zodResolver(systemConfigSchema),
@@ -177,17 +170,7 @@ export function SystemSettingsPage() {
     }
   }, [config, reset]);
 
-  const mutation = useMutation({
-    mutationFn: updateSystemConfigFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['systemConfig'] });
-      addToast(t('admin.settings.updated'), 'success');
-    },
-    onError: (mutationError: unknown) => {
-      const { message, requestId } = getApiErrorMessage(mutationError, t('admin.settings.updateFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const mutation = useUpdateSystemConfig();
 
   const onSubmit = (data: SystemConfigForm) => {
     mutation.mutate(data as SystemConfig);
@@ -198,13 +181,12 @@ export function SystemSettingsPage() {
   }
 
   if (isError) {
-    const { message, requestId } = getApiErrorMessage(error, t('admin.settings.loadFailed'), t);
+    const { message } = getApiErrorMessage(error, t('admin.settings.loadFailed'), t);
 
     return (
       <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
         <h1 className="text-xl font-semibold">{t('admin.settings.loadFailed')}</h1>
         <p className="mt-2 text-sm">{message}</p>
-        {requestId && <p className="mt-1 text-xs opacity-80">{t('apiError.requestId', { requestId })}</p>}
         <Button type="button" variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="mt-4">
           <RefreshCcw className="mr-2 h-4 w-4" />
           {t('common.refresh')}

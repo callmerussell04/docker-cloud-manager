@@ -1,72 +1,25 @@
 import { Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ProjectData } from '../types';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { cancelProjectFn, deleteProjectFn, stopProjectFn, startProjectFn } from '../api';
-import { useToastStore } from '@/store/toastStore';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useState } from 'react';
 
 interface ProjectRowProps {
   project: ProjectData;
 }
 
 export function ProjectRow({ project }: ProjectRowProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   const locale = useLocale();
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteProjectFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast(t('projects.deleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('projects.deleteFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const startMutation = useMutation({
-    mutationFn: startProjectFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast(t('projects.startSent'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('projects.startFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const stopMutation = useMutation({
-    mutationFn: stopProjectFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      addToast(t('projects.stopSent'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('projects.stopFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: cancelProjectFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      queryClient.invalidateQueries({ queryKey: ['builds'] });
-      addToast(t('projects.cancelRequested'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('projects.cancelFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
+  const deleteMutation = useDeleteProject();
+  const startMutation = useStartProject();
+  const stopMutation = useStopProject();
+  const cancelMutation = useCancelProject();
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -150,11 +103,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
         </button>
 
         <button
-          onClick={() => {
-            if (window.confirm(t('projects.cancelConfirm', { name: project.name }))) {
-              cancelMutation.mutate(project.id);
-            }
-          }}
+          onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
           title={t('projects.cancelRequested')}
@@ -163,17 +112,29 @@ export function ProjectRow({ project }: ProjectRowProps) {
         </button>
 
         <button
-          onClick={() => {
-            if (window.confirm(t('projects.deleteConfirm', { name: project.name }))) {
-              deleteMutation.mutate(project.id);
-            }
-          }}
+          onClick={() => setConfirmAction('delete')}
           disabled={deleteMutation.isPending || isWorking}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        <ConfirmDialog
+          isOpen={confirmAction !== null}
+          title={t('confirm.title')}
+          message={confirmAction === 'cancel' ? t('projects.cancelConfirm', { name: project.name }) : t('projects.deleteConfirm', { name: project.name })}
+          confirmLabel={confirmAction === 'cancel' ? t('projects.cancelRequested') : t('common.delete')}
+          isLoading={cancelMutation.isPending || deleteMutation.isPending}
+          variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            if (confirmAction === 'cancel') {
+              cancelMutation.mutate(project.id, { onSuccess: () => setConfirmAction(null) });
+            } else if (confirmAction === 'delete') {
+              deleteMutation.mutate(project.id, { onSuccess: () => setConfirmAction(null) });
+            }
+          }}
+        />
       </div>
     </div>
   );

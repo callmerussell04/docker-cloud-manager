@@ -1,20 +1,23 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, RefreshCcw, Search, Layers, Hammer } from 'lucide-react';
+import { Plus, RefreshCcw, Layers, Hammer } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
 import { WarningBanner } from '@/components/ui/WarningBanner';
 import { ImageRow } from '@/features/images/components/ImageRow';
 import { BuildRow } from '@/features/images/components/BuildRow';
 import { CreateBuildModal } from '@/features/images/components/CreateBuildModal';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
-import { getImagesFn, getBuildsFn, getBuildAvailabilityFn } from '@/features/images/api';
 import { type BuildData } from '@/features/images/types';
 import { cn } from '@/lib/utils';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { useT } from '@/lib/i18n';
+import { useBuildAvailability, useBuilds, useImages } from '@/features/images/hooks';
+import { SearchInput } from '@/components/common/SearchInput';
+import { TabSwitcher } from '@/components/common/TabSwitcher';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 type Tab = 'images' | 'builds';
 
@@ -28,23 +31,13 @@ export function ImagesPage() {
   const [buildsPage, setBuildsPage] = useState(1);
   const limit = 20;
 
-  const { data: imagesData, isLoading: isLoadingImages, refetch: refetchImages, isFetching: isFetchingImages } = useQuery({
-    queryKey: ['images', imagesPage],
-    queryFn: () => getImagesFn(imagesPage, limit),
-  });
+  const { data: imagesData, isLoading: isLoadingImages, isError: isImagesError, error: imagesError, refetch: refetchImages, isFetching: isFetchingImages } = useImages(imagesPage, limit);
   const images = imagesData?.items || [];
 
-  const { data: buildsData, isLoading: isLoadingBuilds, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useQuery({
-    queryKey: ['builds', buildsPage],
-    queryFn: () => getBuildsFn(buildsPage, limit),
-    refetchInterval: activeTab === 'builds' ? 5000 : false,
-  });
+  const { data: buildsData, isLoading: isLoadingBuilds, isError: isBuildsError, error: buildsError, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useBuilds(buildsPage, limit, activeTab === 'builds');
   const builds = buildsData?.items || [];
 
-  const { data: buildAvailability } = useQuery({
-    queryKey: ['imageBuildAvailability'],
-    queryFn: getBuildAvailabilityFn,
-  });
+  const { data: buildAvailability } = useBuildAvailability();
   const isBuildDisabled = buildAvailability?.enabled === false;
 
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
@@ -78,19 +71,16 @@ export function ImagesPage() {
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input 
-              placeholder={t('common.search')}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setImagesPage(1);
-                setBuildsPage(1);
-              }}
-              className="pl-9"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('common.search')}
+            title={t('common.searchCurrentPage')}
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setImagesPage(1);
+              setBuildsPage(1);
+            }}
+          />
           <Button variant="secondary" onClick={handleRefresh} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
@@ -107,34 +97,14 @@ export function ImagesPage() {
         </WarningBanner>
       )}
 
-      <div className="max-w-full overflow-x-auto pb-1 shrink-0">
-        <div className="flex w-max bg-white/40 dark:bg-slate-900/40 backdrop-blur-md p-1 rounded-xl border border-white/50 dark:border-slate-700/50">
-        <button
-          onClick={() => handleTabChange('images')}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-            activeTab === 'images' 
-              ? "bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-400" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-          )}
-        >
-          <Layers className="w-4 h-4" />
-          {t('images.myImages')}
-        </button>
-        <button
-          onClick={() => handleTabChange('builds')}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all",
-            activeTab === 'builds' 
-              ? "bg-white dark:bg-slate-800 shadow-sm text-indigo-600 dark:text-indigo-400" 
-              : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-          )}
-        >
-          <Hammer className="w-4 h-4" />
-          {t('images.buildHistory')}
-        </button>
-        </div>
-      </div>
+      <TabSwitcher
+        activeTab={activeTab}
+        onChange={handleTabChange}
+        items={[
+          { id: 'images', label: t('images.myImages'), icon: Layers },
+          { id: 'builds', label: t('images.buildHistory'), icon: Hammer },
+        ]}
+      />
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
@@ -168,22 +138,26 @@ export function ImagesPage() {
                     </div>
                   </div>
                 ))
+              ) : activeTab === 'images' && isImagesError ? (
+                <div className="p-4">
+                  <ErrorState title={t('images.loadFailed')} message={getApiErrorMessage(imagesError, t('images.loadFailed'), t).message} onRetry={() => refetchImages()} isRetrying={isFetchingImages} />
+                </div>
+              ) : activeTab === 'builds' && isBuildsError ? (
+                <div className="p-4">
+                  <ErrorState title={t('images.loadBuildsFailed')} message={getApiErrorMessage(buildsError, t('images.loadBuildsFailed'), t).message} onRetry={() => refetchBuilds()} isRetrying={isFetchingBuilds} />
+                </div>
               ) : activeTab === 'images' ? (
                 filteredImages.length > 0 ? (
                   filteredImages.map((image) => (
                     <ImageRow key={image.id} image={image} />
                   ))
                 ) : (
-                  <div className="p-12 flex flex-col items-center justify-center text-center">
-                    <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
-                      <Layers className="w-8 h-8" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2">{t('images.noImages')}</h3>
-                    <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                      {t('images.noImagesDescription')}
-                    </p>
-                    <Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>{t('images.buildFirst')}</Button>
-                  </div>
+                  <EmptyState
+                    icon={<Layers className="h-8 w-8" />}
+                    title={t('images.noImages')}
+                    description={t('images.noImagesDescription')}
+                    action={<Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>{t('images.buildFirst')}</Button>}
+                  />
                 )
               ) : (
                 filteredBuilds.length > 0 ? (
@@ -191,15 +165,11 @@ export function ImagesPage() {
                     <BuildRow key={build.id} build={build} onViewLogs={setViewLogsBuild} />
                   ))
                 ) : (
-                  <div className="p-12 flex flex-col items-center justify-center text-center">
-                    <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-2xl flex items-center justify-center mb-4">
-                      <Hammer className="w-8 h-8" />
-                    </div>
-                    <h3 className="text-xl font-semibold mb-2">{t('images.emptyBuilds')}</h3>
-                    <p className="text-slate-500 dark:text-slate-400 max-w-sm">
-                      {t('images.emptyBuildsDescription')}
-                    </p>
-                  </div>
+                  <EmptyState
+                    icon={<Hammer className="h-8 w-8" />}
+                    title={t('images.emptyBuilds')}
+                    description={t('images.emptyBuildsDescription')}
+                  />
                 )
               )}
             </div>

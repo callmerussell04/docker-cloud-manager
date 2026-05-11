@@ -9,6 +9,7 @@ import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { ConnectionStatus } from '@/components/common/ConnectionStatus';
 
 interface ContainerTerminalModalProps {
   container: ContainerData | null;
@@ -21,6 +22,8 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const dataDisposableRef = useRef<{ dispose: () => void } | null>(null);
+  const resizeDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -88,20 +91,20 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
           term.writeln('\r\n\x1b[33mDisconnected from terminal.\x1b[0m\r\n');
         };
 
-        term.onData((data) => {
+        dataDisposableRef.current = term.onData((data) => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(new TextEncoder().encode(data));
           }
         });
 
-        term.onResize((size) => {
+        resizeDisposableRef.current = term.onResize((size) => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'resize', cols: size.cols, rows: size.rows }));
           }
         });
       } catch (error) {
-        const { message, requestId } = getApiErrorMessage(error, t('containers.terminalTicketFailed'), t);
-        addToast(message, 'error', { requestId });
+        const { message } = getApiErrorMessage(error, t('containers.terminalTicketFailed'), t);
+        addToast(message, 'error');
         onClose();
       }
     };
@@ -118,6 +121,8 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
     return () => {
       isSubscribed = false;
       resizeObserver.disconnect();
+      dataDisposableRef.current?.dispose();
+      resizeDisposableRef.current?.dispose();
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -131,10 +136,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
     <Modal isOpen={!!container} onClose={onClose} title={t('containers.terminalTitle', { name: container.name })} className="max-w-5xl">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between px-2">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-slate-500">{isConnected ? t('connection.connected') : t('connection.disconnected')}</span>
-          </div>
+          <ConnectionStatus connected={isConnected} connectedLabel={t('connection.connected')} disconnectedLabel={t('connection.disconnected')} />
           <span className="text-xs text-slate-500">
             {t('containers.terminalExitHint')}
           </span>

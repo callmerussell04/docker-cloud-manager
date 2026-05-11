@@ -1,6 +1,12 @@
-import axios from 'axios';
+import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { API_URL } from '@/config';
 import { useAuthStore } from '@/store/authStore';
+
+interface RetryableRequestConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
+
+let refreshPromise: Promise<string> | null = null;
 
 export const publicApi = axios.create({
   baseURL: API_URL,
@@ -29,14 +35,21 @@ privateApi.interceptors.request.use((config) => {
 privateApi.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config;
+    const originalRequest = error.config as RetryableRequestConfig | undefined;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
-        const response = await publicApi.post('/auth/refresh');
-        const newAccessToken = response.data.access_token;
+        if (!refreshPromise) {
+          refreshPromise = publicApi.post<{ access_token: string }>('/auth/refresh')
+            .then((response) => response.data.access_token)
+            .finally(() => {
+              refreshPromise = null;
+            });
+        }
+
+        const newAccessToken = await refreshPromise;
 
         useAuthStore.getState().setAccessToken(newAccessToken);
         

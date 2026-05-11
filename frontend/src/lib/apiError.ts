@@ -9,7 +9,6 @@ export interface ApiErrorResponse {
 
 export interface ApiErrorMessage {
   message: string;
-  requestId?: string;
 }
 
 const knownErrorCodes = new Set([
@@ -56,22 +55,18 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
   if (axios.isAxiosError<ApiErrorResponse>(error)) {
     const responseError = error.response?.data?.error;
     const responseErrorCode = error.response?.data?.error_code;
-    const requestId = error.response?.data?.request_id;
     const code = normalizeErrorCode(responseErrorCode) ?? normalizeLegacyError(responseError);
 
     if (code && t) {
-      return { message: t(`apiError.${code}` as TranslationKey), requestId };
+      return { message: t(`apiError.${code}` as TranslationKey) };
     }
 
-    if (responseError) {
-      return { message: responseError, requestId };
+    if (responseError && isSafeUserMessage(responseError)) {
+      return { message: responseError };
     }
 
     if (error.response) {
-      return {
-        message: fallback,
-        requestId,
-      };
+      return { message: fallback };
     }
 
     if (error.code === 'ECONNABORTED') {
@@ -84,6 +79,14 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
   }
 
   return { message: fallback };
+}
+
+function isSafeUserMessage(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes('request_id') || lower.includes('trace') || lower.includes('stack')) return false;
+  if (lower.includes('sql') || lower.includes('grpc') || lower.includes('docker')) return false;
+  if (lower.includes('internal') || lower.includes('database')) return false;
+  return message.length <= 160;
 }
 
 function normalizeErrorCode(code?: string) {

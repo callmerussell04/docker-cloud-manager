@@ -1,5 +1,6 @@
 import { privateApi } from '@/api/axios';
-import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats, TelemetryTicketResponse, PaginatedResponse } from '../types';
+import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats, TelemetryTicketResponse } from '../types';
+import type { PaginatedResponse } from '@/shared/api/pagination';
 
 export const getContainersFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ContainerData>> => {
   const response = await privateApi.get<{ containers: ContainerData[]; total_count: number }>('/containers', {

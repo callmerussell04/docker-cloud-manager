@@ -1,34 +1,21 @@
 import { Trash2, HardDrive, AlertTriangle } from 'lucide-react';
 import { type VolumeData } from '../types';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { deleteVolumeFn } from '../api';
-import { useToastStore } from '@/store/toastStore';
-import { getApiErrorMessage } from '@/lib/apiError';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { useDeleteVolume } from '../hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useState } from 'react';
 
 interface VolumeRowProps {
   volume: VolumeData;
 }
 
 export function VolumeRow({ volume }: VolumeRowProps) {
-  const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
   const t = useT();
   const locale = useLocale();
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteVolumeFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['volumes'] });
-      addToast(t('volumes.deleted'), 'success');
-    },
-    onError: (error: unknown) => {
-      const { message, requestId } = getApiErrorMessage(error, t('volumes.deleteFailed'), t);
-      addToast(message, 'error', { requestId });
-    },
-  });
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const deleteMutation = useDeleteVolume();
 
   const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -69,17 +56,22 @@ export function VolumeRow({ volume }: VolumeRowProps) {
 
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
-          onClick={() => {
-            if (window.confirm(t('volumes.deleteConfirm', { name: displayName }))) {
-              deleteMutation.mutate(volume.id);
-            }
-          }}
+          onClick={() => setIsConfirmOpen(true)}
           disabled={deleteMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
           title={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>
+        <ConfirmDialog
+          isOpen={isConfirmOpen}
+          title={t('confirm.title')}
+          message={t('volumes.deleteConfirm', { name: displayName })}
+          confirmLabel={t('common.delete')}
+          isLoading={deleteMutation.isPending}
+          onCancel={() => setIsConfirmOpen(false)}
+          onConfirm={() => deleteMutation.mutate(volume.id, { onSuccess: () => setIsConfirmOpen(false) })}
+        />
       </div>
     </div>
   );

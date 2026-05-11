@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, RefreshCcw, Search, Box } from 'lucide-react';
+import { Plus, RefreshCcw, Box } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 import { Pagination } from '@/components/ui/Pagination';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
-import { getContainersFn } from '@/features/containers/api';
 import { type ContainerData } from '@/features/containers/types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import { useContainers } from '@/features/containers/hooks';
+import { SearchInput } from '@/components/common/SearchInput';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
+import { getApiErrorMessage } from '@/lib/apiError';
 
 export function ContainersPage() {
   const t = useT();
@@ -26,10 +28,7 @@ export function ContainersPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey:['containers', page],
-    queryFn: () => getContainersFn(page, limit),
-  });
+  const { data, isLoading, isError, error, refetch, isFetching } = useContainers(page, limit);
   const containers = data?.items || [];
 
   const filteredContainers = containers.filter(c => 
@@ -46,18 +45,15 @@ export function ContainersPage() {
         </div>
         
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input 
-              placeholder={t('common.search')}
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="pl-9"
-            />
-          </div>
+          <SearchInput
+            placeholder={t('common.search')}
+            title={t('common.searchCurrentPage')}
+            value={search}
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+          />
           <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
@@ -89,6 +85,15 @@ export function ContainersPage() {
                     </div>
                   </div>
                 ))
+              ) : isError ? (
+                <div className="p-4">
+                  <ErrorState
+                    title={t('containers.loadFailed')}
+                    message={getApiErrorMessage(error, t('containers.loadFailed'), t).message}
+                    onRetry={() => refetch()}
+                    isRetrying={isFetching}
+                  />
+                </div>
               ) : filteredContainers.length > 0 ? (
                 filteredContainers.map((container) => (
                   <ContainerRow 
@@ -100,16 +105,12 @@ export function ContainersPage() {
                   />
                 ))
               ) : (
-                <div className="p-12 flex flex-col items-center justify-center text-center">
-                  <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4">
-                    <Box className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">{t('containers.emptyTitle')}</h3>
-                  <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6">
-                    {t('containers.emptyDescription')}
-                  </p>
-                  <Button onClick={() => setIsCreateModalOpen(true)}>{t('containers.create')}</Button>
-                </div>
+                <EmptyState
+                  icon={<Box className="h-8 w-8" />}
+                  title={t('containers.emptyTitle')}
+                  description={t('containers.emptyDescription')}
+                  action={<Button onClick={() => setIsCreateModalOpen(true)}>{t('containers.create')}</Button>}
+                />
               )}
             </div>
           </div>

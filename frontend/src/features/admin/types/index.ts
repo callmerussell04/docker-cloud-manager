@@ -1,11 +1,6 @@
 import { z } from 'zod';
 import type { TFunction } from '@/lib/i18n';
 
-export interface PaginatedResponse<T> {
-  items: T[];
-  total_count: number;
-}
-
 export interface AdminUser {
   user_id: string;
   username: string;

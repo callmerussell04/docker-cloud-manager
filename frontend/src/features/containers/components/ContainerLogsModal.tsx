@@ -9,6 +9,7 @@ import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
+import { ConnectionStatus } from '@/components/common/ConnectionStatus';
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;
@@ -38,6 +39,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
       try {
         setLogs([]);
         setIsConnected(false);
+        esRef.current?.close();
         const { ticket } = await getLogsTicketFn(container.id, isAdmin);
         if (!isSubscribed) return;
 
@@ -54,7 +56,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         es.onopen = () => setIsConnected(true);
 
         es.addEventListener('log', (e) => {
-          setLogs((prev) => [...prev, e.data]);
+          setLogs((prev) => [...prev, e.data].slice(-5000));
         });
 
         es.addEventListener('error', (event) => {
@@ -73,8 +75,8 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
           setIsConnected(false);
         };
       } catch (error) {
-        const { message, requestId } = getApiErrorMessage(error, t('containers.logsTicketFailed'), t);
-        addToast(message, 'error', { requestId });
+        const { message } = getApiErrorMessage(error, t('containers.logsTicketFailed'), t);
+        addToast(message, 'error');
         onClose();
       }
     };
@@ -107,6 +109,14 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
     URL.revokeObjectURL(url);
   };
 
+  const applyOptions = () => {
+    const nextTail = Math.max(0, Math.min(5000, Number(tail) || 0)).toString();
+    setTail(nextTail);
+    setAppliedTail(nextTail);
+    setAppliedTimestamps(timestamps);
+    setAppliedFollow(follow);
+  };
+
   if (!container) return null;
 
   return (
@@ -114,34 +124,27 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-4 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Tail:</span>
+            <span className="text-sm font-medium">{t('containers.logsTail')}</span>
             <Input type="number" value={tail} onChange={(e) => setTail(e.target.value)} className="w-24 h-8" />
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
-            Timestamps
+            {t('containers.logsTimestamps')}
           </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
             <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
-            Follow
+            {t('containers.logsFollow')}
           </label>
           <Button
             type="button"
             variant="secondary"
-            onClick={() => {
-              setAppliedTail(tail);
-              setAppliedTimestamps(timestamps);
-              setAppliedFollow(follow);
-            }}
+            onClick={applyOptions}
             className="h-8 px-3 text-xs"
           >
             {t('common.apply')}
           </Button>
           <div className="flex-1" />
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-slate-500">{isConnected ? t('connection.connected') : t('connection.disconnected')}</span>
-          </div>
+          <ConnectionStatus connected={isConnected} connectedLabel={t('connection.connected')} disconnectedLabel={t('connection.disconnected')} />
           <Button variant="secondary" onClick={downloadLogs} className="h-8 px-3 text-xs">
             <Download className="w-3 h-3 mr-2" />
             {t('common.download')}
