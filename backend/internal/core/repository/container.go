@@ -172,6 +172,78 @@ func (r *ContainerRepository) UpdateStatusByContainerIDAndGeneration(ctx context
 	return nil
 }
 
+func (r *ContainerRepository) UpdateObservedStatus(ctx context.Context, id uuid.UUID, status string, exitCode *int, desiredStatus *string, cause error) error {
+	query := `
+		UPDATE containers
+		SET status = $1,
+			desired_status = COALESCE($2, desired_status),
+			last_exit_code = $3,
+			last_observed_at = NOW(),
+			last_error = $4
+		WHERE id = $5
+	`
+	res, err := r.db.ExecContext(ctx, query, status, nullableString(desiredStatus), nullableInt(exitCode), nullableError(cause), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContainerRepository) UpdateObservedStatusByDockerID(ctx context.Context, dockerID string, status string, exitCode *int, desiredStatus *string, cause error) error {
+	query := `
+		UPDATE containers
+		SET status = $1,
+			desired_status = COALESCE($2, desired_status),
+			last_exit_code = $3,
+			last_observed_at = NOW(),
+			last_error = $4
+		WHERE docker_id = $5
+	`
+	res, err := r.db.ExecContext(ctx, query, status, nullableString(desiredStatus), nullableInt(exitCode), nullableError(cause), dockerID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContainerRepository) UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error {
+	query := `
+		UPDATE containers
+		SET status = $1,
+			desired_status = COALESCE($2, desired_status),
+			last_exit_code = $3,
+			last_observed_at = NOW(),
+			last_error = $4
+		WHERE id = $5 AND docker_generation = $6
+	`
+	res, err := r.db.ExecContext(ctx, query, status, nullableString(desiredStatus), nullableInt(exitCode), nullableError(cause), containerID, generation)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error {
 	query := `UPDATE containers SET docker_id = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
 	res, err := r.db.ExecContext(ctx, query, dockerID, id)
@@ -273,7 +345,7 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
 			status, desired_status, base_memory_reservation, last_observed_at, last_error,
-			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
+			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE id = $1
 	`
 	c, err := scanContainerFull(r.db.QueryRowContext(ctx, query, id))
@@ -290,7 +362,7 @@ func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
 			status, desired_status, base_memory_reservation, last_observed_at, last_error,
-			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
+			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE docker_id = $1
 	`
 	c, err := scanContainerFull(r.db.QueryRowContext(ctx, query, dockerID))
@@ -334,7 +406,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error, docker_generation, created_at
+			status, desired_status, base_memory_reservation, last_observed_at, last_error, last_exit_code, docker_generation, created_at
 		FROM containers` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
@@ -361,7 +433,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error, docker_generation
+			status, desired_status, base_memory_reservation, last_observed_at, last_error, last_exit_code, docker_generation
 		FROM containers 
 		WHERE project_id = $1
 	`
@@ -378,10 +450,11 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 		var dID sql.NullString
 		var lastObservedAt sql.NullTime
 		var lastError sql.NullString
+		var lastExitCode sql.NullInt64
 
 		if err := rows.Scan(
 			&c.ID, &c.OwnerID, &pID, &dID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &c.DockerGeneration,
+			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration,
 		); err != nil {
 			return nil, err
 		}
@@ -397,6 +470,10 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 		}
 		if lastError.Valid {
 			c.LastError = &lastError.String
+		}
+		if lastExitCode.Valid {
+			value := int(lastExitCode.Int64)
+			c.LastExitCode = &value
 		}
 		containers = append(containers, c)
 	}
@@ -486,7 +563,7 @@ func (r *ContainerRepository) IsImageInUse(ctx context.Context, ownerID uuid.UUI
 
 func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Container, error) {
 	query := `
-		SELECT id, project_id, docker_id, status, desired_status
+		SELECT id, project_id, docker_id, status, desired_status, last_exit_code
 		FROM containers
 		WHERE status != $6 AND (
 			status IN ($1, $2, $3, $4, $5)
@@ -511,7 +588,8 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 		var c model.Container
 		var projectID sql.NullString
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &projectID, &dockerID, &c.Status, &c.DesiredStatus); err != nil {
+		var lastExitCode sql.NullInt64
+		if err := rows.Scan(&c.ID, &projectID, &dockerID, &c.Status, &c.DesiredStatus, &lastExitCode); err != nil {
 			return nil, err
 		}
 		if projectID.Valid {
@@ -520,6 +598,10 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 		}
 		if dockerID.Valid {
 			c.DockerID = dockerID.String
+		}
+		if lastExitCode.Valid {
+			value := int(lastExitCode.Int64)
+			c.LastExitCode = &value
 		}
 		containers = append(containers, c)
 	}
@@ -635,7 +717,7 @@ func (r *ContainerRepository) CreateOperation(ctx context.Context, op model.Reso
 		lastError.Valid = true
 	}
 	_, err := r.db.ExecContext(ctx, query, op.ID, op.ResourceType, op.ResourceID, op.OwnerID, op.Operation, op.Status, op.Attempts, lastError)
-	return err
+	return mapActiveOperationError(err)
 }
 
 func (r *ContainerRepository) CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error {
@@ -676,6 +758,33 @@ func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, owne
 		return nil, err
 	}
 	return unlock, nil
+}
+
+func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if op.ResourceID != uuid.Nil {
+		if err := insertResourceOperationTx(ctx, tx, op); err != nil {
+			return err
+		}
+	}
+
+	res, err := tx.ExecContext(ctx, `UPDATE containers SET desired_status = $1, last_error = NULL WHERE id = $2`, desiredStatus, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return tx.Commit()
 }
 
 func insertContainerTx(ctx context.Context, tx *sql.Tx, c model.Container) error {
@@ -753,7 +862,7 @@ func insertResourceOperationTx(ctx context.Context, tx *sql.Tx, op model.Resourc
 		INSERT INTO resource_operations (id, resource_type, resource_id, owner_id, operation, status, attempts, last_error)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, op.ID, op.ResourceType, op.ResourceID, op.OwnerID, op.Operation, op.Status, op.Attempts, lastError)
-	return err
+	return mapActiveOperationError(err)
 }
 
 func scanContainerListItem(s scanner) (model.Container, error) {
@@ -762,9 +871,10 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	var dockerID sql.NullString
 	var lastObservedAt sql.NullTime
 	var lastError sql.NullString
+	var lastExitCode sql.NullInt64
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &c.DockerGeneration, &c.CreatedAt,
+		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration, &c.CreatedAt,
 	); err != nil {
 		return model.Container{}, err
 	}
@@ -780,6 +890,10 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	}
 	if lastError.Valid {
 		c.LastError = &lastError.String
+	}
+	if lastExitCode.Valid {
+		value := int(lastExitCode.Int64)
+		c.LastExitCode = &value
 	}
 	return c, nil
 }
@@ -790,11 +904,12 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	var dockerID sql.NullString
 	var lastObservedAt sql.NullTime
 	var lastError sql.NullString
+	var lastExitCode sql.NullInt64
 	var command, entrypoint, healthcheck []byte
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
 		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
-		&c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
+		&lastExitCode, &c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
 	); err != nil {
 		return model.Container{}, err
 	}
@@ -811,10 +926,39 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	if lastError.Valid {
 		c.LastError = &lastError.String
 	}
+	if lastExitCode.Valid {
+		value := int(lastExitCode.Int64)
+		c.LastExitCode = &value
+	}
 	_ = json.Unmarshal(command, &c.Command)
 	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
 	if len(healthcheck) > 0 && string(healthcheck) != "null" {
 		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
 	}
 	return c, nil
+}
+
+func nullableInt(value *int) sql.NullInt64 {
+	if value == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(*value), Valid: true}
+}
+
+func nullableError(cause error) sql.NullString {
+	if cause == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: cause.Error(), Valid: true}
+}
+
+func mapActiveOperationError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
+	}
+	return err
 }

@@ -2,19 +2,23 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
 type BuildOutboxRepository interface {
 	LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	MarkBuildOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error
+	MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error
 }
 
 type BuildQueuePublisher interface {
@@ -68,6 +72,20 @@ func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 	}
 
 	for _, item := range items {
+		build, err := w.repo.GetByID(ctx, item.BuildID)
+		if err == nil && model.IsBuildTerminalStatus(build.Status) {
+			_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil)
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, apperrors.ErrNotFound) {
+				_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err)
+				continue
+			}
+			w.logger.ErrorContext(ctx, "failed to fetch build for outbox message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
+			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)
+			continue
+		}
 		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
 			w.logger.ErrorContext(ctx, "failed to publish build queue message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)

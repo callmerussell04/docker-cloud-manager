@@ -87,3 +87,10 @@ func (m *LogManager) Exists(buildID string) (bool, error) {
 	}
 	return false, err
 }
+
+func (m *LogManager) CleanUp(buildID string) error {
+	if err := os.Remove(m.LogPath(buildID)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}

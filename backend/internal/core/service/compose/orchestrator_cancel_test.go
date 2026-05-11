@@ -67,6 +67,19 @@ func (f *orchestratorBuildRepoFake) GetByID(ctx context.Context, id uuid.UUID) (
 	return build, nil
 }
 
+func (f *orchestratorBuildRepoFake) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	builds := make([]model.Build, 0, len(f.builds))
+	for _, build := range f.builds {
+		if build.ProjectID != nil && *build.ProjectID == projectID {
+			builds = append(builds, build)
+		}
+	}
+	return builds, nil
+}
+
 type orchestratorBuilderClientFake struct {
 	canceled []uuid.UUID
 }

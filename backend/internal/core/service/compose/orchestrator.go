@@ -31,6 +31,7 @@ type ProjectRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Project, error)
 	GetComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, error)
 	GetActiveComposeDeploymentJobByProjectID(ctx context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error)
+	ListInterruptedComposeDeploymentJobs(ctx context.Context) ([]model.ComposeDeploymentJob, error)
 	StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error)
 	CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 	RequestComposeDeploymentCancel(ctx context.Context, projectID uuid.UUID) error
@@ -40,6 +41,12 @@ type ProjectRepository interface {
 
 type BuildRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
+	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error)
+}
+
+type ResourceRepository interface {
+	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error)
+	GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error)
 }
 
 type VolumeService interface {
@@ -76,6 +83,7 @@ type Orchestrator struct {
 	parser        *Parser
 	projectRepo   ProjectRepository
 	buildRepo     BuildRepository
+	resourceRepo  ResourceRepository
 	volumeService VolumeService
 	contService   ContainerService
 	dockerAPI     ComposeDockerAPI
@@ -156,6 +164,10 @@ func NewOrchestrator(
 		active:        make(map[uuid.UUID]*deploymentState),
 		logger:        logging.WithComponent(logger, "compose_orchestrator"),
 	}
+}
+
+func (o *Orchestrator) SetResourceRepository(repo ResourceRepository) {
+	o.resourceRepo = repo
 }
 
 func (s *deploymentState) addBuild(buildID uuid.UUID) {
@@ -273,6 +285,20 @@ func (o *Orchestrator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs
 		}
 		if err := o.imageCleaner.Delete(ctx, build.ImageID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			logger.WarnContext(ctx, "failed to delete compose-built image during cancellation cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
+		}
+	}
+}
+
+func (o *Orchestrator) deleteBuildImages(ctx context.Context, builds []model.Build, logger *slog.Logger) {
+	if o.imageCleaner == nil {
+		return
+	}
+	for _, build := range builds {
+		if build.Status != model.BuildStatusSuccess {
+			continue
+		}
+		if err := o.imageCleaner.Delete(ctx, build.ImageID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			logger.WarnContext(ctx, "failed to delete compose-built image during recovery cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
 		}
 	}
 }
@@ -492,6 +518,80 @@ func (o *Orchestrator) Stop(ctx context.Context) error {
 	case <-done:
 		return nil
 	}
+}
+
+func (o *Orchestrator) CleanupInterruptedDeployments(ctx context.Context, errorMessage string) error {
+	if o.resourceRepo == nil {
+		return nil
+	}
+	jobs, err := o.projectRepo.ListInterruptedComposeDeploymentJobs(ctx)
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if err := o.cleanupInterruptedDeployment(ctx, job, errorMessage); err != nil {
+			o.logger.WarnContext(ctx, "failed to cleanup interrupted compose deployment", "project_id", job.ProjectID, "job_id", job.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job model.ComposeDeploymentJob, errorMessage string) error {
+	containers, err := o.resourceRepo.GetByProjectID(ctx, job.ProjectID)
+	if err != nil {
+		return err
+	}
+	volumes, err := o.resourceRepo.GetVolumesByProjectID(ctx, job.ProjectID)
+	if err != nil {
+		return err
+	}
+	builds, err := o.buildRepo.GetByProjectID(ctx, job.ProjectID)
+	if err != nil {
+		return err
+	}
+	if len(containers) == 0 && len(volumes) == 0 && len(builds) == 0 {
+		return nil
+	}
+
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cleanupCtx = accessscope.WithScope(cleanupCtx, accessscope.Scope{Kind: accessscope.KindUser, UserID: job.OwnerID})
+	cleanupCtx = logging.ContextWithRequestID(cleanupCtx, job.RequestID)
+
+	var cleanupErrors []error
+	for i := len(containers) - 1; i >= 0; i-- {
+		if err := o.contService.Delete(cleanupCtx, containers[i].ID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("container %s: %w", containers[i].ID, err))
+		}
+	}
+	for i := len(volumes) - 1; i >= 0; i-- {
+		if err := o.volumeService.Delete(cleanupCtx, volumes[i].ID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("volume %s: %w", volumes[i].ID, err))
+		}
+	}
+
+	buildIDs := make([]uuid.UUID, 0, len(builds))
+	for _, build := range builds {
+		buildIDs = append(buildIDs, build.ID)
+	}
+	o.cancelBuilds(cleanupCtx, buildIDs)
+	o.deleteBuildImages(cleanupCtx, builds, o.logger.With("project_id", job.ProjectID, "job_id", job.ID))
+
+	cleanupMsg := errorMessage
+	if len(cleanupErrors) > 0 {
+		cleanupMsg = fmt.Sprintf("%s; cleanup errors: %v", errorMessage, cleanupErrors)
+	}
+	if err := o.projectRepo.UpdateStatus(cleanupCtx, job.ProjectID, model.ProjectStatusFailed, &cleanupMsg); err != nil {
+		return err
+	}
+	if err := o.projectRepo.CompleteComposeDeploymentJob(cleanupCtx, job.ID, model.ComposeDeploymentStatusFailed, &cleanupMsg); err != nil {
+		return err
+	}
+	if o.objectStore != nil {
+		_ = o.objectStore.DeleteObject(cleanupCtx, job.SourceObjectKey)
+	}
+	o.logger.WarnContext(cleanupCtx, "interrupted compose deployment cleaned up", "project_id", job.ProjectID, "job_id", job.ID)
+	return nil
 }
 
 func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, composeYAML []byte, composeBaseDir string, reservedDomainPrefixes []string) (*model.ComposeProject, error) {

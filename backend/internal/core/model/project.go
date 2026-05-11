@@ -35,6 +35,7 @@ const (
 	ComposeOutboxStatusPending    = "pending"
 	ComposeOutboxStatusPublishing = "publishing"
 	ComposeOutboxStatusPublished  = "published"
+	ComposeOutboxStatusDiscarded  = "discarded"
 )
 
 type Project struct {
@@ -93,4 +94,13 @@ type ComposeDeploymentOutbox struct {
 	LastError  *string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+}
+
+func IsComposeDeploymentTerminalStatus(status string) bool {
+	switch status {
+	case ComposeDeploymentStatusCanceled, ComposeDeploymentStatusSucceeded, ComposeDeploymentStatusFailed:
+		return true
+	default:
+		return false
+	}
 }

@@ -10,6 +10,7 @@ type ContainerDTO struct {
 	Status        string `json:"status"`
 	DesiredStatus string `json:"desired_status"`
 	LastError     string `json:"last_error"`
+	LastExitCode  *int   `json:"last_exit_code,omitempty"`
 	CreatedAt     int64  `json:"created_at"`
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`
@@ -24,6 +25,7 @@ type UserContainerDTO struct {
 	Status        string `json:"status"`
 	DesiredStatus string `json:"desired_status"`
 	LastError     string `json:"last_error"`
+	LastExitCode  *int   `json:"last_exit_code,omitempty"`
 	CreatedAt     int64  `json:"created_at"`
 }
 

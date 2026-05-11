@@ -258,6 +258,10 @@ func (f *containerCleanupRepoFake) CreateOperation(ctx context.Context, op model
 	return nil
 }
 
+func (f *containerCleanupRepoFake) CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error {
+	return f.SetDesiredStatus(ctx, id, desiredStatus)
+}
+
 func (f *containerCleanupRepoFake) CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error {
 	return nil
 }

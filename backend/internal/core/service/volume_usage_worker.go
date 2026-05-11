@@ -27,6 +27,7 @@ type VolumeUsageDockerAPI interface {
 
 type VolumeUsageContainerRepo interface {
 	GetRunningWithWritableVolumeMounts(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
+	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
@@ -143,6 +144,9 @@ func (w *VolumeUsageWorker) stopWritableVolumeContainers(ctx context.Context, ow
 	}
 	cause := errors.New("user disk quota exceeded")
 	for _, c := range containers {
+		if err := w.contRepo.SetDesiredStatus(ctx, c.ID, model.ContainerStatusExited); err != nil {
+			w.logger.WarnContext(ctx, "failed to update over-quota container desired status", "container_id", c.ID, "error", err)
+		}
 		if c.DockerID != "" {
 			if err := w.dockerAPI.StopContainer(ctx, c.DockerID, w.cfg.Get().ContainerStopTimeout); err != nil {
 				w.logger.WarnContext(ctx, "failed to stop over-quota container", "container_id", c.ID, "docker_id", c.DockerID, "error", err)

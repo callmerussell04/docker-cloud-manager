@@ -3,10 +3,13 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -16,6 +19,7 @@ type ComposeConsumer struct {
 	url        string
 	instanceID string
 	logger     *slog.Logger
+	wg         sync.WaitGroup
 }
 
 func NewComposeConsumer(url, instanceID string, logger *slog.Logger) *ComposeConsumer {
@@ -35,7 +39,25 @@ func (c *ComposeConsumer) Run(ctx context.Context, workers int, handler func(con
 	}
 	for i := 0; i < workers; i++ {
 		workerID := i + 1
-		go c.workerLoop(ctx, workerID, handler)
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.workerLoop(ctx, workerID, handler)
+		}()
+	}
+}
+
+func (c *ComposeConsumer) Stop(ctx context.Context) error {
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return nil
 	}
 }
 
@@ -117,8 +139,17 @@ func (c *ComposeConsumer) handleDelivery(ctx context.Context, delivery amqp.Deli
 	msgCtx := logging.ContextWithRequestID(ctx, msg.RequestID)
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.ErrorContext(msgCtx, "compose queue message failed", "job_id", msg.JobID, "project_id", msg.ProjectID, "error", err)
-		_ = delivery.Nack(false, true)
+		_ = delivery.Nack(false, !isPermanentQueueError(err))
 		return
 	}
 	_ = delivery.Ack(false)
+}
+
+func isPermanentQueueError(err error) bool {
+	return errors.Is(err, apperrors.ErrBadRequest) ||
+		errors.Is(err, apperrors.ErrForbidden) ||
+		errors.Is(err, apperrors.ErrNotFound) ||
+		errors.Is(err, apperrors.ErrAlreadyExists) ||
+		errors.Is(err, apperrors.ErrConflict) ||
+		errors.Is(err, apperrors.ErrLimitExceeded)
 }

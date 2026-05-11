@@ -42,6 +42,7 @@ type LogManager interface {
 	IsLogSizeLimitExceeded(err error) bool
 	LogPath(logID string) string
 	Exists(logID string) (bool, error)
+	CleanUp(logID string) error
 }
 
 type ObjectStorage interface {
@@ -216,6 +217,8 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}()
 
 	archivePath := s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)
+	defer s.fileManager.CleanUp(archivePath)
+	defer s.logManager.CleanUp(msg.BuildID)
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
 			return s.completeCanceledBuild(msg, imageID, archivePath)
@@ -223,7 +226,6 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath, msg.ContextDir, msg.Dockerfile); err != nil {
-		defer s.fileManager.CleanUp(archivePath)
 		if buildCtx.Err() != nil {
 			return s.completeCanceledBuild(msg, imageID, archivePath)
 		}

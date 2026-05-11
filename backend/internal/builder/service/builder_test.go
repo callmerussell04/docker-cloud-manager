@@ -333,6 +333,7 @@ func (f *builderLogFake) LogPath(logID string) string { return "" }
 func (f *builderLogFake) Exists(logID string) (bool, error) {
 	return true, nil
 }
+func (f *builderLogFake) CleanUp(logID string) error { return nil }
 
 type builderObjectStoreFake struct {
 	uploads   []string

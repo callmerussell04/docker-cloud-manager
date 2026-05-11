@@ -42,6 +42,7 @@ type containerStateRepository interface {
 	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	CreateOperation(ctx context.Context, op model.ResourceOperation) error
+	CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error
 	CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error
 }
 
@@ -571,7 +572,9 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 		dockerParams.ProjectID = c.ProjectID.String()
 	}
 
-	s.createContainerOperation(ctx, containerID, ownerID, model.OperationExpose)
+	if err := s.createContainerOperation(ctx, containerID, ownerID, model.OperationExpose); err != nil {
+		return err
+	}
 
 	// Создаем новый контейнер с лейблами Traefik до удаления старого.
 	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
@@ -656,22 +659,19 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 		}
 	}
 	defer releaseLock()
-	s.createContainerOperation(ctx, containerID, ownerID, model.OperationStart)
-
 	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
 	if err := s.checkUserQuota(ctx, ownerID, c.BaseMemoryReservation); err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
 	if err := s.checkHostCapacity(ctx, c.BaseMemoryReservation); err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
 	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusRunning)
+	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationStart, model.ContainerStatusRunning); err != nil {
+		return err
+	}
 	releaseLock()
 
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
@@ -715,8 +715,9 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
 		return resourceUnavailableError("container")
 	}
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusExited)
-	s.createContainerOperation(ctx, containerID, ownerID, model.OperationStop)
+	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationStop, model.ContainerStatusExited); err != nil {
+		return err
+	}
 
 	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
 		if !isDockerNotFound(err) {
@@ -752,8 +753,9 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 		return err
 	}
 	ownerID := c.OwnerID
-	s.setContainerDesiredStatus(ctx, containerID, model.ContainerStatusDeleting)
-	s.createContainerOperation(ctx, containerID, ownerID, model.OperationDelete)
+	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationDelete, model.ContainerStatusDeleting); err != nil {
+		return err
+	}
 
 	if c.DockerID != "" {
 		err = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)

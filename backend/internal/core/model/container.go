@@ -34,6 +34,7 @@ type Container struct {
 	BaseMemoryReservation int64
 	LastObservedAt        *time.Time
 	LastError             *string
+	LastExitCode          *int
 	DockerGeneration      int
 	NetworkAlias          string
 	Command               []string

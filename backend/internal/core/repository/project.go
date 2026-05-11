@@ -144,6 +144,31 @@ func (r *ProjectRepository) GetActiveComposeDeploymentJobByProjectID(ctx context
 	return scanComposeDeploymentJob(row)
 }
 
+func (r *ProjectRepository) ListInterruptedComposeDeploymentJobs(ctx context.Context) ([]model.ComposeDeploymentJob, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE status IN ($1, $2)
+		ORDER BY updated_at ASC
+	`, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]model.ComposeDeploymentJob, 0)
+	for rows.Next() {
+		job, err := scanComposeDeploymentJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
 func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -314,6 +339,10 @@ func (r *ProjectRepository) MarkComposeOutboxPublished(ctx context.Context, id u
 
 func (r *ProjectRepository) MarkComposeOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {
 	return r.updateComposeOutboxStatus(ctx, id, model.ComposeOutboxStatusPending, cause)
+}
+
+func (r *ProjectRepository) MarkComposeOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
+	return r.updateComposeOutboxStatus(ctx, id, model.ComposeOutboxStatusDiscarded, cause)
 }
 
 func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Context, maxAttempts int, errorMessage string) error {
@@ -713,10 +742,5 @@ func (r *ProjectRepository) updateComposeOutboxStatus(ctx context.Context, id uu
 }
 
 func isTerminalComposeDeploymentStatus(status string) bool {
-	switch status {
-	case model.ComposeDeploymentStatusCanceled, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStatusFailed:
-		return true
-	default:
-		return false
-	}
+	return model.IsComposeDeploymentTerminalStatus(status)
 }

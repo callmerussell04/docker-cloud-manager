@@ -169,8 +169,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	if params.Domain != "" && params.InternalPort != 0 {
 		err = a.cli.NetworkConnect(ctx, params.ProxyNetworkName, resp.ID, nil)
 		if err != nil {
-			// TODO: idk about this, probably remove this line
-			//a.cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
+			_ = a.cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
 			return "", err
 		}
 	}
@@ -258,6 +257,7 @@ func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.
 			Running:  containerJSON.State.Running,
 			Status:   containerJSON.State.Status,
 			ExitCode: containerJSON.State.ExitCode,
+			OOMKilled: containerJSON.State.OOMKilled,
 		},
 	}
 	if containerJSON.Config != nil {
@@ -395,6 +395,12 @@ func (a *Adapter) ListenEvents(ctx context.Context) (<-chan model.ContainerEvent
 				}
 				if generation, err := strconv.Atoi(msg.Actor.Attributes["dcm.generation"]); err == nil {
 					event.Generation = generation
+				}
+				if exitCode, err := strconv.Atoi(msg.Actor.Attributes["exitCode"]); err == nil {
+					event.ExitCode = &exitCode
+				}
+				if oomKilled, err := strconv.ParseBool(msg.Actor.Attributes["oomKilled"]); err == nil {
+					event.OOMKilled = oomKilled
 				}
 				select {
 				case eventCh <- event:

@@ -215,9 +215,28 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		finishedAt.Valid = true
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE builds SET status = $1, finished_at = $2 WHERE id = $3", status, finishedAt, buildID)
+	res, err := tx.ExecContext(ctx, `
+		UPDATE builds
+		SET status = $1, finished_at = $2
+		WHERE id = $3
+			AND status NOT IN ($4, $5, $6, $7, $8, $9)
+	`, status, finishedAt, buildID,
+		model.BuildStatusSuccess,
+		model.BuildStatusCanceled,
+		model.BuildStatusFailed,
+		model.BuildStatusFailedTimeout,
+		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedInternal,
+	)
 	if err != nil {
 		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return tx.Commit()
 	}
 
 	_, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID)
@@ -241,9 +260,28 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		finishedAt.Valid = true
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE builds SET status = $1, finished_at = $2 WHERE id = $3", status, finishedAt, buildID)
+	res, err := tx.ExecContext(ctx, `
+		UPDATE builds
+		SET status = $1, finished_at = $2
+		WHERE id = $3
+			AND status NOT IN ($4, $5, $6, $7, $8, $9)
+	`, status, finishedAt, buildID,
+		model.BuildStatusSuccess,
+		model.BuildStatusCanceled,
+		model.BuildStatusFailed,
+		model.BuildStatusFailedTimeout,
+		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedInternal,
+	)
 	if err != nil {
 		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return tx.Commit()
 	}
 
 	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1", imageID)

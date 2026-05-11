@@ -98,6 +98,11 @@ func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) 
 func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 	result := make([]model.Container, 0, len(items))
 	for _, item := range items {
+		var lastExitCode *int
+		if item.LastExitCode != nil {
+			value := int(item.GetLastExitCode())
+			lastExitCode = &value
+		}
 		result = append(result, model.Container{
 			ID:            item.GetId(),
 			DockerID:      item.GetDockerId(),
@@ -108,6 +113,7 @@ func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 			Status:        item.GetStatus(),
 			DesiredStatus: item.GetDesiredStatus(),
 			LastError:     item.GetLastError(),
+			LastExitCode:  lastExitCode,
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

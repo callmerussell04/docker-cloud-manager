@@ -3,11 +3,13 @@ package rabbitmq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/rabbitmqtopology"
@@ -143,8 +145,17 @@ func (c *Consumer) handleDelivery(ctx context.Context, delivery amqp.Delivery, h
 	msgCtx := logging.ContextWithRequestID(ctx, msg.RequestID)
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.ErrorContext(msgCtx, "build queue message failed", "build_id", msg.BuildID, "error", err)
-		_ = delivery.Nack(false, true)
+		_ = delivery.Nack(false, !isPermanentQueueError(err))
 		return
 	}
 	_ = delivery.Ack(false)
+}
+
+func isPermanentQueueError(err error) bool {
+	return errors.Is(err, apperrors.ErrBadRequest) ||
+		errors.Is(err, apperrors.ErrForbidden) ||
+		errors.Is(err, apperrors.ErrNotFound) ||
+		errors.Is(err, apperrors.ErrAlreadyExists) ||
+		errors.Is(err, apperrors.ErrConflict) ||
+		errors.Is(err, apperrors.ErrLimitExceeded)
 }

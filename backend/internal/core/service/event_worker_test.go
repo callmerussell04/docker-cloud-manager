@@ -92,6 +92,26 @@ func (f *eventRepoFake) UpdateStatusByContainerIDAndGeneration(ctx context.Conte
 	return nil
 }
 
+func (f *eventRepoFake) UpdateObservedStatus(ctx context.Context, id uuid.UUID, status string, exitCode *int, desiredStatus *string, cause error) error {
+	if f.markedStatus == nil {
+		f.markedStatus = make(map[uuid.UUID]string)
+	}
+	f.markedStatus[id] = status
+	return nil
+}
+
+func (f *eventRepoFake) UpdateObservedStatusByDockerID(ctx context.Context, dockerID string, status string, exitCode *int, desiredStatus *string, cause error) error {
+	return nil
+}
+
+func (f *eventRepoFake) UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error {
+	if f.markedStatus == nil {
+		f.markedStatus = make(map[uuid.UUID]string)
+	}
+	f.markedStatus[containerID] = status
+	return nil
+}
+
 func (f *eventRepoFake) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
 	return model.Container{}, nil
 }

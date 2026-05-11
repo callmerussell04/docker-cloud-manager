@@ -493,7 +493,7 @@ func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Buil
 	}
 	cleanupCtx, cancel := detachedCleanupContext(ctx)
 	defer cancel()
-	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil {
+	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "archive_object_key", build.ArchiveObjectKey, "error", err)
 	}
 }
@@ -516,6 +516,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		if b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
 			s.cleanupBuiltImageManifest(ctx, b)
 		}
+		s.cleanupBuildArchive(ctx, b)
 		return nil
 	}
 
@@ -572,6 +573,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB); err != nil {
 		return err
 	}
+	s.cleanupBuildArchive(ctx, b)
 	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
 	return nil
 }
@@ -629,7 +631,12 @@ func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
 	}
-	return s.repo.Delete(ctx, buildID)
+	if err := s.repo.Delete(ctx, buildID); err != nil {
+		return err
+	}
+	s.cleanupBuildArchive(ctx, b)
+	s.cleanupBuildLog(ctx, b)
+	return nil
 }
 
 func (s *BuildService) List(ctx context.Context, limit, offset int) ([]model.Build, int, error) {
@@ -654,6 +661,17 @@ func normalizeFailedBuildStatus(status string) string {
 		return status
 	default:
 		return model.BuildStatusFailedInternal
+	}
+}
+
+func (s *BuildService) cleanupBuildLog(ctx context.Context, build model.Build) {
+	if s.objectStore == nil || build.LogFilePath == "" {
+		return
+	}
+	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	defer cancel()
+	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogFilePath); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "log_object_key", build.LogFilePath, "error", err)
 	}
 }
 

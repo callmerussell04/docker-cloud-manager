@@ -41,6 +41,7 @@ func containersToDTO(items []model.Container) []dto.ContainerDTO {
 			Status:        item.Status,
 			DesiredStatus: item.DesiredStatus,
 			LastError:     item.LastError,
+			LastExitCode:  item.LastExitCode,
 			CreatedAt:     item.CreatedAt,
 			OwnerID:       item.OwnerID,
 			OwnerUsername: item.OwnerUsername,
@@ -61,6 +62,7 @@ func containersToUserDTO(items []model.Container) []dto.UserContainerDTO {
 			Status:        item.Status,
 			DesiredStatus: item.DesiredStatus,
 			LastError:     item.LastError,
+			LastExitCode:  item.LastExitCode,
 			CreatedAt:     item.CreatedAt,
 		})
 	}

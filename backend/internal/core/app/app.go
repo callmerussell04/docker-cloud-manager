@@ -108,7 +108,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Config:      cfg.ConfigManager,
 		ObjectStore: objectStore,
 	})
-	projService := service.NewProjectService(projRepo, &projectResourceRepo{contRepo, volRepo}, dockerAdapter, contService, volService, cfg.ConfigManager)
+	resourceRepo := &projectResourceRepo{contRepo, volRepo}
+	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
@@ -124,7 +125,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	wg := &sync.WaitGroup{}
 
 	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, objectStore, buildService, imgService, logger)
-	if err := projRepo.RecoverInterruptedComposeDeployments(context.Background(), cfg.ConfigManager.Get().ComposeDeployMaxAttempts, "deployment interrupted by core service restart"); err != nil {
+	orchestrator.SetResourceRepository(resourceRepo)
+	recoveryMessage := "deployment interrupted by core service restart"
+	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
+		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)
+	}
+	if err := projRepo.RecoverInterruptedComposeDeployments(context.Background(), cfg.ConfigManager.Get().ComposeDeployMaxAttempts, recoveryMessage); err != nil {
 		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
 	}
 	buildService.SetDeploymentCanceler(orchestrator)
@@ -211,13 +217,31 @@ func (a *App) Run() error {
 func (a *App) Stop() {
 	a.logger.Info("core application stopping")
 	a.cancel()
+	if a.httpServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
+			a.logger.Warn("core http server shutdown failed", "error", err)
+		}
+		cancel()
+	}
+	if a.gRPCServer != nil {
+		stopGRPCServer(a.gRPCServer, a.logger, 10*time.Second)
+	}
+	if a.composeConsumer != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.composeConsumer.Stop(stopCtx); err != nil {
+			a.logger.Warn("compose queue consumer shutdown timed out", "error", err)
+		}
+		cancel()
+	}
 	if a.orchestrator != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		_ = a.orchestrator.Stop(stopCtx)
+		if err := a.orchestrator.Stop(stopCtx); err != nil {
+			a.logger.Warn("compose orchestrator shutdown timed out", "error", err)
+		}
 		cancel()
 	}
 	a.wg.Wait()
-	a.gRPCServer.GracefulStop()
 	if a.db != nil {
 		a.db.Close()
 	}
@@ -230,7 +254,20 @@ func (a *App) Stop() {
 	if a.ssoConn != nil {
 		a.ssoConn.Close()
 	}
-	if a.httpServer != nil {
-		_ = a.httpServer.Shutdown(context.Background())
+}
+
+func stopGRPCServer(server *grpc.Server, logger *slog.Logger, timeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		server.GracefulStop()
+		close(done)
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+		logger.Warn("core grpc graceful stop timed out; forcing stop")
+		server.Stop()
 	}
 }

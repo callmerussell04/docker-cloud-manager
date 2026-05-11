@@ -128,6 +128,11 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 	var pbContainers []*coreapi.ContainerData
 	usernames := h.usernamesByOwner(ctx, containers)
 	for _, c := range containers {
+		var lastExitCode *int32
+		if c.LastExitCode != nil {
+			value := int32(*c.LastExitCode)
+			lastExitCode = &value
+		}
 		pbContainers = append(pbContainers, &coreapi.ContainerData{
 			Id:            c.ID.String(),
 			DockerId:      c.DockerID,
@@ -141,6 +146,7 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 			OwnerUsername: usernames[c.OwnerID],
 			DesiredStatus: c.DesiredStatus,
 			LastError:     stringValue(c.LastError),
+			LastExitCode:  lastExitCode,
 		})
 	}
 

@@ -182,19 +182,45 @@ func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, sess
 
 	select {
 	case reason := <-inputDone:
+		cancel()
+		_ = session.Close()
+		_ = conn.Close()
+		h.waitTerminalBridge(outputDone)
 		return reason
 	case reason := <-outputDone:
 		state, err := session.Inspect(context.Background())
 		if err == nil && !state.Running {
 			writeJSON(wsEvent{Type: "exit", ExitCode: &state.ExitCode})
 		}
+		cancel()
+		_ = session.Close()
+		_ = conn.Close()
+		h.waitTerminalBridge(inputDone)
 		return reason
 	case <-sessionCtx.Done():
 		if errors.Is(sessionCtx.Err(), context.DeadlineExceeded) {
 			writeJSON(wsEvent{Type: "error", Error: "terminal session timed out"})
+			_ = session.Close()
+			_ = conn.Close()
+			h.waitTerminalBridge(inputDone, outputDone)
 			return "timeout"
 		}
+		_ = session.Close()
+		_ = conn.Close()
+		h.waitTerminalBridge(inputDone, outputDone)
 		return "context_cancelled"
+	}
+}
+
+func (h *Handler) waitTerminalBridge(doneChans ...<-chan string) {
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for _, done := range doneChans {
+		select {
+		case <-done:
+		case <-timer.C:
+			return
+		}
 	}
 }
 

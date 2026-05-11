@@ -19,6 +19,7 @@ const (
 	BuildOutboxStatusPending    = "pending"
 	BuildOutboxStatusPublishing = "publishing"
 	BuildOutboxStatusPublished  = "published"
+	BuildOutboxStatusDiscarded  = "discarded"
 )
 
 func IsBuildTerminalStatus(status string) bool {

@@ -16,14 +16,16 @@ func (s *ContainerService) acquireOwnerCapacityLock(ctx context.Context, ownerID
 	return lockRepo.AcquireOwnerCapacityLock(ctx, ownerID)
 }
 
-func (s *ContainerService) setContainerDesiredStatus(ctx context.Context, containerID uuid.UUID, status string) {
+func (s *ContainerService) setContainerDesiredStatus(ctx context.Context, containerID uuid.UUID, status string) error {
 	stateRepo, ok := s.repo.(containerStateRepository)
 	if !ok {
-		return
+		return nil
 	}
 	if err := stateRepo.SetDesiredStatus(ctx, containerID, status); err != nil {
 		s.logger.WarnContext(ctx, "failed to set desired container status", "container_id", containerID, "desired_status", status, "error", err)
+		return err
 	}
+	return nil
 }
 
 func (s *ContainerService) markContainerError(ctx context.Context, containerID uuid.UUID, status string, cause error) {
@@ -56,10 +58,10 @@ func (s *ContainerService) markImageMissing(ctx context.Context, imageID uuid.UU
 	}
 }
 
-func (s *ContainerService) createContainerOperation(ctx context.Context, containerID, ownerID uuid.UUID, operation string) {
+func (s *ContainerService) createContainerOperation(ctx context.Context, containerID, ownerID uuid.UUID, operation string) error {
 	stateRepo, ok := s.repo.(containerStateRepository)
 	if !ok {
-		return
+		return nil
 	}
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
@@ -71,7 +73,29 @@ func (s *ContainerService) createContainerOperation(ctx context.Context, contain
 	}
 	if err := stateRepo.CreateOperation(ctx, op); err != nil {
 		s.logger.WarnContext(ctx, "failed to create resource operation", "container_id", containerID, "operation", operation, "error", err)
+		return err
 	}
+	return nil
+}
+
+func (s *ContainerService) createContainerOperationAndSetDesired(ctx context.Context, containerID, ownerID uuid.UUID, operation, desiredStatus string) error {
+	stateRepo, ok := s.repo.(containerStateRepository)
+	if !ok {
+		return s.setContainerDesiredStatus(ctx, containerID, desiredStatus)
+	}
+	op := model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   containerID,
+		OwnerID:      ownerID,
+		Operation:    operation,
+		Status:       model.OperationStatusRunning,
+	}
+	if err := stateRepo.CreateOperationAndSetDesired(ctx, containerID, desiredStatus, op); err != nil {
+		s.logger.WarnContext(ctx, "failed to create resource operation and set desired container status", "container_id", containerID, "operation", operation, "desired_status", desiredStatus, "error", err)
+		return err
+	}
+	return nil
 }
 
 func (s *ContainerService) completeContainerOperation(ctx context.Context, containerID uuid.UUID, status string, cause error) {

@@ -140,6 +140,10 @@ func (f *composeProjectRepoFake) GetActiveComposeDeploymentJobByProjectID(ctx co
 	return model.ComposeDeploymentJob{}, apperrors.ErrNotFound
 }
 
+func (f *composeProjectRepoFake) ListInterruptedComposeDeploymentJobs(ctx context.Context) ([]model.ComposeDeploymentJob, error) {
+	return nil, nil
+}
+
 func (f *composeProjectRepoFake) StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error) {
 	return model.ComposeDeploymentJob{}, false, nil
 }

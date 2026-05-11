@@ -179,6 +179,29 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	return builds, rows.Err()
 }
 
+func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		FROM builds
+		WHERE project_id = $1
+		ORDER BY started_at DESC
+	`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	builds := make([]model.Build, 0)
+	for rows.Next() {
+		build, err := scanBuild(rows)
+		if err != nil {
+			return nil, err
+		}
+		builds = append(builds, build)
+	}
+	return builds, rows.Err()
+}
+
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
 		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
@@ -361,6 +384,30 @@ func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.
 		SET status = $1, published_at = NOW(), updated_at = NOW(), last_error = NULL
 		WHERE id = $2
 	`, model.BuildOutboxStatusPublished, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
+	var lastError sql.NullString
+	if cause != nil {
+		lastError.String = cause.Error()
+		lastError.Valid = true
+	}
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE build_queue_outbox
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE id = $3
+	`, model.BuildOutboxStatusDiscarded, lastError, id)
 	if err != nil {
 		return err
 	}

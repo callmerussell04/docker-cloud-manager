@@ -66,6 +66,7 @@ type ContainerState struct {
 	Running      bool
 	Status       string
 	ExitCode     int
+	OOMKilled    bool
 	HealthStatus *string
 }
 
@@ -75,4 +76,6 @@ type ContainerEvent struct {
 	DockerID    string
 	ContainerID string
 	Generation  int
+	ExitCode    *int
+	OOMKilled   bool
 }

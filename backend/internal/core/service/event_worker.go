@@ -17,6 +17,9 @@ import (
 type EventContainerRepo interface {
 	UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error
 	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
+	UpdateObservedStatus(ctx context.Context, id uuid.UUID, status string, exitCode *int, desiredStatus *string, cause error) error
+	UpdateObservedStatusByDockerID(ctx context.Context, dockerID string, status string, exitCode *int, desiredStatus *string, cause error) error
+	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
 	GetByDockerID(ctx context.Context, dockerID string) (model.Container, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -111,15 +114,15 @@ func (w *EventWorker) Run(ctx context.Context) {
 			if msg.Type == "container" {
 				switch msg.Action {
 				case "start":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusRunning)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, observedContainerState{status: model.ContainerStatusRunning})
 					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusExited)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, observedStateFromExitEvent(msg))
 					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				case "destroy":
-					_ = w.updateContainerStatusFromEvent(ctx, msg, model.ContainerStatusMissing)
+					_ = w.updateContainerStatusFromEvent(ctx, msg, observedContainerState{status: model.ContainerStatusMissing, cause: resourceMissingError("container")})
 					w.refreshProjectStatusFromEvent(ctx, msg)
 					w.rebalancer.RequestRebalance()
 				}
@@ -128,8 +131,67 @@ func (w *EventWorker) Run(ctx context.Context) {
 	}
 }
 
-func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg model.ContainerEvent, status string) error {
-	err := w.repo.UpdateStatusByDockerID(ctx, msg.DockerID, status)
+type observedContainerState struct {
+	status        string
+	desiredStatus *string
+	exitCode      *int
+	cause         error
+}
+
+func observedStateFromExitEvent(msg model.ContainerEvent) observedContainerState {
+	state := observedContainerState{
+		status:   model.ContainerStatusExited,
+		exitCode: msg.ExitCode,
+	}
+	if msg.ExitCode != nil && *msg.ExitCode == 0 {
+		desired := model.ContainerStatusExited
+		state.desiredStatus = &desired
+		return state
+	}
+	if msg.OOMKilled {
+		state.status = model.ContainerStatusError
+		state.cause = errors.New("container exited after OOM kill")
+		return state
+	}
+	if msg.ExitCode != nil && *msg.ExitCode != 0 {
+		state.status = model.ContainerStatusError
+		state.cause = errors.New("container exited with non-zero code")
+	}
+	return state
+}
+
+func observedStateFromInspect(c model.Container, inspect model.ContainerInspection) observedContainerState {
+	if inspect.State.Running {
+		return observedContainerState{status: model.ContainerStatusRunning}
+	}
+	if c.Status == model.ContainerStatusCreated && inspect.State.Status == "created" {
+		return observedContainerState{status: model.ContainerStatusCreated}
+	}
+	exitCode := inspect.State.ExitCode
+	state := observedContainerState{
+		status:   model.ContainerStatusExited,
+		exitCode: &exitCode,
+	}
+	if exitCode == 0 {
+		desired := model.ContainerStatusExited
+		state.desiredStatus = &desired
+		return state
+	}
+	if expectedContainerExit(c.DesiredStatus) {
+		return state
+	}
+	state.status = model.ContainerStatusError
+	if inspect.State.OOMKilled {
+		state.cause = errors.New("container exited after OOM kill")
+	} else {
+		state.cause = errors.New("container exited with non-zero code")
+	}
+	return state
+}
+
+func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg model.ContainerEvent, state observedContainerState) error {
+	state = w.adjustExpectedExitState(ctx, msg, state)
+	err := w.repo.UpdateObservedStatusByDockerID(ctx, msg.DockerID, state.status, state.exitCode, state.desiredStatus, state.cause)
 	if err == nil || !errors.Is(err, apperrors.ErrNotFound) {
 		return err
 	}
@@ -140,7 +202,27 @@ func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg mo
 	if parseErr != nil {
 		return err
 	}
-	return w.repo.UpdateStatusByContainerIDAndGeneration(ctx, containerID, msg.Generation, status)
+	return w.repo.UpdateObservedStatusByContainerIDAndGeneration(ctx, containerID, msg.Generation, state.status, state.exitCode, state.desiredStatus, state.cause)
+}
+
+func (w *EventWorker) adjustExpectedExitState(ctx context.Context, msg model.ContainerEvent, state observedContainerState) observedContainerState {
+	if state.cause == nil || msg.DockerID == "" {
+		return state
+	}
+	container, err := w.repo.GetByDockerID(ctx, msg.DockerID)
+	if err != nil {
+		return state
+	}
+	if !expectedContainerExit(container.DesiredStatus) {
+		return state
+	}
+	state.status = model.ContainerStatusExited
+	state.cause = nil
+	return state
+}
+
+func expectedContainerExit(desiredStatus string) bool {
+	return desiredStatus == model.ContainerStatusExited || desiredStatus == model.ContainerStatusDeleting
 }
 
 func (w *EventWorker) syncState(ctx context.Context) {
@@ -175,20 +257,18 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 			continue
 		}
 
-		expectedStatus := model.ContainerStatusExited
-		if inspect.State.Running {
-			expectedStatus = model.ContainerStatusRunning
-		} else if c.Status == model.ContainerStatusCreated && inspect.State.Status == "created" {
-			expectedStatus = model.ContainerStatusCreated
-		}
+		observed := observedStateFromInspect(c, inspect)
+		expectedStatus := observed.status
 
 		if c.Status != expectedStatus {
-			_ = w.repo.UpdateStatus(ctx, c.ID, expectedStatus)
+			_ = w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause)
 			w.logger.InfoContext(ctx, "container status synced", "container_id", c.ID, "old_status", c.Status, "new_status", expectedStatus)
 			w.refreshProjectStatus(ctx, c.ProjectID)
 			if expectedStatus == model.ContainerStatusRunning || c.Status == model.ContainerStatusRunning {
 				changed = true
 			}
+		} else if observed.desiredStatus != nil && c.DesiredStatus != *observed.desiredStatus {
+			_ = w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause)
 		}
 	}
 

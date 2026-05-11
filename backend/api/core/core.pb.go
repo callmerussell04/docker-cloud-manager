@@ -727,6 +727,7 @@ type ContainerData struct {
 	OwnerUsername string                 `protobuf:"bytes,10,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
 	DesiredStatus string                 `protobuf:"bytes,11,opt,name=desired_status,json=desiredStatus,proto3" json:"desired_status,omitempty"`
 	LastError     string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	LastExitCode  *int32                 `protobuf:"varint,13,opt,name=last_exit_code,json=lastExitCode,proto3,oneof" json:"last_exit_code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -843,6 +844,13 @@ func (x *ContainerData) GetLastError() string {
 		return x.LastError
 	}
 	return ""
+}
+
+func (x *ContainerData) GetLastExitCode() int32 {
+	if x != nil && x.LastExitCode != nil {
+		return *x.LastExitCode
+	}
+	return 0
 }
 
 type ContainerRuntimeTargetRequest struct {
@@ -3022,7 +3030,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rExposeRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xf6\x02\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xb4\x03\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -3038,7 +3046,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	" \x01(\tR\rownerUsername\x12%\n" +
 	"\x0edesired_status\x18\v \x01(\tR\rdesiredStatus\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\f \x01(\tR\tlastError\"B\n" +
+	"last_error\x18\f \x01(\tR\tlastError\x12)\n" +
+	"\x0elast_exit_code\x18\r \x01(\x05H\x00R\flastExitCode\x88\x01\x01B\x11\n" +
+	"\x0f_last_exit_code\"B\n" +
 	"\x1dContainerRuntimeTargetRequest\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"\xb8\x01\n" +
 	"\x16ContainerRuntimeTarget\x12!\n" +
@@ -3407,6 +3417,7 @@ func file_api_core_core_proto_init() {
 	if File_api_core_core_proto != nil {
 		return
 	}
+	file_api_core_core_proto_msgTypes[9].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
