@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/dto"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
@@ -19,15 +19,20 @@ import (
 )
 
 type ComposeHandler struct {
-	orchestrator *compose.Orchestrator
+	orchestrator ComposeUseCases
 	cfg          ConfigProvider
+}
+
+type ComposeUseCases interface {
+	StartDeployment(ctx context.Context, projectName, archiveName string, archive io.Reader) (uuid.UUID, error)
+	StartGitDeployment(ctx context.Context, projectName string, source model.GitSource) (uuid.UUID, error)
 }
 
 type ConfigProvider interface {
 	Get() config.SystemConfig
 }
 
-func NewComposeHandler(orchestrator *compose.Orchestrator, cfg ConfigProvider) *ComposeHandler {
+func NewComposeHandler(orchestrator ComposeUseCases, cfg ConfigProvider) *ComposeHandler {
 	return &ComposeHandler{orchestrator: orchestrator, cfg: cfg}
 }
 

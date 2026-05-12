@@ -1,0 +1,24 @@
+with-expecter: true
+case: underscore
+exported: true
+keeptree: true
+outpkg: coremocks
+issue-845-fix: true
+packages:
+  github.com/callmerussell04/docker-cloud-manager/internal/core/service:
+    config:
+      recursive: true
+      all: true
+      dir: tests/mocks/core/service
+      outpkg: coremocks
+      mockname: "{{.InterfaceName}}"
+  github.com/callmerussell04/docker-cloud-manager/internal/core/http:
+    config:
+      all: true
+      dir: tests/mocks/core/http
+      outpkg: corehttpmocks
+  github.com/callmerussell04/docker-cloud-manager/internal/core/grpc:
+    config:
+      all: true
+      dir: tests/mocks/core/grpc
+      outpkg: coregrpcmocks

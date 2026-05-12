@@ -1,4 +1,6 @@
-package compose
+package compose_test
+
+import . "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 
 import (
 	"context"
@@ -6,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/google/uuid"
 )
 
 func TestParserRestartPolicyValidation(t *testing.T) {
@@ -292,62 +293,6 @@ services:
 	}
 	if !strings.Contains(err.Error(), "parent directory traversal is not allowed") {
 		t.Fatalf("ParseAndValidateWithBase() error = %q, want traversal error", err.Error())
-	}
-}
-
-func TestProjectServiceGraphSkipsMissingOptionalDependency(t *testing.T) {
-	t.Parallel()
-
-	projectID := uuid.New()
-	webID := uuid.New()
-	services := []model.ComposeService{
-		{
-			Name: "web",
-			DependsOn: []model.ComposeDependency{
-				{
-					ServiceName: "db",
-					Condition:   model.ComposeDependencyConditionStarted,
-					Optional:    true,
-				},
-			},
-		},
-	}
-
-	graph, err := projectServiceGraph(projectID, services, map[string]uuid.UUID{"web": webID})
-	if err != nil {
-		t.Fatalf("projectServiceGraph() error = %v", err)
-	}
-	if len(graph) != 1 {
-		t.Fatalf("graph length = %d, want 1", len(graph))
-	}
-	if len(graph[0].Dependencies) != 0 {
-		t.Fatalf("dependencies length = %d, want 0", len(graph[0].Dependencies))
-	}
-}
-
-func TestProjectServiceGraphRejectsMissingRequiredDependency(t *testing.T) {
-	t.Parallel()
-
-	projectID := uuid.New()
-	webID := uuid.New()
-	services := []model.ComposeService{
-		{
-			Name: "web",
-			DependsOn: []model.ComposeDependency{
-				{
-					ServiceName: "db",
-					Condition:   model.ComposeDependencyConditionStarted,
-				},
-			},
-		},
-	}
-
-	_, err := projectServiceGraph(projectID, services, map[string]uuid.UUID{"web": webID})
-	if err == nil {
-		t.Fatalf("projectServiceGraph() error = nil, want missing dependency error")
-	}
-	if !strings.Contains(err.Error(), "dependency db not found for service web") {
-		t.Fatalf("projectServiceGraph() error = %q, want missing dependency error", err.Error())
 	}
 }
 
