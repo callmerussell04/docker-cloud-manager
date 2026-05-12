@@ -135,15 +135,6 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 	}
 
 	err := h.service.ExposeContainer(c.Request.Context(), containerID, exposeContainerDTO.DomainPrefix, exposeContainerDTO.InternalPort)
-	outcome, errorCode := auditOutcome(err)
-	h.recordAudit(c, auditInput{
-		Action:       auditlog.ActionContainerExpose,
-		ResourceType: auditlog.ResourceContainer,
-		ResourceID:   containerID,
-		Outcome:      outcome,
-		ErrorCode:    errorCode,
-		DetailsJSON:  auditlog.SafeDetailsJSON(map[string]string{auditlog.DetailDomainPrefix: exposeContainerDTO.DomainPrefix, auditlog.DetailInternalPort: auditlog.IntDetail(exposeContainerDTO.InternalPort)}),
-	})
 	if err != nil {
 		h.handleError(c, err)
 		return

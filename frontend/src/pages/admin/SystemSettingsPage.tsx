@@ -114,6 +114,7 @@ const sections: Array<{
       { name: 'event_reconnect_delay_seconds', labelKey: 'admin.settings.field.event_reconnect_delay_seconds.label', hintKey: 'admin.settings.field.event_reconnect_delay_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'build_outbox_interval_seconds', labelKey: 'admin.settings.field.build_outbox_interval_seconds.label', hintKey: 'admin.settings.field.build_outbox_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'build_outbox_batch_size', labelKey: 'admin.settings.field.build_outbox_batch_size.label', hintKey: 'admin.settings.field.build_outbox_batch_size.hint', type: 'number' },
+      { name: 'reports_usage_snapshot_interval_seconds', labelKey: 'admin.settings.field.reports_usage_snapshot_interval_seconds.label', hintKey: 'admin.settings.field.reports_usage_snapshot_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
     ],
   },
   {

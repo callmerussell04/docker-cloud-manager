@@ -6,14 +6,22 @@ type ActionCountResponse struct {
 }
 
 type ReportsOverviewResponse struct {
-	From                int64                 `json:"from"`
-	To                  int64                 `json:"to"`
-	AuditEventsTotal    int64                 `json:"audit_events_total"`
-	FailedActionsTotal  int64                 `json:"failed_actions_total"`
-	ActiveUsersTotal    int64                 `json:"active_users_total"`
-	ReservedMemoryBytes int64                 `json:"reserved_memory_bytes"`
-	TotalDiskBytes      int64                 `json:"total_disk_bytes"`
-	TopActions          []ActionCountResponse `json:"top_actions"`
+	From                         int64                 `json:"from"`
+	To                           int64                 `json:"to"`
+	AuditEventsTotal             int64                 `json:"audit_events_total"`
+	FailedActionsTotal           int64                 `json:"failed_actions_total"`
+	ActiveUsersTotal             int64                 `json:"active_users_total"`
+	ReservedMemoryBytes          int64                 `json:"reserved_memory_bytes"`
+	TotalDiskBytes               int64                 `json:"total_disk_bytes"`
+	LastUsageSnapshotAt          int64                 `json:"last_usage_snapshot_at"`
+	UsageSnapshotIntervalSeconds int64                 `json:"usage_snapshot_interval_seconds"`
+	TopActions                   []ActionCountResponse `json:"top_actions"`
+}
+
+type RefreshUsageSnapshotsResponse struct {
+	BucketStart    int64 `json:"bucket_start"`
+	CollectedAt    int64 `json:"collected_at"`
+	SnapshotsCount int   `json:"snapshots_count"`
 }
 
 type UserUsageReportItemResponse struct {

@@ -19,6 +19,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -113,6 +114,7 @@ type Orchestrator struct {
 	diskMetrics   HostDiskMetricsProvider
 	hostDiskPath  string
 	users         UserInfoProvider
+	auditor       AuditRecorder
 	builderClient BuilderClient
 	activeMu      sync.Mutex
 	active        map[uuid.UUID]*deploymentState
@@ -204,6 +206,10 @@ func (o *Orchestrator) SetHostDiskGuard(metrics HostDiskMetricsProvider, path st
 
 func (o *Orchestrator) SetUserInfoProvider(users UserInfoProvider) {
 	o.users = users
+}
+
+func (o *Orchestrator) SetAuditRecorder(auditor AuditRecorder) {
+	o.auditor = auditor
 }
 
 func (s *deploymentState) addBuild(buildID uuid.UUID) {
@@ -1228,6 +1234,7 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 		}
 		state.addContainer(contID)
 		serviceToContainerID[srv.Name] = contID
+		o.recordComposeExposeAudit(ctx, ownerID, projectID, projectName, job.SourceType, srv, contID, createParams.Name)
 	}
 
 	serviceGraph, err := projectServiceGraph(projectID, parsedProject.Services, serviceToContainerID)
@@ -1326,6 +1333,50 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 	cleanupSource = true
 	state.markRunning()
 	logger.InfoContext(ctx, "compose deployment completed")
+}
+
+func (o *Orchestrator) recordComposeExposeAudit(ctx context.Context, ownerID, projectID uuid.UUID, projectName, sourceType string, srv model.ComposeService, containerID uuid.UUID, containerName string) {
+	if o.auditor == nil || srv.DomainPrefix == "" || srv.InternalPort <= 0 {
+		return
+	}
+	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	ownerUsername := actorUsername
+	if ownerUsername == "" && o.users != nil {
+		if user, err := o.users.GetUser(ctx, ownerID); err == nil {
+			ownerUsername = user.Username
+			if actorUsername == "" && actorID != nil && *actorID == ownerID {
+				actorUsername = user.Username
+			}
+		}
+	}
+	baseDomain := ""
+	if o.cfg != nil {
+		baseDomain = o.cfg.Get().BaseDomain
+	}
+	_ = o.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+		ActorUserID:   actorID,
+		ActorUsername: actorUsername,
+		ActorScope:    actorScope,
+		Action:        auditlog.ActionContainerExpose,
+		Outcome:       auditlog.OutcomeSuccess,
+		ResourceType:  auditlog.ResourceContainer,
+		ResourceID:    containerID.String(),
+		ResourceName:  containerName,
+		OwnerID:       ownerPtr(ownerID),
+		OwnerUsername: ownerUsername,
+		RequestID:     requestIDFromContext(ctx),
+		DetailsJSON: auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailSourceType:     sourceType,
+			auditlog.DetailProjectID:      projectID.String(),
+			auditlog.DetailProjectName:    projectName,
+			auditlog.DetailComposeService: srv.Name,
+			auditlog.DetailContainerID:    containerID.String(),
+			auditlog.DetailContainerName:  containerName,
+			auditlog.DetailDomainPrefix:   srv.DomainPrefix,
+			auditlog.DetailFullDomain:     composeFullDomain(srv.DomainPrefix, baseDomain),
+			auditlog.DetailInternalPort:   auditlog.IntDetail(srv.InternalPort),
+		}),
+	})
 }
 
 func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, serviceToContainerID map[string]uuid.UUID) ([]model.ProjectServiceNode, error) {

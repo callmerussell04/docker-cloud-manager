@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -115,6 +116,7 @@ type ContainerService struct {
 	config       ConfigManager
 	users        UserInfoProvider
 	projects     ProjectStatusUpdater
+	auditor      AuditRecorder
 	hostDiskPath string
 	logger       *slog.Logger
 	rebalanceCh  chan struct{}
@@ -147,6 +149,10 @@ func NewContainerService(
 
 func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater) {
 	s.projects = updater
+}
+
+func (s *ContainerService) SetAuditRecorder(auditor AuditRecorder) {
+	s.auditor = auditor
 }
 
 func (s *ContainerService) Create(ctx context.Context, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
@@ -498,7 +504,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	return containerID, nil
 }
 
-func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error {
+func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) (err error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return err
@@ -506,6 +512,9 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
+	defer func() {
+		s.recordExposeAudit(ctx, c, domainPrefix, internalPort, err)
+	}()
 	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
@@ -661,6 +670,69 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
 	err = nil
 	return nil
+}
+
+func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Container, domainPrefix string, internalPort int, opErr error) {
+	if s.auditor == nil {
+		return
+	}
+	outcome := auditlog.OutcomeSuccess
+	errorCode := ""
+	if opErr != nil {
+		outcome = auditlog.OutcomeFailure
+		errorCode = apperrors.SafeMessage(opErr)
+	}
+	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	ownerUsername := c.OwnerUsername
+	if ownerUsername == "" && c.OwnerID == actorIDValue(actorID) {
+		ownerUsername = actorUsername
+	}
+	details := map[string]string{
+		auditlog.DetailSourceType:           "manual",
+		auditlog.DetailContainerID:          c.ID.String(),
+		auditlog.DetailContainerName:        c.Name,
+		auditlog.DetailDomainPrefix:         domainPrefix,
+		auditlog.DetailFullDomain:           s.fullDomain(domainPrefix),
+		auditlog.DetailInternalPort:         auditlog.IntDetail(internalPort),
+		auditlog.DetailPreviousDomainPrefix: c.DomainPrefix,
+		auditlog.DetailPreviousInternalPort: auditlog.IntDetail(c.InternalPort),
+	}
+	if c.ProjectID != nil {
+		details[auditlog.DetailProjectID] = c.ProjectID.String()
+	}
+	_ = s.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+		ActorUserID:   actorID,
+		ActorUsername: actorUsername,
+		ActorScope:    actorScope,
+		Action:        auditlog.ActionContainerExpose,
+		Outcome:       outcome,
+		ResourceType:  auditlog.ResourceContainer,
+		ResourceID:    c.ID.String(),
+		ResourceName:  c.Name,
+		OwnerID:       ownerPtr(c.OwnerID),
+		OwnerUsername: ownerUsername,
+		RequestID:     requestIDFromContext(ctx),
+		ErrorCode:     errorCode,
+		DetailsJSON:   auditlog.SafeDetailsJSON(details),
+	})
+}
+
+func (s *ContainerService) fullDomain(domainPrefix string) string {
+	if domainPrefix == "" || s.config == nil {
+		return ""
+	}
+	baseDomain := s.config.Get().BaseDomain
+	if baseDomain == "" {
+		return domainPrefix
+	}
+	return fmt.Sprintf("%s.%s", domainPrefix, baseDomain)
+}
+
+func actorIDValue(actorID *uuid.UUID) uuid.UUID {
+	if actorID == nil {
+		return uuid.Nil
+	}
+	return *actorID
 }
 
 func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) error {

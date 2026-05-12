@@ -18,14 +18,28 @@ func (c *CoreClient) GetReportsOverview(ctx context.Context, from, to int64) (mo
 		topActions = append(topActions, model.ActionCount{Action: item.GetAction(), Count: item.GetCount()})
 	}
 	return model.ReportsOverview{
-		From:                resp.GetFrom(),
-		To:                  resp.GetTo(),
-		AuditEventsTotal:    resp.GetAuditEventsTotal(),
-		FailedActionsTotal:  resp.GetFailedActionsTotal(),
-		ActiveUsersTotal:    resp.GetActiveUsersTotal(),
-		ReservedMemoryBytes: resp.GetReservedMemoryBytes(),
-		TotalDiskBytes:      resp.GetTotalDiskBytes(),
-		TopActions:          topActions,
+		From:                         resp.GetFrom(),
+		To:                           resp.GetTo(),
+		AuditEventsTotal:             resp.GetAuditEventsTotal(),
+		FailedActionsTotal:           resp.GetFailedActionsTotal(),
+		ActiveUsersTotal:             resp.GetActiveUsersTotal(),
+		ReservedMemoryBytes:          resp.GetReservedMemoryBytes(),
+		TotalDiskBytes:               resp.GetTotalDiskBytes(),
+		LastUsageSnapshotAt:          resp.GetLastUsageSnapshotAt(),
+		UsageSnapshotIntervalSeconds: resp.GetUsageSnapshotIntervalSeconds(),
+		TopActions:                   topActions,
+	}, nil
+}
+
+func (c *CoreClient) RefreshUsageSnapshots(ctx context.Context) (model.RefreshUsageSnapshotsResult, error) {
+	resp, err := c.reportAPI.RefreshUsageSnapshots(ctx, &coreapi.Empty{})
+	if err != nil {
+		return model.RefreshUsageSnapshotsResult{}, grpcerrors.FromGRPC(err)
+	}
+	return model.RefreshUsageSnapshotsResult{
+		BucketStart:    resp.GetBucketStart(),
+		CollectedAt:    resp.GetCollectedAt(),
+		SnapshotsCount: int(resp.GetSnapshotsCount()),
 	}, nil
 }
 

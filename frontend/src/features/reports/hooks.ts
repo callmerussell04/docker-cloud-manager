@@ -1,5 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { getAuditEventsFn, getReportsOverviewFn, getUserUsageReportFn, getUserUsageTimelineFn } from './api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getAuditEventsFn, getReportsOverviewFn, getUserUsageReportFn, getUserUsageTimelineFn, refreshUsageSnapshotsFn } from './api';
 import type { AuditFilters, ReportRangeParams } from './types';
 import { queryKeys } from '@/shared/api/queryKeys';
 
@@ -29,5 +29,15 @@ export function useAuditEvents(params: AuditFilters) {
   return useQuery({
     queryKey: queryKeys.admin.reports.audit(params),
     queryFn: () => getAuditEventsFn(params),
+  });
+}
+
+export function useRefreshUsageSnapshots() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: refreshUsageSnapshotsFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.reports.all });
+    },
   });
 }

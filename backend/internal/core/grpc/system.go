@@ -70,6 +70,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		EventReconnectDelaySeconds:           cfg.EventReconnectDelaySeconds,
 		BuildOutboxIntervalSeconds:           cfg.BuildOutboxIntervalSeconds,
 		BuildOutboxBatchSize:                 int32(cfg.BuildOutboxBatchSize),
+		ReportsUsageSnapshotIntervalSeconds:  cfg.ReportsUsageSnapshotIntervalSeconds,
 		ComposeUploadMaxBytes:                cfg.ComposeUploadMaxBytes,
 		ComposePipelineTimeoutMinutes:        cfg.ComposePipelineTimeoutMinutes,
 		ComposeDeployWorkerCount:             int32(cfg.ComposeDeployWorkerCount),
@@ -141,6 +142,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.EventReconnectDelaySeconds = req.GetEventReconnectDelaySeconds()
 	newCfg.BuildOutboxIntervalSeconds = req.GetBuildOutboxIntervalSeconds()
 	newCfg.BuildOutboxBatchSize = int(req.GetBuildOutboxBatchSize())
+	newCfg.ReportsUsageSnapshotIntervalSeconds = req.GetReportsUsageSnapshotIntervalSeconds()
 	newCfg.ComposeUploadMaxBytes = req.GetComposeUploadMaxBytes()
 	newCfg.ComposePipelineTimeoutMinutes = req.GetComposePipelineTimeoutMinutes()
 	newCfg.ComposeDeployWorkerCount = int(req.GetComposeDeployWorkerCount())

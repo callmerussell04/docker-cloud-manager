@@ -44,14 +44,22 @@ type UsageSnapshot struct {
 }
 
 type ReportsOverview struct {
-	From                time.Time
-	To                  time.Time
-	AuditEventsTotal    int64
-	FailedActionsTotal  int64
-	ActiveUsersTotal    int64
-	ReservedMemoryBytes int64
-	TotalDiskBytes      int64
-	TopActions          []ActionCount
+	From                         time.Time
+	To                           time.Time
+	AuditEventsTotal             int64
+	FailedActionsTotal           int64
+	ActiveUsersTotal             int64
+	ReservedMemoryBytes          int64
+	TotalDiskBytes               int64
+	LastUsageSnapshotAt          *time.Time
+	UsageSnapshotIntervalSeconds int64
+	TopActions                   []ActionCount
+}
+
+type UsageSnapshotCollection struct {
+	BucketStart    time.Time
+	CollectedAt    time.Time
+	SnapshotsCount int
 }
 
 type ActionCount struct {

@@ -12,6 +12,7 @@ type ReportProvider interface {
 	GetUserUsageTimeline(ctx context.Context, ownerID string, from, to int64) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
+	RefreshUsageSnapshots(ctx context.Context) (model.RefreshUsageSnapshotsResult, error)
 }
 
 func (s *Core) GetReportsOverview(ctx context.Context, from, to int64) (model.ReportsOverview, error) {
@@ -32,4 +33,8 @@ func (s *Core) ListAuditEvents(ctx context.Context, filters model.AuditEventFilt
 
 func (s *Core) RecordAuditEvent(ctx context.Context, event model.AuditEvent) error {
 	return s.provider.RecordAuditEvent(ctx, event)
+}
+
+func (s *Core) RefreshUsageSnapshots(ctx context.Context) (model.RefreshUsageSnapshotsResult, error) {
+	return s.provider.RefreshUsageSnapshots(ctx)
 }

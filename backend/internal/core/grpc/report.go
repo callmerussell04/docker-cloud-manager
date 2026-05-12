@@ -19,6 +19,7 @@ type ReportLogic interface {
 	GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
+	RefreshUsageSnapshots(ctx context.Context) (model.UsageSnapshotCollection, error)
 }
 
 type ReportHandler struct {
@@ -39,16 +40,21 @@ func (h *ReportHandler) GetReportsOverview(ctx context.Context, req *coreapi.Rep
 	for _, item := range overview.TopActions {
 		items = append(items, &coreapi.ActionCountData{Action: item.Action, Count: item.Count})
 	}
-	return &coreapi.ReportsOverviewResponse{
-		From:                overview.From.Unix(),
-		To:                  overview.To.Unix(),
-		AuditEventsTotal:    overview.AuditEventsTotal,
-		FailedActionsTotal:  overview.FailedActionsTotal,
-		ActiveUsersTotal:    overview.ActiveUsersTotal,
-		ReservedMemoryBytes: overview.ReservedMemoryBytes,
-		TotalDiskBytes:      overview.TotalDiskBytes,
-		TopActions:          items,
-	}, nil
+	resp := &coreapi.ReportsOverviewResponse{
+		From:                         overview.From.Unix(),
+		To:                           overview.To.Unix(),
+		AuditEventsTotal:             overview.AuditEventsTotal,
+		FailedActionsTotal:           overview.FailedActionsTotal,
+		ActiveUsersTotal:             overview.ActiveUsersTotal,
+		ReservedMemoryBytes:          overview.ReservedMemoryBytes,
+		TotalDiskBytes:               overview.TotalDiskBytes,
+		TopActions:                   items,
+		UsageSnapshotIntervalSeconds: overview.UsageSnapshotIntervalSeconds,
+	}
+	if overview.LastUsageSnapshotAt != nil {
+		resp.LastUsageSnapshotAt = overview.LastUsageSnapshotAt.Unix()
+	}
+	return resp, nil
 }
 
 func (h *ReportHandler) ListUserUsageReport(ctx context.Context, req *coreapi.ListUserUsageReportRequest) (*coreapi.PaginatedUserUsageReportResponse, error) {
@@ -127,6 +133,18 @@ func (h *ReportHandler) RecordAuditEvent(ctx context.Context, req *coreapi.Audit
 		return nil, grpcerrors.ToGRPC(err)
 	}
 	return &coreapi.Empty{}, nil
+}
+
+func (h *ReportHandler) RefreshUsageSnapshots(ctx context.Context, _ *coreapi.Empty) (*coreapi.RefreshUsageSnapshotsResponse, error) {
+	collection, err := h.logic.RefreshUsageSnapshots(ctx)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &coreapi.RefreshUsageSnapshotsResponse{
+		BucketStart:    collection.BucketStart.Unix(),
+		CollectedAt:    collection.CollectedAt.Unix(),
+		SnapshotsCount: int32(collection.SnapshotsCount),
+	}, nil
 }
 
 func pageLimitOffset(page, limit int32) (int, int) {

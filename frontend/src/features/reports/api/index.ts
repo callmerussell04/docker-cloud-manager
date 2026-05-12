@@ -3,6 +3,7 @@ import type {
   AuditEventsResponse,
   AuditFilters,
   ReportRangeParams,
+  RefreshUsageSnapshotsResponse,
   ReportsOverview,
   UserUsageReportResponse,
   UserUsageTimelineResponse,
@@ -30,5 +31,10 @@ export const getUserUsageTimelineFn = async (
 
 export const getAuditEventsFn = async (params: AuditFilters): Promise<AuditEventsResponse> => {
   const response = await privateApi.get<AuditEventsResponse>('/admin/reports/audit-events', { params });
+  return response.data;
+};
+
+export const refreshUsageSnapshotsFn = async (): Promise<RefreshUsageSnapshotsResponse> => {
+  const response = await privateApi.post<RefreshUsageSnapshotsResponse>('/admin/reports/usage-snapshots/refresh');
   return response.data;
 };

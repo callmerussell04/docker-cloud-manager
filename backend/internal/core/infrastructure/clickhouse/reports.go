@@ -71,6 +71,12 @@ func (r *ReportsRepository) dbConn() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open clickhouse connection: %w", err)
 	}
+	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to ping clickhouse: %w", err)
+	}
 	r.db = db
 	return db, nil
 }
@@ -124,8 +130,19 @@ func (r *ReportsRepository) InsertUsageSnapshots(ctx context.Context, snapshots 
 	if err != nil {
 		return err
 	}
-	stmt, err := db.PrepareContext(ctx, `
-INSERT INTO user_resource_usage_hourly (
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin usage snapshot insert: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	stmt, err := tx.PrepareContext(ctx, `
+INSERT INTO user_resource_usage_snapshots (
     owner_id, owner_username, bucket_start, collected_at, reserved_memory_bytes,
     image_disk_bytes, volume_disk_bytes, total_disk_bytes, containers_total,
     containers_running, volumes_total, images_total, builds_total, projects_total
@@ -155,6 +172,10 @@ INSERT INTO user_resource_usage_hourly (
 			return fmt.Errorf("failed to insert usage snapshot: %w", err)
 		}
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit usage snapshot insert: %w", err)
+	}
+	committed = true
 	return nil
 }
 
@@ -181,7 +202,7 @@ FROM (
         owner_id,
         argMax(reserved_memory_bytes, collected_at) AS reserved_memory_bytes,
         argMax(total_disk_bytes, collected_at) AS total_disk_bytes
-    FROM user_resource_usage_hourly
+    FROM user_resource_usage_snapshots
     WHERE bucket_start >= ? AND bucket_start < ?
     GROUP BY owner_id
 )`, from.UTC(), to.UTC()).Scan(
@@ -212,6 +233,23 @@ LIMIT 8`, from.UTC(), to.UTC())
 	return overview, rows.Err()
 }
 
+func (r *ReportsRepository) GetLatestUsageSnapshotCollectedAt(ctx context.Context) (*time.Time, error) {
+	db, err := r.dbConn()
+	if err != nil {
+		return nil, err
+	}
+	var collectedAt time.Time
+	if err := db.QueryRowContext(ctx, `
+SELECT ifNull(max(collected_at), toDateTime64(0, 3, 'UTC'))
+FROM user_resource_usage_snapshots`).Scan(&collectedAt); err != nil {
+		return nil, fmt.Errorf("failed to query latest usage snapshot timestamp: %w", err)
+	}
+	if collectedAt.IsZero() || collectedAt.Unix() == 0 {
+		return nil, nil
+	}
+	return &collectedAt, nil
+}
+
 func (r *ReportsRepository) ListUserUsageReport(ctx context.Context, from, to time.Time, sort string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
 	db, err := r.dbConn()
 	if err != nil {
@@ -232,7 +270,7 @@ func (r *ReportsRepository) ListUserUsageReport(ctx context.Context, from, to ti
 SELECT count()
 FROM (
     SELECT owner_id
-    FROM user_resource_usage_hourly
+    FROM user_resource_usage_snapshots
     WHERE bucket_start >= ? AND bucket_start < ?
     GROUP BY owner_id
 )`, from.UTC(), to.UTC()).Scan(&total); err != nil {
@@ -264,7 +302,7 @@ FROM (
         argMax(images_total, collected_at) AS images_total,
         argMax(builds_total, collected_at) AS builds_total,
         argMax(projects_total, collected_at) AS projects_total
-    FROM user_resource_usage_hourly
+    FROM user_resource_usage_snapshots
     WHERE bucket_start >= ? AND bucket_start < ?
     GROUP BY owner_id
 ) AS u
@@ -293,10 +331,14 @@ LIMIT ? OFFSET ?`, orderBy)
 	return items, total, rows.Err()
 }
 
-func (r *ReportsRepository) GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time) ([]model.UserUsagePoint, error) {
+func (r *ReportsRepository) GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time, bucketInterval time.Duration) ([]model.UserUsagePoint, error) {
 	db, err := r.dbConn()
 	if err != nil {
 		return nil, err
+	}
+	intervalSeconds := int64(bucketInterval / time.Second)
+	if intervalSeconds <= 0 {
+		intervalSeconds = 300
 	}
 	rows, err := db.QueryContext(ctx, `
 SELECT
@@ -313,17 +355,17 @@ FROM (
         argMax(total_disk_bytes, collected_at) AS total_disk_bytes,
         argMax(containers_total, collected_at) AS containers_total,
         argMax(containers_running, collected_at) AS containers_running
-    FROM user_resource_usage_hourly
+    FROM user_resource_usage_snapshots
     WHERE owner_id = ? AND bucket_start >= ? AND bucket_start < ?
     GROUP BY bucket_start
 ) AS u
 LEFT JOIN (
-    SELECT toStartOfHour(occurred_at) AS bucket_start, count() AS actions_total
+    SELECT toDateTime(intDiv(toUnixTimestamp(occurred_at), ?) * ?, 'UTC') AS bucket_start, count() AS actions_total
     FROM audit_events
     WHERE actor_user_id = ? AND occurred_at >= ? AND occurred_at < ?
     GROUP BY bucket_start
 ) AS a USING bucket_start
-ORDER BY bucket_start ASC`, ownerID, from.UTC(), to.UTC(), ownerID, from.UTC(), to.UTC())
+ORDER BY bucket_start ASC`, ownerID, from.UTC(), to.UTC(), intervalSeconds, intervalSeconds, ownerID, from.UTC(), to.UTC())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user usage timeline: %w", err)
 	}
@@ -420,8 +462,8 @@ func auditWhere(filters model.AuditEventFilters) (string, []any) {
 		args = append(args, filters.ResourceType)
 	}
 	if filters.Search != "" {
-		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0)")
-		args = append(args, filters.Search, filters.Search, filters.Search)
+		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0 OR positionCaseInsensitive(details_json, ?) > 0)")
+		args = append(args, filters.Search, filters.Search, filters.Search, filters.Search)
 	}
 	return "WHERE " + strings.Join(parts, " AND "), args
 }

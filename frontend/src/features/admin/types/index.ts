@@ -57,6 +57,7 @@ export interface SystemConfig {
   event_reconnect_delay_seconds: number;
   build_outbox_interval_seconds: number;
   build_outbox_batch_size: number;
+  reports_usage_snapshot_interval_seconds: number;
   compose_upload_max_bytes: number;
   compose_pipeline_timeout_minutes: number;
   compose_build_poll_interval_seconds: number;
@@ -148,6 +149,7 @@ export const systemConfigSchema = z.object({
   event_reconnect_delay_seconds: z.number().min(1),
   build_outbox_interval_seconds: z.number().min(1),
   build_outbox_batch_size: z.number().min(1),
+  reports_usage_snapshot_interval_seconds: z.number().min(60).max(86400),
   compose_upload_max_bytes: z.number().min(1),
   compose_pipeline_timeout_minutes: z.number().min(1),
   compose_build_poll_interval_seconds: z.number().min(1),

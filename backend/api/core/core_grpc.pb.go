@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v7.34.1
-// source: api/core/core.proto
+// source: backend/api/core/core.proto
 
 package core
 
@@ -383,7 +383,7 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
@@ -751,7 +751,7 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
@@ -929,7 +929,7 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
@@ -1183,7 +1183,7 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
@@ -1323,7 +1323,7 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
@@ -1463,15 +1463,16 @@ var StatsAPI_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }
 
 const (
-	ReportAPI_GetReportsOverview_FullMethodName   = "/core.ReportAPI/GetReportsOverview"
-	ReportAPI_ListUserUsageReport_FullMethodName  = "/core.ReportAPI/ListUserUsageReport"
-	ReportAPI_GetUserUsageTimeline_FullMethodName = "/core.ReportAPI/GetUserUsageTimeline"
-	ReportAPI_ListAuditEvents_FullMethodName      = "/core.ReportAPI/ListAuditEvents"
-	ReportAPI_RecordAuditEvent_FullMethodName     = "/core.ReportAPI/RecordAuditEvent"
+	ReportAPI_GetReportsOverview_FullMethodName    = "/core.ReportAPI/GetReportsOverview"
+	ReportAPI_ListUserUsageReport_FullMethodName   = "/core.ReportAPI/ListUserUsageReport"
+	ReportAPI_GetUserUsageTimeline_FullMethodName  = "/core.ReportAPI/GetUserUsageTimeline"
+	ReportAPI_ListAuditEvents_FullMethodName       = "/core.ReportAPI/ListAuditEvents"
+	ReportAPI_RecordAuditEvent_FullMethodName      = "/core.ReportAPI/RecordAuditEvent"
+	ReportAPI_RefreshUsageSnapshots_FullMethodName = "/core.ReportAPI/RefreshUsageSnapshots"
 )
 
 // ReportAPIClient is the client API for ReportAPI service.
@@ -1483,6 +1484,7 @@ type ReportAPIClient interface {
 	GetUserUsageTimeline(ctx context.Context, in *GetUserUsageTimelineRequest, opts ...grpc.CallOption) (*UserUsageTimelineResponse, error)
 	ListAuditEvents(ctx context.Context, in *ListAuditEventsRequest, opts ...grpc.CallOption) (*PaginatedAuditEventResponse, error)
 	RecordAuditEvent(ctx context.Context, in *AuditEventData, opts ...grpc.CallOption) (*Empty, error)
+	RefreshUsageSnapshots(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RefreshUsageSnapshotsResponse, error)
 }
 
 type reportAPIClient struct {
@@ -1543,6 +1545,16 @@ func (c *reportAPIClient) RecordAuditEvent(ctx context.Context, in *AuditEventDa
 	return out, nil
 }
 
+func (c *reportAPIClient) RefreshUsageSnapshots(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*RefreshUsageSnapshotsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RefreshUsageSnapshotsResponse)
+	err := c.cc.Invoke(ctx, ReportAPI_RefreshUsageSnapshots_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReportAPIServer is the server API for ReportAPI service.
 // All implementations must embed UnimplementedReportAPIServer
 // for forward compatibility.
@@ -1552,6 +1564,7 @@ type ReportAPIServer interface {
 	GetUserUsageTimeline(context.Context, *GetUserUsageTimelineRequest) (*UserUsageTimelineResponse, error)
 	ListAuditEvents(context.Context, *ListAuditEventsRequest) (*PaginatedAuditEventResponse, error)
 	RecordAuditEvent(context.Context, *AuditEventData) (*Empty, error)
+	RefreshUsageSnapshots(context.Context, *Empty) (*RefreshUsageSnapshotsResponse, error)
 	mustEmbedUnimplementedReportAPIServer()
 }
 
@@ -1576,6 +1589,9 @@ func (UnimplementedReportAPIServer) ListAuditEvents(context.Context, *ListAuditE
 }
 func (UnimplementedReportAPIServer) RecordAuditEvent(context.Context, *AuditEventData) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RecordAuditEvent not implemented")
+}
+func (UnimplementedReportAPIServer) RefreshUsageSnapshots(context.Context, *Empty) (*RefreshUsageSnapshotsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RefreshUsageSnapshots not implemented")
 }
 func (UnimplementedReportAPIServer) mustEmbedUnimplementedReportAPIServer() {}
 func (UnimplementedReportAPIServer) testEmbeddedByValue()                   {}
@@ -1688,6 +1704,24 @@ func _ReportAPI_RecordAuditEvent_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReportAPI_RefreshUsageSnapshots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReportAPIServer).RefreshUsageSnapshots(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReportAPI_RefreshUsageSnapshots_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReportAPIServer).RefreshUsageSnapshots(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReportAPI_ServiceDesc is the grpc.ServiceDesc for ReportAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1715,7 +1749,11 @@ var ReportAPI_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "RecordAuditEvent",
 			Handler:    _ReportAPI_RecordAuditEvent_Handler,
 		},
+		{
+			MethodName: "RefreshUsageSnapshots",
+			Handler:    _ReportAPI_RefreshUsageSnapshots_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "api/core/core.proto",
+	Metadata: "backend/api/core/core.proto",
 }

@@ -306,6 +306,7 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	var timelineOwnerID uuid.UUID
 	var auditFilters model.AuditEventFilters
 	var recorded model.AuditEvent
+	lastSnapshotAt := from.Add(5 * time.Minute)
 	logic.EXPECT().
 		GetReportsOverview(mock.Anything, from, to).
 		Run(func(ctx context.Context, gotFrom, gotTo time.Time) {
@@ -313,14 +314,16 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 			overviewTo = gotTo
 		}).
 		Return(model.ReportsOverview{
-			From:                from,
-			To:                  to,
-			AuditEventsTotal:    10,
-			FailedActionsTotal:  2,
-			ActiveUsersTotal:    3,
-			ReservedMemoryBytes: 1024,
-			TotalDiskBytes:      2048,
-			TopActions:          []model.ActionCount{{Action: "container.create", Count: 5}},
+			From:                         from,
+			To:                           to,
+			AuditEventsTotal:             10,
+			FailedActionsTotal:           2,
+			ActiveUsersTotal:             3,
+			ReservedMemoryBytes:          1024,
+			TotalDiskBytes:               2048,
+			LastUsageSnapshotAt:          &lastSnapshotAt,
+			UsageSnapshotIntervalSeconds: 300,
+			TopActions:                   []model.ActionCount{{Action: "container.create", Count: 5}},
 		}, nil)
 	logic.EXPECT().
 		ListUserUsageReport(mock.Anything, from, to, "disk_desc", 10, 10).
@@ -384,6 +387,9 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 			recorded = event
 		}).
 		Return(nil)
+	logic.EXPECT().
+		RefreshUsageSnapshots(mock.Anything).
+		Return(model.UsageSnapshotCollection{BucketStart: from, CollectedAt: to, SnapshotsCount: 2}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterReportAPI(s, logic)
 	})
@@ -393,6 +399,8 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(10), overview.AuditEventsTotal)
 	require.Equal(t, int64(1024), overview.ReservedMemoryBytes)
+	require.Equal(t, lastSnapshotAt.Unix(), overview.LastUsageSnapshotAt)
+	require.Equal(t, int64(300), overview.UsageSnapshotIntervalSeconds)
 	require.Len(t, overview.TopActions, 1)
 	require.Equal(t, "container.create", overview.TopActions[0].Action)
 	require.Equal(t, from, overviewFrom)
@@ -438,6 +446,12 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	require.Equal(t, actorID, *recorded.ActorUserID)
 	require.Equal(t, ownerID, *recorded.OwnerID)
 	require.Equal(t, "denied", recorded.ErrorCode)
+
+	refresh, err := client.RefreshUsageSnapshots(context.Background(), &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, from.Unix(), refresh.BucketStart)
+	require.Equal(t, to.Unix(), refresh.CollectedAt)
+	require.Equal(t, int32(2), refresh.SnapshotsCount)
 
 	_, err = client.GetUserUsageTimeline(context.Background(), &coreapi.GetUserUsageTimelineRequest{OwnerId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

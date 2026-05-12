@@ -45,6 +45,7 @@ type SystemConfigDTO struct {
 	EventReconnectDelaySeconds           int64    `json:"event_reconnect_delay_seconds"`
 	BuildOutboxIntervalSeconds           int64    `json:"build_outbox_interval_seconds"`
 	BuildOutboxBatchSize                 int      `json:"build_outbox_batch_size"`
+	ReportsUsageSnapshotIntervalSeconds  int64    `json:"reports_usage_snapshot_interval_seconds"`
 	ComposeUploadMaxBytes                int64    `json:"compose_upload_max_bytes"`
 	ComposePipelineTimeoutMinutes        int64    `json:"compose_pipeline_timeout_minutes"`
 	ComposeDeployWorkerCount             int      `json:"compose_deploy_worker_count"`

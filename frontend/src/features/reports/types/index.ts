@@ -11,7 +11,15 @@ export interface ReportsOverview {
   active_users_total: number;
   reserved_memory_bytes: number;
   total_disk_bytes: number;
+  last_usage_snapshot_at: number;
+  usage_snapshot_interval_seconds: number;
   top_actions: ActionCount[];
+}
+
+export interface RefreshUsageSnapshotsResponse {
+  bucket_start: number;
+  collected_at: number;
+  snapshots_count: number;
 }
 
 export interface UserUsageReportItem {

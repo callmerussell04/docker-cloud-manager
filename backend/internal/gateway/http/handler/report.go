@@ -16,6 +16,7 @@ type ReportService interface {
 	GetUserUsageTimeline(ctx context.Context, ownerID string, from, to int64) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
+	RefreshUsageSnapshots(ctx context.Context) (model.RefreshUsageSnapshotsResult, error)
 }
 
 func (h *CoreHandler) GetReportsOverview(c *gin.Context) {
@@ -98,6 +99,19 @@ func (h *CoreHandler) ListAuditEvents(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.AuditEventsResponse{Events: auditEventsToDTO(events), TotalCount: total})
 }
 
+func (h *CoreHandler) RefreshUsageSnapshots(c *gin.Context) {
+	result, err := h.service.RefreshUsageSnapshots(c.Request.Context())
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.RefreshUsageSnapshotsResponse{
+		BucketStart:    result.BucketStart,
+		CollectedAt:    result.CollectedAt,
+		SnapshotsCount: result.SnapshotsCount,
+	})
+}
+
 func reportRange(c *gin.Context) (int64, int64, bool) {
 	from, ok := optionalUnixQuery(c, "from")
 	if !ok {
@@ -129,14 +143,16 @@ func reportsOverviewToDTO(overview model.ReportsOverview) dto.ReportsOverviewRes
 		topActions = append(topActions, dto.ActionCountResponse{Action: item.Action, Count: item.Count})
 	}
 	return dto.ReportsOverviewResponse{
-		From:                overview.From,
-		To:                  overview.To,
-		AuditEventsTotal:    overview.AuditEventsTotal,
-		FailedActionsTotal:  overview.FailedActionsTotal,
-		ActiveUsersTotal:    overview.ActiveUsersTotal,
-		ReservedMemoryBytes: overview.ReservedMemoryBytes,
-		TotalDiskBytes:      overview.TotalDiskBytes,
-		TopActions:          topActions,
+		From:                         overview.From,
+		To:                           overview.To,
+		AuditEventsTotal:             overview.AuditEventsTotal,
+		FailedActionsTotal:           overview.FailedActionsTotal,
+		ActiveUsersTotal:             overview.ActiveUsersTotal,
+		ReservedMemoryBytes:          overview.ReservedMemoryBytes,
+		TotalDiskBytes:               overview.TotalDiskBytes,
+		LastUsageSnapshotAt:          overview.LastUsageSnapshotAt,
+		UsageSnapshotIntervalSeconds: overview.UsageSnapshotIntervalSeconds,
+		TopActions:                   topActions,
 	}
 }
 

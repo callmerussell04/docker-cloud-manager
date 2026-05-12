@@ -129,6 +129,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.GET("/reports/users", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.ListUserUsageReport)
 	admin.GET("/reports/users/:id/usage", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.GetUserUsageTimeline)
 	admin.GET("/reports/audit-events", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.ListAuditEvents)
+	admin.POST("/reports/usage-snapshots/refresh", adminPermission(deps, permissions.ReportsAdminRead), deps.CoreHandler.RefreshUsageSnapshots)
 
 	admin.GET("/users", adminPermission(deps, permissions.UsersAdminList), deps.UserHandler.ListUsers)
 	admin.GET("/users/:id", adminPermission(deps, permissions.UsersAdminRead), deps.UserHandler.GetUser)

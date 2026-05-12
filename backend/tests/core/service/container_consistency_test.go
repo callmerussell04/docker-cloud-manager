@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -114,7 +116,10 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
 	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	auditor := &recordingAuditRecorder{}
+	svc.SetAuditRecorder(auditor)
 	var createdParams model.ContainerRuntimeSpec
+	projectID := uuid.New()
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -122,7 +127,10 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 		OwnerID:          ownerID,
 		DockerID:         "old-docker",
 		Name:             "project_api",
+		ProjectID:        &projectID,
 		NetworkAlias:     "api",
+		DomainPrefix:     "old",
+		InternalPort:     80,
 		Status:           model.ContainerStatusCreated,
 		DockerGeneration: 1,
 	}, nil)
@@ -142,8 +150,25 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	repo.EXPECT().UpdateRouting(mock.Anything, containerID, "app", 8080).Return(nil)
 	dockerAPI.EXPECT().RemoveContainer(mock.Anything, "old-docker", true).Return(nil)
 
-	require.NoError(t, svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID, "app", 8080))
+	require.NoError(t, svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "alice", ""), containerID, "app", 8080))
 	require.Equal(t, "api", createdParams.NetworkAlias)
+	require.Len(t, auditor.events, 1)
+	event := auditor.events[0]
+	require.Equal(t, auditlog.ActionContainerExpose, event.Action)
+	require.Equal(t, auditlog.OutcomeSuccess, event.Outcome)
+	require.Equal(t, containerID.String(), event.ResourceID)
+	require.Equal(t, "project_api", event.ResourceName)
+	require.NotNil(t, event.OwnerID)
+	require.Equal(t, ownerID, *event.OwnerID)
+	require.Equal(t, "alice", event.ActorUsername)
+	var details map[string]string
+	require.NoError(t, json.Unmarshal([]byte(event.DetailsJSON), &details))
+	require.Equal(t, "app", details[auditlog.DetailDomainPrefix])
+	require.Equal(t, "app.example.test", details[auditlog.DetailFullDomain])
+	require.Equal(t, "8080", details[auditlog.DetailInternalPort])
+	require.Equal(t, "old", details[auditlog.DetailPreviousDomainPrefix])
+	require.Equal(t, "80", details[auditlog.DetailPreviousInternalPort])
+	require.Equal(t, projectID.String(), details[auditlog.DetailProjectID])
 }
 
 func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
@@ -197,6 +222,15 @@ func newContainerStateRepoMock(t *testing.T) *containerStateRepoMock {
 		ContainerRepository:      coremocks.NewContainerRepository(t),
 		ContainerStateRepository: coremocks.NewContainerStateRepository(t),
 	}
+}
+
+type recordingAuditRecorder struct {
+	events []model.AuditEvent
+}
+
+func (r *recordingAuditRecorder) RecordAuditEvent(ctx context.Context, event model.AuditEvent) error {
+	r.events = append(r.events, event)
+	return nil
 }
 
 type staticConfig struct{}

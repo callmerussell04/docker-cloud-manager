@@ -6,14 +6,22 @@ type ActionCount struct {
 }
 
 type ReportsOverview struct {
-	From                int64
-	To                  int64
-	AuditEventsTotal    int64
-	FailedActionsTotal  int64
-	ActiveUsersTotal    int64
-	ReservedMemoryBytes int64
-	TotalDiskBytes      int64
-	TopActions          []ActionCount
+	From                         int64
+	To                           int64
+	AuditEventsTotal             int64
+	FailedActionsTotal           int64
+	ActiveUsersTotal             int64
+	ReservedMemoryBytes          int64
+	TotalDiskBytes               int64
+	LastUsageSnapshotAt          int64
+	UsageSnapshotIntervalSeconds int64
+	TopActions                   []ActionCount
+}
+
+type RefreshUsageSnapshotsResult struct {
+	BucketStart    int64
+	CollectedAt    int64
+	SnapshotsCount int
 }
 
 type UserUsageReportItem struct {

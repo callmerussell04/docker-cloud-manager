@@ -6,12 +6,19 @@ import (
 )
 
 var allowedDetailKeys = map[string]struct{}{
-	DetailSourceType:   {},
-	DetailDomainPrefix: {},
-	DetailInternalPort: {},
-	DetailProjectName:  {},
-	DetailProvider:     {},
-	DetailAdmin:        {},
+	DetailSourceType:           {},
+	DetailContainerID:          {},
+	DetailContainerName:        {},
+	DetailProjectID:            {},
+	DetailProjectName:          {},
+	DetailComposeService:       {},
+	DetailDomainPrefix:         {},
+	DetailFullDomain:           {},
+	DetailInternalPort:         {},
+	DetailPreviousDomainPrefix: {},
+	DetailPreviousInternalPort: {},
+	DetailProvider:             {},
+	DetailAdmin:                {},
 }
 
 func SafeDetailsJSON(details map[string]string) string {

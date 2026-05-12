@@ -97,6 +97,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BuildOutboxIntervalSeconds <= 0 || cfg.BuildOutboxBatchSize <= 0 {
 		return fmt.Errorf("build outbox settings must be positive")
 	}
+	if cfg.ReportsUsageSnapshotIntervalSeconds < MinReportsUsageSnapshotIntervalSeconds || cfg.ReportsUsageSnapshotIntervalSeconds > MaxReportsUsageSnapshotIntervalSeconds {
+		return fmt.Errorf("reports usage snapshot interval must be between %d and %d seconds", MinReportsUsageSnapshotIntervalSeconds, MaxReportsUsageSnapshotIntervalSeconds)
+	}
 	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.MaxQueuedBuildsPerUser < 0 || cfg.MaxQueuedComposeDeploysPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 {
 		return fmt.Errorf("resource safety limits must not be negative")
 	}

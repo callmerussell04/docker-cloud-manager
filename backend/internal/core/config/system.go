@@ -1,5 +1,11 @@
 package config
 
+const (
+	DefaultReportsUsageSnapshotIntervalSeconds = int64(300)
+	MinReportsUsageSnapshotIntervalSeconds     = int64(60)
+	MaxReportsUsageSnapshotIntervalSeconds     = int64(86400)
+)
+
 type SystemConfig struct {
 	BaseDomain               string   `json:"base_domain"`
 	DefaultMemoryReservation int64    `json:"default_memory_reservation_bytes"`
@@ -48,6 +54,7 @@ type SystemConfig struct {
 	EventReconnectDelaySeconds           int64 `json:"event_reconnect_delay_seconds"`
 	BuildOutboxIntervalSeconds           int64 `json:"build_outbox_interval_seconds"`
 	BuildOutboxBatchSize                 int   `json:"build_outbox_batch_size"`
+	ReportsUsageSnapshotIntervalSeconds  int64 `json:"reports_usage_snapshot_interval_seconds"`
 	MaxStagedSourceBytesPerUser          int64 `json:"max_staged_source_bytes_per_user"`
 	MaxQueuedBuildsPerUser               int   `json:"max_queued_builds_per_user"`
 	ComposeUploadMaxBytes                int64 `json:"compose_upload_max_bytes"`

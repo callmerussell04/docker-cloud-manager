@@ -134,7 +134,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
-	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, logger)
+	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
+	contService.SetAuditRecorder(reportService)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 
@@ -151,6 +152,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	orchestrator.SetStagedObjectRepository(stagedRepo)
 	orchestrator.SetHostDiskGuard(metricsProvider, cfg.HostDiskPath)
 	orchestrator.SetUserInfoProvider(ssoClient)
+	orchestrator.SetAuditRecorder(reportService)
 	recoveryMessage := "deployment interrupted by core service restart"
 	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
 		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)

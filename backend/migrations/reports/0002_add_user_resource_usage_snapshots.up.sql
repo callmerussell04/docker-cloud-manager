@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS user_resource_usage_hourly (
+CREATE TABLE IF NOT EXISTS user_resource_usage_snapshots (
     owner_id UUID,
     owner_username String,
     bucket_start DateTime('UTC'),

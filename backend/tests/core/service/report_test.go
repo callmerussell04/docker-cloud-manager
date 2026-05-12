@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	coreconfig "github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
@@ -20,7 +22,7 @@ import (
 
 func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
-	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), discardLogger())
+	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
 	var userUsageLimit int
 	var userUsageOffset int
 	var userUsageFrom time.Time
@@ -57,9 +59,22 @@ func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 	require.True(t, auditFilters.From.Before(auditFilters.To))
 }
 
+func TestReportServiceReadErrorsReturnUnavailable(t *testing.T) {
+	reports := coremocks.NewReportsRepository(t)
+	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
+
+	reports.EXPECT().
+		ListAuditEvents(mock.Anything, mock.AnythingOfType("model.AuditEventFilters")).
+		Return(nil, 0, errors.New("clickhouse down"))
+
+	_, _, err := svc.ListAuditEvents(context.Background(), model.AuditEventFilters{Limit: 20})
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+	require.Equal(t, apperrors.ErrUnavailable.Error(), apperrors.SafeMessage(err))
+}
+
 func TestReportServiceRecordAuditEventFillsDefaultsAndSwallowsWriteErrors(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
-	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), discardLogger())
+	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
 	ctx := logging.ContextWithRequestID(context.Background(), "req-123")
 	var recorded model.AuditEvent
 
@@ -83,19 +98,20 @@ func TestReportServiceRecordAuditEventFillsDefaultsAndSwallowsWriteErrors(t *tes
 func TestReportServiceCollectUsageSnapshotEnrichesUsernames(t *testing.T) {
 	ownerID := uuid.New()
 	at := time.Date(2026, 5, 12, 14, 23, 0, 0, time.UTC)
+	bucketStart := time.Date(2026, 5, 12, 14, 20, 0, 0, time.UTC)
 	snapshots := []model.UsageSnapshot{{
 		OwnerID:     ownerID,
-		BucketStart: at.Truncate(time.Hour),
+		BucketStart: bucketStart,
 		CollectedAt: at,
 	}}
 	reports := coremocks.NewReportsRepository(t)
 	source := coremocks.NewUsageSnapshotSource(t)
 	users := coremocks.NewReportUserDirectory(t)
-	svc := NewReportService(reports, source, users, discardLogger())
+	svc := NewReportService(reports, source, users, testReportConfig(), discardLogger())
 	var inserted []model.UsageSnapshot
 
 	source.EXPECT().
-		CollectUsageSnapshots(mock.Anything, at.Truncate(time.Hour), at).
+		CollectUsageSnapshots(mock.Anything, bucketStart, at).
 		Return(snapshots, nil)
 	users.EXPECT().
 		GetUsers(mock.Anything, []uuid.UUID{ownerID}).
@@ -107,42 +123,46 @@ func TestReportServiceCollectUsageSnapshotEnrichesUsernames(t *testing.T) {
 		}).
 		Return(nil)
 
-	require.NoError(t, svc.CollectUsageSnapshot(context.Background(), at))
+	collection, err := svc.CollectUsageSnapshot(context.Background(), at)
+	require.NoError(t, err)
 	require.Len(t, inserted, 1)
 	require.Equal(t, "alice", inserted[0].OwnerUsername)
-	require.Equal(t, at.Truncate(time.Hour), inserted[0].BucketStart)
+	require.Equal(t, bucketStart, inserted[0].BucketStart)
 	require.Equal(t, at, inserted[0].CollectedAt)
+	require.Equal(t, bucketStart, collection.BucketStart)
+	require.Equal(t, at, collection.CollectedAt)
+	require.Equal(t, 1, collection.SnapshotsCount)
 }
 
-func TestReportServiceGetUserUsageTimelineAppendsLiveCurrentHourSnapshot(t *testing.T) {
+func TestReportServiceGetUserUsageTimelineUsesConfiguredBucketInterval(t *testing.T) {
 	ownerID := uuid.New()
-	currentHour := time.Now().UTC().Truncate(time.Hour)
+	from := time.Date(2026, 5, 12, 14, 0, 0, 0, time.UTC)
+	to := from.Add(time.Hour)
 	reports := coremocks.NewReportsRepository(t)
-	source := coremocks.NewUsageSnapshotSource(t)
-	users := coremocks.NewReportUserDirectory(t)
-	svc := NewReportService(reports, source, users, discardLogger())
+	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
+	var gotInterval time.Duration
 
 	reports.EXPECT().
-		GetUserUsageTimeline(mock.Anything, ownerID, currentHour.Add(-time.Hour), currentHour.Add(time.Hour)).
-		Return([]model.UserUsagePoint{}, nil)
-	source.EXPECT().
-		CollectUsageSnapshots(mock.Anything, currentHour, mock.AnythingOfType("time.Time")).
-		Return([]model.UsageSnapshot{{
-			OwnerID:             ownerID,
-			BucketStart:         currentHour,
-			ReservedMemoryBytes: 128,
-			TotalDiskBytes:      256,
-			ContainersTotal:     3,
-			ContainersRunning:   1,
-		}}, nil)
-	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{}, nil)
+		GetUserUsageTimeline(mock.Anything, ownerID, from, to, 5*time.Minute).
+		Run(func(ctx context.Context, gotOwnerID uuid.UUID, gotFrom, gotTo time.Time, bucketInterval time.Duration) {
+			gotInterval = bucketInterval
+		}).
+		Return([]model.UserUsagePoint{{BucketStart: from}}, nil)
 
-	points, err := svc.GetUserUsageTimeline(context.Background(), ownerID, currentHour.Add(-time.Hour), currentHour.Add(time.Hour))
+	points, err := svc.GetUserUsageTimeline(context.Background(), ownerID, from, to)
 	require.NoError(t, err)
 	require.Len(t, points, 1)
-	require.Equal(t, currentHour, points[0].BucketStart)
-	require.EqualValues(t, 128, points[0].ReservedMemoryBytes)
-	require.EqualValues(t, 256, points[0].TotalDiskBytes)
+	require.Equal(t, 5*time.Minute, gotInterval)
+}
+
+type staticReportConfig struct{}
+
+func (staticReportConfig) Get() coreconfig.SystemConfig {
+	return coreconfig.SystemConfig{ReportsUsageSnapshotIntervalSeconds: 300}
+}
+
+func testReportConfig() staticReportConfig {
+	return staticReportConfig{}
 }
 
 func discardLogger() *slog.Logger {

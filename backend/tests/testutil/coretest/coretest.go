@@ -67,6 +67,7 @@ func SystemConfig() config.SystemConfig {
 		EventReconnectDelaySeconds:           5,
 		BuildOutboxIntervalSeconds:           1,
 		BuildOutboxBatchSize:                 10,
+		ReportsUsageSnapshotIntervalSeconds:  config.DefaultReportsUsageSnapshotIntervalSeconds,
 		ComposeUploadMaxBytes:                100 << 20,
 		ComposePipelineTimeoutMinutes:        30,
 		ComposeDeployWorkerCount:             2,

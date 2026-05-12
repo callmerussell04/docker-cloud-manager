@@ -56,6 +56,7 @@ service ReportAPI {
   rpc GetUserUsageTimeline (GetUserUsageTimelineRequest) returns (UserUsageTimelineResponse);
   rpc ListAuditEvents (ListAuditEventsRequest) returns (PaginatedAuditEventResponse);
   rpc RecordAuditEvent (AuditEventData) returns (Empty);
+  rpc RefreshUsageSnapshots (Empty) returns (RefreshUsageSnapshotsResponse);
 }
 
 message UserStatsResponse {
@@ -115,6 +116,14 @@ message ReportsOverviewResponse {
   int64 reserved_memory_bytes = 6;
   int64 total_disk_bytes = 7;
   repeated ActionCountData top_actions = 8;
+  int64 last_usage_snapshot_at = 9;
+  int64 usage_snapshot_interval_seconds = 10;
+}
+
+message RefreshUsageSnapshotsResponse {
+  int64 bucket_start = 1;
+  int64 collected_at = 2;
+  int32 snapshots_count = 3;
 }
 
 message ListUserUsageReportRequest {
@@ -485,6 +494,7 @@ message SystemConfigData {
   int64 compose_outbox_interval_seconds = 64;
   int32 compose_outbox_batch_size = 65;
   int32 compose_deploy_max_attempts = 66;
+  int64 reports_usage_snapshot_interval_seconds = 67;
 }
 
 message ContainerStatsResponse {

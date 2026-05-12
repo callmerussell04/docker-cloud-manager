@@ -167,6 +167,7 @@ func main() {
 		EventReconnectDelaySeconds:           int64(getEnvInt("EVENT_RECONNECT_DELAY_SECONDS", 5)),
 		BuildOutboxIntervalSeconds:           int64(getEnvInt("BUILD_OUTBOX_INTERVAL_SECONDS", 1)),
 		BuildOutboxBatchSize:                 getEnvInt("BUILD_OUTBOX_BATCH_SIZE", 10),
+		ReportsUsageSnapshotIntervalSeconds:  getEnvInt64("REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS", config.DefaultReportsUsageSnapshotIntervalSeconds),
 		MaxStagedSourceBytesPerUser:          getEnvInt64("MAX_STAGED_SOURCE_BYTES_PER_USER", 1024*1024*1024),
 		MaxQueuedBuildsPerUser:               getEnvInt("MAX_QUEUED_BUILDS_PER_USER", 10),
 		ComposeUploadMaxBytes:                getEnvInt64("COMPOSE_UPLOAD_MAX_BYTES", 100<<20),

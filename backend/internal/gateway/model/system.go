@@ -45,6 +45,7 @@ type SystemConfig struct {
 	EventReconnectDelaySeconds           int64
 	BuildOutboxIntervalSeconds           int64
 	BuildOutboxBatchSize                 int
+	ReportsUsageSnapshotIntervalSeconds  int64
 	ComposeUploadMaxBytes                int64
 	ComposePipelineTimeoutMinutes        int64
 	ComposeDeployWorkerCount             int

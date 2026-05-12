@@ -14,8 +14,8 @@ import {
 
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { useAuditEvents, useReportsOverview, useUserUsageReport, useUserUsageTimeline } from '@/features/reports/hooks';
-import type { UserUsageReportItem } from '@/features/reports/types';
+import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUsageReport, useUserUsageTimeline } from '@/features/reports/hooks';
+import type { AuditEvent, UserUsageReportItem } from '@/features/reports/types';
 import { dateLocale, useLocale, useT } from '@/lib/i18n';
 import { formatBytes } from '@/lib/utils';
 
@@ -25,6 +25,38 @@ const ranges = [
   { label: '30d', seconds: 30 * 24 * 60 * 60 },
   { label: '90d', seconds: 90 * 24 * 60 * 60 },
 ];
+
+const auditActions = [
+  'container.create',
+  'container.start',
+  'container.stop',
+  'container.delete',
+  'container.expose',
+  'volume.create',
+  'volume.delete',
+  'image.delete',
+  'build.create_archive',
+  'build.create_git',
+  'build.cancel',
+  'build.delete',
+  'compose.upload_deploy',
+  'compose.git_deploy',
+  'project.start',
+  'project.stop',
+  'project.cancel',
+  'project.delete',
+  'auth.register',
+  'auth.login',
+  'auth.oidc_callback',
+  'user.admin_create',
+  'user.admin_update',
+  'user.admin_deactivate',
+  'user.admin_reactivate',
+  'telemetry.logs_ticket',
+  'telemetry.terminal_ticket',
+];
+
+const auditResourceTypes = ['container', 'volume', 'image', 'build', 'project', 'user', 'auth', 'telemetry', 'system'];
 
 function rangeParams(seconds: number) {
   const to = Math.floor(Date.now() / 1000);
@@ -51,6 +83,33 @@ function MetricCard({ title, value, icon: Icon }: { title: string; value: string
   );
 }
 
+function auditDetails(event: AuditEvent) {
+  if (!event.details_json || event.details_json === '{}') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(event.details_json) as Record<string, unknown>;
+    const details: Array<[string, unknown]> = [
+      ['full_domain', parsed.full_domain],
+      ['domain_prefix', parsed.domain_prefix],
+      ['internal_port', parsed.internal_port],
+      ['container_name', parsed.container_name],
+      ['container_id', parsed.container_id],
+      ['project_name', parsed.project_name],
+      ['project_id', parsed.project_id],
+      ['compose_service', parsed.compose_service],
+      ['previous_domain_prefix', parsed.previous_domain_prefix],
+      ['previous_internal_port', parsed.previous_internal_port],
+      ['source_type', parsed.source_type],
+    ];
+    return details
+      .filter(([, value]) => value !== undefined && value !== null && String(value) !== '')
+      .map(([key, value]) => ({ key, value: String(value) }));
+  } catch {
+    return [{ key: 'details', value: event.details_json }];
+  }
+}
+
 export function AdminReportsPage() {
   const t = useT();
   const locale = useLocale();
@@ -59,13 +118,16 @@ export function AdminReportsPage() {
   const [selectedUser, setSelectedUser] = useState<UserUsageReportItem | undefined>();
   const [auditSearch, setAuditSearch] = useState('');
   const [auditOutcome, setAuditOutcome] = useState('');
+  const [auditAction, setAuditAction] = useState('');
+  const [auditResourceType, setAuditResourceType] = useState('');
   const params = useMemo(() => rangeParams(rangeSeconds), [rangeSeconds]);
 
   const overview = useReportsOverview(params);
   const users = useUserUsageReport({ ...params, sort, page: 1, limit: 10 });
   const selectedOwnerId = selectedUser?.owner_id || users.data?.users?.[0]?.owner_id;
   const timeline = useUserUsageTimeline(selectedOwnerId, params);
-  const audit = useAuditEvents({ ...params, search: auditSearch, outcome: auditOutcome, page: 1, limit: 20 });
+  const audit = useAuditEvents({ ...params, search: auditSearch, outcome: auditOutcome, action: auditAction, resource_type: auditResourceType, page: 1, limit: 20 });
+  const refreshSnapshots = useRefreshUsageSnapshots();
 
   const currentUser = selectedUser ?? users.data?.users?.find((item) => item.owner_id === selectedOwnerId);
   const chartPoints = (timeline.data?.points ?? []).map((point) => ({
@@ -75,12 +137,23 @@ export function AdminReportsPage() {
     actions: point.actions_total,
   }));
   const actionBars = overview.data?.top_actions?.map((item) => ({ action: item.action.replace('.', '\n'), count: item.count })) ?? [];
+  const lastSnapshotAt = overview.data?.last_usage_snapshot_at ?? 0;
+  const snapshotInterval = overview.data?.usage_snapshot_interval_seconds ?? 0;
+  const snapshotAge = lastSnapshotAt > 0 ? Math.floor(Date.now() / 1000) - lastSnapshotAt : 0;
+  const isUsageStale = lastSnapshotAt === 0 || (snapshotInterval > 0 && snapshotAge > snapshotInterval);
+  const lastSnapshotText = lastSnapshotAt > 0
+    ? new Date(lastSnapshotAt * 1000).toLocaleString(dateLocale(locale))
+    : t('admin.reports.noUsageSnapshot');
 
   const refetchAll = () => {
-    overview.refetch();
-    users.refetch();
-    timeline.refetch();
-    audit.refetch();
+    refreshSnapshots.mutate(undefined, {
+      onSuccess: () => {
+        overview.refetch();
+        users.refetch();
+        timeline.refetch();
+        audit.refetch();
+      },
+    });
   };
 
   return (
@@ -106,10 +179,14 @@ export function AdminReportsPage() {
               </button>
             ))}
           </div>
-          <Button variant="secondary" onClick={refetchAll} isLoading={overview.isFetching || users.isFetching || audit.isFetching} className="px-3">
-            <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
+          <Button variant="secondary" onClick={refetchAll} isLoading={refreshSnapshots.isPending || overview.isFetching || users.isFetching || audit.isFetching} className="px-3">
+            <RefreshCcw className="w-4 h-4 mr-2" /> {t('admin.reports.refreshUsage')}
           </Button>
         </div>
+      </div>
+
+      <div className={`rounded-lg border px-4 py-3 text-sm ${isUsageStale ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'}`}>
+        {t(isUsageStale ? 'admin.reports.usageSnapshotStale' : 'admin.reports.usageSnapshotFresh', { value: lastSnapshotText })}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -221,7 +298,7 @@ export function AdminReportsPage() {
               <ShieldAlert className="w-5 h-5 text-red-500" />
               {t('admin.reports.auditEventsTable')}
             </CardTitle>
-            <div className="grid grid-cols-1 md:grid-cols-[1fr_160px] gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_180px_160px] gap-3">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -236,6 +313,18 @@ export function AdminReportsPage() {
                 <option value="success">{t('admin.reports.outcome.success')}</option>
                 <option value="failure">{t('admin.reports.outcome.failure')}</option>
               </select>
+              <select value={auditAction} onChange={(event) => setAuditAction(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                <option value="">{t('admin.reports.allActions')}</option>
+                {auditActions.map((action) => (
+                  <option key={action} value={action}>{action}</option>
+                ))}
+              </select>
+              <select value={auditResourceType} onChange={(event) => setAuditResourceType(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
+                <option value="">{t('admin.reports.allResources')}</option>
+                {auditResourceTypes.map((resourceType) => (
+                  <option key={resourceType} value={resourceType}>{resourceType}</option>
+                ))}
+              </select>
             </div>
           </CardHeader>
           <CardContent>
@@ -248,18 +337,35 @@ export function AdminReportsPage() {
                     <th className="py-2 pr-3">{t('admin.reports.action')}</th>
                     <th className="py-2 pr-3">{t('common.status')}</th>
                     <th className="py-2 pr-3">{t('admin.reports.resource')}</th>
+                    <th className="py-2 pr-3">{t('admin.reports.details')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(audit.data?.events ?? []).map((event) => (
-                    <tr key={event.id} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="py-3 pr-3 whitespace-nowrap">{new Date(event.occurred_at * 1000).toLocaleString(dateLocale(locale))}</td>
-                      <td className="py-3 pr-3">{event.actor_username || event.actor_user_id || 'system'}</td>
-                      <td className="py-3 pr-3 font-medium">{event.action}</td>
-                      <td className="py-3 pr-3">{event.outcome}</td>
-                      <td className="py-3 pr-3">{event.resource_name || event.resource_id || event.resource_type}</td>
-                    </tr>
-                  ))}
+                  {(audit.data?.events ?? []).map((event) => {
+                    const details = auditDetails(event);
+                    return (
+                      <tr key={event.id} className="border-t border-slate-100 align-top dark:border-slate-800">
+                        <td className="py-3 pr-3 whitespace-nowrap">{new Date(event.occurred_at * 1000).toLocaleString(dateLocale(locale))}</td>
+                        <td className="py-3 pr-3">{event.actor_username || event.actor_user_id || 'system'}</td>
+                        <td className="py-3 pr-3 font-medium">{event.action}</td>
+                        <td className="py-3 pr-3">{event.outcome}</td>
+                        <td className="py-3 pr-3">{event.resource_name || event.resource_id || event.resource_type}</td>
+                        <td className="py-3 pr-3 min-w-64">
+                          {details.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {details.map((detail) => (
+                                <span key={`${event.id}-${detail.key}`} className="max-w-72 truncate rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300" title={`${detail.key}: ${detail.value}`}>
+                                  {detail.key}: {detail.value}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {!audit.isLoading && (audit.data?.events.length ?? 0) === 0 && (
