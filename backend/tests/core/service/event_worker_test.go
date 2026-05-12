@@ -83,6 +83,58 @@ func TestEventWorkerMarksMissingContainerOnSync(t *testing.T) {
 	require.Equal(t, model.ContainerStatusMissing, waitForEventWorkerStatus(t, statusCh))
 }
 
+func TestEventWorkerSkipsCreatingContainerWithActiveOperation(t *testing.T) {
+	containerID := uuid.New()
+	repo := coremocks.NewEventContainerRepo(t)
+	dockerAPI := coremocks.NewEventDockerAPI(t)
+	rebalancer := coremocks.NewContainerRebalancer(t)
+	cfg := coremocks.NewEventConfigProvider(t)
+
+	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
+		ID:     containerID,
+		Status: model.ContainerStatusCreating,
+	}}, nil)
+	repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(true, nil)
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
+	worker := NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go worker.Run(ctx)
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	repo.AssertNotCalled(t, "MarkStatusError", mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything)
+	dockerAPI.AssertNotCalled(t, "InspectContainer", mock.Anything, mock.Anything)
+}
+
+func TestEventWorkerMarksCreatingContainerWithoutActiveOperationMissing(t *testing.T) {
+	containerID := uuid.New()
+	repo := coremocks.NewEventContainerRepo(t)
+	dockerAPI := coremocks.NewEventDockerAPI(t)
+	rebalancer := coremocks.NewContainerRebalancer(t)
+	cfg := coremocks.NewEventConfigProvider(t)
+	statusCh := make(chan string, 1)
+
+	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
+		ID:     containerID,
+		Status: model.ContainerStatusCreating,
+	}}, nil)
+	repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(false, nil)
+	repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
+		statusCh <- status
+	}).Return(nil)
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
+	worker := NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go worker.Run(ctx)
+
+	require.Equal(t, model.ContainerStatusMissing, waitForEventWorkerStatus(t, statusCh))
+}
+
 func TestEventWorkerMarksMissingVolumeOnSync(t *testing.T) {
 	volumeID := uuid.New()
 	containerRepo := coremocks.NewEventContainerRepo(t)

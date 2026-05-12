@@ -24,6 +24,7 @@ type EventContainerRepo interface {
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
+	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
 }
 
 type EventDockerAPI interface {
@@ -241,6 +242,17 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 
 	for _, c := range containers {
 		if c.DockerID == "" {
+			if c.Status == model.ContainerStatusError {
+				continue
+			}
+			active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+			if err != nil {
+				w.logger.WarnContext(ctx, "failed to check active container operation", "container_id", c.ID, "error", err)
+				continue
+			}
+			if active {
+				continue
+			}
 			_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
 			w.logger.WarnContext(ctx, "container has empty docker id", "container_id", c.ID)
 			continue

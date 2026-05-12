@@ -3,6 +3,7 @@ package repository_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -143,4 +144,50 @@ func TestContainerRepositoryOperationsAndConflict(t *testing.T) {
 	container, err := containerRepo.GetByID(ctx, containerID)
 	require.NoError(t, err)
 	require.Equal(t, model.ContainerStatusExited, container.DesiredStatus)
+}
+
+func TestContainerRepositoryFailActiveOperationsUnblocksResource(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	containerRepo := repository.NewContainerRepository(db)
+	ownerID := uuid.New()
+	containerID := uuid.New()
+
+	require.NoError(t, containerRepo.SaveWithMountsAndOperation(ctx, model.Container{
+		ID:                    containerID,
+		OwnerID:               ownerID,
+		DockerID:              "docker-" + containerID.String()[:8],
+		Name:                  "web",
+		ImageTag:              "nginx:latest",
+		Status:                model.ContainerStatusCreating,
+		DesiredStatus:         model.ContainerStatusCreated,
+		BaseMemoryReservation: 256,
+	}, nil, model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   containerID,
+		OwnerID:      ownerID,
+		Operation:    model.OperationCreate,
+		Status:       model.OperationStatusRunning,
+	}, true, true))
+
+	active, err := containerRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+	require.NoError(t, err)
+	require.True(t, active)
+
+	recovered, err := containerRepo.FailActiveOperations(ctx, errors.New("operation interrupted by core service restart"))
+	require.NoError(t, err)
+	require.Equal(t, int64(1), recovered)
+
+	active, err = containerRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+	require.NoError(t, err)
+	require.False(t, active)
+	require.NoError(t, containerRepo.CreateOperation(ctx, model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   containerID,
+		OwnerID:      ownerID,
+		Operation:    model.OperationDelete,
+		Status:       model.OperationStatusRunning,
+	}))
 }

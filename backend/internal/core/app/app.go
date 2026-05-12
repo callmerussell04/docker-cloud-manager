@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -159,6 +160,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	if err := projRepo.RecoverInterruptedComposeDeployments(context.Background(), cfg.ConfigManager.Get().ComposeDeployMaxAttempts, recoveryMessage); err != nil {
 		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
+	}
+	operationRecoveryMessage := "operation interrupted by core service restart"
+	if recovered, err := contRepo.FailActiveOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
+		appLogger.Warn("failed to recover interrupted resource operations", "error", err)
+	} else if recovered > 0 {
+		appLogger.Warn("recovered interrupted resource operations", "count", recovered)
 	}
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)

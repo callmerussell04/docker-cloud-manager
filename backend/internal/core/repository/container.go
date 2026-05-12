@@ -739,6 +739,31 @@ func (r *ContainerRepository) CompleteLatestOperation(ctx context.Context, resou
 	return err
 }
 
+func (r *ContainerRepository) HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM resource_operations
+			WHERE resource_type = $1
+				AND resource_id = $2
+				AND status IN ($3, $4)
+		)
+	`, resourceType, resourceID, model.OperationStatusPending, model.OperationStatusRunning).Scan(&exists)
+	return exists, err
+}
+
+func (r *ContainerRepository) FailActiveOperations(ctx context.Context, cause error) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE status IN ($3, $4)
+	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusPending, model.OperationStatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
 	conn, err := r.db.Conn(ctx)
 	if err != nil {

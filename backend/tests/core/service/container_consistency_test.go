@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
@@ -107,6 +108,58 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
 	require.Error(t, err)
 	dockerAPI.AssertNotCalled(t, "StartContainer", mock.Anything, mock.Anything)
+}
+
+func TestContainerServiceCreateTimeoutClosesOperationWithDetachedContext(t *testing.T) {
+	ownerID := uuid.New()
+	repo := newContainerCreateStateRepoMock(t)
+	imageRepo := coremocks.NewContainerImageRepository(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	metrics := coremocks.NewHostMetricsProvider(t)
+	cfg := coremocks.NewConfigManager(t)
+	users := coremocks.NewUserInfoProvider(t)
+	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	ctx, cancel := context.WithCancel(accessscope.WithUserScope(context.Background(), ownerID, "", ""))
+	defer cancel()
+	cfgValue := staticConfig{}.Get()
+	cfgValue.OvercommitFactor = 1.5
+
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024}, nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)
+	repo.ContainerRepository.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
+	imageRepo.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
+		return opts.OwnerID != nil && *opts.OwnerID == ownerID
+	})).Return(nil, 0, nil)
+	repo.ContainerCreateRepository.EXPECT().SaveWithMountsAndOperation(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), false, false).Return(nil)
+	dockerAPI.EXPECT().EnsureUserNetwork(mock.Anything, "net_user_"+ownerID.String()).Return("network-id", nil)
+	dockerAPI.EXPECT().ImageExists(mock.Anything, "nginx:latest").Return(false, nil)
+	dockerAPI.EXPECT().PullImage(mock.Anything, "nginx:latest").Run(func(ctx context.Context, imageName string) {
+		cancel()
+	}).Return(context.DeadlineExceeded)
+	repo.ContainerStateRepository.EXPECT().
+		MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.ContainerStatusError, mock.Anything).
+		Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
+			require.NoError(t, ctx.Err())
+			require.ErrorIs(t, cause, apperrors.ErrTimeout)
+		}).
+		Return(nil)
+	repo.ContainerStateRepository.EXPECT().
+		CompleteLatestOperation(mock.Anything, model.ResourceTypeContainer, mock.AnythingOfType("uuid.UUID"), model.OperationStatusFailed, mock.Anything).
+		Run(func(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) {
+			require.NoError(t, ctx.Err())
+			require.ErrorIs(t, cause, apperrors.ErrTimeout)
+		}).
+		Return(nil)
+
+	_, err := svc.Create(ctx, model.ContainerCreateParams{
+		Name:              "web",
+		ImageTag:          "nginx:latest",
+		RequestedMemoryMB: 128,
+	})
+	require.ErrorIs(t, err, apperrors.ErrTimeout)
 }
 
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
@@ -221,6 +274,21 @@ func newContainerStateRepoMock(t *testing.T) *containerStateRepoMock {
 	return &containerStateRepoMock{
 		ContainerRepository:      coremocks.NewContainerRepository(t),
 		ContainerStateRepository: coremocks.NewContainerStateRepository(t),
+	}
+}
+
+type containerCreateStateRepoMock struct {
+	*coremocks.ContainerRepository
+	*coremocks.ContainerCreateRepository
+	*coremocks.ContainerStateRepository
+}
+
+func newContainerCreateStateRepoMock(t *testing.T) *containerCreateStateRepoMock {
+	t.Helper()
+	return &containerCreateStateRepoMock{
+		ContainerRepository:       coremocks.NewContainerRepository(t),
+		ContainerCreateRepository: coremocks.NewContainerCreateRepository(t),
+		ContainerStateRepository:  coremocks.NewContainerStateRepository(t),
 	}
 }
 

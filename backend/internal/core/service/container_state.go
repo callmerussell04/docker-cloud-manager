@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
+
+const containerStateWriteTimeout = 10 * time.Second
 
 func (s *ContainerService) acquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
 	lockRepo, ok := s.repo.(containerLockRepository)
@@ -33,7 +38,9 @@ func (s *ContainerService) markContainerError(ctx context.Context, containerID u
 	if !ok {
 		return
 	}
-	if err := stateRepo.MarkStatusError(ctx, containerID, status, cause); err != nil {
+	writeCtx, cancel := detachedContainerStateContext(ctx)
+	defer cancel()
+	if err := stateRepo.MarkStatusError(writeCtx, containerID, status, normalizeContainerRuntimeError(cause)); err != nil {
 		s.logger.WarnContext(ctx, "failed to mark container error", "container_id", containerID, "status", status, "error", err)
 	}
 }
@@ -103,9 +110,25 @@ func (s *ContainerService) completeContainerOperation(ctx context.Context, conta
 	if !ok {
 		return
 	}
-	if err := stateRepo.CompleteLatestOperation(ctx, model.ResourceTypeContainer, containerID, status, cause); err != nil {
+	writeCtx, cancel := detachedContainerStateContext(ctx)
+	defer cancel()
+	if err := stateRepo.CompleteLatestOperation(writeCtx, model.ResourceTypeContainer, containerID, status, normalizeContainerRuntimeError(cause)); err != nil {
 		s.logger.WarnContext(ctx, "failed to complete resource operation", "container_id", containerID, "status", status, "error", err)
 	}
+}
+
+func detachedContainerStateContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), containerStateWriteTimeout)
+}
+
+func normalizeContainerRuntimeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return apperrors.Wrap(apperrors.ErrTimeout, apperrors.ErrTimeout.Error(), err)
+	}
+	return err
 }
 
 func isDockerNotFound(err error) bool {

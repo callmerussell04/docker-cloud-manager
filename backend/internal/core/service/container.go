@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -419,7 +420,10 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			if customImage != nil && isDockerNotFound(err) {
 				s.markImageMissing(ctx, customImage.ID)
 			}
-			err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+			err = normalizeContainerRuntimeError(err)
+			if !errors.Is(err, apperrors.ErrTimeout) {
+				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+			}
 			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return uuid.Nil, err
@@ -441,7 +445,10 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			}
 			err = s.dockerAPI.PullImage(ctx, actualImageTag)
 			if err != nil {
-				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+				err = normalizeContainerRuntimeError(err)
+				if !errors.Is(err, apperrors.ErrTimeout) {
+					err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
+				}
 				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
 				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 				return uuid.Nil, err
@@ -484,6 +491,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 
 	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
 	if err != nil {
+		err = normalizeContainerRuntimeError(err)
 		s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return uuid.Nil, err
@@ -620,6 +628,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	// Создаем новый контейнер с лейблами Traefik до удаления старого.
 	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
 	if err != nil {
+		err = normalizeContainerRuntimeError(err)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
@@ -634,6 +643,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 
 	if c.Status == model.ContainerStatusRunning {
 		if err = s.dockerAPI.StartContainer(ctx, newDockerID); err != nil {
+			err = normalizeContainerRuntimeError(err)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return err
 		}
@@ -663,6 +673,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 
 	if c.DockerID != "" {
 		if removeErr := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); removeErr != nil && !isDockerNotFound(removeErr) {
+			removeErr = normalizeContainerRuntimeError(removeErr)
 			s.logger.WarnContext(ctx, "failed to remove old exposed container generation", "container_id", containerID, "docker_id", c.DockerID, "error", removeErr)
 		}
 	}
@@ -787,6 +798,7 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return resourceUnavailableError("container")
 		}
+		err = normalizeContainerRuntimeError(err)
 		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
@@ -828,6 +840,7 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 
 	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
 		if !isDockerNotFound(err) {
+			err = normalizeContainerRuntimeError(err)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return err
 		}
@@ -867,6 +880,7 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 	if c.DockerID != "" {
 		err = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
 		if err != nil && !isDockerNotFound(err) {
+			err = normalizeContainerRuntimeError(err)
 			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 			return err
 		}

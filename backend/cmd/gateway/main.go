@@ -28,8 +28,8 @@ func main() {
 		InternalToken:       requiredEnv(logger, "INTERNAL_SERVICE_TOKEN"),
 		HTTP: app.HTTPServerConfig{
 			ReadHeaderTimeout: durationSecondsEnv("GATEWAY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
-			ReadTimeout:       durationSecondsEnv("GATEWAY_READ_TIMEOUT_SECONDS", 300*time.Second),
-			WriteTimeout:      durationSecondsEnv("GATEWAY_WRITE_TIMEOUT_SECONDS", 300*time.Second),
+			ReadTimeout:       durationSecondsEnv("GATEWAY_READ_TIMEOUT_SECONDS", 360*time.Second),
+			WriteTimeout:      durationSecondsEnv("GATEWAY_WRITE_TIMEOUT_SECONDS", 360*time.Second),
 			IdleTimeout:       durationSecondsEnv("GATEWAY_IDLE_TIMEOUT_SECONDS", 120*time.Second),
 			ShutdownTimeout:   durationSecondsEnv("GATEWAY_SHUTDOWN_TIMEOUT_SECONDS", 15*time.Second),
 			MaxHeaderBytes:    intEnv("GATEWAY_MAX_HEADER_BYTES", 1<<20),
@@ -54,7 +54,7 @@ func main() {
 			MaxIdleConnsPerHost:   intEnv("GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST", 20),
 		},
 		GRPC: app.GRPCConfig{
-			RequestTimeout:    durationSecondsEnv("GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS", 10*time.Second),
+			RequestTimeout:    durationSecondsEnv("GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS", 300*time.Second),
 			MinConnectTimeout: durationSecondsEnv("GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS", 5*time.Second),
 			TLS: app.GRPCTLSConfig{
 				Enabled:    boolEnv("GATEWAY_GRPC_TLS_ENABLED", false),
