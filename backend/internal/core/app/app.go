@@ -81,7 +81,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	dockerAdapter, err := docker.NewAdapter()
+	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath))
 	if err != nil {
 		return nil, err
 	}

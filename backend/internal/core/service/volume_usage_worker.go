@@ -15,7 +15,6 @@ import (
 type VolumeUsageRepo interface {
 	GetReconcileCandidates(ctx context.Context) ([]model.Volume, error)
 	UpdateUsage(ctx context.Context, id uuid.UUID, usedBytes int64) error
-	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUID, error)
 	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
@@ -97,7 +96,6 @@ func (w *VolumeUsageWorker) refreshUsage(ctx context.Context) {
 		usedBytes, err := w.dockerAPI.GetVolumeUsageBytes(ctx, vol.DockerName)
 		if err != nil {
 			w.logger.WarnContext(ctx, "failed to measure volume usage", "volume_id", vol.ID, "docker_name", vol.DockerName, "error", err)
-			_ = w.volRepo.MarkStatusError(ctx, vol.ID, vol.Status, err)
 			continue
 		}
 		if err := w.volRepo.UpdateUsage(ctx, vol.ID, usedBytes); err != nil {

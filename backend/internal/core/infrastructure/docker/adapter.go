@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -24,15 +25,33 @@ import (
 )
 
 type Adapter struct {
-	cli *client.Client
+	cli            *client.Client
+	hostPathPrefix string
 }
 
-func NewAdapter() (*Adapter, error) {
+type AdapterOption func(*Adapter)
+
+func WithHostPathPrefix(path string) AdapterOption {
+	return func(a *Adapter) {
+		path = strings.TrimSpace(path)
+		if path == "" || path == string(os.PathSeparator) {
+			a.hostPathPrefix = ""
+			return
+		}
+		a.hostPathPrefix = filepath.Clean(path)
+	}
+}
+
+func NewAdapter(opts ...AdapterOption) (*Adapter, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
 	}
-	return &Adapter{cli: cli}, nil
+	adapter := &Adapter{cli: cli}
+	for _, opt := range opts {
+		opt(adapter)
+	}
+	return adapter, nil
 }
 
 func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (string, error) {
@@ -326,7 +345,8 @@ func (a *Adapter) GetVolumeUsageBytes(ctx context.Context, volumeName string) (i
 		return 0, err
 	}
 	var total int64
-	err = filepath.WalkDir(vol.Mountpoint, func(path string, d os.DirEntry, walkErr error) error {
+	mountpoint := a.volumeMountpointPath(vol.Mountpoint)
+	err = filepath.WalkDir(mountpoint, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -349,6 +369,17 @@ func (a *Adapter) GetVolumeUsageBytes(ctx context.Context, volumeName string) (i
 		return 0, err
 	}
 	return total, nil
+}
+
+func (a *Adapter) volumeMountpointPath(mountpoint string) string {
+	if a.hostPathPrefix == "" || mountpoint == "" || !filepath.IsAbs(mountpoint) {
+		return mountpoint
+	}
+	cleanMountpoint := filepath.Clean(mountpoint)
+	if cleanMountpoint == string(os.PathSeparator) {
+		return a.hostPathPrefix
+	}
+	return filepath.Join(a.hostPathPrefix, strings.TrimPrefix(cleanMountpoint, string(os.PathSeparator)))
 }
 
 func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) error {
