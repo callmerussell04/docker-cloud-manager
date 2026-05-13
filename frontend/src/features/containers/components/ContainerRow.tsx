@@ -25,6 +25,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
+      case 'pending': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
       case 'exited': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
       case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
       case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
@@ -124,7 +125,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => handleAction('start')}
-          disabled={['running', 'creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
+          disabled={['running', 'pending', 'creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.start')}
         >
@@ -142,7 +143,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
         <button
           onClick={() => onExpose(container)}
-          disabled={['creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
+          disabled={['pending', 'creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.routingSettings')}
         >

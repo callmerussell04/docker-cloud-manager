@@ -54,6 +54,12 @@ type SystemConfig struct {
 	EventReconnectDelaySeconds           int64 `json:"event_reconnect_delay_seconds"`
 	BuildOutboxIntervalSeconds           int64 `json:"build_outbox_interval_seconds"`
 	BuildOutboxBatchSize                 int   `json:"build_outbox_batch_size"`
+	ContainerCreateWorkerCount           int   `json:"container_create_worker_count"`
+	ContainerCreateMaxAttempts           int   `json:"container_create_max_attempts"`
+	ContainerCreateTimeoutMinutes        int64 `json:"container_create_timeout_minutes"`
+	MaxQueuedContainerCreatesPerUser     int   `json:"max_queued_container_creates_per_user"`
+	ContainerCreateOutboxIntervalSeconds int64 `json:"container_create_outbox_interval_seconds"`
+	ContainerCreateOutboxBatchSize       int   `json:"container_create_outbox_batch_size"`
 	ReportsUsageSnapshotIntervalSeconds  int64 `json:"reports_usage_snapshot_interval_seconds"`
 	MaxStagedSourceBytesPerUser          int64 `json:"max_staged_source_bytes_per_user"`
 	MaxQueuedBuildsPerUser               int   `json:"max_queued_builds_per_user"`
@@ -67,6 +73,7 @@ type SystemConfig struct {
 	ComposeBuildPollIntervalSeconds      int64 `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64 `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64 `json:"compose_dependency_poll_interval_seconds"`
+	ComposeCoordinatorIntervalSeconds    int64 `json:"compose_coordinator_interval_seconds"`
 	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`

@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	ContainerStatusPending     = "pending"
 	ContainerStatusCreating    = "creating"
 	ContainerStatusCreated     = "created"
 	ContainerStatusRunning     = "running"

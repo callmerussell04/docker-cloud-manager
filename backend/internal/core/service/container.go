@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
@@ -38,6 +38,7 @@ type ContainerRepository interface {
 
 type containerCreateRepository interface {
 	SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error
+	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 }
 
 type containerStateRepository interface {
@@ -198,7 +199,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
 
-	var fullDomain string
 	if params.DomainPrefix != "" {
 		if params.InternalPort <= 0 {
 			return uuid.Nil, apperrors.ErrBadRequest
@@ -212,7 +212,17 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			return uuid.Nil, fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
 		}
 
-		fullDomain = fmt.Sprintf("%s.%s", params.DomainPrefix, cfg.BaseDomain)
+	}
+	if queuedRepo, ok := s.repo.(interface {
+		CountActiveCreateOperationsByOwner(context.Context, uuid.UUID) (int, error)
+	}); ok && cfg.MaxQueuedContainerCreatesPerUser > 0 {
+		queued, err := queuedRepo.CountActiveCreateOperationsByOwner(ctx, ownerID)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		if queued >= cfg.MaxQueuedContainerCreatesPerUser {
+			return uuid.Nil, apperrors.ErrLimitExceeded
+		}
 	}
 
 	// 1. Определение запрашиваемой памяти (Гарантии)
@@ -240,14 +250,12 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	baseName, version := parseImageTag(params.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
 
-	isCustom := false
 	var customImage *model.Image
 	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
 	if err == nil {
 		for _, img := range userImages {
 			// Сравниваем с нормализованным тегом из БД
 			if img.Tag == normalizedInputTag {
-				isCustom = true
 				customImage = &img
 				break
 			}
@@ -255,12 +263,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	}
 	if customImage != nil && customImage.Status == model.ImageStatusMissing {
 		return uuid.Nil, resourceUnavailableError("image")
-	}
-
-	actualImageTag := normalizedInputTag
-	if isCustom {
-		// Формируем полный тег для пулла из Registry
-		actualImageTag = customImageFullTag(s.config.Get().RegistryPublicURL, ownerID, baseName, version)
 	}
 
 	envBytes, err := json.Marshal(params.EnvVars)
@@ -271,12 +273,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	containerID := uuid.New()
 
 	// Подготовка томов
-	var dockerMounts []model.ContainerMountSpec
 	var dbMounts []model.VolumeMount
-	var volumeChecks []struct {
-		id         uuid.UUID
-		dockerName string
-	}
 
 	for _, vm := range params.VolumeMounts {
 		if err := validation.MountPath(vm.MountPath); err != nil {
@@ -293,28 +290,12 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		if vol.Status == model.VolumeStatusMissing {
 			return uuid.Nil, resourceUnavailableError("volume")
 		}
-		volumeChecks = append(volumeChecks, struct {
-			id         uuid.UUID
-			dockerName string
-		}{id: vol.ID, dockerName: vol.DockerName})
-
-		dockerMounts = append(dockerMounts, model.ContainerMountSpec{
-			VolumeName: vol.DockerName,
-			Target:     vm.MountPath,
-			ReadOnly:   vm.IsReadOnly,
-		})
-
 		dbMounts = append(dbMounts, model.VolumeMount{
 			ContainerID: containerID,
 			VolumeID:    vol.ID,
 			MountPath:   vm.MountPath,
 			IsReadOnly:  vm.IsReadOnly,
 		})
-	}
-
-	var envList []string
-	for k, v := range params.EnvVars {
-		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	var ttlDeadline *time.Time
@@ -336,7 +317,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		ImageTag:              normalizedInputTag,
 		InternalPort:          params.InternalPort,
 		DomainPrefix:          params.DomainPrefix,
-		Status:                model.ContainerStatusCreating,
+		Status:                model.ContainerStatusPending,
 		DesiredStatus:         model.ContainerStatusCreated,
 		TTLDeadline:           ttlDeadline,
 		EnvVars:               envBytes,
@@ -355,10 +336,30 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		ResourceID:   containerID,
 		OwnerID:      ownerID,
 		Operation:    model.OperationCreate,
-		Status:       model.OperationStatusRunning,
+		Status:       model.OperationStatusPending,
+	}
+	msg := containerqueue.LifecycleMessage{
+		OperationID: op.ID.String(),
+		ContainerID: containerID.String(),
+		OwnerID:     ownerID.String(),
+		RequestID:   logging.RequestIDFromContext(ctx),
+		CreatedAt:   time.Now().Unix(),
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to marshal container lifecycle message: %w", err)
+	}
+	outbox := model.ContainerLifecycleOutbox{
+		ID:          uuid.New(),
+		OperationID: op.ID,
+		ContainerID: containerID,
+		Exchange:    containerqueue.ExchangeName,
+		RoutingKey:  containerqueue.RoutingKey,
+		Payload:     payload,
+		Status:      model.ContainerOutboxStatusPending,
 	}
 	if txRepo, ok := s.repo.(containerCreateRepository); ok {
-		if err := txRepo.SaveWithMountsAndOperation(ctx, c, dbMounts, op, false, false); err != nil {
+		if err := txRepo.SaveWithMountsOperationAndOutbox(ctx, c, dbMounts, op, outbox, false, false); err != nil {
 			return uuid.Nil, err
 		}
 	} else {
@@ -373,142 +374,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		}
 	}
 	releaseLock()
-
-	if inspector, ok := s.dockerAPI.(containerVolumeInspector); ok {
-		for _, check := range volumeChecks {
-			if _, err := inspector.InspectVolume(ctx, check.dockerName); err != nil {
-				if isDockerNotFound(err) {
-					s.markVolumeMissing(ctx, check.id)
-					err = resourceUnavailableError("volume")
-				}
-				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-				return uuid.Nil, err
-			}
-		}
-	}
-
-	// 4. Изоляция сети
-	networkName := userNetworkName(ownerID)
-	_, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName)
-	if err != nil {
-		s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return uuid.Nil, err
-	}
-	defer func() {
-		if err != nil {
-			s.cleanupUserNetworkIfUnused(ctx, ownerID)
-		}
-	}()
-
-	// Если образ кастомный — ПУЛЛИМ ВСЕГДА (вдруг пользователь пересобрал его)
-	// Если публичный — пуллим только если его нет на хосте
-	pulledPublicImage := false
-	defer func() {
-		if err != nil && pulledPublicImage {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			if remover, ok := s.dockerAPI.(containerImageRemover); ok {
-				_ = remover.RemoveImage(cleanupCtx, actualImageTag, false)
-			}
-			cancel()
-		}
-	}()
-	if isCustom {
-		err = s.dockerAPI.PullImage(ctx, actualImageTag)
-		if err != nil {
-			if customImage != nil && isDockerNotFound(err) {
-				s.markImageMissing(ctx, customImage.ID)
-			}
-			err = normalizeContainerRuntimeError(err)
-			if !errors.Is(err, apperrors.ErrTimeout) {
-				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-			}
-			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return uuid.Nil, err
-		}
-	} else {
-		imageExists, imageErr := s.dockerAPI.ImageExists(ctx, actualImageTag)
-		if imageErr != nil {
-			err = imageErr
-			s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return uuid.Nil, err
-		}
-		if !imageExists {
-			err = s.checkHostDiskCapacity()
-			if err != nil {
-				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-				return uuid.Nil, err
-			}
-			err = s.dockerAPI.PullImage(ctx, actualImageTag)
-			if err != nil {
-				err = normalizeContainerRuntimeError(err)
-				if !errors.Is(err, apperrors.ErrTimeout) {
-					err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-				}
-				s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-				s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-				return uuid.Nil, err
-			}
-			pulledPublicImage = true
-		}
-	}
-
-	// 5. Конфигурация Docker. Изначально ставим жесткий лимит равным мягкому.
-	// Ребалансировщик потом его увеличит (Burst).
-	dockerParams := model.ContainerRuntimeSpec{
-		ContainerID:          containerID.String(),
-		OwnerID:              ownerID.String(),
-		Generation:           c.DockerGeneration,
-		ContainerName:        fmt.Sprintf("usr_%s", containerID.String()[:12]),
-		NetworkAlias:         networkAlias,
-		ImageName:            actualImageTag,
-		NetworkName:          networkName,
-		Domain:               fullDomain,
-		InternalPort:         params.InternalPort,
-		EnvVars:              envList,
-		MemoryLimitBytes:     reqMem, // Стартовый жесткий лимит
-		MemoryReservation:    reqMem, // Гарантия (Soft limit)
-		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
-		CPUShares:            cfg.DefaultCPUShares, // Базовый приоритет
-		PidsLimit:            cfg.ContainerPidsLimit,
-		ProxyNetworkName:     cfg.ProxyNetworkName,
-		VolumeMounts:         dockerMounts,
-		MaxLogSize:           cfg.MaxLogSize,
-		MaxLogFiles:          cfg.MaxLogFiles,
-		StorageQuota:         cfg.ContainerDiskQuota,
-		Command:              params.Command,
-		Entrypoint:           params.Entrypoint,
-		Restart:              params.Restart,
-		Healthcheck:          params.Healthcheck,
-	}
-	if params.ProjectID != nil {
-		dockerParams.ProjectID = params.ProjectID.String()
-	}
-
-	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
-	if err != nil {
-		err = normalizeContainerRuntimeError(err)
-		s.markContainerError(ctx, containerID, model.ContainerStatusError, err)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return uuid.Nil, err
-	}
-
-	err = s.repo.UpdateDockerIDAndStatus(ctx, containerID, dockerID, model.ContainerStatusCreated)
-	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		s.dockerAPI.RemoveContainer(cleanupCtx, dockerID, true)
-		s.markContainerError(cleanupCtx, containerID, model.ContainerStatusError, err)
-		s.completeContainerOperation(cleanupCtx, containerID, model.OperationStatusFailed, err)
-		cancel()
-		return uuid.Nil, err
-	}
-
-	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-	s.logger.InfoContext(ctx, "container created", "container_id", containerID, "owner_id", ownerID, "image_tag", normalizedInputTag)
+	s.logger.InfoContext(ctx, "container create queued", "container_id", containerID, "owner_id", ownerID, "image_tag", normalizedInputTag)
 	return containerID, nil
 }
 
@@ -873,6 +739,20 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 		return err
 	}
 	ownerID := c.OwnerID
+	if c.DockerID == "" && (c.Status == model.ContainerStatusPending || c.Status == model.ContainerStatusCreating) {
+		if cancelRepo, ok := s.repo.(interface {
+			CancelActiveCreateAndDeleteContainer(context.Context, uuid.UUID, error) error
+		}); ok {
+			cause := apperrors.New(apperrors.ErrConflict, "container create canceled by delete")
+			if err := cancelRepo.CancelActiveCreateAndDeleteContainer(ctx, containerID, cause); err != nil {
+				return err
+			}
+			s.cleanupUserNetworkIfUnused(ctx, ownerID)
+			s.refreshProjectStatus(ctx, c.ProjectID)
+			s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
+			return nil
+		}
+	}
 	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationDelete, model.ContainerStatusDeleting); err != nil {
 		return err
 	}

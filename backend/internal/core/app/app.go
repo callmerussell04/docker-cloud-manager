@@ -32,20 +32,21 @@ import (
 )
 
 type App struct {
-	gRPCServer      *grpc.Server
-	httpServer      *http.Server
-	db              *sql.DB
-	reportsRepo     *clickhouserepo.ReportsRepository
-	dockerCli       *docker.Adapter
-	orchestrator    *compose.Orchestrator
-	buildPublisher  service.BuildQueuePublisher
-	composeConsumer *rabbitmq.ComposeConsumer
-	ssoConn         *grpc.ClientConn
-	port            int
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              *sync.WaitGroup
-	logger          *slog.Logger
+	gRPCServer        *grpc.Server
+	httpServer        *http.Server
+	db                *sql.DB
+	reportsRepo       *clickhouserepo.ReportsRepository
+	dockerCli         *docker.Adapter
+	orchestrator      *compose.Orchestrator
+	buildPublisher    service.BuildQueuePublisher
+	composeConsumer   *rabbitmq.ComposeConsumer
+	containerConsumer *rabbitmq.ContainerConsumer
+	ssoConn           *grpc.ClientConn
+	port              int
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                *sync.WaitGroup
+	logger            *slog.Logger
 }
 
 type Config struct {
@@ -139,6 +140,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	contService.SetAuditRecorder(reportService)
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
+	containerConsumer := rabbitmq.NewContainerConsumer(cfg.RabbitMQURL, "core", logger)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -162,10 +164,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
 	}
 	operationRecoveryMessage := "operation interrupted by core service restart"
-	if recovered, err := contRepo.FailActiveOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
-		appLogger.Warn("failed to recover interrupted resource operations", "error", err)
+	if recovered, err := contRepo.RecoverInterruptedContainerCreates(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
+		appLogger.Warn("failed to recover interrupted container create operations", "error", err)
 	} else if recovered > 0 {
-		appLogger.Warn("recovered interrupted resource operations", "count", recovered)
+		appLogger.Warn("requeued interrupted container create operations", "count", recovered)
+	}
+	if recovered, err := contRepo.FailActiveNonCreateOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
+		appLogger.Warn("failed to recover interrupted non-create resource operations", "error", err)
+	} else if recovered > 0 {
+		appLogger.Warn("failed interrupted non-create resource operations", "count", recovered)
 	}
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)
@@ -192,6 +199,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
+	containerOutboxWorker := service.NewContainerOutboxWorker(contRepo, buildPublisher, cfg.ConfigManager, logger)
+	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
+	composeCoordinator := compose.NewComposeDeploymentCoordinator(orchestrator, logger)
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
 	startWorkers(ctx, wg,
@@ -202,25 +212,29 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		contService.RunRebalancer,
 		buildOutboxWorker.Run,
 		composeOutboxWorker.Run,
+		containerOutboxWorker.Run,
+		composeCoordinator.Run,
 		reportsUsageWorker.Run,
 	)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
+	containerConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, containerCreateWorker.HandleMessage)
 
 	return &App{
-		gRPCServer:      gRPCServer,
-		httpServer:      httpServer,
-		db:              db,
-		reportsRepo:     reportsRepo,
-		dockerCli:       dockerAdapter,
-		orchestrator:    orchestrator,
-		buildPublisher:  buildPublisher,
-		composeConsumer: composeConsumer,
-		ssoConn:         ssoConn,
-		port:            cfg.Port,
-		ctx:             ctx,
-		cancel:          cancel,
-		wg:              wg,
-		logger:          appLogger,
+		gRPCServer:        gRPCServer,
+		httpServer:        httpServer,
+		db:                db,
+		reportsRepo:       reportsRepo,
+		dockerCli:         dockerAdapter,
+		orchestrator:      orchestrator,
+		buildPublisher:    buildPublisher,
+		composeConsumer:   composeConsumer,
+		containerConsumer: containerConsumer,
+		ssoConn:           ssoConn,
+		port:              cfg.Port,
+		ctx:               ctx,
+		cancel:            cancel,
+		wg:                wg,
+		logger:            appLogger,
 	}, nil
 }
 
@@ -269,6 +283,13 @@ func (a *App) Stop() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := a.composeConsumer.Stop(stopCtx); err != nil {
 			a.logger.Warn("compose queue consumer shutdown timed out", "error", err)
+		}
+		cancel()
+	}
+	if a.containerConsumer != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.containerConsumer.Stop(stopCtx); err != nil {
+			a.logger.Warn("container queue consumer shutdown timed out", "error", err)
 		}
 		cancel()
 	}

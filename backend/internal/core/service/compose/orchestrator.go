@@ -286,6 +286,9 @@ func (o *Orchestrator) rollbackDeployment(state *deploymentState, logger *slog.L
 
 	errMsg := apperrors.SafeMessage(deployErr)
 	_ = o.projectRepo.UpdateStatus(cleanupCtx, state.projectID, model.ProjectStatusFailed, &errMsg)
+	if state.jobID != uuid.Nil {
+		_ = o.projectRepo.CompleteComposeDeploymentJob(cleanupCtx, state.jobID, model.ComposeDeploymentStatusFailed, &errMsg)
+	}
 }
 
 func (o *Orchestrator) cancelAndCleanupDeployment(state *deploymentState, cause error) {
@@ -628,6 +631,9 @@ func (o *Orchestrator) CleanupInterruptedDeployments(ctx context.Context, errorM
 }
 
 func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job model.ComposeDeploymentJob, errorMessage string) error {
+	if job.Stage != "" {
+		return nil
+	}
 	containers, err := o.resourceRepo.GetByProjectID(ctx, job.ProjectID)
 	if err != nil {
 		return err
@@ -987,10 +993,6 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 	if job.Status != model.ComposeDeploymentStatusQueued {
 		return nil
 	}
-	project, err := o.projectRepo.GetByID(ctx, job.ProjectID)
-	if err != nil {
-		return err
-	}
 	job, started, err := o.projectRepo.StartComposeDeploymentJob(ctx, jobID)
 	if err != nil {
 		return err
@@ -1012,26 +1014,118 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 	if requestID == "" {
 		requestID = msg.RequestID
 	}
-	baseCtx, timeoutCancel := context.WithTimeout(o.parentCtx, time.Duration(o.cfg.Get().ComposePipelineTimeoutMinutes)*time.Minute)
-	pipelineCtx, cancel := context.WithCancelCause(baseCtx)
-	pipelineCtx = logging.ContextWithRequestID(pipelineCtx, requestID)
-	pipelineCtx = accessscope.WithScope(pipelineCtx, scope)
-	state := &deploymentState{
-		jobID:     job.ID,
-		projectID: job.ProjectID,
-		scope:     scope,
-		requestID: requestID,
-		cancel:    cancel,
+	jobCtx := logging.ContextWithRequestID(ctx, requestID)
+	jobCtx = accessscope.WithScope(jobCtx, scope)
+
+	progressRepo, ok := o.projectRepo.(composeProgressRepository)
+	if !ok {
+		return apperrors.New(apperrors.ErrUnavailable, "compose progress repository is unavailable")
+	}
+	project, err := o.projectRepo.GetByID(jobCtx, job.ProjectID)
+	if err != nil {
+		return err
+	}
+	prepared, err := o.prepareObjectSource(jobCtx, job.SourceObjectKey, job.ComposeFile)
+	if err != nil {
+		o.failDeploymentJob(jobCtx, job, err)
+		return nil
+	}
+	parsedProject, err := o.parseComposeProject(jobCtx, project.Name, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
+	if err != nil {
+		o.failDeploymentJob(jobCtx, job, err)
+		return nil
+	}
+	if composeRequiresBuild(parsedProject) && !prepared.Archive {
+		o.failDeploymentJob(jobCtx, job, apperrors.New(apperrors.ErrBadRequest, "compose build requires an archive source"))
+		return nil
+	}
+	if composeRequiresBuild(parsedProject) && !o.cfg.Get().ImageBuildsEnabled {
+		o.failDeploymentJob(jobCtx, job, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage))
+		return nil
 	}
 
-	o.registerDeployment(state)
-	o.wg.Add(1)
-	defer func() {
-		o.unregisterDeployment(job.ProjectID)
-		timeoutCancel()
-		o.wg.Done()
-	}()
-	o.runPipeline(pipelineCtx, state, project.Name, job)
+	plan := composeDeploymentPlan{
+		ProjectName: project.Name,
+		SourceType:  job.SourceType,
+		Services:    parsedProject.Services,
+		Volumes:     parsedProject.Volumes,
+	}
+	resources := composeDeploymentResources{}
+	ensureComposeResourceMaps(&resources)
+	stage := model.ComposeDeploymentStageCreating
+	projectStatus := model.ProjectStatusDeploying
+	if composeRequiresBuild(parsedProject) {
+		stage = model.ComposeDeploymentStageBuilding
+		projectStatus = model.ProjectStatusBuilding
+	}
+	planJSON, resourceJSON, err := encodeComposeDeploymentState(plan, resources)
+	if err != nil {
+		o.failDeploymentJob(jobCtx, job, err)
+		return nil
+	}
+	if err := progressRepo.SaveComposeDeploymentPlan(jobCtx, job.ID, stage, planJSON, resourceJSON); err != nil {
+		return err
+	}
+	if err := o.projectRepo.UpdateStatus(jobCtx, job.ProjectID, projectStatus, nil); err != nil {
+		return err
+	}
+	if stage == model.ComposeDeploymentStageBuilding {
+		if err := o.ensureComposeBuilds(jobCtx, job, plan, &resources); err != nil {
+			o.failDeploymentJob(jobCtx, job, err)
+			return nil
+		}
+		planJSON, resourceJSON, err = encodeComposeDeploymentState(plan, resources)
+		if err != nil {
+			o.failDeploymentJob(jobCtx, job, err)
+			return nil
+		}
+		if err := progressRepo.UpdateComposeDeploymentProgress(jobCtx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON); err != nil {
+			return err
+		}
+		o.deleteComposeSourceObject(jobCtx, job.SourceObjectKey)
+	} else {
+		o.deleteComposeSourceObject(jobCtx, job.SourceObjectKey)
+	}
+	o.logger.InfoContext(jobCtx, "compose deployment plan persisted", "project_id", job.ProjectID, "job_id", job.ID, "stage", stage)
+	return nil
+}
+
+func (o *Orchestrator) failDeploymentJob(ctx context.Context, job model.ComposeDeploymentJob, cause error) {
+	errMsg := apperrors.SafeMessage(cause)
+	o.logger.WarnContext(ctx, "compose deployment job failed", "project_id", job.ProjectID, "job_id", job.ID, "error", cause)
+	_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg)
+	_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusFailed, &errMsg)
+	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
+	cancel()
+}
+
+func (o *Orchestrator) ensureComposeBuilds(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+	ensureComposeResourceMaps(resources)
+	if o.buildRepo != nil {
+		builds, err := o.buildRepo.GetByProjectID(ctx, job.ProjectID)
+		if err != nil {
+			return err
+		}
+		for _, build := range builds {
+			if build.ProjectServiceName != "" {
+				resources.BuildIDs[build.ProjectServiceName] = build.ID
+			}
+		}
+	}
+	for _, srv := range plan.Services {
+		if srv.BuildContext == "" {
+			continue
+		}
+		if _, ok := resources.BuildIDs[srv.Name]; ok {
+			continue
+		}
+		buildID, err := o.builderClient.TriggerBuild(ctx, job.ProjectID, srv, job.SourceObjectKey)
+		if err != nil {
+			return fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err)
+		}
+		resources.BuildIDs[srv.Name] = buildID
+	}
 	return nil
 }
 
@@ -1235,6 +1329,11 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 		state.addContainer(contID)
 		serviceToContainerID[srv.Name] = contID
 		o.recordComposeExposeAudit(ctx, ownerID, projectID, projectName, job.SourceType, srv, contID, createParams.Name)
+	}
+
+	if err := o.waitForContainerCreates(ctx, state, serviceToContainerID); err != nil {
+		rollback(err)
+		return
 	}
 
 	serviceGraph, err := projectServiceGraph(projectID, parsedProject.Services, serviceToContainerID)
@@ -1483,6 +1582,51 @@ func (o *Orchestrator) checkBuilds(ctx context.Context, buildIDs []uuid.UUID) (b
 		}
 	}
 	return allSuccess, nil
+}
+
+func (o *Orchestrator) waitForContainerCreates(ctx context.Context, state *deploymentState, serviceToContainerID map[string]uuid.UUID) error {
+	interval := time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		if err := o.checkCanceled(ctx, state); err != nil {
+			return err
+		}
+		allCreated := true
+		for serviceName, containerID := range serviceToContainerID {
+			c, err := o.contService.GetByID(ctx, containerID)
+			if err != nil {
+				return fmt.Errorf("container for service %s unavailable: %w", serviceName, err)
+			}
+			switch c.Status {
+			case model.ContainerStatusCreated, model.ContainerStatusRunning, model.ContainerStatusExited:
+			case model.ContainerStatusError, model.ContainerStatusMissing:
+				if c.LastError != nil && *c.LastError != "" {
+					return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("container create for service %s failed: %s", serviceName, *c.LastError))
+				}
+				return apperrors.New(apperrors.ErrConflict, fmt.Sprintf("container create for service %s failed with status %s", serviceName, c.Status))
+			default:
+				allCreated = false
+			}
+		}
+		if allCreated {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			interval = time.Duration(o.cfg.Get().ComposeBuildPollIntervalSeconds) * time.Second
+			if interval <= 0 {
+				interval = time.Second
+			}
+			ticker.Reset(interval)
+		}
+	}
 }
 
 func (o *Orchestrator) abortBuildStatus(ctx context.Context, buildIDs []uuid.UUID) (string, bool, error) {

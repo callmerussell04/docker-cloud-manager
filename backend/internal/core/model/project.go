@@ -36,6 +36,11 @@ const (
 	ComposeOutboxStatusPublishing = "publishing"
 	ComposeOutboxStatusPublished  = "published"
 	ComposeOutboxStatusDiscarded  = "discarded"
+
+	ComposeDeploymentStagePlanning = "planning"
+	ComposeDeploymentStageBuilding = "building"
+	ComposeDeploymentStageCreating = "creating"
+	ComposeDeploymentStageStarting = "starting"
 )
 
 type Project struct {
@@ -77,6 +82,9 @@ type ComposeDeploymentJob struct {
 	CancelRequested bool
 	ErrorMessage    *string
 	RequestID       string
+	Stage           string
+	PlanJSON        []byte
+	ResourceMapJSON []byte
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	StartedAt       *time.Time

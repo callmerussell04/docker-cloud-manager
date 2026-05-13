@@ -344,7 +344,7 @@ func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Con
 func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error,
+			status, desired_status, env_vars, base_memory_reservation, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE id = $1
 	`
@@ -361,7 +361,7 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error,
+			status, desired_status, env_vars, base_memory_reservation, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE docker_id = $1
 	`
@@ -566,7 +566,7 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 		SELECT id, project_id, docker_id, status, desired_status, last_exit_code
 		FROM containers
 		WHERE status != $6 AND (
-			status IN ($1, $2, $3, $4, $5)
+			status IN ($1, $2, $3, $4, $5, $7)
 			OR desired_status IN ($2, $3, $4)
 		)
 	`
@@ -577,6 +577,7 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 		model.ContainerStatusDeleting,
 		model.ContainerStatusReconciling,
 		model.ContainerStatusMissing,
+		model.ContainerStatusPending,
 	)
 	if err != nil {
 		return nil, err
@@ -616,6 +617,10 @@ func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefi
 }
 
 func (r *ContainerRepository) SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error {
+	return r.SaveWithMountsOperationAndOutbox(ctx, c, mounts, op, model.ContainerLifecycleOutbox{}, lockOwner, lockCapacity)
+}
+
+func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -656,6 +661,11 @@ func (r *ContainerRepository) SaveWithMountsAndOperation(ctx context.Context, c 
 
 	if op.ResourceID != uuid.Nil {
 		if err := insertResourceOperationTx(ctx, tx, op); err != nil {
+			return err
+		}
+	}
+	if outbox.OperationID != uuid.Nil {
+		if err := insertContainerLifecycleOutboxTx(ctx, tx, outbox); err != nil {
 			return err
 		}
 	}
@@ -739,6 +749,109 @@ func (r *ContainerRepository) CompleteLatestOperation(ctx context.Context, resou
 	return err
 }
 
+func (r *ContainerRepository) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
+	row := r.db.QueryRowContext(ctx, `
+		SELECT id, resource_type, resource_id, owner_id, operation, status, attempts, last_error, created_at, updated_at
+		FROM resource_operations
+		WHERE id = $1
+	`, id)
+	return scanResourceOperation(row)
+}
+
+func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.ResourceOperation{}, false, err
+	}
+	defer tx.Rollback()
+
+	op, err := scanResourceOperation(tx.QueryRowContext(ctx, `
+		SELECT id, resource_type, resource_id, owner_id, operation, status, attempts, last_error, created_at, updated_at
+		FROM resource_operations
+		WHERE id = $1
+		FOR UPDATE
+	`, id))
+	if err != nil {
+		return model.ResourceOperation{}, false, err
+	}
+	if op.Status != model.OperationStatusPending {
+		if err := tx.Commit(); err != nil {
+			return model.ResourceOperation{}, false, err
+		}
+		return op, false, nil
+	}
+	if maxAttempts > 0 && op.Attempts >= maxAttempts {
+		if err := tx.Commit(); err != nil {
+			return model.ResourceOperation{}, false, err
+		}
+		return op, false, nil
+	}
+	op, err = scanResourceOperation(tx.QueryRowContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, attempts = attempts + 1, updated_at = NOW()
+		WHERE id = $2
+		RETURNING id, resource_type, resource_id, owner_id, operation, status, attempts, last_error, created_at, updated_at
+	`, model.OperationStatusRunning, id))
+	if err != nil {
+		return model.ResourceOperation{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return model.ResourceOperation{}, false, err
+	}
+	return op, true, nil
+}
+
+func (r *ContainerRepository) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE id = $3
+	`, status, nullableError(cause), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContainerRepository) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE id = $3 AND status = $4
+	`, model.OperationStatusPending, nullableError(cause), id, model.OperationStatusRunning)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContainerRepository) CountActiveCreateOperationsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM resource_operations
+		WHERE owner_id = $1
+			AND resource_type = $2
+			AND operation = $3
+			AND status IN ($4, $5)
+	`, ownerID, model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusPending, model.OperationStatusRunning).Scan(&count)
+	return count, err
+}
+
 func (r *ContainerRepository) HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx, `
@@ -762,6 +875,234 @@ func (r *ContainerRepository) FailActiveOperations(ctx context.Context, cause er
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Context, cause error) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE resource_type = $3
+			AND operation = $4
+			AND status = $5
+	`, model.OperationStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE container_lifecycle_queue_outbox
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE operation_id IN (
+			SELECT id FROM resource_operations
+			WHERE resource_type = $3
+				AND operation = $4
+				AND status = $1
+		)
+	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate); err != nil {
+		return 0, err
+	}
+	return rows, tx.Commit()
+}
+
+func (r *ContainerRepository) FailActiveNonCreateOperations(ctx context.Context, cause error) (int64, error) {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE status IN ($3, $4)
+			AND NOT (resource_type = $5 AND operation = $6)
+	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusPending, model.OperationStatusRunning, model.ResourceTypeContainer, model.OperationCreate)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func (r *ContainerRepository) GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT vm.volume_id, v.docker_name, vm.mount_path, vm.is_readonly
+		FROM volume_mounts vm
+		JOIN volumes v ON v.id = vm.volume_id
+		WHERE vm.container_id = $1
+	`, containerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	mounts := make([]model.VolumeMountParams, 0)
+	for rows.Next() {
+		var m model.VolumeMountParams
+		if err := rows.Scan(&m.VolumeID, &m.VolumeName, &m.MountPath, &m.IsReadOnly); err != nil {
+			return nil, err
+		}
+		mounts = append(mounts, m)
+	}
+	return mounts, rows.Err()
+}
+
+func (r *ContainerRepository) LeasePendingContainerOutbox(ctx context.Context, limit int) ([]model.ContainerLifecycleOutbox, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		WITH next AS (
+			SELECT id
+			FROM container_lifecycle_queue_outbox
+			WHERE status = $1
+			   OR (status = $2 AND updated_at < NOW() - INTERVAL '1 minute')
+			ORDER BY created_at
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE container_lifecycle_queue_outbox o
+		SET status = $2, attempts = attempts + 1, updated_at = NOW()
+		FROM next
+		WHERE o.id = next.id
+		RETURNING o.id, o.operation_id, o.container_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
+	`, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]model.ContainerLifecycleOutbox, 0)
+	for rows.Next() {
+		item, err := scanContainerLifecycleOutbox(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (r *ContainerRepository) MarkContainerOutboxPublished(ctx context.Context, id uuid.UUID) error {
+	return r.updateContainerOutboxStatus(ctx, id, model.ContainerOutboxStatusPublished, nil)
+}
+
+func (r *ContainerRepository) MarkContainerOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {
+	return r.updateContainerOutboxStatus(ctx, id, model.ContainerOutboxStatusPending, cause)
+}
+
+func (r *ContainerRepository) MarkContainerOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
+	return r.updateContainerOutboxStatus(ctx, id, model.ContainerOutboxStatusDiscarded, cause)
+}
+
+func (r *ContainerRepository) DiscardContainerOutboxByOperation(ctx context.Context, operationID uuid.UUID, cause error) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE container_lifecycle_queue_outbox
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE operation_id = $3 AND status IN ($4, $5)
+	`, model.ContainerOutboxStatusDiscarded, nullableError(cause), operationID, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing)
+	return err
+}
+
+func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.Context, containerID uuid.UUID, cause error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id
+		FROM resource_operations
+		WHERE resource_type = $1
+			AND resource_id = $2
+			AND operation = $3
+			AND status IN ($4, $5)
+		FOR UPDATE
+	`, model.ResourceTypeContainer, containerID, model.OperationCreate, model.OperationStatusPending, model.OperationStatusRunning)
+	if err != nil {
+		return err
+	}
+	var operationIDs []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		operationIDs = append(operationIDs, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, operationID := range operationIDs {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE resource_operations
+			SET status = $1, last_error = $2, updated_at = NOW()
+			WHERE id = $3
+		`, model.OperationStatusFailed, nullableError(cause), operationID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE container_lifecycle_queue_outbox
+			SET status = $1, last_error = $2, updated_at = NOW()
+			WHERE operation_id = $3 AND status IN ($4, $5)
+		`, model.ContainerOutboxStatusDiscarded, nullableError(cause), operationID, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing); err != nil {
+			return err
+		}
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM containers WHERE id = $1`, containerID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return tx.Commit()
+}
+
+func (r *ContainerRepository) updateContainerOutboxStatus(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	query := `
+		UPDATE container_lifecycle_queue_outbox
+		SET status = $1, last_error = $2, updated_at = NOW()
+		WHERE id = $3
+	`
+	if status == model.ContainerOutboxStatusPublished {
+		query = `
+			UPDATE container_lifecycle_queue_outbox
+			SET status = $1, published_at = NOW(), last_error = $2, updated_at = NOW()
+			WHERE id = $3
+		`
+	}
+	res, err := r.db.ExecContext(ctx, query, status, nullableError(cause), id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
 func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
@@ -890,6 +1231,47 @@ func insertResourceOperationTx(ctx context.Context, tx *sql.Tx, op model.Resourc
 	return mapActiveOperationError(err)
 }
 
+func insertContainerLifecycleOutboxTx(ctx context.Context, tx *sql.Tx, outbox model.ContainerLifecycleOutbox) error {
+	if outbox.ID == uuid.Nil {
+		outbox.ID = uuid.New()
+	}
+	if outbox.Status == "" {
+		outbox.Status = model.ContainerOutboxStatusPending
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO container_lifecycle_queue_outbox (id, operation_id, container_id, exchange, routing_key, payload, status, attempts, last_error)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`, outbox.ID, outbox.OperationID, outbox.ContainerID, outbox.Exchange, outbox.RoutingKey, outbox.Payload, outbox.Status, outbox.Attempts, nullableString(outbox.LastError))
+	return err
+}
+
+func scanResourceOperation(s scanner) (model.ResourceOperation, error) {
+	var op model.ResourceOperation
+	var lastError sql.NullString
+	if err := s.Scan(&op.ID, &op.ResourceType, &op.ResourceID, &op.OwnerID, &op.Operation, &op.Status, &op.Attempts, &lastError, &op.CreatedAt, &op.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.ResourceOperation{}, apperrors.ErrNotFound
+		}
+		return model.ResourceOperation{}, err
+	}
+	if lastError.Valid {
+		op.LastError = &lastError.String
+	}
+	return op, nil
+}
+
+func scanContainerLifecycleOutbox(s scanner) (model.ContainerLifecycleOutbox, error) {
+	var item model.ContainerLifecycleOutbox
+	var lastError sql.NullString
+	if err := s.Scan(&item.ID, &item.OperationID, &item.ContainerID, &item.Exchange, &item.RoutingKey, &item.Payload, &item.Status, &item.Attempts, &lastError, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		return model.ContainerLifecycleOutbox{}, err
+	}
+	if lastError.Valid {
+		item.LastError = &lastError.String
+	}
+	return item, nil
+}
+
 func scanContainerListItem(s scanner) (model.Container, error) {
 	var c model.Container
 	var projectID sql.NullString
@@ -933,7 +1315,7 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	var command, entrypoint, healthcheck []byte
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
+		&c.Status, &c.DesiredStatus, &c.EnvVars, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
 		&lastExitCode, &c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
 	); err != nil {
 		return model.Container{}, err

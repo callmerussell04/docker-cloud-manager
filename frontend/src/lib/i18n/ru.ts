@@ -220,7 +220,7 @@ export const ru = {
   'containers.volumes': 'Тома (Volumes)',
   'containers.selectVolume': 'Выберите том',
   'containers.mountVolume': 'Примонтировать том',
-  'containers.created': 'Контейнер успешно создан',
+  'containers.created': 'Контейнер поставлен в очередь',
   'containers.createFailed': 'Не удалось создать контейнер',
   'containers.actionSent': 'Команда {action} успешно отправлена',
   'containers.actionFailed': 'Не удалось выполнить действие',

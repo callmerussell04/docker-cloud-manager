@@ -48,7 +48,7 @@ func (h *CoreHandler) CreateContainer(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"container_id": containerID})
+	c.JSON(http.StatusAccepted, gin.H{"container_id": containerID})
 }
 
 func (h *CoreHandler) GetContainers(c *gin.Context) {

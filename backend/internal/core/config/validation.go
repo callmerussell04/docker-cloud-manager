@@ -97,6 +97,12 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BuildOutboxIntervalSeconds <= 0 || cfg.BuildOutboxBatchSize <= 0 {
 		return fmt.Errorf("build outbox settings must be positive")
 	}
+	if cfg.ContainerCreateWorkerCount <= 0 || cfg.ContainerCreateMaxAttempts <= 0 || cfg.ContainerCreateTimeoutMinutes <= 0 {
+		return fmt.Errorf("container create worker settings must be positive")
+	}
+	if cfg.MaxQueuedContainerCreatesPerUser < 0 || cfg.ContainerCreateOutboxIntervalSeconds <= 0 || cfg.ContainerCreateOutboxBatchSize <= 0 {
+		return fmt.Errorf("container create queue settings are invalid")
+	}
 	if cfg.ReportsUsageSnapshotIntervalSeconds < MinReportsUsageSnapshotIntervalSeconds || cfg.ReportsUsageSnapshotIntervalSeconds > MaxReportsUsageSnapshotIntervalSeconds {
 		return fmt.Errorf("reports usage snapshot interval must be between %d and %d seconds", MinReportsUsageSnapshotIntervalSeconds, MaxReportsUsageSnapshotIntervalSeconds)
 	}
@@ -111,6 +117,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	}
 	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 || cfg.ComposeDependencyPollIntervalSeconds <= 0 {
 		return fmt.Errorf("compose polling settings must be positive")
+	}
+	if cfg.ComposeCoordinatorIntervalSeconds <= 0 {
+		return fmt.Errorf("compose coordinator interval must be positive")
 	}
 	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
 		return fmt.Errorf("git source limits must be positive")

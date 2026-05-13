@@ -12,7 +12,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
@@ -110,7 +109,7 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 	dockerAPI.AssertNotCalled(t, "StartContainer", mock.Anything, mock.Anything)
 }
 
-func TestContainerServiceCreateTimeoutClosesOperationWithDetachedContext(t *testing.T) {
+func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newContainerCreateStateRepoMock(t)
 	imageRepo := coremocks.NewContainerImageRepository(t)
@@ -134,32 +133,14 @@ func TestContainerServiceCreateTimeoutClosesOperationWithDetachedContext(t *test
 		return opts.OwnerID != nil && *opts.OwnerID == ownerID
 	})).Return(nil, 0, nil)
 	repo.ContainerCreateRepository.EXPECT().SaveWithMountsAndOperation(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), false, false).Return(nil)
-	dockerAPI.EXPECT().EnsureUserNetwork(mock.Anything, "net_user_"+ownerID.String()).Return("network-id", nil)
-	dockerAPI.EXPECT().ImageExists(mock.Anything, "nginx:latest").Return(false, nil)
-	dockerAPI.EXPECT().PullImage(mock.Anything, "nginx:latest").Run(func(ctx context.Context, imageName string) {
-		cancel()
-	}).Return(context.DeadlineExceeded)
-	repo.ContainerStateRepository.EXPECT().
-		MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.ContainerStatusError, mock.Anything).
-		Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
-			require.NoError(t, ctx.Err())
-			require.ErrorIs(t, cause, apperrors.ErrTimeout)
-		}).
-		Return(nil)
-	repo.ContainerStateRepository.EXPECT().
-		CompleteLatestOperation(mock.Anything, model.ResourceTypeContainer, mock.AnythingOfType("uuid.UUID"), model.OperationStatusFailed, mock.Anything).
-		Run(func(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) {
-			require.NoError(t, ctx.Err())
-			require.ErrorIs(t, cause, apperrors.ErrTimeout)
-		}).
-		Return(nil)
 
-	_, err := svc.Create(ctx, model.ContainerCreateParams{
+	containerID, err := svc.Create(ctx, model.ContainerCreateParams{
 		Name:              "web",
 		ImageTag:          "nginx:latest",
 		RequestedMemoryMB: 128,
 	})
-	require.ErrorIs(t, err, apperrors.ErrTimeout)
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, containerID)
 }
 
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
@@ -292,6 +273,10 @@ func newContainerCreateStateRepoMock(t *testing.T) *containerCreateStateRepoMock
 	}
 }
 
+func (r *containerCreateStateRepoMock) SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error {
+	return r.ContainerCreateRepository.SaveWithMountsAndOperation(ctx, c, mounts, op, lockOwner, lockCapacity)
+}
+
 type recordingAuditRecorder struct {
 	events []model.AuditEvent
 }
@@ -319,11 +304,18 @@ func (staticConfig) Get() config.SystemConfig {
 		EventReconnectDelaySeconds:           5,
 		BuildOutboxIntervalSeconds:           1,
 		BuildOutboxBatchSize:                 10,
+		ContainerCreateWorkerCount:           2,
+		ContainerCreateMaxAttempts:           3,
+		ContainerCreateTimeoutMinutes:        30,
+		MaxQueuedContainerCreatesPerUser:     5,
+		ContainerCreateOutboxIntervalSeconds: 1,
+		ContainerCreateOutboxBatchSize:       10,
 		MaxContainersPerUser:                 10,
 		MaxVolumesPerUser:                    10,
 		ImageBuildsEnabled:                   true,
 		GitSourcesEnabled:                    true,
 		ComposeDependencyWaitTimeoutMinutes:  1,
 		ComposeDependencyPollIntervalSeconds: 1,
+		ComposeCoordinatorIntervalSeconds:    2,
 	}
 }

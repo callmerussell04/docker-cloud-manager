@@ -19,35 +19,25 @@ func TestContainerServiceCreateUsesNameAsDefaultNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
 	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
-	var createdParams model.ContainerRuntimeSpec
 
 	repo.EXPECT().Save(mock.Anything, mock.AnythingOfType("model.Container")).Run(func(ctx context.Context, c model.Container) {
 		saved = c
 	}).Return(nil)
-	dockerAPI.EXPECT().CreateContainer(mock.Anything, mock.AnythingOfType("model.ContainerRuntimeSpec")).Run(func(ctx context.Context, params model.ContainerRuntimeSpec) {
-		createdParams = params
-	}).Return("docker-id", nil)
-	repo.EXPECT().UpdateDockerIDAndStatus(mock.Anything, mock.AnythingOfType("uuid.UUID"), "docker-id", model.ContainerStatusCreated).Return(nil)
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.ContainerCreateParams{Name: "api", ImageTag: "nginx:latest"})
 	require.NoError(t, err)
 	require.Equal(t, "api", saved.NetworkAlias)
-	require.Equal(t, "api", createdParams.NetworkAlias)
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
 	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
-	var createdParams model.ContainerRuntimeSpec
 
 	repo.EXPECT().Save(mock.Anything, mock.AnythingOfType("model.Container")).Run(func(ctx context.Context, c model.Container) {
 		saved = c
 	}).Return(nil)
-	dockerAPI.EXPECT().CreateContainer(mock.Anything, mock.AnythingOfType("model.ContainerRuntimeSpec")).Run(func(ctx context.Context, params model.ContainerRuntimeSpec) {
-		createdParams = params
-	}).Return("docker-id", nil)
-	repo.EXPECT().UpdateDockerIDAndStatus(mock.Anything, mock.AnythingOfType("uuid.UUID"), "docker-id", model.ContainerStatusCreated).Return(nil)
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.ContainerCreateParams{
 		Name:         "project_api",
@@ -56,7 +46,7 @@ func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "api", saved.NetworkAlias)
-	require.Equal(t, "api", createdParams.NetworkAlias)
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) {
@@ -119,8 +109,6 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	metrics.EXPECT().GetTotalMemory().Return(int64(1024*1024*1024), nil)
 	metrics.EXPECT().GetFreeMemory().Return(int64(1024*1024*1024), nil).Maybe()
 	imageRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 0, nil)
-	dockerAPI.EXPECT().ImageExists(mock.Anything, "nginx:latest").Return(true, nil)
-	dockerAPI.EXPECT().EnsureUserNetwork(mock.Anything, "net_user_"+ownerID.String()).Return("net_user_"+ownerID.String(), nil)
 	return repo, dockerAPI, NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
 }
 

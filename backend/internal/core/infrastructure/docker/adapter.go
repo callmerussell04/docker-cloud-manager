@@ -36,15 +36,12 @@ func NewAdapter() (*Adapter, error) {
 }
 
 func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (string, error) {
-	networks, err := a.cli.NetworkList(ctx, network.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("name", networkName)),
-	})
+	networkID, err := a.findUserNetwork(ctx, networkName)
 	if err != nil {
 		return "", err
 	}
-
-	if len(networks) > 0 {
-		return networks[0].ID, nil
+	if networkID != "" {
+		return networkID, nil
 	}
 
 	resp, err := a.cli.NetworkCreate(ctx, networkName, network.CreateOptions{
@@ -54,10 +51,29 @@ func (a *Adapter) EnsureUserNetwork(ctx context.Context, networkName string) (st
 		},
 	})
 	if err != nil {
+		networkID, findErr := a.findUserNetwork(ctx, networkName)
+		if findErr == nil && networkID != "" {
+			return networkID, nil
+		}
 		return "", err
 	}
 
 	return resp.ID, nil
+}
+
+func (a *Adapter) findUserNetwork(ctx context.Context, networkName string) (string, error) {
+	networks, err := a.cli.NetworkList(ctx, network.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("name", networkName)),
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, n := range networks {
+		if n.Name == networkName {
+			return n.ID, nil
+		}
+	}
+	return "", nil
 }
 
 func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
@@ -254,9 +270,9 @@ func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.
 		CPUShares:         containerJSON.HostConfig.CPUShares,
 		Restart:           string(containerJSON.HostConfig.RestartPolicy.Name),
 		State: model.ContainerState{
-			Running:  containerJSON.State.Running,
-			Status:   containerJSON.State.Status,
-			ExitCode: containerJSON.State.ExitCode,
+			Running:   containerJSON.State.Running,
+			Status:    containerJSON.State.Status,
+			ExitCode:  containerJSON.State.ExitCode,
 			OOMKilled: containerJSON.State.OOMKilled,
 		},
 	}
@@ -471,7 +487,11 @@ func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContain
 }
 
 func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
-	return a.cli.NetworkRemove(ctx, networkName)
+	err := a.cli.NetworkRemove(ctx, networkName)
+	if cerrdefs.IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error) {

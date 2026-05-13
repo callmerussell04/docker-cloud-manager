@@ -125,6 +125,87 @@ func TestProjectRepositoryCreateComposeDeploymentAndCancel(t *testing.T) {
 	require.Equal(t, model.ComposeDeploymentStatusCanceling, job.Status)
 }
 
+func TestProjectRepositoryRecoverLeavesDurableComposeStageRunning(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewProjectRepository(db)
+
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	jobID := uuid.New()
+	err := repo.CreateWithComposeDeploymentJob(ctx,
+		model.Project{ID: projectID, OwnerID: ownerID, Name: "demo", Status: model.ProjectStatusBuilding},
+		model.ComposeDeploymentJob{
+			ID:              jobID,
+			ProjectID:       projectID,
+			OwnerID:         ownerID,
+			SourceType:      model.ComposeSourceTypeUpload,
+			SourceObjectKey: "compose-sources/demo.zip",
+			Status:          model.ComposeDeploymentStatusQueued,
+		},
+		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: composequeue.ExchangeName, RoutingKey: composequeue.RoutingKey, Payload: []byte(`{}`)},
+	)
+	require.NoError(t, err)
+	_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
+	require.NoError(t, err)
+	require.True(t, started)
+
+	planJSON := []byte(`{"project_name":"demo","services":[],"volumes":[]}`)
+	resourceJSON := []byte(`{"container_ids":{}}`)
+	require.NoError(t, repo.SaveComposeDeploymentPlan(ctx, jobID, model.ComposeDeploymentStageCreating, planJSON, resourceJSON))
+
+	require.NoError(t, repo.RecoverInterruptedComposeDeployments(ctx, 1, "deployment interrupted by core service restart"))
+
+	job, err := repo.GetComposeDeploymentJob(ctx, jobID)
+	require.NoError(t, err)
+	require.Equal(t, model.ComposeDeploymentStatusRunning, job.Status)
+	require.Equal(t, model.ComposeDeploymentStageCreating, job.Stage)
+	require.JSONEq(t, string(planJSON), string(job.PlanJSON))
+}
+
+func TestProjectRepositoryRecoverStageEmptyKeepsOriginalError(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewProjectRepository(db)
+
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	jobID := uuid.New()
+	err := repo.CreateWithComposeDeploymentJob(ctx,
+		model.Project{ID: projectID, OwnerID: ownerID, Name: "demo", Status: model.ProjectStatusBuilding},
+		model.ComposeDeploymentJob{
+			ID:              jobID,
+			ProjectID:       projectID,
+			OwnerID:         ownerID,
+			SourceType:      model.ComposeSourceTypeUpload,
+			SourceObjectKey: "compose-sources/demo.zip",
+		},
+		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: composequeue.ExchangeName, RoutingKey: composequeue.RoutingKey, Payload: []byte(`{}`)},
+	)
+	require.NoError(t, err)
+	_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
+	require.NoError(t, err)
+	require.True(t, started)
+
+	originalErr := "container create for service migrate failed: network already exists"
+	_, err = db.ExecContext(ctx, `UPDATE compose_deployment_jobs SET error_message = $1 WHERE id = $2`, originalErr, jobID)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.RecoverInterruptedComposeDeployments(ctx, 1, "deployment interrupted by core service restart"))
+
+	job, err := repo.GetComposeDeploymentJob(ctx, jobID)
+	require.NoError(t, err)
+	require.Equal(t, model.ComposeDeploymentStatusFailed, job.Status)
+	require.NotNil(t, job.ErrorMessage)
+	require.Equal(t, originalErr, *job.ErrorMessage)
+
+	project, err := repo.GetByID(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, model.ProjectStatusFailed, project.Status)
+	require.NotNil(t, project.ErrorMessage)
+	require.Equal(t, originalErr, *project.ErrorMessage)
+}
+
 func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)

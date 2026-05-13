@@ -65,11 +65,13 @@ func (r *ProjectRepository) CreateWithComposeDeploymentJob(ctx context.Context, 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO compose_deployment_jobs (
 			id, project_id, owner_id, source_type, source_object_key, compose_file,
-			status, attempts, cancel_requested, error_message, request_id
+			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, job.ID, job.ProjectID, job.OwnerID, job.SourceType, job.SourceObjectKey, job.ComposeFile,
-		status, job.Attempts, job.CancelRequested, nullableString(job.ErrorMessage), job.RequestID); err != nil {
+		status, job.Attempts, job.CancelRequested, nullableString(job.ErrorMessage), job.RequestID,
+		job.Stage, nullableBytes(job.PlanJSON), nullableBytes(job.ResourceMapJSON)); err != nil {
 		return err
 	}
 
@@ -124,6 +126,7 @@ func (r *ProjectRepository) GetComposeDeploymentJob(ctx context.Context, id uuid
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
 			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
 			created_at, updated_at, started_at, finished_at
 		FROM compose_deployment_jobs
 		WHERE id = $1
@@ -135,6 +138,7 @@ func (r *ProjectRepository) GetActiveComposeDeploymentJobByProjectID(ctx context
 	row := r.db.QueryRowContext(ctx, `
 		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
 			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
 			created_at, updated_at, started_at, finished_at
 		FROM compose_deployment_jobs
 		WHERE project_id = $1 AND status IN ($2, $3, $4)
@@ -148,6 +152,7 @@ func (r *ProjectRepository) ListInterruptedComposeDeploymentJobs(ctx context.Con
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
 			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
 			created_at, updated_at, started_at, finished_at
 		FROM compose_deployment_jobs
 		WHERE status IN ($1, $2)
@@ -179,6 +184,7 @@ func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uu
 	row := tx.QueryRowContext(ctx, `
 		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
 			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
 			created_at, updated_at, started_at, finished_at
 		FROM compose_deployment_jobs
 		WHERE id = $1
@@ -206,6 +212,7 @@ func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uu
 		WHERE id = $2
 		RETURNING id, project_id, owner_id, source_type, source_object_key, compose_file,
 			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
 			created_at, updated_at, started_at, finished_at
 	`, model.ComposeDeploymentStatusRunning, id)
 	job, err = scanComposeDeploymentJob(row)
@@ -355,6 +362,90 @@ func (r *ProjectRepository) MarkComposeOutboxDiscarded(ctx context.Context, id u
 	return r.updateComposeOutboxStatus(ctx, id, model.ComposeOutboxStatusDiscarded, cause)
 }
 
+func (r *ProjectRepository) SaveComposeDeploymentPlan(ctx context.Context, id uuid.UUID, stage string, planJSON, resourceMapJSON []byte) error {
+	res, err := r.db.ExecContext(ctx, `
+		UPDATE compose_deployment_jobs
+		SET stage = $1, plan_json = $2, resource_map_json = $3, updated_at = NOW()
+		WHERE id = $4 AND status = $5
+	`, stage, nullableBytes(planJSON), nullableBytes(resourceMapJSON), id, model.ComposeDeploymentStatusRunning)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ProjectRepository) UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE compose_deployment_jobs
+		SET stage = $1, plan_json = $2, resource_map_json = $3, updated_at = NOW()
+		WHERE id = $4 AND status IN ($5, $6)
+	`, stage, nullableBytes(planJSON), nullableBytes(resourceMapJSON), id, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	if projectStatus != "" {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE projects
+			SET status = $1, error_message = NULL
+			WHERE id = $2
+		`, projectStatus, projectID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *ProjectRepository) ListActiveComposeDeploymentJobs(ctx context.Context, limit int) ([]model.ComposeDeploymentJob, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE status IN ($1, $2)
+			AND stage <> ''
+		ORDER BY updated_at ASC
+		LIMIT $3
+	`, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]model.ComposeDeploymentJob, 0)
+	for rows.Next() {
+		job, err := scanComposeDeploymentJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
 func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Context, maxAttempts int, errorMessage string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -363,7 +454,7 @@ func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Con
 	defer tx.Rollback()
 
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, project_id, attempts
+		SELECT id, project_id, attempts, stage, error_message
 		FROM compose_deployment_jobs
 		WHERE status IN ($1, $2)
 		FOR UPDATE
@@ -375,11 +466,13 @@ func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Con
 		id        uuid.UUID
 		projectID uuid.UUID
 		attempts  int
+		stage     string
+		errorMsg  sql.NullString
 	}
 	var jobs []interruptedJob
 	for rows.Next() {
 		var item interruptedJob
-		if err := rows.Scan(&item.id, &item.projectID, &item.attempts); err != nil {
+		if err := rows.Scan(&item.id, &item.projectID, &item.attempts, &item.stage, &item.errorMsg); err != nil {
 			rows.Close()
 			return err
 		}
@@ -393,21 +486,28 @@ func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Con
 	}
 
 	for _, job := range jobs {
+		if job.stage != "" {
+			continue
+		}
 		hasPartialWork, err := composeDeploymentHasPartialWork(ctx, tx, job.projectID)
 		if err != nil {
 			return err
 		}
 		if hasPartialWork || (maxAttempts > 0 && job.attempts >= maxAttempts) {
+			message := errorMessage
+			if job.errorMsg.Valid && job.errorMsg.String != "" {
+				message = job.errorMsg.String
+			}
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE compose_deployment_jobs
 				SET status = $1, error_message = $2, finished_at = NOW(), updated_at = NOW()
 				WHERE id = $3
-			`, model.ComposeDeploymentStatusFailed, errorMessage, job.id); err != nil {
+			`, model.ComposeDeploymentStatusFailed, message, job.id); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `
 				UPDATE projects SET status = $1, error_message = $2 WHERE id = $3
-			`, model.ProjectStatusFailed, errorMessage, job.projectID); err != nil {
+			`, model.ProjectStatusFailed, message, job.projectID); err != nil {
 				return err
 			}
 			continue
@@ -656,6 +756,8 @@ func scanProject(s scanner) (model.Project, error) {
 func scanComposeDeploymentJob(s scanner) (model.ComposeDeploymentJob, error) {
 	var job model.ComposeDeploymentJob
 	var errMsg sql.NullString
+	var planJSON []byte
+	var resourceMapJSON []byte
 	var startedAt sql.NullTime
 	var finishedAt sql.NullTime
 	err := s.Scan(
@@ -670,6 +772,9 @@ func scanComposeDeploymentJob(s scanner) (model.ComposeDeploymentJob, error) {
 		&job.CancelRequested,
 		&errMsg,
 		&job.RequestID,
+		&job.Stage,
+		&planJSON,
+		&resourceMapJSON,
 		&job.CreatedAt,
 		&job.UpdatedAt,
 		&startedAt,
@@ -684,6 +789,8 @@ func scanComposeDeploymentJob(s scanner) (model.ComposeDeploymentJob, error) {
 	if errMsg.Valid {
 		job.ErrorMessage = &errMsg.String
 	}
+	job.PlanJSON = append(job.PlanJSON, planJSON...)
+	job.ResourceMapJSON = append(job.ResourceMapJSON, resourceMapJSON...)
 	if startedAt.Valid {
 		job.StartedAt = &startedAt.Time
 	}
@@ -691,6 +798,13 @@ func scanComposeDeploymentJob(s scanner) (model.ComposeDeploymentJob, error) {
 		job.FinishedAt = &finishedAt.Time
 	}
 	return job, nil
+}
+
+func nullableBytes(value []byte) any {
+	if len(value) == 0 {
+		return nil
+	}
+	return string(value)
 }
 
 func scanComposeOutbox(s scanner) (model.ComposeDeploymentOutbox, error) {

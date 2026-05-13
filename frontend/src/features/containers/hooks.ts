@@ -17,6 +17,10 @@ export function useContainers(page: number, limit: number) {
   return useQuery({
     queryKey: queryKeys.containers.list({ page, limit }),
     queryFn: () => getContainersFn(page, limit),
+    refetchInterval: (query) => {
+      const containers = query.state.data?.items || [];
+      return containers.some((container) => ['pending', 'creating', 'deleting'].includes(container.status)) ? 5000 : false;
+    },
   });
 }
 

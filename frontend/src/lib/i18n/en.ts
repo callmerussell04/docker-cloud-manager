@@ -222,7 +222,7 @@ export const en: Record<keyof typeof ru, string> = {
   'containers.volumes': 'Volumes',
   'containers.selectVolume': 'Select a volume',
   'containers.mountVolume': 'Mount volume',
-  'containers.created': 'Container created',
+  'containers.created': 'Container queued',
   'containers.createFailed': 'Failed to create container',
   'containers.actionSent': '{action} command sent',
   'containers.actionFailed': 'Failed to perform action',

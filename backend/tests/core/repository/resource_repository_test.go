@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,65 @@ func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 	require.NoError(t, imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, secondBuildID, secondImageID, model.BuildStatusFailed))
 	_, err = imageRepo.GetByID(ctx, secondImageID)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	containerRepo := repository.NewContainerRepository(db)
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	operationID := uuid.New()
+	payload, err := json.Marshal(containerqueue.LifecycleMessage{
+		OperationID: operationID.String(),
+		ContainerID: containerID.String(),
+		OwnerID:     ownerID.String(),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, containerRepo.SaveWithMountsOperationAndOutbox(ctx, model.Container{
+		ID:                    containerID,
+		OwnerID:               ownerID,
+		Name:                  "web",
+		ImageTag:              "nginx:latest",
+		Status:                model.ContainerStatusPending,
+		DesiredStatus:         model.ContainerStatusCreated,
+		EnvVars:               []byte(`{"PORT":"8080"}`),
+		BaseMemoryReservation: 256,
+		DockerGeneration:      1,
+	}, nil, model.ResourceOperation{
+		ID:           operationID,
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   containerID,
+		OwnerID:      ownerID,
+		Operation:    model.OperationCreate,
+		Status:       model.OperationStatusPending,
+	}, model.ContainerLifecycleOutbox{
+		ID:          uuid.New(),
+		OperationID: operationID,
+		ContainerID: containerID,
+		Exchange:    containerqueue.ExchangeName,
+		RoutingKey:  containerqueue.RoutingKey,
+		Payload:     payload,
+		Status:      model.ContainerOutboxStatusPending,
+	}, false, false))
+
+	items, err := containerRepo.LeasePendingContainerOutbox(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, operationID, items[0].OperationID)
+
+	op, claimed, err := containerRepo.ClaimPendingOperation(ctx, operationID, 3)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	require.Equal(t, model.OperationStatusRunning, op.Status)
+	require.Equal(t, 1, op.Attempts)
+
+	require.NoError(t, containerRepo.MarkContainerOutboxPublished(ctx, items[0].ID))
+	require.NoError(t, containerRepo.CompleteOperation(ctx, operationID, model.OperationStatusDone, nil))
+	active, err := containerRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+	require.NoError(t, err)
+	require.False(t, active)
 }
 
 func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
