@@ -12,7 +12,7 @@ import (
 
 type ReportService interface {
 	GetReportsOverview(ctx context.Context, from, to int64) (model.ReportsOverview, error)
-	ListUserUsageReport(ctx context.Context, from, to int64, sort string, page, limit int) ([]model.UserUsageReportItem, int, error)
+	ListUserUsageReport(ctx context.Context, from, to int64, sort, search string, page, limit int) ([]model.UserUsageReportItem, int, error)
 	GetUserUsageTimeline(ctx context.Context, ownerID string, from, to int64) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
@@ -41,7 +41,7 @@ func (h *CoreHandler) ListUserUsageReport(c *gin.Context) {
 	if !ok {
 		return
 	}
-	users, total, err := h.service.ListUserUsageReport(c.Request.Context(), from, to, c.DefaultQuery("sort", "disk"), page, limit)
+	users, total, err := h.service.ListUserUsageReport(c.Request.Context(), from, to, c.DefaultQuery("sort", "disk"), c.Query("search"), page, limit)
 	if err != nil {
 		h.handleError(c, err)
 		return
@@ -148,8 +148,17 @@ func reportsOverviewToDTO(overview model.ReportsOverview) dto.ReportsOverviewRes
 		AuditEventsTotal:             overview.AuditEventsTotal,
 		FailedActionsTotal:           overview.FailedActionsTotal,
 		ActiveUsersTotal:             overview.ActiveUsersTotal,
+		MemoryUsageBytes:             overview.MemoryUsageBytes,
 		ReservedMemoryBytes:          overview.ReservedMemoryBytes,
+		CPUPercent:                   overview.CPUPercent,
 		TotalDiskBytes:               overview.TotalDiskBytes,
+		ResourcesTotal:               overview.ResourcesTotal,
+		ContainersTotal:              overview.ContainersTotal,
+		ContainersRunning:            overview.ContainersRunning,
+		VolumesTotal:                 overview.VolumesTotal,
+		ImagesTotal:                  overview.ImagesTotal,
+		BuildsTotal:                  overview.BuildsTotal,
+		ProjectsTotal:                overview.ProjectsTotal,
 		LastUsageSnapshotAt:          overview.LastUsageSnapshotAt,
 		UsageSnapshotIntervalSeconds: overview.UsageSnapshotIntervalSeconds,
 		TopActions:                   topActions,
@@ -162,8 +171,11 @@ func userUsageReportToDTO(items []model.UserUsageReportItem) []dto.UserUsageRepo
 		result = append(result, dto.UserUsageReportItemResponse{
 			OwnerID:             item.OwnerID,
 			OwnerUsername:       item.OwnerUsername,
+			MemoryUsageBytes:    item.MemoryUsageBytes,
 			ReservedMemoryBytes: item.ReservedMemoryBytes,
+			CPUPercent:          item.CPUPercent,
 			TotalDiskBytes:      item.TotalDiskBytes,
+			ResourcesTotal:      item.ResourcesTotal,
 			ContainersTotal:     item.ContainersTotal,
 			ContainersRunning:   item.ContainersRunning,
 			VolumesTotal:        item.VolumesTotal,
@@ -181,10 +193,17 @@ func userUsageTimelineToDTO(points []model.UserUsagePoint) []dto.UserUsagePointR
 	for _, point := range points {
 		result = append(result, dto.UserUsagePointResponse{
 			BucketStart:         point.BucketStart,
+			MemoryUsageBytes:    point.MemoryUsageBytes,
 			ReservedMemoryBytes: point.ReservedMemoryBytes,
+			CPUPercent:          point.CPUPercent,
 			TotalDiskBytes:      point.TotalDiskBytes,
+			ResourcesTotal:      point.ResourcesTotal,
 			ContainersTotal:     point.ContainersTotal,
 			ContainersRunning:   point.ContainersRunning,
+			VolumesTotal:        point.VolumesTotal,
+			ImagesTotal:         point.ImagesTotal,
+			BuildsTotal:         point.BuildsTotal,
+			ProjectsTotal:       point.ProjectsTotal,
 			ActionsTotal:        point.ActionsTotal,
 		})
 	}

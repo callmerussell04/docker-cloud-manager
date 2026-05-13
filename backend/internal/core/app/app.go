@@ -106,7 +106,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
 	stagedRepo := repository.NewStagedObjectRepository(db)
-	reportSnapshotRepo := repository.NewReportSnapshotRepository(db)
+	reportSnapshotRepo := repository.NewReportSnapshotRepository(db, dockerAdapter, logger)
 	reportsRepo := clickhouserepo.NewReportsRepository(clickhouserepo.Config{
 		Addr:     cfg.ClickHouse.Addr,
 		Database: cfg.ClickHouse.Database,

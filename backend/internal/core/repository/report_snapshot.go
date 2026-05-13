@@ -4,20 +4,32 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
 const bytesPerMBForReports int64 = 1024 * 1024
 
-type ReportSnapshotRepository struct {
-	db *sql.DB
+type ReportContainerStatsProvider interface {
+	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
 
-func NewReportSnapshotRepository(db *sql.DB) *ReportSnapshotRepository {
-	return &ReportSnapshotRepository{db: db}
+type ReportSnapshotRepository struct {
+	db           *sql.DB
+	containerAPI ReportContainerStatsProvider
+	logger       *slog.Logger
+}
+
+func NewReportSnapshotRepository(db *sql.DB, containerAPI ReportContainerStatsProvider, logger *slog.Logger) *ReportSnapshotRepository {
+	return &ReportSnapshotRepository{
+		db:           db,
+		containerAPI: containerAPI,
+		logger:       logging.WithComponent(logger, "report_snapshot_repository"),
+	}
 }
 
 func (r *ReportSnapshotRepository) CollectUsageSnapshots(ctx context.Context, bucketStart, collectedAt time.Time) ([]model.UsageSnapshot, error) {
@@ -114,5 +126,50 @@ ORDER BY owners.owner_id`
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate report usage snapshots: %w", err)
 	}
+	r.applyRuntimeUsage(ctx, snapshots)
 	return snapshots, nil
+}
+
+func (r *ReportSnapshotRepository) applyRuntimeUsage(ctx context.Context, snapshots []model.UsageSnapshot) {
+	if r.containerAPI == nil || len(snapshots) == 0 {
+		return
+	}
+	byOwner := make(map[uuid.UUID]*model.UsageSnapshot, len(snapshots))
+	for i := range snapshots {
+		byOwner[snapshots[i].OwnerID] = &snapshots[i]
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+SELECT owner_id, docker_id
+FROM containers
+WHERE status = 'running' AND docker_id <> ''
+ORDER BY owner_id`)
+	if err != nil {
+		r.logger.Warn("failed to list running containers for reports runtime usage", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var ownerID uuid.UUID
+		var dockerID string
+		if err := rows.Scan(&ownerID, &dockerID); err != nil {
+			r.logger.Warn("failed to scan running container for reports runtime usage", "error", err)
+			continue
+		}
+		snapshot, ok := byOwner[ownerID]
+		if !ok {
+			continue
+		}
+		stats, err := r.containerAPI.GetContainerStats(ctx, dockerID)
+		if err != nil {
+			r.logger.Warn("failed to collect container stats for reports runtime usage", "docker_id", dockerID, "error", err)
+			continue
+		}
+		snapshot.MemoryUsageBytes += stats.MemoryUsageBytes
+		snapshot.CPUPercent += stats.CPUPercentage
+	}
+	if err := rows.Err(); err != nil {
+		r.logger.Warn("failed to iterate running containers for reports runtime usage", "error", err)
+	}
 }

@@ -1,10 +1,12 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,8 +32,8 @@ func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 	var auditFilters model.AuditEventFilters
 
 	reports.EXPECT().
-		ListUserUsageReport(mock.Anything, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time"), "", 20, 0).
-		Run(func(ctx context.Context, from, to time.Time, sort string, limit, offset int) {
+		ListUserUsageReport(mock.Anything, mock.AnythingOfType("time.Time"), mock.AnythingOfType("time.Time"), "", "", 20, 0).
+		Run(func(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) {
 			userUsageFrom = from
 			userUsageTo = to
 			userUsageLimit = limit
@@ -45,7 +47,7 @@ func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 		}).
 		Return([]model.AuditEvent(nil), 0, nil)
 
-	_, total, err := svc.ListUserUsageReport(context.Background(), time.Time{}, time.Time{}, "", -1, -10)
+	_, total, err := svc.ListUserUsageReport(context.Background(), time.Time{}, time.Time{}, "", "", -1, -10)
 	require.NoError(t, err)
 	require.Equal(t, 7, total)
 	require.Equal(t, 20, userUsageLimit)
@@ -61,15 +63,18 @@ func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 
 func TestReportServiceReadErrorsReturnUnavailable(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
-	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
+	var logs bytes.Buffer
+	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), slog.New(slog.NewTextHandler(&logs, nil)))
 
 	reports.EXPECT().
 		ListAuditEvents(mock.Anything, mock.AnythingOfType("model.AuditEventFilters")).
-		Return(nil, 0, errors.New("clickhouse down"))
+		Return(nil, 0, errors.New("clickhouse illegal aggregation"))
 
 	_, _, err := svc.ListAuditEvents(context.Background(), model.AuditEventFilters{Limit: 20})
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 	require.Equal(t, apperrors.ErrUnavailable.Error(), apperrors.SafeMessage(err))
+	require.True(t, strings.Contains(logs.String(), "list_audit_events"))
+	require.True(t, strings.Contains(logs.String(), "clickhouse illegal aggregation"))
 }
 
 func TestReportServiceRecordAuditEventFillsDefaultsAndSwallowsWriteErrors(t *testing.T) {

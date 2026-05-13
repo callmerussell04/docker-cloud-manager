@@ -143,10 +143,10 @@ func (r *ReportsRepository) InsertUsageSnapshots(ctx context.Context, snapshots 
 
 	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO user_resource_usage_snapshots (
-    owner_id, owner_username, bucket_start, collected_at, reserved_memory_bytes,
-    image_disk_bytes, volume_disk_bytes, total_disk_bytes, containers_total,
+    owner_id, owner_username, bucket_start, collected_at, memory_usage_bytes,
+    reserved_memory_bytes, cpu_percent, image_disk_bytes, volume_disk_bytes, total_disk_bytes, containers_total,
     containers_running, volumes_total, images_total, builds_total, projects_total
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare usage snapshot insert: %w", err)
 	}
@@ -158,7 +158,9 @@ INSERT INTO user_resource_usage_snapshots (
 			snapshot.OwnerUsername,
 			snapshot.BucketStart.UTC(),
 			snapshot.CollectedAt.UTC(),
+			snapshot.MemoryUsageBytes,
 			snapshot.ReservedMemoryBytes,
+			snapshot.CPUPercent,
 			snapshot.ImageDiskBytes,
 			snapshot.VolumeDiskBytes,
 			snapshot.TotalDiskBytes,
@@ -196,41 +198,50 @@ WHERE occurred_at >= ? AND occurred_at < ?`, from.UTC(), to.UTC()).Scan(
 		return model.ReportsOverview{}, fmt.Errorf("failed to query reports overview events: %w", err)
 	}
 	if err := db.QueryRowContext(ctx, `
-SELECT ifNull(sum(reserved_memory_bytes), 0), ifNull(sum(total_disk_bytes), 0)
+SELECT
+    ifNull(sum(memory_usage_bytes), 0),
+    ifNull(sum(reserved_memory_bytes), 0),
+    ifNull(sum(cpu_percent), 0),
+    ifNull(sum(total_disk_bytes), 0),
+    ifNull(sum(containers_total + volumes_total + images_total + builds_total + projects_total), 0),
+    ifNull(sum(containers_total), 0),
+    ifNull(sum(containers_running), 0),
+    ifNull(sum(volumes_total), 0),
+    ifNull(sum(images_total), 0),
+    ifNull(sum(builds_total), 0),
+    ifNull(sum(projects_total), 0)
 FROM (
     SELECT
         owner_id,
+        argMax(memory_usage_bytes, collected_at) AS memory_usage_bytes,
         argMax(reserved_memory_bytes, collected_at) AS reserved_memory_bytes,
-        argMax(total_disk_bytes, collected_at) AS total_disk_bytes
+        argMax(cpu_percent, collected_at) AS cpu_percent,
+        argMax(total_disk_bytes, collected_at) AS total_disk_bytes,
+        argMax(containers_total, collected_at) AS containers_total,
+        argMax(containers_running, collected_at) AS containers_running,
+        argMax(volumes_total, collected_at) AS volumes_total,
+        argMax(images_total, collected_at) AS images_total,
+        argMax(builds_total, collected_at) AS builds_total,
+        argMax(projects_total, collected_at) AS projects_total
     FROM user_resource_usage_snapshots
     WHERE bucket_start >= ? AND bucket_start < ?
     GROUP BY owner_id
 )`, from.UTC(), to.UTC()).Scan(
+		&overview.MemoryUsageBytes,
 		&overview.ReservedMemoryBytes,
+		&overview.CPUPercent,
 		&overview.TotalDiskBytes,
+		&overview.ResourcesTotal,
+		&overview.ContainersTotal,
+		&overview.ContainersRunning,
+		&overview.VolumesTotal,
+		&overview.ImagesTotal,
+		&overview.BuildsTotal,
+		&overview.ProjectsTotal,
 	); err != nil {
 		return model.ReportsOverview{}, fmt.Errorf("failed to query reports overview usage: %w", err)
 	}
-
-	rows, err := db.QueryContext(ctx, `
-SELECT action, count() AS events_count
-FROM audit_events
-WHERE occurred_at >= ? AND occurred_at < ?
-GROUP BY action
-ORDER BY events_count DESC
-LIMIT 8`, from.UTC(), to.UTC())
-	if err != nil {
-		return model.ReportsOverview{}, fmt.Errorf("failed to query top actions: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var item model.ActionCount
-		if err := rows.Scan(&item.Action, &item.Count); err != nil {
-			return model.ReportsOverview{}, fmt.Errorf("failed to scan top action: %w", err)
-		}
-		overview.TopActions = append(overview.TopActions, item)
-	}
-	return overview, rows.Err()
+	return overview, nil
 }
 
 func (r *ReportsRepository) GetLatestUsageSnapshotCollectedAt(ctx context.Context) (*time.Time, error) {
@@ -250,30 +261,44 @@ FROM user_resource_usage_snapshots`).Scan(&collectedAt); err != nil {
 	return &collectedAt, nil
 }
 
-func (r *ReportsRepository) ListUserUsageReport(ctx context.Context, from, to time.Time, sort string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
+func (r *ReportsRepository) ListUserUsageReport(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
 	db, err := r.dbConn()
 	if err != nil {
 		return nil, 0, err
 	}
 	orderBy := "total_disk_bytes DESC"
 	switch sort {
-	case "memory":
+	case "actual_memory":
+		orderBy = "memory_usage_bytes DESC"
+	case "reserved_memory", "memory":
 		orderBy = "reserved_memory_bytes DESC"
+	case "cpu":
+		orderBy = "cpu_percent DESC"
+	case "disk":
+		orderBy = "total_disk_bytes DESC"
+	case "resources":
+		orderBy = "resources_total DESC"
 	case "actions":
 		orderBy = "actions_total DESC"
 	case "containers":
 		orderBy = "containers_total DESC"
 	}
+	searchWhere, searchArgs := userUsageSearchWhere(search)
 
 	var total int
+	countArgs := []any{from.UTC(), to.UTC()}
+	countArgs = append(countArgs, searchArgs...)
 	if err := db.QueryRowContext(ctx, `
 SELECT count()
 FROM (
-    SELECT owner_id
+    SELECT
+        owner_id,
+        argMax(owner_username, collected_at) AS owner_username
     FROM user_resource_usage_snapshots
     WHERE bucket_start >= ? AND bucket_start < ?
     GROUP BY owner_id
-)`, from.UTC(), to.UTC()).Scan(&total); err != nil {
+) AS u
+`+searchWhere, countArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("failed to count user usage report: %w", err)
 	}
 
@@ -281,8 +306,11 @@ FROM (
 SELECT
     u.owner_id,
     u.owner_username,
+    u.memory_usage_bytes,
     u.reserved_memory_bytes,
+    u.cpu_percent,
     u.total_disk_bytes,
+    u.containers_total + u.volumes_total + u.images_total + u.builds_total + u.projects_total AS resources_total,
     u.containers_total,
     u.containers_running,
     u.volumes_total,
@@ -294,7 +322,9 @@ FROM (
     SELECT
         owner_id,
         argMax(owner_username, collected_at) AS owner_username,
+        argMax(memory_usage_bytes, collected_at) AS memory_usage_bytes,
         argMax(reserved_memory_bytes, collected_at) AS reserved_memory_bytes,
+        argMax(cpu_percent, collected_at) AS cpu_percent,
         argMax(total_disk_bytes, collected_at) AS total_disk_bytes,
         argMax(containers_total, collected_at) AS containers_total,
         argMax(containers_running, collected_at) AS containers_running,
@@ -312,9 +342,13 @@ LEFT JOIN (
     WHERE occurred_at >= ? AND occurred_at < ? AND actor_user_id != toUUID('00000000-0000-0000-0000-000000000000')
     GROUP BY owner_id
 ) AS a USING owner_id
+%s
 ORDER BY %s
-LIMIT ? OFFSET ?`, orderBy)
-	rows, err := db.QueryContext(ctx, query, from.UTC(), to.UTC(), from.UTC(), to.UTC(), limit, offset)
+LIMIT ? OFFSET ?`, searchWhere, orderBy)
+	args := []any{from.UTC(), to.UTC(), from.UTC(), to.UTC()}
+	args = append(args, searchArgs...)
+	args = append(args, limit, offset)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query user usage report: %w", err)
 	}
@@ -323,12 +357,20 @@ LIMIT ? OFFSET ?`, orderBy)
 	items := make([]model.UserUsageReportItem, 0)
 	for rows.Next() {
 		var item model.UserUsageReportItem
-		if err := rows.Scan(&item.OwnerID, &item.OwnerUsername, &item.ReservedMemoryBytes, &item.TotalDiskBytes, &item.ContainersTotal, &item.ContainersRunning, &item.VolumesTotal, &item.ImagesTotal, &item.BuildsTotal, &item.ProjectsTotal, &item.ActionsTotal); err != nil {
+		if err := rows.Scan(&item.OwnerID, &item.OwnerUsername, &item.MemoryUsageBytes, &item.ReservedMemoryBytes, &item.CPUPercent, &item.TotalDiskBytes, &item.ResourcesTotal, &item.ContainersTotal, &item.ContainersRunning, &item.VolumesTotal, &item.ImagesTotal, &item.BuildsTotal, &item.ProjectsTotal, &item.ActionsTotal); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan user usage report: %w", err)
 		}
 		items = append(items, item)
 	}
 	return items, total, rows.Err()
+}
+
+func userUsageSearchWhere(search string) (string, []any) {
+	search = strings.TrimSpace(search)
+	if search == "" {
+		return "", nil
+	}
+	return "WHERE (positionCaseInsensitive(owner_username, ?) > 0 OR positionCaseInsensitive(toString(owner_id), ?) > 0)", []any{search, search}
 }
 
 func (r *ReportsRepository) GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time, bucketInterval time.Duration) ([]model.UserUsagePoint, error) {
@@ -343,18 +385,31 @@ func (r *ReportsRepository) GetUserUsageTimeline(ctx context.Context, ownerID uu
 	rows, err := db.QueryContext(ctx, `
 SELECT
     u.bucket_start,
+    u.memory_usage_bytes,
     u.reserved_memory_bytes,
+    u.cpu_percent,
     u.total_disk_bytes,
+    u.containers_total + u.volumes_total + u.images_total + u.builds_total + u.projects_total AS resources_total,
     u.containers_total,
     u.containers_running,
+    u.volumes_total,
+    u.images_total,
+    u.builds_total,
+    u.projects_total,
     ifNull(a.actions_total, 0) AS actions_total
 FROM (
     SELECT
         bucket_start,
+        argMax(memory_usage_bytes, collected_at) AS memory_usage_bytes,
         argMax(reserved_memory_bytes, collected_at) AS reserved_memory_bytes,
+        argMax(cpu_percent, collected_at) AS cpu_percent,
         argMax(total_disk_bytes, collected_at) AS total_disk_bytes,
         argMax(containers_total, collected_at) AS containers_total,
-        argMax(containers_running, collected_at) AS containers_running
+        argMax(containers_running, collected_at) AS containers_running,
+        argMax(volumes_total, collected_at) AS volumes_total,
+        argMax(images_total, collected_at) AS images_total,
+        argMax(builds_total, collected_at) AS builds_total,
+        argMax(projects_total, collected_at) AS projects_total
     FROM user_resource_usage_snapshots
     WHERE owner_id = ? AND bucket_start >= ? AND bucket_start < ?
     GROUP BY bucket_start
@@ -374,7 +429,7 @@ ORDER BY bucket_start ASC`, ownerID, from.UTC(), to.UTC(), intervalSeconds, inte
 	points := make([]model.UserUsagePoint, 0)
 	for rows.Next() {
 		var point model.UserUsagePoint
-		if err := rows.Scan(&point.BucketStart, &point.ReservedMemoryBytes, &point.TotalDiskBytes, &point.ContainersTotal, &point.ContainersRunning, &point.ActionsTotal); err != nil {
+		if err := rows.Scan(&point.BucketStart, &point.MemoryUsageBytes, &point.ReservedMemoryBytes, &point.CPUPercent, &point.TotalDiskBytes, &point.ResourcesTotal, &point.ContainersTotal, &point.ContainersRunning, &point.VolumesTotal, &point.ImagesTotal, &point.BuildsTotal, &point.ProjectsTotal, &point.ActionsTotal); err != nil {
 			return nil, fmt.Errorf("failed to scan user usage timeline: %w", err)
 		}
 		points = append(points, point)

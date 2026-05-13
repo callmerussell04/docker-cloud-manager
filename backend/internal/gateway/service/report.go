@@ -8,7 +8,7 @@ import (
 
 type ReportProvider interface {
 	GetReportsOverview(ctx context.Context, from, to int64) (model.ReportsOverview, error)
-	ListUserUsageReport(ctx context.Context, from, to int64, sort string, page, limit int) ([]model.UserUsageReportItem, int, error)
+	ListUserUsageReport(ctx context.Context, from, to int64, sort, search string, page, limit int) ([]model.UserUsageReportItem, int, error)
 	GetUserUsageTimeline(ctx context.Context, ownerID string, from, to int64) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
@@ -19,8 +19,8 @@ func (s *Core) GetReportsOverview(ctx context.Context, from, to int64) (model.Re
 	return s.provider.GetReportsOverview(ctx, from, to)
 }
 
-func (s *Core) ListUserUsageReport(ctx context.Context, from, to int64, sort string, page, limit int) ([]model.UserUsageReportItem, int, error) {
-	return s.provider.ListUserUsageReport(ctx, from, to, sort, page, limit)
+func (s *Core) ListUserUsageReport(ctx context.Context, from, to int64, sort, search string, page, limit int) ([]model.UserUsageReportItem, int, error) {
+	return s.provider.ListUserUsageReport(ctx, from, to, sort, search, page, limit)
 }
 
 func (s *Core) GetUserUsageTimeline(ctx context.Context, ownerID string, from, to int64) ([]model.UserUsagePoint, error) {

@@ -9,8 +9,17 @@ export interface ReportsOverview {
   audit_events_total: number;
   failed_actions_total: number;
   active_users_total: number;
+  memory_usage_bytes: number;
   reserved_memory_bytes: number;
+  cpu_percent: number;
   total_disk_bytes: number;
+  resources_total: number;
+  containers_total: number;
+  containers_running: number;
+  volumes_total: number;
+  images_total: number;
+  builds_total: number;
+  projects_total: number;
   last_usage_snapshot_at: number;
   usage_snapshot_interval_seconds: number;
   top_actions: ActionCount[];
@@ -25,8 +34,11 @@ export interface RefreshUsageSnapshotsResponse {
 export interface UserUsageReportItem {
   owner_id: string;
   owner_username: string;
+  memory_usage_bytes: number;
   reserved_memory_bytes: number;
+  cpu_percent: number;
   total_disk_bytes: number;
+  resources_total: number;
   containers_total: number;
   containers_running: number;
   volumes_total: number;
@@ -43,10 +55,17 @@ export interface UserUsageReportResponse {
 
 export interface UserUsagePoint {
   bucket_start: number;
+  memory_usage_bytes: number;
   reserved_memory_bytes: number;
+  cpu_percent: number;
   total_disk_bytes: number;
+  resources_total: number;
   containers_total: number;
   containers_running: number;
+  volumes_total: number;
+  images_total: number;
+  builds_total: number;
+  projects_total: number;
   actions_total: number;
 }
 
@@ -89,6 +108,13 @@ export interface AuditFilters extends ReportRangeParams {
   action?: string;
   outcome?: string;
   resource_type?: string;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
+export interface UserUsageFilters extends ReportRangeParams {
+  sort: string;
   search?: string;
   page: number;
   limit: number;

@@ -11,8 +11,17 @@ type ReportsOverview struct {
 	AuditEventsTotal             int64
 	FailedActionsTotal           int64
 	ActiveUsersTotal             int64
+	MemoryUsageBytes             int64
 	ReservedMemoryBytes          int64
+	CPUPercent                   float64
 	TotalDiskBytes               int64
+	ResourcesTotal               int64
+	ContainersTotal              int64
+	ContainersRunning            int64
+	VolumesTotal                 int64
+	ImagesTotal                  int64
+	BuildsTotal                  int64
+	ProjectsTotal                int64
 	LastUsageSnapshotAt          int64
 	UsageSnapshotIntervalSeconds int64
 	TopActions                   []ActionCount
@@ -27,8 +36,11 @@ type RefreshUsageSnapshotsResult struct {
 type UserUsageReportItem struct {
 	OwnerID             string
 	OwnerUsername       string
+	MemoryUsageBytes    int64
 	ReservedMemoryBytes int64
+	CPUPercent          float64
 	TotalDiskBytes      int64
+	ResourcesTotal      int
 	ContainersTotal     int
 	ContainersRunning   int
 	VolumesTotal        int
@@ -40,10 +52,17 @@ type UserUsageReportItem struct {
 
 type UserUsagePoint struct {
 	BucketStart         int64
+	MemoryUsageBytes    int64
 	ReservedMemoryBytes int64
+	CPUPercent          float64
 	TotalDiskBytes      int64
+	ResourcesTotal      int
 	ContainersTotal     int
 	ContainersRunning   int
+	VolumesTotal        int
+	ImagesTotal         int
+	BuildsTotal         int
+	ProjectsTotal       int
 	ActionsTotal        int64
 }
 

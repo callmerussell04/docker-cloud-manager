@@ -301,6 +301,7 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	var overviewFrom time.Time
 	var overviewTo time.Time
 	var usageSort string
+	var usageSearch string
 	var usageLimit int
 	var usageOffset int
 	var timelineOwnerID uuid.UUID
@@ -319,24 +320,37 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 			AuditEventsTotal:             10,
 			FailedActionsTotal:           2,
 			ActiveUsersTotal:             3,
+			MemoryUsageBytes:             900,
 			ReservedMemoryBytes:          1024,
+			CPUPercent:                   12.5,
 			TotalDiskBytes:               2048,
+			ResourcesTotal:               20,
+			ContainersTotal:              2,
+			ContainersRunning:            1,
+			VolumesTotal:                 3,
+			ImagesTotal:                  4,
+			BuildsTotal:                  5,
+			ProjectsTotal:                6,
 			LastUsageSnapshotAt:          &lastSnapshotAt,
 			UsageSnapshotIntervalSeconds: 300,
 			TopActions:                   []model.ActionCount{{Action: "container.create", Count: 5}},
 		}, nil)
 	logic.EXPECT().
-		ListUserUsageReport(mock.Anything, from, to, "disk_desc", 10, 10).
-		Run(func(ctx context.Context, gotFrom, gotTo time.Time, sort string, limit, offset int) {
+		ListUserUsageReport(mock.Anything, from, to, "disk_desc", "ali", 10, 10).
+		Run(func(ctx context.Context, gotFrom, gotTo time.Time, sort, search string, limit, offset int) {
 			usageSort = sort
+			usageSearch = search
 			usageLimit = limit
 			usageOffset = offset
 		}).
 		Return([]model.UserUsageReportItem{{
 			OwnerID:             ownerID,
 			OwnerUsername:       "alice",
+			MemoryUsageBytes:    384,
 			ReservedMemoryBytes: 512,
+			CPUPercent:          7.5,
 			TotalDiskBytes:      1024,
+			ResourcesTotal:      20,
 			ContainersTotal:     2,
 			ContainersRunning:   1,
 			VolumesTotal:        3,
@@ -352,10 +366,17 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 		}).
 		Return([]model.UserUsagePoint{{
 			BucketStart:         from,
+			MemoryUsageBytes:    64,
 			ReservedMemoryBytes: 128,
+			CPUPercent:          2.5,
 			TotalDiskBytes:      256,
+			ResourcesTotal:      14,
 			ContainersTotal:     2,
 			ContainersRunning:   1,
+			VolumesTotal:        3,
+			ImagesTotal:         4,
+			BuildsTotal:         5,
+			ProjectsTotal:       6,
 			ActionsTotal:        4,
 		}}, nil)
 	logic.EXPECT().
@@ -398,7 +419,10 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	overview, err := client.GetReportsOverview(context.Background(), &coreapi.ReportRangeRequest{From: from.Unix(), To: to.Unix()})
 	require.NoError(t, err)
 	require.Equal(t, int64(10), overview.AuditEventsTotal)
+	require.Equal(t, int64(900), overview.MemoryUsageBytes)
 	require.Equal(t, int64(1024), overview.ReservedMemoryBytes)
+	require.Equal(t, 12.5, overview.CpuPercent)
+	require.Equal(t, int64(20), overview.ResourcesTotal)
 	require.Equal(t, lastSnapshotAt.Unix(), overview.LastUsageSnapshotAt)
 	require.Equal(t, int64(300), overview.UsageSnapshotIntervalSeconds)
 	require.Len(t, overview.TopActions, 1)
@@ -407,12 +431,16 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	require.Equal(t, to, overviewTo)
 
 	usage, err := client.ListUserUsageReport(context.Background(), &coreapi.ListUserUsageReportRequest{
-		From: from.Unix(), To: to.Unix(), Sort: "disk_desc", Page: 2, Limit: 10,
+		From: from.Unix(), To: to.Unix(), Sort: "disk_desc", Search: "ali", Page: 2, Limit: 10,
 	})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), usage.TotalCount)
 	require.Equal(t, ownerID.String(), usage.Users[0].OwnerId)
+	require.Equal(t, int64(384), usage.Users[0].MemoryUsageBytes)
+	require.Equal(t, 7.5, usage.Users[0].CpuPercent)
+	require.Equal(t, int32(20), usage.Users[0].ResourcesTotal)
 	require.Equal(t, "disk_desc", usageSort)
+	require.Equal(t, "ali", usageSearch)
 	require.Equal(t, 10, usageLimit)
 	require.Equal(t, 10, usageOffset)
 
@@ -421,7 +449,10 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, timeline.Points, 1)
+	require.Equal(t, int64(64), timeline.Points[0].MemoryUsageBytes)
 	require.Equal(t, int64(128), timeline.Points[0].ReservedMemoryBytes)
+	require.Equal(t, 2.5, timeline.Points[0].CpuPercent)
+	require.Equal(t, int32(14), timeline.Points[0].ResourcesTotal)
 	require.Equal(t, ownerID, timelineOwnerID)
 
 	events, err := client.ListAuditEvents(context.Background(), &coreapi.ListAuditEventsRequest{

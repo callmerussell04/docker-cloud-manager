@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getAuditEventsFn, getReportsOverviewFn, getUserUsageReportFn, getUserUsageTimelineFn, refreshUsageSnapshotsFn } from './api';
-import type { AuditFilters, ReportRangeParams } from './types';
+import type { AuditFilters, ReportRangeParams, UserUsageFilters } from './types';
 import { queryKeys } from '@/shared/api/queryKeys';
 
 export function useReportsOverview(params: ReportRangeParams) {
@@ -10,18 +10,18 @@ export function useReportsOverview(params: ReportRangeParams) {
   });
 }
 
-export function useUserUsageReport(params: ReportRangeParams & { sort: string; page: number; limit: number }) {
+export function useUserUsageReport(params: UserUsageFilters) {
   return useQuery({
     queryKey: queryKeys.admin.reports.users(params),
     queryFn: () => getUserUsageReportFn(params),
   });
 }
 
-export function useUserUsageTimeline(ownerId: string | undefined, params: ReportRangeParams) {
+export function useUserUsageTimeline(ownerId: string | undefined, params: ReportRangeParams, enabled = true) {
   return useQuery({
     queryKey: queryKeys.admin.reports.userTimeline(ownerId ?? '', params),
     queryFn: () => getUserUsageTimelineFn(ownerId ?? '', params),
-    enabled: Boolean(ownerId),
+    enabled: enabled && Boolean(ownerId),
   });
 }
 

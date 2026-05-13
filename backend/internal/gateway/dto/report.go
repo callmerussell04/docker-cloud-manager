@@ -11,8 +11,17 @@ type ReportsOverviewResponse struct {
 	AuditEventsTotal             int64                 `json:"audit_events_total"`
 	FailedActionsTotal           int64                 `json:"failed_actions_total"`
 	ActiveUsersTotal             int64                 `json:"active_users_total"`
+	MemoryUsageBytes             int64                 `json:"memory_usage_bytes"`
 	ReservedMemoryBytes          int64                 `json:"reserved_memory_bytes"`
+	CPUPercent                   float64               `json:"cpu_percent"`
 	TotalDiskBytes               int64                 `json:"total_disk_bytes"`
+	ResourcesTotal               int64                 `json:"resources_total"`
+	ContainersTotal              int64                 `json:"containers_total"`
+	ContainersRunning            int64                 `json:"containers_running"`
+	VolumesTotal                 int64                 `json:"volumes_total"`
+	ImagesTotal                  int64                 `json:"images_total"`
+	BuildsTotal                  int64                 `json:"builds_total"`
+	ProjectsTotal                int64                 `json:"projects_total"`
 	LastUsageSnapshotAt          int64                 `json:"last_usage_snapshot_at"`
 	UsageSnapshotIntervalSeconds int64                 `json:"usage_snapshot_interval_seconds"`
 	TopActions                   []ActionCountResponse `json:"top_actions"`
@@ -25,17 +34,20 @@ type RefreshUsageSnapshotsResponse struct {
 }
 
 type UserUsageReportItemResponse struct {
-	OwnerID             string `json:"owner_id"`
-	OwnerUsername       string `json:"owner_username"`
-	ReservedMemoryBytes int64  `json:"reserved_memory_bytes"`
-	TotalDiskBytes      int64  `json:"total_disk_bytes"`
-	ContainersTotal     int    `json:"containers_total"`
-	ContainersRunning   int    `json:"containers_running"`
-	VolumesTotal        int    `json:"volumes_total"`
-	ImagesTotal         int    `json:"images_total"`
-	BuildsTotal         int    `json:"builds_total"`
-	ProjectsTotal       int    `json:"projects_total"`
-	ActionsTotal        int64  `json:"actions_total"`
+	OwnerID             string  `json:"owner_id"`
+	OwnerUsername       string  `json:"owner_username"`
+	MemoryUsageBytes    int64   `json:"memory_usage_bytes"`
+	ReservedMemoryBytes int64   `json:"reserved_memory_bytes"`
+	CPUPercent          float64 `json:"cpu_percent"`
+	TotalDiskBytes      int64   `json:"total_disk_bytes"`
+	ResourcesTotal      int     `json:"resources_total"`
+	ContainersTotal     int     `json:"containers_total"`
+	ContainersRunning   int     `json:"containers_running"`
+	VolumesTotal        int     `json:"volumes_total"`
+	ImagesTotal         int     `json:"images_total"`
+	BuildsTotal         int     `json:"builds_total"`
+	ProjectsTotal       int     `json:"projects_total"`
+	ActionsTotal        int64   `json:"actions_total"`
 }
 
 type UserUsageReportResponse struct {
@@ -44,12 +56,19 @@ type UserUsageReportResponse struct {
 }
 
 type UserUsagePointResponse struct {
-	BucketStart         int64 `json:"bucket_start"`
-	ReservedMemoryBytes int64 `json:"reserved_memory_bytes"`
-	TotalDiskBytes      int64 `json:"total_disk_bytes"`
-	ContainersTotal     int   `json:"containers_total"`
-	ContainersRunning   int   `json:"containers_running"`
-	ActionsTotal        int64 `json:"actions_total"`
+	BucketStart         int64   `json:"bucket_start"`
+	MemoryUsageBytes    int64   `json:"memory_usage_bytes"`
+	ReservedMemoryBytes int64   `json:"reserved_memory_bytes"`
+	CPUPercent          float64 `json:"cpu_percent"`
+	TotalDiskBytes      int64   `json:"total_disk_bytes"`
+	ResourcesTotal      int     `json:"resources_total"`
+	ContainersTotal     int     `json:"containers_total"`
+	ContainersRunning   int     `json:"containers_running"`
+	VolumesTotal        int     `json:"volumes_total"`
+	ImagesTotal         int     `json:"images_total"`
+	BuildsTotal         int     `json:"builds_total"`
+	ProjectsTotal       int     `json:"projects_total"`
+	ActionsTotal        int64   `json:"actions_total"`
 }
 
 type UserUsageTimelineResponse struct {

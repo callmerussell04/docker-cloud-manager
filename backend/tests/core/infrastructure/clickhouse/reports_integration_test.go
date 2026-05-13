@@ -45,7 +45,9 @@ func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testin
 		OwnerUsername:       "alice",
 		BucketStart:         bucketStart,
 		CollectedAt:         now,
+		MemoryUsageBytes:    256,
 		ReservedMemoryBytes: 512,
+		CPUPercent:          4.5,
 		ImageDiskBytes:      1024,
 		VolumeDiskBytes:     2048,
 		TotalDiskBytes:      3072,
@@ -90,8 +92,26 @@ func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testin
 	overview, err := repo.GetReportsOverview(ctx, from, to)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, overview.AuditEventsTotal)
+	require.EqualValues(t, 256, overview.MemoryUsageBytes)
 	require.EqualValues(t, 512, overview.ReservedMemoryBytes)
+	require.Equal(t, 4.5, overview.CPUPercent)
 	require.EqualValues(t, 3072, overview.TotalDiskBytes)
+	require.EqualValues(t, 5, overview.ResourcesTotal)
+
+	users, usersTotal, err := repo.ListUserUsageReport(ctx, from, to, "actual_memory", "ali", 20, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, usersTotal)
+	require.Len(t, users, 1)
+	require.EqualValues(t, 256, users[0].MemoryUsageBytes)
+	require.Equal(t, 4.5, users[0].CPUPercent)
+	require.Equal(t, 5, users[0].ResourcesTotal)
+
+	points, err := repo.GetUserUsageTimeline(ctx, ownerID, from, to, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, points, 1)
+	require.EqualValues(t, 256, points[0].MemoryUsageBytes)
+	require.Equal(t, 4.5, points[0].CPUPercent)
+	require.Equal(t, 5, points[0].ResourcesTotal)
 
 	latest, err := repo.GetLatestUsageSnapshotCollectedAt(ctx)
 	require.NoError(t, err)

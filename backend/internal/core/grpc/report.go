@@ -15,7 +15,7 @@ import (
 
 type ReportLogic interface {
 	GetReportsOverview(ctx context.Context, from, to time.Time) (model.ReportsOverview, error)
-	ListUserUsageReport(ctx context.Context, from, to time.Time, sort string, limit, offset int) ([]model.UserUsageReportItem, int, error)
+	ListUserUsageReport(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) ([]model.UserUsageReportItem, int, error)
 	GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
@@ -46,8 +46,17 @@ func (h *ReportHandler) GetReportsOverview(ctx context.Context, req *coreapi.Rep
 		AuditEventsTotal:             overview.AuditEventsTotal,
 		FailedActionsTotal:           overview.FailedActionsTotal,
 		ActiveUsersTotal:             overview.ActiveUsersTotal,
+		MemoryUsageBytes:             overview.MemoryUsageBytes,
 		ReservedMemoryBytes:          overview.ReservedMemoryBytes,
+		CpuPercent:                   overview.CPUPercent,
 		TotalDiskBytes:               overview.TotalDiskBytes,
+		ResourcesTotal:               overview.ResourcesTotal,
+		ContainersTotal:              overview.ContainersTotal,
+		ContainersRunning:            overview.ContainersRunning,
+		VolumesTotal:                 overview.VolumesTotal,
+		ImagesTotal:                  overview.ImagesTotal,
+		BuildsTotal:                  overview.BuildsTotal,
+		ProjectsTotal:                overview.ProjectsTotal,
 		TopActions:                   items,
 		UsageSnapshotIntervalSeconds: overview.UsageSnapshotIntervalSeconds,
 	}
@@ -59,7 +68,7 @@ func (h *ReportHandler) GetReportsOverview(ctx context.Context, req *coreapi.Rep
 
 func (h *ReportHandler) ListUserUsageReport(ctx context.Context, req *coreapi.ListUserUsageReportRequest) (*coreapi.PaginatedUserUsageReportResponse, error) {
 	limit, offset := pageLimitOffset(req.GetPage(), req.GetLimit())
-	items, total, err := h.logic.ListUserUsageReport(ctx, unixTime(req.GetFrom()), unixTime(req.GetTo()), req.GetSort(), limit, offset)
+	items, total, err := h.logic.ListUserUsageReport(ctx, unixTime(req.GetFrom()), unixTime(req.GetTo()), req.GetSort(), req.GetSearch(), limit, offset)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -83,10 +92,17 @@ func (h *ReportHandler) GetUserUsageTimeline(ctx context.Context, req *coreapi.G
 	for _, point := range points {
 		pbPoints = append(pbPoints, &coreapi.UserUsagePointData{
 			BucketStart:         point.BucketStart.Unix(),
+			MemoryUsageBytes:    point.MemoryUsageBytes,
 			ReservedMemoryBytes: point.ReservedMemoryBytes,
+			CpuPercent:          point.CPUPercent,
 			TotalDiskBytes:      point.TotalDiskBytes,
+			ResourcesTotal:      int32(point.ResourcesTotal),
 			ContainersTotal:     int32(point.ContainersTotal),
 			ContainersRunning:   int32(point.ContainersRunning),
+			VolumesTotal:        int32(point.VolumesTotal),
+			ImagesTotal:         int32(point.ImagesTotal),
+			BuildsTotal:         int32(point.BuildsTotal),
+			ProjectsTotal:       int32(point.ProjectsTotal),
 			ActionsTotal:        point.ActionsTotal,
 		})
 	}
@@ -168,8 +184,11 @@ func userUsageReportToProto(item model.UserUsageReportItem) *coreapi.UserUsageRe
 	return &coreapi.UserUsageReportData{
 		OwnerId:             item.OwnerID.String(),
 		OwnerUsername:       item.OwnerUsername,
+		MemoryUsageBytes:    item.MemoryUsageBytes,
 		ReservedMemoryBytes: item.ReservedMemoryBytes,
+		CpuPercent:          item.CPUPercent,
 		TotalDiskBytes:      item.TotalDiskBytes,
+		ResourcesTotal:      int32(item.ResourcesTotal),
 		ContainersTotal:     int32(item.ContainersTotal),
 		ContainersRunning:   int32(item.ContainersRunning),
 		VolumesTotal:        int32(item.VolumesTotal),

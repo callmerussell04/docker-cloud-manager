@@ -19,7 +19,7 @@ type ReportsRepository interface {
 	InsertUsageSnapshots(ctx context.Context, snapshots []model.UsageSnapshot) error
 	GetLatestUsageSnapshotCollectedAt(ctx context.Context) (*time.Time, error)
 	GetReportsOverview(ctx context.Context, from, to time.Time) (model.ReportsOverview, error)
-	ListUserUsageReport(ctx context.Context, from, to time.Time, sort string, limit, offset int) ([]model.UserUsageReportItem, int, error)
+	ListUserUsageReport(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) ([]model.UserUsageReportItem, int, error)
 	GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time, bucketInterval time.Duration) ([]model.UserUsagePoint, error)
 	ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error)
 }
@@ -62,18 +62,18 @@ func (s *ReportService) GetReportsOverview(ctx context.Context, from, to time.Ti
 	from, to = normalizeFromTo(from, to, s.now())
 	overview, err := s.reports.GetReportsOverview(ctx, from, to)
 	if err != nil {
-		return model.ReportsOverview{}, reportStorageUnavailable("failed to get reports overview", err)
+		return model.ReportsOverview{}, s.reportStorageUnavailable("get_reports_overview", "failed to get reports overview", err)
 	}
 	lastSnapshotAt, err := s.reports.GetLatestUsageSnapshotCollectedAt(ctx)
 	if err != nil {
-		return model.ReportsOverview{}, reportStorageUnavailable("failed to get latest usage snapshot timestamp", err)
+		return model.ReportsOverview{}, s.reportStorageUnavailable("get_latest_usage_snapshot_timestamp", "failed to get latest usage snapshot timestamp", err)
 	}
 	overview.LastUsageSnapshotAt = lastSnapshotAt
 	overview.UsageSnapshotIntervalSeconds = int64(s.usageSnapshotInterval() / time.Second)
 	return overview, nil
 }
 
-func (s *ReportService) ListUserUsageReport(ctx context.Context, from, to time.Time, sort string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
+func (s *ReportService) ListUserUsageReport(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
 	from, to = normalizeFromTo(from, to, s.now())
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -81,9 +81,9 @@ func (s *ReportService) ListUserUsageReport(ctx context.Context, from, to time.T
 	if offset < 0 {
 		offset = 0
 	}
-	items, total, err := s.reports.ListUserUsageReport(ctx, from, to, sort, limit, offset)
+	items, total, err := s.reports.ListUserUsageReport(ctx, from, to, sort, search, limit, offset)
 	if err != nil {
-		return nil, 0, reportStorageUnavailable("failed to list user usage report", err)
+		return nil, 0, s.reportStorageUnavailable("list_user_usage_report", "failed to list user usage report", err)
 	}
 	return items, total, nil
 }
@@ -92,7 +92,7 @@ func (s *ReportService) GetUserUsageTimeline(ctx context.Context, ownerID uuid.U
 	from, to = normalizeFromTo(from, to, s.now())
 	points, err := s.reports.GetUserUsageTimeline(ctx, ownerID, from, to, s.usageSnapshotInterval())
 	if err != nil {
-		return nil, reportStorageUnavailable("failed to get user usage timeline", err)
+		return nil, s.reportStorageUnavailable("get_user_usage_timeline", "failed to get user usage timeline", err)
 	}
 	return points, nil
 }
@@ -107,7 +107,7 @@ func (s *ReportService) ListAuditEvents(ctx context.Context, filters model.Audit
 	}
 	events, total, err := s.reports.ListAuditEvents(ctx, filters)
 	if err != nil {
-		return nil, 0, reportStorageUnavailable("failed to list audit events", err)
+		return nil, 0, s.reportStorageUnavailable("list_audit_events", "failed to list audit events", err)
 	}
 	return events, total, nil
 }
@@ -151,7 +151,7 @@ func (s *ReportService) CollectUsageSnapshot(ctx context.Context, at time.Time) 
 	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := s.reports.InsertUsageSnapshots(writeCtx, snapshots); err != nil {
-		return model.UsageSnapshotCollection{}, reportStorageUnavailable("failed to insert usage snapshots", err)
+		return model.UsageSnapshotCollection{}, s.reportStorageUnavailable("insert_usage_snapshots", "failed to insert usage snapshots", err)
 	}
 	return model.UsageSnapshotCollection{
 		BucketStart:    bucketStart,
@@ -196,7 +196,8 @@ func normalizeFromTo(from, to, now time.Time) (time.Time, time.Time) {
 	return from.UTC(), to.UTC()
 }
 
-func reportStorageUnavailable(message string, err error) error {
+func (s *ReportService) reportStorageUnavailable(operation string, message string, err error) error {
+	s.logger.Error("reports storage operation failed", "operation", operation, "error", err)
 	return apperrors.Wrap(apperrors.ErrUnavailable, apperrors.ErrUnavailable.Error(), fmt.Errorf("%s: %w", message, err))
 }
 

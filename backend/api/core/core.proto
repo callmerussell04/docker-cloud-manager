@@ -118,6 +118,15 @@ message ReportsOverviewResponse {
   repeated ActionCountData top_actions = 8;
   int64 last_usage_snapshot_at = 9;
   int64 usage_snapshot_interval_seconds = 10;
+  int64 memory_usage_bytes = 11;
+  double cpu_percent = 12;
+  int64 resources_total = 13;
+  int64 containers_total = 14;
+  int64 containers_running = 15;
+  int64 volumes_total = 16;
+  int64 images_total = 17;
+  int64 builds_total = 18;
+  int64 projects_total = 19;
 }
 
 message RefreshUsageSnapshotsResponse {
@@ -132,6 +141,7 @@ message ListUserUsageReportRequest {
   string sort = 3;
   int32 page = 4;
   int32 limit = 5;
+  string search = 6;
 }
 
 message UserUsageReportData {
@@ -146,6 +156,9 @@ message UserUsageReportData {
   int32 builds_total = 9;
   int32 projects_total = 10;
   int64 actions_total = 11;
+  int64 memory_usage_bytes = 12;
+  double cpu_percent = 13;
+  int32 resources_total = 14;
 }
 
 message PaginatedUserUsageReportResponse {
@@ -166,6 +179,13 @@ message UserUsagePointData {
   int32 containers_total = 4;
   int32 containers_running = 5;
   int64 actions_total = 6;
+  int64 memory_usage_bytes = 7;
+  double cpu_percent = 8;
+  int32 volumes_total = 9;
+  int32 images_total = 10;
+  int32 builds_total = 11;
+  int32 projects_total = 12;
+  int32 resources_total = 13;
 }
 
 message UserUsageTimelineResponse {

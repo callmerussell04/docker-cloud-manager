@@ -23,8 +23,17 @@ func (c *CoreClient) GetReportsOverview(ctx context.Context, from, to int64) (mo
 		AuditEventsTotal:             resp.GetAuditEventsTotal(),
 		FailedActionsTotal:           resp.GetFailedActionsTotal(),
 		ActiveUsersTotal:             resp.GetActiveUsersTotal(),
+		MemoryUsageBytes:             resp.GetMemoryUsageBytes(),
 		ReservedMemoryBytes:          resp.GetReservedMemoryBytes(),
+		CPUPercent:                   resp.GetCpuPercent(),
 		TotalDiskBytes:               resp.GetTotalDiskBytes(),
+		ResourcesTotal:               resp.GetResourcesTotal(),
+		ContainersTotal:              resp.GetContainersTotal(),
+		ContainersRunning:            resp.GetContainersRunning(),
+		VolumesTotal:                 resp.GetVolumesTotal(),
+		ImagesTotal:                  resp.GetImagesTotal(),
+		BuildsTotal:                  resp.GetBuildsTotal(),
+		ProjectsTotal:                resp.GetProjectsTotal(),
 		LastUsageSnapshotAt:          resp.GetLastUsageSnapshotAt(),
 		UsageSnapshotIntervalSeconds: resp.GetUsageSnapshotIntervalSeconds(),
 		TopActions:                   topActions,
@@ -43,13 +52,14 @@ func (c *CoreClient) RefreshUsageSnapshots(ctx context.Context) (model.RefreshUs
 	}, nil
 }
 
-func (c *CoreClient) ListUserUsageReport(ctx context.Context, from, to int64, sort string, page, limit int) ([]model.UserUsageReportItem, int, error) {
+func (c *CoreClient) ListUserUsageReport(ctx context.Context, from, to int64, sort, search string, page, limit int) ([]model.UserUsageReportItem, int, error) {
 	resp, err := c.reportAPI.ListUserUsageReport(ctx, &coreapi.ListUserUsageReportRequest{
-		From:  from,
-		To:    to,
-		Sort:  sort,
-		Page:  int32(page),
-		Limit: int32(limit),
+		From:   from,
+		To:     to,
+		Sort:   sort,
+		Search: search,
+		Page:   int32(page),
+		Limit:  int32(limit),
 	})
 	if err != nil {
 		return nil, 0, grpcerrors.FromGRPC(err)
@@ -59,8 +69,11 @@ func (c *CoreClient) ListUserUsageReport(ctx context.Context, from, to int64, so
 		items = append(items, model.UserUsageReportItem{
 			OwnerID:             user.GetOwnerId(),
 			OwnerUsername:       user.GetOwnerUsername(),
+			MemoryUsageBytes:    user.GetMemoryUsageBytes(),
 			ReservedMemoryBytes: user.GetReservedMemoryBytes(),
+			CPUPercent:          user.GetCpuPercent(),
 			TotalDiskBytes:      user.GetTotalDiskBytes(),
+			ResourcesTotal:      int(user.GetResourcesTotal()),
 			ContainersTotal:     int(user.GetContainersTotal()),
 			ContainersRunning:   int(user.GetContainersRunning()),
 			VolumesTotal:        int(user.GetVolumesTotal()),
@@ -82,10 +95,17 @@ func (c *CoreClient) GetUserUsageTimeline(ctx context.Context, ownerID string, f
 	for _, point := range resp.GetPoints() {
 		points = append(points, model.UserUsagePoint{
 			BucketStart:         point.GetBucketStart(),
+			MemoryUsageBytes:    point.GetMemoryUsageBytes(),
 			ReservedMemoryBytes: point.GetReservedMemoryBytes(),
+			CPUPercent:          point.GetCpuPercent(),
 			TotalDiskBytes:      point.GetTotalDiskBytes(),
+			ResourcesTotal:      int(point.GetResourcesTotal()),
 			ContainersTotal:     int(point.GetContainersTotal()),
 			ContainersRunning:   int(point.GetContainersRunning()),
+			VolumesTotal:        int(point.GetVolumesTotal()),
+			ImagesTotal:         int(point.GetImagesTotal()),
+			BuildsTotal:         int(point.GetBuildsTotal()),
+			ProjectsTotal:       int(point.GetProjectsTotal()),
 			ActionsTotal:        point.GetActionsTotal(),
 		})
 	}

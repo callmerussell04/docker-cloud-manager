@@ -5,6 +5,7 @@ import type {
   ReportRangeParams,
   RefreshUsageSnapshotsResponse,
   ReportsOverview,
+  UserUsageFilters,
   UserUsageReportResponse,
   UserUsageTimelineResponse,
 } from '../types';
@@ -14,9 +15,7 @@ export const getReportsOverviewFn = async (params: ReportRangeParams): Promise<R
   return response.data;
 };
 
-export const getUserUsageReportFn = async (
-  params: ReportRangeParams & { sort: string; page: number; limit: number },
-): Promise<UserUsageReportResponse> => {
+export const getUserUsageReportFn = async (params: UserUsageFilters): Promise<UserUsageReportResponse> => {
   const response = await privateApi.get<UserUsageReportResponse>('/admin/reports/users', { params });
   return response.data;
 };

@@ -485,6 +485,15 @@ type ReportsOverviewResponse struct {
 	TopActions                   []*ActionCountData     `protobuf:"bytes,8,rep,name=top_actions,json=topActions,proto3" json:"top_actions,omitempty"`
 	LastUsageSnapshotAt          int64                  `protobuf:"varint,9,opt,name=last_usage_snapshot_at,json=lastUsageSnapshotAt,proto3" json:"last_usage_snapshot_at,omitempty"`
 	UsageSnapshotIntervalSeconds int64                  `protobuf:"varint,10,opt,name=usage_snapshot_interval_seconds,json=usageSnapshotIntervalSeconds,proto3" json:"usage_snapshot_interval_seconds,omitempty"`
+	MemoryUsageBytes             int64                  `protobuf:"varint,11,opt,name=memory_usage_bytes,json=memoryUsageBytes,proto3" json:"memory_usage_bytes,omitempty"`
+	CpuPercent                   float64                `protobuf:"fixed64,12,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	ResourcesTotal               int64                  `protobuf:"varint,13,opt,name=resources_total,json=resourcesTotal,proto3" json:"resources_total,omitempty"`
+	ContainersTotal              int64                  `protobuf:"varint,14,opt,name=containers_total,json=containersTotal,proto3" json:"containers_total,omitempty"`
+	ContainersRunning            int64                  `protobuf:"varint,15,opt,name=containers_running,json=containersRunning,proto3" json:"containers_running,omitempty"`
+	VolumesTotal                 int64                  `protobuf:"varint,16,opt,name=volumes_total,json=volumesTotal,proto3" json:"volumes_total,omitempty"`
+	ImagesTotal                  int64                  `protobuf:"varint,17,opt,name=images_total,json=imagesTotal,proto3" json:"images_total,omitempty"`
+	BuildsTotal                  int64                  `protobuf:"varint,18,opt,name=builds_total,json=buildsTotal,proto3" json:"builds_total,omitempty"`
+	ProjectsTotal                int64                  `protobuf:"varint,19,opt,name=projects_total,json=projectsTotal,proto3" json:"projects_total,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -589,6 +598,69 @@ func (x *ReportsOverviewResponse) GetUsageSnapshotIntervalSeconds() int64 {
 	return 0
 }
 
+func (x *ReportsOverviewResponse) GetMemoryUsageBytes() int64 {
+	if x != nil {
+		return x.MemoryUsageBytes
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetCpuPercent() float64 {
+	if x != nil {
+		return x.CpuPercent
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetResourcesTotal() int64 {
+	if x != nil {
+		return x.ResourcesTotal
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetContainersTotal() int64 {
+	if x != nil {
+		return x.ContainersTotal
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetContainersRunning() int64 {
+	if x != nil {
+		return x.ContainersRunning
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetVolumesTotal() int64 {
+	if x != nil {
+		return x.VolumesTotal
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetImagesTotal() int64 {
+	if x != nil {
+		return x.ImagesTotal
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetBuildsTotal() int64 {
+	if x != nil {
+		return x.BuildsTotal
+	}
+	return 0
+}
+
+func (x *ReportsOverviewResponse) GetProjectsTotal() int64 {
+	if x != nil {
+		return x.ProjectsTotal
+	}
+	return 0
+}
+
 type RefreshUsageSnapshotsResponse struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	BucketStart    int64                  `protobuf:"varint,1,opt,name=bucket_start,json=bucketStart,proto3" json:"bucket_start,omitempty"`
@@ -656,6 +728,7 @@ type ListUserUsageReportRequest struct {
 	Sort          string                 `protobuf:"bytes,3,opt,name=sort,proto3" json:"sort,omitempty"`
 	Page          int32                  `protobuf:"varint,4,opt,name=page,proto3" json:"page,omitempty"`
 	Limit         int32                  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	Search        string                 `protobuf:"bytes,6,opt,name=search,proto3" json:"search,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -725,6 +798,13 @@ func (x *ListUserUsageReportRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListUserUsageReportRequest) GetSearch() string {
+	if x != nil {
+		return x.Search
+	}
+	return ""
+}
+
 type UserUsageReportData struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	OwnerId             string                 `protobuf:"bytes,1,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
@@ -738,6 +818,9 @@ type UserUsageReportData struct {
 	BuildsTotal         int32                  `protobuf:"varint,9,opt,name=builds_total,json=buildsTotal,proto3" json:"builds_total,omitempty"`
 	ProjectsTotal       int32                  `protobuf:"varint,10,opt,name=projects_total,json=projectsTotal,proto3" json:"projects_total,omitempty"`
 	ActionsTotal        int64                  `protobuf:"varint,11,opt,name=actions_total,json=actionsTotal,proto3" json:"actions_total,omitempty"`
+	MemoryUsageBytes    int64                  `protobuf:"varint,12,opt,name=memory_usage_bytes,json=memoryUsageBytes,proto3" json:"memory_usage_bytes,omitempty"`
+	CpuPercent          float64                `protobuf:"fixed64,13,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	ResourcesTotal      int32                  `protobuf:"varint,14,opt,name=resources_total,json=resourcesTotal,proto3" json:"resources_total,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -845,6 +928,27 @@ func (x *UserUsageReportData) GetProjectsTotal() int32 {
 func (x *UserUsageReportData) GetActionsTotal() int64 {
 	if x != nil {
 		return x.ActionsTotal
+	}
+	return 0
+}
+
+func (x *UserUsageReportData) GetMemoryUsageBytes() int64 {
+	if x != nil {
+		return x.MemoryUsageBytes
+	}
+	return 0
+}
+
+func (x *UserUsageReportData) GetCpuPercent() float64 {
+	if x != nil {
+		return x.CpuPercent
+	}
+	return 0
+}
+
+func (x *UserUsageReportData) GetResourcesTotal() int32 {
+	if x != nil {
+		return x.ResourcesTotal
 	}
 	return 0
 }
@@ -969,6 +1073,13 @@ type UserUsagePointData struct {
 	ContainersTotal     int32                  `protobuf:"varint,4,opt,name=containers_total,json=containersTotal,proto3" json:"containers_total,omitempty"`
 	ContainersRunning   int32                  `protobuf:"varint,5,opt,name=containers_running,json=containersRunning,proto3" json:"containers_running,omitempty"`
 	ActionsTotal        int64                  `protobuf:"varint,6,opt,name=actions_total,json=actionsTotal,proto3" json:"actions_total,omitempty"`
+	MemoryUsageBytes    int64                  `protobuf:"varint,7,opt,name=memory_usage_bytes,json=memoryUsageBytes,proto3" json:"memory_usage_bytes,omitempty"`
+	CpuPercent          float64                `protobuf:"fixed64,8,opt,name=cpu_percent,json=cpuPercent,proto3" json:"cpu_percent,omitempty"`
+	VolumesTotal        int32                  `protobuf:"varint,9,opt,name=volumes_total,json=volumesTotal,proto3" json:"volumes_total,omitempty"`
+	ImagesTotal         int32                  `protobuf:"varint,10,opt,name=images_total,json=imagesTotal,proto3" json:"images_total,omitempty"`
+	BuildsTotal         int32                  `protobuf:"varint,11,opt,name=builds_total,json=buildsTotal,proto3" json:"builds_total,omitempty"`
+	ProjectsTotal       int32                  `protobuf:"varint,12,opt,name=projects_total,json=projectsTotal,proto3" json:"projects_total,omitempty"`
+	ResourcesTotal      int32                  `protobuf:"varint,13,opt,name=resources_total,json=resourcesTotal,proto3" json:"resources_total,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1041,6 +1152,55 @@ func (x *UserUsagePointData) GetContainersRunning() int32 {
 func (x *UserUsagePointData) GetActionsTotal() int64 {
 	if x != nil {
 		return x.ActionsTotal
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetMemoryUsageBytes() int64 {
+	if x != nil {
+		return x.MemoryUsageBytes
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetCpuPercent() float64 {
+	if x != nil {
+		return x.CpuPercent
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetVolumesTotal() int32 {
+	if x != nil {
+		return x.VolumesTotal
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetImagesTotal() int32 {
+	if x != nil {
+		return x.ImagesTotal
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetBuildsTotal() int32 {
+	if x != nil {
+		return x.BuildsTotal
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetProjectsTotal() int32 {
+	if x != nil {
+		return x.ProjectsTotal
+	}
+	return 0
+}
+
+func (x *UserUsagePointData) GetResourcesTotal() int32 {
+	if x != nil {
+		return x.ResourcesTotal
 	}
 	return 0
 }
@@ -4069,7 +4229,7 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"\x02to\x18\x02 \x01(\x03R\x02to\"?\n" +
 	"\x0fActionCountData\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x03R\x05count\"\xdd\x03\n" +
+	"\x05count\x18\x02 \x01(\x03R\x05count\"\xc1\x06\n" +
 	"\x17ReportsOverviewResponse\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\x03R\x02to\x12,\n" +
@@ -4082,17 +4242,28 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"topActions\x123\n" +
 	"\x16last_usage_snapshot_at\x18\t \x01(\x03R\x13lastUsageSnapshotAt\x12E\n" +
 	"\x1fusage_snapshot_interval_seconds\x18\n" +
-	" \x01(\x03R\x1cusageSnapshotIntervalSeconds\"\x8e\x01\n" +
+	" \x01(\x03R\x1cusageSnapshotIntervalSeconds\x12,\n" +
+	"\x12memory_usage_bytes\x18\v \x01(\x03R\x10memoryUsageBytes\x12\x1f\n" +
+	"\vcpu_percent\x18\f \x01(\x01R\n" +
+	"cpuPercent\x12'\n" +
+	"\x0fresources_total\x18\r \x01(\x03R\x0eresourcesTotal\x12)\n" +
+	"\x10containers_total\x18\x0e \x01(\x03R\x0fcontainersTotal\x12-\n" +
+	"\x12containers_running\x18\x0f \x01(\x03R\x11containersRunning\x12#\n" +
+	"\rvolumes_total\x18\x10 \x01(\x03R\fvolumesTotal\x12!\n" +
+	"\fimages_total\x18\x11 \x01(\x03R\vimagesTotal\x12!\n" +
+	"\fbuilds_total\x18\x12 \x01(\x03R\vbuildsTotal\x12%\n" +
+	"\x0eprojects_total\x18\x13 \x01(\x03R\rprojectsTotal\"\x8e\x01\n" +
 	"\x1dRefreshUsageSnapshotsResponse\x12!\n" +
 	"\fbucket_start\x18\x01 \x01(\x03R\vbucketStart\x12!\n" +
 	"\fcollected_at\x18\x02 \x01(\x03R\vcollectedAt\x12'\n" +
-	"\x0fsnapshots_count\x18\x03 \x01(\x05R\x0esnapshotsCount\"~\n" +
+	"\x0fsnapshots_count\x18\x03 \x01(\x05R\x0esnapshotsCount\"\x96\x01\n" +
 	"\x1aListUserUsageReportRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +
 	"\x02to\x18\x02 \x01(\x03R\x02to\x12\x12\n" +
 	"\x04sort\x18\x03 \x01(\tR\x04sort\x12\x12\n" +
 	"\x04page\x18\x04 \x01(\x05R\x04page\x12\x14\n" +
-	"\x05limit\x18\x05 \x01(\x05R\x05limit\"\xc6\x03\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06search\x18\x06 \x01(\tR\x06search\"\xbe\x04\n" +
 	"\x13UserUsageReportData\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12%\n" +
 	"\x0eowner_username\x18\x02 \x01(\tR\rownerUsername\x122\n" +
@@ -4105,7 +4276,11 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"\fbuilds_total\x18\t \x01(\x05R\vbuildsTotal\x12%\n" +
 	"\x0eprojects_total\x18\n" +
 	" \x01(\x05R\rprojectsTotal\x12#\n" +
-	"\ractions_total\x18\v \x01(\x03R\factionsTotal\"t\n" +
+	"\ractions_total\x18\v \x01(\x03R\factionsTotal\x12,\n" +
+	"\x12memory_usage_bytes\x18\f \x01(\x03R\x10memoryUsageBytes\x12\x1f\n" +
+	"\vcpu_percent\x18\r \x01(\x01R\n" +
+	"cpuPercent\x12'\n" +
+	"\x0fresources_total\x18\x0e \x01(\x05R\x0eresourcesTotal\"t\n" +
 	" PaginatedUserUsageReportResponse\x12/\n" +
 	"\x05users\x18\x01 \x03(\v2\x19.core.UserUsageReportDataR\x05users\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
@@ -4113,14 +4288,23 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"\x1bGetUserUsageTimelineRequest\x12\x19\n" +
 	"\bowner_id\x18\x01 \x01(\tR\aownerId\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\x03R\x04from\x12\x0e\n" +
-	"\x02to\x18\x03 \x01(\x03R\x02to\"\x94\x02\n" +
+	"\x02to\x18\x03 \x01(\x03R\x02to\"\x9e\x04\n" +
 	"\x12UserUsagePointData\x12!\n" +
 	"\fbucket_start\x18\x01 \x01(\x03R\vbucketStart\x122\n" +
 	"\x15reserved_memory_bytes\x18\x02 \x01(\x03R\x13reservedMemoryBytes\x12(\n" +
 	"\x10total_disk_bytes\x18\x03 \x01(\x03R\x0etotalDiskBytes\x12)\n" +
 	"\x10containers_total\x18\x04 \x01(\x05R\x0fcontainersTotal\x12-\n" +
 	"\x12containers_running\x18\x05 \x01(\x05R\x11containersRunning\x12#\n" +
-	"\ractions_total\x18\x06 \x01(\x03R\factionsTotal\"M\n" +
+	"\ractions_total\x18\x06 \x01(\x03R\factionsTotal\x12,\n" +
+	"\x12memory_usage_bytes\x18\a \x01(\x03R\x10memoryUsageBytes\x12\x1f\n" +
+	"\vcpu_percent\x18\b \x01(\x01R\n" +
+	"cpuPercent\x12#\n" +
+	"\rvolumes_total\x18\t \x01(\x05R\fvolumesTotal\x12!\n" +
+	"\fimages_total\x18\n" +
+	" \x01(\x05R\vimagesTotal\x12!\n" +
+	"\fbuilds_total\x18\v \x01(\x05R\vbuildsTotal\x12%\n" +
+	"\x0eprojects_total\x18\f \x01(\x05R\rprojectsTotal\x12'\n" +
+	"\x0fresources_total\x18\r \x01(\x05R\x0eresourcesTotal\"M\n" +
 	"\x19UserUsageTimelineResponse\x120\n" +
 	"\x06points\x18\x01 \x03(\v2\x18.core.UserUsagePointDataR\x06points\"\xf9\x01\n" +
 	"\x16ListAuditEventsRequest\x12\x12\n" +
