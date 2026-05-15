@@ -11,7 +11,8 @@ packages:
       all: true
       dir: tests/mocks/core/service
       outpkg: coremocks
-      mockname: "{{.InterfaceName}}"
+      mockname: "{{.InterfaceName | camelcase}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/internal/core/http:
     config:
       all: true
@@ -22,3 +23,14 @@ packages:
       all: true
       dir: tests/mocks/core/grpc
       outpkg: coregrpcmocks
+  github.com/callmerussell04/docker-cloud-manager/internal/sso/service:
+    config:
+      all: true
+      dir: tests/mocks/sso/service
+      outpkg: ssomocks
+      mockname: "{{.InterfaceName}}"
+  github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc:
+    config:
+      all: true
+      dir: tests/mocks/sso/grpc
+      outpkg: ssogrpcmocks

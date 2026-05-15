@@ -22,9 +22,30 @@ func OpenCorePostgres(t *testing.T) *sql.DB {
 	if dsn == "" {
 		t.Skip("CORE_TEST_DATABASE_URL is not set")
 	}
-	requireSafeDatabase(t, dsn)
+	requireSafeDatabase(t, dsn, "CORE_TEST_DATABASE_URL", "CORE_TEST_DATABASE_ALLOW_UNSAFE")
 
-	schema := "core_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	db := openPostgresSchema(t, dsn, "core_test_")
+	applyMigrations(t, db, "core")
+	return db
+}
+
+func OpenSSOPostgres(t *testing.T) *sql.DB {
+	t.Helper()
+
+	dsn := os.Getenv("SSO_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("SSO_TEST_DATABASE_URL is not set")
+	}
+	requireSafeDatabase(t, dsn, "SSO_TEST_DATABASE_URL", "SSO_TEST_DATABASE_ALLOW_UNSAFE")
+
+	db := openPostgresSchema(t, dsn, "sso_test_")
+	applyMigrations(t, db, "sso")
+	return db
+}
+
+func openPostgresSchema(t *testing.T, dsn, prefix string) *sql.DB {
+	t.Helper()
+	schema := prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 
 	adminDB, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -46,23 +67,22 @@ func OpenCorePostgres(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	applyCoreMigrations(t, db)
 	return db
 }
 
-func applyCoreMigrations(t *testing.T, db *sql.DB) {
+func applyMigrations(t *testing.T, db *sql.DB, name string) {
 	t.Helper()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve dbtest path")
 	}
 	backendRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFile), "..", "..", ".."))
-	files, err := filepath.Glob(filepath.Join(backendRoot, "migrations", "core", "*.up.sql"))
+	files, err := filepath.Glob(filepath.Join(backendRoot, "migrations", name, "*.up.sql"))
 	if err != nil {
 		t.Fatalf("glob migrations: %v", err)
 	}
 	if len(files) == 0 {
-		t.Fatal("no core migrations found")
+		t.Fatalf("no %s migrations found", name)
 	}
 	for _, file := range files {
 		data, err := os.ReadFile(file)
@@ -81,18 +101,18 @@ func applyCoreMigrations(t *testing.T, db *sql.DB) {
 	}
 }
 
-func requireSafeDatabase(t *testing.T, dsn string) {
+func requireSafeDatabase(t *testing.T, dsn, envName, allowEnvName string) {
 	t.Helper()
-	if os.Getenv("CORE_TEST_DATABASE_ALLOW_UNSAFE") == "1" {
+	if os.Getenv(allowEnvName) == "1" {
 		return
 	}
 	u, err := url.Parse(dsn)
 	if err != nil {
-		t.Fatalf("parse CORE_TEST_DATABASE_URL: %v", err)
+		t.Fatalf("parse %s: %v", envName, err)
 	}
 	dbName := strings.TrimPrefix(u.Path, "/")
 	if !strings.Contains(strings.ToLower(dbName), "test") {
-		t.Fatalf("refusing to run repository tests against database %q; use a test database or set CORE_TEST_DATABASE_ALLOW_UNSAFE=1", dbName)
+		t.Fatalf("refusing to run repository tests against database %q; use a test database or set %s=1", dbName, allowEnvName)
 	}
 }
 
