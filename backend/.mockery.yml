@@ -7,9 +7,15 @@ issue-845-fix: true
 packages:
   github.com/callmerussell04/docker-cloud-manager/internal/core/service:
     config:
-      recursive: true
       all: true
       dir: tests/mocks/core/service
+      outpkg: coremocks
+      mockname: "{{.InterfaceName | camelcase}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose:
+    config:
+      all: true
+      dir: tests/mocks/core/service/compose
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
@@ -34,3 +40,20 @@ packages:
       all: true
       dir: tests/mocks/sso/grpc
       outpkg: ssogrpcmocks
+  github.com/callmerussell04/docker-cloud-manager/internal/gateway/service:
+    config:
+      all: true
+      dir: tests/mocks/gateway/service
+      outpkg: gatewayservicemocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler:
+    config:
+      all: true
+      dir: tests/mocks/gateway/http/handler
+      outpkg: gatewayhandlermocks
+  github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware:
+    config:
+      all: true
+      dir: tests/mocks/gateway/http/middleware
+      outpkg: gatewaymiddlewaremocks
