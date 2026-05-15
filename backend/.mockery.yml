@@ -57,3 +57,17 @@ packages:
       all: true
       dir: tests/mocks/gateway/http/middleware
       outpkg: gatewaymiddlewaremocks
+  github.com/callmerussell04/docker-cloud-manager/internal/builder/service:
+    config:
+      all: true
+      dir: tests/mocks/builder/service
+      outpkg: builderservicemocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/builder/config:
+    config:
+      all: true
+      dir: tests/mocks/builder/config
+      outpkg: builderconfigmocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
