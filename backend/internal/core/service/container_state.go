@@ -2,11 +2,15 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
@@ -100,6 +104,45 @@ func (s *ContainerService) createContainerOperationAndSetDesired(ctx context.Con
 	}
 	if err := stateRepo.CreateOperationAndSetDesired(ctx, containerID, desiredStatus, op); err != nil {
 		s.logger.WarnContext(ctx, "failed to create resource operation and set desired container status", "container_id", containerID, "operation", operation, "desired_status", desiredStatus, "error", err)
+		return err
+	}
+	return nil
+}
+
+func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.Container, operation, busyStatus, desiredStatus string, msg containerqueue.LifecycleMessage) error {
+	queueRepo, ok := s.repo.(containerLifecycleQueueRepository)
+	if !ok {
+		return apperrors.New(apperrors.ErrUnavailable, "container lifecycle queue repository is unavailable")
+	}
+	op := model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   c.ID,
+		OwnerID:      c.OwnerID,
+		Operation:    operation,
+		Status:       model.OperationStatusPending,
+	}
+	msg.OperationID = op.ID.String()
+	msg.ContainerID = c.ID.String()
+	msg.OwnerID = c.OwnerID.String()
+	msg.Operation = operation
+	msg.RequestID = logging.RequestIDFromContext(ctx)
+	msg.CreatedAt = time.Now().Unix()
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal container lifecycle message: %w", err)
+	}
+	outbox := model.ContainerLifecycleOutbox{
+		ID:          uuid.New(),
+		OperationID: op.ID,
+		ContainerID: c.ID,
+		Exchange:    containerqueue.ExchangeName,
+		RoutingKey:  containerqueue.RoutingKey,
+		Payload:     payload,
+		Status:      model.ContainerOutboxStatusPending,
+	}
+	if err := queueRepo.QueueContainerOperation(ctx, c.ID, busyStatus, desiredStatus, op, outbox); err != nil {
+		s.logger.WarnContext(ctx, "failed to queue container lifecycle operation", "container_id", c.ID, "operation", operation, "status", busyStatus, "desired_status", desiredStatus, "error", err)
 		return err
 	}
 	return nil

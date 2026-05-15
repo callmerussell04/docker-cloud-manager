@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -47,6 +46,10 @@ type containerStateRepository interface {
 	CreateOperation(ctx context.Context, op model.ResourceOperation) error
 	CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error
 	CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error
+}
+
+type containerLifecycleQueueRepository interface {
+	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
 }
 
 type containerLockRepository interface {
@@ -342,6 +345,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		OperationID: op.ID.String(),
 		ContainerID: containerID.String(),
 		OwnerID:     ownerID.String(),
+		Operation:   model.OperationCreate,
 		RequestID:   logging.RequestIDFromContext(ctx),
 		CreatedAt:   time.Now().Unix(),
 	}
@@ -389,7 +393,6 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	defer func() {
 		s.recordExposeAudit(ctx, c, domainPrefix, internalPort, err)
 	}()
-	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -423,130 +426,18 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 		}
 	}
 
-	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
-	if err != nil {
-		if isDockerNotFound(err) {
-			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-			return resourceUnavailableError("container")
-		}
-		return err
-	}
-
-	var envList []string
-	envList = append(envList, inspect.Env...)
-
-	var dockerMounts []model.ContainerMountSpec
-	for _, m := range inspect.Mounts {
-		dockerMounts = append(dockerMounts, m)
-	}
-
-	networkName := userNetworkName(ownerID)
-	cfg := s.config.Get()
-	fullDomain := fmt.Sprintf("%s.%s", domainPrefix, cfg.BaseDomain)
-	nextGeneration := c.DockerGeneration + 1
-	if nextGeneration <= 1 {
-		nextGeneration = 2
-	}
-
-	networkAlias := c.NetworkAlias
-	if networkAlias == "" {
-		networkAlias = c.Name
-	}
-
-	dockerParams := model.ContainerRuntimeSpec{
-		ContainerID:          containerID.String(),
-		OwnerID:              ownerID.String(),
-		Generation:           nextGeneration,
-		ContainerName:        fmt.Sprintf("%s_g%d", strings.TrimPrefix(inspect.Name, "/"), nextGeneration),
-		NetworkAlias:         networkAlias,
-		ImageName:            inspect.Image,
-		NetworkName:          networkName,
-		Domain:               fullDomain,
-		InternalPort:         internalPort,
-		EnvVars:              envList,
-		MemoryLimitBytes:     inspect.MemoryLimitBytes,
-		MemoryReservation:    inspect.MemoryReservation,
-		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
-		CPUShares:            inspect.CPUShares,
-		PidsLimit:            cfg.ContainerPidsLimit,
-		ProxyNetworkName:     cfg.ProxyNetworkName,
-		VolumeMounts:         dockerMounts,
-		MaxLogSize:           cfg.MaxLogSize,
-		MaxLogFiles:          cfg.MaxLogFiles,
-		StorageQuota:         cfg.ContainerDiskQuota,
-		Command:              inspect.Command,
-		Entrypoint:           inspect.Entrypoint,
-		Restart:              inspect.Restart,
-		Healthcheck:          inspect.Healthcheck,
-	}
-	if c.ProjectID != nil {
-		dockerParams.ProjectID = c.ProjectID.String()
-	}
-
-	if err := s.createContainerOperation(ctx, containerID, ownerID, model.OperationExpose); err != nil {
-		return err
-	}
 	if err := s.checkHostDiskCapacity(); err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
 		return err
 	}
-
-	// Создаем новый контейнер с лейблами Traefik до удаления старого.
-	newDockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
-	if err != nil {
-		err = normalizeContainerRuntimeError(err)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return err
+	desiredStatus := c.DesiredStatus
+	if desiredStatus == "" || desiredStatus == model.ContainerStatusExposing {
+		desiredStatus = c.Status
 	}
-	newStarted := false
-	defer func() {
-		if err != nil {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			_ = s.dockerAPI.RemoveContainer(cleanupCtx, newDockerID, true)
-			cancel()
-		}
-	}()
-
-	if c.Status == model.ContainerStatusRunning {
-		if err = s.dockerAPI.StartContainer(ctx, newDockerID); err != nil {
-			err = normalizeContainerRuntimeError(err)
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return err
-		}
-		newStarted = true
-	}
-
-	// Обновляем DockerID, домен и порт в базе данных
-	if exposeRepo, ok := s.repo.(containerExposeRepository); ok {
-		err = exposeRepo.UpdateDockerIDRoutingAndGeneration(ctx, containerID, newDockerID, domainPrefix, internalPort, nextGeneration)
-	} else {
-		err = s.repo.UpdateDockerID(ctx, containerID, newDockerID)
-		if err == nil {
-			err = s.repo.UpdateRouting(ctx, containerID, domainPrefix, internalPort)
-		}
-	}
-	if err != nil {
-		if newStarted {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			_ = s.dockerAPI.StopContainer(cleanupCtx, newDockerID, s.config.Get().ContainerStopTimeout)
-			cancel()
-		}
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		s.completeContainerOperation(cleanupCtx, containerID, model.OperationStatusFailed, err)
-		cancel()
-		return err
-	}
-
-	if c.DockerID != "" {
-		if removeErr := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); removeErr != nil && !isDockerNotFound(removeErr) {
-			removeErr = normalizeContainerRuntimeError(removeErr)
-			s.logger.WarnContext(ctx, "failed to remove old exposed container generation", "container_id", containerID, "docker_id", c.DockerID, "error", removeErr)
-		}
-	}
-
-	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-	err = nil
-	return nil
+	return s.queueContainerOperation(ctx, c, model.OperationExpose, model.ContainerStatusExposing, desiredStatus, containerqueue.LifecycleMessage{
+		DomainPrefix:   domainPrefix,
+		InternalPort:   internalPort,
+		PreviousStatus: c.Status,
+	})
 }
 
 func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Container, domainPrefix string, internalPort int, opErr error) {
@@ -620,7 +511,6 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -628,6 +518,7 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
 		return resourceUnavailableError("container")
 	}
+	ownerID := c.OwnerID
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {
@@ -653,35 +544,10 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := s.checkHostDiskCapacity(); err != nil {
 		return err
 	}
-	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationStart, model.ContainerStatusRunning); err != nil {
-		return err
-	}
 	releaseLock()
-
-	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
-		if isDockerNotFound(err) {
-			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return resourceUnavailableError("container")
-		}
-		err = normalizeContainerRuntimeError(err)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return err
-	}
-
-	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning)
-
-	// Вызываем ребалансировку в фоне
-	if err == nil {
-		s.logger.InfoContext(ctx, "container started", "container_id", containerID, "owner_id", ownerID)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-		s.RequestRebalance()
-		s.refreshProjectStatus(ctx, c.ProjectID)
-	} else {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-	}
-
-	return err
+	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, containerqueue.LifecycleMessage{
+		PreviousStatus: c.Status,
+	})
 }
 
 func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) error {
@@ -692,7 +558,6 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	ownerID := c.OwnerID
 	if c.Status == model.ContainerStatusMissing {
 		return resourceUnavailableError("container")
 	}
@@ -700,34 +565,9 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
 		return resourceUnavailableError("container")
 	}
-	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationStop, model.ContainerStatusExited); err != nil {
-		return err
-	}
-
-	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
-		if !isDockerNotFound(err) {
-			err = normalizeContainerRuntimeError(err)
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return err
-		}
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return resourceUnavailableError("container")
-	}
-
-	err = s.repo.UpdateStatus(ctx, containerID, model.ContainerStatusExited)
-
-	// Кто-то остановился -> освободились ресурсы -> ребалансируем остальных!
-	if err == nil {
-		s.logger.InfoContext(ctx, "container stopped", "container_id", containerID, "owner_id", ownerID)
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-		s.RequestRebalance()
-		s.refreshProjectStatus(ctx, c.ProjectID)
-	} else {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-	}
-
-	return err
+	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, containerqueue.LifecycleMessage{
+		PreviousStatus: c.Status,
+	})
 }
 
 func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) error {
@@ -753,31 +593,9 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 			return nil
 		}
 	}
-	if err := s.createContainerOperationAndSetDesired(ctx, containerID, ownerID, model.OperationDelete, model.ContainerStatusDeleting); err != nil {
-		return err
-	}
-
-	if c.DockerID != "" {
-		err = s.dockerAPI.RemoveContainer(ctx, c.DockerID, true)
-		if err != nil && !isDockerNotFound(err) {
-			err = normalizeContainerRuntimeError(err)
-			s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-			return err
-		}
-	}
-
-	err = s.repo.Delete(ctx, containerID)
-	if err != nil {
-		s.completeContainerOperation(ctx, containerID, model.OperationStatusFailed, err)
-		return err
-	}
-	s.completeContainerOperation(ctx, containerID, model.OperationStatusDone, nil)
-
-	s.cleanupUserNetworkIfUnused(ctx, ownerID)
-	s.refreshProjectStatus(ctx, c.ProjectID)
-
-	s.logger.InfoContext(ctx, "container deleted", "container_id", containerID, "owner_id", ownerID)
-	return nil
+	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, containerqueue.LifecycleMessage{
+		PreviousStatus: c.Status,
+	})
 }
 
 func (s *ContainerService) CleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) error {

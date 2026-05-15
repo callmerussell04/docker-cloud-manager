@@ -565,17 +565,20 @@ func (r *ContainerRepository) GetNonExited(ctx context.Context) ([]model.Contain
 	query := `
 		SELECT id, project_id, docker_id, status, desired_status, last_exit_code
 		FROM containers
-		WHERE status != $6 AND (
-			status IN ($1, $2, $3, $4, $5, $7)
-			OR desired_status IN ($2, $3, $4)
+		WHERE status != $9 AND (
+			status IN ($1, $2, $3, $4, $5, $6, $7, $8, $10)
+			OR desired_status IN ($2, $4, $6)
 		)
 	`
 	rows, err := r.db.QueryContext(ctx, query,
 		model.ContainerStatusCreating,
 		model.ContainerStatusCreated,
+		model.ContainerStatusStarting,
 		model.ContainerStatusRunning,
+		model.ContainerStatusStopping,
 		model.ContainerStatusDeleting,
 		model.ContainerStatusReconciling,
+		model.ContainerStatusExposing,
 		model.ContainerStatusMissing,
 		model.ContainerStatusPending,
 	)
@@ -917,9 +920,9 @@ func (r *ContainerRepository) FailActiveNonCreateOperations(ctx context.Context,
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE resource_operations
 		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE status IN ($3, $4)
-			AND NOT (resource_type = $5 AND operation = $6)
-	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusPending, model.OperationStatusRunning, model.ResourceTypeContainer, model.OperationCreate)
+		WHERE status = $3
+			AND NOT (resource_type = $4 AND operation = $5)
+	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning, model.ResourceTypeContainer, model.OperationCreate)
 	if err != nil {
 		return 0, err
 	}
@@ -1149,6 +1152,38 @@ func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, 
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
+	}
+	return tx.Commit()
+}
+
+func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
+		return err
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE containers
+		SET status = $1, desired_status = $2, last_error = NULL, last_observed_at = NOW()
+		WHERE id = $3
+	`, status, desiredStatus, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	if err := insertContainerLifecycleOutboxTx(ctx, tx, outbox); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

@@ -13,58 +13,32 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestProjectServiceDeleteDelegatesNetworkCleanup(t *testing.T) {
+func TestProjectServiceDeleteQueuesLifecycleRequest(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	containerID := uuid.New()
 	repo := coremocks.NewProjectRepository(t)
-	resources := coremocks.NewProjectResourceRepository(t)
-	containers := newProjectContainerMock(t)
+	containers := coremocks.NewProjectContainerLifecycle(t)
 	volumes := coremocks.NewProjectVolumeLifecycle(t)
-	svc := NewProjectService(repo, resources, coremocks.NewProjectDockerAPI(t), containers, volumes, staticConfig{})
-	var cleaned []uuid.UUID
+	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), coremocks.NewProjectDockerAPI(t), containers, volumes, staticConfig{})
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusDeleting, mock.Anything).Return(nil)
-	resources.EXPECT().GetByProjectID(mock.Anything, projectID).Return([]model.Container{{ID: containerID, OwnerID: ownerID, ProjectID: &projectID, DockerID: "docker-project"}}, nil)
-	containers.ProjectContainerLifecycle.EXPECT().Delete(mock.Anything, containerID).Return(nil)
-	resources.EXPECT().GetVolumesByProjectID(mock.Anything, projectID).Return([]model.Volume(nil), nil)
-	repo.EXPECT().Delete(mock.Anything, projectID).Return(nil)
-	containers.ProjectNetworkCleaner.EXPECT().CleanupUserNetworkIfUnused(mock.Anything, ownerID).Run(func(ctx context.Context, gotOwnerID uuid.UUID) {
-		cleaned = append(cleaned, gotOwnerID)
-	}).Return(nil)
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
-	require.Equal(t, []uuid.UUID{ownerID}, cleaned)
 }
 
-func TestProjectServiceDeleteDelegatesNetworkCleanupEvenWhenContainersRemain(t *testing.T) {
+func TestProjectServiceDeleteQueuesLifecycleRequestForProjectsWithContainers(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	otherProjectID := uuid.New()
-	projectContainerID := uuid.New()
 	repo := coremocks.NewProjectRepository(t)
-	resources := coremocks.NewProjectResourceRepository(t)
-	containers := newProjectContainerMock(t)
+	containers := coremocks.NewProjectContainerLifecycle(t)
 	volumes := coremocks.NewProjectVolumeLifecycle(t)
-	svc := NewProjectService(repo, resources, coremocks.NewProjectDockerAPI(t), containers, volumes, staticConfig{})
-	var cleanupCount int
+	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), coremocks.NewProjectDockerAPI(t), containers, volumes, staticConfig{})
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusDeleting, mock.Anything).Return(nil)
-	_ = otherProjectID
-	resources.EXPECT().GetByProjectID(mock.Anything, projectID).Return([]model.Container{
-		{ID: projectContainerID, OwnerID: ownerID, ProjectID: &projectID, DockerID: "docker-project"},
-	}, nil)
-	containers.ProjectContainerLifecycle.EXPECT().Delete(mock.Anything, projectContainerID).Return(nil)
-	resources.EXPECT().GetVolumesByProjectID(mock.Anything, projectID).Return([]model.Volume(nil), nil)
-	repo.EXPECT().Delete(mock.Anything, projectID).Return(nil)
-	containers.ProjectNetworkCleaner.EXPECT().CleanupUserNetworkIfUnused(mock.Anything, ownerID).Run(func(ctx context.Context, gotOwnerID uuid.UUID) {
-		cleanupCount++
-	}).Return(nil)
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
-	require.Equal(t, 1, cleanupCount)
 }
 
 func TestProjectServiceCancelDelegatesDeploymentCanceler(t *testing.T) {
@@ -85,88 +59,44 @@ func TestProjectServiceCancelDelegatesDeploymentCanceler(t *testing.T) {
 	require.Equal(t, projectID, canceled)
 }
 
-func TestProjectServiceStartFailsWhenRequiredDependencyFails(t *testing.T) {
+func TestProjectServiceStartQueuesLifecycleRequest(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	dbID := uuid.New()
-	webID := uuid.New()
 	repo := coremocks.NewProjectRepository(t)
-	dockerAPI := coremocks.NewProjectDockerAPI(t)
 	containers := coremocks.NewProjectContainerLifecycle(t)
-	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), dockerAPI, containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
+	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), coremocks.NewProjectDockerAPI(t), containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
-	repo.EXPECT().GetServiceGraph(mock.Anything, projectID).Return(dependencyGraph(projectID, dbID, webID, false), nil)
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, mock.Anything).Return(nil)
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker", Status: model.ContainerStatusCreated}, nil).Once()
-	containers.EXPECT().Start(mock.Anything, dbID).Return(nil).Once()
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker"}, nil).Once()
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "db-docker").Return(model.ContainerInspection{}, nil)
-	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusFailed, mock.Anything).Return(nil)
-
-	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "dependency db failed condition service_healthy")
-	containers.AssertNotCalled(t, "Start", mock.Anything, webID)
-}
-
-func TestProjectServiceStartContinuesWhenOptionalDependencyFails(t *testing.T) {
-	ownerID := uuid.New()
-	projectID := uuid.New()
-	dbID := uuid.New()
-	webID := uuid.New()
-	repo := coremocks.NewProjectRepository(t)
-	dockerAPI := coremocks.NewProjectDockerAPI(t)
-	containers := coremocks.NewProjectContainerLifecycle(t)
-	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), dockerAPI, containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
-	var started []uuid.UUID
-
-	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
-	repo.EXPECT().GetServiceGraph(mock.Anything, projectID).Return(dependencyGraph(projectID, dbID, webID, true), nil)
-	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, mock.Anything).Return(nil)
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker"}, nil)
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "db-docker").Return(model.ContainerInspection{}, nil)
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker", Status: model.ContainerStatusCreated}, nil)
-	containers.EXPECT().Start(mock.Anything, dbID).Run(func(ctx context.Context, id uuid.UUID) { started = append(started, id) }).Return(nil)
-	containers.EXPECT().GetByID(mock.Anything, webID).Return(model.Container{ID: webID, DockerID: "web-docker", Status: model.ContainerStatusCreated}, nil)
-	containers.EXPECT().Start(mock.Anything, webID).Run(func(ctx context.Context, id uuid.UUID) { started = append(started, id) }).Return(nil)
-	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusRunning, mock.Anything).Return(nil)
 
 	require.NoError(t, svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
-	require.Contains(t, started, webID)
 }
 
-func TestProjectServiceStartTreatsZeroValueDependencyAsRequired(t *testing.T) {
+func TestProjectServiceStopQueuesLifecycleRequest(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	dbID := uuid.New()
-	webID := uuid.New()
 	repo := coremocks.NewProjectRepository(t)
-	dockerAPI := coremocks.NewProjectDockerAPI(t)
 	containers := coremocks.NewProjectContainerLifecycle(t)
-	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), dockerAPI, containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
+	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), coremocks.NewProjectDockerAPI(t), containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
-	repo.EXPECT().GetServiceGraph(mock.Anything, projectID).Return([]model.ProjectServiceNode{
-		{ProjectID: projectID, ContainerID: dbID, ServiceName: "db", StartOrder: 0},
-		{ProjectID: projectID, ContainerID: webID, ServiceName: "web", StartOrder: 1, Dependencies: []model.ProjectServiceDependency{{
-			ProjectID:            projectID,
-			ContainerID:          webID,
-			DependsOnContainerID: dbID,
-			DependsOnServiceName: "db",
-			Condition:            model.ComposeDependencyConditionHealthy,
-		}}},
-	}, nil)
-	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, mock.Anything).Return(nil)
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker", Status: model.ContainerStatusCreated}, nil).Once()
-	containers.EXPECT().Start(mock.Anything, dbID).Return(nil).Once()
-	containers.EXPECT().GetByID(mock.Anything, dbID).Return(model.Container{ID: dbID, DockerID: "db-docker"}, nil).Once()
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "db-docker").Return(model.ContainerInspection{}, nil)
-	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusFailed, mock.Anything).Return(nil)
+	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStopping, mock.Anything).Return(nil)
+
+	require.NoError(t, svc.Stop(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
+}
+
+func TestProjectServiceStartRejectsBusyProject(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	repo := coremocks.NewProjectRepository(t)
+	containers := coremocks.NewProjectContainerLifecycle(t)
+	svc := NewProjectService(repo, coremocks.NewProjectResourceRepository(t), coremocks.NewProjectDockerAPI(t), containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
+
+	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID, Status: model.ProjectStatusDeploying}, nil)
 
 	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
 	require.Error(t, err)
-	containers.AssertNotCalled(t, "Start", mock.Anything, webID)
+	require.Contains(t, err.Error(), "project operation is already in progress")
 }
 
 type projectContainerMock struct {

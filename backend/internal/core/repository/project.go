@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 type ProjectRepository struct {
@@ -732,6 +733,32 @@ func (r *ProjectRepository) List(ctx context.Context, opts model.ListOptions) ([
 		projects = append(projects, p)
 	}
 	return projects, total, rows.Err()
+}
+
+func (r *ProjectRepository) ListByStatuses(ctx context.Context, statuses []string, limit int) ([]model.Project, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, owner_id, name, status, error_message, created_at
+		FROM projects
+		WHERE status = ANY($1)
+		ORDER BY created_at
+		LIMIT $2
+	`, pq.Array(statuses), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projects []model.Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
 }
 
 func (r *ProjectRepository) CountAll(ctx context.Context) (int, error) {

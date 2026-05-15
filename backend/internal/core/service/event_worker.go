@@ -241,6 +241,16 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 	changed := false
 
 	for _, c := range containers {
+		if containerStatusHasActiveLifecycle(c.Status) {
+			active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+			if err != nil {
+				w.logger.WarnContext(ctx, "failed to check active container operation", "container_id", c.ID, "error", err)
+				continue
+			}
+			if active {
+				continue
+			}
+		}
 		if c.DockerID == "" {
 			if c.Status == model.ContainerStatusError {
 				continue
@@ -286,6 +296,21 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 
 	if changed {
 		w.rebalancer.RequestRebalance()
+	}
+}
+
+func containerStatusHasActiveLifecycle(status string) bool {
+	switch status {
+	case model.ContainerStatusPending,
+		model.ContainerStatusCreating,
+		model.ContainerStatusStarting,
+		model.ContainerStatusStopping,
+		model.ContainerStatusExposing,
+		model.ContainerStatusDeleting,
+		model.ContainerStatusReconciling:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -214,6 +214,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		composeOutboxWorker.Run,
 		containerOutboxWorker.Run,
 		composeCoordinator.Run,
+		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,
 	)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)

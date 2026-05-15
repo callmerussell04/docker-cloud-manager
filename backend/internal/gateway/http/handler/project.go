@@ -47,7 +47,7 @@ func (h *CoreHandler) listProjects(c *gin.Context, mapItems func([]model.Project
 }
 
 func (h *CoreHandler) DeleteProject(c *gin.Context) {
-	h.deleteProject(c, "project deleted")
+	h.deleteProject(c, "project delete requested")
 }
 
 func (h *CoreHandler) deleteProject(c *gin.Context, message string) {
@@ -70,15 +70,15 @@ func (h *CoreHandler) deleteProject(c *gin.Context, message string) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": message})
+	c.JSON(http.StatusAccepted, gin.H{"message": message})
 }
 
 func (h *CoreHandler) StartProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project started successfully")
+	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project start requested")
 }
 
 func (h *CoreHandler) StopProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stopped successfully")
+	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stop requested")
 }
 
 func (h *CoreHandler) CancelProject(c *gin.Context) {
@@ -105,19 +105,19 @@ func (h *CoreHandler) runProjectAction(c *gin.Context, action func(context.Conte
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": message})
+	c.JSON(http.StatusAccepted, gin.H{"message": message})
 }
 
 func (h *CoreHandler) AdminDeleteProject(c *gin.Context) {
-	h.deleteProject(c, "project deleted by admin")
+	h.deleteProject(c, "project delete requested by admin")
 }
 
 func (h *CoreHandler) AdminStartProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project started by admin")
+	h.runProjectAction(c, h.service.StartProject, auditlog.ActionProjectStart, "project start requested by admin")
 }
 
 func (h *CoreHandler) AdminStopProject(c *gin.Context) {
-	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stopped by admin")
+	h.runProjectAction(c, h.service.StopProject, auditlog.ActionProjectStop, "project stop requested by admin")
 }
 
 func (h *CoreHandler) AdminCancelProject(c *gin.Context) {

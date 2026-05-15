@@ -49,6 +49,7 @@ export function ContainerDetailsPage() {
       case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
       case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
       case 'stopping': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
+      case 'exposing': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
       case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
       case 'missing': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
       case 'reconciling': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;

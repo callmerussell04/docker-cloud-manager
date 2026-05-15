@@ -45,14 +45,14 @@ const adminTabMinWidths: Record<Tab, string> = {
 
 function statusVariant(status: string): BadgeVariant {
   if (['running', 'success', 'available', 'active'].includes(status)) return 'success';
-  if (['pending', 'creating', 'starting', 'reconciling', 'deploying', 'building'].includes(status)) return 'info';
+  if (['pending', 'creating', 'starting', 'exposing', 'reconciling', 'deploying', 'building'].includes(status)) return 'info';
   if (['stopping', 'deleting', 'canceling', 'canceled'].includes(status)) return 'warning';
   if (status === 'missing' || status === 'failed' || status.startsWith('failed') || status === 'error') return 'error';
   return 'default';
 }
 
 function isContainerActionBlocked(status: string) {
-  return ['creating', 'starting', 'stopping', 'deleting', 'missing', 'reconciling'].includes(status);
+  return ['creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
 }
 
 export function AllResourcesPage() {
@@ -236,7 +236,7 @@ export function AllResourcesPage() {
                         <Button
                           variant="danger"
                           className="h-8 px-2"
-                          disabled={actionContainerMut.isPending || c.status === 'deleting'}
+                          disabled={actionContainerMut.isPending || ['exposing', 'deleting'].includes(c.status)}
                           onClick={() => requestConfirm(t('containers.deleteConfirm', { name: c.name }), () => actionContainerMut.mutate({ id: c.id, action: 'delete' }))}
                         >
                           <Trash2 className="w-4 h-4"/>

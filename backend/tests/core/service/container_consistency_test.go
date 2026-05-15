@@ -3,7 +3,6 @@ package service_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -14,20 +13,18 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
-func TestContainerServiceExposeFailureKeepsOldContainer(t *testing.T) {
+func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
 	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
-	createErr := errors.New("create failed")
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -38,61 +35,48 @@ func TestContainerServiceExposeFailureKeepsOldContainer(t *testing.T) {
 		DockerGeneration: 1,
 	}, nil)
 	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(false, nil)
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "old-docker").Return(model.ContainerInspection{
-		Name:              "/usr_old",
-		Image:             "nginx:latest",
-		MemoryLimitBytes:  128,
-		MemoryReservation: 128,
-		CPUShares:         1024,
-		State:             model.ContainerState{Running: true},
-	}, nil)
-	dockerAPI.EXPECT().CreateContainer(mock.Anything, mock.AnythingOfType("model.ContainerRuntimeSpec")).Return("", createErr)
 
 	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID, "app", 8080)
-	require.ErrorIs(t, err, createErr)
-	dockerAPI.AssertNotCalled(t, "RemoveContainer", mock.Anything, "old-docker", true)
+	require.NoError(t, err)
+	require.Len(t, repo.queued, 1)
+	require.Equal(t, model.OperationExpose, repo.queued[0].op.Operation)
+	require.Equal(t, model.ContainerStatusExposing, repo.queued[0].status)
+	require.Contains(t, string(repo.queued[0].outbox.Payload), `"domain_prefix":"app"`)
+	dockerAPI.AssertNotCalled(t, "InspectContainer", mock.Anything, mock.Anything)
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
-func TestContainerServiceDeleteIgnoresMissingDockerContainer(t *testing.T) {
+func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, staticConfig{}, nil, "", slog.Default())
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"}, nil)
-	dockerAPI.EXPECT().RemoveContainer(mock.Anything, "missing-docker", true).Return(cerrdefs.ErrNotFound)
-	repo.EXPECT().Delete(mock.Anything, containerID).Return(nil)
-	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
-	dockerAPI.EXPECT().RemoveNetwork(mock.Anything, "net_user_"+ownerID.String()).Return(nil)
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID))
+	require.Len(t, repo.queued, 1)
+	require.Equal(t, model.OperationDelete, repo.queued[0].op.Operation)
+	require.Equal(t, model.ContainerStatusDeleting, repo.queued[0].status)
+	dockerAPI.AssertNotCalled(t, "RemoveContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestContainerServiceStopMarksMissingDockerContainerAndBlocksUse(t *testing.T) {
+func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerStateRepoMock(t)
+	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
-	var markedStatus string
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, staticConfig{}, nil, "", slog.Default())
 
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	repo.ContainerRepository.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker", Status: model.ContainerStatusRunning}, nil)
-	repo.ContainerStateRepository.EXPECT().CreateOperationAndSetDesired(mock.Anything, containerID, model.ContainerStatusExited, mock.AnythingOfType("model.ResourceOperation")).Return(nil)
-	dockerAPI.EXPECT().StopContainer(mock.Anything, "missing-docker", staticConfig{}.Get().ContainerStopTimeout).Return(cerrdefs.ErrNotFound)
-	repo.ContainerStateRepository.EXPECT().
-		MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).
-		Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
-			markedStatus = status
-		}).
-		Return(nil)
-	repo.ContainerStateRepository.EXPECT().CompleteLatestOperation(mock.Anything, model.ResourceTypeContainer, containerID, model.OperationStatusFailed, mock.Anything).Return(nil)
+	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning}, nil)
 
 	err := svc.Stop(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
-	require.Error(t, err)
-	require.Equal(t, model.ContainerStatusMissing, markedStatus)
+	require.NoError(t, err)
+	require.Len(t, repo.queued, 1)
+	require.Equal(t, model.OperationStop, repo.queued[0].op.Operation)
+	require.Equal(t, model.ContainerStatusStopping, repo.queued[0].status)
+	dockerAPI.AssertNotCalled(t, "StopContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
@@ -146,13 +130,12 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
 	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)
-	var createdParams model.ContainerRuntimeSpec
 	projectID := uuid.New()
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
@@ -169,23 +152,10 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 		DockerGeneration: 1,
 	}, nil)
 	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(false, nil)
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "old-docker").Return(model.ContainerInspection{
-		Name:              "/usr_old",
-		Image:             "nginx:latest",
-		MemoryLimitBytes:  128,
-		MemoryReservation: 128,
-		CPUShares:         1024,
-		State:             model.ContainerState{Running: false},
-	}, nil)
-	dockerAPI.EXPECT().CreateContainer(mock.Anything, mock.AnythingOfType("model.ContainerRuntimeSpec")).Run(func(ctx context.Context, params model.ContainerRuntimeSpec) {
-		createdParams = params
-	}).Return("new-docker", nil)
-	repo.EXPECT().UpdateDockerID(mock.Anything, containerID, "new-docker").Return(nil)
-	repo.EXPECT().UpdateRouting(mock.Anything, containerID, "app", 8080).Return(nil)
-	dockerAPI.EXPECT().RemoveContainer(mock.Anything, "old-docker", true).Return(nil)
 
 	require.NoError(t, svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "alice", ""), containerID, "app", 8080))
-	require.Equal(t, "api", createdParams.NetworkAlias)
+	require.Len(t, repo.queued, 1)
+	require.Contains(t, string(repo.queued[0].outbox.Payload), `"previous_status":"created"`)
 	require.Len(t, auditor.events, 1)
 	event := auditor.events[0]
 	require.Equal(t, auditlog.ActionContainerExpose, event.Action)
@@ -256,6 +226,33 @@ func newContainerStateRepoMock(t *testing.T) *containerStateRepoMock {
 		ContainerRepository:      coremocks.NewContainerRepository(t),
 		ContainerStateRepository: coremocks.NewContainerStateRepository(t),
 	}
+}
+
+type queuedContainerOperation struct {
+	status        string
+	desiredStatus string
+	op            model.ResourceOperation
+	outbox        model.ContainerLifecycleOutbox
+}
+
+type containerLifecycleRepoMock struct {
+	*coremocks.ContainerRepository
+	queued []queuedContainerOperation
+}
+
+func newContainerLifecycleRepoMock(t *testing.T) *containerLifecycleRepoMock {
+	t.Helper()
+	return &containerLifecycleRepoMock{ContainerRepository: coremocks.NewContainerRepository(t)}
+}
+
+func (r *containerLifecycleRepoMock) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
+	r.queued = append(r.queued, queuedContainerOperation{
+		status:        status,
+		desiredStatus: desiredStatus,
+		op:            op,
+		outbox:        outbox,
+	})
+	return nil
 }
 
 type containerCreateStateRepoMock struct {

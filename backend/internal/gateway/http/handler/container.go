@@ -82,13 +82,13 @@ func (h *CoreHandler) listContainers(c *gin.Context, mapItems func([]model.Conta
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {
 	h.runContainerAction(c, func(action string) string {
-		return action + " successful"
+		return action + " requested"
 	})
 }
 
 func (h *CoreHandler) AdminActionContainer(c *gin.Context) {
 	h.runContainerAction(c, func(action string) string {
-		return "admin action " + action + " successful"
+		return "admin action " + action + " requested"
 	})
 }
 
@@ -116,7 +116,7 @@ func (h *CoreHandler) runContainerAction(c *gin.Context, message func(string) st
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": message(action)})
+	c.JSON(http.StatusAccepted, gin.H{"message": message(action)})
 }
 
 func (h *CoreHandler) ExposeContainer(c *gin.Context) {
@@ -140,7 +140,7 @@ func (h *CoreHandler) ExposeContainer(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "container exposed on prefix: " + exposeContainerDTO.DomainPrefix})
+	c.JSON(http.StatusAccepted, gin.H{"message": "container expose requested for prefix: " + exposeContainerDTO.DomainPrefix})
 }
 
 func containerAuditAction(action string) string {
