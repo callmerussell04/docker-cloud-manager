@@ -46,15 +46,26 @@ type SystemConfig struct {
 	BuildOutboxIntervalSeconds           int64
 	BuildOutboxBatchSize                 int
 	ReportsUsageSnapshotIntervalSeconds  int64
+	ContainerCreateWorkerCount           int
+	ContainerCreateMaxAttempts           int
+	ContainerCreateTimeoutMinutes        int64
+	MaxQueuedContainerCreatesPerUser     int
+	ContainerCreateOutboxIntervalSeconds int64
+	ContainerCreateOutboxBatchSize       int
+	MaxStagedSourceBytesPerUser          int64
+	MaxQueuedBuildsPerUser               int
 	ComposeUploadMaxBytes                int64
 	ComposePipelineTimeoutMinutes        int64
 	ComposeDeployWorkerCount             int
 	ComposeOutboxIntervalSeconds         int64
 	ComposeOutboxBatchSize               int
 	ComposeDeployMaxAttempts             int
+	MaxQueuedComposeDeploysPerUser       int
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64
+	ComposeCoordinatorIntervalSeconds    int64
+	HostMinFreeDiskBytes                 int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string
 	GitCloneTimeoutSeconds               int64

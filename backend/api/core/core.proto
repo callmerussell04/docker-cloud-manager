@@ -515,6 +515,17 @@ message SystemConfigData {
   int32 compose_outbox_batch_size = 65;
   int32 compose_deploy_max_attempts = 66;
   int64 reports_usage_snapshot_interval_seconds = 67;
+  int32 container_create_worker_count = 68;
+  int32 container_create_max_attempts = 69;
+  int64 container_create_timeout_minutes = 70;
+  int32 max_queued_container_creates_per_user = 71;
+  int64 container_create_outbox_interval_seconds = 72;
+  int32 container_create_outbox_batch_size = 73;
+  int64 max_staged_source_bytes_per_user = 74;
+  int32 max_queued_builds_per_user = 75;
+  int32 max_queued_compose_deploys_per_user = 76;
+  int64 compose_coordinator_interval_seconds = 77;
+  int64 host_min_free_disk_bytes = 78;
 }
 
 message ContainerStatsResponse {

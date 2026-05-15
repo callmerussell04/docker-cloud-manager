@@ -3602,6 +3602,17 @@ type SystemConfigData struct {
 	ComposeOutboxBatchSize               int32                  `protobuf:"varint,65,opt,name=compose_outbox_batch_size,json=composeOutboxBatchSize,proto3" json:"compose_outbox_batch_size,omitempty"`
 	ComposeDeployMaxAttempts             int32                  `protobuf:"varint,66,opt,name=compose_deploy_max_attempts,json=composeDeployMaxAttempts,proto3" json:"compose_deploy_max_attempts,omitempty"`
 	ReportsUsageSnapshotIntervalSeconds  int64                  `protobuf:"varint,67,opt,name=reports_usage_snapshot_interval_seconds,json=reportsUsageSnapshotIntervalSeconds,proto3" json:"reports_usage_snapshot_interval_seconds,omitempty"`
+	ContainerCreateWorkerCount           int32                  `protobuf:"varint,68,opt,name=container_create_worker_count,json=containerCreateWorkerCount,proto3" json:"container_create_worker_count,omitempty"`
+	ContainerCreateMaxAttempts           int32                  `protobuf:"varint,69,opt,name=container_create_max_attempts,json=containerCreateMaxAttempts,proto3" json:"container_create_max_attempts,omitempty"`
+	ContainerCreateTimeoutMinutes        int64                  `protobuf:"varint,70,opt,name=container_create_timeout_minutes,json=containerCreateTimeoutMinutes,proto3" json:"container_create_timeout_minutes,omitempty"`
+	MaxQueuedContainerCreatesPerUser     int32                  `protobuf:"varint,71,opt,name=max_queued_container_creates_per_user,json=maxQueuedContainerCreatesPerUser,proto3" json:"max_queued_container_creates_per_user,omitempty"`
+	ContainerCreateOutboxIntervalSeconds int64                  `protobuf:"varint,72,opt,name=container_create_outbox_interval_seconds,json=containerCreateOutboxIntervalSeconds,proto3" json:"container_create_outbox_interval_seconds,omitempty"`
+	ContainerCreateOutboxBatchSize       int32                  `protobuf:"varint,73,opt,name=container_create_outbox_batch_size,json=containerCreateOutboxBatchSize,proto3" json:"container_create_outbox_batch_size,omitempty"`
+	MaxStagedSourceBytesPerUser          int64                  `protobuf:"varint,74,opt,name=max_staged_source_bytes_per_user,json=maxStagedSourceBytesPerUser,proto3" json:"max_staged_source_bytes_per_user,omitempty"`
+	MaxQueuedBuildsPerUser               int32                  `protobuf:"varint,75,opt,name=max_queued_builds_per_user,json=maxQueuedBuildsPerUser,proto3" json:"max_queued_builds_per_user,omitempty"`
+	MaxQueuedComposeDeploysPerUser       int32                  `protobuf:"varint,76,opt,name=max_queued_compose_deploys_per_user,json=maxQueuedComposeDeploysPerUser,proto3" json:"max_queued_compose_deploys_per_user,omitempty"`
+	ComposeCoordinatorIntervalSeconds    int64                  `protobuf:"varint,77,opt,name=compose_coordinator_interval_seconds,json=composeCoordinatorIntervalSeconds,proto3" json:"compose_coordinator_interval_seconds,omitempty"`
+	HostMinFreeDiskBytes                 int64                  `protobuf:"varint,78,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4105,6 +4116,83 @@ func (x *SystemConfigData) GetReportsUsageSnapshotIntervalSeconds() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetContainerCreateWorkerCount() int32 {
+	if x != nil {
+		return x.ContainerCreateWorkerCount
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerCreateMaxAttempts() int32 {
+	if x != nil {
+		return x.ContainerCreateMaxAttempts
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerCreateTimeoutMinutes() int64 {
+	if x != nil {
+		return x.ContainerCreateTimeoutMinutes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxQueuedContainerCreatesPerUser() int32 {
+	if x != nil {
+		return x.MaxQueuedContainerCreatesPerUser
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerCreateOutboxIntervalSeconds() int64 {
+	if x != nil {
+		return x.ContainerCreateOutboxIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerCreateOutboxBatchSize() int32 {
+	if x != nil {
+		return x.ContainerCreateOutboxBatchSize
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxStagedSourceBytesPerUser() int64 {
+	if x != nil {
+		return x.MaxStagedSourceBytesPerUser
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxQueuedBuildsPerUser() int32 {
+	if x != nil {
+		return x.MaxQueuedBuildsPerUser
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxQueuedComposeDeploysPerUser() int32 {
+	if x != nil {
+		return x.MaxQueuedComposeDeploysPerUser
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetComposeCoordinatorIntervalSeconds() int64 {
+	if x != nil {
+		return x.ComposeCoordinatorIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetHostMinFreeDiskBytes() int64 {
+	if x != nil {
+		return x.HostMinFreeDiskBytes
+	}
+	return 0
+}
+
 type ContainerStatsResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	CpuPercentage    float64                `protobuf:"fixed64,1,opt,name=cpu_percentage,json=cpuPercentage,proto3" json:"cpu_percentage,omitempty"`
@@ -4510,7 +4598,7 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xe0\x1e\n" +
+	"totalCount\"\xfd$\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -4581,7 +4669,18 @@ const file_backend_api_core_core_proto_rawDesc = "" +
 	"\x1fcompose_outbox_interval_seconds\x18@ \x01(\x03R\x1ccomposeOutboxIntervalSeconds\x129\n" +
 	"\x19compose_outbox_batch_size\x18A \x01(\x05R\x16composeOutboxBatchSize\x12=\n" +
 	"\x1bcompose_deploy_max_attempts\x18B \x01(\x05R\x18composeDeployMaxAttempts\x12T\n" +
-	"'reports_usage_snapshot_interval_seconds\x18C \x01(\x03R#reportsUsageSnapshotIntervalSeconds\"\xef\x01\n" +
+	"'reports_usage_snapshot_interval_seconds\x18C \x01(\x03R#reportsUsageSnapshotIntervalSeconds\x12A\n" +
+	"\x1dcontainer_create_worker_count\x18D \x01(\x05R\x1acontainerCreateWorkerCount\x12A\n" +
+	"\x1dcontainer_create_max_attempts\x18E \x01(\x05R\x1acontainerCreateMaxAttempts\x12G\n" +
+	" container_create_timeout_minutes\x18F \x01(\x03R\x1dcontainerCreateTimeoutMinutes\x12O\n" +
+	"%max_queued_container_creates_per_user\x18G \x01(\x05R maxQueuedContainerCreatesPerUser\x12V\n" +
+	"(container_create_outbox_interval_seconds\x18H \x01(\x03R$containerCreateOutboxIntervalSeconds\x12J\n" +
+	"\"container_create_outbox_batch_size\x18I \x01(\x05R\x1econtainerCreateOutboxBatchSize\x12E\n" +
+	" max_staged_source_bytes_per_user\x18J \x01(\x03R\x1bmaxStagedSourceBytesPerUser\x12:\n" +
+	"\x1amax_queued_builds_per_user\x18K \x01(\x05R\x16maxQueuedBuildsPerUser\x12K\n" +
+	"#max_queued_compose_deploys_per_user\x18L \x01(\x05R\x1emaxQueuedComposeDeploysPerUser\x12O\n" +
+	"$compose_coordinator_interval_seconds\x18M \x01(\x03R!composeCoordinatorIntervalSeconds\x126\n" +
+	"\x18host_min_free_disk_bytes\x18N \x01(\x03R\x14hostMinFreeDiskBytes\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

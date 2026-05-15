@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useForm, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
+import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, Plus, RefreshCcw, Save, Settings, X } from 'lucide-react';
 
@@ -13,6 +14,9 @@ import { getApiErrorMessage } from '@/lib/apiError';
 import { type TFunction, type TranslationKey, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useSystemConfig, useUpdateSystemConfig } from '@/features/admin/hooks';
+import { getAuthConfigFn } from '@/features/auth/api';
+import type { AuthConfig } from '@/features/auth/types';
+import { queryKeys } from '@/shared/api/queryKeys';
 
 type ConfigFieldName = keyof SystemConfigForm & string;
 type ConfigFieldType = 'text' | 'number' | 'float' | 'boolean' | 'array' | 'bytes';
@@ -86,6 +90,7 @@ const sections: Array<{
     fields: [
       { name: 'compose_upload_max_bytes', labelKey: 'admin.settings.field.compose_upload_max_bytes.label', hintKey: 'admin.settings.field.compose_upload_max_bytes.hint', type: 'bytes' },
       { name: 'compose_pipeline_timeout_minutes', labelKey: 'admin.settings.field.compose_pipeline_timeout_minutes.label', hintKey: 'admin.settings.field.compose_pipeline_timeout_minutes.hint', type: 'number', unitKey: 'admin.settings.unit.minutes' },
+      { name: 'compose_coordinator_interval_seconds', labelKey: 'admin.settings.field.compose_coordinator_interval_seconds.label', hintKey: 'admin.settings.field.compose_coordinator_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'compose_build_poll_interval_seconds', labelKey: 'admin.settings.field.compose_build_poll_interval_seconds.label', hintKey: 'admin.settings.field.compose_build_poll_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'compose_dependency_wait_timeout_minutes', labelKey: 'admin.settings.field.compose_dependency_wait_timeout_minutes.label', hintKey: 'admin.settings.field.compose_dependency_wait_timeout_minutes.hint', type: 'number', unitKey: 'admin.settings.unit.minutes' },
       { name: 'compose_dependency_poll_interval_seconds', labelKey: 'admin.settings.field.compose_dependency_poll_interval_seconds.label', hintKey: 'admin.settings.field.compose_dependency_poll_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
@@ -93,6 +98,7 @@ const sections: Array<{
       { name: 'compose_outbox_interval_seconds', labelKey: 'admin.settings.field.compose_outbox_interval_seconds.label', hintKey: 'admin.settings.field.compose_outbox_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'compose_outbox_batch_size', labelKey: 'admin.settings.field.compose_outbox_batch_size.label', hintKey: 'admin.settings.field.compose_outbox_batch_size.hint', type: 'number' },
       { name: 'compose_deploy_max_attempts', labelKey: 'admin.settings.field.compose_deploy_max_attempts.label', hintKey: 'admin.settings.field.compose_deploy_max_attempts.hint', type: 'number' },
+      { name: 'max_queued_compose_deploys_per_user', labelKey: 'admin.settings.field.max_queued_compose_deploys_per_user.label', hintKey: 'admin.settings.field.max_queued_compose_deploys_per_user.hint', type: 'number' },
     ],
   },
   {
@@ -114,7 +120,21 @@ const sections: Array<{
       { name: 'event_reconnect_delay_seconds', labelKey: 'admin.settings.field.event_reconnect_delay_seconds.label', hintKey: 'admin.settings.field.event_reconnect_delay_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'build_outbox_interval_seconds', labelKey: 'admin.settings.field.build_outbox_interval_seconds.label', hintKey: 'admin.settings.field.build_outbox_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'build_outbox_batch_size', labelKey: 'admin.settings.field.build_outbox_batch_size.label', hintKey: 'admin.settings.field.build_outbox_batch_size.hint', type: 'number' },
+      { name: 'container_create_worker_count', labelKey: 'admin.settings.field.container_create_worker_count.label', hintKey: 'admin.settings.field.container_create_worker_count.hint', type: 'number' },
+      { name: 'container_create_max_attempts', labelKey: 'admin.settings.field.container_create_max_attempts.label', hintKey: 'admin.settings.field.container_create_max_attempts.hint', type: 'number' },
+      { name: 'container_create_timeout_minutes', labelKey: 'admin.settings.field.container_create_timeout_minutes.label', hintKey: 'admin.settings.field.container_create_timeout_minutes.hint', type: 'number', unitKey: 'admin.settings.unit.minutes' },
+      { name: 'container_create_outbox_interval_seconds', labelKey: 'admin.settings.field.container_create_outbox_interval_seconds.label', hintKey: 'admin.settings.field.container_create_outbox_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
+      { name: 'container_create_outbox_batch_size', labelKey: 'admin.settings.field.container_create_outbox_batch_size.label', hintKey: 'admin.settings.field.container_create_outbox_batch_size.hint', type: 'number' },
       { name: 'reports_usage_snapshot_interval_seconds', labelKey: 'admin.settings.field.reports_usage_snapshot_interval_seconds.label', hintKey: 'admin.settings.field.reports_usage_snapshot_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
+    ],
+  },
+  {
+    titleKey: 'admin.settings.section.safety',
+    fields: [
+      { name: 'max_queued_container_creates_per_user', labelKey: 'admin.settings.field.max_queued_container_creates_per_user.label', hintKey: 'admin.settings.field.max_queued_container_creates_per_user.hint', type: 'number' },
+      { name: 'max_queued_builds_per_user', labelKey: 'admin.settings.field.max_queued_builds_per_user.label', hintKey: 'admin.settings.field.max_queued_builds_per_user.hint', type: 'number' },
+      { name: 'max_staged_source_bytes_per_user', labelKey: 'admin.settings.field.max_staged_source_bytes_per_user.label', hintKey: 'admin.settings.field.max_staged_source_bytes_per_user.hint', type: 'bytes' },
+      { name: 'host_min_free_disk_bytes', labelKey: 'admin.settings.field.host_min_free_disk_bytes.label', hintKey: 'admin.settings.field.host_min_free_disk_bytes.hint', type: 'bytes' },
     ],
   },
   {
@@ -160,6 +180,10 @@ export function SystemSettingsPage() {
   const t = useT();
 
   const { data: config, isLoading, isError, error, isFetching, refetch } = useSystemConfig();
+  const authConfigQuery = useQuery({
+    queryKey: queryKeys.auth.config,
+    queryFn: getAuthConfigFn,
+  });
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<SystemConfigForm>({
     resolver: zodResolver(systemConfigSchema),
@@ -203,6 +227,13 @@ export function SystemSettingsPage() {
         <p className="mt-1 text-slate-500 dark:text-slate-400">{t('admin.settings.subtitle')}</p>
       </div>
 
+      <AuthSettingsStatus
+        authConfig={authConfigQuery.data}
+        isLoading={authConfigQuery.isLoading}
+        isError={authConfigQuery.isError}
+        t={t}
+      />
+
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {sections.map((section) => (
           <Card key={section.titleKey}>
@@ -237,6 +268,96 @@ export function SystemSettingsPage() {
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function AuthSettingsStatus({
+  authConfig,
+  isLoading,
+  isError,
+  t,
+}: {
+  authConfig?: AuthConfig;
+  isLoading: boolean;
+  isError: boolean;
+  t: TFunction;
+}) {
+  const oidcProviders = authConfig?.oidc_providers.map((provider) => provider.name).filter(Boolean) ?? [];
+  const externalSSOEnabled = oidcProviders.length > 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Settings className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+          {t('admin.settings.section.auth')}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="h-24 rounded-xl bg-white/40 animate-pulse dark:bg-slate-900/40" />
+        ) : isError ? (
+          <p className="text-sm text-red-600 dark:text-red-400">{t('admin.settings.authStatusUnavailable')}</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <ReadOnlyStatusField
+              label={t('admin.settings.field.local_login_enabled.label')}
+              hint={t('admin.settings.field.local_login_enabled.hint')}
+              enabled={authConfig?.local_login_enabled ?? false}
+              t={t}
+            />
+            <ReadOnlyStatusField
+              label={t('admin.settings.field.local_register_enabled.label')}
+              hint={t('admin.settings.field.local_register_enabled.hint')}
+              enabled={authConfig?.local_register_enabled ?? false}
+              t={t}
+            />
+            <ReadOnlyStatusField
+              label={t('admin.settings.field.external_sso_enabled.label')}
+              hint={t('admin.settings.field.external_sso_enabled.hint', {
+                providers: externalSSOEnabled ? oidcProviders.join(', ') : t('admin.settings.none'),
+              })}
+              enabled={externalSSOEnabled}
+              t={t}
+            />
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReadOnlyStatusField({
+  label,
+  hint,
+  enabled,
+  t,
+}: {
+  label: string;
+  hint: string;
+  enabled: boolean;
+  t: TFunction;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Label>{label}</Label>
+        <InfoHint text={hint} label={label} t={t} />
+      </div>
+      <div
+        className={cn(
+          'flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left text-sm',
+          enabled
+            ? 'border-indigo-300 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100'
+            : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300'
+        )}
+      >
+        <span className="font-medium">{enabled ? t('admin.settings.enabled') : t('admin.settings.disabled')}</span>
+        <span className={cn('relative h-6 w-11 rounded-full', enabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700')}>
+          <span className={cn('absolute top-1 h-4 w-4 rounded-full bg-white shadow', enabled ? 'translate-x-6' : 'translate-x-1')} />
+        </span>
+      </div>
     </div>
   );
 }

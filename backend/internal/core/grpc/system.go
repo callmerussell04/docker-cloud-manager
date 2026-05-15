@@ -70,16 +70,27 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		EventReconnectDelaySeconds:           cfg.EventReconnectDelaySeconds,
 		BuildOutboxIntervalSeconds:           cfg.BuildOutboxIntervalSeconds,
 		BuildOutboxBatchSize:                 int32(cfg.BuildOutboxBatchSize),
+		ContainerCreateWorkerCount:           int32(cfg.ContainerCreateWorkerCount),
+		ContainerCreateMaxAttempts:           int32(cfg.ContainerCreateMaxAttempts),
+		ContainerCreateTimeoutMinutes:        cfg.ContainerCreateTimeoutMinutes,
+		MaxQueuedContainerCreatesPerUser:     int32(cfg.MaxQueuedContainerCreatesPerUser),
+		ContainerCreateOutboxIntervalSeconds: cfg.ContainerCreateOutboxIntervalSeconds,
+		ContainerCreateOutboxBatchSize:       int32(cfg.ContainerCreateOutboxBatchSize),
 		ReportsUsageSnapshotIntervalSeconds:  cfg.ReportsUsageSnapshotIntervalSeconds,
+		MaxStagedSourceBytesPerUser:          cfg.MaxStagedSourceBytesPerUser,
+		MaxQueuedBuildsPerUser:               int32(cfg.MaxQueuedBuildsPerUser),
 		ComposeUploadMaxBytes:                cfg.ComposeUploadMaxBytes,
 		ComposePipelineTimeoutMinutes:        cfg.ComposePipelineTimeoutMinutes,
 		ComposeDeployWorkerCount:             int32(cfg.ComposeDeployWorkerCount),
 		ComposeOutboxIntervalSeconds:         cfg.ComposeOutboxIntervalSeconds,
 		ComposeOutboxBatchSize:               int32(cfg.ComposeOutboxBatchSize),
 		ComposeDeployMaxAttempts:             int32(cfg.ComposeDeployMaxAttempts),
+		MaxQueuedComposeDeploysPerUser:       int32(cfg.MaxQueuedComposeDeploysPerUser),
 		ComposeBuildPollIntervalSeconds:      cfg.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  cfg.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: cfg.ComposeDependencyPollIntervalSeconds,
+		ComposeCoordinatorIntervalSeconds:    cfg.ComposeCoordinatorIntervalSeconds,
+		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
 		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
@@ -142,16 +153,27 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.EventReconnectDelaySeconds = req.GetEventReconnectDelaySeconds()
 	newCfg.BuildOutboxIntervalSeconds = req.GetBuildOutboxIntervalSeconds()
 	newCfg.BuildOutboxBatchSize = int(req.GetBuildOutboxBatchSize())
+	newCfg.ContainerCreateWorkerCount = int(req.GetContainerCreateWorkerCount())
+	newCfg.ContainerCreateMaxAttempts = int(req.GetContainerCreateMaxAttempts())
+	newCfg.ContainerCreateTimeoutMinutes = req.GetContainerCreateTimeoutMinutes()
+	newCfg.MaxQueuedContainerCreatesPerUser = int(req.GetMaxQueuedContainerCreatesPerUser())
+	newCfg.ContainerCreateOutboxIntervalSeconds = req.GetContainerCreateOutboxIntervalSeconds()
+	newCfg.ContainerCreateOutboxBatchSize = int(req.GetContainerCreateOutboxBatchSize())
 	newCfg.ReportsUsageSnapshotIntervalSeconds = req.GetReportsUsageSnapshotIntervalSeconds()
+	newCfg.MaxStagedSourceBytesPerUser = req.GetMaxStagedSourceBytesPerUser()
+	newCfg.MaxQueuedBuildsPerUser = int(req.GetMaxQueuedBuildsPerUser())
 	newCfg.ComposeUploadMaxBytes = req.GetComposeUploadMaxBytes()
 	newCfg.ComposePipelineTimeoutMinutes = req.GetComposePipelineTimeoutMinutes()
 	newCfg.ComposeDeployWorkerCount = int(req.GetComposeDeployWorkerCount())
 	newCfg.ComposeOutboxIntervalSeconds = req.GetComposeOutboxIntervalSeconds()
 	newCfg.ComposeOutboxBatchSize = int(req.GetComposeOutboxBatchSize())
 	newCfg.ComposeDeployMaxAttempts = int(req.GetComposeDeployMaxAttempts())
+	newCfg.MaxQueuedComposeDeploysPerUser = int(req.GetMaxQueuedComposeDeploysPerUser())
 	newCfg.ComposeBuildPollIntervalSeconds = req.GetComposeBuildPollIntervalSeconds()
 	newCfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
 	newCfg.ComposeDependencyPollIntervalSeconds = req.GetComposeDependencyPollIntervalSeconds()
+	newCfg.ComposeCoordinatorIntervalSeconds = req.GetComposeCoordinatorIntervalSeconds()
+	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
 	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())

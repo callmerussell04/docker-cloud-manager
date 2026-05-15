@@ -58,6 +58,14 @@ export interface SystemConfig {
   build_outbox_interval_seconds: number;
   build_outbox_batch_size: number;
   reports_usage_snapshot_interval_seconds: number;
+  container_create_worker_count: number;
+  container_create_max_attempts: number;
+  container_create_timeout_minutes: number;
+  max_queued_container_creates_per_user: number;
+  container_create_outbox_interval_seconds: number;
+  container_create_outbox_batch_size: number;
+  max_staged_source_bytes_per_user: number;
+  max_queued_builds_per_user: number;
   compose_upload_max_bytes: number;
   compose_pipeline_timeout_minutes: number;
   compose_build_poll_interval_seconds: number;
@@ -67,6 +75,9 @@ export interface SystemConfig {
   compose_outbox_interval_seconds: number;
   compose_outbox_batch_size: number;
   compose_deploy_max_attempts: number;
+  max_queued_compose_deploys_per_user: number;
+  compose_coordinator_interval_seconds: number;
+  host_min_free_disk_bytes: number;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -150,6 +161,14 @@ export const systemConfigSchema = z.object({
   build_outbox_interval_seconds: z.number().min(1),
   build_outbox_batch_size: z.number().min(1),
   reports_usage_snapshot_interval_seconds: z.number().min(60).max(86400),
+  container_create_worker_count: z.number().min(1),
+  container_create_max_attempts: z.number().min(1),
+  container_create_timeout_minutes: z.number().min(1),
+  max_queued_container_creates_per_user: z.number().min(0),
+  container_create_outbox_interval_seconds: z.number().min(1),
+  container_create_outbox_batch_size: z.number().min(1),
+  max_staged_source_bytes_per_user: z.number().min(0),
+  max_queued_builds_per_user: z.number().min(0),
   compose_upload_max_bytes: z.number().min(1),
   compose_pipeline_timeout_minutes: z.number().min(1),
   compose_build_poll_interval_seconds: z.number().min(1),
@@ -159,6 +178,9 @@ export const systemConfigSchema = z.object({
   compose_outbox_interval_seconds: z.number().min(1),
   compose_outbox_batch_size: z.number().min(1),
   compose_deploy_max_attempts: z.number().min(1),
+  max_queued_compose_deploys_per_user: z.number().min(0),
+  compose_coordinator_interval_seconds: z.number().min(1),
+  host_min_free_disk_bytes: z.number().min(0),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: z.array(z.string().min(1)),
   git_clone_timeout_seconds: z.number().min(1),
