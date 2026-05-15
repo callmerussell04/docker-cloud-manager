@@ -71,3 +71,24 @@ packages:
       outpkg: builderconfigmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/service:
+    config:
+      all: true
+      dir: tests/mocks/telemetry/service
+      outpkg: telemetryservicemocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/http:
+    config:
+      all: true
+      dir: tests/mocks/telemetry/http
+      outpkg: telemetryhttpmocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model:
+    config:
+      all: true
+      dir: tests/mocks/telemetry/model
+      outpkg: telemetrymodelmocks
+      mockname: "{{.InterfaceName}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
