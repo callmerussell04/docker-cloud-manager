@@ -143,11 +143,14 @@ func openClickHouseTestDB(t *testing.T, cfg clickhouserepo.Config) *sql.DB {
 func applyReportsMigrations(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	migrationsDir := filepath.Join("..", "..", "..", "..", "migrations", "reports")
-	downFiles, err := filepath.Glob(filepath.Join(migrationsDir, "*.down.sql"))
-	require.NoError(t, err)
-	sort.Sort(sort.Reverse(sort.StringSlice(downFiles)))
-	for _, file := range downFiles {
-		execMigrationFile(t, ctx, db, file)
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS user_usage_daily`,
+		`DROP TABLE IF EXISTS audit_action_daily`,
+		`DROP TABLE IF EXISTS user_resource_usage_snapshots`,
+		`DROP TABLE IF EXISTS audit_events`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err)
 	}
 
 	upFiles, err := filepath.Glob(filepath.Join(migrationsDir, "*.up.sql"))
