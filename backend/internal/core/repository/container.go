@@ -17,6 +17,8 @@ type ContainerRepository struct {
 	db *sql.DB
 }
 
+const containerDomainPrefixIndex = "idx_containers_domain_prefix"
+
 func NewContainerRepository(db *sql.DB) *ContainerRepository {
 	return &ContainerRepository{db: db}
 }
@@ -78,11 +80,7 @@ func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error
 		generation, c.NetworkAlias, command, entrypoint, c.Restart, healthcheck,
 	)
 	if err != nil {
-		var pgErr *pq.Error
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return apperrors.ErrAlreadyExists
-		}
-		return err
+		return mapContainerUniqueViolation(err, c.DomainPrefix)
 	}
 	return nil
 }
@@ -91,7 +89,7 @@ func (r *ContainerRepository) UpdateRouting(ctx context.Context, id uuid.UUID, d
 	query := `UPDATE containers SET domain_prefix = $1, internal_port = $2 WHERE id = $3`
 	res, err := r.db.ExecContext(ctx, query, domainPrefix, internalPort, id)
 	if err != nil {
-		return err
+		return mapContainerUniqueViolation(err, domainPrefix)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
@@ -112,7 +110,7 @@ func (r *ContainerRepository) UpdateDockerIDRoutingAndGeneration(ctx context.Con
 	`
 	res, err := r.db.ExecContext(ctx, query, dockerID, domainPrefix, internalPort, generation, id)
 	if err != nil {
-		return err
+		return mapContainerUniqueViolation(err, domainPrefix)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
@@ -1238,11 +1236,7 @@ func insertContainerTx(ctx context.Context, tx *sql.Tx, c model.Container) error
 		c.Status, desiredStatus, ttl, c.EnvVars, c.BaseMemoryReservation,
 		generation, c.NetworkAlias, command, entrypoint, c.Restart, healthcheck)
 	if err != nil {
-		var pgErr *pq.Error
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return apperrors.ErrAlreadyExists
-		}
-		return err
+		return mapContainerUniqueViolation(err, c.DomainPrefix)
 	}
 	return nil
 }
@@ -1392,6 +1386,20 @@ func nullableError(cause error) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: cause.Error(), Valid: true}
+}
+
+func mapContainerUniqueViolation(err error, domainPrefix string) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgErr.Constraint == containerDomainPrefixIndex && domainPrefix != "" {
+			return apperrors.New(apperrors.ErrAlreadyExists, fmt.Sprintf("subdomain %s is already in use", domainPrefix))
+		}
+		return apperrors.ErrAlreadyExists
+	}
+	return err
 }
 
 func mapActiveOperationError(err error) error {

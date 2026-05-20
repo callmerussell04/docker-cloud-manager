@@ -14,6 +14,7 @@ import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { getServerErrorMessage } from '@/lib/apiError';
 import {
   useAdminBuilds,
   useAdminCancelBuild,
@@ -73,6 +74,7 @@ export function AllResourcesPage() {
   const queryClient = useQueryClient();
   const t = useT();
   const locale = useLocale();
+  const resourceError = (message?: string) => getServerErrorMessage(message, t);
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
@@ -198,10 +200,10 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0">
                         <Badge variant={statusVariant(c.status)}>{statusLabel(t, c.status)}</Badge>
-                        {c.last_error && (
-                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={c.last_error}>
+                        {resourceError(c.last_error) && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(c.last_error)}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{c.last_error}</span>
+                            <span className="truncate">{resourceError(c.last_error)}</span>
                           </div>
                         )}
                       </div>
@@ -367,10 +369,10 @@ export function AllResourcesPage() {
                         <Badge variant={statusVariant(p.status)}>
                           {statusLabel(t, p.status)}
                         </Badge>
-                        {p.last_error && (
-                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={p.last_error}>
+                        {resourceError(p.error_message || p.last_error) && (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(p.error_message || p.last_error)}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{p.last_error}</span>
+                            <span className="truncate">{resourceError(p.error_message || p.last_error)}</span>
                           </div>
                         )}
                       </div>

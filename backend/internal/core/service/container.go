@@ -216,7 +216,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			return uuid.Nil, err
 		}
 		if exists {
-			return uuid.Nil, fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
+			return uuid.Nil, s.domainPrefixAlreadyInUseError(params.DomainPrefix)
 		}
 
 	}
@@ -426,7 +426,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 			return err
 		}
 		if exists {
-			return fmt.Errorf("%w: domain prefix already in use", apperrors.ErrAlreadyExists)
+			return s.domainPrefixAlreadyInUseError(domainPrefix)
 		}
 	}
 
@@ -491,13 +491,17 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 
 func (s *ContainerService) fullDomain(domainPrefix string) string {
 	if domainPrefix == "" || s.config == nil {
-		return ""
+		return domainPrefix
 	}
 	baseDomain := s.config.Get().BaseDomain
 	if baseDomain == "" {
 		return domainPrefix
 	}
 	return fmt.Sprintf("%s.%s", domainPrefix, baseDomain)
+}
+
+func (s *ContainerService) domainPrefixAlreadyInUseError(domainPrefix string) error {
+	return apperrors.New(apperrors.ErrAlreadyExists, fmt.Sprintf("subdomain %s is already in use", s.fullDomain(domainPrefix)))
 }
 
 func actorIDValue(actorID *uuid.UUID) uuid.UUID {

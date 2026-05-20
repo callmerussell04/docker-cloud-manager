@@ -102,6 +102,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 
 	_, err = containers.Create(ownerCtx, model.ContainerCreateParams{Name: "web2", ImageTag: "nginx:latest", DomainPrefix: "web", InternalPort: 8081})
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
+	require.Equal(t, "subdomain web.localhost is already in use", apperrors.SafeMessage(err))
 
 	missingVolumeID := uuid.New()
 	require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: missingVolumeID, OwnerID: ownerID, DockerName: "vol_missing", Status: model.VolumeStatusMissing}))

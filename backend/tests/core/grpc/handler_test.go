@@ -95,6 +95,26 @@ func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
+func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
+	containerID := uuid.New()
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().
+		Expose(mock.Anything, containerID, "app", 8080).
+		Return(apperrors.New(apperrors.ErrAlreadyExists, "subdomain app.example.test is already in use"))
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, nil)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	_, err := client.ExposeContainer(context.Background(), &coreapi.ExposeRequest{
+		ContainerId:  containerID.String(),
+		DomainPrefix: "app",
+		InternalPort: 8080,
+	})
+	require.Equal(t, codes.AlreadyExists, status.Code(err))
+	require.Equal(t, "subdomain app.example.test is already in use", status.Convert(err).Message())
+}
+
 func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	ownerID := uuid.New()
 	volumeID := uuid.New()

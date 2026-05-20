@@ -119,6 +119,8 @@ export const ru = {
   'pagination.summary': 'Показано {from} — {to} из {total}',
   'apiError.noServerResponse': 'Нет ответа от сервера',
   'apiError.serverUnavailable': 'Сервер недоступен',
+  'apiError.subdomainInUse': 'Поддомен {subdomain} уже занят',
+  'apiError.subdomainUsedByServices': 'Поддомен {subdomain} указан сразу у сервисов {first} и {second}',
   'apiError.bad_request': 'Некорректный запрос',
   'apiError.not_found': 'Ресурс не найден',
   'apiError.already_exists': 'Ресурс уже существует',

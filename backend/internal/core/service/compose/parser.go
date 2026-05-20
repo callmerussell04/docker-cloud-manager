@@ -105,6 +105,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	result := &model.ComposeProject{
 		Name: projectName,
 	}
+	domainPrefixServices := make(map[string]string)
 
 	// 1. Собираем именованные тома
 	volumeMap := make(map[string]string)
@@ -292,6 +293,10 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			if err != nil || portInt <= 0 || portInt > 65535 {
 				return fmt.Errorf("%w: invalid dcm.internal_port for service %s", apperrors.ErrBadRequest, srv.Name)
 			}
+			if existingService, exists := domainPrefixServices[prefixStr]; exists {
+				return apperrors.New(apperrors.ErrAlreadyExists, fmt.Sprintf("subdomain %s is used by both services %s and %s", prefixStr, existingService, srv.Name))
+			}
+			domainPrefixServices[prefixStr] = srv.Name
 			domainSrv.DomainPrefix = prefixStr
 			domainSrv.InternalPort = portInt
 		}

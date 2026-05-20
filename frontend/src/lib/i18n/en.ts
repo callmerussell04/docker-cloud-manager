@@ -121,6 +121,8 @@ export const en: Record<keyof typeof ru, string> = {
   'pagination.summary': 'Showing {from} - {to} of {total}',
   'apiError.noServerResponse': 'No response from server',
   'apiError.serverUnavailable': 'Server is unavailable',
+  'apiError.subdomainInUse': 'Subdomain {subdomain} is already in use',
+  'apiError.subdomainUsedByServices': 'Subdomain {subdomain} is used by both services {first} and {second}',
   'apiError.bad_request': 'Invalid request',
   'apiError.not_found': 'Resource not found',
   'apiError.already_exists': 'Resource already exists',

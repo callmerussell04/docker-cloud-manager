@@ -56,13 +56,19 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
     const responseError = error.response?.data?.error;
     const responseErrorCode = error.response?.data?.error_code;
     const code = normalizeErrorCode(responseErrorCode) ?? normalizeLegacyError(responseError);
+    const detailedServerMessage = getDetailedServerErrorMessage(responseError, t);
+
+    if (detailedServerMessage) {
+      return { message: detailedServerMessage };
+    }
 
     if (code && t) {
       return { message: t(`apiError.${code}` as TranslationKey) };
     }
 
-    if (responseError && isSafeUserMessage(responseError)) {
-      return { message: responseError };
+    const serverMessage = getServerErrorMessage(responseError, t);
+    if (serverMessage) {
+      return { message: serverMessage };
     }
 
     if (error.response) {
@@ -79,6 +85,32 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
   }
 
   return { message: fallback };
+}
+
+export function getServerErrorMessage(message?: string, t?: TFunction) {
+  if (!message || !isSafeUserMessage(message)) return undefined;
+
+  return getDetailedServerErrorMessage(message, t) ?? message;
+}
+
+function getDetailedServerErrorMessage(message?: string, t?: TFunction) {
+  if (!message || !isSafeUserMessage(message)) return undefined;
+
+  const subdomainInUse = /^subdomain\s+(.+?)\s+is already in use$/i.exec(message);
+  if (subdomainInUse) {
+    return t ? t('apiError.subdomainInUse', { subdomain: subdomainInUse[1] }) : message;
+  }
+
+  const duplicateComposeSubdomain = /^subdomain\s+(.+?)\s+is used by both services\s+(.+?)\s+and\s+(.+)$/i.exec(message);
+  if (duplicateComposeSubdomain) {
+    return t ? t('apiError.subdomainUsedByServices', {
+      subdomain: duplicateComposeSubdomain[1],
+      first: duplicateComposeSubdomain[2],
+      second: duplicateComposeSubdomain[3],
+    }) : message;
+  }
+
+  return undefined;
 }
 
 function isSafeUserMessage(message: string) {

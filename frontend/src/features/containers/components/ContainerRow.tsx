@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { statusLabel, useT } from '@/lib/i18n';
+import { getServerErrorMessage } from '@/lib/apiError';
 import { useContainerAction } from '../hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useState } from 'react';
@@ -21,6 +22,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   const t = useT();
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const actionMutation = useContainerAction();
+  const containerError = getServerErrorMessage(container.last_error, t);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -66,10 +68,10 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
       <div className="min-w-0 shrink-0">
         {getStatusBadge(container.status)}
-        {container.last_error && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={container.last_error}>
+        {containerError && (
+          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={containerError}>
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{container.last_error}</span>
+            <span className="truncate">{containerError}</span>
           </div>
         )}
       </div>

@@ -4,10 +4,12 @@ import . "github.com/callmerussell04/docker-cloud-manager/internal/core/service/
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 func TestParserRestartPolicyValidation(t *testing.T) {
@@ -94,6 +96,32 @@ services:
 	}
 	if !dep.Optional {
 		t.Fatalf("dependency optional = false, want true")
+	}
+}
+
+func TestParserRejectsDuplicateDomainPrefixes(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  web:
+    image: nginx:latest
+    labels:
+      dcm.domain_prefix: app
+      dcm.internal_port: "8080"
+  api:
+    image: nginx:latest
+    labels:
+      dcm.domain_prefix: app
+      dcm.internal_port: "8081"
+`)
+
+	_, err := NewParser().ParseAndValidate(context.Background(), "proj", yaml, nil)
+	if !errors.Is(err, apperrors.ErrAlreadyExists) {
+		t.Fatalf("ParseAndValidate() error = %v, want already exists", err)
+	}
+	if got := apperrors.SafeMessage(err); !strings.Contains(got, "subdomain app is used by both services") {
+		t.Fatalf("SafeMessage() = %q, want duplicate subdomain message", got)
 	}
 }
 

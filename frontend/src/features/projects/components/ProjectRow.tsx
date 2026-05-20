@@ -4,6 +4,7 @@ import { type ProjectData } from '../types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { getServerErrorMessage } from '@/lib/apiError';
 import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useState } from 'react';
@@ -45,6 +46,7 @@ export function ProjectRow({ project }: ProjectRowProps) {
   const isWorking = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
   const isCanceled = project.status === 'canceled';
   const canCancel = project.status === 'building' || project.status === 'deploying';
+  const projectError = getServerErrorMessage(project.error_message || project.last_error, t);
 
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", tableLayouts.projects.grid, tableLayouts.projects.minWidth)}>
@@ -66,13 +68,13 @@ export function ProjectRow({ project }: ProjectRowProps) {
       </div>
 
       <div className="min-w-0 flex items-center">
-        {project.status === 'failed' && (project.error_message || project.last_error) ? (
+        {project.status === 'failed' && projectError ? (
           <div 
             className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 truncate max-w-full cursor-help"
-            title={project.error_message || project.last_error}
+            title={projectError}
           >
             <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{project.error_message || project.last_error}</span>
+            <span className="truncate">{projectError}</span>
           </div>
         ) : (
           <span className="text-slate-400 dark:text-slate-500">-</span>

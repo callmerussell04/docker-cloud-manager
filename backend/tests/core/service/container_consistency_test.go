@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
@@ -43,6 +44,52 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	require.Equal(t, model.ContainerStatusExposing, repo.queued[0].status)
 	require.Contains(t, string(repo.queued[0].outbox.Payload), `"domain_prefix":"app"`)
 	dockerAPI.AssertNotCalled(t, "InspectContainer", mock.Anything, mock.Anything)
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
+}
+
+func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
+	ownerID := uuid.New()
+	repo := coremocks.NewContainerRepository(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
+	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(true, nil)
+
+	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.ContainerCreateParams{
+		Name:         "web",
+		ImageTag:     "nginx:latest",
+		DomainPrefix: "app",
+		InternalPort: 8080,
+	})
+	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
+	require.Equal(t, "subdomain app.example.test is already in use", apperrors.SafeMessage(err))
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
+}
+
+func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	repo := newContainerLifecycleRepoMock(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+		ID:       containerID,
+		OwnerID:  ownerID,
+		DockerID: "docker-id",
+		Status:   model.ContainerStatusRunning,
+	}, nil)
+	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(true, nil)
+
+	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID, "app", 8080)
+	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
+	require.Equal(t, "subdomain app.example.test is already in use", apperrors.SafeMessage(err))
+	require.Empty(t, repo.queued)
 	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
