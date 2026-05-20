@@ -1,4 +1,4 @@
-import { Activity, Box, Cpu, Database, Disc, HardDrive, Layers, RefreshCcw, Server, type LucideIcon } from 'lucide-react';
+import { Activity, AlertTriangle, Box, Cpu, Database, Disc, HardDrive, Layers, RefreshCcw, Server, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -87,7 +87,11 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
     disk_used_bytes: stats?.disk_used_bytes ?? 0,
     disk_free_bytes: stats?.disk_free_bytes ?? 0,
     dcm_reserved_memory_bytes: stats?.dcm_reserved_memory_bytes ?? 0,
+    dcm_reserved_build_memory_bytes: stats?.dcm_reserved_build_memory_bytes ?? 0,
     dcm_disk_used_bytes: stats?.dcm_disk_used_bytes ?? 0,
+    host_min_free_disk_bytes: stats?.host_min_free_disk_bytes ?? 0,
+    admission_status: stats?.admission_status ?? 'open',
+    admission_reasons: stats?.admission_reasons ?? [],
     containers_total: stats?.containers_total ?? 0,
     containers_running: stats?.containers_running ?? 0,
     containers_stopped: stats?.containers_stopped ?? 0,
@@ -99,6 +103,17 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
     projects_total: stats?.projects_total ?? 0,
     observed_at: stats?.observed_at ?? 0,
   };
+}
+
+function admissionReasonLabel(t: ReturnType<typeof useT>, reason: string) {
+  switch (reason) {
+    case 'host_memory_exhausted':
+      return t('admin.monitoring.reason.host_memory_exhausted');
+    case 'host_disk_floor':
+      return t('admin.monitoring.reason.host_disk_floor');
+    default:
+      return reason;
+  }
 }
 
 export function AdminMonitoringPage() {
@@ -136,6 +151,15 @@ export function AdminMonitoringPage() {
         </div>
       ) : data ? (
         <>
+          {stats.admission_status === 'blocked' && (
+            <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-200">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">{t('admin.monitoring.admissionBlocked')}</p>
+                <p className="mt-1 text-sm">{stats.admission_reasons.map((reason) => admissionReasonLabel(t, reason)).join(', ')}</p>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <MetricCard
               title={t('admin.monitoring.cpu')}
@@ -158,7 +182,7 @@ export function AdminMonitoringPage() {
               icon={HardDrive}
               used={stats.disk_used_bytes}
               total={stats.disk_total_bytes}
-              detail={`${formatBytes(stats.disk_free_bytes)} ${t('admin.monitoring.free')}`}
+              detail={`${formatBytes(stats.disk_free_bytes)} ${t('admin.monitoring.free')} / ${formatBytes(stats.host_min_free_disk_bytes)} ${t('admin.monitoring.floor')}`}
             />
             <MetricCard
               title={t('admin.monitoring.dcmDisk')}
@@ -166,6 +190,13 @@ export function AdminMonitoringPage() {
               used={stats.dcm_disk_used_bytes}
               total={stats.disk_total_bytes}
               detail={t('admin.monitoring.ofHostDisk')}
+            />
+            <MetricCard
+              title={t('admin.monitoring.buildMemory')}
+              icon={Server}
+              used={stats.dcm_reserved_build_memory_bytes}
+              total={stats.memory_total_bytes}
+              detail={t('admin.monitoring.ofHostMemory')}
             />
           </div>
 

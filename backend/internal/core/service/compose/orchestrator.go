@@ -73,6 +73,10 @@ type ContainerService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
+type CapacityChecker interface {
+	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error
+}
+
 type ComposeDockerAPI interface {
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 }
@@ -370,7 +374,7 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if err := o.ensureHostDiskFloor(); err != nil {
+	if err := o.ensureHostDiskFloorForWrite(o.cfg.Get().ComposeUploadMaxBytes); err != nil {
 		return uuid.Nil, err
 	}
 	cfg := o.cfg.Get()
@@ -419,7 +423,7 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if err := o.ensureHostDiskFloor(); err != nil {
+	if err := o.ensureHostDiskFloorForWrite(o.cfg.Get().GitMaxRepositoryBytes); err != nil {
 		return uuid.Nil, err
 	}
 	if source.RepoURL == "" {
@@ -477,6 +481,12 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose project must define at least one service")
 	}
 	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
+		cancel()
+		return uuid.Nil, err
+	}
+	if err := o.ensureDeploymentCapacity(ctx, ownerID, parsedProject); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
@@ -694,6 +704,10 @@ func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName stri
 }
 
 func (o *Orchestrator) ensureHostDiskFloor() error {
+	return o.ensureHostDiskFloorForWrite(0)
+}
+
+func (o *Orchestrator) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
 	cfg := o.cfg.Get()
 	if o.diskMetrics == nil || cfg.HostMinFreeDiskBytes <= 0 {
 		return nil
@@ -706,7 +720,10 @@ func (o *Orchestrator) ensureHostDiskFloor() error {
 	if err != nil {
 		return err
 	}
-	if stats.FreeBytes < cfg.HostMinFreeDiskBytes {
+	if projectedWriteBytes < 0 {
+		projectedWriteBytes = 0
+	}
+	if stats.FreeBytes-projectedWriteBytes < cfg.HostMinFreeDiskBytes {
 		return apperrors.ErrHostExhausted
 	}
 	return nil
@@ -729,6 +746,18 @@ func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid
 		return apperrors.ErrLimitExceeded
 	}
 	return nil
+}
+
+func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uuid.UUID, project *model.ComposeProject) error {
+	if err := o.ensureHostDiskFloor(); err != nil {
+		return err
+	}
+	checker, ok := o.contService.(CapacityChecker)
+	if !ok || project == nil {
+		return nil
+	}
+	requestedRam := int64(len(project.Services)) * o.cfg.Get().DefaultMemoryReservation
+	return checker.CheckCapacity(ctx, ownerID, requestedRam, 0)
 }
 
 func (o *Orchestrator) reserveComposeSource(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {

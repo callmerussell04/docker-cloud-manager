@@ -70,6 +70,8 @@ export function statusLabel(t: TFunction, status?: string) {
       return t('status.failedTimeout');
     case 'failed_quota_exceeded':
       return t('status.failedQuotaExceeded');
+    case 'failed_resource_exhausted':
+      return t('status.failedResourceExhausted');
     case 'failed_internal':
       return t('status.failedInternal');
     case 'canceled':

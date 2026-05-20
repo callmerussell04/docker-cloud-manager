@@ -33,7 +33,7 @@ import { TabSwitcher } from '@/components/common/TabSwitcher';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
-const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_internal', 'canceled']);
+const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
 
 const adminTabMinWidths: Record<Tab, string> = {
   containers: tableLayouts.adminContainers.minWidth,

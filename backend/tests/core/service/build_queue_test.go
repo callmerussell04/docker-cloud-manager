@@ -7,15 +7,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+type buildAdmissionConfig struct{}
+
+func (buildAdmissionConfig) Get() config.SystemConfig {
+	return config.SystemConfig{
+		ImageBuildsEnabled: true,
+		BuildMemoryBytes:   512 * 1024 * 1024,
+		OvercommitFactor:   1,
+	}
+}
 
 func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	repo := coremocks.NewBuildRepository(t)
@@ -55,6 +67,27 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	require.Equal(t, "demo-app:latest", msg.Tag)
 	require.Equal(t, buildqueue.ExchangeName, queuedOutbox.Exchange)
 	require.Equal(t, buildqueue.RoutingKey, queuedOutbox.RoutingKey)
+}
+
+func TestBuildServiceCreateBuildJobRejectsHostMemoryExhaustion(t *testing.T) {
+	repo := coremocks.NewBuildRepository(t)
+	imageRepo := coremocks.NewBuildImageRepository(t)
+	users := coremocks.NewUserInfoProvider(t)
+	metrics := coremocks.NewHostMetricsProvider(t)
+	registry := coremocks.NewImageRegistryAPI(t)
+	svc := NewBuildService(repo, imageRepo, registry, users, nil, BuildServiceDeps{
+		Config:      buildAdmissionConfig{},
+		HostMetrics: metrics,
+	})
+	ownerID := uuid.New()
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024}, nil)
+	metrics.EXPECT().GetTotalMemory().Return(int64(256*1024*1024), nil)
+
+	_, _, err := svc.CreateBuildJob(ctx, "demo-app", "build-archives/source.zip", "build-logs/source.log", ".", "Dockerfile", nil, "request-id")
+	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
+	repo.AssertNotCalled(t, "CreateQueuedBuild", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {

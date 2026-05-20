@@ -39,6 +39,18 @@ type activeBuildCounter interface {
 	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
 }
 
+type activeSystemBuildCounter interface {
+	CountActive(ctx context.Context) (int, error)
+}
+
+type buildCapacityLockRepository interface {
+	AcquireCapacityLock(ctx context.Context) (func(), error)
+}
+
+type buildContainerReservationRepository interface {
+	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+}
+
 type BuildImageRepository interface {
 	Save(ctx context.Context, img model.Image) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
@@ -105,7 +117,9 @@ type BuildService struct {
 	objectStore  BuildObjectStore
 	deployments  BuildDeploymentCanceler
 	staged       StagedObjectRepository
+	containers   buildContainerReservationRepository
 	diskMetrics  HostDiskMetricsProvider
+	hostMetrics  HostMetricsProvider
 	hostDiskPath string
 	logger       *slog.Logger
 }
@@ -116,7 +130,9 @@ type BuildServiceDeps struct {
 	ObjectStore   BuildObjectStore
 	Deployments   BuildDeploymentCanceler
 	StagedObjects StagedObjectRepository
+	Containers    buildContainerReservationRepository
 	DiskMetrics   HostDiskMetricsProvider
+	HostMetrics   HostMetricsProvider
 	HostDiskPath  string
 }
 
@@ -143,7 +159,9 @@ func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, regis
 		objectStore:  deps.ObjectStore,
 		deployments:  deps.Deployments,
 		staged:       deps.StagedObjects,
+		containers:   deps.Containers,
 		diskMetrics:  deps.DiskMetrics,
+		hostMetrics:  deps.HostMetrics,
 		hostDiskPath: deps.HostDiskPath,
 		logger:       logging.WithComponent(logger, "build_service"),
 	}
@@ -166,6 +184,39 @@ func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID)
 
 func (s *BuildService) ensureHostDiskFloor() error {
 	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes)
+}
+
+func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
+	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
+}
+
+func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
+	cfg := s.buildConfig()
+	reserved := int64(0)
+	if s.containers != nil {
+		containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to calculate container reserved memory", "error", err)
+			return apperrors.ErrInternal
+		}
+		reserved += containerReserved
+	}
+	if counter, ok := s.repo.(activeSystemBuildCounter); ok {
+		activeBuilds, err := counter.CountActive(ctx)
+		if err != nil {
+			return err
+		}
+		reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
+	}
+	return ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build")
+}
+
+func (s *BuildService) acquireBuildCapacityLock(ctx context.Context) (func(), error) {
+	lockRepo, ok := s.repo.(buildCapacityLockRepository)
+	if !ok {
+		return nil, nil
+	}
+	return lockRepo.AcquireCapacityLock(ctx)
 }
 
 func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
@@ -320,7 +371,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloor(); err != nil {
+	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().MaxArchiveSizeBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -405,7 +456,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloor(); err != nil {
+	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().GitMaxRepositoryBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -567,7 +618,17 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
+	unlock, err := s.acquireBuildCapacityLock(ctx)
+	if err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if unlock != nil {
+		defer unlock()
+	}
 	if err := s.ensureBuildQueueLimit(ctx, ownerID); err != nil {
+		return uuid.Nil, uuid.Nil, err
+	}
+	if err := s.ensureBuildHostCapacity(ctx); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 
@@ -850,6 +911,7 @@ func normalizeFailedBuildStatus(status string) string {
 		model.BuildStatusCanceled,
 		model.BuildStatusFailedTimeout,
 		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedResourceExhausted,
 		model.BuildStatusFailedInternal:
 		return status
 	default:

@@ -7,6 +7,10 @@ import (
 	"github.com/google/uuid"
 )
 
+type CapacityChecker interface {
+	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error
+}
+
 func (s *ContainerService) checkUserQuota(ctx context.Context, ownerID uuid.UUID, requestedRam int64) error {
 	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
@@ -31,41 +35,43 @@ func (s *ContainerService) checkUserDiskQuota(ctx context.Context, ownerID uuid.
 	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, imageRepo, volumeRepo)
 }
 
-func (s *ContainerService) checkHostCapacity(ctx context.Context, requestedRam int64) error {
-	totalMem, err := s.metrics.GetTotalMemory()
+func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error {
+	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {
-		s.logger.Error("failed to get system memory", "error", err)
-		return apperrors.ErrInternal
+		return err
 	}
-
-	availablePool := float64(totalMem-s.config.Get().ReservedSystemMemory) * s.config.Get().OvercommitFactor
-	if availablePool <= 0 {
-		return apperrors.ErrHostExhausted
+	if unlock != nil {
+		defer unlock()
 	}
+	if err := s.checkUserQuota(ctx, ownerID, requestedRam); err != nil {
+		return err
+	}
+	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
+		return err
+	}
+	if err := s.checkHostCapacity(ctx, requestedRam); err != nil {
+		return err
+	}
+	return s.checkHostDiskCapacityForWrite(projectedDiskWriteBytes)
+}
 
+func (s *ContainerService) checkHostCapacity(ctx context.Context, requestedRam int64) error {
 	totalRunningReserved, err := s.repo.GetTotalSystemReservedMemory(ctx)
 	if err != nil {
-		s.logger.Error("failed to calculate total system reserved memory", "error", err)
+		s.logger.ErrorContext(ctx, "failed to calculate total system reserved memory", "error", err)
 		return apperrors.ErrInternal
 	}
-
-	projectedRequiredMem := totalRunningReserved + requestedRam
-	if projectedRequiredMem > int64(availablePool) {
-		s.logger.Warn(
-			"container request rejected by host capacity",
-			"projected_memory_mb", projectedRequiredMem/1024/1024,
-			"max_pool_mb", int64(availablePool)/1024/1024,
-		)
-		return apperrors.ErrHostExhausted
-	}
-
-	return nil
+	return ensureHostMemoryCapacity(ctx, s.metrics, s.config.Get(), totalRunningReserved, requestedRam, s.logger, "container")
 }
 
 func (s *ContainerService) checkHostDiskCapacity() error {
+	return s.checkHostDiskCapacityForWrite(0)
+}
+
+func (s *ContainerService) checkHostDiskCapacityForWrite(projectedWriteBytes int64) error {
 	diskMetrics, ok := s.metrics.(HostDiskMetricsProvider)
 	if !ok {
 		return nil
 	}
-	return ensureHostDiskFloor(diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes)
+	return ensureHostDiskFloorProjected(diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, projectedWriteBytes)
 }

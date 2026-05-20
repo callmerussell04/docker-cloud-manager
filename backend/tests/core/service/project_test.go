@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -72,6 +73,29 @@ func TestProjectServiceStartQueuesLifecycleRequest(t *testing.T) {
 	require.NoError(t, svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
 }
 
+func TestProjectServiceStartRejectsCapacityPreflight(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	containerID := uuid.New()
+	repo := coremocks.NewProjectRepository(t)
+	resources := coremocks.NewProjectResourceRepository(t)
+	containers := &projectCapacityContainerMock{
+		ProjectContainerLifecycle: coremocks.NewProjectContainerLifecycle(t),
+		err:                       apperrors.ErrHostExhausted,
+	}
+	svc := NewProjectService(repo, resources, coremocks.NewProjectDockerAPI(t), containers, coremocks.NewProjectVolumeLifecycle(t), staticConfig{})
+
+	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID}, nil)
+	resources.EXPECT().GetByProjectID(mock.Anything, projectID).Return([]model.Container{
+		{ID: containerID, OwnerID: ownerID, Status: model.ContainerStatusExited, BaseMemoryReservation: 256},
+	}, nil)
+
+	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
+	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
+	repo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	require.Equal(t, int64(256), containers.requestedRam)
+}
+
 func TestProjectServiceStopQueuesLifecycleRequest(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
@@ -102,6 +126,17 @@ func TestProjectServiceStartRejectsBusyProject(t *testing.T) {
 type projectContainerMock struct {
 	*coremocks.ProjectContainerLifecycle
 	*coremocks.ProjectNetworkCleaner
+}
+
+type projectCapacityContainerMock struct {
+	*coremocks.ProjectContainerLifecycle
+	requestedRam int64
+	err          error
+}
+
+func (m *projectCapacityContainerMock) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error {
+	m.requestedRam = requestedRam
+	return m.err
 }
 
 func newProjectContainerMock(t *testing.T) *projectContainerMock {

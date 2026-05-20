@@ -20,17 +20,24 @@ type HostDiskMetricsProvider interface {
 }
 
 func ensureHostDiskFloor(metrics HostDiskMetricsProvider, path string, minFreeBytes int64) error {
+	return ensureHostDiskFloorProjected(metrics, path, minFreeBytes, 0)
+}
+
+func ensureHostDiskFloorProjected(metrics HostDiskMetricsProvider, path string, minFreeBytes int64, projectedWriteBytes int64) error {
 	if metrics == nil || minFreeBytes <= 0 {
 		return nil
 	}
 	if path == "" {
 		path = "/"
 	}
+	if projectedWriteBytes < 0 {
+		projectedWriteBytes = 0
+	}
 	stats, err := metrics.GetDiskUsage(path)
 	if err != nil {
 		return err
 	}
-	if stats.FreeBytes < minFreeBytes {
+	if stats.FreeBytes-projectedWriteBytes < minFreeBytes {
 		return apperrors.ErrHostExhausted
 	}
 	return nil

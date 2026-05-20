@@ -548,7 +548,6 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := s.checkHostDiskCapacity(); err != nil {
 		return err
 	}
-	releaseLock()
 	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, containerqueue.LifecycleMessage{
 		PreviousStatus: c.Status,
 	})

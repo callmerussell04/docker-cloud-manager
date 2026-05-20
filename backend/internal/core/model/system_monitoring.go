@@ -23,23 +23,27 @@ type ContainerStatusCounts struct {
 }
 
 type SystemMonitoring struct {
-	CPUPercent             float64
-	MemoryTotalBytes       int64
-	MemoryUsedBytes        int64
-	MemoryAvailableBytes   int64
-	DiskTotalBytes         int64
-	DiskUsedBytes          int64
-	DiskFreeBytes          int64
-	DCMReservedMemoryBytes int64
-	DCMDiskUsedBytes       int64
-	ContainersTotal        int
-	ContainersRunning      int
-	ContainersStopped      int
-	ContainersError        int
-	ContainersMissing      int
-	VolumesTotal           int
-	ImagesTotal            int
-	BuildsTotal            int
-	ProjectsTotal          int
-	ObservedAt             time.Time
+	CPUPercent                  float64
+	MemoryTotalBytes            int64
+	MemoryUsedBytes             int64
+	MemoryAvailableBytes        int64
+	DiskTotalBytes              int64
+	DiskUsedBytes               int64
+	DiskFreeBytes               int64
+	DCMReservedMemoryBytes      int64
+	DCMReservedBuildMemoryBytes int64
+	DCMDiskUsedBytes            int64
+	HostMinFreeDiskBytes        int64
+	AdmissionStatus             string
+	AdmissionReasons            []string
+	ContainersTotal             int
+	ContainersRunning           int
+	ContainersStopped           int
+	ContainersError             int
+	ContainersMissing           int
+	VolumesTotal                int
+	ImagesTotal                 int
+	BuildsTotal                 int
+	ProjectsTotal               int
+	ObservedAt                  time.Time
 }

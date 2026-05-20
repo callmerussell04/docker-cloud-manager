@@ -327,6 +327,32 @@ func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.U
 	return count, err
 }
 
+func (r *BuildRepository) CountActive(ctx context.Context) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM builds
+		WHERE status IN ($1, $2)
+	`, model.BuildStatusPending, model.BuildStatusRunning).Scan(&count)
+	return count, err
+}
+
+func (r *BuildRepository) AcquireCapacityLock(ctx context.Context) (func(), error) {
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	unlock := func() {
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "dcm:capacity")
+		_ = conn.Close()
+	}
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "dcm:capacity"); err != nil {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
+}
+
 func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -118,6 +118,35 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 	}
 }
 
+func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
+	ownerID := uuid.New()
+	repo := newVolumeRepoMock(t)
+	dockerAPI := coremocks.NewVolumeDockerAPI(t)
+	users := coremocks.NewUserInfoProvider(t)
+	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
+	metrics := coremocks.NewHostDiskMetricsProvider(t)
+	cfgData := staticConfig{}.Get()
+	cfgData.HostMinFreeDiskBytes = 1024
+	cfg := coremocks.NewConfigManager(t)
+	cfg.EXPECT().Get().Return(cfgData).Maybe()
+	svc := NewVolumeService(repo, dockerAPI, cfg, VolumeServiceDeps{
+		Users:        users,
+		ImageRepo:    imageRepo,
+		DiskMetrics:  metrics,
+		HostDiskPath: "/host",
+	})
+
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
+	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
+
+	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
+	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
+	repo.VolumeRepository.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
+	dockerAPI.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
+}
+
 func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)

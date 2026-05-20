@@ -13,7 +13,7 @@ interface BuildRowProps {
   onViewLogs: (build: BuildData) => void;
 }
 
-const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_internal', 'canceled']);
+const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
 
 export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const t = useT();
@@ -35,6 +35,8 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
       case 'failed_timeout': 
         return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'failed_quota_exceeded': 
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+      case 'failed_resource_exhausted':
         return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
       case 'failed_internal':
         return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };

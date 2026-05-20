@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/google/uuid"
@@ -35,6 +36,10 @@ type StatsImageRepository interface {
 
 type StatsBuildRepository interface {
 	CountAll(ctx context.Context) (int, error)
+}
+
+type statsActiveBuildRepository interface {
+	CountActive(ctx context.Context) (int, error)
 }
 
 type StatsProjectRepository interface {
@@ -94,7 +99,7 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	}
 	var stats model.UserStats
 
-	cfg := s.cfg.Get()
+	cfg := s.monitoringConfig()
 	stats.ContainersQuota = cfg.MaxContainersPerUser
 	stats.VolumesQuota = cfg.MaxVolumesPerUser
 
@@ -174,6 +179,16 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 	if err != nil {
 		return model.SystemMonitoring{}, err
 	}
+	activeBuilds := 0
+	if activeRepo, ok := s.buildRepo.(statsActiveBuildRepository); ok {
+		activeBuilds, err = activeRepo.CountActive(ctx)
+		if err != nil {
+			return model.SystemMonitoring{}, err
+		}
+	}
+	cfg := s.monitoringConfig()
+	reservedBuildMemory := int64(activeBuilds) * cfg.BuildMemoryBytes
+	totalReservedMemory := reservedMemory + reservedBuildMemory
 
 	imageUsedMB, err := s.imgRepo.GetTotalUsedDiskSpace(ctx)
 	if err != nil {
@@ -205,25 +220,56 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		return model.SystemMonitoring{}, err
 	}
 
+	admissionStatus, admissionReasons := admissionState(memory.TotalBytes, disk.FreeBytes, cfg, totalReservedMemory)
+
 	return model.SystemMonitoring{
-		CPUPercent:             cpuPercent,
-		MemoryTotalBytes:       memory.TotalBytes,
-		MemoryUsedBytes:        memory.UsedBytes,
-		MemoryAvailableBytes:   memory.AvailableBytes,
-		DiskTotalBytes:         disk.TotalBytes,
-		DiskUsedBytes:          disk.UsedBytes,
-		DiskFreeBytes:          disk.FreeBytes,
-		DCMReservedMemoryBytes: reservedMemory,
-		DCMDiskUsedBytes:       imageUsedMB*bytesPerMB + volumeUsedBytes,
-		ContainersTotal:        containerCounts.Total,
-		ContainersRunning:      containerCounts.Running,
-		ContainersStopped:      containerCounts.Stopped,
-		ContainersError:        containerCounts.Error,
-		ContainersMissing:      containerCounts.Missing,
-		VolumesTotal:           volumesTotal,
-		ImagesTotal:            imagesTotal,
-		BuildsTotal:            buildsTotal,
-		ProjectsTotal:          projectsTotal,
-		ObservedAt:             time.Now(),
+		CPUPercent:                  cpuPercent,
+		MemoryTotalBytes:            memory.TotalBytes,
+		MemoryUsedBytes:             memory.UsedBytes,
+		MemoryAvailableBytes:        memory.AvailableBytes,
+		DiskTotalBytes:              disk.TotalBytes,
+		DiskUsedBytes:               disk.UsedBytes,
+		DiskFreeBytes:               disk.FreeBytes,
+		DCMReservedMemoryBytes:      reservedMemory,
+		DCMReservedBuildMemoryBytes: reservedBuildMemory,
+		DCMDiskUsedBytes:            imageUsedMB*bytesPerMB + volumeUsedBytes,
+		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
+		AdmissionStatus:             admissionStatus,
+		AdmissionReasons:            admissionReasons,
+		ContainersTotal:             containerCounts.Total,
+		ContainersRunning:           containerCounts.Running,
+		ContainersStopped:           containerCounts.Stopped,
+		ContainersError:             containerCounts.Error,
+		ContainersMissing:           containerCounts.Missing,
+		VolumesTotal:                volumesTotal,
+		ImagesTotal:                 imagesTotal,
+		BuildsTotal:                 buildsTotal,
+		ProjectsTotal:               projectsTotal,
+		ObservedAt:                  time.Now(),
 	}, nil
+}
+
+func admissionState(totalMemoryBytes, diskFreeBytes int64, cfg config.SystemConfig, reservedMemoryBytes int64) (string, []string) {
+	reasons := make([]string, 0, 2)
+	if err := ensureHostMemoryAdmission(totalMemoryBytes, cfg, reservedMemoryBytes, cfg.DefaultMemoryReservation); err != nil {
+		reasons = append(reasons, "host_memory_exhausted")
+	}
+	if cfg.HostMinFreeDiskBytes > 0 && diskFreeBytes < cfg.HostMinFreeDiskBytes {
+		reasons = append(reasons, "host_disk_floor")
+	}
+	if len(reasons) > 0 {
+		return "blocked", reasons
+	}
+	return "open", reasons
+}
+
+func (s *StatsService) monitoringConfig() config.SystemConfig {
+	if s.cfg == nil {
+		return config.SystemConfig{
+			DefaultMemoryReservation: 256 * bytesPerMB,
+			OvercommitFactor:         1,
+			BuildMemoryBytes:         512 * bytesPerMB,
+		}
+	}
+	return s.cfg.Get()
 }

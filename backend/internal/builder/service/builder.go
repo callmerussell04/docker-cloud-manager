@@ -2,14 +2,17 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
@@ -332,7 +335,12 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		// Распаковываем архив пользователя
 		if err := s.extractor.Extract(archivePath, workspaceDir, cfg.MaxUnpackedSizeBytes); err != nil {
 			logger.ErrorContext(ctx, "failed to extract build archive", "error", err)
-			s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+			if isResourceExhaustedError(err) {
+				status = buildStatusFailedResourceExhausted
+				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+			} else {
+				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+			}
 		} else {
 			cleanContextDir, err := gitsource.CleanRelativePath(job.ContextDir)
 			if err != nil {
@@ -403,6 +411,10 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	if buildErr != nil {
 		if ctx.Err() == nil {
 			logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
+			if isResourceExhaustedError(buildErr) {
+				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				return buildStatusFailedResourceExhausted
+			}
 			s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
 		}
 		return buildStatusFailedInternal
@@ -430,6 +442,9 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 		if logErr != nil {
 			logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
 		}
+		if isResourceExhaustedError(waitErr) {
+			return buildStatusFailedResourceExhausted
+		}
 		return buildStatusFailed
 	case logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr):
 		logger.WarnContext(ctx, "build log size limit exceeded", "error", logErr)
@@ -449,6 +464,15 @@ func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
 		logger.WarnContext(ctx, "failed to upload internal build log", "error", err)
+	}
+}
+
+func (s *BuilderService) writeResourceExhaustedBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build failed because server resources were exhausted."); err != nil {
+		logger.WarnContext(ctx, "failed to write resource exhausted build log", "error", err)
+	}
+	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
+		logger.WarnContext(ctx, "failed to upload resource exhausted build log", "error", err)
 	}
 }
 
@@ -492,12 +516,13 @@ func cleanDockerfilePath(raw string) (string, error) {
 }
 
 const (
-	buildStatusRunning        = "running"
-	buildStatusSuccess        = "success"
-	buildStatusCanceled       = "canceled"
-	buildStatusFailed         = "failed"
-	buildStatusFailedTimeout  = "failed_timeout"
-	buildStatusFailedInternal = "failed_internal"
+	buildStatusRunning                 = "running"
+	buildStatusSuccess                 = "success"
+	buildStatusCanceled                = "canceled"
+	buildStatusFailed                  = "failed"
+	buildStatusFailedTimeout           = "failed_timeout"
+	buildStatusFailedResourceExhausted = "failed_resource_exhausted"
+	buildStatusFailedInternal          = "failed_internal"
 )
 
 func isTerminalBuildStatus(status string) bool {
@@ -506,10 +531,25 @@ func isTerminalBuildStatus(status string) bool {
 		buildStatusCanceled,
 		buildStatusFailed,
 		buildStatusFailedTimeout,
+		buildStatusFailedResourceExhausted,
 		buildStatusFailedInternal,
 		"failed_quota_exceeded":
 		return true
 	default:
 		return false
 	}
+}
+
+func isResourceExhaustedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, apperrors.ErrResourceExhausted) || errors.Is(err, apperrors.ErrHostExhausted) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no space left") ||
+		strings.Contains(msg, "cannot allocate memory") ||
+		strings.Contains(msg, "out of memory") ||
+		strings.Contains(msg, "resource temporarily unavailable")
 }

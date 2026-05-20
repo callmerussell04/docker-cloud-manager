@@ -93,6 +93,10 @@ message SystemMonitoringResponse {
   int32 builds_total = 17;
   int32 projects_total = 18;
   int64 observed_at = 19;
+  string admission_status = 20;
+  repeated string admission_reasons = 21;
+  int64 host_min_free_disk_bytes = 22;
+  int64 dcm_reserved_build_memory_bytes = 23;
 }
 
 message Empty {}

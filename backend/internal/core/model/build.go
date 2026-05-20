@@ -7,14 +7,15 @@ import (
 )
 
 const (
-	BuildStatusPending             = "pending"
-	BuildStatusRunning             = "running"
-	BuildStatusSuccess             = "success"
-	BuildStatusCanceled            = "canceled"
-	BuildStatusFailed              = "failed"
-	BuildStatusFailedTimeout       = "failed_timeout"
-	BuildStatusFailedQuotaExceeded = "failed_quota_exceeded"
-	BuildStatusFailedInternal      = "failed_internal"
+	BuildStatusPending                 = "pending"
+	BuildStatusRunning                 = "running"
+	BuildStatusSuccess                 = "success"
+	BuildStatusCanceled                = "canceled"
+	BuildStatusFailed                  = "failed"
+	BuildStatusFailedTimeout           = "failed_timeout"
+	BuildStatusFailedQuotaExceeded     = "failed_quota_exceeded"
+	BuildStatusFailedResourceExhausted = "failed_resource_exhausted"
+	BuildStatusFailedInternal          = "failed_internal"
 
 	BuildOutboxStatusPending    = "pending"
 	BuildOutboxStatusPublishing = "publishing"
@@ -29,6 +30,7 @@ func IsBuildTerminalStatus(status string) bool {
 		BuildStatusFailed,
 		BuildStatusFailedTimeout,
 		BuildStatusFailedQuotaExceeded,
+		BuildStatusFailedResourceExhausted,
 		BuildStatusFailedInternal:
 		return true
 	default:
@@ -41,6 +43,7 @@ func IsBuildFailedStatus(status string) bool {
 	case BuildStatusFailed,
 		BuildStatusFailedTimeout,
 		BuildStatusFailedQuotaExceeded,
+		BuildStatusFailedResourceExhausted,
 		BuildStatusFailedInternal:
 		return true
 	default:

@@ -219,13 +219,14 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		UPDATE builds
 		SET status = $1, finished_at = $2
 		WHERE id = $3
-			AND status NOT IN ($4, $5, $6, $7, $8, $9)
+				AND status NOT IN ($4, $5, $6, $7, $8, $9, $10)
 	`, status, finishedAt, buildID,
 		model.BuildStatusSuccess,
 		model.BuildStatusCanceled,
 		model.BuildStatusFailed,
 		model.BuildStatusFailedTimeout,
 		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedResourceExhausted,
 		model.BuildStatusFailedInternal,
 	)
 	if err != nil {
@@ -264,13 +265,14 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		UPDATE builds
 		SET status = $1, finished_at = $2
 		WHERE id = $3
-			AND status NOT IN ($4, $5, $6, $7, $8, $9)
+				AND status NOT IN ($4, $5, $6, $7, $8, $9, $10)
 	`, status, finishedAt, buildID,
 		model.BuildStatusSuccess,
 		model.BuildStatusCanceled,
 		model.BuildStatusFailed,
 		model.BuildStatusFailedTimeout,
 		model.BuildStatusFailedQuotaExceeded,
+		model.BuildStatusFailedResourceExhausted,
 		model.BuildStatusFailedInternal,
 	)
 	if err != nil {

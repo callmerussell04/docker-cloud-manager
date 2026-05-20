@@ -40,31 +40,44 @@ type VolumeDockerAPI interface {
 }
 
 type VolumeService struct {
-	repo      VolumeRepository
-	dockerAPI VolumeDockerAPI
-	cfg       ConfigManager
-	users     UserInfoProvider
-	imageRepo volumeImageDiskRepository
+	repo         VolumeRepository
+	dockerAPI    VolumeDockerAPI
+	cfg          ConfigManager
+	users        UserInfoProvider
+	imageRepo    volumeImageDiskRepository
+	diskMetrics  HostDiskMetricsProvider
+	hostDiskPath string
 }
 
 type VolumeServiceDeps struct {
-	Users     UserInfoProvider
-	ImageRepo volumeImageDiskRepository
+	Users        UserInfoProvider
+	ImageRepo    volumeImageDiskRepository
+	DiskMetrics  HostDiskMetricsProvider
+	HostDiskPath string
 }
 
 func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager, deps VolumeServiceDeps) *VolumeService {
 	return &VolumeService{
-		repo:      repo,
-		dockerAPI: dockerAPI,
-		cfg:       cfg,
-		users:     deps.Users,
-		imageRepo: deps.ImageRepo,
+		repo:         repo,
+		dockerAPI:    dockerAPI,
+		cfg:          cfg,
+		users:        deps.Users,
+		imageRepo:    deps.ImageRepo,
+		diskMetrics:  deps.DiskMetrics,
+		hostDiskPath: deps.HostDiskPath,
 	}
 }
 
 func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID) error {
 	volumeRepo, _ := s.repo.(volumeDiskUsageRepository)
 	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, volumeRepo)
+}
+
+func (s *VolumeService) ensureHostDiskFloor() error {
+	if s.cfg == nil {
+		return nil
+	}
+	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes)
 }
 
 func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
@@ -76,6 +89,9 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
 	if err := s.ensureDiskQuotaAvailable(ctx, ownerID); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.ensureHostDiskFloor(); err != nil {
 		return uuid.Nil, err
 	}
 

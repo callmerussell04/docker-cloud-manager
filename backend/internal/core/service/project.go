@@ -153,6 +153,9 @@ func (s *ProjectService) Start(ctx context.Context, projectID uuid.UUID) error {
 	if projectStatusBlocksManualOperation(p.Status) {
 		return apperrors.New(apperrors.ErrConflict, "project operation is already in progress")
 	}
+	if err := s.ensureStartCapacity(ctx, p); err != nil {
+		return err
+	}
 	return s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStarting, nil)
 }
 
@@ -208,6 +211,33 @@ func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.P
 		Limit:   limit,
 		Offset:  offset,
 	})
+}
+
+func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Project) error {
+	checker, ok := s.containers.(CapacityChecker)
+	if !ok || s.resourceRepo == nil {
+		return nil
+	}
+	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	requestedRam := int64(0)
+	for _, container := range containers {
+		switch container.Status {
+		case model.ContainerStatusRunning, model.ContainerStatusStarting, model.ContainerStatusMissing, model.ContainerStatusError:
+			continue
+		}
+		reservation := container.BaseMemoryReservation
+		if reservation <= 0 && s.cfg != nil {
+			reservation = s.cfg.Get().DefaultMemoryReservation
+		}
+		requestedRam += reservation
+	}
+	if requestedRam <= 0 {
+		return nil
+	}
+	return checker.CheckCapacity(ctx, p.OwnerID, requestedRam, 0)
 }
 
 func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {

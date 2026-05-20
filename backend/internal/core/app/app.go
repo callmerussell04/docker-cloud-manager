@@ -118,8 +118,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, cfg.HostDiskPath, logger)
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, service.VolumeServiceDeps{
-		Users:     ssoClient,
-		ImageRepo: imgRepo,
+		Users:        ssoClient,
+		ImageRepo:    imgRepo,
+		DiskMetrics:  metricsProvider,
+		HostDiskPath: cfg.HostDiskPath,
 	})
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
@@ -128,7 +130,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Config:        cfg.ConfigManager,
 		ObjectStore:   objectStore,
 		StagedObjects: stagedRepo,
+		Containers:    contRepo,
 		DiskMetrics:   metricsProvider,
+		HostMetrics:   metricsProvider,
 		HostDiskPath:  cfg.HostDiskPath,
 	})
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}

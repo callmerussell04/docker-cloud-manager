@@ -102,7 +102,11 @@ export interface SystemMonitoring {
   disk_used_bytes: number;
   disk_free_bytes: number;
   dcm_reserved_memory_bytes: number;
+  dcm_reserved_build_memory_bytes: number;
   dcm_disk_used_bytes: number;
+  host_min_free_disk_bytes: number;
+  admission_status: string;
+  admission_reasons: string[];
   containers_total: number;
   containers_running: number;
   containers_stopped: number;
