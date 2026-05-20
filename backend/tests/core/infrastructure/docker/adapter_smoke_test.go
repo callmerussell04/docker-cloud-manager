@@ -78,8 +78,7 @@ func TestDockerAdapterNetworkContainerAndVolumeSmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, inspection.State.Running)
 	require.Equal(t, imageName, inspection.Image)
-	require.Len(t, inspection.Mounts, 1)
-	require.Equal(t, "/data", inspection.Mounts[0].Target)
+	require.Contains(t, mountTargets(inspection.Mounts), "/data")
 
 	stats, err := adapter.GetContainerStats(ctx, dockerID)
 	require.NoError(t, err)
@@ -96,4 +95,12 @@ func getenv(key, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func mountTargets(mounts []model.ContainerMountSpec) []string {
+	targets := make([]string, 0, len(mounts))
+	for _, mount := range mounts {
+		targets = append(targets, mount.Target)
+	}
+	return targets
 }

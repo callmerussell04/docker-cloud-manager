@@ -67,12 +67,25 @@ func Wait(ctx context.Context, cfg ConfigProvider, inspector Inspector, dockerID
 				continue
 			}
 
-			done, err := Evaluate(inspect.State, condition)
+			done, err := EvaluateInspection(inspect, condition)
 			if err != nil || done {
 				return err
 			}
 		}
 	}
+}
+
+func EvaluateInspection(inspection model.ContainerInspection, condition string) (bool, error) {
+	if condition != model.ComposeDependencyConditionHealthy {
+		return Evaluate(inspection.State, condition)
+	}
+	if inspection.Healthcheck == nil && inspection.State.HealthStatus == nil {
+		return false, apperrors.New(apperrors.ErrBadRequest, "service_healthy requested, but no healthcheck defined for container")
+	}
+	if inspection.Healthcheck != nil && inspection.State.HealthStatus == nil {
+		return false, nil
+	}
+	return Evaluate(inspection.State, condition)
 }
 
 func Evaluate(state model.ContainerState, condition string) (bool, error) {
@@ -91,7 +104,7 @@ func Evaluate(state model.ContainerState, condition string) (bool, error) {
 			return false, apperrors.New(apperrors.ErrConflict, "dependency exited before becoming healthy")
 		}
 	case model.ComposeDependencyConditionCompletedSuccessfully:
-		if !state.Running {
+		if !state.Running && state.Status == "exited" {
 			if state.ExitCode == 0 {
 				return true, nil
 			}

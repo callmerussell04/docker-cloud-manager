@@ -24,8 +24,9 @@ func TestEvaluateDependencyConditions(t *testing.T) {
 		{name: "healthy", state: model.ContainerState{Running: true, HealthStatus: &healthy}, condition: model.ComposeDependencyConditionHealthy, wantDone: true},
 		{name: "unhealthy", state: model.ContainerState{Running: true, HealthStatus: &unhealthy}, condition: model.ComposeDependencyConditionHealthy, wantErr: apperrors.ErrConflict},
 		{name: "healthy without healthcheck", state: model.ContainerState{Running: true}, condition: model.ComposeDependencyConditionHealthy, wantErr: apperrors.ErrBadRequest},
-		{name: "completed success", state: model.ContainerState{Running: false, ExitCode: 0}, condition: model.ComposeDependencyConditionCompletedSuccessfully, wantDone: true},
-		{name: "completed failed", state: model.ContainerState{Running: false, ExitCode: 2}, condition: model.ComposeDependencyConditionCompletedSuccessfully, wantErr: apperrors.ErrConflict},
+		{name: "completed success", state: model.ContainerState{Status: "exited", Running: false, ExitCode: 0}, condition: model.ComposeDependencyConditionCompletedSuccessfully, wantDone: true},
+		{name: "completed still created", state: model.ContainerState{Status: "created", Running: false, ExitCode: 0}, condition: model.ComposeDependencyConditionCompletedSuccessfully, wantDone: false},
+		{name: "completed failed", state: model.ContainerState{Status: "exited", Running: false, ExitCode: 2}, condition: model.ComposeDependencyConditionCompletedSuccessfully, wantErr: apperrors.ErrConflict},
 		{name: "unsupported", state: model.ContainerState{}, condition: "unsupported", wantErr: apperrors.ErrBadRequest},
 	}
 
@@ -40,4 +41,22 @@ func TestEvaluateDependencyConditions(t *testing.T) {
 			require.Equal(t, tt.wantDone, done)
 		})
 	}
+}
+
+func TestEvaluateInspectionHealthyWaitsForDockerHealthState(t *testing.T) {
+	done, err := dependencywait.EvaluateInspection(model.ContainerInspection{
+		Healthcheck: &model.Healthcheck{Test: []string{"CMD-SHELL", "pg_isready -U postgres"}},
+		State:       model.ContainerState{Status: "created", Running: false},
+	}, model.ComposeDependencyConditionHealthy)
+
+	require.NoError(t, err)
+	require.False(t, done)
+}
+
+func TestEvaluateInspectionHealthyStillRejectsMissingHealthcheck(t *testing.T) {
+	_, err := dependencywait.EvaluateInspection(model.ContainerInspection{
+		State: model.ContainerState{Status: "running", Running: true},
+	}, model.ComposeDependencyConditionHealthy)
+
+	require.ErrorIs(t, err, apperrors.ErrBadRequest)
 }

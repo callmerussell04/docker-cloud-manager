@@ -377,7 +377,7 @@ func (s *ProjectService) projectDependencyReady(ctx context.Context, dep model.P
 	if err != nil {
 		return false, err
 	}
-	return dependencywait.Evaluate(inspect.State, dep.Condition)
+	return dependencywait.EvaluateInspection(inspect, dep.Condition)
 }
 
 func containerStatusBlocksProjectTick(status string) bool {

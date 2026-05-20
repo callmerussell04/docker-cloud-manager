@@ -52,6 +52,10 @@ type containerLifecycleQueueRepository interface {
 	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
 }
 
+type containerActiveOperationRepository interface {
+	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
+}
+
 type containerLockRepository interface {
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
@@ -591,6 +595,15 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 			s.refreshProjectStatus(ctx, c.ProjectID)
 			s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
 			return nil
+		}
+	}
+	if activeRepo, ok := s.repo.(containerActiveOperationRepository); ok {
+		active, err := activeRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+		if err != nil {
+			return err
+		}
+		if active {
+			return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
 		}
 	}
 	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, containerqueue.LifecycleMessage{

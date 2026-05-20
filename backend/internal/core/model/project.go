@@ -37,10 +37,11 @@ const (
 	ComposeOutboxStatusPublished  = "published"
 	ComposeOutboxStatusDiscarded  = "discarded"
 
-	ComposeDeploymentStagePlanning = "planning"
-	ComposeDeploymentStageBuilding = "building"
-	ComposeDeploymentStageCreating = "creating"
-	ComposeDeploymentStageStarting = "starting"
+	ComposeDeploymentStagePlanning    = "planning"
+	ComposeDeploymentStageBuilding    = "building"
+	ComposeDeploymentStageCreating    = "creating"
+	ComposeDeploymentStageStarting    = "starting"
+	ComposeDeploymentStageRollingBack = "rolling_back"
 )
 
 type Project struct {
