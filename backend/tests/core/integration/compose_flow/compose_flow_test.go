@@ -1,12 +1,15 @@
 package compose_flow_test
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -30,7 +33,7 @@ func TestComposeUploadPersistsDurableJobAndPlan(t *testing.T) {
 	objects := map[string][]byte{}
 	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "demo", "compose.zip", bytes.NewReader(composeZip(t, map[string]string{
+	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
 		"docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
 	})))
 	require.NoError(t, err)
@@ -80,6 +83,52 @@ func TestComposeUploadPersistsDurableJobAndPlan(t *testing.T) {
 	require.Zero(t, activeBytes)
 }
 
+func TestComposeUploadAcceptsRequestedComposeFileFromArchive(t *testing.T) {
+	tests := []struct {
+		name        string
+		archiveName string
+		archive     []byte
+		wantSuffix  string
+	}{
+		{
+			name:        "zip",
+			archiveName: "compose.zip",
+			archive: composeZip(t, map[string]string{
+				"deploy/docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
+			}),
+			wantSuffix: ".zip",
+		},
+		{
+			name:        "tar.gz",
+			archiveName: "compose.tar.gz",
+			archive: composeTarGz(t, map[string]string{
+				"deploy/docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
+			}),
+			wantSuffix: ".tar.gz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			repos := coretest.OpenCoreRepositories(t)
+			ownerID := uuid.New()
+			objects := map[string][]byte{}
+			orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
+
+			projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "nested-demo", tt.archiveName, "deploy/docker-compose.yml", bytes.NewReader(tt.archive))
+			require.NoError(t, err)
+
+			job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+			require.NoError(t, err)
+			require.Equal(t, "deploy/docker-compose.yml", job.ComposeFile)
+			require.Equal(t, model.ComposeSourceTypeUpload, job.SourceType)
+			require.True(t, strings.HasSuffix(job.SourceObjectKey, tt.wantSuffix), job.SourceObjectKey)
+			require.Contains(t, objects, job.SourceObjectKey)
+		})
+	}
+}
+
 func TestComposeUploadWithBuildCreatesProjectBuildJob(t *testing.T) {
 	ctx := context.Background()
 	repos := coretest.OpenCoreRepositories(t)
@@ -87,7 +136,7 @@ func TestComposeUploadWithBuildCreatesProjectBuildJob(t *testing.T) {
 	objects := map[string][]byte{}
 	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "build-demo", "compose.zip", bytes.NewReader(composeZip(t, map[string]string{
+	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "build-demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
 		"docker-compose.yml": "services:\n  web:\n    build:\n      context: .\n      dockerfile: Dockerfile\n",
 		"Dockerfile":         "FROM scratch\n",
 	})))
@@ -118,7 +167,7 @@ func TestComposeCancelBeforeWorkerStartReleasesSource(t *testing.T) {
 	objects := map[string][]byte{}
 	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "cancel-demo", "compose.zip", bytes.NewReader(composeZip(t, map[string]string{
+	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "cancel-demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
 		"docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
 	})))
 	require.NoError(t, err)
@@ -142,14 +191,38 @@ func TestComposeCancelBeforeWorkerStartReleasesSource(t *testing.T) {
 
 func TestComposeUploadValidationFailuresDoNotCreateDurableJob(t *testing.T) {
 	tests := []struct {
-		name    string
-		cfgEdit func(*config.SystemConfig)
-		archive []byte
-		wantErr error
+		name        string
+		cfgEdit     func(*config.SystemConfig)
+		archive     []byte
+		composeFile string
+		wantErr     error
 	}{
 		{
 			name:    "invalid compose",
 			archive: composeZipForTable(t, map[string]string{"docker-compose.yml": "name: empty\n"}),
+			wantErr: apperrors.ErrBadRequest,
+		},
+		{
+			name:        "requested compose missing",
+			archive:     composeZipForTable(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
+			composeFile: "deploy/docker-compose.yml",
+			wantErr:     apperrors.ErrBadRequest,
+		},
+		{
+			name:        "invalid requested compose path",
+			archive:     composeZipForTable(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
+			composeFile: "../docker-compose.yml",
+			wantErr:     apperrors.ErrBadRequest,
+		},
+		{
+			name:        "raw compose with compose_file",
+			archive:     []byte("services:\n  web:\n    image: nginx\n"),
+			composeFile: "deploy/docker-compose.yml",
+			wantErr:     apperrors.ErrBadRequest,
+		},
+		{
+			name:    "corrupt tar",
+			archive: []byte("not a tar"),
 			wantErr: apperrors.ErrBadRequest,
 		},
 		{
@@ -175,7 +248,14 @@ func TestComposeUploadValidationFailuresDoNotCreateDurableJob(t *testing.T) {
 				tt.cfgEdit(&cfg)
 			}
 			orchestrator := newOrchestrator(t, repos, ownerID, objects, cfg)
-			_, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "bad-demo", "compose.zip", bytes.NewReader(tt.archive))
+			archiveName := "compose.zip"
+			if tt.name == "raw compose with compose_file" {
+				archiveName = "docker-compose.yml"
+			}
+			if tt.name == "corrupt tar" {
+				archiveName = "compose.tar"
+			}
+			_, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "bad-demo", archiveName, tt.composeFile, bytes.NewReader(tt.archive))
 			require.ErrorIs(t, err, tt.wantErr)
 			require.Zero(t, countTable(t, repos.DB, "projects"))
 			require.Zero(t, countTable(t, repos.DB, "compose_deployment_jobs"))
@@ -189,6 +269,26 @@ func TestComposeUploadValidationFailuresDoNotCreateDurableJob(t *testing.T) {
 func composeZipForTable(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	return composeZip(t, files)
+}
+
+func composeTarGz(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gzw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gzw)
+	for name, body := range files {
+		data := []byte(body)
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name: name,
+			Mode: 0600,
+			Size: int64(len(data)),
+		}))
+		_, err := tw.Write(data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gzw.Close())
+	return buf.Bytes()
 }
 
 func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, objects map[string][]byte, cfgValue config.SystemConfig) *compose.Orchestrator {

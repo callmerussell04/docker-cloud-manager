@@ -24,7 +24,7 @@ type ComposeHandler struct {
 }
 
 type ComposeUseCases interface {
-	StartDeployment(ctx context.Context, projectName, archiveName string, archive io.Reader) (uuid.UUID, error)
+	StartDeployment(ctx context.Context, projectName, archiveName, composeFile string, archive io.Reader) (uuid.UUID, error)
 	StartGitDeployment(ctx context.Context, projectName string, source model.GitSource) (uuid.UUID, error)
 }
 
@@ -45,7 +45,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		return
 	}
 
-	var projectName string
+	var projectName, composeFile string
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -62,7 +62,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 				httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 				return
 			}
-			projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), projectName, part.FileName(), part)
+			projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), projectName, part.FileName(), composeFile, part)
 			_ = part.Close()
 			if err != nil {
 				httpresponse.Respond(c, httpresponse.Status(err), err)
@@ -82,6 +82,9 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		}
 		if name == "project_name" {
 			projectName = string(value)
+		}
+		if name == "compose_file" {
+			composeFile = string(value)
 		}
 	}
 

@@ -132,14 +132,16 @@ func TestComposeHandlerDeployComposeAndGit(t *testing.T) {
 	composeSvc := corehttpmocks.NewMockComposeUseCases(t)
 	var projectName string
 	var archiveName string
+	var composeFile string
 	var archiveData string
 	var gitProjectName string
 	var gitSource model.GitSource
 	composeSvc.EXPECT().
-		StartDeployment(mock.Anything, "demo", "compose.zip", mock.Anything).
-		Run(func(ctx context.Context, name, fileName string, archive io.Reader) {
+		StartDeployment(mock.Anything, "demo", "compose.zip", "deploy/docker-compose.yml", mock.Anything).
+		Run(func(ctx context.Context, name, fileName, requestedComposeFile string, archive io.Reader) {
 			projectName = name
 			archiveName = fileName
+			composeFile = requestedComposeFile
 			data, err := io.ReadAll(archive)
 			require.NoError(t, err)
 			archiveData = string(data)
@@ -159,12 +161,14 @@ func TestComposeHandlerDeployComposeAndGit(t *testing.T) {
 
 	body, contentType := multipartBody(t, []formPart{
 		{name: "project_name", value: "demo"},
+		{name: "compose_file", value: "deploy/docker-compose.yml"},
 		{name: "archive", fileName: "compose.zip", value: "zip"},
 	})
 	resp := perform(router, http.MethodPost, "/projects/compose", contentType, body)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 	require.Equal(t, "demo", projectName)
 	require.Equal(t, "compose.zip", archiveName)
+	require.Equal(t, "deploy/docker-compose.yml", composeFile)
 	require.Equal(t, "zip", archiveData)
 
 	resp = perform(router, http.MethodPost, "/projects/compose/git", "application/json", strings.NewReader(`{"project_name":"demo","repo_url":"https://github.com/acme/app.git","ref":"main","compose_file":"deploy/docker-compose.yml"}`))

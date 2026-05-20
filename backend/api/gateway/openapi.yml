@@ -610,10 +610,13 @@ paths:
                 project_name:
                   type: string
                   description: "Name of the compose project"
+                compose_file:
+                  type: string
+                  description: "Optional relative path to docker-compose.yml inside archive, for example deploy/docker-compose.yml"
                 archive:
                   type: string
                   format: binary
-                  description: ".zip archive containing docker-compose.yml and sources"
+                  description: ".zip, .tar, .tar.gz, .tgz archive containing a Compose file and sources, or raw .yml/.yaml without builds"
       responses:
         '202':
           description: Compose deployment accepted

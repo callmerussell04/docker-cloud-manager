@@ -44,10 +44,10 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 	}
 
 	fileID := uuid.New().String()
-	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, "compose.zip")
+	archiveObjectKey := buildobjects.ArchiveObjectKey(fileID, sourceObjectKey)
 	logObjectKey := buildobjects.LogObjectKey(fileID)
 
-	if err := c.objectStore.CopyObject(ctx, sourceObjectKey, archiveObjectKey, "application/zip"); err != nil {
+	if err := c.objectStore.CopyObject(ctx, sourceObjectKey, archiveObjectKey, composeArchiveContentType(sourceObjectKey)); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
 		cancel()
@@ -73,6 +73,19 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 		return uuid.Nil, err
 	}
 	return buildID, nil
+}
+
+func composeArchiveContentType(sourceObjectKey string) string {
+	switch buildobjects.ArchiveObjectExt(sourceObjectKey) {
+	case ".zip":
+		return "application/zip"
+	case ".tar":
+		return "application/x-tar"
+	case ".tar.gz", ".tgz":
+		return "application/gzip"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func (c *LocalBuilderClient) CancelBuild(ctx context.Context, buildID uuid.UUID) error {

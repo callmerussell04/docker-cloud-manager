@@ -1,7 +1,9 @@
 package compose
 
 import (
+	"archive/tar"
 	"archive/zip"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -366,7 +368,7 @@ func isDeploymentInterrupted(ctx context.Context, err error) bool {
 	return errors.Is(context.Cause(ctx), errComposeDeploymentInterrupted)
 }
 
-func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archiveName string, archive io.Reader) (uuid.UUID, error) {
+func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archiveName, composeFile string, archive io.Reader) (uuid.UUID, error) {
 	if o.objectStore == nil {
 		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, "compose source storage is unavailable")
 	}
@@ -376,6 +378,13 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	}
 	if err := o.ensureHostDiskFloorForWrite(o.cfg.Get().ComposeUploadMaxBytes); err != nil {
 		return uuid.Nil, err
+	}
+	if composeFile != "" {
+		clean, err := gitsource.CleanRelativePath(composeFile)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
+		}
+		composeFile = clean
 	}
 	cfg := o.cfg.Get()
 	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), archiveName)
@@ -404,12 +413,12 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 		o.updateComposeSourceBytes(ctx, sourceObjectKey, size)
 	}
 
-	prepared, err := o.prepareObjectSource(ctx, sourceObjectKey, "")
+	prepared, err := o.prepareObjectSource(ctx, sourceObjectKey, composeFile)
 	if err != nil {
 		releaseReservation()
 		return uuid.Nil, err
 	}
-	projectID, err := o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeUpload, sourceObjectKey, "", prepared)
+	projectID, err := o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeUpload, sourceObjectKey, composeFile, prepared)
 	if err != nil {
 		releaseReservation()
 		return uuid.Nil, err
@@ -1701,16 +1710,32 @@ func (o *Orchestrator) checkCanceled(ctx context.Context, state *deploymentState
 }
 
 func (o *Orchestrator) prepareObjectSource(ctx context.Context, objectKey, composeFile string) (preparedDeploymentSource, error) {
-	readerAt, size, err := o.objectStore.NewReaderAt(ctx, objectKey)
-	if err != nil {
-		return preparedDeploymentSource{}, err
-	}
-	if zr, err := zip.NewReader(readerAt, size); err == nil {
+	switch composeSourceExt(objectKey) {
+	case ".zip":
+		readerAt, size, err := o.objectStore.NewReaderAt(ctx, objectKey)
+		if err != nil {
+			return preparedDeploymentSource{}, err
+		}
+		zr, err := zip.NewReader(readerAt, size)
+		if err != nil {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid zip archive")
+		}
 		return extractComposeFileFromZip(zr, objectKey, composeFile)
+	case ".tar":
+		return o.prepareTarObjectSource(ctx, objectKey, composeFile, false)
+	case ".tar.gz", ".tgz":
+		return o.prepareTarObjectSource(ctx, objectKey, composeFile, true)
+	case ".yml", ".yaml":
+		if composeFile != "" {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose_file is only supported for archive uploads")
+		}
+		return o.prepareRawComposeObjectSource(ctx, objectKey)
+	default:
+		return preparedDeploymentSource{}, apperrors.ErrInvalidFileFormat
 	}
-	if composeFile != "" {
-		return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose source object is not a zip archive")
-	}
+}
+
+func (o *Orchestrator) prepareRawComposeObjectSource(ctx context.Context, objectKey string) (preparedDeploymentSource, error) {
 	rc, err := o.objectStore.OpenObject(ctx, objectKey)
 	if err != nil {
 		return preparedDeploymentSource{}, err
@@ -1721,7 +1746,7 @@ func (o *Orchestrator) prepareObjectSource(ctx context.Context, objectKey, compo
 		return preparedDeploymentSource{}, err
 	}
 	if !strings.Contains(string(composeYAML), "services:") {
-		return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid file format: expected zip archive or raw docker-compose.yml")
+		return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid file format: expected archive or raw docker-compose.yml")
 	}
 	return preparedDeploymentSource{
 		ComposeYAML:     composeYAML,
@@ -1730,19 +1755,33 @@ func (o *Orchestrator) prepareObjectSource(ctx context.Context, objectKey, compo
 	}, nil
 }
 
-func extractComposeFileFromZip(zr *zip.Reader, objectKey, requested string) (preparedDeploymentSource, error) {
-	candidates := []string{requested}
-	if requested == "" {
-		candidates = []string{"docker-compose.yml", "docker-compose.yaml"}
+func (o *Orchestrator) prepareTarObjectSource(ctx context.Context, objectKey, composeFile string, gzipped bool) (preparedDeploymentSource, error) {
+	rc, err := o.objectStore.OpenObject(ctx, objectKey)
+	if err != nil {
+		return preparedDeploymentSource{}, err
 	}
-	for _, candidate := range candidates {
-		if candidate == "" {
-			continue
+	defer rc.Close()
+	var tarReader io.Reader = rc
+	if gzipped {
+		gzr, err := gzip.NewReader(rc)
+		if err != nil {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid gzip archive")
 		}
-		clean := filepath.ToSlash(filepath.Clean(candidate))
+		defer gzr.Close()
+		tarReader = gzr
+	}
+	return extractComposeFileFromTar(tar.NewReader(tarReader), objectKey, composeFile)
+}
+
+func extractComposeFileFromZip(zr *zip.Reader, objectKey, requested string) (preparedDeploymentSource, error) {
+	candidates := composeFileCandidates(requested)
+	for _, clean := range candidates {
 		for _, f := range zr.File {
-			if filepath.ToSlash(f.Name) != clean {
+			if cleanArchiveEntryName(f.Name) != clean {
 				continue
+			}
+			if f.FileInfo().IsDir() {
+				return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose file path points to a directory")
 			}
 			if f.UncompressedSize64 > maxComposeYAMLBytes {
 				return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose file exceeds configured size limit")
@@ -1767,6 +1806,61 @@ func extractComposeFileFromZip(zr *zip.Reader, objectKey, requested string) (pre
 	return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in zip archive")
 }
 
+func extractComposeFileFromTar(tr *tar.Reader, objectKey, requested string) (preparedDeploymentSource, error) {
+	candidates := composeFileCandidates(requested)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid tar archive")
+		}
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		name := cleanArchiveEntryName(header.Name)
+		if !isComposeFileCandidate(name, candidates) {
+			continue
+		}
+		if header.Size > maxComposeYAMLBytes {
+			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "compose file exceeds configured size limit")
+		}
+		composeYAML, err := readLimitedComposeYAML(tr)
+		if err != nil {
+			return preparedDeploymentSource{}, err
+		}
+		return preparedDeploymentSource{
+			ComposeYAML:     composeYAML,
+			ComposeBaseDir:  filepath.ToSlash(filepath.Dir(name)),
+			SourceObjectKey: objectKey,
+			Archive:         true,
+		}, nil
+	}
+	return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in tar archive")
+}
+
+func composeFileCandidates(requested string) []string {
+	if requested != "" {
+		return []string{filepath.ToSlash(filepath.Clean(requested))}
+	}
+	return []string{"docker-compose.yml", "docker-compose.yaml"}
+}
+
+func isComposeFileCandidate(name string, candidates []string) bool {
+	for _, candidate := range candidates {
+		if candidate != "" && name == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func cleanArchiveEntryName(name string) string {
+	name = strings.TrimPrefix(strings.ReplaceAll(name, "\\", "/"), "./")
+	return filepath.ToSlash(filepath.Clean(name))
+}
+
 func readLimitedComposeYAML(r io.Reader) ([]byte, error) {
 	limited := io.LimitReader(r, maxComposeYAMLBytes+1)
 	data, err := io.ReadAll(limited)
@@ -1780,11 +1874,21 @@ func readLimitedComposeYAML(r io.Reader) ([]byte, error) {
 }
 
 func composeSourceObjectKey(fileID, fileName string) string {
-	ext := strings.ToLower(filepath.Ext(fileName))
-	if ext != ".zip" {
-		ext = ".zip"
-	}
+	ext := composeSourceExt(fileName)
 	return "compose-sources/" + fileID + ext
+}
+
+func composeSourceExt(fileName string) string {
+	lower := strings.ToLower(fileName)
+	if strings.HasSuffix(lower, ".tar.gz") {
+		return ".tar.gz"
+	}
+	switch ext := strings.ToLower(filepath.Ext(fileName)); ext {
+	case ".zip", ".tar", ".tgz", ".yml", ".yaml":
+		return ext
+	default:
+		return ".archive"
+	}
 }
 
 func (o *Orchestrator) waitForCondition(ctx context.Context, state *deploymentState, dockerID string, condition string) error {

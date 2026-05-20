@@ -34,7 +34,7 @@ func TestStartDeploymentAllowsImageOnlyComposeWhenImageBuildsDisabled(t *testing
 		Return(nil)
 
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
-	projectID, err := o.StartDeployment(ctx, "proj", "source.zip", bytes.NewReader(zipComposeArchive(t, gitComposeWithoutBuild)))
+	projectID, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithoutBuild)))
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, projectID)
 	require.Equal(t, projectID, savedProject.ID)
@@ -47,7 +47,7 @@ func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T)
 	o := newComposeOrchestratorForTest(t, context.Background(), repo)
 
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
-	_, err := o.StartDeployment(ctx, "proj", "source.zip", bytes.NewReader(zipComposeArchive(t, gitComposeWithBuild)))
+	_, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithBuild)))
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 	repo.AssertNotCalled(t, "CreateWithComposeDeploymentJob", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }

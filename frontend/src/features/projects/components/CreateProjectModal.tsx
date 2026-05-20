@@ -40,6 +40,11 @@ const supportedDirectives = [
   'labels: dcm.internal_port',
 ];
 
+function isRawComposeFile(fileName: string) {
+  const lower = fileName.toLowerCase();
+  return lower.endsWith('.yml') || lower.endsWith('.yaml');
+}
+
 export function CreateProjectModal({ isOpen, onClose, buildAvailability }: CreateProjectModalProps) {
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -49,6 +54,7 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
   const [showInfo, setShowInfo] = useState(false);
   const [isHintHidden, setIsHintHidden] = useState(false);
   const isGitDisabled = buildAvailability?.git_sources_enabled === false;
+  const selectedArchiveIsRawCompose = file ? isRawComposeFile(file.name) : false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectForm>({
     resolver: zodResolver(createProjectSchema(t)),
@@ -90,6 +96,9 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
 
     const formData = new FormData();
     formData.append('project_name', data.project_name);
+    if (!selectedArchiveIsRawCompose && data.compose_file?.trim()) {
+      formData.append('compose_file', data.compose_file.trim());
+    }
     formData.append('archive', file as File);
 
     mutation.mutate(formData, {
@@ -150,16 +159,28 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
           />
 
           {sourceMode === 'archive' && (
-            <FileDropzone
-              file={file}
-              accept=".zip,.tar,.tar.gz,.tgz,.yml,.yaml"
-              title={t('projects.uploadFile')}
-              hint={t('projects.archiveHint')}
-              extraHint={t('projects.ymlHint')}
-              removeLabel={t('projects.chooseOtherFile')}
-              onFileChange={handleFileChange}
-              onRemove={() => setFile(null)}
-            />
+            <div className="space-y-4">
+              <FileDropzone
+                file={file}
+                accept=".zip,.tar,.tar.gz,.tgz,.yml,.yaml"
+                title={t('projects.uploadFile')}
+                hint={t('projects.archiveHint')}
+                extraHint={t('projects.ymlHint')}
+                removeLabel={t('projects.chooseOtherFile')}
+                onFileChange={handleFileChange}
+                onRemove={() => setFile(null)}
+              />
+              <div className="space-y-2">
+                <Label htmlFor="upload_compose_file">{t('projects.composeFile')}</Label>
+                <Input
+                  id="upload_compose_file"
+                  placeholder="docker-compose.yml"
+                  disabled={selectedArchiveIsRawCompose}
+                  {...register('compose_file')}
+                />
+                <p className="text-xs text-slate-500">{t(selectedArchiveIsRawCompose ? 'projects.composeFileRawHint' : 'projects.composeFileArchiveHint')}</p>
+              </div>
+            </div>
           )}
 
           {sourceMode === 'git' && (
