@@ -128,6 +128,11 @@ func main() {
 		ReservedSystemMemory:                 getEnvInt64("RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
 		OvercommitFactor:                     getEnvFloat("OVERCOMMIT_FACTOR", 1.5),
 		MaxBurstMultiplier:                   getEnvInt64("MAX_BURST_MULTIPLIER", 4),
+		DefaultCPUReservation:                getEnvInt64("DEFAULT_CPU_RESERVATION_MILLICORES", 250),
+		ReservedSystemCPU:                    getEnvInt64("RESERVED_SYSTEM_CPU_MILLICORES", 500),
+		CPUOvercommitFactor:                  getEnvFloat("CPU_OVERCOMMIT_FACTOR", 4),
+		MaxCPUBurstMultiplier:                getEnvInt64("MAX_CPU_BURST_MULTIPLIER", 4),
+		ContainerCPUPeriod:                   getEnvInt64("CONTAINER_CPU_PERIOD", 100000),
 		DefaultCPUShares:                     getEnvInt64("DEFAULT_CPU_SHARES", 1024),
 		HighLoadCPUShares:                    getEnvInt64("HIGH_LOAD_CPU_SHARES", 512),
 		HighLoadContainerCount:               getEnvInt("HIGH_LOAD_CONTAINER_COUNT", 5),

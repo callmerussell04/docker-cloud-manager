@@ -3653,6 +3653,11 @@ type SystemConfigData struct {
 	MaxQueuedComposeDeploysPerUser       int32                  `protobuf:"varint,76,opt,name=max_queued_compose_deploys_per_user,json=maxQueuedComposeDeploysPerUser,proto3" json:"max_queued_compose_deploys_per_user,omitempty"`
 	ComposeCoordinatorIntervalSeconds    int64                  `protobuf:"varint,77,opt,name=compose_coordinator_interval_seconds,json=composeCoordinatorIntervalSeconds,proto3" json:"compose_coordinator_interval_seconds,omitempty"`
 	HostMinFreeDiskBytes                 int64                  `protobuf:"varint,78,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
+	DefaultCpuReservationMillicores      int64                  `protobuf:"varint,79,opt,name=default_cpu_reservation_millicores,json=defaultCpuReservationMillicores,proto3" json:"default_cpu_reservation_millicores,omitempty"`
+	ReservedSystemCpuMillicores          int64                  `protobuf:"varint,80,opt,name=reserved_system_cpu_millicores,json=reservedSystemCpuMillicores,proto3" json:"reserved_system_cpu_millicores,omitempty"`
+	CpuOvercommitFactor                  float64                `protobuf:"fixed64,81,opt,name=cpu_overcommit_factor,json=cpuOvercommitFactor,proto3" json:"cpu_overcommit_factor,omitempty"`
+	MaxCpuBurstMultiplier                int64                  `protobuf:"varint,82,opt,name=max_cpu_burst_multiplier,json=maxCpuBurstMultiplier,proto3" json:"max_cpu_burst_multiplier,omitempty"`
+	ContainerCpuPeriod                   int64                  `protobuf:"varint,83,opt,name=container_cpu_period,json=containerCpuPeriod,proto3" json:"container_cpu_period,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4233,6 +4238,41 @@ func (x *SystemConfigData) GetHostMinFreeDiskBytes() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetDefaultCpuReservationMillicores() int64 {
+	if x != nil {
+		return x.DefaultCpuReservationMillicores
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetReservedSystemCpuMillicores() int64 {
+	if x != nil {
+		return x.ReservedSystemCpuMillicores
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetCpuOvercommitFactor() float64 {
+	if x != nil {
+		return x.CpuOvercommitFactor
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMaxCpuBurstMultiplier() int64 {
+	if x != nil {
+		return x.MaxCpuBurstMultiplier
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetContainerCpuPeriod() int64 {
+	if x != nil {
+		return x.ContainerCpuPeriod
+	}
+	return 0
+}
+
 type ContainerStatsResponse struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	CpuPercentage    float64                `protobuf:"fixed64,1,opt,name=cpu_percentage,json=cpuPercentage,proto3" json:"cpu_percentage,omitempty"`
@@ -4643,7 +4683,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xfd$\n" +
+	"totalCount\"\xae'\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -4725,7 +4765,12 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1amax_queued_builds_per_user\x18K \x01(\x05R\x16maxQueuedBuildsPerUser\x12K\n" +
 	"#max_queued_compose_deploys_per_user\x18L \x01(\x05R\x1emaxQueuedComposeDeploysPerUser\x12O\n" +
 	"$compose_coordinator_interval_seconds\x18M \x01(\x03R!composeCoordinatorIntervalSeconds\x126\n" +
-	"\x18host_min_free_disk_bytes\x18N \x01(\x03R\x14hostMinFreeDiskBytes\"\xef\x01\n" +
+	"\x18host_min_free_disk_bytes\x18N \x01(\x03R\x14hostMinFreeDiskBytes\x12K\n" +
+	"\"default_cpu_reservation_millicores\x18O \x01(\x03R\x1fdefaultCpuReservationMillicores\x12C\n" +
+	"\x1ereserved_system_cpu_millicores\x18P \x01(\x03R\x1breservedSystemCpuMillicores\x122\n" +
+	"\x15cpu_overcommit_factor\x18Q \x01(\x01R\x13cpuOvercommitFactor\x127\n" +
+	"\x18max_cpu_burst_multiplier\x18R \x01(\x03R\x15maxCpuBurstMultiplier\x120\n" +
+	"\x14container_cpu_period\x18S \x01(\x03R\x12containerCpuPeriod\"\xef\x01\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

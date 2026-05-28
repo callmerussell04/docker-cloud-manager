@@ -139,9 +139,11 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "example.test", config.BaseDomain)
 	require.True(t, config.ImageBuildsEnabled)
-	require.NoError(t, client.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5}))
+	require.EqualValues(t, 250, config.DefaultCPUReservationMillicores)
+	require.NoError(t, client.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500}))
 	require.Equal(t, "updated.test", systemSrv.updated.BaseDomain)
 	require.Equal(t, int32(5), systemSrv.updated.MaxContainersPerUser)
+	require.EqualValues(t, 500, systemSrv.updated.DefaultCpuReservationMillicores)
 
 	userStats, err := client.GetUserStats(context.Background())
 	require.NoError(t, err)
@@ -350,7 +352,7 @@ type coreSystemServer struct {
 }
 
 func (s *coreSystemServer) GetConfig(context.Context, *coreapi.Empty) (*coreapi.SystemConfigData, error) {
-	return &coreapi.SystemConfigData{BaseDomain: "example.test", ImageBuildsEnabled: true}, nil
+	return &coreapi.SystemConfigData{BaseDomain: "example.test", ImageBuildsEnabled: true, DefaultCpuReservationMillicores: 250}, nil
 }
 
 func (s *coreSystemServer) UpdateConfig(_ context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {

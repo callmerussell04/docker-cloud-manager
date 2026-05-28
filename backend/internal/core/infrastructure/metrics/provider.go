@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"runtime"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -30,6 +31,10 @@ func (m *SystemMetrics) GetFreeMemory() (int64, error) {
 		return 0, err
 	}
 	return int64(v.Available), nil
+}
+
+func (m *SystemMetrics) GetLogicalCPUs() (int64, error) {
+	return int64(runtime.NumCPU()), nil
 }
 
 func (m *SystemMetrics) GetCPULoad() (float64, error) {

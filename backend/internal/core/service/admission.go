@@ -58,3 +58,61 @@ func ensureHostMemoryCapacity(ctx context.Context, metrics HostMetricsProvider, 
 	}
 	return nil
 }
+
+func hostCPUPool(logicalCPUs, reservedSystemCPUMillicores int64, overcommitFactor float64) int64 {
+	if logicalCPUs <= 0 || overcommitFactor <= 0 {
+		return 0
+	}
+	available := logicalCPUs*1000 - reservedSystemCPUMillicores
+	if available <= 0 {
+		return 0
+	}
+	return int64(float64(available) * overcommitFactor)
+}
+
+func ensureHostCPUAdmission(logicalCPUs int64, cfg config.SystemConfig, reservedCPUMillicores, requestedCPUMillicores int64) error {
+	if requestedCPUMillicores < 0 {
+		requestedCPUMillicores = 0
+	}
+	pool := hostCPUPool(logicalCPUs, cfg.ReservedSystemCPU, cfg.CPUOvercommitFactor)
+	if pool <= 0 {
+		return apperrors.ErrHostExhausted
+	}
+	if reservedCPUMillicores+requestedCPUMillicores > pool {
+		return apperrors.ErrHostExhausted
+	}
+	return nil
+}
+
+func ensureHostCPUCapacity(ctx context.Context, metrics HostMetricsProvider, cfg config.SystemConfig, reservedCPUMillicores, requestedCPUMillicores int64, logger *slog.Logger, operation string) error {
+	if metrics == nil {
+		return nil
+	}
+	logicalCPUs, err := metrics.GetLogicalCPUs()
+	if err != nil {
+		if logger != nil {
+			logger.ErrorContext(ctx, "failed to get system cpu count", "operation", operation, "error", err)
+		}
+		return apperrors.ErrInternal
+	}
+	if err := ensureHostCPUAdmission(logicalCPUs, cfg, reservedCPUMillicores, requestedCPUMillicores); err != nil {
+		if logger != nil {
+			pool := hostCPUPool(logicalCPUs, cfg.ReservedSystemCPU, cfg.CPUOvercommitFactor)
+			logger.WarnContext(ctx,
+				"request rejected by host cpu capacity",
+				"operation", operation,
+				"projected_cpu_millicores", reservedCPUMillicores+requestedCPUMillicores,
+				"max_pool_millicores", pool,
+			)
+		}
+		return err
+	}
+	return nil
+}
+
+func buildCPUMillicores(cfg config.SystemConfig) int64 {
+	if cfg.BuildCPUQuota <= 0 || cfg.BuildCPUPeriod <= 0 {
+		return 0
+	}
+	return cfg.BuildCPUQuota * 1000 / cfg.BuildCPUPeriod
+}

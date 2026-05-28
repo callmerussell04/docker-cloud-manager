@@ -6,6 +6,11 @@ type SystemConfig struct {
 	ReservedSystemMemoryBytes            int64
 	OvercommitFactor                     float64
 	MaxBurstMultiplier                   int64
+	DefaultCPUReservationMillicores      int64
+	ReservedSystemCPUMillicores          int64
+	CPUOvercommitFactor                  float64
+	MaxCPUBurstMultiplier                int64
+	ContainerCPUPeriod                   int64
 	DefaultCpuShares                     int64
 	HighLoadCpuShares                    int64
 	HighLoadContainerCount               int

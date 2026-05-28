@@ -1891,6 +1891,21 @@ components:
         max_burst_multiplier:
           type: integer
           format: int64
+        default_cpu_reservation_millicores:
+          type: integer
+          format: int64
+        reserved_system_cpu_millicores:
+          type: integer
+          format: int64
+        cpu_overcommit_factor:
+          type: number
+          format: double
+        max_cpu_burst_multiplier:
+          type: integer
+          format: int64
+        container_cpu_period:
+          type: integer
+          format: int64
         default_cpu_shares:
           type: integer
           format: int64

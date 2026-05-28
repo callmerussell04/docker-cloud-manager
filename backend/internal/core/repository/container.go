@@ -27,10 +27,10 @@ func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error
 	query := `
 		INSERT INTO containers (
 			id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, ttl_deadline, env_vars, base_memory_reservation,
+			status, desired_status, ttl_deadline, env_vars, base_memory_reservation, base_cpu_millicores,
 			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`
 
 	var projectID sql.NullString
@@ -76,7 +76,7 @@ func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error
 
 	_, err = r.db.ExecContext(ctx, query,
 		c.ID, c.OwnerID, projectID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.DomainPrefix,
-		c.Status, desiredStatus, ttl, c.EnvVars, c.BaseMemoryReservation,
+		c.Status, desiredStatus, ttl, c.EnvVars, c.BaseMemoryReservation, c.BaseCPUReservation,
 		generation, c.NetworkAlias, command, entrypoint, c.Restart, healthcheck,
 	)
 	if err != nil {
@@ -285,9 +285,20 @@ func (r *ContainerRepository) GetUserReservedMemory(ctx context.Context, ownerID
 	return totalReserved, err
 }
 
+func (r *ContainerRepository) GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(base_cpu_millicores), 0)
+		FROM containers
+		WHERE owner_id = $1 AND status != $3 AND (status = $2 OR desired_status = $2)
+	`
+	var totalReserved int64
+	err := r.db.QueryRowContext(ctx, query, ownerID, model.ContainerStatusRunning, model.ContainerStatusMissing).Scan(&totalReserved)
+	return totalReserved, err
+}
+
 func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container, error) {
 	query := `
-		SELECT id, docker_id, base_memory_reservation
+		SELECT id, docker_id, base_memory_reservation, base_cpu_millicores
 		FROM containers 
 		WHERE status = $1
 	`
@@ -301,7 +312,7 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container
 	for rows.Next() {
 		var c model.Container
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &dockerID, &c.BaseMemoryReservation); err != nil {
+		if err := rows.Scan(&c.ID, &dockerID, &c.BaseMemoryReservation, &c.BaseCPUReservation); err != nil {
 			return nil, err
 		}
 		if dockerID.Valid {
@@ -342,7 +353,7 @@ func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Con
 func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, env_vars, base_memory_reservation, last_observed_at, last_error,
+			status, desired_status, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE id = $1
 	`
@@ -359,7 +370,7 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, env_vars, base_memory_reservation, last_observed_at, last_error,
+			status, desired_status, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE docker_id = $1
 	`
@@ -404,7 +415,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error, last_exit_code, docker_generation, created_at
+			status, desired_status, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation, created_at
 		FROM containers` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
@@ -431,7 +442,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, last_observed_at, last_error, last_exit_code, docker_generation
+			status, desired_status, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation
 		FROM containers 
 		WHERE project_id = $1
 	`
@@ -452,7 +463,7 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 
 		if err := rows.Scan(
 			&c.ID, &c.OwnerID, &pID, &dID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration,
+			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration,
 		); err != nil {
 			return nil, err
 		}
@@ -537,6 +548,17 @@ func (r *ContainerRepository) GetTotalSystemReservedMemory(ctx context.Context) 
 	query := `
 		SELECT COALESCE(SUM(base_memory_reservation), 0) 
 		FROM containers 
+		WHERE status != $2 AND (status = $1 OR desired_status = $1)
+	`
+	var totalReserved int64
+	err := r.db.QueryRowContext(ctx, query, model.ContainerStatusRunning, model.ContainerStatusMissing).Scan(&totalReserved)
+	return totalReserved, err
+}
+
+func (r *ContainerRepository) GetTotalSystemReservedCPU(ctx context.Context) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(base_cpu_millicores), 0)
+		FROM containers
 		WHERE status != $2 AND (status = $1 OR desired_status = $1)
 	`
 	var totalReserved int64
@@ -1228,12 +1250,12 @@ func insertContainerTx(ctx context.Context, tx *sql.Tx, c model.Container) error
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO containers (
 			id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, ttl_deadline, env_vars, base_memory_reservation,
+			status, desired_status, ttl_deadline, env_vars, base_memory_reservation, base_cpu_millicores,
 			docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`, c.ID, c.OwnerID, projectID, dockerID, c.Name, c.ImageTag, c.InternalPort, c.DomainPrefix,
-		c.Status, desiredStatus, ttl, c.EnvVars, c.BaseMemoryReservation,
+		c.Status, desiredStatus, ttl, c.EnvVars, c.BaseMemoryReservation, c.BaseCPUReservation,
 		generation, c.NetworkAlias, command, entrypoint, c.Restart, healthcheck)
 	if err != nil {
 		return mapContainerUniqueViolation(err, c.DomainPrefix)
@@ -1310,7 +1332,7 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	var lastExitCode sql.NullInt64
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration, &c.CreatedAt,
+		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration, &c.CreatedAt,
 	); err != nil {
 		return model.Container{}, err
 	}
@@ -1344,7 +1366,7 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	var command, entrypoint, healthcheck []byte
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.EnvVars, &c.BaseMemoryReservation, &lastObservedAt, &lastError,
+		&c.Status, &c.DesiredStatus, &c.EnvVars, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError,
 		&lastExitCode, &c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
 	); err != nil {
 		return model.Container{}, err

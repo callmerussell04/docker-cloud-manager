@@ -135,10 +135,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		HostMetrics:   metricsProvider,
 		HostDiskPath:  cfg.HostDiskPath,
 	})
+	contService.SetActiveBuildCounter(buildRepo)
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}
 	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
+	systemService.SetRebalancer(contService)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)

@@ -18,6 +18,11 @@ export interface SystemConfig {
   reserved_system_memory_bytes: number;
   overcommit_factor: number;
   max_burst_multiplier: number;
+  default_cpu_reservation_millicores: number;
+  reserved_system_cpu_millicores: number;
+  cpu_overcommit_factor: number;
+  max_cpu_burst_multiplier: number;
+  container_cpu_period: number;
   default_cpu_shares: number;
   high_load_cpu_shares: number;
   high_load_container_count: number;
@@ -123,8 +128,13 @@ export const systemConfigSchema = z.object({
   base_domain: z.string().min(1),
   default_memory_reservation_bytes: z.number().min(1),
   reserved_system_memory_bytes: z.number().min(0),
-  overcommit_factor: z.number().min(1),
+  overcommit_factor: z.number().positive().max(10),
   max_burst_multiplier: z.number().min(1),
+  default_cpu_reservation_millicores: z.number().min(1),
+  reserved_system_cpu_millicores: z.number().min(0),
+  cpu_overcommit_factor: z.number().positive().max(10),
+  max_cpu_burst_multiplier: z.number().min(1),
+  container_cpu_period: z.number().min(1),
   default_cpu_shares: z.number().min(2),
   high_load_cpu_shares: z.number().min(2),
   high_load_container_count: z.number().min(1),

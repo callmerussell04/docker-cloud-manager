@@ -530,6 +530,11 @@ message SystemConfigData {
   int32 max_queued_compose_deploys_per_user = 76;
   int64 compose_coordinator_interval_seconds = 77;
   int64 host_min_free_disk_bytes = 78;
+  int64 default_cpu_reservation_millicores = 79;
+  int64 reserved_system_cpu_millicores = 80;
+  double cpu_overcommit_factor = 81;
+  int64 max_cpu_burst_multiplier = 82;
+  int64 container_cpu_period = 83;
 }
 
 message ContainerStatsResponse {

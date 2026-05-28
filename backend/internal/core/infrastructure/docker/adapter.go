@@ -135,6 +135,8 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 			MemorySwap:        memorySwap,
 			MemoryReservation: params.MemoryReservation,
 			CPUShares:         params.CPUShares,
+			CPUQuota:          params.CPUQuota,
+			CPUPeriod:         params.CPUPeriod,
 			PidsLimit:         &pidsLimit,
 		},
 		Mounts: mounts,
@@ -287,6 +289,8 @@ func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.
 		MemoryLimitBytes:  containerJSON.HostConfig.Memory,
 		MemoryReservation: containerJSON.HostConfig.MemoryReservation,
 		CPUShares:         containerJSON.HostConfig.CPUShares,
+		CPUQuota:          containerJSON.HostConfig.CPUQuota,
+		CPUPeriod:         containerJSON.HostConfig.CPUPeriod,
 		Restart:           string(containerJSON.HostConfig.RestartPolicy.Name),
 		State: model.ContainerState{
 			Running:   containerJSON.State.Running,
@@ -390,13 +394,15 @@ func (a *Adapter) RemoveImage(ctx context.Context, imageID string, force bool) e
 	return err
 }
 
-func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error {
+func (a *Adapter) UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error {
 	updateConfig := container.UpdateConfig{
 		Resources: container.Resources{
-			Memory:            memoryLimit,
-			MemorySwap:        int64(float64(memoryLimit) * memorySwapMultiplier),
-			MemoryReservation: memoryReservation,
-			CPUShares:         cpuShares,
+			Memory:            resources.MemoryLimitBytes,
+			MemorySwap:        int64(float64(resources.MemoryLimitBytes) * resources.MemorySwapMultiplier),
+			MemoryReservation: resources.MemoryReservation,
+			CPUShares:         resources.CPUShares,
+			CPUQuota:          resources.CPUQuota,
+			CPUPeriod:         resources.CPUPeriod,
 		},
 	}
 

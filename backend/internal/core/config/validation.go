@@ -20,6 +20,18 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxBurstMultiplier <= 0 || cfg.MaxBurstMultiplier > 10 {
 		return fmt.Errorf("max burst multiplier must be between 1 and 10")
 	}
+	if cfg.DefaultCPUReservation <= 0 || cfg.ReservedSystemCPU < 0 {
+		return fmt.Errorf("cpu reservation limits must be positive")
+	}
+	if cfg.CPUOvercommitFactor <= 0 || cfg.CPUOvercommitFactor > 10 {
+		return fmt.Errorf("cpu overcommit factor must be between 0 and 10")
+	}
+	if cfg.MaxCPUBurstMultiplier <= 0 || cfg.MaxCPUBurstMultiplier > 10 {
+		return fmt.Errorf("max cpu burst multiplier must be between 1 and 10")
+	}
+	if cfg.ContainerCPUPeriod <= 0 {
+		return fmt.Errorf("container cpu period must be positive")
+	}
 	if cfg.DefaultCPUShares <= 0 || cfg.HighLoadCPUShares <= 0 {
 		return fmt.Errorf("cpu shares must be positive")
 	}

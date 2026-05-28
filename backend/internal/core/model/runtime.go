@@ -22,6 +22,8 @@ type ContainerRuntimeSpec struct {
 	MemoryReservation    int64
 	MemorySwapMultiplier float64
 	CPUShares            int64
+	CPUQuota             int64
+	CPUPeriod            int64
 	PidsLimit            int64
 	ProxyNetworkName     string
 	VolumeMounts         []ContainerMountSpec
@@ -56,10 +58,21 @@ type ContainerInspection struct {
 	MemoryLimitBytes  int64
 	MemoryReservation int64
 	CPUShares         int64
+	CPUQuota          int64
+	CPUPeriod         int64
 	Restart           string
 	Mounts            []ContainerMountSpec
 	Healthcheck       *Healthcheck
 	State             ContainerState
+}
+
+type ContainerResourceUpdate struct {
+	MemoryLimitBytes     int64
+	MemoryReservation    int64
+	MemorySwapMultiplier float64
+	CPUShares            int64
+	CPUQuota             int64
+	CPUPeriod            int64
 }
 
 type ContainerState struct {

@@ -131,11 +131,13 @@ type projectContainerMock struct {
 type projectCapacityContainerMock struct {
 	*coremocks.ProjectContainerLifecycle
 	requestedRam int64
+	requestedCPU int64
 	err          error
 }
 
-func (m *projectCapacityContainerMock) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error {
+func (m *projectCapacityContainerMock) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error {
 	m.requestedRam = requestedRam
+	m.requestedCPU = requestedCPU
 	return m.err
 }
 

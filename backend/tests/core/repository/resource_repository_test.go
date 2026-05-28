@@ -83,6 +83,7 @@ func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
 		DesiredStatus:         model.ContainerStatusCreated,
 		EnvVars:               []byte(`{"PORT":"8080"}`),
 		BaseMemoryReservation: 256,
+		BaseCPUReservation:    500,
 		DockerGeneration:      1,
 	}, nil, model.ResourceOperation{
 		ID:           operationID,
@@ -112,6 +113,10 @@ func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
 	require.Equal(t, model.OperationStatusRunning, op.Status)
 	require.Equal(t, 1, op.Attempts)
 
+	got, err := containerRepo.GetByID(ctx, containerID)
+	require.NoError(t, err)
+	require.EqualValues(t, 500, got.BaseCPUReservation)
+
 	require.NoError(t, containerRepo.MarkContainerOutboxPublished(ctx, items[0].ID))
 	require.NoError(t, containerRepo.CompleteOperation(ctx, operationID, model.OperationStatusDone, nil))
 	active, err := containerRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
@@ -140,7 +145,11 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 		Status:                model.ContainerStatusRunning,
 		DesiredStatus:         model.ContainerStatusRunning,
 		BaseMemoryReservation: 128,
+		BaseCPUReservation:    250,
 	}))
+	cpuReserved, err := containerRepo.GetTotalSystemReservedCPU(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 250, cpuReserved)
 	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable}))
 	require.NoError(t, volumeRepo.SaveMounts(ctx, []model.VolumeMount{{ContainerID: containerID, VolumeID: volumeID, MountPath: "/data", IsReadOnly: true}}))
 

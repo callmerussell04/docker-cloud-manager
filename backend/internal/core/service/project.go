@@ -223,6 +223,11 @@ func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Projec
 		return err
 	}
 	requestedRam := int64(0)
+	requestedCPU := int64(0)
+	cfg := config.SystemConfig{}
+	if s.cfg != nil {
+		cfg = s.cfg.Get()
+	}
 	for _, container := range containers {
 		switch container.Status {
 		case model.ContainerStatusRunning, model.ContainerStatusStarting, model.ContainerStatusMissing, model.ContainerStatusError:
@@ -230,14 +235,19 @@ func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Projec
 		}
 		reservation := container.BaseMemoryReservation
 		if reservation <= 0 && s.cfg != nil {
-			reservation = s.cfg.Get().DefaultMemoryReservation
+			reservation = cfg.DefaultMemoryReservation
 		}
 		requestedRam += reservation
+		cpuReservation := container.BaseCPUReservation
+		if cpuReservation <= 0 && s.cfg != nil {
+			cpuReservation = cfg.DefaultCPUReservation
+		}
+		requestedCPU += cpuReservation
 	}
-	if requestedRam <= 0 {
+	if requestedRam <= 0 && requestedCPU <= 0 {
 		return nil
 	}
-	return checker.CheckCapacity(ctx, p.OwnerID, requestedRam, 0)
+	return checker.CheckCapacity(ctx, p.OwnerID, requestedRam, requestedCPU, 0)
 }
 
 func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {

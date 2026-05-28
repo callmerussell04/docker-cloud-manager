@@ -27,9 +27,11 @@ type ContainerRepository interface {
 	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetRunning(ctx context.Context) ([]model.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
 	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
@@ -77,7 +79,7 @@ type ContainerDockerAPI interface {
 	StartContainer(ctx context.Context, dockerID string) error
 	StopContainer(ctx context.Context, dockerID string, timeout int) error
 	RemoveContainer(ctx context.Context, dockerID string, force bool) error
-	UpdateContainerResources(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) error
+	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
 	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
@@ -90,6 +92,7 @@ type containerImageRemover interface {
 type HostMetricsProvider interface {
 	GetTotalMemory() (int64, error)
 	GetFreeMemory() (int64, error)
+	GetLogicalCPUs() (int64, error)
 }
 
 type ContainerImageRepository interface {
@@ -126,6 +129,7 @@ type ContainerService struct {
 	users        UserInfoProvider
 	projects     ProjectStatusUpdater
 	auditor      AuditRecorder
+	builds       activeSystemBuildCounter
 	hostDiskPath string
 	logger       *slog.Logger
 	rebalanceCh  chan struct{}
@@ -162,6 +166,10 @@ func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater)
 
 func (s *ContainerService) SetAuditRecorder(auditor AuditRecorder) {
 	s.auditor = auditor
+}
+
+func (s *ContainerService) SetActiveBuildCounter(counter activeSystemBuildCounter) {
+	s.builds = counter
 }
 
 func (s *ContainerService) Create(ctx context.Context, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
@@ -237,9 +245,13 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if reqMem <= 0 {
 		reqMem = cfg.DefaultMemoryReservation
 	}
+	reqCPU := cfg.DefaultCPUReservation
 
 	// 2. Admission Control: Проверка квоты пользователя
 	if err := s.checkUserQuota(ctx, ownerID, reqMem); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.checkUserCPUQuota(ctx, ownerID, reqCPU); err != nil {
 		return uuid.Nil, err
 	}
 	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
@@ -248,6 +260,9 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 
 	// 3. Admission Control: Проверка свободных ресурсов хоста (Защита сервера)
 	if err := s.checkHostCapacity(ctx, reqMem); err != nil {
+		return uuid.Nil, err
+	}
+	if err := s.checkHostCPUCapacity(ctx, reqCPU); err != nil {
 		return uuid.Nil, err
 	}
 	if err := s.checkHostDiskCapacity(); err != nil {
@@ -329,6 +344,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		TTLDeadline:           ttlDeadline,
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
+		BaseCPUReservation:    reqCPU,
 		DockerGeneration:      1,
 		NetworkAlias:          networkAlias,
 		Command:               params.Command,
@@ -540,10 +556,19 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	}
 	defer releaseLock()
 	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
-	if err := s.checkUserQuota(ctx, ownerID, c.BaseMemoryReservation); err != nil {
+	cfg := s.config.Get()
+	requestedMemory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
+	requestedCPU := normalizeCPUReservation(c.BaseCPUReservation, cfg)
+	if err := s.checkUserQuota(ctx, ownerID, requestedMemory); err != nil {
 		return err
 	}
-	if err := s.checkHostCapacity(ctx, c.BaseMemoryReservation); err != nil {
+	if err := s.checkUserCPUQuota(ctx, ownerID, requestedCPU); err != nil {
+		return err
+	}
+	if err := s.checkHostCapacity(ctx, requestedMemory); err != nil {
+		return err
+	}
+	if err := s.checkHostCPUCapacity(ctx, requestedCPU); err != nil {
 		return err
 	}
 	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {

@@ -6,6 +6,11 @@ type SystemConfigDTO struct {
 	ReservedSystemMemoryBytes            int64    `json:"reserved_system_memory_bytes"`
 	OvercommitFactor                     float64  `json:"overcommit_factor"`
 	MaxBurstMultiplier                   int64    `json:"max_burst_multiplier"`
+	DefaultCPUReservationMillicores      int64    `json:"default_cpu_reservation_millicores"`
+	ReservedSystemCPUMillicores          int64    `json:"reserved_system_cpu_millicores"`
+	CPUOvercommitFactor                  float64  `json:"cpu_overcommit_factor"`
+	MaxCPUBurstMultiplier                int64    `json:"max_cpu_burst_multiplier"`
+	ContainerCPUPeriod                   int64    `json:"container_cpu_period"`
 	DefaultCpuShares                     int64    `json:"default_cpu_shares"`
 	HighLoadCpuShares                    int64    `json:"high_load_cpu_shares"`
 	HighLoadContainerCount               int      `json:"high_load_container_count"`

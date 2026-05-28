@@ -49,6 +49,7 @@ type buildCapacityLockRepository interface {
 
 type buildContainerReservationRepository interface {
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
 
 type BuildImageRepository interface {
@@ -193,6 +194,7 @@ func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) er
 func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
 	cfg := s.buildConfig()
 	reserved := int64(0)
+	reservedCPU := int64(0)
 	if s.containers != nil {
 		containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
 		if err != nil {
@@ -200,6 +202,12 @@ func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
 			return apperrors.ErrInternal
 		}
 		reserved += containerReserved
+		containerReservedCPU, err := s.containers.GetTotalSystemReservedCPU(ctx)
+		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to calculate container reserved cpu", "error", err)
+			return apperrors.ErrInternal
+		}
+		reservedCPU += containerReservedCPU
 	}
 	if counter, ok := s.repo.(activeSystemBuildCounter); ok {
 		activeBuilds, err := counter.CountActive(ctx)
@@ -207,8 +215,12 @@ func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
 			return err
 		}
 		reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
+		reservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
 	}
-	return ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build")
+	if err := ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build"); err != nil {
+		return err
+	}
+	return ensureHostCPUCapacity(ctx, s.hostMetrics, cfg, reservedCPU, buildCPUMillicores(cfg), s.logger, "build")
 }
 
 func (s *BuildService) acquireBuildCapacityLock(ctx context.Context) (func(), error) {
@@ -594,6 +606,10 @@ func (s *BuildService) buildConfig() config.SystemConfig {
 			GitCloneTimeoutSeconds: 60,
 			GitMaxRepositoryBytes:  200 * 1024 * 1024,
 			MaxQueuedBuildsPerUser: 10,
+			CPUOvercommitFactor:    4,
+			ContainerCPUPeriod:     100000,
+			BuildCPUQuota:          100000,
+			BuildCPUPeriod:         100000,
 		}
 	}
 	return s.cfg.Get()

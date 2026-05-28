@@ -156,10 +156,13 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024}, nil)
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
 	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)
 	repo.ContainerRepository.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
 	imageRepo.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
 		return opts.OwnerID != nil && *opts.OwnerID == ownerID
 	})).Return(nil, 0, nil)
@@ -233,12 +236,13 @@ func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 	var updates int
 	svc := NewContainerService(repo, nil, nil, dockerAPI, metrics, cfg, nil, "", slog.Default())
 
-	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128}}, nil)
+	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128, BaseCPUReservation: 250}}, nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(1024), nil)
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	dockerAPI.EXPECT().
-		UpdateContainerResources(mock.Anything, "docker-id", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Run(func(ctx context.Context, dockerID string, memoryLimit, memoryReservation, cpuShares int64, memorySwapMultiplier float64) {
+		UpdateContainerResources(mock.Anything, "docker-id", mock.Anything).
+		Run(func(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) {
 			updates++
 			select {
 			case <-done:
@@ -260,6 +264,87 @@ func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 	}
 	cancel()
 	require.Equal(t, 1, updates)
+}
+
+func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
+	repo := coremocks.NewContainerRepository(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	metrics := coremocks.NewHostMetricsProvider(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, metrics, cfg, nil, "", slog.Default())
+	cfgValue := staticConfig{}.Get()
+	cfgValue.MaxBurstMultiplier = 3
+	cfgValue.MaxCPUBurstMultiplier = 4
+	cfgValue.ContainerCPUPeriod = 100000
+
+	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{
+		{ID: uuid.New(), DockerID: "docker-a", BaseMemoryReservation: 100, BaseCPUReservation: 250},
+		{ID: uuid.New(), DockerID: "docker-b", BaseMemoryReservation: 100, BaseCPUReservation: 250},
+	}, nil)
+	metrics.EXPECT().GetTotalMemory().Return(int64(1000), nil)
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+
+	dockerAPI.EXPECT().
+		UpdateContainerResources(mock.Anything, mock.AnythingOfType("string"), mock.MatchedBy(func(resources model.ContainerResourceUpdate) bool {
+			return resources.MemoryLimitBytes == 300 &&
+				resources.MemoryReservation == 100 &&
+				resources.CPUQuota == 100000 &&
+				resources.CPUPeriod == 100000 &&
+				resources.CPUShares == 1024
+		})).
+		Return(nil).
+		Twice()
+
+	svc.RebalanceResources(context.Background())
+}
+
+func TestContainerServiceCreateRejectsCPUQuotaExceeded(t *testing.T) {
+	ownerID := uuid.New()
+	repo := newContainerCreateStateRepoMock(t)
+	imageRepo := coremocks.NewContainerImageRepository(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	metrics := coremocks.NewHostMetricsProvider(t)
+	cfg := coremocks.NewConfigManager(t)
+	users := coremocks.NewUserInfoProvider(t)
+	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 0.1}, nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
+
+	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest"})
+	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
+}
+
+func TestContainerServiceCreateRejectsHostCPUCapacity(t *testing.T) {
+	ownerID := uuid.New()
+	repo := newContainerCreateStateRepoMock(t)
+	imageRepo := coremocks.NewContainerImageRepository(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	metrics := coremocks.NewHostMetricsProvider(t)
+	cfg := coremocks.NewConfigManager(t)
+	users := coremocks.NewUserInfoProvider(t)
+	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+	cfgValue := staticConfig{}.Get()
+	cfgValue.CPUOvercommitFactor = 0.2
+
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
+	repo.ContainerRepository.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
+	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
+
+	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest"})
+	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
 }
 
 type containerStateRepoMock struct {
@@ -335,7 +420,13 @@ type staticConfig struct{}
 func (staticConfig) Get() config.SystemConfig {
 	return config.SystemConfig{
 		ReservedSystemMemory:                 0,
+		OvercommitFactor:                     1.5,
 		MaxBurstMultiplier:                   4,
+		DefaultCPUReservation:                250,
+		ReservedSystemCPU:                    0,
+		CPUOvercommitFactor:                  4,
+		MaxCPUBurstMultiplier:                4,
+		ContainerCPUPeriod:                   100000,
 		DefaultCPUShares:                     1024,
 		HighLoadCPUShares:                    512,
 		HighLoadContainerCount:               5,

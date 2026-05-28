@@ -31,6 +31,11 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		ReservedSystemMemoryBytes:            cfg.ReservedSystemMemory,
 		OvercommitFactor:                     cfg.OvercommitFactor,
 		MaxBurstMultiplier:                   cfg.MaxBurstMultiplier,
+		DefaultCpuReservationMillicores:      cfg.DefaultCPUReservation,
+		ReservedSystemCpuMillicores:          cfg.ReservedSystemCPU,
+		CpuOvercommitFactor:                  cfg.CPUOvercommitFactor,
+		MaxCpuBurstMultiplier:                cfg.MaxCPUBurstMultiplier,
+		ContainerCpuPeriod:                   cfg.ContainerCPUPeriod,
 		DefaultCpuShares:                     cfg.DefaultCPUShares,
 		HighLoadCpuShares:                    cfg.HighLoadCPUShares,
 		HighLoadContainerCount:               int32(cfg.HighLoadContainerCount),
@@ -114,6 +119,11 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.ReservedSystemMemory = req.GetReservedSystemMemoryBytes()
 	newCfg.OvercommitFactor = req.GetOvercommitFactor()
 	newCfg.MaxBurstMultiplier = req.GetMaxBurstMultiplier()
+	newCfg.DefaultCPUReservation = req.GetDefaultCpuReservationMillicores()
+	newCfg.ReservedSystemCPU = req.GetReservedSystemCpuMillicores()
+	newCfg.CPUOvercommitFactor = req.GetCpuOvercommitFactor()
+	newCfg.MaxCPUBurstMultiplier = req.GetMaxCpuBurstMultiplier()
+	newCfg.ContainerCPUPeriod = req.GetContainerCpuPeriod()
 	newCfg.DefaultCPUShares = req.GetDefaultCpuShares()
 	newCfg.HighLoadCPUShares = req.GetHighLoadCpuShares()
 	newCfg.HighLoadContainerCount = int(req.GetHighLoadContainerCount())

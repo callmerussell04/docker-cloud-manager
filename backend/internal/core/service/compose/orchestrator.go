@@ -77,7 +77,7 @@ type ContainerService interface {
 }
 
 type CapacityChecker interface {
-	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, projectedDiskWriteBytes int64) error
+	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error
 }
 
 type ComposeDockerAPI interface {
@@ -766,8 +766,10 @@ func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uui
 	if !ok || project == nil {
 		return nil
 	}
-	requestedRam := int64(len(project.Services)) * o.cfg.Get().DefaultMemoryReservation
-	return checker.CheckCapacity(ctx, ownerID, requestedRam, 0)
+	cfg := o.cfg.Get()
+	requestedRam := int64(len(project.Services)) * cfg.DefaultMemoryReservation
+	requestedCPU := int64(len(project.Services)) * cfg.DefaultCPUReservation
+	return checker.CheckCapacity(ctx, ownerID, requestedRam, requestedCPU, 0)
 }
 
 func (o *Orchestrator) reserveComposeSource(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {

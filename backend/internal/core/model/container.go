@@ -36,6 +36,7 @@ type Container struct {
 	TTLDeadline           *time.Time
 	EnvVars               []byte
 	BaseMemoryReservation int64
+	BaseCPUReservation    int64
 	LastObservedAt        *time.Time
 	LastError             *string
 	LastExitCode          *int
