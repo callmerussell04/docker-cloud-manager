@@ -392,6 +392,7 @@ const (
 	ImageAPI_StartBuildRecord_FullMethodName    = "/core.ImageAPI/StartBuildRecord"
 	ImageAPI_CancelBuildRecord_FullMethodName   = "/core.ImageAPI/CancelBuildRecord"
 	ImageAPI_CompleteBuildRecord_FullMethodName = "/core.ImageAPI/CompleteBuildRecord"
+	ImageAPI_GetBuildStatus_FullMethodName      = "/core.ImageAPI/GetBuildStatus"
 	ImageAPI_ListBuilds_FullMethodName          = "/core.ImageAPI/ListBuilds"
 	ImageAPI_GetBuild_FullMethodName            = "/core.ImageAPI/GetBuild"
 	ImageAPI_DeleteBuild_FullMethodName         = "/core.ImageAPI/DeleteBuild"
@@ -406,6 +407,7 @@ type ImageAPIClient interface {
 	StartBuildRecord(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*StartBuildRecordResponse, error)
 	CancelBuildRecord(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	CompleteBuildRecord(ctx context.Context, in *CompleteBuildRequest, opts ...grpc.CallOption) (*Empty, error)
+	GetBuildStatus(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*BuildStatusResponse, error)
 	ListBuilds(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedBuildResponse, error)
 	GetBuild(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*BuildData, error)
 	DeleteBuild(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -469,6 +471,16 @@ func (c *imageAPIClient) CompleteBuildRecord(ctx context.Context, in *CompleteBu
 	return out, nil
 }
 
+func (c *imageAPIClient) GetBuildStatus(ctx context.Context, in *BuildActionRequest, opts ...grpc.CallOption) (*BuildStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BuildStatusResponse)
+	err := c.cc.Invoke(ctx, ImageAPI_GetBuildStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *imageAPIClient) ListBuilds(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedBuildResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaginatedBuildResponse)
@@ -508,6 +520,7 @@ type ImageAPIServer interface {
 	StartBuildRecord(context.Context, *BuildActionRequest) (*StartBuildRecordResponse, error)
 	CancelBuildRecord(context.Context, *BuildActionRequest) (*Empty, error)
 	CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error)
+	GetBuildStatus(context.Context, *BuildActionRequest) (*BuildStatusResponse, error)
 	ListBuilds(context.Context, *PaginationRequest) (*PaginatedBuildResponse, error)
 	GetBuild(context.Context, *BuildActionRequest) (*BuildData, error)
 	DeleteBuild(context.Context, *BuildActionRequest) (*Empty, error)
@@ -535,6 +548,9 @@ func (UnimplementedImageAPIServer) CancelBuildRecord(context.Context, *BuildActi
 }
 func (UnimplementedImageAPIServer) CompleteBuildRecord(context.Context, *CompleteBuildRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompleteBuildRecord not implemented")
+}
+func (UnimplementedImageAPIServer) GetBuildStatus(context.Context, *BuildActionRequest) (*BuildStatusResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBuildStatus not implemented")
 }
 func (UnimplementedImageAPIServer) ListBuilds(context.Context, *PaginationRequest) (*PaginatedBuildResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListBuilds not implemented")
@@ -656,6 +672,24 @@ func _ImageAPI_CompleteBuildRecord_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ImageAPI_GetBuildStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BuildActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ImageAPIServer).GetBuildStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ImageAPI_GetBuildStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ImageAPIServer).GetBuildStatus(ctx, req.(*BuildActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ImageAPI_ListBuilds_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(PaginationRequest)
 	if err := dec(in); err != nil {
@@ -736,6 +770,10 @@ var ImageAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompleteBuildRecord",
 			Handler:    _ImageAPI_CompleteBuildRecord_Handler,
+		},
+		{
+			MethodName: "GetBuildStatus",
+			Handler:    _ImageAPI_GetBuildStatus_Handler,
 		},
 		{
 			MethodName: "ListBuilds",
@@ -1187,8 +1225,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SystemAPI_GetConfig_FullMethodName    = "/core.SystemAPI/GetConfig"
-	SystemAPI_UpdateConfig_FullMethodName = "/core.SystemAPI/UpdateConfig"
+	SystemAPI_GetConfig_FullMethodName                 = "/core.SystemAPI/GetConfig"
+	SystemAPI_UpdateConfig_FullMethodName              = "/core.SystemAPI/UpdateConfig"
+	SystemAPI_GetBuilderRuntimeConfig_FullMethodName   = "/core.SystemAPI/GetBuilderRuntimeConfig"
+	SystemAPI_GetTelemetryRuntimeConfig_FullMethodName = "/core.SystemAPI/GetTelemetryRuntimeConfig"
 )
 
 // SystemAPIClient is the client API for SystemAPI service.
@@ -1197,6 +1237,8 @@ const (
 type SystemAPIClient interface {
 	GetConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemConfigData, error)
 	UpdateConfig(ctx context.Context, in *SystemConfigData, opts ...grpc.CallOption) (*Empty, error)
+	GetBuilderRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BuilderRuntimeConfigData, error)
+	GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error)
 }
 
 type systemAPIClient struct {
@@ -1227,12 +1269,34 @@ func (c *systemAPIClient) UpdateConfig(ctx context.Context, in *SystemConfigData
 	return out, nil
 }
 
+func (c *systemAPIClient) GetBuilderRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BuilderRuntimeConfigData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BuilderRuntimeConfigData)
+	err := c.cc.Invoke(ctx, SystemAPI_GetBuilderRuntimeConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemAPIClient) GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TelemetryRuntimeConfigData)
+	err := c.cc.Invoke(ctx, SystemAPI_GetTelemetryRuntimeConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemAPIServer is the server API for SystemAPI service.
 // All implementations must embed UnimplementedSystemAPIServer
 // for forward compatibility.
 type SystemAPIServer interface {
 	GetConfig(context.Context, *Empty) (*SystemConfigData, error)
 	UpdateConfig(context.Context, *SystemConfigData) (*Empty, error)
+	GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error)
+	GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error)
 	mustEmbedUnimplementedSystemAPIServer()
 }
 
@@ -1248,6 +1312,12 @@ func (UnimplementedSystemAPIServer) GetConfig(context.Context, *Empty) (*SystemC
 }
 func (UnimplementedSystemAPIServer) UpdateConfig(context.Context, *SystemConfigData) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateConfig not implemented")
+}
+func (UnimplementedSystemAPIServer) GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetBuilderRuntimeConfig not implemented")
+}
+func (UnimplementedSystemAPIServer) GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetTelemetryRuntimeConfig not implemented")
 }
 func (UnimplementedSystemAPIServer) mustEmbedUnimplementedSystemAPIServer() {}
 func (UnimplementedSystemAPIServer) testEmbeddedByValue()                   {}
@@ -1306,6 +1376,42 @@ func _SystemAPI_UpdateConfig_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemAPI_GetBuilderRuntimeConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemAPIServer).GetBuilderRuntimeConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemAPI_GetBuilderRuntimeConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemAPIServer).GetBuilderRuntimeConfig(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemAPI_GetTelemetryRuntimeConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemAPI_GetTelemetryRuntimeConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemAPI_ServiceDesc is the grpc.ServiceDesc for SystemAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1320,6 +1426,14 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateConfig",
 			Handler:    _SystemAPI_UpdateConfig_Handler,
+		},
+		{
+			MethodName: "GetBuilderRuntimeConfig",
+			Handler:    _SystemAPI_GetBuilderRuntimeConfig_Handler,
+		},
+		{
+			MethodName: "GetTelemetryRuntimeConfig",
+			Handler:    _SystemAPI_GetTelemetryRuntimeConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

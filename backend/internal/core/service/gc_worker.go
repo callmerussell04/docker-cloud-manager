@@ -123,11 +123,11 @@ func (w *GCWorker) cleanupStaleStagedObjects(ctx context.Context) {
 	}
 	for _, item := range items {
 		if err := w.objectStore.DeleteObject(ctx, item.ObjectKey); err != nil {
-			w.logger.WarnContext(ctx, "failed to delete stale staged object", "object_key", item.ObjectKey, "error", err)
+			w.logger.WarnContext(ctx, "failed to delete stale staged object", "reservation_id", item.ID, "owner_id", item.OwnerID, "kind", item.Kind, "error", err)
 			continue
 		}
 		if err := w.stagedRepo.Release(ctx, item.ObjectKey); err != nil {
-			w.logger.WarnContext(ctx, "failed to release stale staged object reservation", "object_key", item.ObjectKey, "error", err)
+			w.logger.WarnContext(ctx, "failed to release stale staged object reservation", "reservation_id", item.ID, "owner_id", item.OwnerID, "kind", item.Kind, "error", err)
 		}
 	}
 }

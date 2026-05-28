@@ -30,6 +30,9 @@ func RegisterVolumeAPI(gRPCServer *grpc.Server, logic VolumeLogic, users UserDir
 }
 
 func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVolumeRequest) (*coreapi.CreateVolumeResponse, error) {
+	if err := requireUserScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume name is required")
 	}
@@ -49,6 +52,9 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 }
 
 func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	volumeID, err := uuid.Parse(req.GetVolumeId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
@@ -63,6 +69,9 @@ func (h *VolumeHandler) DeleteVolume(ctx context.Context, req *coreapi.VolumeAct
 }
 
 func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	limit, offset := pagination(req)
 	volumes, total, err := h.logic.List(ctx, limit, offset)
 	if err != nil {

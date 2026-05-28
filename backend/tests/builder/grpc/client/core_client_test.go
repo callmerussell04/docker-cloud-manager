@@ -123,16 +123,21 @@ func (s *imageServer) GetBuild(_ context.Context, req *coreapi.BuildActionReques
 	return &coreapi.BuildData{Id: req.BuildId, Status: "canceled"}, nil
 }
 
+func (s *imageServer) GetBuildStatus(_ context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildStatusResponse, error) {
+	s.getBuildID = req.BuildId
+	return &coreapi.BuildStatusResponse{Status: "canceled"}, nil
+}
+
 type systemServer struct {
 	coreapi.UnimplementedSystemAPIServer
 	err error
 }
 
-func (s *systemServer) GetConfig(context.Context, *coreapi.Empty) (*coreapi.SystemConfigData, error) {
+func (s *systemServer) GetBuilderRuntimeConfig(context.Context, *coreapi.Empty) (*coreapi.BuilderRuntimeConfigData, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &coreapi.SystemConfigData{
+	return &coreapi.BuilderRuntimeConfigData{
 		BuildMemoryBytes:               1024,
 		BuildCpuQuota:                  200000,
 		BuildCpuPeriod:                 100000,

@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
 import { Box, KeyRound } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -10,22 +10,19 @@ import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
 import { useToastStore } from '@/store/toastStore';
 import { useAuthStore } from '@/store/authStore';
-import { getAuthConfigFn, loginFn } from '@/features/auth/api';
+import { loginFn } from '@/features/auth/api';
 import { type LoginData, createLoginSchema } from '@/features/auth/types';
+import { useAuthConfig } from '@/features/auth/hooks';
 import { getApiErrorMessage } from '@/lib/apiError';
 import { useT } from '@/lib/i18n';
 import { API_URL } from '@/config';
-import { queryKeys } from '@/shared/api/queryKeys';
 
 export function LoginPage() {
   const navigate = useNavigate();
   const addToast = useToastStore((state) => state.addToast);
   const setAccessToken = useAuthStore((state) => state.setAccessToken);
   const t = useT();
-  const { data: authConfig } = useQuery({
-    queryKey: queryKeys.auth.config,
-    queryFn: getAuthConfigFn,
-  });
+  const { data: authConfig } = useAuthConfig();
   const localLoginEnabled = authConfig?.local_login_enabled ?? true;
   const localRegisterEnabled = authConfig?.local_register_enabled ?? true;
   const keycloakEnabled = authConfig?.oidc_providers.some((provider) => provider.name === 'keycloak') ?? false;

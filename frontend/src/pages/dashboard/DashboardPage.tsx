@@ -1,20 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
 import { Activity, Box, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
-import { getDashboardStatsFn } from '@/features/dashboard/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { formatBytes } from '@/lib/utils';
 import { Button } from '@/components/ui/Button';
 import { useT } from '@/lib/i18n';
-import { queryKeys } from '@/shared/api/queryKeys';
 import { ErrorState } from '@/components/common/ErrorState';
 import { getApiErrorMessage } from '@/lib/apiError';
+import { useDashboardStats } from '@/features/dashboard/hooks';
 
 export function DashboardPage() {
   const t = useT();
-  const { data: stats, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: queryKeys.dashboard.stats,
-    queryFn: getDashboardStatsFn,
-  });
+  const { data: stats, isLoading, isError, error, refetch, isFetching } = useDashboardStats();
 
   const getProgressColor = (percent: number) => {
     if (percent < 70) return 'bg-indigo-500';

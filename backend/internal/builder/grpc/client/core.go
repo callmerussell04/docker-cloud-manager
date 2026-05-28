@@ -24,7 +24,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 }
 
 func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig, error) {
-	resp, err := c.systemAPI.GetConfig(ctx, &coreapi.Empty{})
+	resp, err := c.systemAPI.GetBuilderRuntimeConfig(ctx, &coreapi.Empty{})
 	if err != nil {
 		return config.BuilderConfig{}, grpcerrors.FromGRPC(err)
 	}
@@ -69,7 +69,7 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 }
 
 func (c *CoreClient) GetBuildStatus(ctx context.Context, buildID string) (string, error) {
-	resp, err := c.imageAPI.GetBuild(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
+	resp, err := c.imageAPI.GetBuildStatus(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
 	}

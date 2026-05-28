@@ -12,6 +12,8 @@ import {
   getLogsTicketFn,
   getTerminalTicketFn,
 } from './api';
+import { adminGetContainerStatsFn } from '@/features/admin/api';
+import type { ContainerData, ContainerStats } from './types';
 
 export function useContainers(page: number, limit: number) {
   return useQuery({
@@ -24,12 +26,27 @@ export function useContainers(page: number, limit: number) {
   });
 }
 
-export function useContainerStats(id: string | undefined, isAdmin: boolean, queryFn: () => Promise<unknown>) {
+export function useContainerStats(
+  id: string | undefined,
+  isAdmin: boolean,
+  queryFn: () => Promise<ContainerStats>,
+  refetchInterval?: number | false,
+) {
   return useQuery({
     queryKey: queryKeys.containers.stats(id || '', isAdmin),
     queryFn,
     enabled: !!id,
+    refetchInterval,
   });
+}
+
+export function useContainerDetailsStats(id: string | undefined, isAdmin: boolean, container?: ContainerData) {
+  return useContainerStats(
+    id,
+    isAdmin,
+    () => (isAdmin ? adminGetContainerStatsFn(id as string) : getContainerStatsFn(id as string)),
+    !container || container.status === 'running' ? 3000 : false,
+  );
 }
 
 export function useUserContainerStats(id: string | undefined) {

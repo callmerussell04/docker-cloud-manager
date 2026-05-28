@@ -34,6 +34,9 @@ func RegisterImageAPI(gRPCServer *grpc.Server, imageLogic ImageLogic, buildLogic
 }
 
 func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	imageID, err := uuid.Parse(req.GetImageId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid image_id format")
@@ -48,6 +51,9 @@ func (h *ImageHandler) DeleteImage(ctx context.Context, req *coreapi.ImageAction
 }
 
 func (h *ImageHandler) ListImages(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedImageResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	limit, offset := pagination(req)
 
 	images, total, err := h.imageLogic.List(ctx, limit, offset)

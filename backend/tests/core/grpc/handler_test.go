@@ -10,6 +10,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
@@ -56,8 +58,9 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 		coregrpc.RegisterContainerAPI(s, logic, users)
 	})
 	client := coreapi.NewContainerAPIClient(conn)
+	ctx := userScopeContext(ownerID)
 
-	createResp, err := client.CreateContainer(context.Background(), &coreapi.CreateContainerRequest{
+	createResp, err := client.CreateContainer(ctx, &coreapi.CreateContainerRequest{
 		Name: "web", ImageTag: "nginx:latest",
 		VolumeMounts: []*coreapi.VolumeMount{{VolumeId: uuid.NewString(), MountPath: "/data", IsReadonly: true}},
 	})
@@ -67,13 +70,13 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 	require.Len(t, createParams.VolumeMounts, 1)
 	require.True(t, createParams.VolumeMounts[0].IsReadOnly)
 
-	listResp, err := client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 50, Page: 2})
+	listResp, err := client.ListContainers(ctx, &coreapi.PaginationRequest{Limit: 50, Page: 2})
 	require.NoError(t, err)
 	require.Len(t, listResp.Containers, 1)
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
 	require.Equal(t, int32(1), listResp.TotalCount)
 
-	targetResp, err := client.GetContainerRuntimeTarget(context.Background(), &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
+	targetResp, err := client.GetContainerRuntimeTarget(ctx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
 	require.NoError(t, err)
 	require.Equal(t, "docker-id", targetResp.DockerId)
 	require.Equal(t, int32(2), targetResp.DockerGeneration)
@@ -84,15 +87,37 @@ func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
 		coregrpc.RegisterContainerAPI(s, coregrpcmocks.NewMockContainerLogic(t), nil)
 	})
 	client := coreapi.NewContainerAPIClient(conn)
+	ctx := userScopeContext(uuid.New())
 
-	_, err := client.CreateContainer(context.Background(), &coreapi.CreateContainerRequest{Name: "", ImageTag: ""})
+	_, err := client.CreateContainer(ctx, &coreapi.CreateContainerRequest{Name: "", ImageTag: ""})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = client.StartContainer(context.Background(), &coreapi.ContainerActionRequest{ContainerId: "bad"})
+	_, err = client.StartContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = client.ExposeContainer(context.Background(), &coreapi.ExposeRequest{ContainerId: uuid.NewString(), DomainPrefix: "", InternalPort: 0})
+	_, err = client.ExposeContainer(ctx, &coreapi.ExposeRequest{ContainerId: uuid.NewString(), DomainPrefix: "", InternalPort: 0})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestCoreResourceGRPCHandlersRejectSystemScope(t *testing.T) {
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, coregrpcmocks.NewMockContainerLogic(t), nil)
+		coregrpc.RegisterVolumeAPI(s, coregrpcmocks.NewMockVolumeLogic(t), nil)
+		coregrpc.RegisterSystemAPI(s, coregrpcmocks.NewMockSystemLogic(t))
+	})
+	containers := coreapi.NewContainerAPIClient(conn)
+	volumes := coreapi.NewVolumeAPIClient(conn)
+	system := coreapi.NewSystemAPIClient(conn)
+	ctx := systemScopeContext()
+
+	_, err := containers.ListContainers(ctx, &coreapi.PaginationRequest{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	_, err = volumes.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data"})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	_, err = system.GetConfig(ctx, &coreapi.Empty{})
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
 func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
@@ -106,7 +131,7 @@ func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
 	})
 	client := coreapi.NewContainerAPIClient(conn)
 
-	_, err := client.ExposeContainer(context.Background(), &coreapi.ExposeRequest{
+	_, err := client.ExposeContainer(userScopeContext(uuid.New()), &coreapi.ExposeRequest{
 		ContainerId:  containerID.String(),
 		DomainPrefix: "app",
 		InternalPort: 8080,
@@ -142,20 +167,21 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 		coregrpc.RegisterVolumeAPI(s, logic, users)
 	})
 	client := coreapi.NewVolumeAPIClient(conn)
+	ctx := userScopeContext(ownerID)
 
-	createResp, err := client.CreateVolume(context.Background(), &coreapi.CreateVolumeRequest{Name: "data"})
+	createResp, err := client.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data"})
 	require.NoError(t, err)
 	require.Equal(t, volumeID.String(), createResp.VolumeId)
 	require.Equal(t, "data", createParams.Name)
 
-	listResp, err := client.ListVolumes(context.Background(), &coreapi.PaginationRequest{Limit: 10})
+	listResp, err := client.ListVolumes(ctx, &coreapi.PaginationRequest{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, listResp.Volumes, 1)
 	require.Equal(t, "data", listResp.Volumes[0].Name)
 	require.Equal(t, "alice", listResp.Volumes[0].OwnerUsername)
 	require.EqualValues(t, 128, listResp.Volumes[0].UsedBytes)
 
-	_, err = client.DeleteVolume(context.Background(), &coreapi.VolumeActionRequest{VolumeId: volumeID.String()})
+	_, err = client.DeleteVolume(ctx, &coreapi.VolumeActionRequest{VolumeId: volumeID.String()})
 	require.NoError(t, err)
 }
 
@@ -176,14 +202,15 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 		coregrpc.RegisterSystemAPI(s, logic)
 	})
 	client := coreapi.NewSystemAPIClient(conn)
+	ctx := adminScopeContext(uuid.New())
 
-	got, err := client.GetConfig(context.Background(), &coreapi.Empty{})
+	got, err := client.GetConfig(ctx, &coreapi.Empty{})
 	require.NoError(t, err)
 	require.Equal(t, initial.BaseDomain, got.BaseDomain)
 	require.Equal(t, initial.BuildPidsLimit, got.BuildPidsLimit)
 	require.Equal(t, int32(initial.MaxContainersPerUser), got.MaxContainersPerUser)
 
-	_, err = client.UpdateConfig(context.Background(), &coreapi.SystemConfigData{
+	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{
 		BaseDomain:                    "example.test",
 		DefaultMemoryReservationBytes: initial.DefaultMemoryReservation,
 		BuildPidsLimit:                initial.BuildPidsLimit,
@@ -192,7 +219,7 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "example.test", updated.BaseDomain)
 
-	_, err = client.UpdateConfig(context.Background(), &coreapi.SystemConfigData{})
+	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -238,32 +265,34 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		coregrpc.RegisterImageAPI(s, imageLogic, buildLogic, users)
 	})
 	client := coreapi.NewImageAPIClient(conn)
+	userCtx := userScopeContext(ownerID)
+	systemCtx := systemScopeContext()
 
-	images, err := client.ListImages(context.Background(), &coreapi.PaginationRequest{Limit: 10, Page: 1})
+	images, err := client.ListImages(userCtx, &coreapi.PaginationRequest{Limit: 10, Page: 1})
 	require.NoError(t, err)
 	require.Len(t, images.Images, 1)
 	require.Equal(t, "alice", images.Images[0].OwnerUsername)
 	require.Equal(t, int32(12), images.Images[0].SizeMb)
 
-	started, err := client.StartBuildRecord(context.Background(), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	started, err := client.StartBuildRecord(systemCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
 	require.True(t, started.Started)
 	require.Equal(t, imageID.String(), started.ImageId)
 
-	buildResp, err := client.GetBuild(context.Background(), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	buildResp, err := client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
 	require.Equal(t, "build-logs/demo.log", buildResp.LogFilePath)
 	require.Equal(t, finishedAt.Unix(), buildResp.FinishedAt)
 
-	_, err = client.CompleteBuildRecord(context.Background(), &coreapi.CompleteBuildRequest{BuildId: buildID.String(), ImageId: imageID.String(), Status: model.BuildStatusSuccess, SizeMb: 20})
+	_, err = client.CompleteBuildRecord(systemCtx, &coreapi.CompleteBuildRequest{BuildId: buildID.String(), ImageId: imageID.String(), Status: model.BuildStatusSuccess, SizeMb: 20})
 	require.NoError(t, err)
 	require.Equal(t, model.BuildStatusSuccess, completedStatus)
 	require.Equal(t, 20, completedSize)
 
-	_, err = client.DeleteImage(context.Background(), &coreapi.ImageActionRequest{ImageId: imageID.String()})
+	_, err = client.DeleteImage(userCtx, &coreapi.ImageActionRequest{ImageId: imageID.String()})
 	require.NoError(t, err)
 
-	_, err = client.GetBuild(context.Background(), &coreapi.BuildActionRequest{BuildId: "bad"})
+	_, err = client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -292,22 +321,24 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	})
 	projectClient := coreapi.NewProjectAPIClient(conn)
 	statsClient := coreapi.NewStatsAPIClient(conn)
+	userCtx := userScopeContext(ownerID)
+	adminCtx := adminScopeContext(uuid.New())
 
-	projects, err := projectClient.ListProjects(context.Background(), &coreapi.PaginationRequest{Limit: 20, Page: 2})
+	projects, err := projectClient.ListProjects(userCtx, &coreapi.PaginationRequest{Limit: 20, Page: 2})
 	require.NoError(t, err)
 	require.Len(t, projects.Projects, 1)
 	require.Equal(t, "alice", projects.Projects[0].OwnerUsername)
 	require.Equal(t, errMsg, projects.Projects[0].ErrorMessage)
 
-	_, err = projectClient.CancelProject(context.Background(), &coreapi.ProjectActionRequest{ProjectId: projectID.String()})
+	_, err = projectClient.CancelProject(userCtx, &coreapi.ProjectActionRequest{ProjectId: projectID.String()})
 	require.NoError(t, err)
 
-	userStats, err := statsClient.GetUserStats(context.Background(), &coreapi.Empty{})
+	userStats, err := statsClient.GetUserStats(userCtx, &coreapi.Empty{})
 	require.NoError(t, err)
 	require.Equal(t, int32(2), userStats.ContainersTotal)
 	require.EqualValues(t, 128, userStats.RamUsedBytes)
 
-	systemStats, err := statsClient.GetSystemMonitoring(context.Background(), &coreapi.Empty{})
+	systemStats, err := statsClient.GetSystemMonitoring(adminCtx, &coreapi.Empty{})
 	require.NoError(t, err)
 	require.Equal(t, 12.5, systemStats.CpuPercent)
 	require.Equal(t, int64(999), systemStats.ObservedAt)
@@ -516,7 +547,7 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 func newCoreGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor("test-internal-token")))
 	register(server)
 	go func() {
 		_ = server.Serve(listener)
@@ -530,8 +561,21 @@ func newCoreGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("test-internal-token")),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
+}
+
+func userScopeContext(ownerID uuid.UUID) context.Context {
+	return accessscope.WithUserScope(context.Background(), ownerID, "user", "user")
+}
+
+func adminScopeContext(adminID uuid.UUID) context.Context {
+	return accessscope.WithAdminScope(context.Background(), adminID, "admin", "admin")
+}
+
+func systemScopeContext() context.Context {
+	return accessscope.WithSystemScope(context.Background())
 }

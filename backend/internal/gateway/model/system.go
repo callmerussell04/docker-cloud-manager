@@ -21,20 +21,15 @@ type SystemConfig struct {
 	ReservedDomainPrefixes               []string
 	MaxVolumesPerUser                    int
 	MaxContainersPerUser                 int
-	RegistryApiUrl                       string
-	RegistryPublicUrl                    string
 	ContainerTtlHours                    int64
 	ContainerPidsLimit                   int64
 	ContainerMemorySwapMultiplier        float64
-	ProxyNetworkName                     string
-	RegistryContainerName                string
 	ImageBuildsEnabled                   bool
 	BuildMemoryBytes                     int64
 	BuildCpuQuota                        int64
 	BuildCpuPeriod                       int64
 	BuildMemorySwapMultiplier            float64
 	BuildPidsLimit                       int64
-	BuildNetworkName                     string
 	KanikoImage                          string
 	MaxBuildTimeMinutes                  int64
 	MaxConcurrentBuilds                  int

@@ -1,18 +1,15 @@
 import { useLocation, useParams, Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText } from 'lucide-react';
 import { useState } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
-import { getContainerStatsFn } from '@/features/containers/api';
-import { adminGetContainerStatsFn } from '@/features/admin/api';
 import { formatBytes } from '@/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { statusLabel, useT } from '@/lib/i18n';
-import { queryKeys } from '@/shared/api/queryKeys';
+import { useContainerDetailsStats } from '@/features/containers/hooks';
 
 export function ContainerDetailsPage() {
   const t = useT();
@@ -35,12 +32,7 @@ export function ContainerDetailsPage() {
   const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
 
-  const { data: stats, isLoading } = useQuery({
-    queryKey: queryKeys.containers.stats(id || '', isAdminRoute),
-    queryFn: () => isAdminRoute ? adminGetContainerStatsFn(id!) : getContainerStatsFn(id!),
-    enabled: !!id,
-    refetchInterval: !container || container.status === 'running' ? 3000 : false,
-  });
+  const { data: stats, isLoading } = useContainerDetailsStats(id, isAdminRoute, container);
 
   const getStatusBadge = (status?: string) => {
     switch (status) {

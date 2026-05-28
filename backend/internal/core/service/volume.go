@@ -197,6 +197,9 @@ func (s *VolumeService) List(ctx context.Context, limit, offset int) ([]model.Vo
 	if err != nil {
 		return nil, 0, err
 	}
+	if scope.Kind != accessscope.KindUser && scope.Kind != accessscope.KindAdmin {
+		return nil, 0, apperrors.ErrForbidden
+	}
 	return s.repo.List(ctx, model.ListOptions{
 		OwnerID: scope.OwnerFilter(),
 		Limit:   limit,

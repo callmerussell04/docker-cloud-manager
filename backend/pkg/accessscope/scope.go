@@ -79,7 +79,7 @@ func RequireOwnerAccess(ctx context.Context, ownerID uuid.UUID) error {
 
 func (s Scope) AllowsOwner(ownerID uuid.UUID) bool {
 	switch s.Kind {
-	case KindAdmin, KindSystem:
+	case KindAdmin:
 		return true
 	case KindUser:
 		return s.UserID == ownerID && ownerID != uuid.Nil

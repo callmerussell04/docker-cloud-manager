@@ -40,6 +40,9 @@ func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic, users U
 }
 
 func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
+	if err := requireUserScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	if req.GetName() == "" || req.GetImageTag() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name and image_tag are required")
 	}
@@ -77,6 +80,9 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 }
 
 func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
@@ -91,6 +97,9 @@ func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.Cont
 }
 
 func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
@@ -105,6 +114,9 @@ func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.Conta
 }
 
 func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
@@ -119,6 +131,9 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 }
 
 func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	limit, offset := pagination(req)
 	containers, total, err := h.logic.List(ctx, limit, offset)
 	if err != nil {
@@ -157,6 +172,9 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 }
 
 func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
@@ -203,6 +221,9 @@ func usernamesByID(ctx context.Context, users UserDirectory, ids []uuid.UUID) ma
 }
 
 func (h *ContainerHandler) ActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
@@ -221,6 +242,9 @@ func (h *ContainerHandler) ActionContainer(ctx context.Context, req *coreapi.Con
 }
 
 func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
@@ -241,6 +265,9 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 }
 
 func (h *ContainerHandler) GetContainerRuntimeTarget(ctx context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	containerID, err := uuid.Parse(req.GetContainerId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid container_id")

@@ -206,6 +206,9 @@ func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.P
 	if err != nil {
 		return nil, 0, err
 	}
+	if scope.Kind != accessscope.KindUser && scope.Kind != accessscope.KindAdmin {
+		return nil, 0, apperrors.ErrForbidden
+	}
 	return s.repo.List(ctx, model.ListOptions{
 		OwnerID: scope.OwnerFilter(),
 		Limit:   limit,
@@ -417,120 +420,6 @@ func containerStatusBlocksProjectTick(status string) bool {
 	default:
 		return false
 	}
-}
-
-func (s *ProjectService) startProject(ctx context.Context, p model.Project) error {
-	graph, err := s.repo.GetServiceGraph(ctx, p.ID)
-	if err != nil {
-		return apperrors.Wrap(apperrors.ErrConflict, "project service graph is missing; redeploy the compose project", err)
-	}
-
-	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStarting, nil)
-	for _, node := range graph {
-		for _, dep := range node.Dependencies {
-			depContainer, err := s.containers.GetByID(ctx, dep.DependsOnContainerID)
-			if err != nil {
-				if dep.Optional {
-					slog.WarnContext(ctx, "optional compose dependency unavailable; continuing project start",
-						"project_id", p.ID,
-						"service_name", node.ServiceName,
-						"dependency_service_name", dep.DependsOnServiceName,
-						"condition", dep.Condition,
-						"error", err,
-					)
-					continue
-				}
-				s.failProject(ctx, p.ID, err)
-				return err
-			}
-			if err := s.waitForCondition(ctx, depContainer.DockerID, dep.Condition); err != nil {
-				err = fmt.Errorf("dependency %s failed condition %s: %w", dep.DependsOnServiceName, dep.Condition, err)
-				if dep.Optional {
-					slog.WarnContext(ctx, "optional compose dependency failed; continuing project start",
-						"project_id", p.ID,
-						"service_name", node.ServiceName,
-						"dependency_service_name", dep.DependsOnServiceName,
-						"condition", dep.Condition,
-						"error", err,
-					)
-					continue
-				}
-				s.failProject(ctx, p.ID, err)
-				return err
-			}
-		}
-		current, err := s.containers.GetByID(ctx, node.ContainerID)
-		if err != nil {
-			s.failProject(ctx, p.ID, err)
-			return err
-		}
-		if current.Status == model.ContainerStatusRunning {
-			continue
-		}
-		if err := s.containers.Start(ctx, node.ContainerID); err != nil {
-			err = fmt.Errorf("failed to start service %s: %w", node.ServiceName, err)
-			s.failProject(ctx, p.ID, err)
-			return err
-		}
-	}
-	return s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusRunning, nil)
-}
-
-func (s *ProjectService) stopProject(ctx context.Context, p model.Project) error {
-	graph, err := s.repo.GetServiceGraph(ctx, p.ID)
-	if err != nil {
-		return apperrors.Wrap(apperrors.ErrConflict, "project service graph is missing; redeploy the compose project", err)
-	}
-	slices.Reverse(graph)
-
-	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStopping, nil)
-	for _, node := range graph {
-		current, err := s.containers.GetByID(ctx, node.ContainerID)
-		if err != nil {
-			s.failProject(ctx, p.ID, err)
-			return err
-		}
-		if current.Status == model.ContainerStatusCreated || current.Status == model.ContainerStatusExited {
-			continue
-		}
-		if err := s.containers.Stop(ctx, node.ContainerID); err != nil {
-			err = fmt.Errorf("failed to stop service %s: %w", node.ServiceName, err)
-			s.failProject(ctx, p.ID, err)
-			return err
-		}
-	}
-	return s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusStopped, nil)
-}
-
-func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) error {
-	_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusDeleting, nil)
-
-	var cleanupErrors []error
-	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
-	if err == nil {
-		for _, c := range containers {
-			if err := s.containers.Delete(ctx, c.ID); err != nil && !cerrdefs.IsNotFound(err) {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove container %s: %w", c.Name, err))
-			}
-		}
-	}
-
-	if len(cleanupErrors) > 0 {
-		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
-		_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusFailed, &msg)
-		return fmt.Errorf("errors occurred while deleting project: %v", cleanupErrors)
-	}
-
-	if err := s.repo.Delete(ctx, p.ID); err != nil {
-		return err
-	}
-
-	s.cleanupUserNetwork(ctx, p.OwnerID)
-	return nil
-}
-
-func (s *ProjectService) waitForCondition(ctx context.Context, dockerID string, condition string) error {
-	return dependencywait.Wait(ctx, s.cfg, s.dockerAPI, dockerID, condition, dependencywait.Options{MissingIsUnavailable: true})
 }
 
 func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, cause error) {

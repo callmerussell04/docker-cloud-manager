@@ -24,6 +24,9 @@ func RegisterSystemAPI(gRPCServer *grpc.Server, logic SystemLogic) {
 }
 
 func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.SystemConfigData, error) {
+	if err := requireAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	cfg := h.logic.GetConfig(ctx)
 	return &coreapi.SystemConfigData{
 		BaseDomain:                           cfg.BaseDomain,
@@ -46,20 +49,15 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		ReservedDomainPrefixes:               cfg.ReservedDomainPrefixes,
 		MaxVolumesPerUser:                    int32(cfg.MaxVolumesPerUser),
 		MaxContainersPerUser:                 int32(cfg.MaxContainersPerUser),
-		RegistryApiUrl:                       cfg.RegistryAPIURL,
-		RegistryPublicUrl:                    cfg.RegistryPublicURL,
 		ContainerTtlHours:                    cfg.ContainerTTLHours,
 		ContainerPidsLimit:                   cfg.ContainerPidsLimit,
 		ContainerMemorySwapMultiplier:        cfg.ContainerMemorySwapMultiplier,
-		ProxyNetworkName:                     cfg.ProxyNetworkName,
-		RegistryContainerName:                cfg.RegistryContainerName,
 		ImageBuildsEnabled:                   cfg.ImageBuildsEnabled,
 		BuildMemoryBytes:                     cfg.BuildMemoryBytes,
 		BuildCpuQuota:                        cfg.BuildCPUQuota,
 		BuildCpuPeriod:                       cfg.BuildCPUPeriod,
 		BuildMemorySwapMultiplier:            cfg.BuildMemorySwapMultiplier,
 		BuildPidsLimit:                       cfg.BuildPidsLimit,
-		BuildNetworkName:                     cfg.BuildNetworkName,
 		KanikoImage:                          cfg.KanikoImage,
 		MaxBuildTimeMinutes:                  cfg.MaxBuildTimeMinutes,
 		MaxConcurrentBuilds:                  int32(cfg.MaxConcurrentBuilds),
@@ -113,6 +111,9 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 }
 
 func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {
+	if err := requireAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	newCfg := h.logic.GetConfig(ctx)
 	newCfg.BaseDomain = req.GetBaseDomain()
 	newCfg.DefaultMemoryReservation = req.GetDefaultMemoryReservationBytes()
@@ -134,20 +135,15 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.ReservedDomainPrefixes = req.GetReservedDomainPrefixes()
 	newCfg.MaxVolumesPerUser = int(req.GetMaxVolumesPerUser())
 	newCfg.MaxContainersPerUser = int(req.GetMaxContainersPerUser())
-	newCfg.RegistryAPIURL = req.GetRegistryApiUrl()
-	newCfg.RegistryPublicURL = req.GetRegistryPublicUrl()
 	newCfg.ContainerTTLHours = req.GetContainerTtlHours()
 	newCfg.ContainerPidsLimit = req.GetContainerPidsLimit()
 	newCfg.ContainerMemorySwapMultiplier = req.GetContainerMemorySwapMultiplier()
-	newCfg.ProxyNetworkName = req.GetProxyNetworkName()
-	newCfg.RegistryContainerName = req.GetRegistryContainerName()
 	newCfg.ImageBuildsEnabled = req.GetImageBuildsEnabled()
 	newCfg.BuildMemoryBytes = req.GetBuildMemoryBytes()
 	newCfg.BuildCPUQuota = req.GetBuildCpuQuota()
 	newCfg.BuildCPUPeriod = req.GetBuildCpuPeriod()
 	newCfg.BuildMemorySwapMultiplier = req.GetBuildMemorySwapMultiplier()
 	newCfg.BuildPidsLimit = req.GetBuildPidsLimit()
-	newCfg.BuildNetworkName = req.GetBuildNetworkName()
 	newCfg.KanikoImage = req.GetKanikoImage()
 	newCfg.MaxBuildTimeMinutes = req.GetMaxBuildTimeMinutes()
 	newCfg.MaxConcurrentBuilds = int(req.GetMaxConcurrentBuilds())
@@ -202,4 +198,43 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	}
 
 	return &coreapi.Empty{}, nil
+}
+
+func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.BuilderRuntimeConfigData, error) {
+	if err := requireSystemScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	cfg := h.logic.GetConfig(ctx)
+	return &coreapi.BuilderRuntimeConfigData{
+		BuildMemoryBytes:               cfg.BuildMemoryBytes,
+		BuildCpuQuota:                  cfg.BuildCPUQuota,
+		BuildCpuPeriod:                 cfg.BuildCPUPeriod,
+		BuildMemorySwapMultiplier:      cfg.BuildMemorySwapMultiplier,
+		BuildPidsLimit:                 cfg.BuildPidsLimit,
+		BuildNetworkName:               cfg.BuildNetworkName,
+		KanikoImage:                    cfg.KanikoImage,
+		MaxBuildTimeMinutes:            cfg.MaxBuildTimeMinutes,
+		MaxConcurrentBuilds:            int32(cfg.MaxConcurrentBuilds),
+		MaxUnpackedSizeBytes:           cfg.MaxUnpackedSizeBytes,
+		MaxBuildLogSizeBytes:           cfg.MaxBuildLogSizeBytes,
+		BuildCancelPollIntervalSeconds: cfg.BuildCancelPollIntervalSeconds,
+	}, nil
+}
+
+func (h *SystemHandler) GetTelemetryRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
+	if err := requireSystemScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	cfg := h.logic.GetConfig(ctx)
+	return &coreapi.TelemetryRuntimeConfigData{
+		TelemetryMaxLogTailLines:            int32(cfg.TelemetryMaxLogTailLines),
+		TelemetryMaxLogStreamsPerUser:       int32(cfg.TelemetryMaxLogStreamsPerUser),
+		TelemetryMaxTerminalSessionsPerUser: int32(cfg.TelemetryMaxTerminalSessionsPerUser),
+		TelemetryTerminalIdleTimeoutSeconds: cfg.TelemetryTerminalIdleTimeoutSeconds,
+		TelemetryTerminalMaxDurationSeconds: cfg.TelemetryTerminalMaxDurationSeconds,
+		TelemetryAllowedExecCommands:        cfg.TelemetryAllowedExecCommands,
+		TelemetryMaxCommandArgs:             int32(cfg.TelemetryMaxCommandArgs),
+		TelemetryMaxCommandArgBytes:         int32(cfg.TelemetryMaxCommandArgBytes),
+		TelemetryWsReadLimitBytes:           cfg.TelemetryWSReadLimitBytes,
+	}, nil
 }

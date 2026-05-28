@@ -1,6 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useForm, type UseFormRegister, type UseFormSetValue, type UseFormWatch } from 'react-hook-form';
-import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, Plus, RefreshCcw, Save, Settings, X } from 'lucide-react';
 
@@ -14,9 +13,8 @@ import { getApiErrorMessage } from '@/lib/apiError';
 import { type TFunction, type TranslationKey, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { useSystemConfig, useUpdateSystemConfig } from '@/features/admin/hooks';
-import { getAuthConfigFn } from '@/features/auth/api';
+import { useAuthConfig } from '@/features/auth/hooks';
 import type { AuthConfig } from '@/features/auth/types';
-import { queryKeys } from '@/shared/api/queryKeys';
 
 type ConfigFieldName = keyof SystemConfigForm & string;
 type ConfigFieldType = 'text' | 'number' | 'float' | 'boolean' | 'array' | 'bytes';
@@ -63,10 +61,6 @@ const sections: Array<{
   {
     titleKey: 'admin.settings.section.registry',
     fields: [
-      { name: 'registry_api_url', labelKey: 'admin.settings.field.registry_api_url.label', hintKey: 'admin.settings.field.registry_api_url.hint', placeholderKey: 'admin.settings.placeholder.registryApi' },
-      { name: 'registry_public_url', labelKey: 'admin.settings.field.registry_public_url.label', hintKey: 'admin.settings.field.registry_public_url.hint', placeholderKey: 'admin.settings.placeholder.registryPublic' },
-      { name: 'proxy_network_name', labelKey: 'admin.settings.field.proxy_network_name.label', hintKey: 'admin.settings.field.proxy_network_name.hint' },
-      { name: 'registry_container_name', labelKey: 'admin.settings.field.registry_container_name.label', hintKey: 'admin.settings.field.registry_container_name.hint' },
       { name: 'reserved_domain_prefixes', labelKey: 'admin.settings.field.reserved_domain_prefixes.label', hintKey: 'admin.settings.field.reserved_domain_prefixes.hint', type: 'array', placeholderKey: 'admin.settings.placeholder.addPrefix' },
     ],
   },
@@ -79,7 +73,6 @@ const sections: Array<{
       { name: 'build_cpu_period', labelKey: 'admin.settings.field.build_cpu_period.label', hintKey: 'admin.settings.field.build_cpu_period.hint', type: 'number' },
       { name: 'build_memory_swap_multiplier', labelKey: 'admin.settings.field.build_memory_swap_multiplier.label', hintKey: 'admin.settings.field.build_memory_swap_multiplier.hint', type: 'float' },
       { name: 'build_pids_limit', labelKey: 'admin.settings.field.build_pids_limit.label', hintKey: 'admin.settings.field.build_pids_limit.hint', type: 'number' },
-      { name: 'build_network_name', labelKey: 'admin.settings.field.build_network_name.label', hintKey: 'admin.settings.field.build_network_name.hint' },
       { name: 'kaniko_image', labelKey: 'admin.settings.field.kaniko_image.label', hintKey: 'admin.settings.field.kaniko_image.hint' },
       { name: 'max_build_time_minutes', labelKey: 'admin.settings.field.max_build_time_minutes.label', hintKey: 'admin.settings.field.max_build_time_minutes.hint', type: 'number', unitKey: 'admin.settings.unit.minutes' },
       { name: 'max_concurrent_builds', labelKey: 'admin.settings.field.max_concurrent_builds.label', hintKey: 'admin.settings.field.max_concurrent_builds.hint', type: 'number' },
@@ -185,10 +178,7 @@ export function SystemSettingsPage() {
   const t = useT();
 
   const { data: config, isLoading, isError, error, isFetching, refetch } = useSystemConfig();
-  const authConfigQuery = useQuery({
-    queryKey: queryKeys.auth.config,
-    queryFn: getAuthConfigFn,
-  });
+  const authConfigQuery = useAuthConfig();
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<SystemConfigForm>({
     resolver: zodResolver(systemConfigSchema),

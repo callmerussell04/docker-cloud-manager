@@ -39,7 +39,7 @@ func (c *CoreClient) GetContainerTarget(ctx context.Context, containerID string)
 }
 
 func (c *CoreClient) GetRuntimeConfig(ctx context.Context) (model.RuntimeConfig, error) {
-	resp, err := c.systemAPI.GetConfig(ctx, &coreapi.Empty{})
+	resp, err := c.systemAPI.GetTelemetryRuntimeConfig(ctx, &coreapi.Empty{})
 	if err != nil {
 		return model.RuntimeConfig{}, grpcerrors.FromGRPC(err)
 	}

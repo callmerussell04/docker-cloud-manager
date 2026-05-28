@@ -19,7 +19,7 @@ func TestScopeAllowsOwner(t *testing.T) {
 	require.True(t, userScope.AllowsOwner(ownerID))
 	require.False(t, userScope.AllowsOwner(otherID))
 	require.True(t, (accessscope.Scope{Kind: accessscope.KindAdmin, UserID: otherID}).AllowsOwner(ownerID))
-	require.True(t, (accessscope.Scope{Kind: accessscope.KindSystem}).AllowsOwner(ownerID))
+	require.False(t, (accessscope.Scope{Kind: accessscope.KindSystem}).AllowsOwner(ownerID))
 }
 
 func TestRequireUserOwner(t *testing.T) {
@@ -39,4 +39,6 @@ func TestRequireOwnerAccess(t *testing.T) {
 	err := accessscope.RequireOwnerAccess(accessscope.WithUserScope(context.Background(), ownerID, "", ""), otherID)
 	require.True(t, errors.Is(err, apperrors.ErrNotFound))
 	require.NoError(t, accessscope.RequireOwnerAccess(accessscope.WithAdminScope(context.Background(), uuid.New(), "", "admin"), otherID))
+	err = accessscope.RequireOwnerAccess(accessscope.WithSystemScope(context.Background()), ownerID)
+	require.True(t, errors.Is(err, apperrors.ErrNotFound))
 }

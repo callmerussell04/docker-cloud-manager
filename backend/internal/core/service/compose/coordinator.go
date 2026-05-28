@@ -552,7 +552,6 @@ func (c *ComposeDeploymentCoordinator) stateFromResources(job model.ComposeDeplo
 		projectID: job.ProjectID,
 		scope:     accessscope.Scope{Kind: accessscope.KindUser, UserID: job.OwnerID},
 		requestID: job.RequestID,
-		cancel:    func(error) {},
 	}
 	for _, buildID := range resources.BuildIDs {
 		state.buildIDs = append(state.buildIDs, buildID)

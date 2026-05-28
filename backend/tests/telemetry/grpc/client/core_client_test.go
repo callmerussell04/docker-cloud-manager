@@ -110,11 +110,11 @@ type systemServer struct {
 	err error
 }
 
-func (s *systemServer) GetConfig(context.Context, *coreapi.Empty) (*coreapi.SystemConfigData, error) {
+func (s *systemServer) GetTelemetryRuntimeConfig(context.Context, *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	return &coreapi.SystemConfigData{
+	return &coreapi.TelemetryRuntimeConfigData{
 		TelemetryMaxLogTailLines:            500,
 		TelemetryMaxLogStreamsPerUser:       2,
 		TelemetryMaxTerminalSessionsPerUser: 3,

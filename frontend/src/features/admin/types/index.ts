@@ -33,20 +33,15 @@ export interface SystemConfig {
   reserved_domain_prefixes: string[];
   max_volumes_per_user: number;
   max_containers_per_user: number;
-  registry_api_url: string;
-  registry_public_url: string;
   container_ttl_hours: number;
   container_pids_limit: number;
   container_memory_swap_multiplier: number;
-  proxy_network_name: string;
-  registry_container_name: string;
   image_builds_enabled: boolean;
   build_memory_bytes: number;
   build_cpu_quota: number;
   build_cpu_period: number;
   build_memory_swap_multiplier: number;
   build_pids_limit: number;
-  build_network_name: string;
   kaniko_image: string;
   max_build_time_minutes: number;
   max_concurrent_builds: number;
@@ -145,20 +140,15 @@ export const systemConfigSchema = z.object({
   reserved_domain_prefixes: z.array(z.string()),
   max_volumes_per_user: z.number().min(1),
   max_containers_per_user: z.number().min(1),
-  registry_api_url: z.string().min(1),
-  registry_public_url: z.string().min(1),
   container_ttl_hours: z.number().min(0),
   container_pids_limit: z.number().min(1),
   container_memory_swap_multiplier: z.number().min(1),
-  proxy_network_name: z.string().min(1),
-  registry_container_name: z.string().min(1),
   image_builds_enabled: z.boolean(),
   build_memory_bytes: z.number().min(1),
   build_cpu_quota: z.number().min(1),
   build_cpu_period: z.number().min(1),
   build_memory_swap_multiplier: z.number().min(1),
   build_pids_limit: z.number().min(1),
-  build_network_name: z.string().min(1),
   kaniko_image: z.string().min(1),
   max_build_time_minutes: z.number().min(1),
   max_concurrent_builds: z.number().min(1),

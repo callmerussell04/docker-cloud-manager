@@ -21,20 +21,15 @@ type SystemConfigDTO struct {
 	ReservedDomainPrefixes               []string `json:"reserved_domain_prefixes"`
 	MaxVolumesPerUser                    int      `json:"max_volumes_per_user"`
 	MaxContainersPerUser                 int      `json:"max_containers_per_user"`
-	RegistryApiUrl                       string   `json:"registry_api_url"`
-	RegistryPublicUrl                    string   `json:"registry_public_url"`
 	ContainerTtlHours                    int64    `json:"container_ttl_hours"`
 	ContainerPidsLimit                   int64    `json:"container_pids_limit"`
 	ContainerMemorySwapMultiplier        float64  `json:"container_memory_swap_multiplier"`
-	ProxyNetworkName                     string   `json:"proxy_network_name"`
-	RegistryContainerName                string   `json:"registry_container_name"`
 	ImageBuildsEnabled                   bool     `json:"image_builds_enabled"`
 	BuildMemoryBytes                     int64    `json:"build_memory_bytes"`
 	BuildCpuQuota                        int64    `json:"build_cpu_quota"`
 	BuildCpuPeriod                       int64    `json:"build_cpu_period"`
 	BuildMemorySwapMultiplier            float64  `json:"build_memory_swap_multiplier"`
 	BuildPidsLimit                       int64    `json:"build_pids_limit"`
-	BuildNetworkName                     string   `json:"build_network_name"`
 	KanikoImage                          string   `json:"kaniko_image"`
 	MaxBuildTimeMinutes                  int64    `json:"max_build_time_minutes"`
 	MaxConcurrentBuilds                  int      `json:"max_concurrent_builds"`

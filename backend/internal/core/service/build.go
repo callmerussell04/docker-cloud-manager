@@ -303,11 +303,11 @@ func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, object
 	}
 	info, err := statter.StatObject(ctx, objectKey)
 	if err != nil {
-		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "archive_object_key", objectKey, "error", err)
+		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "error", err)
 		return
 	}
 	if err := s.staged.UpdateBytes(ctx, objectKey, info.Size); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		s.logger.WarnContext(ctx, "failed to update staged build archive reservation", "archive_object_key", objectKey, "error", err)
+		s.logger.WarnContext(ctx, "failed to update staged build archive reservation", "error", err)
 	}
 }
 
@@ -316,7 +316,7 @@ func (s *BuildService) releaseStagedBuildArchive(ctx context.Context, objectKey 
 		return
 	}
 	if err := s.staged.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		s.logger.WarnContext(ctx, "failed to release staged build archive reservation", "archive_object_key", objectKey, "error", err)
+		s.logger.WarnContext(ctx, "failed to release staged build archive reservation", "error", err)
 	}
 }
 
@@ -446,8 +446,6 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	args := []any{
 		"request_id", logging.RequestIDFromContext(ctx),
 		"build_id", buildID,
-		"archive_object_key", archiveObjectKey,
-		"log_object_key", logObjectKey,
 	}
 	if scope, ok := accessscope.FromContext(ctx); ok {
 		args = append(args, "user_id", scope.UserID)
@@ -764,7 +762,7 @@ func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Buil
 	cleanupCtx, cancel := detachedCleanupContext(ctx)
 	defer cancel()
 	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "archive_object_key", build.ArchiveObjectKey, "error", err)
+		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "error", err)
 	}
 }
 
@@ -914,6 +912,9 @@ func (s *BuildService) List(ctx context.Context, limit, offset int) ([]model.Bui
 	if err != nil {
 		return nil, 0, err
 	}
+	if scope.Kind != accessscope.KindUser && scope.Kind != accessscope.KindAdmin {
+		return nil, 0, apperrors.ErrForbidden
+	}
 	return s.repo.List(ctx, model.ListOptions{
 		OwnerID: scope.OwnerFilter(),
 		Limit:   limit,
@@ -942,7 +943,7 @@ func (s *BuildService) cleanupBuildLog(ctx context.Context, build model.Build) {
 	cleanupCtx, cancel := detachedCleanupContext(ctx)
 	defer cancel()
 	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogFilePath); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "log_object_key", build.LogFilePath, "error", err)
+		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "error", err)
 	}
 }
 

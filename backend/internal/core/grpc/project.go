@@ -31,6 +31,9 @@ func RegisterProjectAPI(gRPCServer *grpc.Server, logic ProjectLogic, users UserD
 }
 
 func (h *ProjectHandler) DeleteProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	projectID, err := uuid.Parse(req.GetProjectId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
@@ -45,6 +48,9 @@ func (h *ProjectHandler) DeleteProject(ctx context.Context, req *coreapi.Project
 }
 
 func (h *ProjectHandler) StartProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	projectID, err := uuid.Parse(req.GetProjectId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
@@ -59,6 +65,9 @@ func (h *ProjectHandler) StartProject(ctx context.Context, req *coreapi.ProjectA
 }
 
 func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	projectID, err := uuid.Parse(req.GetProjectId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
@@ -73,6 +82,9 @@ func (h *ProjectHandler) StopProject(ctx context.Context, req *coreapi.ProjectAc
 }
 
 func (h *ProjectHandler) CancelProject(ctx context.Context, req *coreapi.ProjectActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	projectID, err := uuid.Parse(req.GetProjectId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
@@ -87,6 +99,9 @@ func (h *ProjectHandler) CancelProject(ctx context.Context, req *coreapi.Project
 }
 
 func (h *ProjectHandler) ListProjects(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedProjectResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	limit, offset := pagination(req)
 	projects, total, err := h.logic.List(ctx, limit, offset)
 	if err != nil {

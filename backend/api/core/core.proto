@@ -21,6 +21,7 @@ service ImageAPI {
   rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
   rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
   rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
+  rpc GetBuildStatus (BuildActionRequest) returns (BuildStatusResponse);
   rpc ListBuilds (PaginationRequest) returns (PaginatedBuildResponse);
   rpc GetBuild (BuildActionRequest) returns (BuildData);
   rpc DeleteBuild (BuildActionRequest) returns (Empty);
@@ -43,6 +44,8 @@ service ProjectAPI {
 service SystemAPI {
   rpc GetConfig (Empty) returns (SystemConfigData);
   rpc UpdateConfig (SystemConfigData) returns (Empty);
+  rpc GetBuilderRuntimeConfig (Empty) returns (BuilderRuntimeConfigData);
+  rpc GetTelemetryRuntimeConfig (Empty) returns (TelemetryRuntimeConfigData);
 }
 
 service StatsAPI {
@@ -317,6 +320,10 @@ message StartBuildRecordResponse {
   string image_id = 3;
 }
 
+message BuildStatusResponse {
+  string status = 1;
+}
+
 message CompleteBuildRequest {
   string build_id = 1;
   string image_id = 2;
@@ -452,6 +459,9 @@ message PaginatedProjectResponse {
 }
 
 message SystemConfigData {
+  reserved 15, 16, 20, 21, 27;
+  reserved "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
+
   string base_domain = 1;
   int64 default_memory_reservation_bytes = 2;
   int64 reserved_system_memory_bytes = 3;
@@ -466,19 +476,14 @@ message SystemConfigData {
   string container_disk_quota = 12;
   int32 max_volumes_per_user = 13;
   int32 max_containers_per_user = 14;
-  string registry_api_url = 15;
-  string registry_public_url = 16;
   int64 container_ttl_hours = 17;
   int64 container_pids_limit = 18;
   double container_memory_swap_multiplier = 19;
-  string proxy_network_name = 20;
-  string registry_container_name = 21;
   int64 build_memory_bytes = 22;
   int64 build_cpu_quota = 23;
   int64 build_cpu_period = 24;
   double build_memory_swap_multiplier = 25;
   int64 build_pids_limit = 26;
-  string build_network_name = 27;
   string kaniko_image = 28;
   int64 max_build_time_minutes = 29;
   int32 max_concurrent_builds = 30;
@@ -535,6 +540,33 @@ message SystemConfigData {
   double cpu_overcommit_factor = 81;
   int64 max_cpu_burst_multiplier = 82;
   int64 container_cpu_period = 83;
+}
+
+message BuilderRuntimeConfigData {
+  int64 build_memory_bytes = 1;
+  int64 build_cpu_quota = 2;
+  int64 build_cpu_period = 3;
+  double build_memory_swap_multiplier = 4;
+  int64 build_pids_limit = 5;
+  string build_network_name = 6;
+  string kaniko_image = 7;
+  int64 max_build_time_minutes = 8;
+  int32 max_concurrent_builds = 9;
+  int64 max_unpacked_size_bytes = 10;
+  int64 max_build_log_size_bytes = 11;
+  int64 build_cancel_poll_interval_seconds = 12;
+}
+
+message TelemetryRuntimeConfigData {
+  int32 telemetry_max_log_tail_lines = 1;
+  int32 telemetry_max_log_streams_per_user = 2;
+  int32 telemetry_max_terminal_sessions_per_user = 3;
+  int64 telemetry_terminal_idle_timeout_seconds = 4;
+  int64 telemetry_terminal_max_duration_seconds = 5;
+  repeated string telemetry_allowed_exec_commands = 6;
+  int32 telemetry_max_command_args = 7;
+  int32 telemetry_max_command_arg_bytes = 8;
+  int64 telemetry_ws_read_limit_bytes = 9;
 }
 
 message ContainerStatsResponse {

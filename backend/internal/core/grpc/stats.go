@@ -25,6 +25,9 @@ func RegisterStatsAPI(gRPCServer *grpc.Server, logic StatsLogic) {
 }
 
 func (h *StatsHandler) GetUserStats(ctx context.Context, _ *coreapi.Empty) (*coreapi.UserStatsResponse, error) {
+	if err := requireUserScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	stats, err := h.logic.GetUserStats(ctx)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
@@ -46,6 +49,9 @@ func (h *StatsHandler) GetUserStats(ctx context.Context, _ *coreapi.Empty) (*cor
 }
 
 func (h *StatsHandler) GetSystemMonitoring(ctx context.Context, _ *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
+	if err := requireAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	stats, err := h.logic.GetSystemMonitoring(ctx)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)

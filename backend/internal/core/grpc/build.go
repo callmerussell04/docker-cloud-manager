@@ -22,6 +22,9 @@ type BuildLogic interface {
 }
 
 func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.StartBuildRecordResponse, error) {
+	if err := requireSystemScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	buildID, err := uuid.Parse(req.GetBuildId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
@@ -40,6 +43,9 @@ func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildA
 }
 
 func (h *ImageHandler) CancelBuildRecord(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	buildID, err := uuid.Parse(req.GetBuildId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
@@ -52,6 +58,9 @@ func (h *ImageHandler) CancelBuildRecord(ctx context.Context, req *coreapi.Build
 }
 
 func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.CompleteBuildRequest) (*coreapi.Empty, error) {
+	if err := requireSystemScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	buildID, err := uuid.Parse(req.GetBuildId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
@@ -70,7 +79,26 @@ func (h *ImageHandler) CompleteBuildRecord(ctx context.Context, req *coreapi.Com
 	return &coreapi.Empty{}, nil
 }
 
+func (h *ImageHandler) GetBuildStatus(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildStatusResponse, error) {
+	if err := requireSystemScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	buildID, err := uuid.Parse(req.GetBuildId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
+	}
+
+	build, err := h.buildLogic.GetBuild(ctx, buildID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &coreapi.BuildStatusResponse{Status: build.Status}, nil
+}
+
 func (h *ImageHandler) GetBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildData, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	buildID, err := uuid.Parse(req.GetBuildId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
@@ -84,6 +112,9 @@ func (h *ImageHandler) GetBuild(ctx context.Context, req *coreapi.BuildActionReq
 }
 
 func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	buildID, err := uuid.Parse(req.GetBuildId())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
@@ -98,6 +129,9 @@ func (h *ImageHandler) DeleteBuild(ctx context.Context, req *coreapi.BuildAction
 }
 
 func (h *ImageHandler) ListBuilds(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedBuildResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
 	limit, offset := pagination(req)
 
 	builds, total, err := h.buildLogic.List(ctx, limit, offset)
