@@ -68,13 +68,16 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 	require.Contains(t, resp.Body.String(), volumeID)
 
-	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, DockerName: "vol_data", OwnerID: "owner-id"}}, TotalCount: 1}, nil).Twice()
+	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id"}}, TotalCount: 1}, nil).Twice()
 	resp = perform(router, http.MethodGet, "/volumes", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), `"name":"data"`)
 	require.NotContains(t, resp.Body.String(), "owner_id")
+	require.NotContains(t, resp.Body.String(), "docker_name")
 	resp = perform(router, http.MethodGet, "/admin/volumes", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "owner_id")
+	require.Contains(t, resp.Body.String(), "docker_name")
 
 	svc.EXPECT().DeleteVolume(mock.Anything, volumeID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/volumes/"+volumeID, ``, nil)

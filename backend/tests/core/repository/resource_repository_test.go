@@ -141,7 +141,7 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 		DesiredStatus:         model.ContainerStatusRunning,
 		BaseMemoryReservation: 128,
 	}))
-	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, DockerName: "vol_data", Status: model.VolumeStatusAvailable}))
+	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable}))
 	require.NoError(t, volumeRepo.SaveMounts(ctx, []model.VolumeMount{{ContainerID: containerID, VolumeID: volumeID, MountPath: "/data", IsReadOnly: true}}))
 
 	inUse, err := volumeRepo.IsVolumeInUse(ctx, volumeID)
@@ -154,7 +154,13 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	volumes, err := volumeRepo.GetByProjectID(ctx, projectID)
 	require.NoError(t, err)
 	require.Len(t, volumes, 1)
+	require.Equal(t, "data", volumes[0].Name)
 	require.EqualValues(t, 2048, volumes[0].UsedBytes)
+
+	require.NoError(t, projectRepo.Delete(ctx, projectID))
+	preservedVolume, err := volumeRepo.GetByID(ctx, volumeID)
+	require.NoError(t, err)
+	require.Nil(t, preservedVolume.ProjectID)
 }
 
 func TestContainerRepositoryOperationsAndConflict(t *testing.T) {

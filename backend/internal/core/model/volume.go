@@ -11,6 +11,7 @@ type Volume struct {
 	OwnerID         uuid.UUID
 	OwnerUsername   string
 	ProjectID       *uuid.UUID
+	Name            string
 	DockerName      string
 	Status          string
 	LastObservedAt  *time.Time
@@ -31,6 +32,12 @@ const (
 type VolumeCreateParams struct {
 	ProjectID *uuid.UUID
 	Name      string
+}
+
+type ComposeVolume struct {
+	Alias    string
+	Name     string
+	External bool
 }
 
 type VolumeMount struct {

@@ -25,7 +25,7 @@ export function VolumesPage() {
   const volumes = data?.items || [];
 
   const filteredVolumes = volumes.filter(v => 
-    v.id.toLowerCase().includes(search.toLowerCase()) || v.status.toLowerCase().includes(search.toLowerCase())
+    (v.name || '').toLowerCase().includes(search.toLowerCase()) || v.id.toLowerCase().includes(search.toLowerCase()) || v.status.toLowerCase().includes(search.toLowerCase())
   );
 
   return (

@@ -74,6 +74,7 @@ func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.Pagination
 	for _, v := range volumes {
 		pbVolumes = append(pbVolumes, &coreapi.VolumeData{
 			Id:              v.ID.String(),
+			Name:            v.Name,
 			DockerName:      v.DockerName,
 			CreatedAt:       v.CreatedAt.Unix(),
 			OwnerId:         v.OwnerID.String(),

@@ -23,20 +23,21 @@ type composeProgressRepository interface {
 }
 
 type composeDeploymentPlan struct {
-	ProjectName string                     `json:"project_name"`
-	SourceType  string                     `json:"source_type"`
-	Services    []model.ComposeService     `json:"services"`
-	Volumes     []model.VolumeCreateParams `json:"volumes"`
+	ProjectName string                 `json:"project_name"`
+	SourceType  string                 `json:"source_type"`
+	Services    []model.ComposeService `json:"services"`
+	Volumes     []model.ComposeVolume  `json:"volumes"`
 }
 
 type composeDeploymentResources struct {
-	BuildIDs          map[string]uuid.UUID `json:"build_ids,omitempty"`
-	VolumeIDs         map[string]uuid.UUID `json:"volume_ids,omitempty"`
-	ContainerIDs      map[string]uuid.UUID `json:"container_ids,omitempty"`
-	StartedServices   map[string]bool      `json:"started_services,omitempty"`
-	ServiceGraphSaved bool                 `json:"service_graph_saved,omitempty"`
-	CleanupStatus     string               `json:"cleanup_status,omitempty"`
-	CleanupError      string               `json:"cleanup_error,omitempty"`
+	BuildIDs             map[string]uuid.UUID `json:"build_ids,omitempty"`
+	VolumeIDs            map[string]uuid.UUID `json:"volume_ids,omitempty"`
+	ManagedVolumeAliases map[string]bool      `json:"managed_volume_aliases,omitempty"`
+	ContainerIDs         map[string]uuid.UUID `json:"container_ids,omitempty"`
+	StartedServices      map[string]bool      `json:"started_services,omitempty"`
+	ServiceGraphSaved    bool                 `json:"service_graph_saved,omitempty"`
+	CleanupStatus        string               `json:"cleanup_status,omitempty"`
+	CleanupError         string               `json:"cleanup_error,omitempty"`
 }
 
 type ComposeDeploymentCoordinator struct {
@@ -154,16 +155,32 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 	if resources.VolumeIDs == nil {
 		resources.VolumeIDs = make(map[string]uuid.UUID)
 	}
+	if resources.ManagedVolumeAliases == nil {
+		resources.ManagedVolumeAliases = make(map[string]bool)
+	}
 	for _, volParams := range plan.Volumes {
-		if _, ok := resources.VolumeIDs[volParams.Name]; ok {
+		if _, ok := resources.VolumeIDs[volParams.Alias]; ok {
 			continue
 		}
-		volParams.ProjectID = &job.ProjectID
-		volumeID, err := c.orchestrator.volumeService.Create(ctx, volParams)
-		if err != nil {
-			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
+		var volumeID uuid.UUID
+		var err error
+		if volParams.External {
+			volumeID, err = c.orchestrator.volumeService.ResolveByName(ctx, volParams.Name)
+			if err != nil {
+				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to resolve external volume %s: %w", volParams.Name, err))
+			}
+			resources.ManagedVolumeAliases[volParams.Alias] = false
+		} else {
+			volumeID, err = c.orchestrator.volumeService.Create(ctx, model.VolumeCreateParams{
+				ProjectID: &job.ProjectID,
+				Name:      volParams.Name,
+			})
+			if err != nil {
+				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
+			}
+			resources.ManagedVolumeAliases[volParams.Alias] = true
 		}
-		resources.VolumeIDs[volParams.Name] = volumeID
+		resources.VolumeIDs[volParams.Alias] = volumeID
 		if err := c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {
 			return err
 		}
@@ -500,7 +517,10 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo comp
 		}
 		cleanupDone = false
 	}
-	for _, volumeID := range resources.VolumeIDs {
+	for alias, volumeID := range resources.VolumeIDs {
+		if !resources.volumeAliasManaged(alias) {
+			continue
+		}
 		if err := c.orchestrator.volumeService.Delete(ctx, volumeID); err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
 				continue
@@ -544,6 +564,13 @@ func (c *ComposeDeploymentCoordinator) stateFromResources(job model.ComposeDeplo
 		state.createdVolumes = append(state.createdVolumes, volumeID)
 	}
 	return state
+}
+
+func (r composeDeploymentResources) volumeAliasManaged(alias string) bool {
+	if len(r.ManagedVolumeAliases) == 0 {
+		return true
+	}
+	return r.ManagedVolumeAliases[alias]
 }
 
 func (c *ComposeDeploymentCoordinator) saveProgress(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, projectStatus string, stage string, plan composeDeploymentPlan, resources composeDeploymentResources) error {
@@ -596,6 +623,9 @@ func ensureComposeResourceMaps(resources *composeDeploymentResources) {
 	}
 	if resources.VolumeIDs == nil {
 		resources.VolumeIDs = make(map[string]uuid.UUID)
+	}
+	if resources.ManagedVolumeAliases == nil {
+		resources.ManagedVolumeAliases = make(map[string]bool)
 	}
 	if resources.ContainerIDs == nil {
 		resources.ContainerIDs = make(map[string]uuid.UUID)

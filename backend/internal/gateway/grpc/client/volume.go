@@ -45,6 +45,7 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 	for _, item := range items {
 		result = append(result, model.Volume{
 			ID:              item.GetId(),
+			Name:            item.GetName(),
 			DockerName:      item.GetDockerName(),
 			Status:          item.GetStatus(),
 			LastError:       item.GetLastError(),

@@ -15,6 +15,7 @@ import (
 type VolumeRepository interface {
 	Save(ctx context.Context, vol model.Volume) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
+	GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
@@ -111,6 +112,7 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		ID:         volID,
 		OwnerID:    ownerID,
 		ProjectID:  params.ProjectID,
+		Name:       params.Name,
 		DockerName: dockerName,
 		Status:     model.VolumeStatusCreating,
 	}
@@ -136,6 +138,31 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 	s.setVolumeStatus(ctx, volID, model.VolumeStatusAvailable)
 
 	return volID, nil
+}
+
+func (s *VolumeService) ResolveByName(ctx context.Context, name string) (uuid.UUID, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	if err := validation.ResourceName(name); err != nil {
+		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+
+	vol, err := s.repo.GetByName(ctx, ownerID, name)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	switch vol.Status {
+	case model.VolumeStatusAvailable:
+		return vol.ID, nil
+	case model.VolumeStatusMissing:
+		return uuid.Nil, resourceUnavailableError("volume")
+	case model.VolumeStatusDeleting, model.VolumeStatusError, model.VolumeStatusCreating:
+		return uuid.Nil, apperrors.New(apperrors.ErrConflict, "volume is not available")
+	default:
+		return uuid.Nil, apperrors.New(apperrors.ErrConflict, "volume is not available")
+	}
 }
 
 func (s *VolumeService) Delete(ctx context.Context, volumeID uuid.UUID) error {

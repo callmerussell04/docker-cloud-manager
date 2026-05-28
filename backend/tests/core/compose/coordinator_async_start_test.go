@@ -73,6 +73,47 @@ func TestComposeCoordinatorStartsDependentServiceAfterHealthyDependency(t *testi
 	require.Empty(t, repo.completedStatus)
 }
 
+func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	managedID := uuid.New()
+	externalID := uuid.New()
+	webID := uuid.New()
+	job := creatingComposeJob(t, ownerID, projectID)
+	repo := newCoordinatorRepo(job)
+	containers := newCoordinatorContainers(nil)
+	containers.nextCreateIDs = []uuid.UUID{webID}
+	volumes := &coordinatorVolumes{
+		createIDs: map[string]uuid.UUID{"data": managedID},
+		resolveIDs: map[string]uuid.UUID{
+			"shared-cache": externalID,
+		},
+	}
+
+	runCoordinatorOnceWithVolumes(t, repo, volumes, containers, &coordinatorDocker{})
+
+	require.Len(t, volumes.created, 1)
+	require.Equal(t, "data", volumes.created[0].Name)
+	require.Equal(t, projectID, *volumes.created[0].ProjectID)
+	require.Equal(t, []string{"shared-cache"}, volumes.resolved)
+	require.Len(t, containers.created, 1)
+	require.ElementsMatch(t, []model.VolumeMountParams{
+		{VolumeID: managedID, MountPath: "/data"},
+		{VolumeID: externalID, MountPath: "/cache", IsReadOnly: true},
+	}, containers.created[0].VolumeMounts)
+
+	var resources struct {
+		VolumeIDs            map[string]string `json:"volume_ids"`
+		ManagedVolumeAliases map[string]bool   `json:"managed_volume_aliases"`
+	}
+	require.NotEmpty(t, repo.savedResourceMaps)
+	require.NoError(t, json.Unmarshal(repo.savedResourceMaps[len(repo.savedResourceMaps)-1], &resources))
+	require.Equal(t, managedID.String(), resources.VolumeIDs["data"])
+	require.Equal(t, externalID.String(), resources.VolumeIDs["cache"])
+	require.True(t, resources.ManagedVolumeAliases["data"])
+	require.False(t, resources.ManagedVolumeAliases["cache"])
+}
+
 func startingComposeJob(t *testing.T, ownerID, projectID, dbID, migrateID uuid.UUID, started map[string]bool) model.ComposeDeploymentJob {
 	t.Helper()
 	plan := map[string]any{
@@ -113,11 +154,51 @@ func startingComposeJob(t *testing.T, ownerID, projectID, dbID, migrateID uuid.U
 	}
 }
 
+func creatingComposeJob(t *testing.T, ownerID, projectID uuid.UUID) model.ComposeDeploymentJob {
+	t.Helper()
+	plan := map[string]any{
+		"project_name": "wh",
+		"source_type":  model.ComposeSourceTypeGit,
+		"volumes": []model.ComposeVolume{
+			{Alias: "data", Name: "data"},
+			{Alias: "cache", Name: "shared-cache", External: true},
+		},
+		"services": []model.ComposeService{
+			{
+				Name:     "web",
+				ImageTag: "nginx:latest",
+				VolumeMounts: []model.VolumeMountParams{
+					{VolumeName: "data", MountPath: "/data"},
+					{VolumeName: "cache", MountPath: "/cache", IsReadOnly: true},
+				},
+			},
+		},
+	}
+	planJSON, err := json.Marshal(plan)
+	require.NoError(t, err)
+	resourceJSON, err := json.Marshal(map[string]any{})
+	require.NoError(t, err)
+	return model.ComposeDeploymentJob{
+		ID:              uuid.New(),
+		ProjectID:       projectID,
+		OwnerID:         ownerID,
+		Status:          model.ComposeDeploymentStatusRunning,
+		Stage:           model.ComposeDeploymentStageCreating,
+		PlanJSON:        planJSON,
+		ResourceMapJSON: resourceJSON,
+	}
+}
+
 func runCoordinatorOnce(t *testing.T, repo *coordinatorRepo, containers *coordinatorContainers, docker *coordinatorDocker) {
+	t.Helper()
+	runCoordinatorOnceWithVolumes(t, repo, nil, containers, docker)
+}
+
+func runCoordinatorOnceWithVolumes(t *testing.T, repo *coordinatorRepo, volumes *coordinatorVolumes, containers *coordinatorContainers, docker *coordinatorDocker) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	repo.cancel = cancel
-	orch := compose.NewOrchestrator(ctx, repo, nil, nil, containers, docker, coordinatorConfig{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	orch := compose.NewOrchestrator(ctx, repo, nil, volumes, containers, docker, coordinatorConfig{}, nil, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	coordinator := compose.NewComposeDeploymentCoordinator(orch, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	done := make(chan struct{})
 	go func() {
@@ -183,9 +264,11 @@ func (r *coordinatorRepo) SaveServiceGraph(context.Context, uuid.UUID, []model.P
 }
 
 type coordinatorContainers struct {
-	mu         sync.Mutex
-	containers map[uuid.UUID]model.Container
-	started    []uuid.UUID
+	mu            sync.Mutex
+	containers    map[uuid.UUID]model.Container
+	started       []uuid.UUID
+	created       []model.ContainerCreateParams
+	nextCreateIDs []uuid.UUID
 }
 
 func newCoordinatorContainers(items map[uuid.UUID]model.Container) *coordinatorContainers {
@@ -205,10 +288,51 @@ func (c *coordinatorContainers) Start(_ context.Context, id uuid.UUID) error {
 	c.started = append(c.started, id)
 	return nil
 }
-func (c *coordinatorContainers) Create(context.Context, model.ContainerCreateParams) (uuid.UUID, error) {
-	return uuid.Nil, nil
+func (c *coordinatorContainers) Create(_ context.Context, params model.ContainerCreateParams) (uuid.UUID, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	id := uuid.New()
+	if len(c.nextCreateIDs) > 0 {
+		id = c.nextCreateIDs[0]
+		c.nextCreateIDs = c.nextCreateIDs[1:]
+	}
+	if c.containers == nil {
+		c.containers = make(map[uuid.UUID]model.Container)
+	}
+	c.created = append(c.created, params)
+	c.containers[id] = model.Container{ID: id, Status: model.ContainerStatusCreated}
+	return id, nil
 }
 func (c *coordinatorContainers) Delete(context.Context, uuid.UUID) error { return nil }
+
+type coordinatorVolumes struct {
+	createIDs  map[string]uuid.UUID
+	resolveIDs map[string]uuid.UUID
+	created    []model.VolumeCreateParams
+	resolved   []string
+	deleted    []uuid.UUID
+}
+
+func (v *coordinatorVolumes) Create(_ context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
+	v.created = append(v.created, params)
+	if id, ok := v.createIDs[params.Name]; ok {
+		return id, nil
+	}
+	return uuid.New(), nil
+}
+
+func (v *coordinatorVolumes) ResolveByName(_ context.Context, name string) (uuid.UUID, error) {
+	v.resolved = append(v.resolved, name)
+	if id, ok := v.resolveIDs[name]; ok {
+		return id, nil
+	}
+	return uuid.Nil, nil
+}
+
+func (v *coordinatorVolumes) Delete(_ context.Context, volumeID uuid.UUID) error {
+	v.deleted = append(v.deleted, volumeID)
+	return nil
+}
 
 type coordinatorDocker struct {
 	inspections map[string]model.ContainerInspection

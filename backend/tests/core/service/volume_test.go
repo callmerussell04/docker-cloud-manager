@@ -49,6 +49,7 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, volumeID)
 	require.Equal(t, ownerID, saved.OwnerID)
+	require.Equal(t, "data", saved.Name)
 	require.Equal(t, "vol_"+ownerID.String()[:8]+"_data", runtimeSpec.VolumeName)
 	require.Equal(t, volumeID.String(), runtimeSpec.VolumeID)
 	require.Equal(t, ownerID.String(), runtimeSpec.OwnerID)
@@ -114,6 +115,49 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			})
 			_, err := svc.Create(tt.ctx, tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *testing.T) {
+	ownerID := uuid.New()
+	volumeID := uuid.New()
+	tests := []struct {
+		name    string
+		volume  model.Volume
+		wantID  uuid.UUID
+		wantErr error
+	}{
+		{
+			name:   "available",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "data", Status: model.VolumeStatusAvailable},
+			wantID: volumeID,
+		},
+		{
+			name:    "missing",
+			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, Name: "data", Status: model.VolumeStatusMissing},
+			wantErr: apperrors.ErrConflict,
+		},
+		{
+			name:    "deleting",
+			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, Name: "data", Status: model.VolumeStatusDeleting},
+			wantErr: apperrors.ErrConflict,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newVolumeRepoMock(t)
+			repo.VolumeRepository.EXPECT().GetByName(mock.Anything, ownerID, "data").Return(tt.volume, nil)
+			svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{})
+
+			gotID, err := svc.ResolveByName(accessscope.WithUserScope(context.Background(), ownerID, "", ""), "data")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantID, gotID)
 		})
 	}
 }

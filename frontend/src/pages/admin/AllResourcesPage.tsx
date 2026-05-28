@@ -250,7 +250,8 @@ export function AllResourcesPage() {
                   {activeTab === 'volumes' && volumesData?.items.map((v) => (
                     <div key={v.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminVolumes.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
-                        <div className="font-medium block truncate font-mono">{v.docker_name}</div>
+                        <div className="font-medium block truncate font-mono">{v.name || v.id}</div>
+                        <div className="text-xs text-slate-500 block truncate font-mono" title={v.docker_name}>{v.docker_name}</div>
                         <div className="text-xs text-slate-500 block truncate font-mono">{v.id}</div>
                         {v.last_error && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={v.last_error}>
@@ -269,7 +270,7 @@ export function AllResourcesPage() {
                           variant="danger"
                           className="h-8 px-2"
                           disabled={delVolMut.isPending}
-                          onClick={() => requestConfirm(t('volumes.deleteConfirm', { name: v.docker_name || v.id }), () => delVolMut.mutate(v.id))}
+                          onClick={() => requestConfirm(t('volumes.deleteConfirm', { name: v.name || v.id }), () => delVolMut.mutate(v.id))}
                         >
                           <Trash2 className="w-4 h-4"/>
                         </Button>

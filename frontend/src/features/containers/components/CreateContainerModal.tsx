@@ -148,7 +148,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
                 <Select {...register(`volume_mounts.${index}.volume_id`)}>
                   <option value="">{t('containers.selectVolume')}</option>
                   {volumes.map(vol => (
-                    <option key={vol.id} value={vol.id}>{`volume-${vol.id.slice(0, 8)}`}</option>
+                    <option key={vol.id} value={vol.id}>{vol.name || `volume-${vol.id.slice(0, 8)}`}</option>
                   ))}
                 </Select>
                 {errors.volume_mounts?.[index]?.volume_id && <p className="text-xs text-red-500 mt-1">{errors.volume_mounts[index]?.volume_id?.message}</p>}

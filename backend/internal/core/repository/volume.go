@@ -16,7 +16,7 @@ type VolumeRepository struct {
 	db *sql.DB
 }
 
-const volumeColumns = `id, owner_id, project_id, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
+const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -28,8 +28,8 @@ func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 
 func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 	query := `
-		INSERT INTO volumes (id, owner_id, project_id, docker_name, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`
 
 	var projectID sql.NullString
@@ -43,7 +43,7 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 		status = model.VolumeStatusAvailable
 	}
 
-	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.DockerName, status)
+	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.Name, vol.DockerName, status)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -58,6 +58,19 @@ func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Vol
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE id = $1`
 
 	v, err := scanVolume(r.db.QueryRowContext(ctx, query, id))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Volume{}, apperrors.ErrNotFound
+		}
+		return model.Volume{}, err
+	}
+	return v, nil
+}
+
+func (r *VolumeRepository) GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error) {
+	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE owner_id = $1 AND name = $2`
+
+	v, err := scanVolume(r.db.QueryRowContext(ctx, query, ownerID, name))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return model.Volume{}, apperrors.ErrNotFound
@@ -316,7 +329,7 @@ func scanVolume(s scanner) (model.Volume, error) {
 	var usageObservedAt sql.NullTime
 
 	if err := s.Scan(
-		&v.ID, &v.OwnerID, &projectID, &v.DockerName, &v.Status,
+		&v.ID, &v.OwnerID, &projectID, &v.Name, &v.DockerName, &v.Status,
 		&lastObservedAt, &lastError, &v.UsedBytes, &usageObservedAt, &v.CreatedAt,
 	); err != nil {
 		return model.Volume{}, err

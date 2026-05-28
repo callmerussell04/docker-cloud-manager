@@ -113,6 +113,23 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 		if err := validation.ResourceName(volName); err != nil {
 			return nil, fmt.Errorf("%w: volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
 		}
+		displayName := volName
+		if bool(volConfig.External) {
+			displayName = volConfig.Name
+			if displayName == "" {
+				displayName = volName
+			}
+			if err := validation.ResourceName(displayName); err != nil {
+				return nil, fmt.Errorf("%w: external volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
+			}
+			result.Volumes = append(result.Volumes, model.ComposeVolume{
+				Alias:    volName,
+				Name:     displayName,
+				External: true,
+			})
+			volumeMap[volName] = volName
+			continue
+		}
 
 		if volConfig.Driver != "" {
 			return nil, fmt.Errorf("%w: custom volume drivers are not allowed", apperrors.ErrBadRequest)
@@ -121,8 +138,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			return nil, fmt.Errorf("%w: volume driver options are not allowed", apperrors.ErrBadRequest)
 		}
 
-		result.Volumes = append(result.Volumes, model.VolumeCreateParams{
-			Name: volName,
+		result.Volumes = append(result.Volumes, model.ComposeVolume{
+			Alias: volName,
+			Name:  displayName,
 		})
 		volumeMap[volName] = volName
 	}

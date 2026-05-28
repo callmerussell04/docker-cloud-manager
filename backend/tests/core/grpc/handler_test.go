@@ -130,6 +130,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	logic.EXPECT().List(mock.Anything, 10, 0).Return([]model.Volume{{
 		ID:         volumeID,
 		OwnerID:    ownerID,
+		Name:       "data",
 		DockerName: "vol_data",
 		Status:     model.VolumeStatusAvailable,
 		CreatedAt:  time.Unix(321, 0),
@@ -150,6 +151,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	listResp, err := client.ListVolumes(context.Background(), &coreapi.PaginationRequest{Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, listResp.Volumes, 1)
+	require.Equal(t, "data", listResp.Volumes[0].Name)
 	require.Equal(t, "alice", listResp.Volumes[0].OwnerUsername)
 	require.EqualValues(t, 128, listResp.Volumes[0].UsedBytes)
 

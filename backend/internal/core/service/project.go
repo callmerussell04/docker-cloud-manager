@@ -372,22 +372,6 @@ func (s *ProjectService) advanceProjectDelete(ctx context.Context, p model.Proje
 		}
 		return nil
 	}
-	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, p.ID)
-	if err != nil {
-		return err
-	}
-	for _, v := range volumes {
-		if v.Status == model.VolumeStatusDeleting {
-			return nil
-		}
-		if s.volumes == nil {
-			return fmt.Errorf("failed to remove volume %s: volume lifecycle is unavailable", v.DockerName)
-		}
-		if err := s.volumes.Delete(ctx, v.ID); err != nil && !errors.Is(err, apperrors.ErrNotFound) && !cerrdefs.IsNotFound(err) {
-			return fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err)
-		}
-		return nil
-	}
 	if err := s.repo.Delete(ctx, p.ID); err != nil {
 		return err
 	}
@@ -521,18 +505,6 @@ func (s *ProjectService) deleteProject(ctx context.Context, p model.Project) err
 		}
 	}
 
-	volumes, err := s.resourceRepo.GetVolumesByProjectID(ctx, p.ID)
-	if err == nil {
-		for _, v := range volumes {
-			if s.volumes == nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: volume lifecycle is unavailable", v.DockerName))
-				continue
-			}
-			if err := s.volumes.Delete(ctx, v.ID); err != nil && !cerrdefs.IsNotFound(err) {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf("failed to remove volume %s: %w", v.DockerName, err))
-			}
-		}
-	}
 	if len(cleanupErrors) > 0 {
 		msg := fmt.Sprintf("cleanup failed: %v", cleanupErrors)
 		_ = s.repo.UpdateStatus(ctx, p.ID, model.ProjectStatusFailed, &msg)

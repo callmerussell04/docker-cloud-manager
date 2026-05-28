@@ -3,7 +3,7 @@ package model
 type ComposeProject struct {
 	Name     string
 	Services []ComposeService
-	Volumes  []VolumeCreateParams
+	Volumes  []ComposeVolume
 }
 
 type GitSource struct {

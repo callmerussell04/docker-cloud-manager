@@ -65,6 +65,7 @@ type StagedObjectRepository interface {
 
 type VolumeService interface {
 	Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error)
+	ResolveByName(ctx context.Context, name string) (uuid.UUID, error)
 	Delete(ctx context.Context, volumeID uuid.UUID) error
 }
 
@@ -1311,15 +1312,27 @@ func (o *Orchestrator) runPipeline(ctx context.Context, state *deploymentState, 
 			rollback(err)
 			return
 		}
-		volParams.ProjectID = &projectID
 
-		volID, err := o.volumeService.Create(ctx, volParams)
-		if err != nil {
-			rollback(fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
-			return
+		var volID uuid.UUID
+		var err error
+		if volParams.External {
+			volID, err = o.volumeService.ResolveByName(ctx, volParams.Name)
+			if err != nil {
+				rollback(fmt.Errorf("failed to resolve external volume %s: %w", volParams.Name, err))
+				return
+			}
+		} else {
+			volID, err = o.volumeService.Create(ctx, model.VolumeCreateParams{
+				ProjectID: &projectID,
+				Name:      volParams.Name,
+			})
+			if err != nil {
+				rollback(fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
+				return
+			}
+			state.addVolume(volID)
 		}
-		state.addVolume(volID)
-		volumeNameMap[volParams.Name] = volID
+		volumeNameMap[volParams.Alias] = volID
 	}
 
 	serviceToContainerID := make(map[string]uuid.UUID)

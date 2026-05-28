@@ -2,6 +2,7 @@ package model
 
 type Volume struct {
 	ID              string
+	Name            string
 	DockerName      string
 	Status          string
 	LastError       string

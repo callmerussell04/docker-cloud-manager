@@ -304,6 +304,53 @@ services:
 	}
 }
 
+func TestParserPreservesManagedAndExternalVolumeAliases(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  web:
+    image: nginx:latest
+    volumes:
+      - data:/var/lib/app
+      - cache:/cache:ro
+      - custom:/custom
+volumes:
+  data: {}
+  cache:
+    external: true
+  custom:
+    name: shared-data
+    external: true
+`)
+
+	project, err := NewParser().ParseAndValidate(context.Background(), "proj", yaml, nil)
+	if err != nil {
+		t.Fatalf("ParseAndValidate() error = %v", err)
+	}
+
+	data := findComposeVolume(t, project.Volumes, "data")
+	if data.Name != "data" || data.External {
+		t.Fatalf("data volume = %+v, want managed alias data/name data", data)
+	}
+	cache := findComposeVolume(t, project.Volumes, "cache")
+	if cache.Name != "cache" || !cache.External {
+		t.Fatalf("cache volume = %+v, want external alias cache/name cache", cache)
+	}
+	custom := findComposeVolume(t, project.Volumes, "custom")
+	if custom.Name != "shared-data" || !custom.External {
+		t.Fatalf("custom volume = %+v, want external alias custom/name shared-data", custom)
+	}
+
+	web := findComposeService(t, project.Services, "web")
+	if len(web.VolumeMounts) != 3 {
+		t.Fatalf("volume mounts count = %d, want 3", len(web.VolumeMounts))
+	}
+	if web.VolumeMounts[1].VolumeName != "cache" || !web.VolumeMounts[1].IsReadOnly {
+		t.Fatalf("second mount = %+v, want readonly cache alias", web.VolumeMounts[1])
+	}
+}
+
 func TestParserRejectsBuildContextEscapingComposeBaseDir(t *testing.T) {
 	t.Parallel()
 
@@ -322,6 +369,17 @@ services:
 	if !strings.Contains(err.Error(), "parent directory traversal is not allowed") {
 		t.Fatalf("ParseAndValidateWithBase() error = %q, want traversal error", err.Error())
 	}
+}
+
+func findComposeVolume(t *testing.T, volumes []model.ComposeVolume, alias string) model.ComposeVolume {
+	t.Helper()
+	for _, volume := range volumes {
+		if volume.Alias == alias {
+			return volume
+		}
+	}
+	t.Fatalf("volume alias %q not found", alias)
+	return model.ComposeVolume{}
 }
 
 func findComposeService(t *testing.T, services []model.ComposeService, name string) model.ComposeService {

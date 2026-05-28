@@ -3,6 +3,7 @@ import type { TFunction } from '@/lib/i18n';
 
 export interface VolumeData {
   id: string;
+  name: string;
   status: string;
   last_error: string;
   used_bytes: number;

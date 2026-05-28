@@ -2,6 +2,7 @@ package dto
 
 type VolumeDTO struct {
 	ID              string `json:"id"`
+	Name            string `json:"name"`
 	DockerName      string `json:"docker_name"`
 	Status          string `json:"status"`
 	LastError       string `json:"last_error"`
@@ -14,6 +15,7 @@ type VolumeDTO struct {
 
 type UserVolumeDTO struct {
 	ID              string `json:"id"`
+	Name            string `json:"name"`
 	Status          string `json:"status"`
 	LastError       string `json:"last_error"`
 	UsedBytes       int64  `json:"used_bytes"`

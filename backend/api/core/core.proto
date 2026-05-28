@@ -362,7 +362,7 @@ message VolumeActionRequest {
 message VolumeData {
   string id = 1;
   string docker_name = 2;
-  reserved 3;
+  string name = 3;
   reserved "driver";
   int64 created_at = 4;
   string owner_id = 5;

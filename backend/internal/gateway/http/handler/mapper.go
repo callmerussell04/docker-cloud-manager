@@ -84,6 +84,7 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 	for _, item := range items {
 		result = append(result, dto.VolumeDTO{
 			ID:              item.ID,
+			Name:            item.Name,
 			DockerName:      item.DockerName,
 			Status:          item.Status,
 			LastError:       item.LastError,
@@ -102,6 +103,7 @@ func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
 	for _, item := range items {
 		result = append(result, dto.UserVolumeDTO{
 			ID:              item.ID,
+			Name:            item.Name,
 			Status:          item.Status,
 			LastError:       item.LastError,
 			UsedBytes:       item.UsedBytes,

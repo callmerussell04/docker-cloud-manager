@@ -21,7 +21,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
   
-  const displayName = `volume-${volume.id.slice(0, 8)}`;
+  const displayName = volume.name || `volume-${volume.id.slice(0, 8)}`;
   const isMissing = volume.status === 'missing';
 
   return (
