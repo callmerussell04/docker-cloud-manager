@@ -33,7 +33,7 @@ services:
       core_db:
         condition: service_healthy
     volumes:
-      - ./migrations/core:/migrations
+      - ./backend/migrations/core:/migrations
     command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable", "up"]
     networks:
       - dcm_net
@@ -44,7 +44,7 @@ services:
       sso_db:
         condition: service_healthy
     volumes:
-      - ./migrations/sso:/migrations
+      - ./backend/migrations/sso:/migrations
     command: ["-path", "/migrations", "-database", "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable", "up"]
     networks:
       - dcm_net
@@ -71,7 +71,7 @@ services:
       clickhouse:
         condition: service_healthy
     volumes:
-      - ./migrations/reports:/migrations
+      - ./backend/migrations/reports:/migrations
     command: ["-path", "/migrations", "-database", "clickhouse://clickhouse:9000?username=${CLICKHOUSE_USER:-dcm_reports}&password=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}&database=${CLICKHOUSE_DB:-dcm_reports}&x-migrations-table-engine=MergeTree", "up"]
     networks:
       - dcm_net
@@ -119,11 +119,16 @@ services:
     user: root
     command:
       - "--providers.docker=true"
+      - "--providers.docker.endpoint=unix:///var/run/docker.sock"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=proxy_net"
       - "--entrypoints.web.address=:80"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--log.level=INFO"
     ports:
       - "80:80"
+      - "127.0.0.1:8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
@@ -145,7 +150,7 @@ services:
 
   sso:
     build:
-      context: .
+      context: ./backend
       dockerfile: dockerfiles/sso.Dockerfile
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
@@ -175,13 +180,13 @@ services:
 
   core:
     build:
-      context: .
+      context: ./backend
       dockerfile: dockerfiles/core.Dockerfile
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       SSO_GRPC_TARGET: "sso:50051"
-      BASE_DOMAIN: "localhost"
+      BASE_DOMAIN: "${BASE_DOMAIN:-localhost}"
       IMAGE_BUILDS_ENABLED: "${IMAGE_BUILDS_ENABLED:-true}"
       RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
       OBJECT_STORAGE_ENDPOINT: "minio:9000"
@@ -260,7 +265,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
-      - ./config:/app/config
+      - ./backend/config:/app/config
     networks:
       - dcm_net
     depends_on:
@@ -277,7 +282,7 @@ services:
 
   builder:
     build:
-      context: .
+      context: ./backend
       dockerfile: dockerfiles/builder.Dockerfile
     environment:
       CORE_GRPC_TARGET: "core:50052"
@@ -322,7 +327,7 @@ services:
 
   telemetry:
     build:
-      context: .
+      context: ./backend
       dockerfile: dockerfiles/telemetry.Dockerfile
     environment:
       TELEMETRY_PORT: "8084"
@@ -346,7 +351,7 @@ services:
 
   gateway:
     build:
-      context: .
+      context: ./backend
       dockerfile: dockerfiles/gateway.Dockerfile
     environment:
       GATEWAY_PORT: "8081"
@@ -395,19 +400,19 @@ services:
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.gateway-api.rule=Host(`localhost`) && PathPrefix(`/api/v1`)"
+      - "traefik.http.routers.gateway-api.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/api/v1`)"
       - "traefik.http.routers.gateway-api.priority=10"
       - "traefik.http.routers.gateway-api.service=gateway"
       - "traefik.http.routers.gateway-api.middlewares=dcm-security-headers,dcm-api-ratelimit,dcm-json-buffer"
-      - "traefik.http.routers.gateway-upload.rule=Host(`localhost`) && (Path(`/api/v1/images/build`) || Path(`/api/v1/images/build/git`) || Path(`/api/v1/projects/compose`) || Path(`/api/v1/projects/compose/git`))"
+      - "traefik.http.routers.gateway-upload.rule=Host(`${DCM_HOST:-localhost}`) && (Path(`/api/v1/images/build`) || Path(`/api/v1/images/build/git`) || Path(`/api/v1/projects/compose`) || Path(`/api/v1/projects/compose/git`))"
       - "traefik.http.routers.gateway-upload.priority=30"
       - "traefik.http.routers.gateway-upload.service=gateway"
       - "traefik.http.routers.gateway-upload.middlewares=dcm-security-headers,dcm-api-ratelimit"
-      - "traefik.http.routers.gateway-stream.rule=Host(`localhost`) && PathRegexp(`^/api/v1/(admin/)?containers/[^/]+/(logs/stream|terminal)$`)"
+      - "traefik.http.routers.gateway-stream.rule=Host(`${DCM_HOST:-localhost}`) && PathRegexp(`^/api/v1/(admin/)?containers/[^/]+/(logs/stream|terminal)$`)"
       - "traefik.http.routers.gateway-stream.priority=40"
       - "traefik.http.routers.gateway-stream.service=gateway"
       - "traefik.http.routers.gateway-stream.middlewares=dcm-security-headers"
-      - "traefik.http.routers.gateway-health.rule=Host(`localhost`) && PathPrefix(`/health`)"
+      - "traefik.http.routers.gateway-health.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/health`)"
       - "traefik.http.routers.gateway-health.priority=10"
       - "traefik.http.routers.gateway-health.service=gateway"
       - "traefik.http.routers.gateway-health.middlewares=dcm-security-headers"
@@ -428,6 +433,33 @@ services:
       - sso
       - core
       - telemetry
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "${FRONTEND_API_URL:-http://localhost/api/v1}"
+        VITE_BASE_DOMAIN: "${BASE_DOMAIN:-localhost}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.routers.frontend.service=frontend"
+      - "traefik.http.routers.frontend.middlewares=dcm-frontend-security-headers,dcm-frontend-compress"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.contenttypenosniff=true"
+      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.framedeny=true"
+      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.referrerpolicy=same-origin"
+      - "traefik.http.middlewares.dcm-frontend-compress.compress=true"
+      - "traefik.docker.network=proxy_net"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - proxy_net
 
 networks:
   proxy_net:

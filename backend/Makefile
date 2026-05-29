@@ -35,7 +35,7 @@ build: tidy
 
 .PHONY: run
 run:
-	docker compose up -d --build
+	docker compose -f ../docker-compose.yml --env-file .env up -d --build
 
 .PHONY: tidy
 tidy:
