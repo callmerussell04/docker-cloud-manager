@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -110,6 +110,28 @@ function chartTooltipValue(value: unknown, name: unknown, item: { dataKey?: unkn
     dataKey === 'cpu' ? percentValue(numericValue) : formatBytes(numericValue),
     chartSeriesLabel(t, dataKey),
   ];
+}
+
+function UsageChartPanel({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/50">
+      <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+        <Icon className="h-4 w-4 text-indigo-500 dark:text-indigo-300" />
+        {title}
+      </div>
+      <div className="h-64">
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function useDebouncedValue<T>(value: T, delayMs = 350) {
@@ -535,21 +557,46 @@ export function AdminReportsPage() {
             </div>
           )}
           {!timeline.isError && (
-            <div className="h-[520px]">
-              <ResponsiveContainer key={selectedUser?.owner_id} width="100%" height="100%">
-                <LineChart data={chartPoints}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="time" minTickGap={24} />
-                  <YAxis yAxisId="bytes" tickFormatter={(value) => formatBytes(Number(value), 0)} width={76} />
-                  <YAxis yAxisId="cpu" orientation="right" tickFormatter={(value) => percentValue(Number(value))} width={64} />
-                  <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
-                  <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
-                  <Line yAxisId="bytes" name="actualMemory" type="monotone" dataKey="actualMemory" stroke="#10b981" dot={false} strokeWidth={2} />
-                  <Line yAxisId="bytes" name="reservedMemory" type="monotone" dataKey="reservedMemory" stroke="#0ea5e9" dot={false} strokeWidth={2} />
-                  <Line yAxisId="bytes" name="disk" type="monotone" dataKey="disk" stroke="#6366f1" dot={false} strokeWidth={2} />
-                  <Line yAxisId="cpu" name="cpu" type="monotone" dataKey="cpu" stroke="#f59e0b" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <UsageChartPanel title={t('admin.reports.cpu')} icon={Cpu}>
+                <ResponsiveContainer key={`${selectedUser?.owner_id}-cpu`} width="100%" height="100%">
+                  <LineChart data={chartPoints}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" minTickGap={24} />
+                    <YAxis tickFormatter={(value) => percentValue(Number(value))} width={64} />
+                    <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
+                    <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
+                    <Line name="cpu" type="monotone" dataKey="cpu" stroke="#f59e0b" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </UsageChartPanel>
+
+              <UsageChartPanel title={t('admin.reports.memory')} icon={MemoryStick}>
+                <ResponsiveContainer key={`${selectedUser?.owner_id}-memory`} width="100%" height="100%">
+                  <LineChart data={chartPoints}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" minTickGap={24} />
+                    <YAxis tickFormatter={(value) => formatBytes(Number(value), 0)} width={76} />
+                    <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
+                    <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
+                    <Line name="actualMemory" type="monotone" dataKey="actualMemory" stroke="#10b981" dot={false} strokeWidth={2} />
+                    <Line name="reservedMemory" type="monotone" dataKey="reservedMemory" stroke="#0ea5e9" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </UsageChartPanel>
+
+              <UsageChartPanel title={t('admin.reports.disk')} icon={HardDrive}>
+                <ResponsiveContainer key={`${selectedUser?.owner_id}-disk`} width="100%" height="100%">
+                  <LineChart data={chartPoints}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="time" minTickGap={24} />
+                    <YAxis tickFormatter={(value) => formatBytes(Number(value), 0)} width={76} />
+                    <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
+                    <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
+                    <Line name="disk" type="monotone" dataKey="disk" stroke="#6366f1" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </UsageChartPanel>
             </div>
           )}
         </div>

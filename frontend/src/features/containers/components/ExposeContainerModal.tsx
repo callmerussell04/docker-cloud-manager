@@ -7,7 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
 import { Label } from '@/components/ui/Label';
 import { Button } from '@/components/ui/Button';
-import { type ExposeContainerDTO, exposeContainerSchema, type ContainerData } from '../types';
+import { exposeContainerSchema, type ContainerData } from '../types';
 import { BASE_DOMAIN } from '@/config';
 import { useT } from '@/lib/i18n';
 import { useExposeContainer } from '../hooks';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle } from 'lucide-react';
+import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle, Globe, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/Button';
@@ -14,7 +14,7 @@ import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
-import { getServerErrorMessage } from '@/lib/apiError';
+import { getApiErrorMessage, getServerErrorMessage } from '@/lib/apiError';
 import {
   useAdminBuilds,
   useAdminCancelBuild,
@@ -31,6 +31,10 @@ import {
 import { queryKeys } from '@/shared/api/queryKeys';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { TabSwitcher } from '@/components/common/TabSwitcher';
+import { BASE_DOMAIN } from '@/config';
+import type { Locale } from '@/store/languageStore';
+import { EmptyState } from '@/components/common/EmptyState';
+import { ErrorState } from '@/components/common/ErrorState';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
@@ -54,6 +58,16 @@ function statusVariant(status: string): BadgeVariant {
 
 function isContainerActionBlocked(status: string) {
   return ['creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
+}
+
+function formatDateTime(value: number, locale: Locale) {
+  if (!value) return '-';
+  return new Date(value * 1000).toLocaleString(dateLocale(locale));
+}
+
+function buildDurationSeconds(startedAt: number, finishedAt: number) {
+  if (!finishedAt) return null;
+  return Math.max(0, finishedAt - startedAt);
 }
 
 export function AllResourcesPage() {
@@ -81,11 +95,11 @@ export function AllResourcesPage() {
     setPage(1);
   };
 
-  const { data: containersData, isFetching: isFetchingCont } = useAdminContainers(page, limit, activeTab === 'containers');
-  const { data: volumesData, isFetching: isFetchingVol } = useAdminVolumes(page, limit, activeTab === 'volumes');
-  const { data: imagesData, isFetching: isFetchingImg } = useAdminImages(page, limit, activeTab === 'images');
-  const { data: projectsData, isFetching: isFetchingProj } = useAdminProjects(page, limit, activeTab === 'projects');
-  const { data: buildsData, isFetching: isFetchingBuilds } = useAdminBuilds(page, limit, activeTab === 'builds');
+  const { data: containersData, isFetching: isFetchingCont, isError: isContainersError, error: containersError, refetch: refetchContainers } = useAdminContainers(page, limit, activeTab === 'containers');
+  const { data: volumesData, isFetching: isFetchingVol, isError: isVolumesError, error: volumesError, refetch: refetchVolumes } = useAdminVolumes(page, limit, activeTab === 'volumes');
+  const { data: imagesData, isFetching: isFetchingImg, isError: isImagesError, error: imagesError, refetch: refetchImages } = useAdminImages(page, limit, activeTab === 'images');
+  const { data: projectsData, isFetching: isFetchingProj, isError: isProjectsError, error: projectsError, refetch: refetchProjects } = useAdminProjects(page, limit, activeTab === 'projects');
+  const { data: buildsData, isFetching: isFetchingBuilds, isError: isBuildsError, error: buildsError, refetch: refetchBuilds } = useAdminBuilds(page, limit, activeTab === 'builds');
 
   const actionContainerMut = useAdminContainerAction();
   const delVolMut = useAdminDeleteVolume();
@@ -107,6 +121,48 @@ export function AllResourcesPage() {
 
   const isFetching = isFetchingCont || isFetchingVol || isFetchingImg || isFetchingProj || isFetchingBuilds;
   const isMutating = actionContainerMut.isPending || delVolMut.isPending || delImgMut.isPending || actionProjMut.isPending || delBuildMut.isPending || cancelBuildMut.isPending;
+  const activeError = {
+    containers: isContainersError,
+    volumes: isVolumesError,
+    images: isImagesError,
+    builds: isBuildsError,
+    projects: isProjectsError,
+  }[activeTab];
+  const activeErrorMessage = {
+    containers: getApiErrorMessage(containersError, t('containers.loadFailed'), t).message,
+    volumes: getApiErrorMessage(volumesError, t('volumes.loadFailed'), t).message,
+    images: getApiErrorMessage(imagesError, t('images.loadFailed'), t).message,
+    builds: getApiErrorMessage(buildsError, t('images.loadBuildsFailed'), t).message,
+    projects: getApiErrorMessage(projectsError, t('projects.loadFailed'), t).message,
+  }[activeTab];
+  const activeErrorTitle = {
+    containers: t('containers.loadFailed'),
+    volumes: t('volumes.loadFailed'),
+    images: t('images.loadFailed'),
+    builds: t('images.loadBuildsFailed'),
+    projects: t('projects.loadFailed'),
+  }[activeTab];
+  const activeRetry = {
+    containers: refetchContainers,
+    volumes: refetchVolumes,
+    images: refetchImages,
+    builds: refetchBuilds,
+    projects: refetchProjects,
+  }[activeTab];
+  const activeEmpty = {
+    containers: { icon: <Box className="h-8 w-8" />, title: t('containers.emptyTitle'), description: t('containers.emptyDescription') },
+    volumes: { icon: <HardDrive className="h-8 w-8" />, title: t('volumes.emptyTitle'), description: t('volumes.emptyDescription') },
+    images: { icon: <Disc className="h-8 w-8" />, title: t('images.noImages'), description: t('images.noImagesDescription') },
+    builds: { icon: <Hammer className="h-8 w-8" />, title: t('images.emptyBuilds'), description: t('images.emptyBuildsDescription') },
+    projects: { icon: <Layers className="h-8 w-8" />, title: t('projects.emptyTitle'), description: t('projects.emptyDescription') },
+  }[activeTab];
+  const activeItemsCount = {
+    containers: containersData?.items.length ?? 0,
+    volumes: volumesData?.items.length ?? 0,
+    images: imagesData?.items.length ?? 0,
+    builds: buildsData?.items.length ?? 0,
+    projects: projectsData?.items.length ?? 0,
+  }[activeTab];
 
   const requestConfirm = (message: string, run: () => void, confirmLabel = t('common.delete'), variant: 'danger' | 'secondary' = 'danger') => {
     setConfirmAction({ message, run, confirmLabel, variant });
@@ -149,22 +205,27 @@ export function AllResourcesPage() {
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminContainers.grid)}>
                 <div className="pl-2">{t('containers.name')} / ID</div>
                 <div>{t('common.status')}</div>
-                <div>User ID / Docker ID</div>
+                <div>{t('containers.routing')}</div>
+                <div>{t('admin.resources.owner')} / Docker ID</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'volumes' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminVolumes.grid)}>
                 <div className="pl-2">{t('volumes.name')}</div>
-                <div>{t('common.status')} / {t('images.createdAt')} / User</div>
+                <div>{t('common.status')}</div>
+                <div>{t('images.createdAt')}</div>
+                <div>{t('admin.resources.owner')}</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
             {activeTab === 'images' && (
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminImages.grid)}>
                 <div className="pl-2">{t('images.tag')}</div>
-                <div>{t('images.size')} / {t('common.status')}</div>
-                <div>User ID</div>
+                <div>{t('images.size')}</div>
+                <div>{t('common.status')}</div>
+                <div>{t('images.createdAt')}</div>
+                <div>{t('admin.resources.owner')}</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
@@ -175,6 +236,7 @@ export function AllResourcesPage() {
                 <div>{t('admin.resources.imageId')}</div>
                 <div>{t('common.user')}</div>
                 <div>{t('images.startedAt')}</div>
+                <div>{t('images.duration')}</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
@@ -182,7 +244,9 @@ export function AllResourcesPage() {
               <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", tableLayouts.adminProjects.grid)}>
                 <div className="pl-2">{t('projects.project')}</div>
                 <div>{t('common.status')}</div>
-                <div>User ID</div>
+                <div>{t('status.error')}</div>
+                <div>{t('projects.createdAt')}</div>
+                <div>{t('admin.resources.owner')}</div>
                 <div className="flex justify-end">{t('admin.users.management')}</div>
               </div>
             )}
@@ -190,6 +254,17 @@ export function AllResourcesPage() {
             <div className="flex flex-col flex-1">
               {isFetching ? (
                 <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
+              ) : activeError ? (
+                <div className="p-4">
+                  <ErrorState
+                    title={activeErrorTitle}
+                    message={activeErrorMessage}
+                    onRetry={() => activeRetry()}
+                    isRetrying={isFetching}
+                  />
+                </div>
+              ) : activeItemsCount === 0 ? (
+                <EmptyState icon={activeEmpty.icon} title={activeEmpty.title} description={activeEmpty.description} />
               ) : (
                 <>
                   {activeTab === 'containers' && containersData?.items.map((c) => (
@@ -207,9 +282,29 @@ export function AllResourcesPage() {
                           </div>
                         )}
                       </div>
+                      <div className="min-w-0 flex items-center text-sm text-slate-600 dark:text-slate-300 pr-4">
+                        {c.domain_prefix ? (
+                          <a
+                            href={`http://${c.domain_prefix}.${BASE_DOMAIN}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex min-w-0 items-center gap-2 text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                            title={`${c.domain_prefix}.${BASE_DOMAIN}:${c.internal_port}`}
+                          >
+                            <Globe className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{c.domain_prefix}.{BASE_DOMAIN}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0 opacity-70" />
+                          </a>
+                        ) : (
+                          <div className="flex min-w-0 items-center gap-2 text-slate-400" title={t('common.notRouted')}>
+                            <Globe className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{t('common.notRouted')}</span>
+                          </div>
+                        )}
+                      </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1">
-                        <div className="block truncate" title={c.owner_username}>{t('admin.resources.userLabel', { value: c.owner_username || 'unknown' })}</div>
-                        <div className="block truncate text-slate-400">{t('admin.resources.dockerIdLabel', { value: c.docker_id?.slice(0, 12) || 'N/A' })}</div>
+                        <div className="block truncate" title={c.owner_username || c.owner_id}>{t('admin.resources.userLabel', { value: c.owner_username || c.owner_id || 'unknown' })}</div>
+                        <div className="block truncate text-slate-400" title={c.docker_id}>{t('admin.resources.dockerIdLabel', { value: c.docker_id?.slice(0, 12) || 'N/A' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
@@ -253,6 +348,9 @@ export function AllResourcesPage() {
                         <div className="font-medium block truncate font-mono">{v.name || v.id}</div>
                         <div className="text-xs text-slate-500 block truncate font-mono" title={v.docker_name}>{v.docker_name}</div>
                         <div className="text-xs text-slate-500 block truncate font-mono">{v.id}</div>
+                      </div>
+                      <div className="min-w-0 text-sm">
+                        <Badge variant={statusVariant(v.status)}>{statusLabel(t, v.status)}</Badge>
                         {v.last_error && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={v.last_error}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -260,10 +358,11 @@ export function AllResourcesPage() {
                           </div>
                         )}
                       </div>
-                      <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
-                        <Badge variant={statusVariant(v.status)}>{statusLabel(t, v.status)}</Badge>
-                        <div className="block truncate">{new Date(v.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
-                        <div className="block truncate" title={v.owner_username}>{t('admin.resources.userLabel', { value: v.owner_username || 'unknown' })}</div>
+                      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formatDateTime(v.created_at, locale)}>
+                        {formatDateTime(v.created_at, locale)}
+                      </div>
+                      <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
+                        <div className="block truncate" title={v.owner_username || v.owner_id}>{t('admin.resources.userLabel', { value: v.owner_username || v.owner_id || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button
@@ -282,6 +381,12 @@ export function AllResourcesPage() {
                     <div key={img.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminImages.grid)}>
                       <div className="min-w-0 pr-4 pl-2">
                         <div className="font-medium block truncate" title={img.tag}>{img.tag}</div>
+                      </div>
+                      <div className="min-w-0 text-sm">
+                        <Badge variant="info">{img.size_mb} MB</Badge>
+                      </div>
+                      <div className="min-w-0">
+                        <Badge variant={statusVariant(img.status)}>{statusLabel(t, img.status)}</Badge>
                         {img.last_error && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={img.last_error}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -289,14 +394,11 @@ export function AllResourcesPage() {
                           </div>
                         )}
                       </div>
-                      <div className="min-w-0">
-                        <Badge variant="info">{img.size_mb} MB</Badge>
-                        <div className="mt-1">
-                          <Badge variant={statusVariant(img.status)}>{statusLabel(t, img.status)}</Badge>
-                        </div>
+                      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formatDateTime(img.created_at, locale)}>
+                        {formatDateTime(img.created_at, locale)}
                       </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 pr-4">
-                        <div className="block truncate" title={img.owner_username}>{t('admin.resources.userLabel', { value: img.owner_username || 'unknown' })}</div>
+                        <div className="block truncate" title={img.owner_username || img.owner_id}>{t('admin.resources.userLabel', { value: img.owner_username || img.owner_id || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button
@@ -314,17 +416,21 @@ export function AllResourcesPage() {
                   {activeTab === 'builds' && buildsData?.items.map((build) => {
                     const canCancel = build.status === 'pending' || build.status === 'running';
                     const canViewLogs = terminalBuildStatuses.has(build.status);
+                    const duration = buildDurationSeconds(build.started_at, build.finished_at);
                     return (
                       <div key={build.id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", tableLayouts.adminBuilds.grid)}>
                         <div className="min-w-0 pr-4 pl-2">
                           <div className="font-medium block truncate font-mono" title={build.id}>{build.id}</div>
                         </div>
                         <div className="min-w-0">
-                        <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
+                          <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
                         </div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
-                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username}>{t('admin.resources.userLabel', { value: build.owner_username || build.owner_id || 'unknown' })}</div>
-                        <div className="min-w-0 text-xs text-slate-500 truncate">{new Date(build.started_at * 1000).toLocaleString(dateLocale(locale))}</div>
+                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username || build.owner_id}>{t('admin.resources.userLabel', { value: build.owner_username || build.owner_id || 'unknown' })}</div>
+                        <div className="min-w-0 text-xs text-slate-500 truncate" title={formatDateTime(build.started_at, locale)}>{formatDateTime(build.started_at, locale)}</div>
+                        <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">
+                          {duration !== null ? t('images.seconds', { value: duration }) : '-'}
+                        </div>
                         <div className="flex gap-2 justify-end shrink-0">
                           <Button
                             variant="secondary"
@@ -370,16 +476,22 @@ export function AllResourcesPage() {
                         <Badge variant={statusVariant(p.status)}>
                           {statusLabel(t, p.status)}
                         </Badge>
-                        {resourceError(p.error_message || p.last_error) && (
-                          <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(p.error_message || p.last_error)}>
+                      </div>
+                      <div className="min-w-0 flex items-center">
+                        {resourceError(p.error_message || p.last_error) ? (
+                          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 truncate max-w-full cursor-help" title={resourceError(p.error_message || p.last_error)}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />
                             <span className="truncate">{resourceError(p.error_message || p.last_error)}</span>
                           </div>
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500">-</span>
                         )}
                       </div>
+                      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formatDateTime(p.created_at, locale)}>
+                        {formatDateTime(p.created_at, locale)}
+                      </div>
                       <div className="min-w-0 text-xs font-mono text-slate-500 space-y-1 pr-4">
-                        <div className="block truncate">{new Date(p.created_at * 1000).toLocaleString(dateLocale(locale))}</div>
-                        <div className="block truncate" title={p.owner_username}>{t('admin.resources.userLabel', { value: p.owner_username || 'unknown' })}</div>
+                        <div className="block truncate" title={p.owner_username || p.owner_id}>{t('admin.resources.userLabel', { value: p.owner_username || p.owner_id || 'unknown' })}</div>
                       </div>
                       <div className="flex gap-2 justify-end shrink-0">
                         <Button 
