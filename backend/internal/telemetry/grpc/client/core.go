@@ -6,6 +6,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"google.golang.org/grpc"
 )
@@ -39,6 +40,7 @@ func (c *CoreClient) GetContainerTarget(ctx context.Context, containerID string)
 }
 
 func (c *CoreClient) GetRuntimeConfig(ctx context.Context) (model.RuntimeConfig, error) {
+	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.systemAPI.GetTelemetryRuntimeConfig(ctx, &coreapi.Empty{})
 	if err != nil {
 		return model.RuntimeConfig{}, grpcerrors.FromGRPC(err)

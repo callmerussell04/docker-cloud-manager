@@ -7,8 +7,11 @@ import (
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	telemetryclient "github.com/callmerussell04/docker-cloud-manager/internal/telemetry/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -25,18 +28,23 @@ func TestCoreClientMapsContainerTargetAndRuntimeConfig(t *testing.T) {
 		coreapi.RegisterSystemAPIServer(server, system)
 	})
 	client := telemetryclient.NewCoreClient(conn)
+	userID := uuid.New()
+	userCtx := accessscope.WithUserScope(context.Background(), userID, "alice", "user")
 
-	target, err := client.GetContainerTarget(context.Background(), "container-id")
+	target, err := client.GetContainerTarget(userCtx, "container-id")
 	require.NoError(t, err)
 	require.Equal(t, "container-id", containers.targetRequestID)
+	require.Equal(t, accessscope.KindUser, containers.lastScope.Kind)
+	require.Equal(t, userID, containers.lastScope.UserID)
 	require.Equal(t, "container-id", target.ContainerID)
 	require.Equal(t, "docker-id", target.DockerID)
 	require.Equal(t, "running", target.Status)
 	require.Equal(t, "owner-id", target.OwnerID)
 	require.Equal(t, 3, target.DockerGeneration)
 
-	cfg, err := client.GetRuntimeConfig(context.Background())
+	cfg, err := client.GetRuntimeConfig(userCtx)
 	require.NoError(t, err)
+	require.Equal(t, accessscope.KindSystem, system.lastScope.Kind)
 	require.Equal(t, 500, cfg.MaxLogTailLines)
 	require.Equal(t, 2, cfg.MaxLogStreamsPerUser)
 	require.Equal(t, 3, cfg.MaxTerminalSessionsPerUser)
@@ -54,17 +62,18 @@ func TestCoreClientMapsGRPCErrors(t *testing.T) {
 		coreapi.RegisterSystemAPIServer(server, &systemServer{err: status.Error(codes.Unavailable, apperrors.ErrUnavailable.Error())})
 	})
 	client := telemetryclient.NewCoreClient(conn)
+	userCtx := accessscope.WithUserScope(context.Background(), uuid.New(), "alice", "user")
 
-	_, err := client.GetContainerTarget(context.Background(), "container-id")
+	_, err := client.GetContainerTarget(userCtx, "container-id")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	_, err = client.GetRuntimeConfig(context.Background())
+	_, err = client.GetRuntimeConfig(userCtx)
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 }
 
 func newCoreConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor("test-internal-token")))
 	register(server)
 	go func() {
 		_ = server.Serve(listener)
@@ -79,6 +88,7 @@ func newCoreConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("test-internal-token")),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
@@ -89,12 +99,14 @@ type containerServer struct {
 	coreapi.UnimplementedContainerAPIServer
 	err             error
 	targetRequestID string
+	lastScope       accessscope.Scope
 }
 
-func (s *containerServer) GetContainerRuntimeTarget(_ context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
+func (s *containerServer) GetContainerRuntimeTarget(ctx context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
+	s.lastScope, _ = accessscope.FromContext(ctx)
 	s.targetRequestID = req.GetContainerId()
 	return &coreapi.ContainerRuntimeTarget{
 		ContainerId:      req.GetContainerId(),
@@ -107,13 +119,15 @@ func (s *containerServer) GetContainerRuntimeTarget(_ context.Context, req *core
 
 type systemServer struct {
 	coreapi.UnimplementedSystemAPIServer
-	err error
+	err       error
+	lastScope accessscope.Scope
 }
 
-func (s *systemServer) GetTelemetryRuntimeConfig(context.Context, *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
+func (s *systemServer) GetTelemetryRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
+	s.lastScope, _ = accessscope.FromContext(ctx)
 	return &coreapi.TelemetryRuntimeConfigData{
 		TelemetryMaxLogTailLines:            500,
 		TelemetryMaxLogStreamsPerUser:       2,

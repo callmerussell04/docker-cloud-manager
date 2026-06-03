@@ -8,6 +8,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
 
@@ -24,6 +25,7 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 }
 
 func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig, error) {
+	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.systemAPI.GetBuilderRuntimeConfig(ctx, &coreapi.Empty{})
 	if err != nil {
 		return config.BuilderConfig{}, grpcerrors.FromGRPC(err)
@@ -45,6 +47,7 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 }
 
 func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error) {
+	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.imageAPI.StartBuildRecord(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
 		return "", false, "", grpcerrors.FromGRPC(err)
@@ -53,6 +56,7 @@ func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (stri
 }
 
 func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, buildStatus string, sizeMB int) error {
+	ctx = accessscope.WithSystemScope(ctx)
 	req := &coreapi.CompleteBuildRequest{
 		BuildId: buildID,
 		ImageId: imageID,
@@ -69,6 +73,7 @@ func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, 
 }
 
 func (c *CoreClient) GetBuildStatus(ctx context.Context, buildID string) (string, error) {
+	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.imageAPI.GetBuildStatus(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
