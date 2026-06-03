@@ -315,7 +315,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
-      - ./backend/config:/app/config
+      - core_config_data:/app/config
     networks:
       - dcm_net
     depends_on:
@@ -499,6 +499,7 @@ networks:
 volumes:
   core_db_data:
   sso_db_data:
+  core_config_data:
   builder_storage:
   builder_logs:
   rabbitmq_data:
