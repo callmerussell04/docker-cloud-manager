@@ -1,10 +1,66 @@
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  logging: &default-logging
+    driver: json-file
+    options:
+      max-size: "${COMPOSE_LOG_MAX_SIZE:-10m}"
+      max-file: "${COMPOSE_LOG_MAX_FILE:-3}"
+
+x-one-shot-defaults: &one-shot-defaults
+  restart: "no"
+  logging: *default-logging
+
+x-backend-build: &backend-build
+  context: ./backend
+
+x-postgres-env: &postgres-env
+  POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+  POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+
+x-rabbitmq-url-env: &rabbitmq-url-env
+  RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
+
+x-object-storage-env: &object-storage-env
+  OBJECT_STORAGE_ENDPOINT: "${OBJECT_STORAGE_ENDPOINT:-minio:9000}"
+  OBJECT_STORAGE_BUCKET: "${OBJECT_STORAGE_BUCKET:-dcm-builds}"
+  OBJECT_STORAGE_ACCESS_KEY: "${OBJECT_STORAGE_ACCESS_KEY:-${MINIO_ROOT_USER:-dcm_minio}}"
+  OBJECT_STORAGE_SECRET_KEY: "${OBJECT_STORAGE_SECRET_KEY:-${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}}"
+  OBJECT_STORAGE_USE_SSL: "${OBJECT_STORAGE_USE_SSL:-false}"
+
+x-build-runtime-env: &build-runtime-env
+  BUILD_NETWORK_NAME: "${BUILD_NETWORK_NAME:-build_net}"
+  BUILD_MEMORY_BYTES: "${BUILD_MEMORY_BYTES:-2147483648}"
+  BUILD_CPU_QUOTA: "${BUILD_CPU_QUOTA:-200000}"
+  BUILD_CPU_PERIOD: "${BUILD_CPU_PERIOD:-100000}"
+  BUILD_MEMORY_SWAP_MULTIPLIER: "${BUILD_MEMORY_SWAP_MULTIPLIER:-2}"
+  BUILD_PIDS_LIMIT: "${BUILD_PIDS_LIMIT:-512}"
+  KANIKO_IMAGE: "${KANIKO_IMAGE:-gcr.io/kaniko-project/executor:latest}"
+  MAX_BUILD_TIME_MINUTES: "${MAX_BUILD_TIME_MINUTES:-10}"
+  MAX_CONCURRENT_BUILDS: "${MAX_CONCURRENT_BUILDS:-2}"
+  MAX_UPLOAD_SIZE_BYTES: "${MAX_UPLOAD_SIZE_BYTES:-52428800}"
+  MAX_ARCHIVE_SIZE_BYTES: "${MAX_ARCHIVE_SIZE_BYTES:-52428800}"
+  MAX_UNPACKED_SIZE_BYTES: "${MAX_UNPACKED_SIZE_BYTES:-524288000}"
+  MAX_BUILD_LOG_SIZE_BYTES: "${MAX_BUILD_LOG_SIZE_BYTES:-5242880}"
+  BUILD_CANCEL_POLL_INTERVAL_SECONDS: "${BUILD_CANCEL_POLL_INTERVAL_SECONDS:-2}"
+
+x-traefik-common-labels: &traefik-common-labels
+  traefik.enable: "true"
+  traefik.docker.network: "proxy_net"
+
+x-traefik-security-headers: &traefik-security-headers
+  traefik.http.middlewares.dcm-security-headers.headers.contenttypenosniff: "true"
+  traefik.http.middlewares.dcm-security-headers.headers.framedeny: "true"
+  traefik.http.middlewares.dcm-security-headers.headers.referrerpolicy: "same-origin"
+
 services:
   core_db:
+    <<: *service-defaults
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      <<: *postgres-env
       POSTGRES_DB: "${CORE_POSTGRES_DB:-dcm_core_db}"
+    volumes:
+      - core_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
@@ -14,11 +70,13 @@ services:
       - dcm_net
 
   sso_db:
+    <<: *service-defaults
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      <<: *postgres-env
       POSTGRES_DB: "${SSO_POSTGRES_DB:-dcm_sso_db}"
+    volumes:
+      - sso_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
@@ -28,6 +86,7 @@ services:
       - dcm_net
 
   migrate_core:
+    <<: *one-shot-defaults
     image: migrate/migrate
     depends_on:
       core_db:
@@ -39,6 +98,7 @@ services:
       - dcm_net
 
   migrate_sso:
+    <<: *one-shot-defaults
     image: migrate/migrate
     depends_on:
       sso_db:
@@ -50,6 +110,7 @@ services:
       - dcm_net
 
   clickhouse:
+    <<: *service-defaults
     image: clickhouse/clickhouse-server:25.5
     environment:
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
@@ -66,6 +127,7 @@ services:
       - dcm_net
 
   migrate_reports:
+    <<: *one-shot-defaults
     image: migrate/migrate
     depends_on:
       clickhouse:
@@ -77,6 +139,7 @@ services:
       - dcm_net
 
   rabbitmq:
+    <<: *service-defaults
     image: rabbitmq:4-management
     environment:
       RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-dcm}"
@@ -95,6 +158,7 @@ services:
       - dcm_net
 
   minio:
+    <<: *service-defaults
     image: minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
     environment:
@@ -114,6 +178,7 @@ services:
       - dcm_net
 
   traefik:
+    <<: *service-defaults
     image: traefik:v3.6
     container_name: dcm_traefik
     user: root
@@ -123,9 +188,10 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=proxy_net"
       - "--entrypoints.web.address=:80"
-      - "--api.dashboard=true"
-      - "--api.insecure=true"
-      - "--log.level=INFO"
+      - "--api.dashboard=${TRAEFIK_DASHBOARD_ENABLED:-false}"
+      - "--api.insecure=${TRAEFIK_DASHBOARD_ENABLED:-false}"
+      - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
+      # Future HTTPS/ACME wiring can be added here with websecure and certificatesResolvers.
     ports:
       - "80:80"
       - "127.0.0.1:8080:8080"
@@ -136,6 +202,7 @@ services:
       - dcm_net
 
   registry:
+    <<: *service-defaults
     image: registry:2
     container_name: registry
     environment:
@@ -149,8 +216,9 @@ services:
       - build_net
 
   sso:
+    <<: *service-defaults
     build:
-      context: ./backend
+      <<: *backend-build
       dockerfile: dockerfiles/sso.Dockerfile
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
@@ -179,52 +247,34 @@ services:
         condition: service_completed_successfully
 
   core:
+    <<: *service-defaults
     build:
-      context: ./backend
+      <<: *backend-build
       dockerfile: dockerfiles/core.Dockerfile
     environment:
+      <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       SSO_GRPC_TARGET: "sso:50051"
       BASE_DOMAIN: "${BASE_DOMAIN:-localhost}"
       IMAGE_BUILDS_ENABLED: "${IMAGE_BUILDS_ENABLED:-true}"
-      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
-      OBJECT_STORAGE_ENDPOINT: "minio:9000"
-      OBJECT_STORAGE_BUCKET: "${OBJECT_STORAGE_BUCKET:-dcm-builds}"
-      OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER:-dcm_minio}"
-      OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
-      OBJECT_STORAGE_USE_SSL: "false"
       CLICKHOUSE_ADDR: "clickhouse:9000"
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}"
-      REGISTRY_API_URL: "registry:5000"
-      REGISTRY_PUBLIC_URL: "localhost:5000"
-      REGISTRY_CONTAINER_NAME: "registry"
-      CONTAINER_PIDS_LIMIT: 256
-      CONTAINER_MEMORY_SWAP_MULTIPLIER: 2
-      PROXY_NETWORK_NAME: "proxy_net"
-      BUILD_NETWORK_NAME: "build_net"
-      BUILD_MEMORY_BYTES: 2147483648
-      BUILD_CPU_QUOTA: 200000
-      BUILD_CPU_PERIOD: 100000
-      BUILD_MEMORY_SWAP_MULTIPLIER: 2
-      BUILD_PIDS_LIMIT: 512
-      KANIKO_IMAGE: "gcr.io/kaniko-project/executor:latest"
-      MAX_BUILD_TIME_MINUTES: 10
-      MAX_CONCURRENT_BUILDS: 2
-      MAX_UPLOAD_SIZE_BYTES: 52428800
-      MAX_ARCHIVE_SIZE_BYTES: 52428800
-      MAX_UNPACKED_SIZE_BYTES: 524288000
-      MAX_BUILD_LOG_SIZE_BYTES: 5242880
-      BUILD_CANCEL_POLL_INTERVAL_SECONDS: 2
-      TTL_WORKER_INTERVAL_SECONDS: 60
-      GC_WORKER_INTERVAL_MINUTES: 60
-      STALE_BUILD_TIMEOUT_MINUTES: 30
-      EVENT_SYNC_INTERVAL_SECONDS: 30
-      EVENT_RECONNECT_DELAY_SECONDS: 5
-      BUILD_OUTBOX_INTERVAL_SECONDS: 1
-      BUILD_OUTBOX_BATCH_SIZE: 10
+      REGISTRY_API_URL: "${REGISTRY_API_URL:-registry:5000}"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-localhost:5000}"
+      REGISTRY_CONTAINER_NAME: "${REGISTRY_CONTAINER_NAME:-registry}"
+      CONTAINER_PIDS_LIMIT: "${CONTAINER_PIDS_LIMIT:-256}"
+      CONTAINER_MEMORY_SWAP_MULTIPLIER: "${CONTAINER_MEMORY_SWAP_MULTIPLIER:-2}"
+      PROXY_NETWORK_NAME: "${PROXY_NETWORK_NAME:-proxy_net}"
+      TTL_WORKER_INTERVAL_SECONDS: "${TTL_WORKER_INTERVAL_SECONDS:-60}"
+      GC_WORKER_INTERVAL_MINUTES: "${GC_WORKER_INTERVAL_MINUTES:-60}"
+      STALE_BUILD_TIMEOUT_MINUTES: "${STALE_BUILD_TIMEOUT_MINUTES:-30}"
+      EVENT_SYNC_INTERVAL_SECONDS: "${EVENT_SYNC_INTERVAL_SECONDS:-30}"
+      EVENT_RECONNECT_DELAY_SECONDS: "${EVENT_RECONNECT_DELAY_SECONDS:-5}"
+      BUILD_OUTBOX_INTERVAL_SECONDS: "${BUILD_OUTBOX_INTERVAL_SECONDS:-1}"
+      BUILD_OUTBOX_BATCH_SIZE: "${BUILD_OUTBOX_BATCH_SIZE:-10}"
       CONTAINER_CREATE_WORKER_COUNT: "${CONTAINER_CREATE_WORKER_COUNT:-2}"
       CONTAINER_CREATE_MAX_ATTEMPTS: "${CONTAINER_CREATE_MAX_ATTEMPTS:-3}"
       CONTAINER_CREATE_TIMEOUT_MINUTES: "${CONTAINER_CREATE_TIMEOUT_MINUTES:-30}"
@@ -232,33 +282,33 @@ services:
       CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS: "${CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS:-1}"
       CONTAINER_CREATE_OUTBOX_BATCH_SIZE: "${CONTAINER_CREATE_OUTBOX_BATCH_SIZE:-10}"
       REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS: "${REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS:-300}"
-      MAX_STAGED_SOURCE_BYTES_PER_USER: 1073741824
-      MAX_QUEUED_BUILDS_PER_USER: 10
-      COMPOSE_UPLOAD_MAX_BYTES: 104857600
-      COMPOSE_PIPELINE_TIMEOUT_MINUTES: 30
-      COMPOSE_DEPLOY_WORKER_COUNT: 2
-      COMPOSE_OUTBOX_INTERVAL_SECONDS: 1
-      COMPOSE_OUTBOX_BATCH_SIZE: 10
-      COMPOSE_DEPLOY_MAX_ATTEMPTS: 3
-      MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER: 5
-      COMPOSE_BUILD_POLL_INTERVAL_SECONDS: 3
-      COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES: 5
-      COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS: 2
+      MAX_STAGED_SOURCE_BYTES_PER_USER: "${MAX_STAGED_SOURCE_BYTES_PER_USER:-1073741824}"
+      MAX_QUEUED_BUILDS_PER_USER: "${MAX_QUEUED_BUILDS_PER_USER:-10}"
+      COMPOSE_UPLOAD_MAX_BYTES: "${COMPOSE_UPLOAD_MAX_BYTES:-104857600}"
+      COMPOSE_PIPELINE_TIMEOUT_MINUTES: "${COMPOSE_PIPELINE_TIMEOUT_MINUTES:-30}"
+      COMPOSE_DEPLOY_WORKER_COUNT: "${COMPOSE_DEPLOY_WORKER_COUNT:-2}"
+      COMPOSE_OUTBOX_INTERVAL_SECONDS: "${COMPOSE_OUTBOX_INTERVAL_SECONDS:-1}"
+      COMPOSE_OUTBOX_BATCH_SIZE: "${COMPOSE_OUTBOX_BATCH_SIZE:-10}"
+      COMPOSE_DEPLOY_MAX_ATTEMPTS: "${COMPOSE_DEPLOY_MAX_ATTEMPTS:-3}"
+      MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER: "${MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER:-5}"
+      COMPOSE_BUILD_POLL_INTERVAL_SECONDS: "${COMPOSE_BUILD_POLL_INTERVAL_SECONDS:-3}"
+      COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES: "${COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES:-5}"
+      COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS: "${COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS:-2}"
       COMPOSE_COORDINATOR_INTERVAL_SECONDS: "${COMPOSE_COORDINATOR_INTERVAL_SECONDS:-2}"
-      HOST_MIN_FREE_DISK_BYTES: 1073741824
+      HOST_MIN_FREE_DISK_BYTES: "${HOST_MIN_FREE_DISK_BYTES:-1073741824}"
       GIT_SOURCES_ENABLED: "${GIT_SOURCES_ENABLED:-true}"
       GIT_ALLOWED_HOSTS: "${GIT_ALLOWED_HOSTS:-github.com,gitlab.com,bitbucket.org}"
       GIT_CLONE_TIMEOUT_SECONDS: "${GIT_CLONE_TIMEOUT_SECONDS:-60}"
       GIT_MAX_REPOSITORY_BYTES: "${GIT_MAX_REPOSITORY_BYTES:-209715200}"
-      TELEMETRY_MAX_LOG_TAIL_LINES: 1000
-      TELEMETRY_MAX_LOG_STREAMS_PER_USER: 5
-      TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER: 2
-      TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS: 300
-      TELEMETRY_TERMINAL_MAX_DURATION_SECONDS: 3600
-      TELEMETRY_ALLOWED_EXEC_COMMANDS: "/bin/sh,/bin/bash,/busybox/sh"
-      TELEMETRY_MAX_COMMAND_ARGS: 8
-      TELEMETRY_MAX_COMMAND_ARG_BYTES: 128
-      TELEMETRY_WS_READ_LIMIT_BYTES: 4096
+      TELEMETRY_MAX_LOG_TAIL_LINES: "${TELEMETRY_MAX_LOG_TAIL_LINES:-1000}"
+      TELEMETRY_MAX_LOG_STREAMS_PER_USER: "${TELEMETRY_MAX_LOG_STREAMS_PER_USER:-5}"
+      TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER: "${TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER:-2}"
+      TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS: "${TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS:-300}"
+      TELEMETRY_TERMINAL_MAX_DURATION_SECONDS: "${TELEMETRY_TERMINAL_MAX_DURATION_SECONDS:-3600}"
+      TELEMETRY_ALLOWED_EXEC_COMMANDS: "${TELEMETRY_ALLOWED_EXEC_COMMANDS:-/bin/sh,/bin/bash,/busybox/sh}"
+      TELEMETRY_MAX_COMMAND_ARGS: "${TELEMETRY_MAX_COMMAND_ARGS:-8}"
+      TELEMETRY_MAX_COMMAND_ARG_BYTES: "${TELEMETRY_MAX_COMMAND_ARG_BYTES:-128}"
+      TELEMETRY_WS_READ_LIMIT_BYTES: "${TELEMETRY_WS_READ_LIMIT_BYTES:-4096}"
       CORE_GRPC_PORT: "50052"
       CORE_HTTP_PORT: "8083"
       CORE_HOST_DISK_PATH: "${CORE_HOST_DISK_PATH:-/host}"
@@ -281,36 +331,18 @@ services:
         condition: service_healthy
 
   builder:
+    <<: *service-defaults
     build:
-      context: ./backend
+      <<: *backend-build
       dockerfile: dockerfiles/builder.Dockerfile
     environment:
+      <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       CORE_GRPC_TARGET: "core:50052"
       BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-}"
-      REGISTRY_URL: "registry:5000"
-      RABBITMQ_URL: "amqp://${RABBITMQ_USER:-dcm}:${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}@rabbitmq:5672/"
-      OBJECT_STORAGE_ENDPOINT: "minio:9000"
-      OBJECT_STORAGE_BUCKET: "${OBJECT_STORAGE_BUCKET:-dcm-builds}"
-      OBJECT_STORAGE_ACCESS_KEY: "${MINIO_ROOT_USER:-dcm_minio}"
-      OBJECT_STORAGE_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
-      OBJECT_STORAGE_USE_SSL: "false"
+      REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
-      BUILD_NETWORK_NAME: "build_net"
       BUILD_STORAGE_PATH: "/tmp/builds"
       BUILD_LOGS_PATH: "/tmp/build_logs"
-      BUILD_MEMORY_BYTES: 2147483648
-      BUILD_CPU_QUOTA: 200000
-      BUILD_CPU_PERIOD: 100000
-      BUILD_MEMORY_SWAP_MULTIPLIER: 2
-      BUILD_PIDS_LIMIT: 512
-      KANIKO_IMAGE: "gcr.io/kaniko-project/executor:latest"
-      MAX_BUILD_TIME_MINUTES: 10
-      MAX_CONCURRENT_BUILDS: 2
-      MAX_UPLOAD_SIZE_BYTES: 52428800
-      MAX_ARCHIVE_SIZE_BYTES: 52428800
-      MAX_UNPACKED_SIZE_BYTES: 524288000
-      MAX_BUILD_LOG_SIZE_BYTES: 5242880
-      BUILD_CANCEL_POLL_INTERVAL_SECONDS: 2
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - builder_storage:/tmp/builds
@@ -326,8 +358,9 @@ services:
         condition: service_healthy
 
   telemetry:
+    <<: *service-defaults
     build:
-      context: ./backend
+      <<: *backend-build
       dockerfile: dockerfiles/telemetry.Dockerfile
     environment:
       TELEMETRY_PORT: "8084"
@@ -350,8 +383,9 @@ services:
         condition: service_started
 
   gateway:
+    <<: *service-defaults
     build:
-      context: ./backend
+      <<: *backend-build
       dockerfile: dockerfiles/gateway.Dockerfile
     environment:
       GATEWAY_PORT: "8081"
@@ -399,33 +433,29 @@ services:
       COOKIE_HTTP_ONLY: "${COOKIE_HTTP_ONLY:-true}"
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.gateway-api.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/api/v1`)"
-      - "traefik.http.routers.gateway-api.priority=10"
-      - "traefik.http.routers.gateway-api.service=gateway"
-      - "traefik.http.routers.gateway-api.middlewares=dcm-security-headers,dcm-api-ratelimit,dcm-json-buffer"
-      - "traefik.http.routers.gateway-upload.rule=Host(`${DCM_HOST:-localhost}`) && (Path(`/api/v1/images/build`) || Path(`/api/v1/images/build/git`) || Path(`/api/v1/projects/compose`) || Path(`/api/v1/projects/compose/git`))"
-      - "traefik.http.routers.gateway-upload.priority=30"
-      - "traefik.http.routers.gateway-upload.service=gateway"
-      - "traefik.http.routers.gateway-upload.middlewares=dcm-security-headers,dcm-api-ratelimit"
-      - "traefik.http.routers.gateway-stream.rule=Host(`${DCM_HOST:-localhost}`) && PathRegexp(`^/api/v1/(admin/)?containers/[^/]+/(logs/stream|terminal)$`)"
-      - "traefik.http.routers.gateway-stream.priority=40"
-      - "traefik.http.routers.gateway-stream.service=gateway"
-      - "traefik.http.routers.gateway-stream.middlewares=dcm-security-headers"
-      - "traefik.http.routers.gateway-health.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/health`)"
-      - "traefik.http.routers.gateway-health.priority=10"
-      - "traefik.http.routers.gateway-health.service=gateway"
-      - "traefik.http.routers.gateway-health.middlewares=dcm-security-headers"
-      - "traefik.http.services.gateway.loadbalancer.server.port=8081"
-      - "traefik.http.middlewares.dcm-security-headers.headers.contenttypenosniff=true"
-      - "traefik.http.middlewares.dcm-security-headers.headers.framedeny=true"
-      - "traefik.http.middlewares.dcm-security-headers.headers.referrerpolicy=same-origin"
-      - "traefik.http.middlewares.dcm-api-ratelimit.ratelimit.average=120"
-      - "traefik.http.middlewares.dcm-api-ratelimit.ratelimit.period=1m"
-      - "traefik.http.middlewares.dcm-api-ratelimit.ratelimit.burst=60"
-      - "traefik.http.middlewares.dcm-json-buffer.buffering.maxrequestbodybytes=1048576"
-      - "traefik.http.middlewares.dcm-json-buffer.buffering.memrequestbodybytes=1048576"
-      - "traefik.docker.network=proxy_net"
+      <<: [*traefik-common-labels, *traefik-security-headers]
+      traefik.http.routers.gateway-api.rule: "Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/api/v1`)"
+      traefik.http.routers.gateway-api.priority: "10"
+      traefik.http.routers.gateway-api.service: "gateway"
+      traefik.http.routers.gateway-api.middlewares: "dcm-security-headers,dcm-api-ratelimit,dcm-json-buffer"
+      traefik.http.routers.gateway-upload.rule: "Host(`${DCM_HOST:-localhost}`) && (Path(`/api/v1/images/build`) || Path(`/api/v1/images/build/git`) || Path(`/api/v1/projects/compose`) || Path(`/api/v1/projects/compose/git`))"
+      traefik.http.routers.gateway-upload.priority: "30"
+      traefik.http.routers.gateway-upload.service: "gateway"
+      traefik.http.routers.gateway-upload.middlewares: "dcm-security-headers,dcm-api-ratelimit"
+      traefik.http.routers.gateway-stream.rule: "Host(`${DCM_HOST:-localhost}`) && PathRegexp(`^/api/v1/(admin/)?containers/[^/]+/(logs/stream|terminal)$`)"
+      traefik.http.routers.gateway-stream.priority: "40"
+      traefik.http.routers.gateway-stream.service: "gateway"
+      traefik.http.routers.gateway-stream.middlewares: "dcm-security-headers"
+      traefik.http.routers.gateway-health.rule: "Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/health`)"
+      traefik.http.routers.gateway-health.priority: "10"
+      traefik.http.routers.gateway-health.service: "gateway"
+      traefik.http.routers.gateway-health.middlewares: "dcm-security-headers"
+      traefik.http.services.gateway.loadbalancer.server.port: "8081"
+      traefik.http.middlewares.dcm-api-ratelimit.ratelimit.average: "120"
+      traefik.http.middlewares.dcm-api-ratelimit.ratelimit.period: "1m"
+      traefik.http.middlewares.dcm-api-ratelimit.ratelimit.burst: "60"
+      traefik.http.middlewares.dcm-json-buffer.buffering.maxrequestbodybytes: "1048576"
+      traefik.http.middlewares.dcm-json-buffer.buffering.memrequestbodybytes: "1048576"
     networks:
       - proxy_net
       - dcm_net
@@ -435,6 +465,7 @@ services:
       - telemetry
 
   frontend:
+    <<: *service-defaults
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -442,17 +473,13 @@ services:
         VITE_API_URL: "${FRONTEND_API_URL:-http://localhost/api/v1}"
         VITE_BASE_DOMAIN: "${BASE_DOMAIN:-localhost}"
     labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/`)"
-      - "traefik.http.routers.frontend.priority=1"
-      - "traefik.http.routers.frontend.service=frontend"
-      - "traefik.http.routers.frontend.middlewares=dcm-frontend-security-headers,dcm-frontend-compress"
-      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
-      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.contenttypenosniff=true"
-      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.framedeny=true"
-      - "traefik.http.middlewares.dcm-frontend-security-headers.headers.referrerpolicy=same-origin"
-      - "traefik.http.middlewares.dcm-frontend-compress.compress=true"
-      - "traefik.docker.network=proxy_net"
+      <<: [*traefik-common-labels, *traefik-security-headers]
+      traefik.http.routers.frontend.rule: "Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/`)"
+      traefik.http.routers.frontend.priority: "1"
+      traefik.http.routers.frontend.service: "frontend"
+      traefik.http.routers.frontend.middlewares: "dcm-security-headers,dcm-frontend-compress"
+      traefik.http.services.frontend.loadbalancer.server.port: "8080"
+      traefik.http.middlewares.dcm-frontend-compress.compress: "true"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
       interval: 10s
@@ -463,13 +490,15 @@ services:
 
 networks:
   proxy_net:
-    external: true
+    name: proxy_net
   dcm_net:
     name: dcm_net
   build_net:
     name: build_net
 
 volumes:
+  core_db_data:
+  sso_db_data:
   builder_storage:
   builder_logs:
   rabbitmq_data:
