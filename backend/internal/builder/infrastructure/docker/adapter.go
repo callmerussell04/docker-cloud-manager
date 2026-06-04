@@ -59,6 +59,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		"--cache=false",
 		"--insecure",
 		"--skip-tls-verify",
+		"--ignore-path=/workspace",
 	}
 
 	// Добавляем Build Args для Kaniko
