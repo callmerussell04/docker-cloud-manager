@@ -18,13 +18,13 @@ func TestParserRestartPolicyValidation(t *testing.T) {
 	tests := []struct {
 		name        string
 		restart     string
-		wantErrPart string
+		wantRestart string
 	}{
-		{name: "no", restart: `"no"`},
-		{name: "on failure", restart: "on-failure"},
-		{name: "always rejected", restart: "always", wantErrPart: "restart policy always is not allowed"},
-		{name: "unless stopped rejected", restart: "unless-stopped", wantErrPart: "restart policy unless-stopped is not allowed"},
-		{name: "max retries rejected", restart: "on-failure:3", wantErrPart: "on-failure max retries are not supported"},
+		{name: "no", restart: `"no"`, wantRestart: "no"},
+		{name: "on failure", restart: "on-failure", wantRestart: "on-failure"},
+		{name: "always ignored", restart: "always"},
+		{name: "unless stopped ignored", restart: "unless-stopped"},
+		{name: "max retries ignored", restart: "on-failure:3"},
 	}
 
 	for _, tt := range tests {
@@ -40,24 +40,14 @@ services:
 `)
 
 			project, err := NewParser().ParseAndValidate(context.Background(), "proj", yaml, nil)
-			if tt.wantErrPart == "" {
-				if err != nil {
-					t.Fatalf("ParseAndValidate() error = %v", err)
-				}
-				if len(project.Services) != 1 {
-					t.Fatalf("services count = %d, want 1", len(project.Services))
-				}
-				if got := project.Services[0].Restart; got != strings.Trim(tt.restart, `"`) {
-					t.Fatalf("restart = %q, want %q", got, strings.Trim(tt.restart, `"`))
-				}
-				return
+			if err != nil {
+				t.Fatalf("ParseAndValidate() error = %v", err)
 			}
-
-			if err == nil {
-				t.Fatalf("ParseAndValidate() error = nil, want error containing %q", tt.wantErrPart)
+			if len(project.Services) != 1 {
+				t.Fatalf("services count = %d, want 1", len(project.Services))
 			}
-			if !strings.Contains(err.Error(), tt.wantErrPart) {
-				t.Fatalf("ParseAndValidate() error = %q, want containing %q", err.Error(), tt.wantErrPart)
+			if got := project.Services[0].Restart; got != tt.wantRestart {
+				t.Fatalf("restart = %q, want %q", got, tt.wantRestart)
 			}
 		})
 	}
@@ -254,7 +244,7 @@ services:
 	}
 }
 
-func TestParserDependsOnRestartStillRejected(t *testing.T) {
+func TestParserDependsOnRestartIsIgnored(t *testing.T) {
 	t.Parallel()
 
 	yaml := []byte(`
@@ -269,12 +259,17 @@ services:
     image: postgres:16
 `)
 
-	_, err := NewParser().ParseAndValidate(context.Background(), "proj", yaml, nil)
-	if err == nil {
-		t.Fatalf("ParseAndValidate() error = nil, want depends_on.restart error")
+	project, err := NewParser().ParseAndValidate(context.Background(), "proj", yaml, nil)
+	if err != nil {
+		t.Fatalf("ParseAndValidate() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "depends_on.restart is not supported") {
-		t.Fatalf("ParseAndValidate() error = %q, want depends_on.restart error", err.Error())
+	web := findComposeService(t, project.Services, "web")
+	if len(web.DependsOn) != 1 {
+		t.Fatalf("depends_on count = %d, want 1", len(web.DependsOn))
+	}
+	dep := web.DependsOn[0]
+	if dep.ServiceName != "db" || dep.Condition != model.ComposeDependencyConditionStarted || dep.Optional {
+		t.Fatalf("dependency = %+v, want required db service_started dependency", dep)
 	}
 }
 

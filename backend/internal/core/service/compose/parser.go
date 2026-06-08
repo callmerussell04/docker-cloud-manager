@@ -18,6 +18,35 @@ import (
 
 type Parser struct{}
 
+var supportedComposeServiceKeys = map[string]struct{}{
+	"build":        {},
+	"command":      {},
+	"depends_on":   {},
+	"entrypoint":   {},
+	"environment":  {},
+	"healthcheck":  {},
+	"image":        {},
+	"labels":       {},
+	"name":         {},
+	"network_mode": {},
+	"pid":          {},
+	"privileged":   {},
+	"profiles":     {},
+	"restart":      {},
+	"volumes":      {},
+}
+
+var supportedComposeBuildKeys = map[string]struct{}{
+	"args":       {},
+	"context":    {},
+	"dockerfile": {},
+}
+
+var supportedComposeVolumeKeys = map[string]struct{}{
+	"external": {},
+	"name":     {},
+}
+
 func NewParser() *Parser {
 	return &Parser{}
 }
@@ -36,21 +65,9 @@ func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName strin
 		return nil, fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
 	}
 
-	header := fmt.Sprintf("name: %s\n", projectName)
-	fullContent := append([]byte(header), yamlContent...)
-	project, err := loader.LoadWithContext(ctx, types.ConfigDetails{
-		WorkingDir: ".",
-		ConfigFiles: []types.ConfigFile{
-			{
-				Filename: "docker-compose.yml", // Фейковое имя для логов/ошибок
-				Content:  fullContent,          // Передаем байты напрямую
-			},
-		},
-		Environment: map[string]string{}, // Игнорируем внешние переменные окружения хоста
-	})
-
+	project, err := p.loadComposeProject(ctx, projectName, yamlContent)
 	if err != nil {
-		// Ошибка может возникнуть как на этапе парсинга YAML, так и на этапе валидации схемы Compose
+		// Ошибка может возникнуть как на этапе парсинга YAML, так и на этапе проверки ссылок Compose
 		return nil, fmt.Errorf("%w: failed to parse compose file: %v", apperrors.ErrBadRequest, err)
 	}
 
@@ -61,6 +78,121 @@ func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName strin
 
 	// Трансляция во внутренние структуры
 	return p.translateToDomain(projectName, project, reservedDomainPrefixes, baseDir)
+}
+
+func (p *Parser) loadComposeProject(ctx context.Context, projectName string, yamlContent []byte) (*types.Project, error) {
+	config := types.ConfigDetails{
+		WorkingDir: ".",
+		ConfigFiles: []types.ConfigFile{
+			{
+				Filename: "docker-compose.yml", // Фейковое имя для логов/ошибок
+				Content:  yamlContent,          // Передаем байты напрямую
+			},
+		},
+		Environment: map[string]string{
+			"COMPOSE_PROJECT_NAME": projectName,
+		}, // Игнорируем внешние переменные окружения хоста
+	}
+	options := []func(*loader.Options){
+		func(opts *loader.Options) {
+			opts.SkipValidation = true
+			opts.SkipExtends = true
+			opts.SkipInclude = true
+			opts.SetProjectName(projectName, true)
+		},
+	}
+
+	composeModel, err := loader.LoadModelWithContext(ctx, config, options...)
+	if err != nil {
+		return nil, err
+	}
+	sanitizeComposeModel(composeModel)
+
+	project, err := loader.ModelToProject(composeModel, loader.ToOptions(&config, options), config)
+	if err != nil {
+		return nil, err
+	}
+	return project, nil
+}
+
+func sanitizeComposeModel(composeModel map[string]any) {
+	for key := range composeModel {
+		switch key {
+		case "name", "services", "volumes":
+		default:
+			delete(composeModel, key)
+		}
+	}
+
+	services, ok := asStringMap(composeModel["services"])
+	if ok {
+		sanitizeComposeServices(services)
+	}
+
+	volumes, ok := asStringMap(composeModel["volumes"])
+	if ok {
+		sanitizeComposeVolumes(volumes)
+	}
+}
+
+func sanitizeComposeServices(services map[string]any) {
+	for _, rawService := range services {
+		service, ok := asStringMap(rawService)
+		if !ok {
+			continue
+		}
+		pruneStringMap(service, supportedComposeServiceKeys)
+		sanitizeComposeServiceBuild(service)
+		sanitizeComposeServiceDependsOn(service)
+	}
+}
+
+func sanitizeComposeServiceBuild(service map[string]any) {
+	build, ok := asStringMap(service["build"])
+	if !ok {
+		return
+	}
+	pruneStringMap(build, supportedComposeBuildKeys)
+}
+
+func sanitizeComposeServiceDependsOn(service map[string]any) {
+	dependencies, ok := asStringMap(service["depends_on"])
+	if !ok {
+		return
+	}
+	for _, rawDependency := range dependencies {
+		dependency, ok := asStringMap(rawDependency)
+		if !ok {
+			continue
+		}
+		delete(dependency, "restart")
+		if condition, ok := dependency["condition"].(string); ok && condition != "" && !model.IsValidComposeDependencyCondition(condition) {
+			dependency["condition"] = model.ComposeDependencyConditionStarted
+		}
+	}
+}
+
+func sanitizeComposeVolumes(volumes map[string]any) {
+	for _, rawVolume := range volumes {
+		volume, ok := asStringMap(rawVolume)
+		if !ok {
+			continue
+		}
+		pruneStringMap(volume, supportedComposeVolumeKeys)
+	}
+}
+
+func pruneStringMap(values map[string]any, allowed map[string]struct{}) {
+	for key := range values {
+		if _, ok := allowed[key]; !ok {
+			delete(values, key)
+		}
+	}
+}
+
+func asStringMap(value any) (map[string]any, bool) {
+	values, ok := value.(map[string]any)
+	return values, ok
 }
 
 // validateSecurity блокирует опасные директивы, чтобы защитить хост-систему
@@ -216,10 +348,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			domainSrv.Entrypoint = srv.Entrypoint
 		}
 		if srv.Restart != "" {
-			if err := validateRestartPolicy(srv.Restart); err != nil {
-				return fmt.Errorf("%w: service %s has invalid restart policy: %v", apperrors.ErrBadRequest, srv.Name, err)
+			if isSupportedRestartPolicy(srv.Restart) {
+				domainSrv.Restart = srv.Restart
 			}
-			domainSrv.Restart = srv.Restart
 		}
 
 		// Healthcheck
@@ -272,15 +403,9 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 
 		// Сохраняем зависимости (depends_on condition)
 		for depName, depConfig := range srv.DependsOn {
-			if depConfig.Restart {
-				return fmt.Errorf("%w: depends_on.restart is not supported for service %s dependency %s", apperrors.ErrBadRequest, srv.Name, depName)
-			}
 			condition := depConfig.Condition
-			if condition == "" {
+			if condition == "" || !model.IsValidComposeDependencyCondition(condition) {
 				condition = model.ComposeDependencyConditionStarted
-			}
-			if !model.IsValidComposeDependencyCondition(condition) {
-				return fmt.Errorf("%w: unsupported depends_on condition %s for service %s dependency %s", apperrors.ErrBadRequest, condition, srv.Name, depName)
 			}
 			domainSrv.DependsOn = append(domainSrv.DependsOn, model.ComposeDependency{
 				ServiceName: depName,
@@ -330,15 +455,12 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	return result, nil
 }
 
-func validateRestartPolicy(policy string) error {
+func isSupportedRestartPolicy(policy string) bool {
 	switch policy {
 	case "no", "on-failure":
-		return nil
+		return true
 	}
-	if strings.HasPrefix(policy, "on-failure:") {
-		return fmt.Errorf("restart policy on-failure max retries are not supported")
-	}
-	return fmt.Errorf("restart policy %s is not allowed", policy)
+	return false
 }
 
 func validateRelativeComposePath(path string) error {
