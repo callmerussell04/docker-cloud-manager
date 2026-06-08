@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/Badge';
 import { cn } from '@/lib/utils';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
+import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
 import { type AdminContainerData } from '@/features/containers/types';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
@@ -275,6 +276,7 @@ export function AllResourcesPage() {
                       </div>
                       <div className="min-w-0">
                         <Badge variant={statusVariant(c.status)}>{statusLabel(t, c.status)}</Badge>
+                        <ContainerTTLTimer status={c.status} ttlDeadline={c.ttl_deadline} />
                         {resourceError(c.last_error) && (
                           <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(c.last_error)}>
                             <AlertTriangle className="h-3 w-3 shrink-0" />

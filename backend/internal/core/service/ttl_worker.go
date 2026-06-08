@@ -2,26 +2,23 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
 type TTLContainerRepository interface {
 	GetExpired(ctx context.Context) ([]model.Container, error)
-	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
-	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
-	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
-}
-
-type TTLDockerAPI interface {
-	StopContainer(ctx context.Context, dockerID string, timeout int) error
+	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
 }
 
 type TTLConfigProvider interface {
@@ -29,18 +26,16 @@ type TTLConfigProvider interface {
 }
 
 type TTLWorker struct {
-	repo      TTLContainerRepository
-	dockerAPI TTLDockerAPI
-	cfg       TTLConfigProvider
-	logger    *slog.Logger
+	repo   TTLContainerRepository
+	cfg    TTLConfigProvider
+	logger *slog.Logger
 }
 
-func NewTTLWorker(repo TTLContainerRepository, dockerAPI TTLDockerAPI, cfg TTLConfigProvider, logger *slog.Logger) *TTLWorker {
+func NewTTLWorker(repo TTLContainerRepository, cfg TTLConfigProvider, logger *slog.Logger) *TTLWorker {
 	return &TTLWorker{
-		repo:      repo,
-		dockerAPI: dockerAPI,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "ttl_worker"),
+		repo:   repo,
+		cfg:    cfg,
+		logger: logging.WithComponent(logger, "ttl_worker"),
 	}
 }
 
@@ -62,28 +57,58 @@ func (w *TTLWorker) Run(ctx context.Context) {
 }
 
 func (w *TTLWorker) processExpired(ctx context.Context) {
+	if w.cfg.Get().ContainerTTLHours <= 0 {
+		return
+	}
 	expiredContainers, err := w.repo.GetExpired(ctx)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch expired containers", "error", err)
 		return
 	}
 
-	stopTimeout := w.cfg.Get().ContainerStopTimeout
 	for _, c := range expiredContainers {
-		if err := w.repo.SetDesiredStatus(ctx, c.ID, model.ContainerStatusExited); err != nil {
-			w.logger.WarnContext(ctx, "failed to update expired container desired status", "container_id", c.ID, "error", err)
-		}
-		if err := w.dockerAPI.StopContainer(ctx, c.DockerID, stopTimeout); err != nil {
-			if errors.Is(err, cerrdefs.ErrNotFound) {
-				_ = w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, err)
+		if err := w.queueStop(ctx, c); err != nil {
+			if errors.Is(err, apperrors.ErrConflict) {
+				w.logger.DebugContext(ctx, "expired container already has active operation", "container_id", c.ID)
 				continue
 			}
-			w.logger.ErrorContext(ctx, "failed to stop expired container", "container_id", c.ID, "docker_id", c.DockerID, "error", err)
+			w.logger.ErrorContext(ctx, "failed to queue expired container stop", "container_id", c.ID, "error", err)
 			continue
 		}
-		if err := w.repo.UpdateStatus(ctx, c.ID, model.ContainerStatusExited); err != nil {
-			w.logger.WarnContext(ctx, "failed to update expired container status", "container_id", c.ID, "error", err)
-		}
-		w.logger.InfoContext(ctx, "expired container stopped", "container_id", c.ID, "docker_id", c.DockerID)
+		w.logger.InfoContext(ctx, "expired container stop queued", "container_id", c.ID)
 	}
+}
+
+func (w *TTLWorker) queueStop(ctx context.Context, c model.Container) error {
+	op := model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   c.ID,
+		OwnerID:      c.OwnerID,
+		Operation:    model.OperationStop,
+		Status:       model.OperationStatusPending,
+	}
+	msg := containerqueue.LifecycleMessage{
+		OperationID:    op.ID.String(),
+		ContainerID:    c.ID.String(),
+		OwnerID:        c.OwnerID.String(),
+		Operation:      model.OperationStop,
+		RequestID:      logging.RequestIDFromContext(ctx),
+		CreatedAt:      time.Now().Unix(),
+		PreviousStatus: c.Status,
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal ttl stop message: %w", err)
+	}
+	outbox := model.ContainerLifecycleOutbox{
+		ID:          uuid.New(),
+		OperationID: op.ID,
+		ContainerID: c.ID,
+		Exchange:    containerqueue.ExchangeName,
+		RoutingKey:  containerqueue.RoutingKey,
+		Payload:     payload,
+		Status:      model.ContainerOutboxStatusPending,
+	}
+	return w.repo.QueueContainerOperation(ctx, c.ID, model.ContainerStatusStopping, model.ContainerStatusExited, op, outbox)
 }

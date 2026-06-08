@@ -22,6 +22,7 @@ type ContainerRepository interface {
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
 	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
@@ -320,12 +321,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		})
 	}
 
-	var ttlDeadline *time.Time
-	if cfg.ContainerTTLHours > 0 {
-		t := time.Now().Add(time.Duration(cfg.ContainerTTLHours) * time.Hour)
-		ttlDeadline = &t
-	}
-
 	networkAlias := params.NetworkAlias
 	if networkAlias == "" {
 		networkAlias = params.Name
@@ -341,7 +336,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		DomainPrefix:          params.DomainPrefix,
 		Status:                model.ContainerStatusPending,
 		DesiredStatus:         model.ContainerStatusCreated,
-		TTLDeadline:           ttlDeadline,
 		EnvVars:               envBytes,
 		BaseMemoryReservation: reqMem,
 		BaseCPUReservation:    reqCPU,

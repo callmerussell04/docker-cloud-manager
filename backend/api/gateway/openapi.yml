@@ -1603,6 +1603,10 @@ components:
           type: string
         last_error:
           type: string
+        ttl_deadline:
+          type: integer
+          format: int64
+          description: Unix timestamp when the current run expires; 0 means no active auto-stop deadline.
         created_at:
           type: integer
           format: int64
@@ -1630,6 +1634,10 @@ components:
           type: string
         last_error:
           type: string
+        ttl_deadline:
+          type: integer
+          format: int64
+          description: Unix timestamp when the current run expires; 0 means no active auto-stop deadline.
         created_at:
           type: integer
           format: int64

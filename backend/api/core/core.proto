@@ -290,6 +290,7 @@ message ContainerData {
   string desired_status = 11;
   string last_error = 12;
   optional int32 last_exit_code = 13;
+  int64 ttl_deadline = 14;
 }
 
 message ContainerRuntimeTargetRequest {

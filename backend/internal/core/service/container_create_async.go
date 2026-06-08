@@ -25,6 +25,7 @@ type containerCreateWorkerRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
@@ -310,7 +311,12 @@ func (s *ContainerService) executeQueuedStart(ctx context.Context, repo containe
 		s.failQueuedLifecycle(ctx, repo, op.ID, containerID, msg.PreviousStatus, err)
 		return err
 	}
-	if err := repo.UpdateStatus(ctx, containerID, model.ContainerStatusRunning); err != nil {
+	var ttlDeadline *time.Time
+	if ttlHours := s.config.Get().ContainerTTLHours; ttlHours > 0 {
+		deadline := time.Now().Add(time.Duration(ttlHours) * time.Hour)
+		ttlDeadline = &deadline
+	}
+	if err := repo.UpdateStatusAndTTLDeadline(ctx, containerID, model.ContainerStatusRunning, ttlDeadline); err != nil {
 		s.failQueuedLifecycle(ctx, repo, op.ID, containerID, msg.PreviousStatus, err)
 		return err
 	}

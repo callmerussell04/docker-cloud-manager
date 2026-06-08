@@ -148,6 +148,10 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 			value := int32(*c.LastExitCode)
 			lastExitCode = &value
 		}
+		var ttlDeadline int64
+		if c.TTLDeadline != nil {
+			ttlDeadline = c.TTLDeadline.Unix()
+		}
 		pbContainers = append(pbContainers, &coreapi.ContainerData{
 			Id:            c.ID.String(),
 			DockerId:      c.DockerID,
@@ -162,6 +166,7 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 			DesiredStatus: c.DesiredStatus,
 			LastError:     stringValue(c.LastError),
 			LastExitCode:  lastExitCode,
+			TtlDeadline:   ttlDeadline,
 		})
 	}
 

@@ -11,6 +11,7 @@ export interface ContainerData {
   desired_status?: string;
   last_error: string;
   last_exit_code?: number;
+  ttl_deadline?: number;
   created_at: number;
 }
 

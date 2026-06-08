@@ -199,7 +199,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 	coregrpc.RegisterReportAPI(gRPCServer, reportService)
 
-	ttlWorker := service.NewTTLWorker(contRepo, dockerAdapter, cfg.ConfigManager, logger)
+	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)

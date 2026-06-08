@@ -15,13 +15,22 @@ import {
 import { adminGetContainerStatsFn } from '@/features/admin/api';
 import type { ContainerData, ContainerStats } from './types';
 
+const containerBusyStatuses = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting'];
+
+function shouldPollContainers(containers: ContainerData[]) {
+  return containers.some((container) => (
+    containerBusyStatuses.includes(container.status) ||
+    (container.status === 'running' && !!container.ttl_deadline)
+  ));
+}
+
 export function useContainers(page: number, limit: number) {
   return useQuery({
     queryKey: queryKeys.containers.list({ page, limit }),
     queryFn: () => getContainersFn(page, limit),
     refetchInterval: (query) => {
       const containers = query.state.data?.items || [];
-      return containers.some((container) => ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting'].includes(container.status)) ? 5000 : false;
+      return shouldPollContainers(containers) ? 5000 : false;
     },
   });
 }

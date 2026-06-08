@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -125,6 +126,27 @@ func (r *ContainerRepository) UpdateDockerIDRoutingAndGeneration(ctx context.Con
 func (r *ContainerRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	query := `UPDATE containers SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
 	res, err := r.db.ExecContext(ctx, query, status, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ContainerRepository) UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error {
+	var ttl sql.NullTime
+	if ttlDeadline != nil {
+		ttl.Time = *ttlDeadline
+		ttl.Valid = true
+	}
+	query := `UPDATE containers SET status = $1, ttl_deadline = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3`
+	res, err := r.db.ExecContext(ctx, query, status, ttl, id)
 	if err != nil {
 		return err
 	}
@@ -353,7 +375,7 @@ func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Con
 func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
+			status, desired_status, ttl_deadline, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE id = $1
 	`
@@ -370,7 +392,7 @@ func (r *ContainerRepository) GetByID(ctx context.Context, id uuid.UUID) (model.
 func (r *ContainerRepository) GetByDockerID(ctx context.Context, dockerID string) (model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
+			status, desired_status, ttl_deadline, env_vars, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error,
 			last_exit_code, docker_generation, network_alias, command, entrypoint, restart_policy, healthcheck
 		FROM containers WHERE docker_id = $1
 	`
@@ -415,7 +437,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation, created_at
+			status, desired_status, ttl_deadline, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation, created_at
 		FROM containers` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
@@ -442,7 +464,7 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) 
 func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
-			status, desired_status, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation
+			status, desired_status, ttl_deadline, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation
 		FROM containers 
 		WHERE project_id = $1
 	`
@@ -457,13 +479,14 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 		var c model.Container
 		var pID sql.NullString
 		var dID sql.NullString
+		var ttl sql.NullTime
 		var lastObservedAt sql.NullTime
 		var lastError sql.NullString
 		var lastExitCode sql.NullInt64
 
 		if err := rows.Scan(
 			&c.ID, &c.OwnerID, &pID, &dID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-			&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration,
+			&c.Status, &c.DesiredStatus, &ttl, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration,
 		); err != nil {
 			return nil, err
 		}
@@ -473,6 +496,9 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 		}
 		if dID.Valid {
 			c.DockerID = dID.String
+		}
+		if ttl.Valid {
+			c.TTLDeadline = &ttl.Time
 		}
 		if lastObservedAt.Valid {
 			c.LastObservedAt = &lastObservedAt.Time
@@ -491,8 +517,8 @@ func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid
 
 func (r *ContainerRepository) GetExpired(ctx context.Context) ([]model.Container, error) {
 	query := `
-		SELECT id, docker_id FROM containers 
-		WHERE status = $1 AND ttl_deadline < NOW()
+		SELECT id, owner_id, docker_id, status, ttl_deadline FROM containers
+		WHERE status = $1 AND ttl_deadline IS NOT NULL AND ttl_deadline < NOW()
 	`
 	rows, err := r.db.QueryContext(ctx, query, model.ContainerStatusRunning)
 	if err != nil {
@@ -504,11 +530,15 @@ func (r *ContainerRepository) GetExpired(ctx context.Context) ([]model.Container
 	for rows.Next() {
 		var c model.Container
 		var dockerID sql.NullString
-		if err := rows.Scan(&c.ID, &dockerID); err != nil {
+		var ttl sql.NullTime
+		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Status, &ttl); err != nil {
 			return nil, err
 		}
 		if dockerID.Valid {
 			c.DockerID = dockerID.String
+		}
+		if ttl.Valid {
+			c.TTLDeadline = &ttl.Time
 		}
 		containers = append(containers, c)
 	}
@@ -1327,12 +1357,13 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	var c model.Container
 	var projectID sql.NullString
 	var dockerID sql.NullString
+	var ttl sql.NullTime
 	var lastObservedAt sql.NullTime
 	var lastError sql.NullString
 	var lastExitCode sql.NullInt64
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration, &c.CreatedAt,
+		&c.Status, &c.DesiredStatus, &ttl, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError, &lastExitCode, &c.DockerGeneration, &c.CreatedAt,
 	); err != nil {
 		return model.Container{}, err
 	}
@@ -1342,6 +1373,9 @@ func scanContainerListItem(s scanner) (model.Container, error) {
 	}
 	if dockerID.Valid {
 		c.DockerID = dockerID.String
+	}
+	if ttl.Valid {
+		c.TTLDeadline = &ttl.Time
 	}
 	if lastObservedAt.Valid {
 		c.LastObservedAt = &lastObservedAt.Time
@@ -1360,13 +1394,14 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	var c model.Container
 	var projectID sql.NullString
 	var dockerID sql.NullString
+	var ttl sql.NullTime
 	var lastObservedAt sql.NullTime
 	var lastError sql.NullString
 	var lastExitCode sql.NullInt64
 	var command, entrypoint, healthcheck []byte
 	if err := s.Scan(
 		&c.ID, &c.OwnerID, &projectID, &dockerID, &c.Name, &c.ImageTag, &c.InternalPort, &c.DomainPrefix,
-		&c.Status, &c.DesiredStatus, &c.EnvVars, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError,
+		&c.Status, &c.DesiredStatus, &ttl, &c.EnvVars, &c.BaseMemoryReservation, &c.BaseCPUReservation, &lastObservedAt, &lastError,
 		&lastExitCode, &c.DockerGeneration, &c.NetworkAlias, &command, &entrypoint, &c.Restart, &healthcheck,
 	); err != nil {
 		return model.Container{}, err
@@ -1377,6 +1412,9 @@ func scanContainerFull(s scanner) (model.Container, error) {
 	}
 	if dockerID.Valid {
 		c.DockerID = dockerID.String
+	}
+	if ttl.Valid {
+		c.TTLDeadline = &ttl.Time
 	}
 	if lastObservedAt.Valid {
 		c.LastObservedAt = &lastObservedAt.Time

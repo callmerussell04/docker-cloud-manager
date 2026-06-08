@@ -1972,6 +1972,7 @@ type ContainerData struct {
 	DesiredStatus string                 `protobuf:"bytes,11,opt,name=desired_status,json=desiredStatus,proto3" json:"desired_status,omitempty"`
 	LastError     string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	LastExitCode  *int32                 `protobuf:"varint,13,opt,name=last_exit_code,json=lastExitCode,proto3,oneof" json:"last_exit_code,omitempty"`
+	TtlDeadline   int64                  `protobuf:"varint,14,opt,name=ttl_deadline,json=ttlDeadline,proto3" json:"ttl_deadline,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2093,6 +2094,13 @@ func (x *ContainerData) GetLastError() string {
 func (x *ContainerData) GetLastExitCode() int32 {
 	if x != nil && x.LastExitCode != nil {
 		return *x.LastExitCode
+	}
+	return 0
+}
+
+func (x *ContainerData) GetTtlDeadline() int64 {
+	if x != nil {
+		return x.TtlDeadline
 	}
 	return 0
 }
@@ -4788,7 +4796,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rExposeRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xb4\x03\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xd7\x03\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -4805,7 +4813,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x0edesired_status\x18\v \x01(\tR\rdesiredStatus\x12\x1d\n" +
 	"\n" +
 	"last_error\x18\f \x01(\tR\tlastError\x12)\n" +
-	"\x0elast_exit_code\x18\r \x01(\x05H\x00R\flastExitCode\x88\x01\x01B\x11\n" +
+	"\x0elast_exit_code\x18\r \x01(\x05H\x00R\flastExitCode\x88\x01\x01\x12!\n" +
+	"\fttl_deadline\x18\x0e \x01(\x03R\vttlDeadlineB\x11\n" +
 	"\x0f_last_exit_code\"B\n" +
 	"\x1dContainerRuntimeTargetRequest\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"\xb8\x01\n" +

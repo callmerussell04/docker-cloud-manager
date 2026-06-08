@@ -8,6 +8,7 @@ import { formatBytes } from '@/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
+import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
 import { statusLabel, useT } from '@/lib/i18n';
 import { useContainerDetailsStats } from '@/features/containers/hooks';
 
@@ -25,7 +26,10 @@ export function ContainerDetailsPage() {
     internal_port: container?.internal_port || 0,
     domain_prefix: container?.domain_prefix || '',
     status: container?.status || 'unknown',
+    desired_status: container?.desired_status,
     last_error: container?.last_error || '',
+    last_exit_code: container?.last_exit_code,
+    ttl_deadline: container?.ttl_deadline,
     created_at: container?.created_at || 0,
   } : null;
 
@@ -69,6 +73,9 @@ export function ContainerDetailsPage() {
               <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
               {getStatusBadge(container?.status)}
             </div>
+            {container && (
+              <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} className="mt-2" />
+            )}
             {container && (
               <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
                 <Box className="w-4 h-4" />

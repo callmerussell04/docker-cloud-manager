@@ -10,6 +10,7 @@ import { getServerErrorMessage } from '@/lib/apiError';
 import { useContainerAction } from '../hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { useState } from 'react';
+import { ContainerTTLTimer } from './ContainerTTLTimer';
 
 interface ContainerRowProps {
   container: ContainerData;
@@ -68,6 +69,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
 
       <div className="min-w-0 shrink-0">
         {getStatusBadge(container.status)}
+        <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} />
         {containerError && (
           <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={containerError}>
             <AlertTriangle className="w-3 h-3 shrink-0" />

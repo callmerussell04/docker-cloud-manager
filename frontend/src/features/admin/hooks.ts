@@ -137,6 +137,13 @@ export function useAdminContainers(page: number, limit: number, enabled: boolean
     queryKey: queryKeys.admin.containers.list({ page, limit }),
     queryFn: () => getAllContainersFn(page, limit),
     enabled,
+    refetchInterval: (query) => {
+      const containers = query.state.data?.items || [];
+      return enabled && containers.some((container) => (
+        ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting'].includes(container.status) ||
+        (container.status === 'running' && !!container.ttl_deadline)
+      )) ? 5000 : false;
+    },
   });
 }
 

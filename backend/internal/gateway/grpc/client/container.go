@@ -114,6 +114,7 @@ func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 			DesiredStatus: item.GetDesiredStatus(),
 			LastError:     item.GetLastError(),
 			LastExitCode:  lastExitCode,
+			TTLDeadline:   item.GetTtlDeadline(),
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),

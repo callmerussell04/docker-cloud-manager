@@ -11,6 +11,7 @@ type Container struct {
 	DesiredStatus string
 	LastError     string
 	LastExitCode  *int
+	TTLDeadline   int64
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string

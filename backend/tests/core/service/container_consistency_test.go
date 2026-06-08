@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -126,6 +128,54 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	dockerAPI.AssertNotCalled(t, "StopContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestTTLWorkerQueuesStopOperation(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	repo := &ttlWorkerRepoFake{
+		expired: []model.Container{{
+			ID:      containerID,
+			OwnerID: ownerID,
+			Status:  model.ContainerStatusRunning,
+		}},
+		queuedCh: make(chan queuedContainerOperation, 1),
+	}
+	cfg := ttlWorkerConfig{ttlHours: 24, intervalSeconds: 1}
+	worker := NewTTLWorker(repo, cfg, slog.Default())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go worker.Run(ctx)
+
+	select {
+	case queued := <-repo.queuedCh:
+		require.Equal(t, model.OperationStop, queued.op.Operation)
+		require.Equal(t, model.ContainerStatusStopping, queued.status)
+		require.Equal(t, model.ContainerStatusExited, queued.desiredStatus)
+		require.Equal(t, containerID, queued.op.ResourceID)
+		require.Equal(t, ownerID, queued.op.OwnerID)
+		require.Contains(t, string(queued.outbox.Payload), `"operation":"stop"`)
+	case <-time.After(1500 * time.Millisecond):
+		t.Fatal("ttl worker did not queue stop operation")
+	}
+}
+
+func TestTTLWorkerSkipsExpirationWhenTTLDisabled(t *testing.T) {
+	repo := &ttlWorkerRepoFake{queuedCh: make(chan queuedContainerOperation, 1)}
+	cfg := ttlWorkerConfig{ttlHours: 0, intervalSeconds: 1}
+	worker := NewTTLWorker(repo, cfg, slog.Default())
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go worker.Run(ctx)
+	time.Sleep(1100 * time.Millisecond)
+	cancel()
+
+	repo.mu.Lock()
+	getExpiredCalls := repo.getExpiredCalls
+	repo.mu.Unlock()
+	require.Zero(t, getExpiredCalls)
+	require.Empty(t, repo.queued)
+}
+
 func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
@@ -153,6 +203,7 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	defer cancel()
 	cfgValue := staticConfig{}.Get()
 	cfgValue.OvercommitFactor = 1.5
+	cfgValue.ContainerTTLHours = 24
 
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
@@ -166,7 +217,9 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	imageRepo.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
 		return opts.OwnerID != nil && *opts.OwnerID == ownerID
 	})).Return(nil, 0, nil)
-	repo.ContainerCreateRepository.EXPECT().SaveWithMountsAndOperation(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), false, false).Return(nil)
+	repo.ContainerCreateRepository.EXPECT().SaveWithMountsAndOperation(mock.Anything, mock.MatchedBy(func(c model.Container) bool {
+		return c.TTLDeadline == nil
+	}), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), false, false).Return(nil)
 
 	containerID, err := svc.Create(ctx, model.ContainerCreateParams{
 		Name:              "web",
@@ -175,6 +228,50 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, containerID)
+}
+
+func TestContainerServiceQueuedStartSetsTTLDeadline(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	operationID := uuid.New()
+	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	cfgValue := staticConfig{}.Get()
+	cfgValue.ContainerTTLHours = 24
+
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
+
+	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+	require.NoError(t, err)
+	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
+	require.NotNil(t, repo.updatedTTLDeadline)
+	require.Greater(t, time.Until(*repo.updatedTTLDeadline), 23*time.Hour)
+	require.LessOrEqual(t, time.Until(*repo.updatedTTLDeadline), 24*time.Hour)
+	require.Equal(t, model.OperationStatusDone, repo.completedStatus)
+}
+
+func TestContainerServiceQueuedStartClearsTTLDeadlineWhenDisabled(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	operationID := uuid.New()
+	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	cfgValue := staticConfig{}.Get()
+	cfgValue.ContainerTTLHours = 0
+
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
+
+	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+	require.NoError(t, err)
+	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
+	require.Nil(t, repo.updatedTTLDeadline)
+	require.Equal(t, model.OperationStatusDone, repo.completedStatus)
 }
 
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
@@ -387,6 +484,40 @@ func (r *containerLifecycleRepoMock) QueueContainerOperation(ctx context.Context
 	return nil
 }
 
+type ttlWorkerRepoFake struct {
+	mu              sync.Mutex
+	expired         []model.Container
+	queued          []queuedContainerOperation
+	queuedCh        chan queuedContainerOperation
+	getExpiredCalls int
+}
+
+func (r *ttlWorkerRepoFake) GetExpired(ctx context.Context) ([]model.Container, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.getExpiredCalls++
+	return append([]model.Container(nil), r.expired...), nil
+}
+
+func (r *ttlWorkerRepoFake) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
+	queued := queuedContainerOperation{
+		status:        status,
+		desiredStatus: desiredStatus,
+		op:            op,
+		outbox:        outbox,
+	}
+	r.mu.Lock()
+	r.queued = append(r.queued, queued)
+	r.mu.Unlock()
+	if r.queuedCh != nil {
+		select {
+		case r.queuedCh <- queued:
+		default:
+		}
+	}
+	return nil
+}
+
 type containerCreateStateRepoMock struct {
 	*coremocks.ContainerRepository
 	*coremocks.ContainerCreateRepository
@@ -406,6 +537,111 @@ func (r *containerCreateStateRepoMock) SaveWithMountsOperationAndOutbox(ctx cont
 	return r.ContainerCreateRepository.SaveWithMountsAndOperation(ctx, c, mounts, op, lockOwner, lockCapacity)
 }
 
+type startLifecycleRepoMock struct {
+	*coremocks.ContainerRepository
+	container          model.Container
+	pendingOp          model.ResourceOperation
+	runningOp          model.ResourceOperation
+	opReads            int
+	updatedStatus      string
+	updatedTTLDeadline *time.Time
+	completedStatus    string
+}
+
+func newStartLifecycleRepoMock(t *testing.T, ownerID, containerID, operationID uuid.UUID) *startLifecycleRepoMock {
+	t.Helper()
+	pendingOp := model.ResourceOperation{
+		ID:           operationID,
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   containerID,
+		OwnerID:      ownerID,
+		Operation:    model.OperationStart,
+		Status:       model.OperationStatusPending,
+	}
+	runningOp := pendingOp
+	runningOp.Status = model.OperationStatusRunning
+	return &startLifecycleRepoMock{
+		ContainerRepository: coremocks.NewContainerRepository(t),
+		container: model.Container{
+			ID:       containerID,
+			OwnerID:  ownerID,
+			DockerID: "docker-id",
+			Status:   model.ContainerStatusStarting,
+		},
+		pendingOp: pendingOp,
+		runningOp: runningOp,
+	}
+}
+
+func (r *startLifecycleRepoMock) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
+	r.opReads++
+	if r.opReads == 1 {
+		return r.pendingOp, nil
+	}
+	return r.runningOp, nil
+}
+
+func (r *startLifecycleRepoMock) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
+	return r.runningOp, true, nil
+}
+
+func (r *startLifecycleRepoMock) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
+	return r.container, nil
+}
+
+func (r *startLifecycleRepoMock) UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error {
+	r.updatedStatus = status
+	r.updatedTTLDeadline = ttlDeadline
+	return nil
+}
+
+func (r *startLifecycleRepoMock) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	r.completedStatus = status
+	return nil
+}
+
+func (r *startLifecycleRepoMock) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
+	return nil
+}
+
+func (r *startLifecycleRepoMock) Delete(ctx context.Context, id uuid.UUID) error {
+	return nil
+}
+
+func (r *startLifecycleRepoMock) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	r.updatedStatus = status
+	return nil
+}
+
+func (r *startLifecycleRepoMock) UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error {
+	r.updatedStatus = status
+	return nil
+}
+
+func (r *startLifecycleRepoMock) UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error {
+	return nil
+}
+
+func (r *startLifecycleRepoMock) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	r.updatedStatus = status
+	return nil
+}
+
+func (r *startLifecycleRepoMock) GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error) {
+	return nil, nil
+}
+
+func containerqueueMessage(operationID, containerID, ownerID uuid.UUID, operation string) containerqueue.LifecycleMessage {
+	return containerqueue.LifecycleMessage{
+		OperationID:    operationID.String(),
+		ContainerID:    containerID.String(),
+		OwnerID:        ownerID.String(),
+		Operation:      operation,
+		PreviousStatus: model.ContainerStatusExited,
+		CreatedAt:      time.Now().Unix(),
+	}
+}
+
 type recordingAuditRecorder struct {
 	events []model.AuditEvent
 }
@@ -416,6 +652,18 @@ func (r *recordingAuditRecorder) RecordAuditEvent(ctx context.Context, event mod
 }
 
 type staticConfig struct{}
+
+type ttlWorkerConfig struct {
+	ttlHours        int64
+	intervalSeconds int64
+}
+
+func (c ttlWorkerConfig) Get() config.SystemConfig {
+	return config.SystemConfig{
+		ContainerTTLHours:        c.ttlHours,
+		TTLWorkerIntervalSeconds: c.intervalSeconds,
+	}
+}
 
 func (staticConfig) Get() config.SystemConfig {
 	return config.SystemConfig{
