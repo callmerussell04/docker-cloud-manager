@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
@@ -60,6 +61,20 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 			return fmt.Errorf("reserved domain prefixes must be unique")
 		}
 		seenPrefixes[normalized] = struct{}{}
+	}
+	seenBlockedPatterns := make(map[string]struct{}, len(cfg.BlockedDomainPrefixPatterns))
+	for _, pattern := range cfg.BlockedDomainPrefixPatterns {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return fmt.Errorf("blocked domain prefix patterns must not contain empty values")
+		}
+		if _, err := regexp.Compile("^(?:" + trimmed + ")$"); err != nil {
+			return fmt.Errorf("invalid blocked domain prefix pattern %q: %w", pattern, err)
+		}
+		if _, ok := seenBlockedPatterns[trimmed]; ok {
+			return fmt.Errorf("blocked domain prefix patterns must be unique")
+		}
+		seenBlockedPatterns[trimmed] = struct{}{}
 	}
 	if cfg.MaxVolumesPerUser <= 0 || cfg.MaxContainersPerUser <= 0 {
 		return fmt.Errorf("user resource limits must be positive")

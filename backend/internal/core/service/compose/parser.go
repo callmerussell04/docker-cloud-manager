@@ -57,6 +57,10 @@ func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlC
 }
 
 func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
+	return p.ParseAndValidateWithBaseAndBlocked(ctx, projectName, yamlContent, reservedDomainPrefixes, nil, baseDir)
+}
+
+func (p *Parser) ParseAndValidateWithBaseAndBlocked(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, blockedDomainPrefixPatterns []string, baseDir string) (*model.ComposeProject, error) {
 	if err := validation.ProjectName(projectName); err != nil {
 		return nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
@@ -77,7 +81,7 @@ func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName strin
 	}
 
 	// Трансляция во внутренние структуры
-	return p.translateToDomain(projectName, project, reservedDomainPrefixes, baseDir)
+	return p.translateToDomain(projectName, project, reservedDomainPrefixes, blockedDomainPrefixPatterns, baseDir)
 }
 
 func (p *Parser) loadComposeProject(ctx context.Context, projectName string, yamlContent []byte) (*types.Project, error) {
@@ -233,7 +237,7 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 }
 
 // translateToDomain конвертирует структуру compose-go в нашу бизнес-модель
-func (p *Parser) translateToDomain(projectName string, project *types.Project, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
+func (p *Parser) translateToDomain(projectName string, project *types.Project, reservedDomainPrefixes []string, blockedDomainPrefixPatterns []string, baseDir string) (*model.ComposeProject, error) {
 	result := &model.ComposeProject{
 		Name: projectName,
 	}
@@ -429,8 +433,8 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			if err := validation.DomainPrefix(prefixStr); err != nil {
 				return fmt.Errorf("%w: invalid domain prefix for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 			}
-			if validation.ReservedDomainPrefix(prefixStr, reservedDomainPrefixes) {
-				return fmt.Errorf("%w: domain prefix for service %s is reserved", apperrors.ErrBadRequest, srv.Name)
+			if validation.ForbiddenDomainPrefix(prefixStr, reservedDomainPrefixes, blockedDomainPrefixPatterns) {
+				return apperrors.New(apperrors.ErrBadRequest, fmt.Sprintf("domain prefix %q is forbidden", prefixStr))
 			}
 			portInt, err := strconv.Atoi(portStr)
 			if err != nil || portInt <= 0 || portInt > 65535 {

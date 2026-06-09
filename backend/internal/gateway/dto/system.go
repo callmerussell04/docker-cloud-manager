@@ -19,6 +19,7 @@ type SystemConfigDTO struct {
 	MaxLogFiles                          string   `json:"max_log_files"`
 	ContainerDiskQuota                   string   `json:"container_disk_quota"`
 	ReservedDomainPrefixes               []string `json:"reserved_domain_prefixes"`
+	BlockedDomainPrefixPatterns          []string `json:"blocked_domain_prefix_patterns"`
 	MaxVolumesPerUser                    int      `json:"max_volumes_per_user"`
 	MaxContainersPerUser                 int      `json:"max_containers_per_user"`
 	ContainerTtlHours                    int64    `json:"container_ttl_hours"`

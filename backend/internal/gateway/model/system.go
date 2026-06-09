@@ -19,6 +19,7 @@ type SystemConfig struct {
 	MaxLogFiles                          string
 	ContainerDiskQuota                   string
 	ReservedDomainPrefixes               []string
+	BlockedDomainPrefixPatterns          []string
 	MaxVolumesPerUser                    int
 	MaxContainersPerUser                 int
 	ContainerTtlHours                    int64

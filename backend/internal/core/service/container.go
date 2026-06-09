@@ -190,8 +190,9 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if err := validation.DomainPrefix(params.DomainPrefix); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
-	if validation.ReservedDomainPrefix(params.DomainPrefix, s.config.Get().ReservedDomainPrefixes) {
-		return uuid.Nil, fmt.Errorf("%w: domain prefix is reserved", apperrors.ErrBadRequest)
+	cfg := s.config.Get()
+	if validation.ForbiddenDomainPrefix(params.DomainPrefix, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns) {
+		return uuid.Nil, s.domainPrefixForbiddenError(params.DomainPrefix)
 	}
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
@@ -210,7 +211,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if err != nil {
 		return uuid.Nil, err
 	}
-	cfg := s.config.Get()
 	if count >= cfg.MaxContainersPerUser {
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
@@ -426,8 +426,9 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	if err := validation.DomainPrefix(domainPrefix); err != nil {
 		return fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
-	if validation.ReservedDomainPrefix(domainPrefix, s.config.Get().ReservedDomainPrefixes) {
-		return fmt.Errorf("%w: domain prefix is reserved", apperrors.ErrBadRequest)
+	cfg := s.config.Get()
+	if validation.ForbiddenDomainPrefix(domainPrefix, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns) {
+		return s.domainPrefixForbiddenError(domainPrefix)
 	}
 
 	if c.DomainPrefix != domainPrefix {
@@ -512,6 +513,10 @@ func (s *ContainerService) fullDomain(domainPrefix string) string {
 
 func (s *ContainerService) domainPrefixAlreadyInUseError(domainPrefix string) error {
 	return apperrors.New(apperrors.ErrAlreadyExists, fmt.Sprintf("subdomain %s is already in use", s.fullDomain(domainPrefix)))
+}
+
+func (s *ContainerService) domainPrefixForbiddenError(domainPrefix string) error {
+	return apperrors.New(apperrors.ErrBadRequest, fmt.Sprintf("domain prefix %q is forbidden", domainPrefix))
 }
 
 func actorIDValue(actorID *uuid.UUID) uuid.UUID {

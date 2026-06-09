@@ -37,6 +37,30 @@ func ReservedDomainPrefix(prefix string, reserved []string) bool {
 	return false
 }
 
+func ForbiddenDomainPrefix(prefix string, reserved []string, patterns []string) bool {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return false
+	}
+	if ReservedDomainPrefix(prefix, reserved) {
+		return true
+	}
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		re, err := regexp.Compile("^(?:" + pattern + ")$")
+		if err != nil {
+			continue
+		}
+		if re.MatchString(prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func ResourceName(name string) error {
 	if !resourceNameRe.MatchString(name) {
 		return fmt.Errorf("name must start with a letter or digit and contain only letters, digits, underscore, dot or hyphen")

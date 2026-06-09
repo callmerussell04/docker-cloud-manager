@@ -141,6 +141,7 @@ func main() {
 		MaxLogFiles:                          getEnvString("MAX_LOG_FILES", "3"),
 		ContainerDiskQuota:                   getEnvString("CONTAINER_DISK_QUOTA", "1G"),
 		ReservedDomainPrefixes:               getEnvStringList("RESERVED_DOMAIN_PREFIXES", []string{"api", "admin", "gateway", "sso", "core", "builder", "traefik", "registry"}),
+		BlockedDomainPrefixPatterns:          []string{},
 		MaxVolumesPerUser:                    getEnvInt("MAX_VOLUMES_PER_USER", 5),
 		MaxContainersPerUser:                 getEnvInt("MAX_CONTAINERS_PER_USER", 10),
 		RegistryAPIURL:                       registryAPIURL,

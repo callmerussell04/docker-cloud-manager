@@ -3721,6 +3721,7 @@ type SystemConfigData struct {
 	CpuOvercommitFactor                  float64                `protobuf:"fixed64,81,opt,name=cpu_overcommit_factor,json=cpuOvercommitFactor,proto3" json:"cpu_overcommit_factor,omitempty"`
 	MaxCpuBurstMultiplier                int64                  `protobuf:"varint,82,opt,name=max_cpu_burst_multiplier,json=maxCpuBurstMultiplier,proto3" json:"max_cpu_burst_multiplier,omitempty"`
 	ContainerCpuPeriod                   int64                  `protobuf:"varint,83,opt,name=container_cpu_period,json=containerCpuPeriod,proto3" json:"container_cpu_period,omitempty"`
+	BlockedDomainPrefixPatterns          []string               `protobuf:"bytes,84,rep,name=blocked_domain_prefix_patterns,json=blockedDomainPrefixPatterns,proto3" json:"blocked_domain_prefix_patterns,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4299,6 +4300,13 @@ func (x *SystemConfigData) GetContainerCpuPeriod() int64 {
 		return x.ContainerCpuPeriod
 	}
 	return 0
+}
+
+func (x *SystemConfigData) GetBlockedDomainPrefixPatterns() []string {
+	if x != nil {
+		return x.BlockedDomainPrefixPatterns
+	}
+	return nil
 }
 
 type BuilderRuntimeConfigData struct {
@@ -4958,7 +4966,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xc6&\n" +
+	"totalCount\"\x8b'\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5040,7 +5048,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1ereserved_system_cpu_millicores\x18P \x01(\x03R\x1breservedSystemCpuMillicores\x122\n" +
 	"\x15cpu_overcommit_factor\x18Q \x01(\x01R\x13cpuOvercommitFactor\x127\n" +
 	"\x18max_cpu_burst_multiplier\x18R \x01(\x03R\x15maxCpuBurstMultiplier\x120\n" +
-	"\x14container_cpu_period\x18S \x01(\x03R\x12containerCpuPeriodJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x14container_cpu_period\x18S \x01(\x03R\x12containerCpuPeriod\x12C\n" +
+	"\x1eblocked_domain_prefix_patterns\x18T \x03(\tR\x1bblockedDomainPrefixPatternsJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

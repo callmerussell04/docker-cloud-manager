@@ -47,6 +47,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		MaxLogFiles:                          cfg.MaxLogFiles,
 		ContainerDiskQuota:                   cfg.ContainerDiskQuota,
 		ReservedDomainPrefixes:               cfg.ReservedDomainPrefixes,
+		BlockedDomainPrefixPatterns:          cfg.BlockedDomainPrefixPatterns,
 		MaxVolumesPerUser:                    int32(cfg.MaxVolumesPerUser),
 		MaxContainersPerUser:                 int32(cfg.MaxContainersPerUser),
 		ContainerTtlHours:                    cfg.ContainerTTLHours,
@@ -133,6 +134,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.MaxLogFiles = req.GetMaxLogFiles()
 	newCfg.ContainerDiskQuota = req.GetContainerDiskQuota()
 	newCfg.ReservedDomainPrefixes = req.GetReservedDomainPrefixes()
+	newCfg.BlockedDomainPrefixPatterns = req.GetBlockedDomainPrefixPatterns()
 	newCfg.MaxVolumesPerUser = int(req.GetMaxVolumesPerUser())
 	newCfg.MaxContainersPerUser = int(req.GetMaxContainersPerUser())
 	newCfg.ContainerTTLHours = req.GetContainerTtlHours()

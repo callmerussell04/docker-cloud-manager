@@ -81,6 +81,15 @@ func TestManagerRejectsInvalidUpdate(t *testing.T) {
 	}
 }
 
+func TestValidateSystemConfigRejectsInvalidBlockedDomainPrefixPattern(t *testing.T) {
+	cfg := validSystemConfig()
+	cfg.BlockedDomainPrefixPatterns = []string{"preview-["}
+
+	if err := ValidateSystemConfig(cfg); err == nil {
+		t.Fatal("ValidateSystemConfig() returned nil error for invalid blocked domain prefix pattern")
+	}
+}
+
 func validSystemConfig() SystemConfig {
 	return SystemConfig{
 		BaseDomain:                           "localhost",
@@ -100,6 +109,8 @@ func validSystemConfig() SystemConfig {
 		MaxLogSize:                           "10m",
 		MaxLogFiles:                          "3",
 		ContainerDiskQuota:                   "1G",
+		ReservedDomainPrefixes:               []string{"admin", "api"},
+		BlockedDomainPrefixPatterns:          []string{},
 		MaxVolumesPerUser:                    5,
 		MaxContainersPerUser:                 10,
 		RegistryAPIURL:                       "registry:5000",

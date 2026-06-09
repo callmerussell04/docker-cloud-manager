@@ -345,7 +345,8 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		cancel()
 		return uuid.Nil, err
 	}
-	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
+	cfg := o.cfg.Get()
+	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns)
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
@@ -552,8 +553,8 @@ func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job mod
 	return nil
 }
 
-func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, composeYAML []byte, composeBaseDir string, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
-	return o.parser.ParseAndValidateWithBase(ctx, projectName, composeYAML, reservedDomainPrefixes, composeBaseDir)
+func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName string, composeYAML []byte, composeBaseDir string, reservedDomainPrefixes []string, blockedDomainPrefixPatterns []string) (*model.ComposeProject, error) {
+	return o.parser.ParseAndValidateWithBaseAndBlocked(ctx, projectName, composeYAML, reservedDomainPrefixes, blockedDomainPrefixPatterns, composeBaseDir)
 }
 
 func (o *Orchestrator) ensureHostDiskFloor() error {
@@ -914,7 +915,8 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		o.failDeploymentJob(jobCtx, job, err)
 		return nil
 	}
-	parsedProject, err := o.parseComposeProject(jobCtx, project.Name, prepared.ComposeYAML, prepared.ComposeBaseDir, o.cfg.Get().ReservedDomainPrefixes)
+	cfg := o.cfg.Get()
+	parsedProject, err := o.parseComposeProject(jobCtx, project.Name, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns)
 	if err != nil {
 		o.failDeploymentJob(jobCtx, job, err)
 		return nil

@@ -31,6 +31,7 @@ export interface SystemConfig {
   max_log_files: string;
   container_disk_quota: string;
   reserved_domain_prefixes: string[];
+  blocked_domain_prefix_patterns: string[];
   max_volumes_per_user: number;
   max_containers_per_user: number;
   container_ttl_hours: number;
@@ -138,6 +139,7 @@ export const systemConfigSchema = z.object({
   max_log_files: z.string().min(1),
   container_disk_quota: z.string().min(1),
   reserved_domain_prefixes: z.array(z.string()),
+  blocked_domain_prefix_patterns: z.array(z.string().min(1)),
   max_volumes_per_user: z.number().min(1),
   max_containers_per_user: z.number().min(1),
   container_ttl_hours: z.number().min(0),

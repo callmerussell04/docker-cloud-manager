@@ -115,6 +115,27 @@ services:
 	}
 }
 
+func TestParserRejectsBlockedDomainPrefixPattern(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  web:
+    image: nginx:latest
+    labels:
+      dcm.domain_prefix: preview-42
+      dcm.internal_port: "8080"
+`)
+
+	_, err := NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, []string{"preview-[0-9]+"}, "")
+	if !errors.Is(err, apperrors.ErrBadRequest) {
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v, want bad request", err)
+	}
+	if got := apperrors.SafeMessage(err); got != `domain prefix "preview-42" is forbidden` {
+		t.Fatalf("SafeMessage() = %q, want forbidden domain prefix message", got)
+	}
+}
+
 func TestParserDependsOnDisabledOptionalServicePasses(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,7 @@ const sections: Array<{
     titleKey: 'admin.settings.section.registry',
     fields: [
       { name: 'reserved_domain_prefixes', labelKey: 'admin.settings.field.reserved_domain_prefixes.label', hintKey: 'admin.settings.field.reserved_domain_prefixes.hint', type: 'array', placeholderKey: 'admin.settings.placeholder.addPrefix' },
+      { name: 'blocked_domain_prefix_patterns', labelKey: 'admin.settings.field.blocked_domain_prefix_patterns.label', hintKey: 'admin.settings.field.blocked_domain_prefix_patterns.hint', type: 'array', placeholderKey: 'admin.settings.placeholder.addPrefixPattern' },
     ],
   },
   {

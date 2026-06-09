@@ -95,6 +95,45 @@ func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
+func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *testing.T) {
+	ownerID := uuid.New()
+	containerID := uuid.New()
+	repo := newContainerLifecycleRepoMock(t)
+	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	auditor := &recordingAuditRecorder{}
+	svc.SetAuditRecorder(auditor)
+
+	cfgValue := staticConfig{}.Get()
+	cfgValue.BlockedDomainPrefixPatterns = []string{"preview-[0-9]+"}
+	cfg.EXPECT().Get().Return(cfgValue).Maybe()
+	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+		ID:           containerID,
+		OwnerID:      ownerID,
+		DockerID:     "docker-id",
+		Name:         "web",
+		DomainPrefix: "old",
+		InternalPort: 80,
+		Status:       model.ContainerStatusRunning,
+	}, nil)
+
+	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "alice", ""), containerID, "preview-42", 8080)
+	require.ErrorIs(t, err, apperrors.ErrBadRequest)
+	require.Equal(t, `domain prefix "preview-42" is forbidden`, apperrors.SafeMessage(err))
+	require.Empty(t, repo.queued)
+	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
+
+	require.Len(t, auditor.events, 1)
+	event := auditor.events[0]
+	require.Equal(t, auditlog.ActionContainerExpose, event.Action)
+	require.Equal(t, auditlog.OutcomeFailure, event.Outcome)
+	require.Equal(t, `domain prefix "preview-42" is forbidden`, event.ErrorCode)
+	var details map[string]string
+	require.NoError(t, json.Unmarshal([]byte(event.DetailsJSON), &details))
+	require.Equal(t, "preview-42", details[auditlog.DetailDomainPrefix])
+}
+
 func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()

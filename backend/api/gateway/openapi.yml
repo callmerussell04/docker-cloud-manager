@@ -1930,6 +1930,14 @@ components:
           type: string
         container_disk_quota:
           type: string
+        reserved_domain_prefixes:
+          type: array
+          items:
+            type: string
+        blocked_domain_prefix_patterns:
+          type: array
+          items:
+            type: string
         max_volumes_per_user:
           type: integer
         max_containers_per_user:
