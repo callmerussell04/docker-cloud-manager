@@ -43,6 +43,11 @@ const (
 	ContainerOutboxStatusPublishing = "publishing"
 	ContainerOutboxStatusPublished  = "published"
 	ContainerOutboxStatusDiscarded  = "discarded"
+
+	ResourceOutboxStatusPending    = "pending"
+	ResourceOutboxStatusPublishing = "publishing"
+	ResourceOutboxStatusPublished  = "published"
+	ResourceOutboxStatusDiscarded  = "discarded"
 )
 
 type ContainerLifecycleOutbox struct {
@@ -57,4 +62,19 @@ type ContainerLifecycleOutbox struct {
 	LastError   *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+}
+
+type ResourceLifecycleOutbox struct {
+	ID           uuid.UUID
+	OperationID  uuid.UUID
+	ResourceType string
+	ResourceID   uuid.UUID
+	Exchange     string
+	RoutingKey   string
+	Payload      []byte
+	Status       string
+	Attempts     int
+	LastError    *string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }

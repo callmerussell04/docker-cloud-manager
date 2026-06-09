@@ -6,6 +6,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/resourcequeue"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -93,6 +94,34 @@ func DeclareContainer(ch *amqp.Channel) error {
 	return nil
 }
 
+func DeclareResource(ch *amqp.Channel) error {
+	if err := ch.ExchangeDeclare(resourcequeue.ExchangeName, "direct", true, false, false, false, nil); err != nil {
+		return fmt.Errorf("failed to declare resource exchange: %w", err)
+	}
+	if err := ch.ExchangeDeclare(resourcequeue.DLXName, "direct", true, false, false, false, nil); err != nil {
+		return fmt.Errorf("failed to declare resource dlx: %w", err)
+	}
+	if _, err := ch.QueueDeclare(resourcequeue.DLQName, true, false, false, false, amqp.Table{
+		"x-queue-type": "quorum",
+	}); err != nil {
+		return fmt.Errorf("failed to declare resource dlq: %w", err)
+	}
+	if err := ch.QueueBind(resourcequeue.DLQName, resourcequeue.DLQKey, resourcequeue.DLXName, false, nil); err != nil {
+		return fmt.Errorf("failed to bind resource dlq: %w", err)
+	}
+	if _, err := ch.QueueDeclare(resourcequeue.QueueName, true, false, false, false, amqp.Table{
+		"x-queue-type":              "quorum",
+		"x-dead-letter-exchange":    resourcequeue.DLXName,
+		"x-dead-letter-routing-key": resourcequeue.DLQKey,
+	}); err != nil {
+		return fmt.Errorf("failed to declare resource queue: %w", err)
+	}
+	if err := ch.QueueBind(resourcequeue.QueueName, resourcequeue.RoutingKey, resourcequeue.ExchangeName, false, nil); err != nil {
+		return fmt.Errorf("failed to bind resource queue: %w", err)
+	}
+	return nil
+}
+
 func DeclareAll(ch *amqp.Channel) error {
 	if err := DeclareBuild(ch); err != nil {
 		return err
@@ -100,5 +129,8 @@ func DeclareAll(ch *amqp.Channel) error {
 	if err := DeclareCompose(ch); err != nil {
 		return err
 	}
-	return DeclareContainer(ch)
+	if err := DeclareContainer(ch); err != nil {
+		return err
+	}
+	return DeclareResource(ch)
 }

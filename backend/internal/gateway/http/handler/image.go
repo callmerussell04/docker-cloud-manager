@@ -67,7 +67,7 @@ func (h *CoreHandler) deleteImage(c *gin.Context, message string) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": message})
+	c.JSON(http.StatusAccepted, gin.H{"message": message})
 }
 
 func (h *CoreHandler) AdminDeleteImage(c *gin.Context) {

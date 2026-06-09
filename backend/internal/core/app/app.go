@@ -41,6 +41,7 @@ type App struct {
 	buildPublisher    service.BuildQueuePublisher
 	composeConsumer   *rabbitmq.ComposeConsumer
 	containerConsumer *rabbitmq.ContainerConsumer
+	resourceConsumer  *rabbitmq.ResourceConsumer
 	ssoConn           *grpc.ClientConn
 	port              int
 	ctx               context.Context
@@ -106,6 +107,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildRepo := repository.NewBuildRepository(db)
 	projRepo := repository.NewProjectRepository(db)
 	stagedRepo := repository.NewStagedObjectRepository(db)
+	resourceLifecycleRepo := repository.NewResourceLifecycleRepository(db)
 	reportSnapshotRepo := repository.NewReportSnapshotRepository(db, dockerAdapter, logger)
 	reportsRepo := clickhouserepo.NewReportsRepository(clickhouserepo.Config{
 		Addr:     cfg.ClickHouse.Addr,
@@ -124,6 +126,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		HostDiskPath: cfg.HostDiskPath,
 	})
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
+	volService.SetLifecycleRepository(resourceLifecycleRepo)
+	imgService.SetLifecycleRepository(resourceLifecycleRepo)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, service.BuildServiceDeps{
 		VolumeRepo:    volRepo,
@@ -147,6 +151,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 	containerConsumer := rabbitmq.NewContainerConsumer(cfg.RabbitMQURL, "core", logger)
+	resourceConsumer := rabbitmq.NewResourceConsumer(cfg.RabbitMQURL, "core", logger)
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
@@ -206,7 +211,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
 	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
 	containerOutboxWorker := service.NewContainerOutboxWorker(contRepo, buildPublisher, cfg.ConfigManager, logger)
+	resourceOutboxWorker := service.NewResourceOutboxWorker(resourceLifecycleRepo, buildPublisher, cfg.ConfigManager, logger)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
+	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
 	composeCoordinator := compose.NewComposeDeploymentCoordinator(orchestrator, logger)
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
@@ -219,12 +226,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		buildOutboxWorker.Run,
 		composeOutboxWorker.Run,
 		containerOutboxWorker.Run,
+		resourceOutboxWorker.Run,
 		composeCoordinator.Run,
 		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,
 	)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
 	containerConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, containerCreateWorker.HandleMessage)
+	resourceConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, resourceLifecycleWorker.HandleMessage)
 
 	return &App{
 		gRPCServer:        gRPCServer,
@@ -236,6 +245,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		buildPublisher:    buildPublisher,
 		composeConsumer:   composeConsumer,
 		containerConsumer: containerConsumer,
+		resourceConsumer:  resourceConsumer,
 		ssoConn:           ssoConn,
 		port:              cfg.Port,
 		ctx:               ctx,
@@ -297,6 +307,13 @@ func (a *App) Stop() {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := a.containerConsumer.Stop(stopCtx); err != nil {
 			a.logger.Warn("container queue consumer shutdown timed out", "error", err)
+		}
+		cancel()
+	}
+	if a.resourceConsumer != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.resourceConsumer.Stop(stopCtx); err != nil {
+			a.logger.Warn("resource queue consumer shutdown timed out", "error", err)
 		}
 		cancel()
 	}

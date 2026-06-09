@@ -284,7 +284,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			}
 		}
 	}
-	if customImage != nil && customImage.Status == model.ImageStatusMissing {
+	if customImage != nil && customImage.Status != model.ImageStatusAvailable {
 		return uuid.Nil, resourceUnavailableError("image")
 	}
 

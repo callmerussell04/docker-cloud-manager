@@ -19,15 +19,16 @@ import (
 func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()
+	operationID := uuid.New()
 	repo := newImageRepoMock(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
+	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+	svc.SetLifecycleRepository(lifecycle)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:1.2.3"}, nil)
-	containerRepo.EXPECT().IsImageInUse(mock.Anything, ownerID, "demo:1.2.3").Return(false, nil)
-	repo.ImageStateRepository.EXPECT().UpdateStatus(mock.Anything, imageID, model.ImageStatusDeleting).Return(nil)
 	var registryRepo, registryTag, deletedDigest string
 	registry.EXPECT().
 		GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "1.2.3").
@@ -47,11 +48,12 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil)
 
-	err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
+	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.NoError(t, err)
 	require.Equal(t, ownerID.String()+"_demo", registryRepo)
 	require.Equal(t, "1.2.3", registryTag)
 	require.Equal(t, "sha256:abc", deletedDigest)
+	require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 }
 
 func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
@@ -71,38 +73,41 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()
+	operationID := uuid.New()
 	repo := newImageRepoMock(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
+	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+	svc.SetLifecycleRepository(lifecycle)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
-	containerRepo.EXPECT().IsImageInUse(mock.Anything, ownerID, "demo:latest").Return(false, nil)
-	repo.ImageStateRepository.EXPECT().UpdateStatus(mock.Anything, imageID, model.ImageStatusDeleting).Return(nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
 	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.MatchedBy(func(tag string) bool {
 		return strings.HasSuffix(tag, "demo:latest")
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil)
 
-	err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
+	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 }
 
 func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()
+	operationID := uuid.New()
 	deleteErr := errors.New("delete failed")
 	repo := newImageRepoMock(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
+	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+	svc.SetLifecycleRepository(lifecycle)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
-	containerRepo.EXPECT().IsImageInUse(mock.Anything, ownerID, "demo:latest").Return(false, nil)
-	repo.ImageStateRepository.EXPECT().UpdateStatus(mock.Anything, imageID, model.ImageStatusDeleting).Return(nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
 	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.MatchedBy(func(tag string) bool {
 		return strings.HasSuffix(tag, "demo:latest")
@@ -110,8 +115,9 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(deleteErr)
 	repo.ImageStateRepository.EXPECT().MarkStatusError(mock.Anything, imageID, model.ImageStatusError, deleteErr).Return(nil)
 
-	err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
+	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.ErrorIs(t, err, deleteErr)
+	require.Equal(t, model.OperationStatusFailed, lifecycle.op.Status)
 }
 
 func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
@@ -159,4 +165,49 @@ func newImageRepoMock(t *testing.T) *imageRepoMock {
 		ImageRepository:      coremocks.NewImageRepository(t),
 		ImageStateRepository: coremocks.NewImageStateRepository(t),
 	}
+}
+
+type imageLifecycleFake struct {
+	op model.ResourceOperation
+}
+
+func newImageLifecycleFake(operationID, imageID, ownerID uuid.UUID) *imageLifecycleFake {
+	return &imageLifecycleFake{
+		op: model.ResourceOperation{
+			ID:           operationID,
+			ResourceType: model.ResourceTypeImage,
+			ResourceID:   imageID,
+			OwnerID:      ownerID,
+			Operation:    model.OperationDelete,
+			Status:       model.OperationStatusPending,
+		},
+	}
+}
+
+func (f *imageLifecycleFake) QueueImageDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
+	f.op = op
+	return nil
+}
+
+func (f *imageLifecycleFake) HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
+	return false, nil
+}
+
+func (f *imageLifecycleFake) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
+	if f.op.Status != model.OperationStatusPending {
+		return f.op, false, nil
+	}
+	f.op.Status = model.OperationStatusRunning
+	f.op.Attempts++
+	return f.op, true, nil
+}
+
+func (f *imageLifecycleFake) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	f.op.Status = status
+	return nil
+}
+
+func (f *imageLifecycleFake) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
+	f.op.Status = model.OperationStatusPending
+	return nil
 }

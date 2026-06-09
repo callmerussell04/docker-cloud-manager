@@ -2,12 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
@@ -21,13 +25,12 @@ type VolumeUsageRepo interface {
 
 type VolumeUsageDockerAPI interface {
 	GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error)
-	StopContainer(ctx context.Context, dockerID string, timeout int) error
 }
 
 type VolumeUsageContainerRepo interface {
 	GetRunningWithWritableVolumeMounts(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
-	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
-	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
+	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
+	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
 }
 
 type VolumeUsageImageRepo interface {
@@ -140,17 +143,56 @@ func (w *VolumeUsageWorker) stopWritableVolumeContainers(ctx context.Context, ow
 		w.logger.WarnContext(ctx, "failed to fetch over-quota containers", "user_id", ownerID, "error", err)
 		return
 	}
-	cause := errors.New("user disk quota exceeded")
 	for _, c := range containers {
-		if err := w.contRepo.SetDesiredStatus(ctx, c.ID, model.ContainerStatusExited); err != nil {
-			w.logger.WarnContext(ctx, "failed to update over-quota container desired status", "container_id", c.ID, "error", err)
-		}
-		if c.DockerID != "" {
-			if err := w.dockerAPI.StopContainer(ctx, c.DockerID, w.cfg.Get().ContainerStopTimeout); err != nil {
-				w.logger.WarnContext(ctx, "failed to stop over-quota container", "container_id", c.ID, "docker_id", c.DockerID, "error", err)
+		if err := w.queueStop(ctx, c); err != nil {
+			if errors.Is(err, apperrors.ErrConflict) {
+				w.logger.DebugContext(ctx, "over-quota container already has active operation", "container_id", c.ID)
+				continue
 			}
+			w.logger.WarnContext(ctx, "failed to queue over-quota container stop", "container_id", c.ID, "error", err)
+			continue
 		}
-		_ = w.contRepo.MarkStatusError(ctx, c.ID, model.ContainerStatusExited, cause)
-		w.logger.WarnContext(ctx, "container stopped due to disk quota", "container_id", c.ID, "user_id", ownerID, "used_mb", usedMB, "quota_mb", quotaMB)
+		w.logger.WarnContext(ctx, "container stop queued due to disk quota", "container_id", c.ID, "user_id", ownerID, "used_mb", usedMB, "quota_mb", quotaMB)
 	}
+}
+
+func (w *VolumeUsageWorker) queueStop(ctx context.Context, c model.Container) error {
+	active, err := w.contRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
+	}
+	op := model.ResourceOperation{
+		ID:           uuid.New(),
+		ResourceType: model.ResourceTypeContainer,
+		ResourceID:   c.ID,
+		OwnerID:      c.OwnerID,
+		Operation:    model.OperationStop,
+		Status:       model.OperationStatusPending,
+	}
+	msg := containerqueue.LifecycleMessage{
+		OperationID:    op.ID.String(),
+		ContainerID:    c.ID.String(),
+		OwnerID:        c.OwnerID.String(),
+		Operation:      model.OperationStop,
+		RequestID:      logging.RequestIDFromContext(ctx),
+		CreatedAt:      time.Now().Unix(),
+		PreviousStatus: c.Status,
+	}
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal over-quota stop message: %w", err)
+	}
+	outbox := model.ContainerLifecycleOutbox{
+		ID:          uuid.New(),
+		OperationID: op.ID,
+		ContainerID: c.ID,
+		Exchange:    containerqueue.ExchangeName,
+		RoutingKey:  containerqueue.RoutingKey,
+		Payload:     payload,
+		Status:      model.ContainerOutboxStatusPending,
+	}
+	return w.contRepo.QueueContainerOperation(ctx, c.ID, model.ContainerStatusStopping, model.ContainerStatusExited, op, outbox)
 }

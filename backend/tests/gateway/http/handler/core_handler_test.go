@@ -65,7 +65,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 
 	svc.EXPECT().CreateVolume(mock.Anything, model.CreateVolumeInput{Name: "data"}).Return(volumeID, nil)
 	resp = perform(router, http.MethodPost, "/volumes", `{"name":"data"}`, nil)
-	require.Equal(t, http.StatusCreated, resp.Code)
+	require.Equal(t, http.StatusAccepted, resp.Code)
 	require.Contains(t, resp.Body.String(), volumeID)
 
 	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id"}}, TotalCount: 1}, nil).Twice()
@@ -81,7 +81,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 
 	svc.EXPECT().DeleteVolume(mock.Anything, volumeID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/volumes/"+volumeID, ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusAccepted, resp.Code)
 }
 
 func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
@@ -100,7 +100,7 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 
 	svc.EXPECT().DeleteImage(mock.Anything, imageID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/images/"+imageID, ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusAccepted, resp.Code)
 
 	svc.EXPECT().ListBuilds(mock.Anything, 1, 20).Return(model.PaginatedBuilds{Builds: []model.Build{{ID: buildID, LogFilePath: "build-logs/demo.log", OwnerID: ownerID}}, TotalCount: 1}, nil)
 	resp = perform(router, http.MethodGet, "/builds", ``, nil)
@@ -162,7 +162,7 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 	svc.EXPECT().RefreshUsageSnapshots(mock.Anything).Return(model.RefreshUsageSnapshotsResult{SnapshotsCount: 1}, nil)
 	resp = perform(router, http.MethodPost, "/admin/reports/usage-snapshots/refresh", ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusAccepted, resp.Code)
 }
 
 func TestCoreHandlerRejectsInvalidInputAndMapsErrors(t *testing.T) {

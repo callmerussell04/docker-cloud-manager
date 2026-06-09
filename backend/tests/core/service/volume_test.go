@@ -24,35 +24,24 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	cfg := newVolumeConfigMock(t)
 	svc := NewVolumeService(repo, dockerAPI, cfg, VolumeServiceDeps{Users: users, ImageRepo: imageRepo})
+	lifecycle := &volumeLifecycleFake{}
+	svc.SetLifecycleRepository(lifecycle)
 	var saved model.Volume
-	var runtimeSpec model.VolumeRuntimeSpec
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
-	repo.VolumeRepository.EXPECT().
-		Save(mock.Anything, mock.AnythingOfType("model.Volume")).
-		Run(func(ctx context.Context, vol model.Volume) {
-			saved = vol
-		}).
-		Return(nil)
-	dockerAPI.EXPECT().
-		CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).
-		Run(func(ctx context.Context, spec model.VolumeRuntimeSpec) {
-			runtimeSpec = spec
-		}).
-		Return("vol", nil)
-	repo.VolumeStateRepository.EXPECT().UpdateStatus(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusAvailable).Return(nil)
 
 	volumeID, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, volumeID)
+	require.True(t, lifecycle.createQueued)
+	saved = lifecycle.volume
 	require.Equal(t, ownerID, saved.OwnerID)
 	require.Equal(t, "data", saved.Name)
-	require.Equal(t, "vol_"+ownerID.String()[:8]+"_data", runtimeSpec.VolumeName)
-	require.Equal(t, volumeID.String(), runtimeSpec.VolumeID)
-	require.Equal(t, ownerID.String(), runtimeSpec.OwnerID)
+	require.Equal(t, model.VolumeStatusCreating, saved.Status)
+	dockerAPI.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
 }
 
 func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
@@ -193,33 +182,32 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 
 func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
 	ownerID := uuid.New()
+	volumeID := uuid.New()
+	operationID := uuid.New()
 	repo := newVolumeRepoMock(t)
 	dockerAPI := coremocks.NewVolumeDockerAPI(t)
-	users := coremocks.NewUserInfoProvider(t)
-	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	dockerErr := errors.New("docker create failed")
-	svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{Users: users, ImageRepo: imageRepo})
+	svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
+	lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationCreate)
+	svc.SetLifecycleRepository(lifecycle)
 
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
-	repo.VolumeRepository.EXPECT().Save(mock.Anything, mock.AnythingOfType("model.Volume")).Return(nil)
+	repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 	dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("", dockerErr)
 	repo.VolumeStateRepository.EXPECT().MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusError, dockerErr).Return(nil)
 
-	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
+	err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
 	require.ErrorIs(t, err, dockerErr)
+	require.Equal(t, model.OperationStatusFailed, lifecycle.op.Status)
 }
 
 func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 	ownerID := uuid.New()
 	volumeID := uuid.New()
 	tests := []struct {
-		name        string
-		setup       func(*volumeRepoMock, *coremocks.VolumeDockerAPI)
-		wantErr     error
-		wantDeleted bool
+		name       string
+		setup      func(*volumeRepoMock, *coremocks.VolumeDockerAPI)
+		wantErr    error
+		wantQueued bool
 	}{
 		{
 			name: "in use",
@@ -230,27 +218,12 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 			wantErr: apperrors.ErrResourceInUse,
 		},
 		{
-			name: "docker missing is idempotent",
+			name: "delete is queued",
 			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
 				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 				repo.VolumeRepository.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(false, nil)
-				repo.VolumeStateRepository.EXPECT().UpdateStatus(mock.Anything, volumeID, model.VolumeStatusDeleting).Return(nil)
-				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(cerrdefs.ErrNotFound)
-				repo.VolumeRepository.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
 			},
-			wantDeleted: true,
-		},
-		{
-			name: "docker error marks volume error",
-			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
-				removeErr := errors.New("remove failed")
-				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
-				repo.VolumeRepository.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(false, nil)
-				repo.VolumeStateRepository.EXPECT().UpdateStatus(mock.Anything, volumeID, model.VolumeStatusDeleting).Return(nil)
-				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(removeErr)
-				repo.VolumeStateRepository.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
-			},
-			wantErr: errors.New("remove failed"),
+			wantQueued: true,
 		},
 	}
 
@@ -260,6 +233,8 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 			dockerAPI := coremocks.NewVolumeDockerAPI(t)
 			tt.setup(repo, dockerAPI)
 			svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
+			lifecycle := &volumeLifecycleFake{}
+			svc.SetLifecycleRepository(lifecycle)
 			err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), volumeID)
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -268,7 +243,56 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, err)
+				require.Equal(t, tt.wantQueued, lifecycle.deleteQueued)
 			}
+		})
+	}
+}
+
+func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
+	ownerID := uuid.New()
+	volumeID := uuid.New()
+	tests := []struct {
+		name    string
+		setup   func(*volumeRepoMock, *coremocks.VolumeDockerAPI)
+		wantErr error
+	}{
+		{
+			name: "docker missing is idempotent",
+			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
+				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(cerrdefs.ErrNotFound)
+				repo.VolumeRepository.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
+			},
+		},
+		{
+			name: "docker error marks volume error",
+			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
+				removeErr := errors.New("remove failed")
+				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(removeErr)
+				repo.VolumeStateRepository.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
+			},
+			wantErr: errors.New("remove failed"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			operationID := uuid.New()
+			repo := newVolumeRepoMock(t)
+			dockerAPI := coremocks.NewVolumeDockerAPI(t)
+			tt.setup(repo, dockerAPI)
+			svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
+			lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationDelete)
+			svc.SetLifecycleRepository(lifecycle)
+			err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
+			if tt.wantErr != nil {
+				require.Error(t, err)
+				require.Equal(t, model.OperationStatusFailed, lifecycle.op.Status)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 		})
 	}
 }
@@ -320,6 +344,67 @@ func newVolumeRepoMock(t *testing.T) *volumeRepoMock {
 		VolumeDiskUsageRepository: coremocks.NewVolumeDiskUsageRepository(t),
 		VolumeStateRepository:     coremocks.NewVolumeStateRepository(t),
 	}
+}
+
+type volumeLifecycleFake struct {
+	op           model.ResourceOperation
+	volume       model.Volume
+	createQueued bool
+	deleteQueued bool
+	active       bool
+}
+
+func newVolumeLifecycleFake(operationID, volumeID, ownerID uuid.UUID, operation string) *volumeLifecycleFake {
+	return &volumeLifecycleFake{
+		op: model.ResourceOperation{
+			ID:           operationID,
+			ResourceType: model.ResourceTypeVolume,
+			ResourceID:   volumeID,
+			OwnerID:      ownerID,
+			Operation:    operation,
+			Status:       model.OperationStatusPending,
+		},
+	}
+}
+
+func (f *volumeLifecycleFake) CreateQueuedVolume(ctx context.Context, vol model.Volume, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
+	f.volume = vol
+	f.op = op
+	f.createQueued = true
+	return nil
+}
+
+func (f *volumeLifecycleFake) QueueVolumeDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
+	f.op = op
+	f.deleteQueued = true
+	return nil
+}
+
+func (f *volumeLifecycleFake) HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
+	return f.active, nil
+}
+
+func (f *volumeLifecycleFake) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
+	return f.op, nil
+}
+
+func (f *volumeLifecycleFake) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
+	if f.op.Status != model.OperationStatusPending {
+		return f.op, false, nil
+	}
+	f.op.Status = model.OperationStatusRunning
+	f.op.Attempts++
+	return f.op, true, nil
+}
+
+func (f *volumeLifecycleFake) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	f.op.Status = status
+	return nil
+}
+
+func (f *volumeLifecycleFake) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
+	f.op.Status = model.OperationStatusPending
+	return nil
 }
 
 func newVolumeConfigMock(t *testing.T) *coremocks.ConfigManager {

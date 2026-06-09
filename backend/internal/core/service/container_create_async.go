@@ -560,7 +560,7 @@ func (s *ContainerService) resolveQueuedCreateImage(ctx context.Context, c model
 			}
 		}
 	}
-	if customImage != nil && customImage.Status == model.ImageStatusMissing {
+	if customImage != nil && customImage.Status != model.ImageStatusAvailable {
 		return "", nil, false, resourceUnavailableError("image")
 	}
 	if isCustom {

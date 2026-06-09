@@ -27,11 +27,12 @@ func NewVolumeRepository(db *sql.DB) *VolumeRepository {
 }
 
 func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
-	query := `
-		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
+	return insertVolume(ctx, r.db, vol)
+}
 
+func insertVolume(ctx context.Context, db interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}, vol model.Volume) error {
 	var projectID sql.NullString
 	if vol.ProjectID != nil {
 		projectID.String = vol.ProjectID.String()
@@ -43,7 +44,10 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 		status = model.VolumeStatusAvailable
 	}
 
-	_, err := r.db.ExecContext(ctx, query, vol.ID, vol.OwnerID, projectID, vol.Name, vol.DockerName, status)
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, vol.ID, vol.OwnerID, projectID, vol.Name, vol.DockerName, status)
 	if err != nil {
 		var pgErr *pq.Error
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -52,6 +56,10 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 		return err
 	}
 	return nil
+}
+
+func insertVolumeTx(ctx context.Context, tx *sql.Tx, vol model.Volume) error {
+	return insertVolume(ctx, tx, vol)
 }
 
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {

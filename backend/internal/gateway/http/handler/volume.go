@@ -46,7 +46,7 @@ func (h *CoreHandler) CreateVolume(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"volume_id": volumeID})
+	c.JSON(http.StatusAccepted, gin.H{"volume_id": volumeID})
 }
 
 func (h *CoreHandler) GetVolumes(c *gin.Context) {
@@ -102,7 +102,7 @@ func (h *CoreHandler) deleteVolume(c *gin.Context, message string) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": message})
+	c.JSON(http.StatusAccepted, gin.H{"message": message})
 }
 
 func (h *CoreHandler) AdminDeleteVolume(c *gin.Context) {

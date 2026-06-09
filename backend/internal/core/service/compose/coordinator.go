@@ -185,6 +185,29 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 			return err
 		}
 	}
+	if reader, ok := c.orchestrator.volumeService.(interface {
+		GetByID(context.Context, uuid.UUID) (model.Volume, error)
+	}); ok {
+		for alias, volumeID := range resources.VolumeIDs {
+			if !resources.ManagedVolumeAliases[alias] {
+				continue
+			}
+			vol, err := reader.GetByID(ctx, volumeID)
+			if err != nil {
+				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to inspect volume %s: %w", alias, err))
+			}
+			switch vol.Status {
+			case model.VolumeStatusAvailable:
+				continue
+			case model.VolumeStatusCreating, model.VolumeStatusDeleting:
+				return nil
+			case model.VolumeStatusMissing, model.VolumeStatusError:
+				return c.failJob(ctx, job, plan, resources, fmt.Errorf("volume %s is %s", alias, vol.Status))
+			default:
+				return nil
+			}
+		}
+	}
 
 	if resources.ContainerIDs == nil {
 		resources.ContainerIDs = make(map[string]uuid.UUID)

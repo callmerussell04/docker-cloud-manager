@@ -44,6 +44,7 @@ type ReportService struct {
 	logger  *slog.Logger
 	now     func() time.Time
 	timeout time.Duration
+	refresh chan struct{}
 }
 
 func NewReportService(reports ReportsRepository, source UsageSnapshotSource, users ReportUserDirectory, config ReportConfigProvider, logger *slog.Logger) *ReportService {
@@ -55,6 +56,7 @@ func NewReportService(reports ReportsRepository, source UsageSnapshotSource, use
 		logger:  logging.WithComponent(logger, "reports"),
 		now:     time.Now,
 		timeout: 2 * time.Second,
+		refresh: make(chan struct{}, 1),
 	}
 }
 
@@ -161,7 +163,15 @@ func (s *ReportService) CollectUsageSnapshot(ctx context.Context, at time.Time) 
 }
 
 func (s *ReportService) RefreshUsageSnapshots(ctx context.Context) (model.UsageSnapshotCollection, error) {
-	return s.CollectUsageSnapshot(ctx, s.now().UTC())
+	now := s.now().UTC()
+	select {
+	case s.refresh <- struct{}{}:
+	default:
+	}
+	return model.UsageSnapshotCollection{
+		BucketStart: now.Truncate(s.usageSnapshotInterval()),
+		CollectedAt: now,
+	}, nil
 }
 
 func (s *ReportService) collectSnapshots(ctx context.Context, bucketStart, collectedAt time.Time) ([]model.UsageSnapshot, error) {
@@ -235,6 +245,9 @@ func (w *ReportsUsageWorker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			timer.Stop()
 			return
+		case <-w.reports.refresh:
+			timer.Stop()
+			w.collect(ctx)
 		case <-timer.C:
 			w.collect(ctx)
 		}

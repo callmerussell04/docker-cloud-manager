@@ -105,7 +105,7 @@ func (h *CoreHandler) RefreshUsageSnapshots(c *gin.Context) {
 		h.handleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, dto.RefreshUsageSnapshotsResponse{
+	c.JSON(http.StatusAccepted, dto.RefreshUsageSnapshotsResponse{
 		BucketStart:    result.BucketStart,
 		CollectedAt:    result.CollectedAt,
 		SnapshotsCount: result.SnapshotsCount,
