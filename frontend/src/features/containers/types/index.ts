@@ -3,6 +3,7 @@ import type { TFunction } from '@/lib/i18n';
 
 export interface ContainerData {
   id: string;
+  project_id?: string;
   name: string;
   image_tag: string;
   internal_port: number;

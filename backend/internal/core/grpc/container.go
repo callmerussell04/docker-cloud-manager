@@ -18,7 +18,7 @@ type ContainerLogic interface {
 	Start(ctx context.Context, containerID uuid.UUID) error
 	Stop(ctx context.Context, containerID uuid.UUID) error
 	Delete(ctx context.Context, containerID uuid.UUID) error
-	List(ctx context.Context, limit, offset int) ([]model.Container, int, error)
+	List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error)
 	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
 	Action(ctx context.Context, containerID uuid.UUID, action string) error
 	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
@@ -134,8 +134,16 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 	if err := requireUserOrAdminScope(ctx); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
+	var projectID *uuid.UUID
+	if req.GetProjectId() != "" {
+		parsed, err := uuid.Parse(req.GetProjectId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+		}
+		projectID = &parsed
+	}
 	limit, offset := pagination(req)
-	containers, total, err := h.logic.List(ctx, limit, offset)
+	containers, total, err := h.logic.List(ctx, limit, offset, projectID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -152,6 +160,10 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 		if c.TTLDeadline != nil {
 			ttlDeadline = c.TTLDeadline.Unix()
 		}
+		var projectID string
+		if c.ProjectID != nil {
+			projectID = c.ProjectID.String()
+		}
 		pbContainers = append(pbContainers, &coreapi.ContainerData{
 			Id:            c.ID.String(),
 			DockerId:      c.DockerID,
@@ -167,6 +179,7 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 			LastError:     stringValue(c.LastError),
 			LastExitCode:  lastExitCode,
 			TtlDeadline:   ttlDeadline,
+			ProjectId:     projectID,
 		})
 	}
 

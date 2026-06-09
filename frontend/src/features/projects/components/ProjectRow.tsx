@@ -1,4 +1,4 @@
-import { Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
+import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ProjectData } from '../types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
@@ -11,9 +11,11 @@ import { useState } from 'react';
 
 interface ProjectRowProps {
   project: ProjectData;
+  isExpanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
-export function ProjectRow({ project }: ProjectRowProps) {
+export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRowProps) {
   const t = useT();
   const locale = useLocale();
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
@@ -55,9 +57,21 @@ export function ProjectRow({ project }: ProjectRowProps) {
       )}
       
       <div className="flex items-center gap-3 min-w-0 pl-1">
-        <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
-          <Layers className="w-5 h-5" />
-        </div>
+        {onToggleExpanded ? (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 flex items-center justify-center shrink-0 transition-colors"
+            title={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')}
+            aria-expanded={isExpanded}
+          >
+            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
+          </button>
+        ) : (
+          <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+            <Layers className="w-5 h-5" />
+          </div>
+        )}
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-base truncate" title={project.name}>{project.name}</h3>
         </div>

@@ -122,14 +122,16 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "container-id", containerSrv.startedID)
 	require.ErrorIs(t, client.ActionContainer(context.Background(), "container-id", "restart"), apperrors.ErrBadRequest)
 
-	containers, err := client.ListContainers(context.Background(), 2, 10)
+	containers, err := client.ListContainers(context.Background(), 2, 10, "project-id")
 	require.NoError(t, err)
 	require.Equal(t, int32(1), containers.TotalCount)
 	require.Equal(t, "docker-id", containers.Containers[0].DockerID)
+	require.Equal(t, "project-id", containers.Containers[0].ProjectID)
 	require.NotNil(t, containers.Containers[0].LastExitCode)
 	require.Equal(t, 137, *containers.Containers[0].LastExitCode)
 	require.Equal(t, int32(2), containerSrv.page)
 	require.Equal(t, int32(10), containerSrv.limit)
+	require.Equal(t, "project-id", containerSrv.projectID)
 
 	stats, err := client.GetContainerStats(context.Background(), "container-id")
 	require.NoError(t, err)
@@ -305,6 +307,7 @@ type coreContainerServer struct {
 	startedID string
 	page      int32
 	limit     int32
+	projectID string
 }
 
 func (s *coreContainerServer) CreateContainer(_ context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
@@ -335,9 +338,10 @@ func (s *coreContainerServer) ExposeContainer(context.Context, *coreapi.ExposeRe
 func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
 	s.page = req.Page
 	s.limit = req.Limit
+	s.projectID = req.ProjectId
 	exitCode := int32(137)
 	return &coreapi.PaginatedContainerResponse{
-		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice"}},
+		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice"}},
 		TotalCount: 1,
 	}, nil
 }

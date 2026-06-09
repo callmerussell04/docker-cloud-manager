@@ -28,6 +28,7 @@ import (
 func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
+	projectID := uuid.New()
 	logic := coregrpcmocks.NewMockContainerLogic(t)
 	users := coregrpcmocks.NewMockUserDirectory(t)
 	var createParams model.ContainerCreateParams
@@ -37,9 +38,10 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 			createParams = params
 		}).
 		Return(containerID, nil)
-	logic.EXPECT().List(mock.Anything, 50, 50).Return([]model.Container{{
+	logic.EXPECT().List(mock.Anything, 50, 50, &projectID).Return([]model.Container{{
 		ID:           containerID,
 		OwnerID:      ownerID,
+		ProjectID:    &projectID,
 		Name:         "web",
 		ImageTag:     "nginx:latest",
 		InternalPort: 8080,
@@ -70,10 +72,11 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 	require.Len(t, createParams.VolumeMounts, 1)
 	require.True(t, createParams.VolumeMounts[0].IsReadOnly)
 
-	listResp, err := client.ListContainers(ctx, &coreapi.PaginationRequest{Limit: 50, Page: 2})
+	listResp, err := client.ListContainers(ctx, &coreapi.PaginationRequest{Limit: 50, Page: 2, ProjectId: projectID.String()})
 	require.NoError(t, err)
 	require.Len(t, listResp.Containers, 1)
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
+	require.Equal(t, projectID.String(), listResp.Containers[0].ProjectId)
 	require.Equal(t, int32(1), listResp.TotalCount)
 
 	targetResp, err := client.GetContainerRuntimeTarget(ctx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
@@ -93,6 +96,9 @@ func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	_, err = client.StartContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: "bad"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+	_, err = client.ListContainers(ctx, &coreapi.PaginationRequest{ProjectId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	_, err = client.ExposeContainer(ctx, &coreapi.ExposeRequest{ContainerId: uuid.NewString(), DomainPrefix: "", InternalPort: 0})

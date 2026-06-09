@@ -10,7 +10,7 @@ type ContainerProvider interface {
 	CreateContainer(ctx context.Context, createContainerDTO model.CreateContainerInput) (string, error)
 	ActionContainer(ctx context.Context, containerID, action string) error
 	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
-	ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
+	ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error)
 	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
@@ -26,8 +26,8 @@ func (s *Core) ExposeContainer(ctx context.Context, containerID, domainPrefix st
 	return s.provider.ExposeContainer(ctx, containerID, domainPrefix, internalPort)
 }
 
-func (s *Core) ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error) {
-	return s.provider.ListContainers(ctx, page, limit)
+func (s *Core) ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error) {
+	return s.provider.ListContainers(ctx, page, limit, projectID)
 }
 
 func (s *Core) GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error) {

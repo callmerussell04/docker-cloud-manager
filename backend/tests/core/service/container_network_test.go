@@ -92,6 +92,39 @@ func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 	dockerAPI.AssertNotCalled(t, "RemoveContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	repo := coremocks.NewContainerRepository(t)
+	svc := NewContainerService(
+		repo,
+		nil,
+		coremocks.NewContainerImageRepository(t),
+		coremocks.NewContainerDockerAPI(t),
+		coremocks.NewHostMetricsProvider(t),
+		coremocks.NewConfigManager(t),
+		coremocks.NewUserInfoProvider(t),
+		"",
+		slog.Default(),
+	)
+
+	repo.EXPECT().
+		List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
+			return opts.OwnerID != nil &&
+				*opts.OwnerID == ownerID &&
+				opts.ProjectID != nil &&
+				*opts.ProjectID == projectID &&
+				opts.Limit == 25 &&
+				opts.Offset == 5
+		})).
+		Return([]model.Container{{OwnerID: ownerID, ProjectID: &projectID}}, 1, nil)
+
+	containers, total, err := svc.List(accessscope.WithUserScope(context.Background(), ownerID, "", ""), 25, 5, &projectID)
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Len(t, containers, 1)
+}
+
 func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.ContainerRepository, *coremocks.ContainerDockerAPI, *ContainerService) {
 	t.Helper()
 	repo := coremocks.NewContainerRepository(t)

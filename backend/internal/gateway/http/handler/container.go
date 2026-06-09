@@ -17,7 +17,7 @@ type ContainerService interface {
 	CreateContainer(ctx context.Context, input model.CreateContainerInput) (string, error)
 	ActionContainer(ctx context.Context, containerID, action string) error
 	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
-	ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error)
+	ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error)
 	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
@@ -68,7 +68,13 @@ func (h *CoreHandler) listContainers(c *gin.Context, mapItems func([]model.Conta
 	if !ok {
 		return
 	}
-	resp, err := h.service.ListContainers(c.Request.Context(), page, limit)
+	projectID := c.Query("project_id")
+	if projectID != "" {
+		if _, ok := validateUUIDValue(c, "project_id", projectID); !ok {
+			return
+		}
+	}
+	resp, err := h.service.ListContainers(c.Request.Context(), page, limit, projectID)
 	if err != nil {
 		h.handleError(c, err)
 		return

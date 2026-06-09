@@ -34,6 +34,7 @@ func containersToDTO(items []model.Container) []dto.ContainerDTO {
 		result = append(result, dto.ContainerDTO{
 			ID:            item.ID,
 			DockerID:      item.DockerID,
+			ProjectID:     item.ProjectID,
 			Name:          item.Name,
 			ImageTag:      item.ImageTag,
 			InternalPort:  item.InternalPort,
@@ -56,6 +57,7 @@ func containersToUserDTO(items []model.Container) []dto.UserContainerDTO {
 	for _, item := range items {
 		result = append(result, dto.UserContainerDTO{
 			ID:            item.ID,
+			ProjectID:     item.ProjectID,
 			Name:          item.Name,
 			ImageTag:      item.ImageTag,
 			InternalPort:  item.InternalPort,

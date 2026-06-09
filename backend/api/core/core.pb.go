@@ -1973,6 +1973,7 @@ type ContainerData struct {
 	LastError     string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	LastExitCode  *int32                 `protobuf:"varint,13,opt,name=last_exit_code,json=lastExitCode,proto3,oneof" json:"last_exit_code,omitempty"`
 	TtlDeadline   int64                  `protobuf:"varint,14,opt,name=ttl_deadline,json=ttlDeadline,proto3" json:"ttl_deadline,omitempty"`
+	ProjectId     string                 `protobuf:"bytes,15,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2103,6 +2104,13 @@ func (x *ContainerData) GetTtlDeadline() int64 {
 		return x.TtlDeadline
 	}
 	return 0
+}
+
+func (x *ContainerData) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
 }
 
 type ContainerRuntimeTargetRequest struct {
@@ -3317,6 +3325,7 @@ type PaginationRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Page          int32                  `protobuf:"varint,1,opt,name=page,proto3" json:"page,omitempty"`
 	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	ProjectId     string                 `protobuf:"bytes,3,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3363,6 +3372,13 @@ func (x *PaginationRequest) GetLimit() int32 {
 		return x.Limit
 	}
 	return 0
+}
+
+func (x *PaginationRequest) GetProjectId() string {
+	if x != nil {
+		return x.ProjectId
+	}
+	return ""
 }
 
 type PaginatedContainerResponse struct {
@@ -4796,7 +4812,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rExposeRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xd7\x03\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xf6\x03\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -4814,7 +4830,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"last_error\x18\f \x01(\tR\tlastError\x12)\n" +
 	"\x0elast_exit_code\x18\r \x01(\x05H\x00R\flastExitCode\x88\x01\x01\x12!\n" +
-	"\fttl_deadline\x18\x0e \x01(\x03R\vttlDeadlineB\x11\n" +
+	"\fttl_deadline\x18\x0e \x01(\x03R\vttlDeadline\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x0f \x01(\tR\tprojectIdB\x11\n" +
 	"\x0f_last_exit_code\"B\n" +
 	"\x1dContainerRuntimeTargetRequest\x12!\n" +
 	"\fcontainer_id\x18\x01 \x01(\tR\vcontainerId\"\xb8\x01\n" +
@@ -4913,10 +4931,12 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\"E\n" +
 	"\x14ProjectActionRequest\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x02 \x01(\tR\tprojectIdJ\x04\b\x01\x10\x02R\bowner_id\"=\n" +
+	"project_id\x18\x02 \x01(\tR\tprojectIdJ\x04\b\x01\x10\x02R\bowner_id\"\\\n" +
 	"\x11PaginationRequest\x12\x12\n" +
 	"\x04page\x18\x01 \x01(\x05R\x04page\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\x05R\x05limit\"r\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\n" +
+	"project_id\x18\x03 \x01(\tR\tprojectId\"r\n" +
 	"\x1aPaginatedContainerResponse\x123\n" +
 	"\n" +
 	"containers\x18\x01 \x03(\v2\x13.core.ContainerDataR\n" +

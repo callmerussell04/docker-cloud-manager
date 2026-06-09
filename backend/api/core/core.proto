@@ -291,6 +291,7 @@ message ContainerData {
   string last_error = 12;
   optional int32 last_exit_code = 13;
   int64 ttl_deadline = 14;
+  string project_id = 15;
 }
 
 message ContainerRuntimeTargetRequest {
@@ -432,6 +433,7 @@ message ProjectActionRequest {
 message PaginationRequest {
   int32 page = 1;
   int32 limit = 2;
+  string project_id = 3;
 }
 
 message PaginatedContainerResponse {

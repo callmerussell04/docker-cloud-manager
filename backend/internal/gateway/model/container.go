@@ -3,6 +3,7 @@ package model
 type Container struct {
 	ID            string
 	DockerID      string
+	ProjectID     string
 	Name          string
 	ImageTag      string
 	InternalPort  int32

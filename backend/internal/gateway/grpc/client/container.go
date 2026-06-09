@@ -72,8 +72,8 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, containerID, domainPre
 	return nil
 }
 
-func (c *CoreClient) ListContainers(ctx context.Context, page, limit int) (model.PaginatedContainers, error) {
-	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit)}
+func (c *CoreClient) ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error) {
+	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit), ProjectId: projectID}
 	resp, err := c.containerAPI.ListContainers(ctx, req)
 	if err != nil {
 		return model.PaginatedContainers{}, grpcerrors.FromGRPC(err)
@@ -106,6 +106,7 @@ func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 		result = append(result, model.Container{
 			ID:            item.GetId(),
 			DockerID:      item.GetDockerId(),
+			ProjectID:     item.GetProjectId(),
 			Name:          item.GetName(),
 			ImageTag:      item.GetImageTag(),
 			InternalPort:  item.GetInternalPort(),

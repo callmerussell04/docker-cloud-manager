@@ -3,6 +3,7 @@ package dto
 type ContainerDTO struct {
 	ID            string `json:"id"`
 	DockerID      string `json:"docker_id"`
+	ProjectID     string `json:"project_id,omitempty"`
 	Name          string `json:"name"`
 	ImageTag      string `json:"image_tag"`
 	InternalPort  int32  `json:"internal_port"`
@@ -19,6 +20,7 @@ type ContainerDTO struct {
 
 type UserContainerDTO struct {
 	ID            string `json:"id"`
+	ProjectID     string `json:"project_id,omitempty"`
 	Name          string `json:"name"`
 	ImageTag      string `json:"image_tag"`
 	InternalPort  int32  `json:"internal_port"`

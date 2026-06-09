@@ -24,10 +24,11 @@ function shouldPollContainers(containers: ContainerData[]) {
   ));
 }
 
-export function useContainers(page: number, limit: number) {
+export function useContainers(page: number, limit: number, projectId?: string, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.containers.list({ page, limit }),
-    queryFn: () => getContainersFn(page, limit),
+    queryKey: queryKeys.containers.list({ page, limit, projectId }),
+    queryFn: () => getContainersFn(page, limit, projectId),
+    enabled,
     refetchInterval: (query) => {
       const containers = query.state.data?.items || [];
       return shouldPollContainers(containers) ? 5000 : false;
@@ -92,6 +93,7 @@ export function useContainerAction() {
     mutationFn: actionContainerFn,
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.containers.all });
       addToast(t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
     },
@@ -110,6 +112,7 @@ export function useExposeContainer() {
     mutationFn: exposeContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
       addToast(t('containers.routingUpdated'), 'success');
     },
     onError: (error: unknown) => {

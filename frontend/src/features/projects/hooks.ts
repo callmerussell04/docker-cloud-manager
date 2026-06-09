@@ -55,6 +55,7 @@ function useProjectActionMutation(actionFn: (id: string) => Promise<void>, succe
     mutationFn: actionFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.builds.all });
       addToast(t(successKey), 'success');
     },

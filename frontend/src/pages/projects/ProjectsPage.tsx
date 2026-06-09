@@ -4,8 +4,12 @@ import { Plus, RefreshCcw, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { WarningBanner } from '@/components/ui/WarningBanner';
-import { ProjectRow } from '@/features/projects/components/ProjectRow';
+import { ProjectWithContainersRow } from '@/features/projects/components/ProjectWithContainersRow';
 import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
+import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
+import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
+import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
+import { type ContainerData } from '@/features/containers/types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -19,6 +23,9 @@ import { getApiErrorMessage } from '@/lib/apiError';
 export function ProjectsPage() {
   const t = useT();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
+  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
+  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -100,7 +107,13 @@ export function ProjectsPage() {
                 </div>
               ) : filteredProjects.length > 0 ? (
                 filteredProjects.map((project) => (
-                  <ProjectRow key={project.id} project={project} />
+                  <ProjectWithContainersRow
+                    key={project.id}
+                    project={project}
+                    onExpose={setExposeContainer}
+                    onViewLogs={setLogsContainer}
+                    onOpenTerminal={setTerminalContainer}
+                  />
                 ))
               ) : (
                 <EmptyState
@@ -124,6 +137,21 @@ export function ProjectsPage() {
         isOpen={isCreateModalOpen} 
         onClose={() => setIsCreateModalOpen(false)} 
         buildAvailability={buildAvailability}
+      />
+
+      <ExposeContainerModal
+        container={exposeContainer}
+        onClose={() => setExposeContainer(null)}
+      />
+
+      <ContainerLogsModal
+        container={logsContainer}
+        onClose={() => setLogsContainer(null)}
+      />
+
+      <ContainerTerminalModal
+        container={terminalContainer}
+        onClose={() => setTerminalContainer(null)}
       />
     </div>
   );

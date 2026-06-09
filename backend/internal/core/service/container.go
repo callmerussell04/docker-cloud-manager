@@ -663,7 +663,7 @@ func userNetworkName(ownerID uuid.UUID) string {
 	return fmt.Sprintf("net_user_%s", ownerID.String())
 }
 
-func (s *ContainerService) List(ctx context.Context, limit, offset int) ([]model.Container, int, error) {
+func (s *ContainerService) List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -672,9 +672,10 @@ func (s *ContainerService) List(ctx context.Context, limit, offset int) ([]model
 		return nil, 0, apperrors.ErrForbidden
 	}
 	return s.repo.List(ctx, model.ListOptions{
-		OwnerID: scope.OwnerFilter(),
-		Limit:   limit,
-		Offset:  offset,
+		OwnerID:   scope.OwnerFilter(),
+		ProjectID: projectID,
+		Limit:     limit,
+		Offset:    offset,
 	})
 }
 

@@ -10,7 +10,7 @@ export const queryKeys = {
   containers: {
     all: ['containers'] as const,
     lists: () => [...queryKeys.containers.all, 'list'] as const,
-    list: (params: PageParams) => [...queryKeys.containers.lists(), params] as const,
+    list: (params: PageParams & { projectId?: string }) => [...queryKeys.containers.lists(), params] as const,
     stats: (id: string, isAdmin: boolean) => [...queryKeys.containers.all, 'stats', id, isAdmin] as const,
   },
   volumes: {

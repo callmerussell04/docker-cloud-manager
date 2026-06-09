@@ -2,9 +2,9 @@ import { privateApi } from '@/api/axios';
 import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats, TelemetryTicketResponse } from '../types';
 import type { PaginatedResponse } from '@/shared/api/pagination';
 
-export const getContainersFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ContainerData>> => {
+export const getContainersFn = async (page = 1, limit = 20, projectId?: string): Promise<PaginatedResponse<ContainerData>> => {
   const response = await privateApi.get<{ containers: ContainerData[]; total_count: number }>('/containers', {
-    params: { page, limit },
+    params: { page, limit, project_id: projectId || undefined },
   });
   return { items: response.data.containers || [], total_count: response.data.total_count || 0 };
 };

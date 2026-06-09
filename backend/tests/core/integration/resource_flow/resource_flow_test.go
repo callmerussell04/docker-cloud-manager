@@ -85,17 +85,17 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, "nginx:latest", container.ImageTag)
 	require.Len(t, mustContainerOutbox(t, repos.DB), 1)
 
-	userContainers, total, err := containers.List(ownerCtx, 20, 0)
+	userContainers, total, err := containers.List(ownerCtx, 20, 0, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, userContainers, 1)
 
-	otherContainers, total, err := containers.List(coretest.UserContext(otherOwnerID), 20, 0)
+	otherContainers, total, err := containers.List(coretest.UserContext(otherOwnerID), 20, 0, nil)
 	require.NoError(t, err)
 	require.Zero(t, total)
 	require.Empty(t, otherContainers)
 
-	adminContainers, total, err := containers.List(coretest.AdminContext(adminID), 20, 0)
+	adminContainers, total, err := containers.List(coretest.AdminContext(adminID), 20, 0, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Len(t, adminContainers, 1)

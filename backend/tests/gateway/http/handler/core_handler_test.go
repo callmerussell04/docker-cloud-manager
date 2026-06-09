@@ -36,14 +36,20 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Len(t, createInput.VolumeMounts, 1)
 	require.True(t, createInput.VolumeMounts[0].IsReadOnly)
 
-	svc.EXPECT().ListContainers(mock.Anything, 2, 10).Return(model.PaginatedContainers{
-		Containers: []model.Container{{ID: containerID, DockerID: "docker-id", Name: "web", OwnerID: "owner-id", OwnerUsername: "alice"}},
+	projectID := uuid.NewString()
+	svc.EXPECT().ListContainers(mock.Anything, 2, 10, projectID).Return(model.PaginatedContainers{
+		Containers: []model.Container{{ID: containerID, DockerID: "docker-id", ProjectID: projectID, Name: "web", OwnerID: "owner-id", OwnerUsername: "alice"}},
 		TotalCount: 1,
-	}, nil).Twice()
-	resp = perform(router, http.MethodGet, "/containers?page=2&limit=10", ``, nil)
+	}, nil)
+	resp = perform(router, http.MethodGet, "/containers?page=2&limit=10&project_id="+projectID, ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), `"project_id":"`+projectID+`"`)
 	require.NotContains(t, resp.Body.String(), "docker_id")
 	require.NotContains(t, resp.Body.String(), "owner_id")
+	svc.EXPECT().ListContainers(mock.Anything, 2, 10, "").Return(model.PaginatedContainers{
+		Containers: []model.Container{{ID: containerID, DockerID: "docker-id", Name: "web", OwnerID: "owner-id", OwnerUsername: "alice"}},
+		TotalCount: 1,
+	}, nil)
 	resp = perform(router, http.MethodGet, "/admin/containers?page=2&limit=10", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "docker_id")
@@ -172,6 +178,8 @@ func TestCoreHandlerRejectsInvalidInputAndMapsErrors(t *testing.T) {
 	id := uuid.NewString()
 
 	resp := perform(router, http.MethodGet, "/containers?page=0", ``, nil)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	resp = perform(router, http.MethodGet, "/containers?project_id=not-a-uuid", ``, nil)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 	resp = perform(router, http.MethodPost, "/containers/not-a-uuid/action/start", ``, nil)
 	require.Equal(t, http.StatusBadRequest, resp.Code)

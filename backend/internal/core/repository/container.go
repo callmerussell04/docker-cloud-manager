@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -424,10 +425,19 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error) {
 	var args []any
-	where := ""
+	var conditions []string
 	if opts.OwnerID != nil {
 		args = append(args, *opts.OwnerID)
-		where = " WHERE owner_id = $1"
+		conditions = append(conditions, fmt.Sprintf("owner_id = $%d", len(args)))
+	}
+	if opts.ProjectID != nil {
+		args = append(args, *opts.ProjectID)
+		conditions = append(conditions, fmt.Sprintf("project_id = $%d", len(args)))
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
 	var total int
