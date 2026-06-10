@@ -168,6 +168,16 @@ function preferredByteUnit(bytes: number): ByteUnit {
   return 'Bytes';
 }
 
+function numericInputValue(value: unknown) {
+  if (value === '') return undefined;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function formatNumberInput(value: number) {
+  return Number.isFinite(value) ? String(value) : '';
+}
+
 function getErrorMessage(error: unknown) {
   if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
     return error.message;
@@ -399,7 +409,7 @@ function ConfigField({
           placeholder={field.placeholderKey ? t(field.placeholderKey) : undefined}
           error={!!error}
           className={field.unitKey ? 'pr-24' : undefined}
-          {...register(field.name, isNumber ? { valueAsNumber: true } : undefined)}
+          {...register(field.name, isNumber ? { setValueAs: numericInputValue } : undefined)}
         />
         {field.unitKey && (
           <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -514,9 +524,12 @@ function ByteField({
   error: unknown;
   t: TFunction;
 }) {
-  const bytes = Number(watch(field.name) || 0);
+  const watchedValue = watch(field.name);
+  const bytes = typeof watchedValue === 'number' && Number.isFinite(watchedValue) ? watchedValue : 0;
   const [unit, setUnit] = useState<ByteUnit>(() => preferredByteUnit(bytes));
   const [unitInitialized, setUnitInitialized] = useState(false);
+  const [inputValue, setInputValue] = useState('');
+  const [editingEmpty, setEditingEmpty] = useState(false);
   const currentUnit = byteUnits.find((item) => item.label === unit) ?? byteUnits[0];
   const displayValue = bytes / currentUnit.multiplier;
   const errorMessage = getErrorMessage(error);
@@ -532,6 +545,12 @@ function ByteField({
     }
   }, [bytes, unitInitialized]);
 
+  useEffect(() => {
+    if (editingEmpty && watchedValue === undefined) return;
+    setInputValue(formatNumberInput(displayValue));
+    setEditingEmpty(false);
+  }, [displayValue, editingEmpty, watchedValue]);
+
   return (
     <div className="space-y-2">
       <FieldLabel field={field} t={t} />
@@ -539,21 +558,40 @@ function ByteField({
         <Input
           id={field.name}
           type="number"
-          min={0}
           step={unit === 'Bytes' ? 1 : 0.01}
-          value={Number.isFinite(displayValue) ? displayValue : 0}
+          value={inputValue}
           error={!!error}
           onChange={(event) => {
-            const value = Number(event.target.value);
+            const rawValue = event.target.value;
             setUnitInitialized(true);
+            setInputValue(rawValue);
+
+            if (rawValue.trim() === '') {
+              setEditingEmpty(true);
+              setValue(field.name, undefined as never, { shouldDirty: true, shouldValidate: true });
+              return;
+            }
+
+            const value = Number(rawValue);
+            if (!Number.isFinite(value)) {
+              setEditingEmpty(true);
+              setValue(field.name, undefined as never, { shouldDirty: true, shouldValidate: true });
+              return;
+            }
+
+            setEditingEmpty(false);
             setValue(field.name, Math.round(value * currentUnit.multiplier) as never, { shouldDirty: true, shouldValidate: true });
           }}
         />
         <Select
           value={unit}
           onChange={(event) => {
+            const nextUnit = event.target.value as ByteUnit;
+            const nextUnitConfig = byteUnits.find((item) => item.label === nextUnit) ?? byteUnits[0];
             setUnitInitialized(true);
-            setUnit(event.target.value as ByteUnit);
+            setEditingEmpty(false);
+            setUnit(nextUnit);
+            setInputValue(formatNumberInput(bytes / nextUnitConfig.multiplier));
           }}
           className="w-28 shrink-0"
           aria-label={t('admin.settings.byteUnit')}

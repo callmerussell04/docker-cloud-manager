@@ -120,6 +120,11 @@ export interface SystemMonitoring {
   observed_at: number;
 }
 
+const stringListSchema = z
+  .array(z.string().trim())
+  .nullish()
+  .transform((items) => (items ?? []).filter(Boolean));
+
 export const systemConfigSchema = z.object({
   base_domain: z.string().min(1),
   default_memory_reservation_bytes: z.number().min(1),
@@ -138,8 +143,8 @@ export const systemConfigSchema = z.object({
   max_log_size: z.string().min(1),
   max_log_files: z.string().min(1),
   container_disk_quota: z.string().min(1),
-  reserved_domain_prefixes: z.array(z.string()),
-  blocked_domain_prefix_patterns: z.array(z.string().min(1)),
+  reserved_domain_prefixes: stringListSchema,
+  blocked_domain_prefix_patterns: stringListSchema,
   max_volumes_per_user: z.number().min(1),
   max_containers_per_user: z.number().min(1),
   container_ttl_hours: z.number().min(0),
@@ -188,7 +193,7 @@ export const systemConfigSchema = z.object({
   compose_coordinator_interval_seconds: z.number().min(1),
   host_min_free_disk_bytes: z.number().min(0),
   git_sources_enabled: z.boolean(),
-  git_allowed_hosts: z.array(z.string().min(1)),
+  git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),
   git_max_repository_bytes: z.number().min(1),
   telemetry_max_log_tail_lines: z.number().min(1),
@@ -196,7 +201,7 @@ export const systemConfigSchema = z.object({
   telemetry_max_terminal_sessions_per_user: z.number().min(1),
   telemetry_terminal_idle_timeout_seconds: z.number().min(1),
   telemetry_terminal_max_duration_seconds: z.number().min(1),
-  telemetry_allowed_exec_commands: z.array(z.string().min(1)),
+  telemetry_allowed_exec_commands: stringListSchema,
   telemetry_max_command_args: z.number().min(0),
   telemetry_max_command_arg_bytes: z.number().min(1),
   telemetry_ws_read_limit_bytes: z.number().min(1),
