@@ -112,7 +112,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         <button
           onClick={() => onOpenTerminal(container)}
           disabled={container.status !== 'running'}
-          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
+          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           title={t('containers.terminal')}
         >
           <Terminal className="w-4 h-4" />

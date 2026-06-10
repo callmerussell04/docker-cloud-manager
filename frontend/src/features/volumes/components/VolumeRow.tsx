@@ -21,7 +21,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
   
-  const displayName = volume.name || `volume-${volume.id.slice(0, 8)}`;
+  const displayName = volume.name || t('volumes.name');
   const isMissing = volume.status === 'missing';
 
   return (
@@ -32,9 +32,6 @@ export function VolumeRow({ volume }: VolumeRowProps) {
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold text-base truncate" title={displayName}>{displayName}</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-mono truncate" title={volume.id}>
-            {volume.id}
-          </p>
         </div>
       </div>
 

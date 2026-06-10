@@ -1,21 +1,25 @@
-import { useLocation, useParams, Link } from 'react-router-dom';
-import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText } from 'lucide-react';
+import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
+import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText, Play, Square, Globe, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { formatBytes } from '@/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
+import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
 import { statusLabel, useT } from '@/lib/i18n';
-import { useContainerDetailsStats } from '@/features/containers/hooks';
+import { useContainerAction, useContainerDetailsStats } from '@/features/containers/hooks';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 
 export function ContainerDetailsPage() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const isAdminRoute = location.pathname.startsWith('/admin');
   
   const container = location.state?.container as ContainerData | undefined;
@@ -35,8 +39,11 @@ export function ContainerDetailsPage() {
 
   const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
+  const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const { data: stats, isLoading } = useContainerDetailsStats(id, isAdminRoute, container);
+  const actionMutation = useContainerAction();
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -57,6 +64,19 @@ export function ContainerDetailsPage() {
   const memPercent = stats?.memory_limit_bytes 
     ? (stats.memory_usage_bytes / stats.memory_limit_bytes) * 100 
     : 0;
+  const status = container?.status || streamContainer?.status || 'unknown';
+  const isBusy = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
+  const isDeleting = ['exposing', 'deleting'].includes(status);
+  const isUserContainer = !!streamContainer && !isAdminRoute;
+
+  const handleContainerAction = (action: 'start' | 'stop' | 'delete') => {
+    if (!streamContainer) return;
+    if (action === 'delete') {
+      setIsDeleteConfirmOpen(true);
+      return;
+    }
+    actionMutation.mutate({ id: streamContainer.id, action });
+  };
 
   return (
     <div className="space-y-6">
@@ -86,11 +106,12 @@ export function ContainerDetailsPage() {
         </div>
 
         {streamContainer && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               onClick={() => setTerminalContainer(streamContainer)}
-              disabled={!!container && container.status !== 'running'}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
+              disabled={status !== 'running'}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+              title={t('containers.terminal')}
             >
               <Terminal className="w-4 h-4" />
               <span className="hidden sm:inline font-medium text-sm">{t('containers.terminal')}</span>
@@ -98,10 +119,55 @@ export function ContainerDetailsPage() {
             <button
               onClick={() => setLogsContainer(streamContainer)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
+              title={t('containers.logs')}
             >
               <ScrollText className="w-4 h-4" />
               <span className="hidden sm:inline font-medium text-sm">{t('containers.logs')}</span>
             </button>
+            {isUserContainer && (
+              <>
+                <div className="h-8 w-px bg-slate-200 dark:bg-slate-700 mx-1" />
+                <Button
+                  variant="secondary"
+                  className="px-3"
+                  disabled={status === 'running' || isBusy || actionMutation.isPending}
+                  onClick={() => handleContainerAction('start')}
+                  title={t('containers.start')}
+                >
+                  <Play className="w-4 h-4 text-green-500" />
+                  <span className="hidden lg:inline ml-2">{t('containers.start')}</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="px-3"
+                  disabled={status !== 'running' || actionMutation.isPending}
+                  onClick={() => handleContainerAction('stop')}
+                  title={t('containers.stop')}
+                >
+                  <Square className="w-4 h-4 text-yellow-500" />
+                  <span className="hidden lg:inline ml-2">{t('containers.stop')}</span>
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="px-3"
+                  disabled={isBusy || actionMutation.isPending}
+                  onClick={() => setExposeContainer(streamContainer)}
+                  title={t('containers.routingSettings')}
+                >
+                  <Globe className="w-4 h-4 text-blue-500" />
+                  <span className="hidden lg:inline ml-2">{t('containers.routingSettings')}</span>
+                </Button>
+                <Button
+                  variant="danger"
+                  className="px-3"
+                  disabled={isDeleting || actionMutation.isPending}
+                  onClick={() => handleContainerAction('delete')}
+                  title={t('common.delete')}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -203,6 +269,27 @@ export function ContainerDetailsPage() {
         container={terminalContainer}
         isAdmin={isAdminRoute}
         onClose={() => setTerminalContainer(null)}
+      />
+
+      <ExposeContainerModal
+        container={exposeContainer}
+        onClose={() => setExposeContainer(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        title={t('confirm.title')}
+        message={t('containers.deleteConfirm', { name: streamContainer?.name || id || '' })}
+        confirmLabel={t('common.delete')}
+        isLoading={actionMutation.isPending}
+        onCancel={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          if (!streamContainer) return;
+          actionMutation.mutate(
+            { id: streamContainer.id, action: 'delete' },
+            { onSuccess: () => navigate('/containers') },
+          );
+        }}
       />
     </div>
   );
