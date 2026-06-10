@@ -17,6 +17,8 @@ type ProjectRepository struct {
 	db *sql.DB
 }
 
+const projectOwnerNameUniqueIndex = "idx_projects_owner_name_unique"
+
 func NewProjectRepository(db *sql.DB) *ProjectRepository {
 	return &ProjectRepository{db: db}
 }
@@ -34,7 +36,7 @@ func (r *ProjectRepository) Save(ctx context.Context, p model.Project) error {
 	}
 
 	_, err := r.db.ExecContext(ctx, query, p.ID, p.OwnerID, p.Name, p.Status, errMsg)
-	return err
+	return mapProjectUniqueViolation(err)
 }
 
 func (r *ProjectRepository) CreateWithComposeDeploymentJob(ctx context.Context, p model.Project, job model.ComposeDeploymentJob, outbox model.ComposeDeploymentOutbox) error {
@@ -53,7 +55,7 @@ func (r *ProjectRepository) CreateWithComposeDeploymentJob(ctx context.Context, 
 		INSERT INTO projects (id, owner_id, name, status, error_message)
 		VALUES ($1, $2, $3, $4, $5)
 	`, p.ID, p.OwnerID, p.Name, p.Status, projectErrMsg); err != nil {
-		return err
+		return mapProjectUniqueViolation(err)
 	}
 
 	if job.ID == uuid.Nil {
@@ -890,6 +892,20 @@ func (r *ProjectRepository) updateComposeOutboxStatus(ctx context.Context, id uu
 		return apperrors.ErrNotFound
 	}
 	return nil
+}
+
+func mapProjectUniqueViolation(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if pgErr.Constraint == projectOwnerNameUniqueIndex {
+			return apperrors.New(apperrors.ErrAlreadyExists, "project name is already in use")
+		}
+		return apperrors.ErrAlreadyExists
+	}
+	return err
 }
 
 func isTerminalComposeDeploymentStatus(status string) bool {

@@ -20,6 +20,7 @@ type ContainerRepository struct {
 }
 
 const containerDomainPrefixIndex = "idx_containers_domain_prefix"
+const containerOwnerNameUniqueIndex = "idx_containers_owner_name_unique"
 
 func NewContainerRepository(db *sql.DB) *ContainerRepository {
 	return &ContainerRepository{db: db}
@@ -1466,6 +1467,9 @@ func mapContainerUniqueViolation(err error, domainPrefix string) error {
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 		if pgErr.Constraint == containerDomainPrefixIndex && domainPrefix != "" {
 			return apperrors.New(apperrors.ErrAlreadyExists, fmt.Sprintf("subdomain %s is already in use", domainPrefix))
+		}
+		if pgErr.Constraint == containerOwnerNameUniqueIndex {
+			return apperrors.New(apperrors.ErrAlreadyExists, "container name is already in use")
 		}
 		return apperrors.ErrAlreadyExists
 	}
