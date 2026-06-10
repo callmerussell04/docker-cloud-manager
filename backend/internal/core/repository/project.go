@@ -543,7 +543,7 @@ func composeDeploymentHasPartialWork(ctx context.Context, tx *sql.Tx, projectID 
 		SELECT EXISTS (
 			SELECT 1 FROM containers WHERE project_id = $1
 			UNION ALL
-			SELECT 1 FROM volumes WHERE project_id = $1
+			SELECT 1 FROM project_volumes WHERE project_id = $1
 			UNION ALL
 			SELECT 1 FROM builds WHERE project_id = $1
 		)

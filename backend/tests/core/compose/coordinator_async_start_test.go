@@ -143,6 +143,22 @@ func TestComposeCoordinatorReusesExistingManagedVolume(t *testing.T) {
 	require.False(t, resources.ManagedVolumeAliases["data"])
 }
 
+func TestComposeCoordinatorRollbackUnlinksReusedManagedVolume(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	managedID := uuid.New()
+	externalID := uuid.New()
+	job := rollingBackComposeJob(t, ownerID, projectID, managedID, externalID)
+	repo := newCoordinatorRepo(job)
+	volumes := &coordinatorVolumes{}
+
+	runCoordinatorOnceWithVolumes(t, repo, volumes, newCoordinatorContainers(nil), &coordinatorDocker{})
+
+	require.Empty(t, volumes.deleted)
+	require.Equal(t, []uuid.UUID{managedID}, volumes.unlinked)
+	require.Equal(t, model.ComposeDeploymentStatusFailed, repo.completedStatus)
+}
+
 func startingComposeJob(t *testing.T, ownerID, projectID, dbID, migrateID uuid.UUID, started map[string]bool) model.ComposeDeploymentJob {
 	t.Helper()
 	plan := map[string]any{
@@ -213,6 +229,43 @@ func creatingComposeJob(t *testing.T, ownerID, projectID uuid.UUID) model.Compos
 		OwnerID:         ownerID,
 		Status:          model.ComposeDeploymentStatusRunning,
 		Stage:           model.ComposeDeploymentStageCreating,
+		PlanJSON:        planJSON,
+		ResourceMapJSON: resourceJSON,
+	}
+}
+
+func rollingBackComposeJob(t *testing.T, ownerID, projectID, managedID, externalID uuid.UUID) model.ComposeDeploymentJob {
+	t.Helper()
+	plan := map[string]any{
+		"project_name": "wh",
+		"source_type":  model.ComposeSourceTypeGit,
+		"volumes": []model.ComposeVolume{
+			{Alias: "data", Name: "wh_data"},
+			{Alias: "cache", Name: "shared-cache", External: true},
+		},
+		"services": []model.ComposeService{},
+	}
+	resources := map[string]any{
+		"volume_ids": map[string]string{
+			"data":  managedID.String(),
+			"cache": externalID.String(),
+		},
+		"managed_volume_aliases": map[string]bool{
+			"data":  false,
+			"cache": false,
+		},
+		"cleanup_status": model.ComposeDeploymentStatusFailed,
+	}
+	planJSON, err := json.Marshal(plan)
+	require.NoError(t, err)
+	resourceJSON, err := json.Marshal(resources)
+	require.NoError(t, err)
+	return model.ComposeDeploymentJob{
+		ID:              uuid.New(),
+		ProjectID:       projectID,
+		OwnerID:         ownerID,
+		Status:          model.ComposeDeploymentStatusRunning,
+		Stage:           model.ComposeDeploymentStageRollingBack,
 		PlanJSON:        planJSON,
 		ResourceMapJSON: resourceJSON,
 	}
@@ -342,6 +395,7 @@ type coordinatorVolumes struct {
 	resolved        []string
 	managedResolved []string
 	deleted         []uuid.UUID
+	unlinked        []uuid.UUID
 }
 
 func (v *coordinatorVolumes) Create(_ context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
@@ -371,6 +425,11 @@ func (v *coordinatorVolumes) ResolveByName(_ context.Context, name string) (uuid
 
 func (v *coordinatorVolumes) Delete(_ context.Context, volumeID uuid.UUID) error {
 	v.deleted = append(v.deleted, volumeID)
+	return nil
+}
+
+func (v *coordinatorVolumes) UnlinkProjectVolume(_ context.Context, _ uuid.UUID, volumeID uuid.UUID) error {
+	v.unlinked = append(v.unlinked, volumeID)
 	return nil
 }
 

@@ -21,7 +21,9 @@ type VolumeRepository interface {
 	Save(ctx context.Context, vol model.Volume) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 	GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error)
-	AttachToProject(ctx context.Context, id uuid.UUID, projectID uuid.UUID) error
+	LinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error
+	UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error
+	IsLinkedToProject(ctx context.Context, projectID, volumeID uuid.UUID) (bool, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
@@ -196,14 +198,18 @@ func (s *VolumeService) ResolveProjectManagedByName(ctx context.Context, project
 		}
 		return uuid.Nil, false, err
 	}
-	sameProject := vol.ProjectID != nil && *vol.ProjectID == projectID
-	if vol.ProjectID != nil && !sameProject {
-		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume belongs to another project")
-	}
 	switch vol.Status {
 	case model.VolumeStatusAvailable:
+		if err := s.repo.LinkProjectVolume(ctx, projectID, vol.ID); err != nil {
+			return uuid.Nil, false, err
+		}
+		return vol.ID, true, nil
 	case model.VolumeStatusCreating:
-		if sameProject {
+		linked, err := s.repo.IsLinkedToProject(ctx, projectID, vol.ID)
+		if err != nil {
+			return uuid.Nil, false, err
+		}
+		if linked {
 			return vol.ID, false, nil
 		}
 		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume is not available")
@@ -214,12 +220,17 @@ func (s *VolumeService) ResolveProjectManagedByName(ctx context.Context, project
 	default:
 		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume is not available")
 	}
-	if vol.ProjectID == nil {
-		if err := s.repo.AttachToProject(ctx, vol.ID, projectID); err != nil {
-			return uuid.Nil, false, err
-		}
+}
+
+func (s *VolumeService) UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error {
+	vol, err := s.repo.GetByID(ctx, volumeID)
+	if err != nil {
+		return err
 	}
-	return vol.ID, true, nil
+	if err := accessscope.RequireOwnerAccess(ctx, vol.OwnerID); err != nil {
+		return err
+	}
+	return s.repo.UnlinkProjectVolume(ctx, projectID, volumeID)
 }
 
 func (s *VolumeService) Delete(ctx context.Context, volumeID uuid.UUID) error {

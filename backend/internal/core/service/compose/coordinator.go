@@ -539,20 +539,26 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, repo comp
 		cleanupDone = false
 	}
 	for alias, volumeID := range resources.VolumeIDs {
-		if !resources.volumeAliasManaged(alias) {
+		if !c.planVolumeManaged(plan, alias) {
 			continue
 		}
-		if err := c.orchestrator.volumeService.Delete(ctx, volumeID); err != nil {
-			if errors.Is(err, apperrors.ErrNotFound) {
-				continue
+		if resources.volumeAliasCreated(alias) {
+			if err := c.orchestrator.volumeService.Delete(ctx, volumeID); err != nil {
+				if errors.Is(err, apperrors.ErrNotFound) {
+					continue
+				}
+				if errors.Is(err, apperrors.ErrConflict) {
+					cleanupDone = false
+					continue
+				}
+				return err
 			}
-			if errors.Is(err, apperrors.ErrConflict) {
-				cleanupDone = false
-				continue
-			}
+			cleanupDone = false
+			continue
+		}
+		if err := c.orchestrator.volumeService.UnlinkProjectVolume(ctx, job.ProjectID, volumeID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			return err
 		}
-		cleanupDone = false
 	}
 	if !cleanupDone {
 		return c.saveProgress(ctx, repo, job, projectStatus, model.ComposeDeploymentStageRollingBack, plan, resources)
@@ -586,11 +592,20 @@ func (c *ComposeDeploymentCoordinator) stateFromResources(job model.ComposeDeplo
 	return state
 }
 
-func (r composeDeploymentResources) volumeAliasManaged(alias string) bool {
+func (r composeDeploymentResources) volumeAliasCreated(alias string) bool {
 	if len(r.ManagedVolumeAliases) == 0 {
 		return true
 	}
 	return r.ManagedVolumeAliases[alias]
+}
+
+func (c *ComposeDeploymentCoordinator) planVolumeManaged(plan composeDeploymentPlan, alias string) bool {
+	for _, vol := range plan.Volumes {
+		if vol.Alias == alias {
+			return !vol.External
+		}
+	}
+	return false
 }
 
 func (c *ComposeDeploymentCoordinator) saveProgress(ctx context.Context, repo composeProgressRepository, job model.ComposeDeploymentJob, projectStatus string, stage string, plan composeDeploymentPlan, resources composeDeploymentResources) error {

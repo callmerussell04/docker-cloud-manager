@@ -17,6 +17,7 @@ type VolumeRepository struct {
 }
 
 const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
+const qualifiedVolumeColumns = `volumes.id, volumes.owner_id, volumes.project_id, volumes.name, volumes.docker_name, volumes.status, volumes.last_observed_at, volumes.last_error, volumes.used_bytes, volumes.usage_observed_at, volumes.created_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -62,6 +63,15 @@ func insertVolumeTx(ctx context.Context, tx *sql.Tx, vol model.Volume) error {
 	return insertVolume(ctx, tx, vol)
 }
 
+func insertProjectVolumeLinkTx(ctx context.Context, tx *sql.Tx, projectID, volumeID uuid.UUID) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO project_volumes (project_id, volume_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, projectID, volumeID)
+	return err
+}
+
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE id = $1`
 
@@ -88,20 +98,29 @@ func (r *VolumeRepository) GetByName(ctx context.Context, ownerID uuid.UUID, nam
 	return v, nil
 }
 
-func (r *VolumeRepository) AttachToProject(ctx context.Context, id uuid.UUID, projectID uuid.UUID) error {
-	query := `UPDATE volumes SET project_id = $1 WHERE id = $2 AND project_id IS NULL`
-	res, err := r.db.ExecContext(ctx, query, projectID, id)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return apperrors.ErrConflict
-	}
-	return nil
+func (r *VolumeRepository) LinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO project_volumes (project_id, volume_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, projectID, volumeID)
+	return err
+}
+
+func (r *VolumeRepository) UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM project_volumes WHERE project_id = $1 AND volume_id = $2`, projectID, volumeID)
+	return err
+}
+
+func (r *VolumeRepository) IsLinkedToProject(ctx context.Context, projectID, volumeID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM project_volumes
+			WHERE project_id = $1 AND volume_id = $2
+		)
+	`, projectID, volumeID).Scan(&exists)
+	return exists, err
 }
 
 func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
@@ -244,7 +263,13 @@ func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID
 }
 
 func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error) {
-	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE project_id = $1`
+	query := `
+		SELECT ` + qualifiedVolumeColumns + `
+		FROM volumes
+		JOIN project_volumes pv ON pv.volume_id = volumes.id
+		WHERE pv.project_id = $1
+		ORDER BY volumes.created_at DESC
+	`
 	rows, err := r.db.QueryContext(ctx, query, projectID)
 	if err != nil {
 		return nil, err

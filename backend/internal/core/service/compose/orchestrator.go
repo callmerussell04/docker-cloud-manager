@@ -65,6 +65,7 @@ type VolumeService interface {
 	Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error)
 	ResolveProjectManagedByName(ctx context.Context, projectID uuid.UUID, name string) (uuid.UUID, bool, error)
 	ResolveByName(ctx context.Context, name string) (uuid.UUID, error)
+	UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error
 	Delete(ctx context.Context, volumeID uuid.UUID) error
 }
 

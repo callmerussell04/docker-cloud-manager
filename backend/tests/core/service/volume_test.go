@@ -166,8 +166,11 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 		wantErr    error
 	}{
 		{
-			name:       "same project",
-			volume:     model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			name:   "same project",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			setup: func(repo *volumeRepoMock) {
+				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
+			},
 			wantID:     volumeID,
 			wantReused: true,
 		},
@@ -175,24 +178,34 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "unassigned preserved volume attaches",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().AttachToProject(mock.Anything, volumeID, projectID).Return(nil)
+				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
 			},
 			wantID:     volumeID,
 			wantReused: true,
 		},
 		{
-			name:    "other project rejected",
-			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			name:   "other project available volume links",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			setup: func(repo *volumeRepoMock) {
+				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
+			},
+			wantID:     volumeID,
+			wantReused: true,
+		},
+		{
+			name:   "unavailable rejected",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusCreating},
+			setup: func(repo *volumeRepoMock) {
+				repo.VolumeRepository.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(false, nil)
+			},
 			wantErr: apperrors.ErrConflict,
 		},
 		{
-			name:    "unavailable rejected",
-			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusCreating},
-			wantErr: apperrors.ErrConflict,
-		},
-		{
-			name:       "same project creating waits",
-			volume:     model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusCreating},
+			name:   "creating linked project waits",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusCreating},
+			setup: func(repo *volumeRepoMock) {
+				repo.VolumeRepository.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(true, nil)
+			},
 			wantID:     volumeID,
 			wantReused: false,
 		},
