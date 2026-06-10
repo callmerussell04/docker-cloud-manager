@@ -195,6 +195,21 @@ func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid
 	return usedMB, err
 }
 
+func (r *ImageRepository) GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(size_mb), 0)
+		FROM images
+		WHERE owner_id = $1
+			AND tag = $2
+			AND id != $3
+			AND status != $4
+			AND status != $5
+	`
+	var sizeMB int64
+	err := r.db.QueryRowContext(ctx, query, ownerID, tag, replacementImageID, model.ImageStatusBuilding, model.ImageStatusDeleting).Scan(&sizeMB)
+	return sizeMB, err
+}
+
 func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, error) {
 	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE status != $1`
 	var usedMB int64
@@ -240,8 +255,16 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		return tx.Commit()
 	}
 
-	_, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID)
-	if err != nil {
+	if _, err = tx.ExecContext(ctx, `
+		DELETE FROM images
+		WHERE id != $1
+			AND owner_id = (SELECT owner_id FROM images WHERE id = $1)
+			AND tag = (SELECT tag FROM images WHERE id = $1)
+	`, imageID); err != nil {
+		return err
+	}
+
+	if _, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID); err != nil {
 		return err
 	}
 

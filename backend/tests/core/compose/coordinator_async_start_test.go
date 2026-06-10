@@ -84,7 +84,7 @@ func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *te
 	containers := newCoordinatorContainers(nil)
 	containers.nextCreateIDs = []uuid.UUID{webID}
 	volumes := &coordinatorVolumes{
-		createIDs: map[string]uuid.UUID{"data": managedID},
+		createIDs: map[string]uuid.UUID{"wh_data": managedID},
 		resolveIDs: map[string]uuid.UUID{
 			"shared-cache": externalID,
 		},
@@ -93,7 +93,7 @@ func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *te
 	runCoordinatorOnceWithVolumes(t, repo, volumes, containers, &coordinatorDocker{})
 
 	require.Len(t, volumes.created, 1)
-	require.Equal(t, "data", volumes.created[0].Name)
+	require.Equal(t, "wh_data", volumes.created[0].Name)
 	require.Equal(t, projectID, *volumes.created[0].ProjectID)
 	require.Equal(t, []string{"shared-cache"}, volumes.resolved)
 	require.Len(t, containers.created, 1)
@@ -112,6 +112,35 @@ func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *te
 	require.Equal(t, externalID.String(), resources.VolumeIDs["cache"])
 	require.True(t, resources.ManagedVolumeAliases["data"])
 	require.False(t, resources.ManagedVolumeAliases["cache"])
+}
+
+func TestComposeCoordinatorReusesExistingManagedVolume(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	managedID := uuid.New()
+	webID := uuid.New()
+	job := creatingComposeJob(t, ownerID, projectID)
+	repo := newCoordinatorRepo(job)
+	containers := newCoordinatorContainers(nil)
+	containers.nextCreateIDs = []uuid.UUID{webID}
+	volumes := &coordinatorVolumes{
+		managedIDs: map[string]uuid.UUID{"wh_data": managedID},
+		resolveIDs: map[string]uuid.UUID{"shared-cache": uuid.New()},
+	}
+
+	runCoordinatorOnceWithVolumes(t, repo, volumes, containers, &coordinatorDocker{})
+
+	require.Empty(t, volumes.created)
+	require.Equal(t, []string{"wh_data"}, volumes.managedResolved)
+	require.Len(t, containers.created, 1)
+	require.Contains(t, containers.created[0].VolumeMounts, model.VolumeMountParams{VolumeID: managedID, MountPath: "/data"})
+
+	var resources struct {
+		ManagedVolumeAliases map[string]bool `json:"managed_volume_aliases"`
+	}
+	require.NotEmpty(t, repo.savedResourceMaps)
+	require.NoError(t, json.Unmarshal(repo.savedResourceMaps[len(repo.savedResourceMaps)-1], &resources))
+	require.False(t, resources.ManagedVolumeAliases["data"])
 }
 
 func startingComposeJob(t *testing.T, ownerID, projectID, dbID, migrateID uuid.UUID, started map[string]bool) model.ComposeDeploymentJob {
@@ -160,7 +189,7 @@ func creatingComposeJob(t *testing.T, ownerID, projectID uuid.UUID) model.Compos
 		"project_name": "wh",
 		"source_type":  model.ComposeSourceTypeGit,
 		"volumes": []model.ComposeVolume{
-			{Alias: "data", Name: "data"},
+			{Alias: "data", Name: "wh_data"},
 			{Alias: "cache", Name: "shared-cache", External: true},
 		},
 		"services": []model.ComposeService{
@@ -306,11 +335,13 @@ func (c *coordinatorContainers) Create(_ context.Context, params model.Container
 func (c *coordinatorContainers) Delete(context.Context, uuid.UUID) error { return nil }
 
 type coordinatorVolumes struct {
-	createIDs  map[string]uuid.UUID
-	resolveIDs map[string]uuid.UUID
-	created    []model.VolumeCreateParams
-	resolved   []string
-	deleted    []uuid.UUID
+	createIDs       map[string]uuid.UUID
+	managedIDs      map[string]uuid.UUID
+	resolveIDs      map[string]uuid.UUID
+	created         []model.VolumeCreateParams
+	resolved        []string
+	managedResolved []string
+	deleted         []uuid.UUID
 }
 
 func (v *coordinatorVolumes) Create(_ context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
@@ -319,6 +350,15 @@ func (v *coordinatorVolumes) Create(_ context.Context, params model.VolumeCreate
 		return id, nil
 	}
 	return uuid.New(), nil
+}
+
+func (v *coordinatorVolumes) ResolveProjectManagedByName(ctx context.Context, projectID uuid.UUID, name string) (uuid.UUID, bool, error) {
+	v.managedResolved = append(v.managedResolved, name)
+	if id, ok := v.managedIDs[name]; ok {
+		return id, true, nil
+	}
+	id, err := v.Create(ctx, model.VolumeCreateParams{ProjectID: &projectID, Name: name})
+	return id, false, err
 }
 
 func (v *coordinatorVolumes) ResolveByName(_ context.Context, name string) (uuid.UUID, error) {

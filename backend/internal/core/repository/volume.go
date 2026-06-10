@@ -88,6 +88,22 @@ func (r *VolumeRepository) GetByName(ctx context.Context, ownerID uuid.UUID, nam
 	return v, nil
 }
 
+func (r *VolumeRepository) AttachToProject(ctx context.Context, id uuid.UUID, projectID uuid.UUID) error {
+	query := `UPDATE volumes SET project_id = $1 WHERE id = $2 AND project_id IS NULL`
+	res, err := r.db.ExecContext(ctx, query, projectID, id)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return apperrors.ErrConflict
+	}
+	return nil
+}
+
 func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE status IN ($1, $2)`
 	rows, err := r.db.QueryContext(ctx, query, model.VolumeStatusCreating, model.VolumeStatusAvailable)

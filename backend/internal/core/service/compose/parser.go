@@ -276,7 +276,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 
 		result.Volumes = append(result.Volumes, model.ComposeVolume{
 			Alias: volName,
-			Name:  displayName,
+			Name:  fmt.Sprintf("%s_%s", projectName, displayName),
 		})
 		volumeMap[volName] = volName
 	}

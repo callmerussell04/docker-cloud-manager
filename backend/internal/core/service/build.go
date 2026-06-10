@@ -57,6 +57,7 @@ type BuildImageRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
 	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
@@ -825,6 +826,14 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	usedMB, err := s.getUserUsedDiskMB(ctx, img.OwnerID)
 	if err != nil {
 		return err
+	}
+	replacedMB, err := s.imageRepo.GetReplacementImageSizeMB(ctx, img.OwnerID, img.Tag, img.ID)
+	if err != nil {
+		return err
+	}
+	usedMB -= replacedMB
+	if usedMB < 0 {
+		usedMB = 0
 	}
 
 	if usedMB+int64(sizeMB) > user.QuotaDiskMB {

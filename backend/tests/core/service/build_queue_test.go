@@ -209,6 +209,7 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo-app", "latest").Return(int64(2*1024*1024), "digest", nil)
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetReplacementImageSizeMB(mock.Anything, ownerID, "demo-app:latest", imageID).Return(int64(0), nil)
 	imageRepo.EXPECT().
 		MarkBuildFailedAndDeleteImageTx(mock.Anything, buildID, imageID, model.BuildStatusFailedQuotaExceeded).
 		Run(func(ctx context.Context, gotBuildID, gotImageID uuid.UUID, status string) {

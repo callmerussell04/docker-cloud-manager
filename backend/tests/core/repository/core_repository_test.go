@@ -82,6 +82,65 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 	require.Equal(t, model.BuildOutboxStatusPublishing, outbox.Status)
 }
 
+func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	buildRepo := repository.NewBuildRepository(db)
+	imageRepo := repository.NewImageRepository(db)
+
+	ownerID := uuid.New()
+	oldImageID := uuid.New()
+	newImageID := uuid.New()
+	buildID := uuid.New()
+	tag := "demo:latest"
+
+	require.NoError(t, imageRepo.Save(ctx, model.Image{
+		ID:      oldImageID,
+		OwnerID: ownerID,
+		Tag:     tag,
+		SizeMB:  12,
+		Status:  model.ImageStatusAvailable,
+	}))
+
+	payload, err := json.Marshal(buildqueue.ImageBuildMessage{
+		BuildID: buildID.String(),
+		ImageID: newImageID.String(),
+		OwnerID: ownerID.String(),
+		Tag:     tag,
+	})
+	require.NoError(t, err)
+	require.NoError(t, buildRepo.CreateQueuedBuild(ctx,
+		model.Image{ID: newImageID, OwnerID: ownerID, Tag: tag, Status: model.ImageStatusBuilding},
+		model.Build{
+			ID:               buildID,
+			ImageID:          newImageID,
+			OwnerID:          ownerID,
+			Status:           model.BuildStatusPending,
+			LogFilePath:      "build-logs/replacement.log",
+			ArchiveObjectKey: "build-archives/replacement.zip",
+			StartedAt:        time.Now(),
+		},
+		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: payload},
+	))
+
+	sizeMB, err := imageRepo.GetReplacementImageSizeMB(ctx, ownerID, tag, newImageID)
+	require.NoError(t, err)
+	require.Equal(t, int64(12), sizeMB)
+
+	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, newImageID, model.BuildStatusSuccess, 20))
+
+	_, err = imageRepo.GetByID(ctx, oldImageID)
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	newImage, err := imageRepo.GetByID(ctx, newImageID)
+	require.NoError(t, err)
+	require.Equal(t, model.ImageStatusAvailable, newImage.Status)
+	require.Equal(t, 20, newImage.SizeMB)
+	build, err := buildRepo.GetByID(ctx, buildID)
+	require.NoError(t, err)
+	require.Equal(t, model.BuildStatusSuccess, build.Status)
+	require.Equal(t, 1, countRowsWhere(t, db, "images", "owner_id = $1 AND tag = $2", ownerID, tag))
+}
+
 func TestProjectRepositoryCreateComposeDeploymentAndCancel(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
@@ -254,4 +313,11 @@ func leaseOneBuildOutbox(t *testing.T, db *sql.DB) model.BuildQueueOutbox {
 		entries[0].Status = status
 	}
 	return entries[0]
+}
+
+func countRowsWhere(t *testing.T, db *sql.DB, table, where string, args ...any) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE `+where, args...).Scan(&count))
+	return count
 }

@@ -151,6 +151,74 @@ func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *test
 	}
 }
 
+func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	otherProjectID := uuid.New()
+	volumeID := uuid.New()
+
+	tests := []struct {
+		name       string
+		volume     model.Volume
+		setup      func(*volumeRepoMock)
+		wantID     uuid.UUID
+		wantReused bool
+		wantErr    error
+	}{
+		{
+			name:       "same project",
+			volume:     model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			wantID:     volumeID,
+			wantReused: true,
+		},
+		{
+			name:   "unassigned preserved volume attaches",
+			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			setup: func(repo *volumeRepoMock) {
+				repo.VolumeRepository.EXPECT().AttachToProject(mock.Anything, volumeID, projectID).Return(nil)
+			},
+			wantID:     volumeID,
+			wantReused: true,
+		},
+		{
+			name:    "other project rejected",
+			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
+			wantErr: apperrors.ErrConflict,
+		},
+		{
+			name:    "unavailable rejected",
+			volume:  model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusCreating},
+			wantErr: apperrors.ErrConflict,
+		},
+		{
+			name:       "same project creating waits",
+			volume:     model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusCreating},
+			wantID:     volumeID,
+			wantReused: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := newVolumeRepoMock(t)
+			repo.VolumeRepository.EXPECT().GetByName(mock.Anything, ownerID, "project_a_data").Return(tt.volume, nil)
+			if tt.setup != nil {
+				tt.setup(repo)
+			}
+			svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{})
+
+			gotID, reused, err := svc.ResolveProjectManagedByName(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID, "project_a_data")
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantID, gotID)
+			require.Equal(t, tt.wantReused, reused)
+		})
+	}
+}
+
 func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)

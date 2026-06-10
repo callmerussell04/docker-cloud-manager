@@ -171,14 +171,12 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, repo
 			}
 			resources.ManagedVolumeAliases[volParams.Alias] = false
 		} else {
-			volumeID, err = c.orchestrator.volumeService.Create(ctx, model.VolumeCreateParams{
-				ProjectID: &job.ProjectID,
-				Name:      volParams.Name,
-			})
+			var reused bool
+			volumeID, reused, err = c.orchestrator.volumeService.ResolveProjectManagedByName(ctx, job.ProjectID, volParams.Name)
 			if err != nil {
-				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to create volume %s: %w", volParams.Name, err))
+				return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to prepare volume %s: %w", volParams.Name, err))
 			}
-			resources.ManagedVolumeAliases[volParams.Alias] = true
+			resources.ManagedVolumeAliases[volParams.Alias] = !reused
 		}
 		resources.VolumeIDs[volParams.Alias] = volumeID
 		if err := c.saveProgress(ctx, repo, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources); err != nil {

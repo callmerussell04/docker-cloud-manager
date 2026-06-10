@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -20,6 +21,7 @@ type VolumeRepository interface {
 	Save(ctx context.Context, vol model.Volume) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 	GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error)
+	AttachToProject(ctx context.Context, id uuid.UUID, projectID uuid.UUID) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	IsVolumeInUse(ctx context.Context, volumeID uuid.UUID) (bool, error)
@@ -172,6 +174,52 @@ func (s *VolumeService) ResolveByName(ctx context.Context, name string) (uuid.UU
 	default:
 		return uuid.Nil, apperrors.New(apperrors.ErrConflict, "volume is not available")
 	}
+}
+
+func (s *VolumeService) ResolveProjectManagedByName(ctx context.Context, projectID uuid.UUID, name string) (uuid.UUID, bool, error) {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if err := validation.ResourceName(name); err != nil {
+		return uuid.Nil, false, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+
+	vol, err := s.repo.GetByName(ctx, ownerID, name)
+	if err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			id, createErr := s.Create(ctx, model.VolumeCreateParams{
+				ProjectID: &projectID,
+				Name:      name,
+			})
+			return id, false, createErr
+		}
+		return uuid.Nil, false, err
+	}
+	sameProject := vol.ProjectID != nil && *vol.ProjectID == projectID
+	if vol.ProjectID != nil && !sameProject {
+		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume belongs to another project")
+	}
+	switch vol.Status {
+	case model.VolumeStatusAvailable:
+	case model.VolumeStatusCreating:
+		if sameProject {
+			return vol.ID, false, nil
+		}
+		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume is not available")
+	case model.VolumeStatusMissing:
+		return uuid.Nil, false, resourceUnavailableError("volume")
+	case model.VolumeStatusDeleting, model.VolumeStatusError:
+		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume is not available")
+	default:
+		return uuid.Nil, false, apperrors.New(apperrors.ErrConflict, "volume is not available")
+	}
+	if vol.ProjectID == nil {
+		if err := s.repo.AttachToProject(ctx, vol.ID, projectID); err != nil {
+			return uuid.Nil, false, err
+		}
+	}
+	return vol.ID, true, nil
 }
 
 func (s *VolumeService) Delete(ctx context.Context, volumeID uuid.UUID) error {

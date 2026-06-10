@@ -115,6 +115,48 @@ services:
 	}
 }
 
+func TestParserPrefixesManagedVolumesButKeepsExternalNames(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+services:
+  db:
+    image: postgres:16
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - shared_data:/shared:ro
+volumes:
+  postgres_data: {}
+  shared_data:
+    external: true
+    name: project_a_postgres_data
+`)
+
+	project, err := NewParser().ParseAndValidate(context.Background(), "project_a", yaml, nil)
+	if err != nil {
+		t.Fatalf("ParseAndValidate() error = %v", err)
+	}
+	if len(project.Volumes) != 2 {
+		t.Fatalf("volumes count = %d, want 2", len(project.Volumes))
+	}
+
+	managed := findComposeVolume(t, project.Volumes, "postgres_data")
+	if managed.Name != "project_a_postgres_data" {
+		t.Fatalf("managed volume name = %q, want project_a_postgres_data", managed.Name)
+	}
+	if managed.External {
+		t.Fatalf("managed volume external = true, want false")
+	}
+
+	external := findComposeVolume(t, project.Volumes, "shared_data")
+	if external.Name != "project_a_postgres_data" {
+		t.Fatalf("external volume name = %q, want project_a_postgres_data", external.Name)
+	}
+	if !external.External {
+		t.Fatalf("external volume external = false, want true")
+	}
+}
+
 func TestParserRejectsBlockedDomainPrefixPattern(t *testing.T) {
 	t.Parallel()
 
@@ -346,8 +388,8 @@ volumes:
 	}
 
 	data := findComposeVolume(t, project.Volumes, "data")
-	if data.Name != "data" || data.External {
-		t.Fatalf("data volume = %+v, want managed alias data/name data", data)
+	if data.Name != "proj_data" || data.External {
+		t.Fatalf("data volume = %+v, want managed alias data/name proj_data", data)
 	}
 	cache := findComposeVolume(t, project.Volumes, "cache")
 	if cache.Name != "cache" || !cache.External {
