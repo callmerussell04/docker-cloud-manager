@@ -5,12 +5,76 @@ import . "github.com/callmerussell04/docker-cloud-manager/internal/core/service/
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
+
+func TestDocumentedComposeExamplesRemainValid(t *testing.T) {
+	t.Parallel()
+
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("failed to locate parser test file")
+	}
+	examplesDir := filepath.Join(filepath.Dir(filename), "../../../../docs/examples")
+	tests := []struct {
+		name     string
+		path     string
+		basePath string
+	}{
+		{name: "public image", path: "compose-public-image.yml"},
+		{name: "external volume", path: "compose-external-volume.yml"},
+		{name: "source build", path: "compose-build/docker-compose.yml", basePath: "compose-build"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			content, err := os.ReadFile(filepath.Join(examplesDir, tt.path))
+			if err != nil {
+				t.Fatalf("read documented compose example: %v", err)
+			}
+			if _, err := NewParser().ParseAndValidateWithBase(context.Background(), "docs-example", content, nil, tt.basePath); err != nil {
+				t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestDocumentedUnsafeComposeDirectivesRemainRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		service string
+		want    string
+	}{
+		{name: "host network", service: "network_mode: host", want: "network_mode: host is not allowed"},
+		{name: "host pid", service: "pid: host", want: "pid: host is not allowed"},
+		{name: "privileged", service: "privileged: true", want: "privileged mode is not allowed"},
+		{name: "absolute bind mount", service: "volumes:\n      - /var/run/docker.sock:/var/run/docker.sock", want: "absolute bind mounts are not allowed"},
+		{name: "relative bind mount", service: "volumes:\n      - ./data:/data", want: "bind mounts are temporarily disabled"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			yaml := []byte("services:\n  web:\n    image: nginx:alpine\n    " + tt.service + "\n")
+			_, err := NewParser().ParseAndValidate(context.Background(), "docs-example", yaml, nil)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("ParseAndValidate() error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
 
 func TestParserRestartPolicyValidation(t *testing.T) {
 	t.Parallel()

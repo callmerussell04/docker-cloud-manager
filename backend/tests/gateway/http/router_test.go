@@ -1,10 +1,15 @@
 package http_test
 
 import (
+	"bufio"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -119,6 +124,48 @@ func TestRouterRegistersGatewayRoutes(t *testing.T) {
 	for _, route := range expected {
 		require.Contains(t, routes, route)
 	}
+	require.Equal(t, routes, loadOpenAPIRoutes(t), "Gateway routes and OpenAPI paths must remain in sync")
+}
+
+var openAPIPathParameter = regexp.MustCompile(`\{([^}]+)\}`)
+
+func loadOpenAPIRoutes(t *testing.T) map[string]struct{} {
+	t.Helper()
+
+	_, filename, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	file, err := os.Open(filepath.Join(filepath.Dir(filename), "../../../api/gateway/openapi.yml"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, file.Close()) })
+
+	routes := make(map[string]struct{})
+	path := ""
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(line, "  /") && strings.HasSuffix(trimmed, ":") {
+			path = strings.TrimSuffix(trimmed, ":")
+			continue
+		}
+		if path == "" || !strings.HasPrefix(line, "    ") || strings.HasPrefix(line, "      ") {
+			continue
+		}
+		method := strings.TrimSuffix(trimmed, ":")
+		switch method {
+		case "get", "post", "put", "patch", "delete":
+		default:
+			continue
+		}
+
+		routerPath := openAPIPathParameter.ReplaceAllString(path, `:$1`)
+		if !strings.HasPrefix(routerPath, "/health/") {
+			routerPath = "/api/v1" + routerPath
+		}
+		routes[strings.ToUpper(method)+" "+routerPath] = struct{}{}
+	}
+	require.NoError(t, scanner.Err())
+	return routes
 }
 
 func TestRouterAuthBoundariesAndUploadProxyChain(t *testing.T) {

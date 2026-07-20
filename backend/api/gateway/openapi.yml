@@ -75,6 +75,71 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /auth/providers:
+    get:
+      summary: Get enabled authentication methods
+      tags: [Auth]
+      security: []
+      responses:
+        '200':
+          description: Local authentication flags and configured OIDC providers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthProvidersResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/oidc/keycloak/start:
+    get:
+      summary: Start Keycloak authorization code flow
+      tags: [Auth]
+      security: []
+      parameters:
+        - name: redirect_after
+          in: query
+          required: false
+          description: Allowed SPA callback URL or configured relative callback path.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the Keycloak authorization endpoint and set the HttpOnly oidc_state cookie
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /auth/oidc/keycloak/callback:
+    get:
+      summary: Complete Keycloak authorization code flow
+      tags: [Auth]
+      security:
+        - OIDCStateCookie: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Set the DCM refresh cookie and redirect to the SPA callback
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /auth/login:
     post:
       summary: Login to get access and refresh tokens
@@ -170,8 +235,8 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateContainerRequest'
       responses:
-        '201':
-          description: Container created
+        '202':
+          description: Container creation accepted
           content:
             application/json:
               schema:
@@ -198,8 +263,8 @@ paths:
             type: string
             enum: [start, stop, delete]
       responses:
-        '200':
-          description: Action performed successfully
+        '202':
+          description: Container lifecycle action accepted
           content:
             application/json:
               schema:
@@ -218,8 +283,8 @@ paths:
             schema:
               $ref: '#/components/schemas/ExposeContainerRequest'
       responses:
-        '200':
-          description: Container exposed
+        '202':
+          description: Container expose operation accepted
           content:
             application/json:
               schema:
@@ -248,8 +313,7 @@ paths:
       summary: Stream container logs in real time
       tags: [Containers]
       security:
-        - BearerAuth: []
-        - {}
+        - TelemetryTicketAuth: []
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/LogTailParam'
@@ -294,8 +358,7 @@ paths:
       summary: Open an interactive terminal session for a running container
       tags: [Containers]
       security:
-        - BearerAuth: []
-        - {}
+        - TelemetryTicketAuth: []
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/TerminalCommandParam'
@@ -366,8 +429,8 @@ paths:
             schema:
               $ref: '#/components/schemas/CreateVolumeRequest'
       responses:
-        '201':
-          description: Volume created
+        '202':
+          description: Volume creation accepted
           content:
             application/json:
               schema:
@@ -386,8 +449,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Volume deleted
+        '202':
+          description: Volume deletion accepted
           content:
             application/json:
               schema:
@@ -426,8 +489,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Image deleted
+        '202':
+          description: Image deletion accepted
           content:
             application/json:
               schema:
@@ -477,6 +540,32 @@ paths:
                     format: uuid
                   message:
                     type: string
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /images/build/git:
+    post:
+      summary: Build a new image from a public HTTPS Git repository
+      tags: [Images]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BuildImageGitRequest'
+      responses:
+        '202':
+          description: Build job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
@@ -631,6 +720,32 @@ paths:
                   message:
                     type: string
 
+  /projects/compose/git:
+    post:
+      summary: Deploy a Docker Compose project from a public HTTPS Git repository
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeployComposeGitRequest'
+      responses:
+        '202':
+          description: Compose deployment accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComposeAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /projects/{id}:
     delete:
       summary: Delete a compose project and its resources
@@ -638,8 +753,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project deleted
+        '202':
+          description: Project deletion accepted
           content:
             application/json:
               schema:
@@ -652,8 +767,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project started
+        '202':
+          description: Project start accepted
           content:
             application/json:
               schema:
@@ -666,8 +781,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project stopped
+        '202':
+          description: Project stop accepted
           content:
             application/json:
               schema:
@@ -680,8 +795,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project cancellation requested
+        '202':
+          description: Project cancellation accepted
           content:
             application/json:
               schema:
@@ -728,6 +843,147 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
+
+  /admin/monitoring:
+    get:
+      summary: Get live host capacity and managed resource monitoring
+      tags: [Admin]
+      responses:
+        '200':
+          description: Current host and DCM monitoring snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemMonitoring'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/reports/overview:
+    get:
+      summary: Get reports overview for a time range
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Reports overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportsOverview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/reports/users:
+    get:
+      summary: Get paginated user usage report
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: disk
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated user usage report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUsageReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/reports/users/{id}/usage:
+    get:
+      summary: Get a user's usage timeline
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+      responses:
+        '200':
+          description: Usage timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserUsageTimeline'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/reports/audit-events:
+    get:
+      summary: Get paginated audit events
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/FromParam'
+        - $ref: '#/components/parameters/ToParam'
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - name: actor_user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: outcome
+          in: query
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /admin/reports/usage-snapshots/refresh:
+    post:
+      summary: Request an out-of-cycle usage snapshot collection
+      tags: [Admin]
+      responses:
+        '202':
+          description: Snapshot refresh accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshUsageSnapshotsResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /admin/users:
     get:
@@ -871,8 +1127,8 @@ paths:
             type: string
             enum: [start, stop, delete]
       responses:
-        '200':
-          description: Admin action successful
+        '202':
+          description: Admin container lifecycle action accepted
           content:
             application/json:
               schema:
@@ -897,8 +1153,7 @@ paths:
       summary: Admin stream logs for any container
       tags: [Admin]
       security:
-        - BearerAuth: []
-        - {}
+        - TelemetryTicketAuth: []
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/LogTailParam'
@@ -945,8 +1200,7 @@ paths:
       summary: Admin open an interactive terminal session for any running container
       tags: [Admin]
       security:
-        - BearerAuth: []
-        - {}
+        - TelemetryTicketAuth: []
       parameters:
         - $ref: '#/components/parameters/IdParam'
         - $ref: '#/components/parameters/TerminalCommandParam'
@@ -1013,8 +1267,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Volume deleted
+        '202':
+          description: Volume deletion accepted
           content:
             application/json:
               schema:
@@ -1049,8 +1303,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Image deleted
+        '202':
+          description: Image deletion accepted
           content:
             application/json:
               schema:
@@ -1151,8 +1405,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project deleted
+        '202':
+          description: Project deletion accepted
           content:
             application/json:
               schema:
@@ -1165,8 +1419,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project started
+        '202':
+          description: Project start accepted
           content:
             application/json:
               schema:
@@ -1179,8 +1433,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project stopped
+        '202':
+          description: Project stop accepted
           content:
             application/json:
               schema:
@@ -1193,8 +1447,8 @@ paths:
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
-        '200':
-          description: Project cancellation requested
+        '202':
+          description: Project cancellation accepted
           content:
             application/json:
               schema:
@@ -1212,6 +1466,15 @@ components:
       type: apiKey
       in: cookie
       name: refresh_token
+    OIDCStateCookie:
+      type: apiKey
+      in: cookie
+      name: oidc_state
+    TelemetryTicketAuth:
+      type: apiKey
+      in: query
+      name: ticket
+      description: Short-lived, opaque, single-use ticket issued by the matching ticket endpoint.
 
   parameters:
     IdParam:
@@ -1238,6 +1501,24 @@ components:
         default: 20
         minimum: 1
         maximum: 100
+    FromParam:
+      name: from
+      in: query
+      required: false
+      description: Inclusive Unix timestamp; 0 lets the service choose the default range.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+    ToParam:
+      name: to
+      in: query
+      required: false
+      description: Inclusive Unix timestamp; 0 means the current service-defined upper bound.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
     LogTailParam:
       name: tail
       in: query
@@ -1304,7 +1585,7 @@ components:
     TelemetryTicketParam:
       name: ticket
       in: query
-      required: false
+      required: true
       description: Short-lived browser stream ticket from the matching ticket endpoint.
       schema:
         type: string
@@ -1433,6 +1714,24 @@ components:
           type: string
         password:
           type: string
+
+    AuthProvidersResponse:
+      type: object
+      required: [local_login_enabled, local_register_enabled, oidc_providers]
+      properties:
+        local_login_enabled:
+          type: boolean
+        local_register_enabled:
+          type: boolean
+        oidc_providers:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name:
+                type: string
+                example: keycloak
 
     # ADMIN USERS
     AdminUser:
@@ -1589,6 +1888,9 @@ components:
         id:
           type: string
           format: uuid
+        project_id:
+          type: string
+          format: uuid
         name:
           type: string
         image_tag:
@@ -1603,6 +1905,9 @@ components:
           type: string
         last_error:
           type: string
+        last_exit_code:
+          type: integer
+          nullable: true
         ttl_deadline:
           type: integer
           format: int64
@@ -1620,6 +1925,9 @@ components:
           format: uuid
         docker_id:
           type: string
+        project_id:
+          type: string
+          format: uuid
         name:
           type: string
         image_tag:
@@ -1634,6 +1942,9 @@ components:
           type: string
         last_error:
           type: string
+        last_exit_code:
+          type: integer
+          nullable: true
         ttl_deadline:
           type: integer
           format: int64
@@ -1689,6 +2000,12 @@ components:
           type: string
         last_error:
           type: string
+        used_bytes:
+          type: integer
+          format: int64
+        usage_observed_at:
+          type: integer
+          format: int64
         created_at:
           type: integer
           format: int64
@@ -1710,6 +2027,12 @@ components:
           type: string
         last_error:
           type: string
+        used_bytes:
+          type: integer
+          format: int64
+        usage_observed_at:
+          type: integer
+          format: int64
         created_at:
           type: integer
           format: int64
@@ -1757,6 +2080,39 @@ components:
           type: string
 
     # BUILDS
+    BuildImageGitRequest:
+      type: object
+      required: [repo_url, tag]
+      properties:
+        repo_url:
+          type: string
+          format: uri
+          description: Public HTTPS repository URL without credentials.
+        ref:
+          type: string
+        tag:
+          type: string
+        context:
+          type: string
+          default: .
+        dockerfile:
+          type: string
+          default: Dockerfile
+        build_args:
+          type: object
+          additionalProperties:
+            type: string
+
+    BuildAcceptedResponse:
+      type: object
+      required: [build_id, message]
+      properties:
+        build_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+
     UserBuild:
       type: object
       properties:
@@ -1811,6 +2167,32 @@ components:
           type: string
 
     # PROJECTS
+    DeployComposeGitRequest:
+      type: object
+      required: [project_name, repo_url]
+      properties:
+        project_name:
+          type: string
+        repo_url:
+          type: string
+          format: uri
+          description: Public HTTPS repository URL without credentials.
+        ref:
+          type: string
+        compose_file:
+          type: string
+          description: Relative path to the Compose file in the repository.
+
+    ComposeAcceptedResponse:
+      type: object
+      required: [project_id, message]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        message:
+          type: string
+
     UserProject:
       type: object
       properties:
@@ -1882,6 +2264,156 @@ components:
           type: integer
 
     # SYSTEM CONFIG
+    SystemMonitoring:
+      type: object
+      properties:
+        cpu_percent: { type: number, format: double }
+        memory_total_bytes: { type: integer, format: int64 }
+        memory_used_bytes: { type: integer, format: int64 }
+        memory_available_bytes: { type: integer, format: int64 }
+        disk_total_bytes: { type: integer, format: int64 }
+        disk_used_bytes: { type: integer, format: int64 }
+        disk_free_bytes: { type: integer, format: int64 }
+        dcm_reserved_memory_bytes: { type: integer, format: int64 }
+        dcm_reserved_build_memory_bytes: { type: integer, format: int64 }
+        dcm_disk_used_bytes: { type: integer, format: int64 }
+        host_min_free_disk_bytes: { type: integer, format: int64 }
+        admission_status: { type: string }
+        admission_reasons:
+          type: array
+          items: { type: string }
+        containers_total: { type: integer }
+        containers_running: { type: integer }
+        containers_stopped: { type: integer }
+        containers_error: { type: integer }
+        containers_missing: { type: integer }
+        volumes_total: { type: integer }
+        images_total: { type: integer }
+        builds_total: { type: integer }
+        projects_total: { type: integer }
+        observed_at: { type: integer, format: int64, description: Unix timestamp }
+
+    ReportsOverview:
+      type: object
+      properties:
+        from: { type: integer, format: int64 }
+        to: { type: integer, format: int64 }
+        audit_events_total: { type: integer, format: int64 }
+        failed_actions_total: { type: integer, format: int64 }
+        active_users_total: { type: integer, format: int64 }
+        memory_usage_bytes: { type: integer, format: int64 }
+        reserved_memory_bytes: { type: integer, format: int64 }
+        cpu_percent: { type: number, format: double }
+        total_disk_bytes: { type: integer, format: int64 }
+        resources_total: { type: integer, format: int64 }
+        containers_total: { type: integer, format: int64 }
+        containers_running: { type: integer, format: int64 }
+        volumes_total: { type: integer, format: int64 }
+        images_total: { type: integer, format: int64 }
+        builds_total: { type: integer, format: int64 }
+        projects_total: { type: integer, format: int64 }
+        last_usage_snapshot_at: { type: integer, format: int64 }
+        usage_snapshot_interval_seconds: { type: integer, format: int64 }
+        top_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActionCount'
+
+    ActionCount:
+      type: object
+      properties:
+        action: { type: string }
+        count: { type: integer, format: int64 }
+
+    UserUsageReport:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserUsageReportItem'
+        total_count: { type: integer }
+
+    UserUsageReportItem:
+      type: object
+      properties:
+        owner_id: { type: string, format: uuid }
+        owner_username: { type: string }
+        memory_usage_bytes: { type: integer, format: int64 }
+        reserved_memory_bytes: { type: integer, format: int64 }
+        cpu_percent: { type: number, format: double }
+        total_disk_bytes: { type: integer, format: int64 }
+        resources_total: { type: integer }
+        containers_total: { type: integer }
+        containers_running: { type: integer }
+        volumes_total: { type: integer }
+        images_total: { type: integer }
+        builds_total: { type: integer }
+        projects_total: { type: integer }
+        actions_total: { type: integer, format: int64 }
+
+    UserUsageTimeline:
+      type: object
+      properties:
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserUsagePoint'
+
+    UserUsagePoint:
+      type: object
+      properties:
+        bucket_start: { type: integer, format: int64 }
+        memory_usage_bytes: { type: integer, format: int64 }
+        reserved_memory_bytes: { type: integer, format: int64 }
+        cpu_percent: { type: number, format: double }
+        total_disk_bytes: { type: integer, format: int64 }
+        resources_total: { type: integer }
+        containers_total: { type: integer }
+        containers_running: { type: integer }
+        volumes_total: { type: integer }
+        images_total: { type: integer }
+        builds_total: { type: integer }
+        projects_total: { type: integer }
+        actions_total: { type: integer, format: int64 }
+
+    AuditEventsResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total_count: { type: integer }
+
+    AuditEvent:
+      type: object
+      properties:
+        id: { type: string }
+        occurred_at: { type: integer, format: int64 }
+        actor_user_id: { type: string }
+        actor_username: { type: string }
+        actor_scope: { type: string }
+        action: { type: string }
+        outcome: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string }
+        resource_name: { type: string }
+        owner_id: { type: string }
+        owner_username: { type: string }
+        request_id: { type: string }
+        client_ip: { type: string }
+        user_agent: { type: string }
+        error_code: { type: string }
+        details_json: { type: string, description: Safe JSON details serialized as a string. }
+
+    RefreshUsageSnapshotsResponse:
+      type: object
+      properties:
+        bucket_start: { type: integer, format: int64 }
+        collected_at: { type: integer, format: int64 }
+        snapshots_count: { type: integer }
+
     SystemConfig:
       type: object
       properties:
@@ -1942,10 +2474,6 @@ components:
           type: integer
         max_containers_per_user:
           type: integer
-        registry_api_url:
-          type: string
-        registry_public_url:
-          type: string
         container_ttl_hours:
           type: integer
           format: int64
@@ -1955,10 +2483,8 @@ components:
         container_memory_swap_multiplier:
           type: number
           format: double
-        proxy_network_name:
-          type: string
-        registry_container_name:
-          type: string
+        image_builds_enabled:
+          type: boolean
         build_memory_bytes:
           type: integer
           format: int64
@@ -1974,8 +2500,6 @@ components:
         build_pids_limit:
           type: integer
           format: int64
-        build_network_name:
-          type: string
         kaniko_image:
           type: string
         max_build_time_minutes:
@@ -2015,12 +2539,45 @@ components:
           format: int64
         build_outbox_batch_size:
           type: integer
+        reports_usage_snapshot_interval_seconds:
+          type: integer
+          format: int64
+        container_create_worker_count:
+          type: integer
+        container_create_max_attempts:
+          type: integer
+        container_create_timeout_minutes:
+          type: integer
+          format: int64
+        max_queued_container_creates_per_user:
+          type: integer
+        container_create_outbox_interval_seconds:
+          type: integer
+          format: int64
+        container_create_outbox_batch_size:
+          type: integer
+        max_staged_source_bytes_per_user:
+          type: integer
+          format: int64
+        max_queued_builds_per_user:
+          type: integer
         compose_upload_max_bytes:
           type: integer
           format: int64
         compose_pipeline_timeout_minutes:
           type: integer
           format: int64
+        compose_deploy_worker_count:
+          type: integer
+        compose_outbox_interval_seconds:
+          type: integer
+          format: int64
+        compose_outbox_batch_size:
+          type: integer
+        compose_deploy_max_attempts:
+          type: integer
+        max_queued_compose_deploys_per_user:
+          type: integer
         build_cancel_poll_interval_seconds:
           type: integer
           format: int64
@@ -2031,6 +2588,24 @@ components:
           type: integer
           format: int64
         compose_dependency_poll_interval_seconds:
+          type: integer
+          format: int64
+        compose_coordinator_interval_seconds:
+          type: integer
+          format: int64
+        host_min_free_disk_bytes:
+          type: integer
+          format: int64
+        git_sources_enabled:
+          type: boolean
+        git_allowed_hosts:
+          type: array
+          items:
+            type: string
+        git_clone_timeout_seconds:
+          type: integer
+          format: int64
+        git_max_repository_bytes:
           type: integer
           format: int64
         telemetry_max_log_tail_lines:
