@@ -1,0 +1,50 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from './Button';
+import { useT } from '@/lib/i18n';
+
+interface PaginationProps {
+  currentPage: number;
+  totalItems: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+}
+
+export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: PaginationProps) {
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const t = useT();
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-white/20 px-4 py-3 dark:border-slate-700/50 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-sm text-slate-500 dark:text-slate-400">
+        {t('pagination.summary', {
+          from: (currentPage - 1) * pageSize + 1,
+          to: Math.min(currentPage * pageSize, totalItems),
+          total: totalItems,
+        })}
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          variant="secondary"
+          className="p-2 h-9 w-9"
+          disabled={currentPage === 1}
+          onClick={() => onPageChange(currentPage - 1)}
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </Button>
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300 w-10 text-center">
+          {currentPage}
+        </span>
+        <Button
+          variant="secondary"
+          className="p-2 h-9 w-9"
+          disabled={currentPage === totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
+        >
+          <ChevronRight className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}

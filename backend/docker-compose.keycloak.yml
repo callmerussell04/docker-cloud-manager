@@ -1,0 +1,54 @@
+services:
+  keycloak_db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: "${KEYCLOAK_POSTGRES_USER:-keycloak}"
+      POSTGRES_PASSWORD: "${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}"
+      POSTGRES_DB: "${KEYCLOAK_POSTGRES_DB:-keycloak}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    networks:
+      - dcm_net
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev"]
+    environment:
+      KC_DB: "postgres"
+      KC_DB_URL: "jdbc:postgresql://keycloak_db:5432/${KEYCLOAK_POSTGRES_DB:-keycloak}"
+      KC_DB_USERNAME: "${KEYCLOAK_POSTGRES_USER:-keycloak}"
+      KC_DB_PASSWORD: "${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}"
+      KC_BOOTSTRAP_ADMIN_USERNAME: "${KEYCLOAK_ADMIN_USERNAME:-admin}"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD is required}"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: "${KEYCLOAK_HOSTNAME:-http://keycloak.localhost}"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: "xforwarded"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.rule=Host(`keycloak.localhost`)"
+      - "traefik.http.routers.keycloak.service=keycloak"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+      - "traefik.docker.network=proxy_net"
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      keycloak_db:
+        condition: service_healthy
+    networks:
+      - proxy_net
+      - dcm_net
+
+networks:
+  proxy_net:
+    external: true
+  dcm_net:
+    name: dcm_net
+
+volumes:
+  keycloak_db_data:

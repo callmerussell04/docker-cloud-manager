@@ -1,0 +1,39 @@
+package dto
+
+type VolumeDTO struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	DockerName      string `json:"docker_name"`
+	Status          string `json:"status"`
+	LastError       string `json:"last_error"`
+	UsedBytes       int64  `json:"used_bytes"`
+	UsageObservedAt int64  `json:"usage_observed_at"`
+	CreatedAt       int64  `json:"created_at"`
+	OwnerID         string `json:"owner_id"`
+	OwnerUsername   string `json:"owner_username"`
+}
+
+type UserVolumeDTO struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	LastError       string `json:"last_error"`
+	UsedBytes       int64  `json:"used_bytes"`
+	UsageObservedAt int64  `json:"usage_observed_at"`
+	CreatedAt       int64  `json:"created_at"`
+}
+
+type CreateVolumeDTO struct {
+	Name string `json:"name" binding:"required"`
+}
+
+type VolumeMountDTO struct {
+	VolumeID   string `json:"volume_id" binding:"required,uuid"`
+	MountPath  string `json:"mount_path" binding:"required"`
+	IsReadOnly bool   `json:"is_readonly"`
+}
+
+type PaginatedVolumes struct {
+	Volumes    []VolumeDTO `json:"volumes"`
+	TotalCount int32       `json:"total_count"`
+}

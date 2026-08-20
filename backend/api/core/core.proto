@@ -1,0 +1,582 @@
+syntax = "proto3";
+
+package core;
+
+option go_package = "github.com/callmerussell04/docker-cloud-manager/backend/api/core;core";
+
+service ContainerAPI {
+  rpc CreateContainer (CreateContainerRequest) returns (CreateContainerResponse);
+  rpc StartContainer (ContainerActionRequest) returns (Empty);
+  rpc StopContainer (ContainerActionRequest) returns (Empty);
+  rpc DeleteContainer (ContainerActionRequest) returns (Empty);
+  rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
+  rpc ExposeContainer (ExposeRequest) returns (Empty);
+  rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
+  rpc GetContainerRuntimeTarget (ContainerRuntimeTargetRequest) returns (ContainerRuntimeTarget);
+}
+
+service ImageAPI {
+  rpc ListImages (PaginationRequest) returns (PaginatedImageResponse);
+  rpc DeleteImage (ImageActionRequest) returns (Empty);
+  rpc StartBuildRecord (BuildActionRequest) returns (StartBuildRecordResponse);
+  rpc CancelBuildRecord (BuildActionRequest) returns (Empty);
+  rpc CompleteBuildRecord (CompleteBuildRequest) returns (Empty);
+  rpc GetBuildStatus (BuildActionRequest) returns (BuildStatusResponse);
+  rpc ListBuilds (PaginationRequest) returns (PaginatedBuildResponse);
+  rpc GetBuild (BuildActionRequest) returns (BuildData);
+  rpc DeleteBuild (BuildActionRequest) returns (Empty);
+}
+
+service VolumeAPI {
+  rpc CreateVolume (CreateVolumeRequest) returns (CreateVolumeResponse);
+  rpc DeleteVolume (VolumeActionRequest) returns (Empty);
+  rpc ListVolumes (PaginationRequest) returns (PaginatedVolumeResponse);
+}
+
+service ProjectAPI {
+  rpc ListProjects (PaginationRequest) returns (PaginatedProjectResponse);
+  rpc DeleteProject (ProjectActionRequest) returns (Empty);
+  rpc StartProject (ProjectActionRequest) returns (Empty);
+  rpc StopProject (ProjectActionRequest) returns (Empty);
+  rpc CancelProject (ProjectActionRequest) returns (Empty);
+}
+
+service SystemAPI {
+  rpc GetConfig (Empty) returns (SystemConfigData);
+  rpc UpdateConfig (SystemConfigData) returns (Empty);
+  rpc GetBuilderRuntimeConfig (Empty) returns (BuilderRuntimeConfigData);
+  rpc GetTelemetryRuntimeConfig (Empty) returns (TelemetryRuntimeConfigData);
+}
+
+service StatsAPI {
+  rpc GetUserStats (Empty) returns (UserStatsResponse);
+  rpc GetSystemMonitoring (Empty) returns (SystemMonitoringResponse);
+}
+
+service ReportAPI {
+  rpc GetReportsOverview (ReportRangeRequest) returns (ReportsOverviewResponse);
+  rpc ListUserUsageReport (ListUserUsageReportRequest) returns (PaginatedUserUsageReportResponse);
+  rpc GetUserUsageTimeline (GetUserUsageTimelineRequest) returns (UserUsageTimelineResponse);
+  rpc ListAuditEvents (ListAuditEventsRequest) returns (PaginatedAuditEventResponse);
+  rpc RecordAuditEvent (AuditEventData) returns (Empty);
+  rpc RefreshUsageSnapshots (Empty) returns (RefreshUsageSnapshotsResponse);
+}
+
+message UserStatsResponse {
+  int32 containers_total = 1;
+  int32 containers_running = 2;
+  int32 containers_quota = 3;
+  int64 ram_used_bytes = 4;
+  int64 ram_quota_bytes = 5;
+  int32 disk_used_mb = 6;
+  int32 disk_quota_mb = 7;
+  int32 volumes_total = 8;
+  int32 volumes_quota = 9;
+  int32 images_total = 10;
+  int32 projects_total = 11;
+}
+
+message SystemMonitoringResponse {
+  double cpu_percent = 1;
+  int64 memory_total_bytes = 2;
+  int64 memory_used_bytes = 3;
+  int64 memory_available_bytes = 4;
+  int64 disk_total_bytes = 5;
+  int64 disk_used_bytes = 6;
+  int64 disk_free_bytes = 7;
+  int64 dcm_reserved_memory_bytes = 8;
+  int64 dcm_disk_used_bytes = 9;
+  int32 containers_total = 10;
+  int32 containers_running = 11;
+  int32 containers_stopped = 12;
+  int32 containers_error = 13;
+  int32 containers_missing = 14;
+  int32 volumes_total = 15;
+  int32 images_total = 16;
+  int32 builds_total = 17;
+  int32 projects_total = 18;
+  int64 observed_at = 19;
+  string admission_status = 20;
+  repeated string admission_reasons = 21;
+  int64 host_min_free_disk_bytes = 22;
+  int64 dcm_reserved_build_memory_bytes = 23;
+}
+
+message Empty {}
+
+message ReportRangeRequest {
+  int64 from = 1;
+  int64 to = 2;
+}
+
+message ActionCountData {
+  string action = 1;
+  int64 count = 2;
+}
+
+message ReportsOverviewResponse {
+  int64 from = 1;
+  int64 to = 2;
+  int64 audit_events_total = 3;
+  int64 failed_actions_total = 4;
+  int64 active_users_total = 5;
+  int64 reserved_memory_bytes = 6;
+  int64 total_disk_bytes = 7;
+  repeated ActionCountData top_actions = 8;
+  int64 last_usage_snapshot_at = 9;
+  int64 usage_snapshot_interval_seconds = 10;
+  int64 memory_usage_bytes = 11;
+  double cpu_percent = 12;
+  int64 resources_total = 13;
+  int64 containers_total = 14;
+  int64 containers_running = 15;
+  int64 volumes_total = 16;
+  int64 images_total = 17;
+  int64 builds_total = 18;
+  int64 projects_total = 19;
+}
+
+message RefreshUsageSnapshotsResponse {
+  int64 bucket_start = 1;
+  int64 collected_at = 2;
+  int32 snapshots_count = 3;
+}
+
+message ListUserUsageReportRequest {
+  int64 from = 1;
+  int64 to = 2;
+  string sort = 3;
+  int32 page = 4;
+  int32 limit = 5;
+  string search = 6;
+}
+
+message UserUsageReportData {
+  string owner_id = 1;
+  string owner_username = 2;
+  int64 reserved_memory_bytes = 3;
+  int64 total_disk_bytes = 4;
+  int32 containers_total = 5;
+  int32 containers_running = 6;
+  int32 volumes_total = 7;
+  int32 images_total = 8;
+  int32 builds_total = 9;
+  int32 projects_total = 10;
+  int64 actions_total = 11;
+  int64 memory_usage_bytes = 12;
+  double cpu_percent = 13;
+  int32 resources_total = 14;
+}
+
+message PaginatedUserUsageReportResponse {
+  repeated UserUsageReportData users = 1;
+  int32 total_count = 2;
+}
+
+message GetUserUsageTimelineRequest {
+  string owner_id = 1;
+  int64 from = 2;
+  int64 to = 3;
+}
+
+message UserUsagePointData {
+  int64 bucket_start = 1;
+  int64 reserved_memory_bytes = 2;
+  int64 total_disk_bytes = 3;
+  int32 containers_total = 4;
+  int32 containers_running = 5;
+  int64 actions_total = 6;
+  int64 memory_usage_bytes = 7;
+  double cpu_percent = 8;
+  int32 volumes_total = 9;
+  int32 images_total = 10;
+  int32 builds_total = 11;
+  int32 projects_total = 12;
+  int32 resources_total = 13;
+}
+
+message UserUsageTimelineResponse {
+  repeated UserUsagePointData points = 1;
+}
+
+message ListAuditEventsRequest {
+  int64 from = 1;
+  int64 to = 2;
+  string actor_user_id = 3;
+  string action = 4;
+  string outcome = 5;
+  string resource_type = 6;
+  string search = 7;
+  int32 page = 8;
+  int32 limit = 9;
+}
+
+message AuditEventData {
+  string id = 1;
+  int64 occurred_at = 2;
+  string actor_user_id = 3;
+  string actor_username = 4;
+  string actor_scope = 5;
+  string action = 6;
+  string outcome = 7;
+  string resource_type = 8;
+  string resource_id = 9;
+  string resource_name = 10;
+  string owner_id = 11;
+  string owner_username = 12;
+  string request_id = 13;
+  string client_ip = 14;
+  string user_agent = 15;
+  string error_code = 16;
+  string details_json = 17;
+}
+
+message PaginatedAuditEventResponse {
+  repeated AuditEventData events = 1;
+  int32 total_count = 2;
+}
+
+message GetUserRequest {
+  string owner_id = 1;
+}
+
+message VolumeMount {
+  string volume_id = 1;
+  string mount_path = 2;
+  bool is_readonly = 3;
+}
+
+message CreateContainerRequest {
+  reserved 1;
+  reserved "owner_id";
+  string name = 2;
+  string image_tag = 3;
+  int32 internal_port = 4;
+  map<string, string> env_vars = 5;
+  repeated VolumeMount volume_mounts = 6;
+  string domain_prefix = 7;
+}
+
+message CreateContainerResponse {
+  string container_id = 1;
+}
+
+message ContainerActionRequest {
+  reserved 1;
+  reserved "owner_id";
+  string container_id = 2;
+  string action = 3;
+}
+
+message ExposeRequest {
+  reserved 1;
+  reserved "owner_id";
+  string container_id = 2;
+  string domain_prefix = 3;
+  int32 internal_port = 4;
+}
+
+message ContainerData {
+  string id = 1;
+  string docker_id = 2;
+  string name = 3;
+  string image_tag = 4;
+  int32 internal_port = 5;
+  string domain_prefix = 6;
+  string status = 7;
+  int64 created_at = 8;
+  string owner_id = 9;
+  string owner_username = 10;
+  string desired_status = 11;
+  string last_error = 12;
+  optional int32 last_exit_code = 13;
+  int64 ttl_deadline = 14;
+  string project_id = 15;
+}
+
+message ContainerRuntimeTargetRequest {
+  string container_id = 1;
+}
+
+message ContainerRuntimeTarget {
+  string container_id = 1;
+  string docker_id = 2;
+  string status = 3;
+  string owner_id = 4;
+  int32 docker_generation = 5;
+}
+
+message ContainerListResponse {
+  repeated ContainerData containers = 1;
+}
+
+message ImageActionRequest {
+  reserved 1;
+  reserved "owner_id";
+  string image_id = 2;
+}
+
+message StartBuildRecordResponse {
+  bool started = 1;
+  string status = 2;
+  string image_id = 3;
+}
+
+message BuildStatusResponse {
+  string status = 1;
+}
+
+message CompleteBuildRequest {
+  string build_id = 1;
+  string image_id = 2;
+  string status = 3;
+  int32 size_mb = 4;
+}
+
+message ImageData {
+  string id = 1;
+  string tag = 2;
+  int32 size_mb = 3;
+  reserved 4;
+  reserved "is_custom";
+  int64 created_at = 5;
+  string owner_id = 6;
+  string owner_username = 7;
+  string status = 8;
+  string last_error = 9;
+}
+
+message ImageListResponse {
+  repeated ImageData images = 1;
+}
+
+message CreateVolumeRequest {
+  reserved 1;
+  reserved "owner_id";
+  string name = 2;
+  reserved 3, 4;
+  reserved "driver", "driver_opts";
+}
+
+message CreateVolumeResponse {
+  string volume_id = 1;
+}
+
+message VolumeActionRequest {
+  reserved 1;
+  reserved "owner_id";
+  string volume_id = 2;
+}
+
+message VolumeData {
+  string id = 1;
+  string docker_name = 2;
+  string name = 3;
+  reserved "driver";
+  int64 created_at = 4;
+  string owner_id = 5;
+  string owner_username = 6;
+  string status = 7;
+  string last_error = 8;
+  int64 used_bytes = 9;
+  int64 usage_observed_at = 10;
+}
+
+message VolumeListResponse {
+  repeated VolumeData volumes = 1;
+}
+
+message BuildActionRequest {
+  reserved 1;
+  reserved "owner_id";
+  string build_id = 2;
+}
+
+message BuildData {
+  string id = 1;
+  string image_id = 2;
+  string status = 3;
+  int64 started_at = 4;
+  int64 finished_at = 5;
+  string log_file_path = 6;
+  string owner_id = 7;
+  string owner_username = 8;
+  string project_id = 9;
+  string project_service_name = 10;
+}
+
+message BuildListResponse {
+  repeated BuildData builds = 1;
+}
+
+message ProjectData {
+  string id = 1;
+  string name = 2;
+  string status = 3;
+  string error_message = 4;
+  int64 created_at = 5;
+  string owner_id = 6;
+  string owner_username = 7;
+  string last_error = 8;
+}
+
+message ProjectListResponse {
+  repeated ProjectData projects = 1;
+}
+
+message ProjectActionRequest {
+  reserved 1;
+  reserved "owner_id";
+  string project_id = 2;
+}
+
+message PaginationRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string project_id = 3;
+}
+
+message PaginatedContainerResponse {
+  repeated ContainerData containers = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedVolumeResponse {
+  repeated VolumeData volumes = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedImageResponse {
+  repeated ImageData images = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedBuildResponse {
+  repeated BuildData builds = 1;
+  int32 total_count = 2;
+}
+
+message PaginatedProjectResponse {
+  repeated ProjectData projects = 1;
+  int32 total_count = 2;
+}
+
+message SystemConfigData {
+  reserved 15, 16, 20, 21, 27;
+  reserved "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
+
+  string base_domain = 1;
+  int64 default_memory_reservation_bytes = 2;
+  int64 reserved_system_memory_bytes = 3;
+  double overcommit_factor = 4;
+  int64 max_burst_multiplier = 5;
+  int64 default_cpu_shares = 6;
+  int64 high_load_cpu_shares = 7;
+  int32 high_load_container_count = 8;
+  int32 container_stop_timeout = 9;
+  string max_log_size = 10;
+  string max_log_files = 11;
+  string container_disk_quota = 12;
+  int32 max_volumes_per_user = 13;
+  int32 max_containers_per_user = 14;
+  int64 container_ttl_hours = 17;
+  int64 container_pids_limit = 18;
+  double container_memory_swap_multiplier = 19;
+  int64 build_memory_bytes = 22;
+  int64 build_cpu_quota = 23;
+  int64 build_cpu_period = 24;
+  double build_memory_swap_multiplier = 25;
+  int64 build_pids_limit = 26;
+  string kaniko_image = 28;
+  int64 max_build_time_minutes = 29;
+  int32 max_concurrent_builds = 30;
+  int64 max_upload_size_bytes = 31;
+  int64 max_archive_size_bytes = 32;
+  int64 max_unpacked_size_bytes = 33;
+  int64 max_build_log_size_bytes = 34;
+  int64 ttl_worker_interval_seconds = 35;
+  int64 gc_worker_interval_minutes = 36;
+  int64 stale_build_timeout_minutes = 37;
+  int64 event_sync_interval_seconds = 38;
+  int64 event_reconnect_delay_seconds = 39;
+  int64 build_outbox_interval_seconds = 40;
+  int32 build_outbox_batch_size = 41;
+  int64 compose_upload_max_bytes = 42;
+  int64 compose_pipeline_timeout_minutes = 43;
+  int32 compose_deploy_worker_count = 44;
+  int64 compose_build_poll_interval_seconds = 45;
+  int64 compose_dependency_wait_timeout_minutes = 46;
+  int64 compose_dependency_poll_interval_seconds = 47;
+  repeated string reserved_domain_prefixes = 48;
+  int32 telemetry_max_log_tail_lines = 49;
+  int32 telemetry_max_log_streams_per_user = 50;
+  int32 telemetry_max_terminal_sessions_per_user = 51;
+  int64 telemetry_terminal_idle_timeout_seconds = 52;
+  int64 telemetry_terminal_max_duration_seconds = 53;
+  repeated string telemetry_allowed_exec_commands = 54;
+  int32 telemetry_max_command_args = 55;
+  int32 telemetry_max_command_arg_bytes = 56;
+  int64 telemetry_ws_read_limit_bytes = 57;
+  bool image_builds_enabled = 58;
+  int64 build_cancel_poll_interval_seconds = 59;
+  bool git_sources_enabled = 60;
+  repeated string git_allowed_hosts = 61;
+  int64 git_clone_timeout_seconds = 62;
+  int64 git_max_repository_bytes = 63;
+  int64 compose_outbox_interval_seconds = 64;
+  int32 compose_outbox_batch_size = 65;
+  int32 compose_deploy_max_attempts = 66;
+  int64 reports_usage_snapshot_interval_seconds = 67;
+  int32 container_create_worker_count = 68;
+  int32 container_create_max_attempts = 69;
+  int64 container_create_timeout_minutes = 70;
+  int32 max_queued_container_creates_per_user = 71;
+  int64 container_create_outbox_interval_seconds = 72;
+  int32 container_create_outbox_batch_size = 73;
+  int64 max_staged_source_bytes_per_user = 74;
+  int32 max_queued_builds_per_user = 75;
+  int32 max_queued_compose_deploys_per_user = 76;
+  int64 compose_coordinator_interval_seconds = 77;
+  int64 host_min_free_disk_bytes = 78;
+  int64 default_cpu_reservation_millicores = 79;
+  int64 reserved_system_cpu_millicores = 80;
+  double cpu_overcommit_factor = 81;
+  int64 max_cpu_burst_multiplier = 82;
+  int64 container_cpu_period = 83;
+  repeated string blocked_domain_prefix_patterns = 84;
+}
+
+message BuilderRuntimeConfigData {
+  int64 build_memory_bytes = 1;
+  int64 build_cpu_quota = 2;
+  int64 build_cpu_period = 3;
+  double build_memory_swap_multiplier = 4;
+  int64 build_pids_limit = 5;
+  string build_network_name = 6;
+  string kaniko_image = 7;
+  int64 max_build_time_minutes = 8;
+  int32 max_concurrent_builds = 9;
+  int64 max_unpacked_size_bytes = 10;
+  int64 max_build_log_size_bytes = 11;
+  int64 build_cancel_poll_interval_seconds = 12;
+}
+
+message TelemetryRuntimeConfigData {
+  int32 telemetry_max_log_tail_lines = 1;
+  int32 telemetry_max_log_streams_per_user = 2;
+  int32 telemetry_max_terminal_sessions_per_user = 3;
+  int64 telemetry_terminal_idle_timeout_seconds = 4;
+  int64 telemetry_terminal_max_duration_seconds = 5;
+  repeated string telemetry_allowed_exec_commands = 6;
+  int32 telemetry_max_command_args = 7;
+  int32 telemetry_max_command_arg_bytes = 8;
+  int64 telemetry_ws_read_limit_bytes = 9;
+}
+
+message ContainerStatsResponse {
+  double cpu_percentage = 1;
+  int64 memory_usage_bytes = 2;
+  int64 memory_limit_bytes = 3;
+  int64 network_rx_bytes = 4;
+  int64 network_tx_bytes = 5;
+}

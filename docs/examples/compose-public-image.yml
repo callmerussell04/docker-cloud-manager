@@ -1,0 +1,6 @@
+services:
+  web:
+    image: nginx:alpine
+    labels:
+      dcm.domain_prefix: example-web
+      dcm.internal_port: "80"

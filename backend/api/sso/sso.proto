@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package sso;
+
+option go_package = "github.com/callmerussell04/docker-cloud-manager/backend/api/sso;sso";
+
+service Auth {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc Refresh (RefreshRequest) returns (RefreshResponse);
+  rpc GetAuthConfig (GetAuthConfigRequest) returns (GetAuthConfigResponse);
+  rpc StartOIDCLogin (StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
+  rpc CompleteOIDCCallback (CompleteOIDCCallbackRequest) returns (CompleteOIDCCallbackResponse);
+}
+
+service UserAPI {
+  rpc VerifyAccessToken (VerifyTokenRequest) returns (UserData);
+  rpc CheckPermission (CheckPermissionRequest) returns (CheckPermissionResponse);
+  rpc GetUser (GetUserRequest) returns (UserData);
+  rpc BatchGetUsers (BatchGetUsersRequest) returns (BatchGetUsersResponse);
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
+  rpc CreateUser (CreateUserRequest) returns (UserData);
+  rpc UpdateUser (UpdateUserRequest) returns (UserData);
+  rpc DeactivateUser (UserIDRequest) returns (UserData);
+  rpc ReactivateUser (UserIDRequest) returns (UserData);
+}
+
+message RegisterRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+}
+
+message RegisterResponse {
+  string user_id = 1;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message RefreshRequest {
+  string refresh_token = 1;
+}
+
+message RefreshResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+}
+
+message GetAuthConfigRequest {}
+
+message OIDCProviderData {
+  string name = 1;
+}
+
+message GetAuthConfigResponse {
+  bool local_login_enabled = 1;
+  bool local_register_enabled = 2;
+  repeated OIDCProviderData oidc_providers = 3;
+}
+
+message StartOIDCLoginRequest {
+  string provider = 1;
+  string redirect_after = 2;
+}
+
+message StartOIDCLoginResponse {
+  string auth_url = 1;
+  string state_binding = 2;
+}
+
+message CompleteOIDCCallbackRequest {
+  string provider = 1;
+  string code = 2;
+  string state = 3;
+  string state_binding = 4;
+}
+
+message CompleteOIDCCallbackResponse {
+  string access_token = 1;
+  string refresh_token = 2;
+  string redirect_after = 3;
+}
+
+message VerifyTokenRequest {
+  string access_token = 1;
+}
+
+message CheckPermissionRequest {
+  string access_token = 1;
+  string permission = 2;
+}
+
+message CheckPermissionResponse {
+  bool allowed = 1;
+  UserData user = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message UserIDRequest {
+  string user_id = 1;
+}
+
+message BatchGetUsersRequest {
+  repeated string user_ids = 1;
+}
+
+message UserData {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string role = 4;
+  int64 quota_ram_mb = 5;
+  int64 quota_disk_mb = 6;
+  double quota_cpu = 7;
+  string status = 8;
+}
+
+message BatchGetUsersResponse {
+  repeated UserData users = 1;
+}
+
+message ListUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListUsersResponse {
+  repeated UserData users = 1;
+  int32 total_count = 2;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  string role = 4;
+  string status = 5;
+  double quota_cpu = 6;
+  int64 quota_ram_mb = 7;
+  int64 quota_disk_mb = 8;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  string username = 2;
+  string email = 3;
+  string password = 4;
+  string role = 5;
+  string status = 6;
+  double quota_cpu = 7;
+  int64 quota_ram_mb = 8;
+  int64 quota_disk_mb = 9;
+}

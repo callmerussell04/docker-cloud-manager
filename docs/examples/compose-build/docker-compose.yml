@@ -1,0 +1,10 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_MESSAGE: Hello from DCM
+    labels:
+      dcm.domain_prefix: example-build
+      dcm.internal_port: "80"

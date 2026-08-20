@@ -1,0 +1,306 @@
+package grpc
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+)
+
+type ContainerLogic interface {
+	Create(ctx context.Context, params model.ContainerCreateParams) (uuid.UUID, error)
+	Start(ctx context.Context, containerID uuid.UUID) error
+	Stop(ctx context.Context, containerID uuid.UUID) error
+	Delete(ctx context.Context, containerID uuid.UUID) error
+	List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error)
+	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
+	Action(ctx context.Context, containerID uuid.UUID, action string) error
+	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
+	GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error)
+}
+
+type ContainerHandler struct {
+	coreapi.UnimplementedContainerAPIServer
+	logic ContainerLogic
+	users UserDirectory
+}
+
+type UserDirectory interface {
+	GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]model.UserInfo, error)
+}
+
+func RegisterContainerAPI(gRPCServer *grpc.Server, logic ContainerLogic, users UserDirectory) {
+	coreapi.RegisterContainerAPIServer(gRPCServer, &ContainerHandler{logic: logic, users: users})
+}
+
+func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
+	if err := requireUserScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	if req.GetName() == "" || req.GetImageTag() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name and image_tag are required")
+	}
+
+	mounts := make([]model.VolumeMountParams, 0, len(req.GetVolumeMounts()))
+	for _, m := range req.GetVolumeMounts() {
+		volID, err := uuid.Parse(m.GetVolumeId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid volume_id format")
+		}
+		mounts = append(mounts, model.VolumeMountParams{
+			VolumeID:   volID,
+			MountPath:  m.GetMountPath(),
+			IsReadOnly: m.GetIsReadonly(),
+		})
+	}
+
+	params := model.ContainerCreateParams{
+		Name:         req.GetName(),
+		ImageTag:     req.GetImageTag(),
+		InternalPort: int(req.GetInternalPort()),
+		EnvVars:      req.GetEnvVars(),
+		VolumeMounts: mounts,
+		DomainPrefix: req.GetDomainPrefix(),
+	}
+
+	containerID, err := h.logic.Create(ctx, params)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.CreateContainerResponse{
+		ContainerId: containerID.String(),
+	}, nil
+}
+
+func (h *ContainerHandler) StartContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	err = h.logic.Start(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) StopContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	err = h.logic.Stop(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	err = h.logic.Delete(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	var projectID *uuid.UUID
+	if req.GetProjectId() != "" {
+		parsed, err := uuid.Parse(req.GetProjectId())
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "invalid project_id format")
+		}
+		projectID = &parsed
+	}
+	limit, offset := pagination(req)
+	containers, total, err := h.logic.List(ctx, limit, offset, projectID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	var pbContainers []*coreapi.ContainerData
+	usernames := h.usernamesByOwner(ctx, containers)
+	for _, c := range containers {
+		var lastExitCode *int32
+		if c.LastExitCode != nil {
+			value := int32(*c.LastExitCode)
+			lastExitCode = &value
+		}
+		var ttlDeadline int64
+		if c.TTLDeadline != nil {
+			ttlDeadline = c.TTLDeadline.Unix()
+		}
+		var projectID string
+		if c.ProjectID != nil {
+			projectID = c.ProjectID.String()
+		}
+		pbContainers = append(pbContainers, &coreapi.ContainerData{
+			Id:            c.ID.String(),
+			DockerId:      c.DockerID,
+			Name:          c.Name,
+			ImageTag:      c.ImageTag,
+			InternalPort:  int32(c.InternalPort),
+			DomainPrefix:  c.DomainPrefix,
+			Status:        c.Status,
+			CreatedAt:     c.CreatedAt.Unix(),
+			OwnerId:       c.OwnerID.String(),
+			OwnerUsername: usernames[c.OwnerID],
+			DesiredStatus: c.DesiredStatus,
+			LastError:     stringValue(c.LastError),
+			LastExitCode:  lastExitCode,
+			TtlDeadline:   ttlDeadline,
+			ProjectId:     projectID,
+		})
+	}
+
+	return &coreapi.PaginatedContainerResponse{
+		Containers: pbContainers,
+		TotalCount: int32(total),
+	}, nil
+}
+
+func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	if req.GetDomainPrefix() == "" || req.GetInternalPort() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "domain_prefix and internal_port are required")
+	}
+
+	err = h.logic.Expose(ctx, containerID, req.GetDomainPrefix(), int(req.GetInternalPort()))
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) usernamesByOwner(ctx context.Context, containers []model.Container) map[uuid.UUID]string {
+	ids := make([]uuid.UUID, 0, len(containers))
+	seen := make(map[uuid.UUID]struct{}, len(containers))
+	for _, c := range containers {
+		if _, ok := seen[c.OwnerID]; ok {
+			continue
+		}
+		seen[c.OwnerID] = struct{}{}
+		ids = append(ids, c.OwnerID)
+	}
+	return usernamesByID(ctx, h.users, ids)
+}
+
+func usernamesByID(ctx context.Context, users UserDirectory, ids []uuid.UUID) map[uuid.UUID]string {
+	result := make(map[uuid.UUID]string, len(ids))
+	if users == nil || len(ids) == 0 {
+		return result
+	}
+	userMap, err := users.GetUsers(ctx, ids)
+	if err != nil {
+		return result
+	}
+	for id, user := range userMap {
+		result[id] = user.Username
+	}
+	return result
+}
+
+func (h *ContainerHandler) ActionContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.Empty, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	if req.GetAction() == "" {
+		return nil, status.Error(codes.InvalidArgument, "invalid action, expected start, stop, or delete")
+	}
+	err = h.logic.Action(ctx, containerID, req.GetAction())
+
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.Empty{}, nil
+}
+
+func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
+	}
+
+	stats, err := h.logic.GetStats(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.ContainerStatsResponse{
+		CpuPercentage:    stats.CPUPercentage,
+		MemoryUsageBytes: stats.MemoryUsageBytes,
+		MemoryLimitBytes: stats.MemoryLimitBytes,
+		NetworkRxBytes:   stats.NetworkRxBytes,
+		NetworkTxBytes:   stats.NetworkTxBytes,
+	}, nil
+}
+
+func (h *ContainerHandler) GetContainerRuntimeTarget(ctx context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
+	}
+
+	target, err := h.logic.GetRuntimeTarget(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	return &coreapi.ContainerRuntimeTarget{
+		ContainerId:      target.ContainerID.String(),
+		DockerId:         target.DockerID,
+		Status:           target.Status,
+		OwnerId:          target.OwnerID.String(),
+		DockerGeneration: int32(target.DockerGeneration),
+	}, nil
+}

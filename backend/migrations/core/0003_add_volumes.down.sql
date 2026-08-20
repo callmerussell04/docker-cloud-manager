@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS volume_mounts;
+DROP TABLE IF EXISTS volumes;
+
