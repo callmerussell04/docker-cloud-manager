@@ -30,12 +30,14 @@ services:
   clickhouse_test:
     image: clickhouse/clickhouse-server:25.5
     environment:
-      CLICKHOUSE_DB: dcm_reports_test
-      CLICKHOUSE_SKIP_USER_SETUP: "1"
+      CLICKHOUSE_DB: ${DCM_CLICKHOUSE_TEST_DB:-dcm_reports_test}
+      CLICKHOUSE_USER: ${DCM_CLICKHOUSE_TEST_USER:-dcm_reports_test}
+      CLICKHOUSE_PASSWORD: ${DCM_CLICKHOUSE_TEST_PASSWORD:-clickhouse}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ports:
       - "127.0.0.1:19002:9000"
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --host localhost --query 'SELECT 1'"]
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
       interval: 2s
       timeout: 5s
       retries: 30

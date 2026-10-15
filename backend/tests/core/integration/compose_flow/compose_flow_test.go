@@ -373,7 +373,7 @@ func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 		cfg,
 		store,
 		buildService,
-		coremocks.NewImageCleaner(t),
+		composemocks.NewImageCleaner(t),
 		coretest.DiscardLogger(),
 	)
 	orchestrator.SetResourceRepository(resourceRepository{containers: repos.Containers, volumes: repos.Volumes})

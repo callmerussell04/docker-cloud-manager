@@ -166,10 +166,21 @@ cd backend
 
 go mod tidy
 go build -o bin/ ./cmd/...
-GOCACHE=/tmp/go-build-cache go test ./...
+make test-fast
 GOCACHE=/tmp/go-build-cache go vet ./...
 make lint
 ```
+
+Для генерации нужны Go и `protoc` 34.1 из [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) в `PATH` (либо `make PROTOC=/path/to/protoc ...`). Make устанавливает Go-плагины фиксированных версий в игнорируемый `backend/bin/tools/`; глобальная установка mockery, плагинов и gotestsum не нужна. Первый запуск требует доступа к Go module proxy.
+
+```bash
+make generate-mocks  # mockery v2.53.6; игнорируемые tests/mocks/
+make generate-proto  # protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2
+make generate        # оба генератора
+make check-generated # подготовка моков и проверка protobuf без перезаписи файлов
+```
+
+`make test-fast` и `make test` подготавливают моки и проверяют актуальность protobuf. После изменения `.proto` выполните `make generate-proto` и включите результат в коммит. Версия gotestsum зафиксирована: v1.13.0. Перед прямым запуском `go test` выполните `make generate-mocks`.
 
 Полный набор интеграционных тестов с временной инфраструктурой:
 
@@ -177,6 +188,10 @@ make lint
 cd backend
 make test
 ```
+
+Нужны Docker Engine и плагин Compose. Команда поднимает PostgreSQL, ClickHouse, RabbitMQ и MinIO на loopback-портах из `backend/docker-compose.test.yml`, включает Docker smoke-тесты и удаляет тестовые контейнеры, сети и тома после успеха или ошибки, включая сбой запуска. `TEST_KEEP_ENV=1` сохраняет окружение для диагностики; затем выполните `make test-env-down`. `TEST_DOCKER_SMOKE=0` явно отключает Docker smoke-тесты. Ожидание запуска ограничено 120 секундами, тесты пакета — пятью минутами, RPC общей Core-фикстуры — пятью секундами. Полный набор запускается с `-p=1`, поскольку установка расширений PostgreSQL общая для схем.
+
+`DCM_CLICKHOUSE_TEST_DB`, `DCM_CLICKHOUSE_TEST_USER` и `DCM_CLICKHOUSE_TEST_PASSWORD` задают параметры и сервера, и тестового клиента (по умолчанию: `dcm_reports_test`, `dcm_reports_test`, `clickhouse`). `TEST_COMPOSE_PROJECT` изолирует имена ресурсов Compose, но порты хоста должны быть свободны. `TEST_PKGS` выбирает пакеты, `TEST_ARGS` / `TEST_ALL_ARGS` переопределяют флаги Go-тестов.
 
 ### Frontend
 

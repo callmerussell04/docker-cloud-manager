@@ -36,6 +36,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 		Maybe()
 	metrics := coremocks.NewHostMetricsProvider(t)
 	metrics.EXPECT().GetTotalMemory().Return(int64(64<<30), nil).Maybe()
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 	containerDocker := coremocks.NewContainerDockerAPI(t)
 	containerDocker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 	containers := service.NewContainerService(repos.Containers, repos.Volumes, repos.Images, containerDocker, metrics, cfg, users, "", coretest.DiscardLogger())

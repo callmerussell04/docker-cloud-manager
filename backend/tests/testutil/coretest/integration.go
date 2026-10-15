@@ -134,6 +134,8 @@ func NewCoreGRPCConn(t *testing.T, token string, reg CoreGRPCRegistration) *grpc
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// Bound every fixture RPC, including callers that omit a deadline.
+		grpc.WithDefaultServiceConfig(`{"methodConfig":[{"name":[{}],"timeout":"5s"}]}`),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

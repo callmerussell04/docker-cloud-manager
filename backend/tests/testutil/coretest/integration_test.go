@@ -1,0 +1,35 @@
+package coretest_test
+
+import (
+	"context"
+	"testing"
+
+	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
+	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+func TestCoreGRPCConnBoundsCallsWithoutCallerDeadline(t *testing.T) {
+	containers := coregrpcmocks.NewMockContainerLogic(t)
+	containers.EXPECT().List(mock.Anything, 10, 0, (*uuid.UUID)(nil)).
+		RunAndReturn(func(ctx context.Context, _, _ int, _ *uuid.UUID) ([]model.Container, int, error) {
+			if _, ok := ctx.Deadline(); !ok {
+				return nil, 0, apperrors.ErrInternal
+			}
+			<-ctx.Done()
+			return nil, 0, apperrors.ErrTimeout
+		}).Once()
+	conn := coretest.NewCoreGRPCConn(t, "core-token", coretest.CoreGRPCRegistration{Containers: containers})
+	ctx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.New()})
+
+	_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.PaginationRequest{Limit: 10})
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}

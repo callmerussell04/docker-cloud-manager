@@ -3,11 +3,21 @@ MAIN_PATH = ./cmd/...
 BUILD_DIR = ./bin
 GOLANGCI_LINT = $(BUILD_DIR)/golangci-lint
 GOLANGCI_LINT_VERSION = v2.11.4
-GOTESTSUM ?= $(shell command -v gotestsum 2>/dev/null || printf 'go run gotest.tools/gotestsum@latest')
+GOTESTSUM ?= go run gotest.tools/gotestsum@v1.13.0
+MOCKERY_VERSION = v2.53.6
+PROTOC ?= protoc
+PROTOC_VERSION = libprotoc 34.1
+PROTOC_GEN_GO_VERSION = v1.36.11
+PROTOC_GEN_GO_GRPC_VERSION = v1.6.2
+PROTOC_GEN_GO = $(abspath $(BUILD_DIR)/tools/protobuf-$(PROTOC_GEN_GO_VERSION)/protoc-gen-go)
+PROTOC_GEN_GO_GRPC = $(abspath $(BUILD_DIR)/tools/grpc-$(PROTOC_GEN_GO_GRPC_VERSION)/protoc-gen-go-grpc)
+PROTO_OUT ?= .
+PROTO_FILES = api/core/core.proto api/sso/sso.proto
+PROTO_GO_FILES = $(PROTO_FILES:.proto=.pb.go) $(PROTO_FILES:.proto=_grpc.pb.go)
 GOCACHE ?= /tmp/go-build-cache
 TEST_PKGS ?= ./...
-TEST_ARGS ?= -count=1
-TEST_ALL_ARGS ?= -count=1 -p=1
+TEST_ARGS ?= -count=1 -timeout=5m
+TEST_ALL_ARGS ?= -count=1 -p=1 -timeout=5m
 TEST_COMPOSE_FILE ?= docker-compose.test.yml
 TEST_COMPOSE_PROJECT ?= dcm-test
 TEST_KEEP_ENV ?= 0
@@ -42,8 +52,37 @@ tidy:
 	go fmt ./...
 	go mod tidy
 
+.PHONY: generate generate-mocks generate-proto check-generated check-proto
+generate: generate-mocks generate-proto
+
+generate-mocks:
+	GOCACHE=$(GOCACHE) go run github.com/vektra/mockery/v2@$(MOCKERY_VERSION) --config .mockery.yml --quiet
+
+$(PROTOC_GEN_GO):
+	GOCACHE=$(GOCACHE) GOBIN=$(dir $(PROTOC_GEN_GO)) go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+
+$(PROTOC_GEN_GO_GRPC):
+	GOCACHE=$(GOCACHE) GOBIN=$(dir $(PROTOC_GEN_GO_GRPC)) go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+
+generate-proto: $(PROTOC_GEN_GO) $(PROTOC_GEN_GO_GRPC)
+	@test "$$($(PROTOC) --version)" = "$(PROTOC_VERSION)" || { printf '%s\n' 'Install protoc 34.1 (protobuf release v34.1), or set PROTOC to that binary.' >&2; exit 1; }
+	$(PROTOC) --plugin=protoc-gen-go=$(PROTOC_GEN_GO) --plugin=protoc-gen-go-grpc=$(PROTOC_GEN_GO_GRPC) \
+		--go_out=$(PROTO_OUT) --go_opt=paths=source_relative \
+		--go-grpc_out=$(PROTO_OUT) --go-grpc_opt=paths=source_relative $(PROTO_FILES)
+
+check-generated: generate-mocks check-proto
+
+check-proto:
+	@set -eu; \
+	generated_dir=$$(mktemp -d); \
+	trap 'rm -rf "$$generated_dir"' EXIT; \
+	$(MAKE) --no-print-directory generate-proto PROTO_OUT="$$generated_dir"; \
+	for file in $(PROTO_GO_FILES); do \
+		diff -u "$$file" "$$generated_dir/$$file" || { printf '%s\n' 'Protobuf drift detected; run make generate-proto.' >&2; exit 1; }; \
+	done
+
 .PHONY: test-fast
-test-fast:
+test-fast: check-generated
 	env -u CORE_TEST_DATABASE_URL \
 		-u SSO_TEST_DATABASE_URL \
 		-u CORE_TEST_OBJECT_STORAGE_ENDPOINT \
@@ -63,6 +102,9 @@ test-fast:
 
 .PHONY: test-env-up
 test-env-up:
+	DCM_CLICKHOUSE_TEST_DB='$(DCM_CLICKHOUSE_TEST_DB)' \
+	DCM_CLICKHOUSE_TEST_USER='$(DCM_CLICKHOUSE_TEST_USER)' \
+	DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)' \
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) up -d --wait
 
 .PHONY: test-env-down
@@ -70,10 +112,11 @@ test-env-down:
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) down -v --remove-orphans
 
 .PHONY: test test-all
-test test-all:
+test test-all: check-generated
 	set -e; \
-	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) up -d --wait; \
+	export DCM_CLICKHOUSE_TEST_DB='$(DCM_CLICKHOUSE_TEST_DB)' DCM_CLICKHOUSE_TEST_USER='$(DCM_CLICKHOUSE_TEST_USER)' DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)'; \
 	if [ "$(TEST_KEEP_ENV)" != "1" ]; then trap 'docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) down -v --remove-orphans' EXIT; fi; \
+	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) up -d --wait --wait-timeout 120; \
 	CORE_TEST_DATABASE_URL='$(CORE_TEST_DATABASE_URL)' \
 	SSO_TEST_DATABASE_URL='$(SSO_TEST_DATABASE_URL)' \
 	CORE_TEST_OBJECT_STORAGE_ENDPOINT='$(CORE_TEST_OBJECT_STORAGE_ENDPOINT)' \

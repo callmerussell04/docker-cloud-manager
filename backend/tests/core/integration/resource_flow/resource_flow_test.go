@@ -8,10 +8,12 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/resourcequeue"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
@@ -41,12 +43,13 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	volumeDocker.EXPECT().
 		CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).
 		Return("docker-volume", nil).
-		Maybe()
+		Once()
 	volumeDocker.EXPECT().RemoveVolume(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	containerDocker := coremocks.NewContainerDockerAPI(t)
 	containerDocker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 	metrics := coremocks.NewHostMetricsProvider(t)
 	metrics.EXPECT().GetTotalMemory().Return(int64(64<<30), nil).Maybe()
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 	statsMetrics := coremocks.NewStatsMetricsProvider(t)
 	statsMetrics.EXPECT().GetCPULoad().Return(1.0, nil).Maybe()
 	statsMetrics.EXPECT().GetMemoryStats().Return(model.HostMemoryStats{TotalBytes: 64 << 30, AvailableBytes: 32 << 30}, nil).Maybe()
@@ -60,12 +63,34 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	images := service.NewImageService(repos.Images, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), repos.Containers, cfg)
 	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)
 
+	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
+	volumes.SetLifecycleRepository(lifecycle)
+	images.SetLifecycleRepository(lifecycle)
+
 	ownerCtx := coretest.UserContext(ownerID)
 	volumeID, err := volumes.Create(ownerCtx, model.VolumeCreateParams{Name: "data"})
 	require.NoError(t, err)
 	volume, err := repos.Volumes.GetByID(ctx, volumeID)
 	require.NoError(t, err)
 	require.Equal(t, ownerID, volume.OwnerID)
+	require.Equal(t, model.VolumeStatusCreating, volume.Status)
+	volumeDocker.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
+
+	var payload []byte
+	require.NoError(t, repos.DB.QueryRowContext(ctx, `SELECT payload FROM resource_lifecycle_queue_outbox`).Scan(&payload))
+	var message resourcequeue.LifecycleMessage
+	require.NoError(t, json.Unmarshal(payload, &message))
+	require.Equal(t, volumeID.String(), message.ResourceID)
+	require.Equal(t, ownerID.String(), message.OwnerID)
+	require.Equal(t, model.ResourceTypeVolume, message.ResourceType)
+	require.Equal(t, model.OperationCreate, message.Operation)
+	worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
+	require.NoError(t, worker.HandleMessage(ctx, message))
+	operation, err := lifecycle.GetOperationByID(ctx, uuid.MustParse(message.OperationID))
+	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusDone, operation.Status)
+	volume, err = volumes.GetByID(ownerCtx, volumeID)
+	require.NoError(t, err)
 	require.Equal(t, model.VolumeStatusAvailable, volume.Status)
 
 	containerID, err := containers.Create(ownerCtx, model.ContainerCreateParams{
@@ -102,7 +127,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 
 	_, err = containers.Create(ownerCtx, model.ContainerCreateParams{Name: "web2", ImageTag: "nginx:latest", DomainPrefix: "web", InternalPort: 8081})
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
-	require.Equal(t, "subdomain web.localhost is already in use", apperrors.SafeMessage(err))
+	require.Equal(t, "subdomain web.example.test is already in use", apperrors.SafeMessage(err))
 
 	missingVolumeID := uuid.New()
 	require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: missingVolumeID, OwnerID: ownerID, Name: "missing", DockerName: "vol_missing", Status: model.VolumeStatusMissing}))
@@ -169,6 +194,7 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 	}, nil).Maybe()
 	metrics := coremocks.NewHostMetricsProvider(t)
 	metrics.EXPECT().GetTotalMemory().Return(int64(64<<30), nil).Maybe()
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 
 	containers := service.NewContainerService(
 		repos.Containers,
@@ -198,7 +224,7 @@ type operationRow struct {
 
 func mustResourceOperations(t *testing.T, db *sql.DB) []operationRow {
 	t.Helper()
-	rows, err := db.Query(`SELECT operation, status FROM resource_operations ORDER BY created_at, id`)
+	rows, err := db.Query(`SELECT operation, status FROM resource_operations WHERE resource_type = 'container' ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var out []operationRow

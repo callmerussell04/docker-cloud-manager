@@ -168,10 +168,21 @@ cd backend
 
 go mod tidy
 go build -o bin/ ./cmd/...
-GOCACHE=/tmp/go-build-cache go test ./...
+make test-fast
 GOCACHE=/tmp/go-build-cache go vet ./...
 make lint
 ```
+
+Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
+
+```bash
+make generate-mocks  # mockery v2.53.6; ignored tests/mocks/
+make generate-proto  # protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2
+make generate        # both
+make check-generated # prepare mocks and compare protobuf output without overwriting it
+```
+
+Both `make test-fast` and `make test` prepare mocks and reject protobuf drift. After editing a `.proto`, run `make generate-proto` and commit the generated files. The test runner is pinned to gotestsum v1.13.0. Direct `go test` commands require `make generate-mocks` first.
 
 Run the complete integration test suite with temporary infrastructure:
 
@@ -179,6 +190,10 @@ Run the complete integration test suite with temporary infrastructure:
 cd backend
 make test
 ```
+
+Docker Engine and the Compose plugin must be available. The runner provisions PostgreSQL, ClickHouse, RabbitMQ and MinIO on loopback ports defined in `backend/docker-compose.test.yml`, enables Docker smoke tests, and removes test containers, networks and volumes after success or failure, including startup failure. `TEST_KEEP_ENV=1` keeps them for diagnosis; use `make test-env-down` afterward. `TEST_DOCKER_SMOKE=0` explicitly disables Docker smoke coverage. The default startup wait is 120 seconds, package test timeout is five minutes, and shared Core fixture RPCs have a five-second deadline. Full tests run with `-p=1` because PostgreSQL extension setup is shared across schemas.
+
+`DCM_CLICKHOUSE_TEST_DB`, `DCM_CLICKHOUSE_TEST_USER` and `DCM_CLICKHOUSE_TEST_PASSWORD` configure both provisioning and the test client (defaults: `dcm_reports_test`, `dcm_reports_test`, `clickhouse`). `TEST_COMPOSE_PROJECT` isolates Compose resource names; host ports must still be free. Use `TEST_PKGS` to select packages or `TEST_ARGS` / `TEST_ALL_ARGS` to override Go test flags.
 
 ### Frontend
 
