@@ -7,18 +7,19 @@ CREATE TABLE builds (
     status VARCHAR(32) NOT NULL,
     log_file_path TEXT NOT NULL,
     archive_object_key TEXT NOT NULL DEFAULT '',
-    started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP WITH TIME ZONE,
     finished_at TIMESTAMP WITH TIME ZONE
 );
 
-CREATE INDEX idx_builds_owner_id_started_at
-    ON builds (owner_id, started_at DESC);
+CREATE INDEX idx_builds_owner_id_created_at
+    ON builds (owner_id, created_at DESC);
 
-CREATE INDEX idx_builds_image_id_started_at
-    ON builds (image_id, started_at DESC);
+CREATE INDEX idx_builds_image_id_created_at
+    ON builds (image_id, created_at DESC);
 
-CREATE INDEX idx_builds_project_id_started_at
-    ON builds (project_id, started_at DESC)
+CREATE INDEX idx_builds_project_id_created_at
+    ON builds (project_id, created_at DESC)
     WHERE project_id IS NOT NULL;
 
 CREATE INDEX idx_builds_active_status

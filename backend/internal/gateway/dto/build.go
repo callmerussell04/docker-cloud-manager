@@ -6,6 +6,7 @@ type BuildDTO struct {
 	ProjectID          string `json:"project_id,omitempty"`
 	ProjectServiceName string `json:"project_service_name,omitempty"`
 	Status             string `json:"status"`
+	CreatedAt          int64  `json:"created_at"`
 	StartedAt          int64  `json:"started_at"`
 	FinishedAt         int64  `json:"finished_at"`
 	LogFilePath        string `json:"log_file_path"`
@@ -19,6 +20,7 @@ type UserBuildDTO struct {
 	ProjectID          string `json:"project_id,omitempty"`
 	ProjectServiceName string `json:"project_service_name,omitempty"`
 	Status             string `json:"status"`
+	CreatedAt          int64  `json:"created_at"`
 	StartedAt          int64  `json:"started_at"`
 	FinishedAt         int64  `json:"finished_at"`
 }

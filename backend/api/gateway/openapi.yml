@@ -2129,7 +2129,12 @@ components:
           type: string
         status:
           type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix seconds when the build entered the queue.
         started_at:
+          description: Unix seconds when execution was claimed; zero before execution.
           type: integer
           format: int64
         finished_at:
@@ -2152,7 +2157,12 @@ components:
           type: string
         status:
           type: string
+        created_at:
+          type: integer
+          format: int64
+          description: Unix seconds when the build entered the queue.
         started_at:
+          description: Unix seconds when execution was claimed; zero before execution.
           type: integer
           format: int64
         finished_at:

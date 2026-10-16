@@ -697,7 +697,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		Status:             model.BuildStatusPending,
 		LogFilePath:        input.LogObjectKey,
 		ArchiveObjectKey:   input.ArchiveObjectKey,
-		StartedAt:          now,
+		CreatedAt:          now,
 	}
 	outbox := model.BuildQueueOutbox{
 		ID:         uuid.New(),

@@ -50,7 +50,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	if err != nil {
 		return b, false, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE builds SET status='running', finished_at=NULL WHERE id=$1`, id)
+	err = tx.QueryRowContext(ctx, `UPDATE builds SET status='running', started_at=clock_timestamp(), finished_at=NULL WHERE id=$1 RETURNING created_at, started_at`, id).Scan(&b.CreatedAt, &b.StartedAt)
 	if err != nil {
 		return b, false, err
 	}

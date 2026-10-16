@@ -21,6 +21,7 @@ export interface BuildData {
   project_id?: string;
   project_service_name?: string;
   status: string;
+  created_at: number;
   started_at: number;
   finished_at: number;
 }

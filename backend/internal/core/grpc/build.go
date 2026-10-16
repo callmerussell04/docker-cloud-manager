@@ -168,7 +168,10 @@ func (h *ImageHandler) usernamesByBuildOwner(ctx context.Context, builds []model
 }
 
 func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
-	var finishedAt int64
+	var startedAt, finishedAt int64
+	if !b.StartedAt.IsZero() {
+		startedAt = b.StartedAt.Unix()
+	}
 	if b.FinishedAt != nil {
 		finishedAt = b.FinishedAt.Unix()
 	}
@@ -180,7 +183,8 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 		Id:                 b.ID.String(),
 		ImageId:            b.ImageID.String(),
 		Status:             b.Status,
-		StartedAt:          b.StartedAt.Unix(),
+		CreatedAt:          b.CreatedAt.Unix(),
+		StartedAt:          startedAt,
 		FinishedAt:         finishedAt,
 		LogFilePath:        b.LogFilePath,
 		OwnerId:            b.OwnerID.String(),

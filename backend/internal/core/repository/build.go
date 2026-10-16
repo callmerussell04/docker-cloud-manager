@@ -23,8 +23,8 @@ func NewBuildRepository(db *sql.DB) *BuildRepository {
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11)
 	`
 	var finishedAt sql.NullTime
 	if b.FinishedAt != nil {
@@ -32,7 +32,21 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 		finishedAt.Valid = true
 	}
 
-	_, err := r.db.ExecContext(ctx, query, b.ID, b.ImageID, b.OwnerID, nullableUUID(b.ProjectID), nullableStringValue(b.ProjectServiceName), b.Status, b.LogFilePath, b.ArchiveObjectKey, b.StartedAt, finishedAt)
+	_, err := r.db.ExecContext(
+		ctx,
+		query,
+		b.ID,
+		b.ImageID,
+		b.OwnerID,
+		nullableUUID(b.ProjectID),
+		nullableStringValue(b.ProjectServiceName),
+		b.Status,
+		b.LogFilePath,
+		b.ArchiveObjectKey,
+		sql.NullTime{Time: b.CreatedAt, Valid: !b.CreatedAt.IsZero()},
+		sql.NullTime{Time: b.StartedAt, Valid: !b.StartedAt.IsZero()},
+		finishedAt,
+	)
 	return err
 }
 
@@ -64,9 +78,21 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		finishedAt.Valid = true
 	}
 	if _, err := tx.ExecContext(ctx, `
-			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		`, build.ID, build.ImageID, build.OwnerID, nullableUUID(build.ProjectID), nullableStringValue(build.ProjectServiceName), build.Status, build.LogFilePath, build.ArchiveObjectKey, build.StartedAt, finishedAt); err != nil {
+			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11)
+		`,
+		build.ID,
+		build.ImageID,
+		build.OwnerID,
+		nullableUUID(build.ProjectID),
+		nullableStringValue(build.ProjectServiceName),
+		build.Status,
+		build.LogFilePath,
+		build.ArchiveObjectKey,
+		sql.NullTime{Time: build.CreatedAt, Valid: !build.CreatedAt.IsZero()},
+		sql.NullTime{Time: build.StartedAt, Valid: !build.StartedAt.IsZero()},
+		finishedAt,
+	); err != nil {
 		return err
 	}
 
@@ -116,21 +142,23 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 func (r *BuildRepository) StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error) {
 	query := `
 		UPDATE builds
-		SET status = $1, finished_at = NULL
+		SET status = $1, started_at = clock_timestamp(), finished_at = NULL
 		WHERE id = $2 AND status = $3
-		RETURNING id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		RETURNING id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
 	`
 	var b model.Build
 	var finishedAt sql.NullTime
+	var startedAt sql.NullTime
 	var projectID sql.NullString
 	var projectServiceName sql.NullString
 	err := r.db.QueryRowContext(ctx, query, model.BuildStatusRunning, id, model.BuildStatusPending).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
+		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt,
 	)
 	if err == nil {
 		if finishedAt.Valid {
 			b.FinishedAt = &finishedAt.Time
 		}
+		b.StartedAt = startedAt.Time
 		applyBuildProjectFields(&b, projectID, projectServiceName)
 		return b, true, nil
 	}
@@ -147,10 +175,10 @@ func (r *BuildRepository) StartBuild(ctx context.Context, id uuid.UUID) (model.B
 
 func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE image_id = $1
-		ORDER BY started_at DESC
+		ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, imageID)
 	if err != nil {
@@ -163,12 +191,14 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 	for rows.Next() {
 		var b model.Build
 		var finishedAt sql.NullTime
+		var startedAt sql.NullTime
 		var projectID sql.NullString
 		var projectServiceName sql.NullString
 
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
 			return nil, err
 		}
+		b.StartedAt = startedAt.Time
 		applyBuildProjectFields(&b, projectID, projectServiceName)
 
 		if finishedAt.Valid {
@@ -181,10 +211,10 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 
 func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE project_id = $1
-		ORDER BY started_at DESC
+		ORDER BY created_at DESC
 	`, projectID)
 	if err != nil {
 		return nil, err
@@ -204,17 +234,18 @@ func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUI
 
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE id = $1
 	`
 	var b model.Build
 	var finishedAt sql.NullTime
+	var startedAt sql.NullTime
 	var projectID sql.NullString
 	var projectServiceName sql.NullString
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt,
+		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -226,6 +257,7 @@ func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Buil
 	if finishedAt.Valid {
 		b.FinishedAt = &finishedAt.Time
 	}
+	b.StartedAt = startedAt.Time
 	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }
@@ -248,11 +280,11 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at
 		FROM builds
-		WHERE status IN ($1, $2) AND started_at < $3
+		WHERE status = $1 AND started_at < $2
 	`
-	rows, err := r.db.QueryContext(ctx, query, model.BuildStatusPending, model.BuildStatusRunning, threshold)
+	rows, err := r.db.QueryContext(ctx, query, model.BuildStatusRunning, threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -261,11 +293,13 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 	var builds []model.Build
 	for rows.Next() {
 		var b model.Build
+		var startedAt sql.NullTime
 		var projectID sql.NullString
 		var projectServiceName sql.NullString
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt); err != nil {
 			return nil, err
 		}
+		b.StartedAt = startedAt.Time
 		applyBuildProjectFields(&b, projectID, projectServiceName)
 		builds = append(builds, b)
 	}
@@ -286,8 +320,8 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	}
 
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, started_at, finished_at
-		FROM builds` + where + ` ORDER BY started_at DESC`
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		FROM builds` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
 		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
@@ -460,14 +494,16 @@ func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.
 func scanBuild(s scanner) (model.Build, error) {
 	var b model.Build
 	var finishedAt sql.NullTime
+	var startedAt sql.NullTime
 	var projectID sql.NullString
 	var projectServiceName sql.NullString
-	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.StartedAt, &finishedAt); err != nil {
+	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
 		return model.Build{}, err
 	}
 	if finishedAt.Valid {
 		b.FinishedAt = &finishedAt.Time
 	}
+	b.StartedAt = startedAt.Time
 	applyBuildProjectFields(&b, projectID, projectServiceName)
 	return b, nil
 }

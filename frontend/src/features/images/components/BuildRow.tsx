@@ -48,8 +48,8 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   };
 
   const display = getStatusDisplay(build.status);
-  const startedDate = new Date(build.started_at * 1000).toLocaleString(dateLocale(locale));
-  const duration = build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
+  const startedDate = build.started_at ? new Date(build.started_at * 1000).toLocaleString(dateLocale(locale)) : '-';
+  const duration = build.started_at && build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
   const canCancel = build.status === 'pending' || build.status === 'running';
   const canDelete = !canCancel;
   const canViewLogs = terminalBuildStatuses.has(build.status);

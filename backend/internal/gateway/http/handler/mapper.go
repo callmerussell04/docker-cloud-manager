@@ -159,6 +159,7 @@ func buildsToDTO(items []model.Build) []dto.BuildDTO {
 			ProjectID:          item.ProjectID,
 			ProjectServiceName: item.ProjectServiceName,
 			Status:             item.Status,
+			CreatedAt:          item.CreatedAt,
 			StartedAt:          item.StartedAt,
 			FinishedAt:         item.FinishedAt,
 			LogFilePath:        item.LogFilePath,
@@ -178,6 +179,7 @@ func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
 			ProjectID:          item.ProjectID,
 			ProjectServiceName: item.ProjectServiceName,
 			Status:             item.Status,
+			CreatedAt:          item.CreatedAt,
 			StartedAt:          item.StartedAt,
 			FinishedAt:         item.FinishedAt,
 		})

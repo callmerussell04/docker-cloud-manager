@@ -62,6 +62,7 @@ type Build struct {
 	Status             string
 	LogFilePath        string
 	ArchiveObjectKey   string
+	CreatedAt          time.Time
 	StartedAt          time.Time
 	FinishedAt         *time.Time
 }

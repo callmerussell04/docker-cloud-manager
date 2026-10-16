@@ -67,7 +67,7 @@ function formatDateTime(value: number, locale: Locale) {
 }
 
 function buildDurationSeconds(startedAt: number, finishedAt: number) {
-  if (!finishedAt) return null;
+  if (!startedAt || !finishedAt) return null;
   return Math.max(0, finishedAt - startedAt);
 }
 

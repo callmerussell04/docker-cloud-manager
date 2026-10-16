@@ -406,6 +406,7 @@ message BuildData {
   string owner_username = 8;
   string project_id = 9;
   string project_service_name = 10;
+  int64 created_at = 11;
 }
 
 message BuildListResponse {

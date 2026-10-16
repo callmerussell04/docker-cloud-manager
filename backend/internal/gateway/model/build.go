@@ -6,6 +6,7 @@ type Build struct {
 	ProjectID          string
 	ProjectServiceName string
 	Status             string
+	CreatedAt          int64
 	StartedAt          int64
 	FinishedAt         int64
 	LogFilePath        string

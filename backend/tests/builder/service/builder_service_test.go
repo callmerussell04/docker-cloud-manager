@@ -786,3 +786,27 @@ func TestBuilderServiceRetriesCleanupBeforeDiscardingResult(t *testing.T) {
 		})
 	}
 }
+
+func TestBuilderServiceQueuedBuildReceivesFullExecutionBudget(t *testing.T) {
+	cfg := testBuilderRuntimeConfig()
+	h := newBuilderHarness(t, cfg)
+	msg := testBuildMessage()
+	msg.CreatedAt = time.Now().Add(-24 * time.Hour).Unix()
+	expectStarted(h, msg, msg.ImageID)
+	expectBuildPrepared(h, msg)
+	h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.AnythingOfType("model.BuildRuntimeSpec")).
+		RunAndReturn(func(ctx context.Context, spec model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+			require.Greater(t, time.Until(deadline), cfg.MaxBuildTime-5*time.Second)
+			require.LessOrEqual(t, time.Until(deadline), cfg.MaxBuildTime)
+			return "container-id", io.NopCloser(strings.NewReader("built\n")), nil
+		}).Once()
+	h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, cfg.MaxBuildLogSizeBytes).Return("/tmp/build.log", nil).Once()
+	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Once()
+	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+	expectLogUpload(h, msg, 1)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
+	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+}
