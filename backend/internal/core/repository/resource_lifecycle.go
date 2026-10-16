@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -15,6 +16,53 @@ type ResourceLifecycleRepository struct {
 
 func NewResourceLifecycleRepository(db *sql.DB) *ResourceLifecycleRepository {
 	return &ResourceLifecycleRepository{db: db}
+}
+
+// RecoverInterruptedOperations runs before lifecycle publishers and consumers start.
+// Docker names and Registry references are stable, so workers can repeat side effects.
+func (r *ResourceLifecycleRepository) RecoverInterruptedOperations(ctx context.Context, cause error) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin resource operation recovery: %w", err)
+	}
+	defer tx.Rollback()
+
+	// A process interruption is not a failed external attempt. Return its budget
+	// so even a crash on the last attempt can confirm an already applied effect.
+	res, err := tx.ExecContext(ctx, `
+		UPDATE resource_operations
+		SET status = $1, attempts = GREATEST(attempts - 1, 0), last_error = $2, updated_at = NOW()
+		WHERE status = $3 AND (
+			(resource_type = $4 AND operation IN ($5, $6)) OR
+			(resource_type = $7 AND operation = $6)
+		)
+	`, model.OperationStatusPending, nullableError(cause), model.OperationStatusRunning,
+		model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage)
+	if err != nil {
+		return 0, fmt.Errorf("requeue interrupted resource operations: %w", err)
+	}
+	count, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count recovered resource operations: %w", err)
+	}
+	// Include pending operations whose published message may have been ACKed
+	// before shutdown. Preserve resource state and the original message identity.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE resource_lifecycle_queue_outbox o
+		SET status = $1, published_at = NULL, last_error = $2, updated_at = NOW()
+		FROM resource_operations op
+		WHERE o.operation_id = op.id AND op.status = $3 AND (
+			(op.resource_type = $4 AND op.operation IN ($5, $6)) OR
+			(op.resource_type = $7 AND op.operation = $6)
+		)
+	`, model.ResourceOutboxStatusPending, nullableError(cause), model.OperationStatusPending,
+		model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage); err != nil {
+		return 0, fmt.Errorf("requeue resource lifecycle outbox: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit resource operation recovery: %w", err)
+	}
+	return count, nil
 }
 
 func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vol model.Volume, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {

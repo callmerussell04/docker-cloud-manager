@@ -977,13 +977,16 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 	return rows, tx.Commit()
 }
 
-func (r *ContainerRepository) FailActiveNonCreateOperations(ctx context.Context, cause error) (int64, error) {
+func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.Context, cause error) (int64, error) {
 	res, err := r.db.ExecContext(ctx, `
 		UPDATE resource_operations
 		SET status = $1, last_error = $2, updated_at = NOW()
 		WHERE status = $3
 			AND NOT (resource_type = $4 AND operation = $5)
-	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning, model.ResourceTypeContainer, model.OperationCreate)
+			AND NOT (resource_type = $6 AND operation IN ($5, $7))
+			AND NOT (resource_type = $8 AND operation = $7)
+	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning,
+		model.ResourceTypeContainer, model.OperationCreate, model.ResourceTypeVolume, model.OperationDelete, model.ResourceTypeImage)
 	if err != nil {
 		return 0, err
 	}

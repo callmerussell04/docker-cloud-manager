@@ -205,15 +205,21 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
 	}
 	operationRecoveryMessage := "operation interrupted by core service restart"
+	if recovered, err := resourceLifecycleRepo.RecoverInterruptedOperations(ctx, errors.New(operationRecoveryMessage)); err != nil {
+		cancel()
+		return nil, fmt.Errorf("recover interrupted resource operations: %w", err)
+	} else if recovered > 0 {
+		appLogger.Warn("requeued interrupted volume and image operations", "count", recovered)
+	}
 	if recovered, err := contRepo.RecoverInterruptedContainerCreates(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
 		appLogger.Warn("failed to recover interrupted container create operations", "error", err)
 	} else if recovered > 0 {
 		appLogger.Warn("requeued interrupted container create operations", "count", recovered)
 	}
-	if recovered, err := contRepo.FailActiveNonCreateOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
-		appLogger.Warn("failed to recover interrupted non-create resource operations", "error", err)
+	if recovered, err := contRepo.FailInterruptedNonResumableOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
+		appLogger.Warn("failed to mark interrupted non-resumable operations", "error", err)
 	} else if recovered > 0 {
-		appLogger.Warn("failed interrupted non-create resource operations", "count", recovered)
+		appLogger.Warn("failed interrupted non-resumable operations", "count", recovered)
 	}
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)
