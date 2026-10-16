@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/distribution/reference"
 )
 
 var (
 	domainPrefixRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$`)
 	resourceNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$`)
-	imageTagRe     = regexp.MustCompile(`^[a-z0-9]+([._/-][a-z0-9]+)*(:[A-Za-z0-9_.-]{1,128})?$`)
 	sizeRe         = regexp.MustCompile(`^[1-9][0-9]*[kKmMgG]$`)
 	numberRe       = regexp.MustCompile(`^[1-9][0-9]*$`)
 )
@@ -73,8 +74,20 @@ func ProjectName(name string) error {
 }
 
 func ImageTag(tag string) error {
-	if !imageTagRe.MatchString(tag) || strings.Contains(tag, "..") || strings.Contains(tag, "//") {
-		return fmt.Errorf("image tag must be a Docker Hub-style image reference without a registry host")
+	invalid := fmt.Errorf("image must be a Docker Hub name (optionally prefixed with docker.io/) or an owned DCM image tag")
+	// Check the spelling before normalization, which accepts legacy Hub aliases.
+	first, _, hasSlash := strings.Cut(tag, "/")
+	hostLike := strings.ContainsAny(first, ".:") || first == "localhost" || first != strings.ToLower(first)
+	if hasSlash && hostLike && first != "docker.io" {
+		return invalid
+	}
+	named, err := reference.ParseNormalizedNamed(tag)
+	if err != nil || reference.Domain(named) != "docker.io" {
+		return invalid
+	}
+	// Container and build APIs use name[:tag], not digest references.
+	if _, digested := named.(reference.Digested); digested {
+		return invalid
 	}
 	return nil
 }

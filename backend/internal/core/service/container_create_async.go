@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
 	"github.com/google/uuid"
 )
 
@@ -151,7 +152,7 @@ func (s *ContainerService) ExecuteQueuedCreate(ctx context.Context, operationID,
 		}
 	}()
 
-	actualImageTag, customImage, isCustom, err := s.resolveQueuedCreateImage(ctx, c)
+	actualImageTag, customImage, isCustom, err := s.resolveContainerCreateImage(ctx, c)
 	if err != nil {
 		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
 		return err
@@ -545,26 +546,24 @@ func (s *ContainerService) inspectQueuedCreateVolumes(ctx context.Context, mount
 	return nil
 }
 
-func (s *ContainerService) resolveQueuedCreateImage(ctx context.Context, c model.Container) (string, *model.Image, bool, error) {
+func (s *ContainerService) resolveContainerCreateImage(ctx context.Context, c model.Container) (string, *model.Image, bool, error) {
+	if err := validation.ImageTag(c.ImageTag); err != nil {
+		return "", nil, false, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
 	baseName, version := parseImageTag(c.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
-	isCustom := false
-	var customImage *model.Image
 	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &c.OwnerID})
-	if err == nil {
-		for _, img := range userImages {
-			if img.Tag == normalizedInputTag {
-				isCustom = true
-				customImage = &img
-				break
-			}
+	if err != nil {
+		return "", nil, false, fmt.Errorf("resolve owned container image: %w", err)
+	}
+	for _, img := range userImages {
+		if img.Tag != normalizedInputTag {
+			continue
 		}
-	}
-	if customImage != nil && customImage.Status != model.ImageStatusAvailable {
-		return "", nil, false, resourceUnavailableError("image")
-	}
-	if isCustom {
-		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, version), customImage, true, nil
+		if img.Status != model.ImageStatusAvailable {
+			return "", nil, false, resourceUnavailableError("image")
+		}
+		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, version), &img, true, nil
 	}
 	return normalizedInputTag, nil, false, nil
 }

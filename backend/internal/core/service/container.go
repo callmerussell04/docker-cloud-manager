@@ -273,19 +273,8 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	baseName, version := parseImageTag(params.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
 
-	var customImage *model.Image
-	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
-	if err == nil {
-		for _, img := range userImages {
-			// Сравниваем с нормализованным тегом из БД
-			if img.Tag == normalizedInputTag {
-				customImage = &img
-				break
-			}
-		}
-	}
-	if customImage != nil && customImage.Status != model.ImageStatusAvailable {
-		return uuid.Nil, resourceUnavailableError("image")
+	if _, _, _, err := s.resolveContainerCreateImage(ctx, model.Container{OwnerID: ownerID, ImageTag: normalizedInputTag}); err != nil {
+		return uuid.Nil, err
 	}
 
 	envBytes, err := json.Marshal(params.EnvVars)
