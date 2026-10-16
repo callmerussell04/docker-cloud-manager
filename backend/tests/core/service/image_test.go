@@ -70,6 +70,22 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrResourceInUse)
 }
 
+func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) {
+	ownerID, imageID, operationID := uuid.New(), uuid.New(), uuid.New()
+	repo := newImageRepoMock(t)
+	registry := coremocks.NewImageRegistryAPI(t)
+	svc := NewImageService(repo, coremocks.NewImageDockerAPI(t), registry, coremocks.NewImageContainerRepository(t), staticConfig{})
+	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+	svc.SetLifecycleRepository(lifecycle)
+	cause := apperrors.Wrap(apperrors.ErrUnavailable, "registry lookup failed", errors.New("connection refused"))
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", cause)
+
+	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+	require.ErrorIs(t, err, cause)
+	require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
+}
+
 func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()

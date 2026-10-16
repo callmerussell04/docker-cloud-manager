@@ -164,11 +164,19 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	}
 	// Удаление из Registry (Soft Delete)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
-	if err == nil && digest != "" {
-		err = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+	if err == nil {
+		if digest == "" {
+			err = apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
+		} else {
+			err = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+		}
 	}
-	if s.registryAuth != nil && err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
+	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		writeCtx, cancel := detachedContainerStateContext(ctx)
+		defer cancel()
+		if requeueErr := s.lifecycle.RequeueOperation(writeCtx, operationID, err); requeueErr != nil {
+			return apperrors.Wrap(apperrors.ErrUnavailable, "image deletion retry could not be saved", errors.Join(err, requeueErr))
+		}
 		return err
 	}
 

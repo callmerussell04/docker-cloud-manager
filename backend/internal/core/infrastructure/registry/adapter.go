@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
 type Adapter struct {
@@ -48,22 +51,25 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return 0, "", err
+		return 0, "", requestError("registry manifest lookup failed", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", responseError(resp.StatusCode)
+		return 0, "", apperrors.Wrap(
+			responseError(resp.StatusCode), "registry manifest lookup failed",
+			fmt.Errorf("registry returned HTTP %d", resp.StatusCode),
+		)
 	}
 
 	digest := resp.Header.Get("Docker-Content-Digest")
 	if digest == "" {
-		return 0, "", errors.New("missing Docker-Content-Digest header")
+		return 0, "", apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
 	}
 
 	var manifest manifestResponse
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return 0, "", err
+		return 0, "", requestError("registry manifest response is invalid", err)
 	}
 
 	totalSize := manifest.Config.Size
@@ -86,12 +92,24 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return err
+		return requestError("registry manifest deletion failed", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNotFound {
-		return responseError(resp.StatusCode)
+		return apperrors.Wrap(
+			responseError(resp.StatusCode), "registry manifest deletion failed",
+			fmt.Errorf("registry returned HTTP %d", resp.StatusCode),
+		)
 	}
 	return nil
+}
+
+func requestError(message string, cause error) error {
+	kind := apperrors.ErrUnavailable
+	var netErr net.Error
+	if errors.Is(cause, context.DeadlineExceeded) || (errors.As(cause, &netErr) && netErr.Timeout()) {
+		kind = apperrors.ErrTimeout
+	}
+	return apperrors.Wrap(kind, message, cause)
 }

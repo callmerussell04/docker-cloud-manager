@@ -2,6 +2,7 @@ package registry_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -36,10 +38,13 @@ func TestRegistryAdapterManifestErrors(t *testing.T) {
 		statusCode int
 		digest     string
 		body       string
+		wantKind   error
 	}{
-		{name: "non ok", statusCode: http.StatusNotFound, digest: "sha256:digest", body: `{}`},
-		{name: "missing digest", statusCode: http.StatusOK, body: `{}`},
-		{name: "invalid json", statusCode: http.StatusOK, digest: "sha256:digest", body: `{`},
+		{name: "not found", statusCode: http.StatusNotFound, body: `{}`, wantKind: apperrors.ErrNotFound},
+		{name: "unavailable", statusCode: http.StatusServiceUnavailable, body: `private upstream details`, wantKind: apperrors.ErrUnavailable},
+		{name: "forbidden", statusCode: http.StatusForbidden, body: `{}`, wantKind: apperrors.ErrForbidden},
+		{name: "missing digest", statusCode: http.StatusOK, body: `{}`, wantKind: apperrors.ErrUnavailable},
+		{name: "invalid json", statusCode: http.StatusOK, digest: "sha256:digest", body: `{`, wantKind: apperrors.ErrUnavailable},
 	}
 
 	for _, tt := range tests {
@@ -49,8 +54,35 @@ func TestRegistryAdapterManifestErrors(t *testing.T) {
 			}))
 
 			_, _, err := adapter.GetImageSizeAndDigest(context.Background(), "repo", "tag")
-			require.Error(t, err)
+			require.ErrorIs(t, err, tt.wantKind)
+			require.NotContains(t, apperrors.SafeMessage(err), "private upstream details")
 		})
+	}
+}
+
+func TestRegistryAdapterRequestFailuresPreserveCause(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodDelete} {
+		for _, cause := range []error{errors.New("private connection details"), context.DeadlineExceeded, context.Canceled} {
+			t.Run(method+"/"+cause.Error(), func(t *testing.T) {
+				adapter := newAdapterWithRoundTripper(t, roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return nil, cause
+				}))
+				var err error
+				if method == http.MethodGet {
+					_, _, err = adapter.GetImageSizeAndDigest(context.Background(), "repo", "tag")
+				} else {
+					err = adapter.DeleteManifest(context.Background(), "repo", "sha256:digest")
+				}
+				kind := apperrors.ErrUnavailable
+				if errors.Is(cause, context.DeadlineExceeded) {
+					kind = apperrors.ErrTimeout
+				}
+				require.ErrorIs(t, err, kind)
+				require.ErrorIs(t, err, cause)
+				require.NotErrorIs(t, err, apperrors.ErrNotFound)
+				require.NotContains(t, apperrors.SafeMessage(err), cause.Error())
+			})
+		}
 	}
 }
 
