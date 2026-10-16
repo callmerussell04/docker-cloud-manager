@@ -1,7 +1,9 @@
 package http
 
 import (
+	"errors"
 	"log/slog"
+	"net/netip"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,9 +39,16 @@ type RouterDeps struct {
 	Logger                      *slog.Logger
 }
 
-func NewRouter(cfg Config, deps RouterDeps) *gin.Engine {
+func NewRouter(cfg Config, deps RouterDeps) (*gin.Engine, error) {
+	if err := validateTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, err
+	}
 	router := gin.New()
-	_ = router.SetTrustedProxies(cfg.TrustedProxies)
+	// Traefik supplies X-Forwarded-For; do not fall back to other identity headers.
+	router.RemoteIPHeaders = []string{"X-Forwarded-For"}
+	if err := router.SetTrustedProxies(cfg.TrustedProxies); err != nil {
+		return nil, errors.New("invalid GATEWAY_TRUSTED_PROXIES: expected proxy IP addresses or CIDRs")
+	}
 	limiter := middleware.NewRateLimiter()
 
 	router.Use(logging.RequestIDMiddleware())
@@ -60,7 +69,7 @@ func NewRouter(cfg Config, deps RouterDeps) *gin.Engine {
 	registerAdminRoutes(v1, deps)
 	registerTelemetryRoutes(v1, deps)
 
-	return router
+	return router, nil
 }
 
 func registerAuthRoutes(v1 *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
@@ -190,4 +199,22 @@ func DefaultConfig() Config {
 			CallbackPath:   "/auth/callback",
 		},
 	}
+}
+
+func validateTrustedProxies(proxies []string) error {
+	for _, proxy := range proxies {
+		prefix, err := netip.ParsePrefix(proxy)
+		if err != nil {
+			addr, addrErr := netip.ParseAddr(proxy)
+			if addrErr != nil {
+				return errors.New("invalid GATEWAY_TRUSTED_PROXIES: expected proxy IP addresses or CIDRs")
+			}
+			prefix = netip.PrefixFrom(addr, addr.BitLen())
+		}
+		addr := prefix.Addr()
+		if prefix.Masked().Addr().IsUnspecified() || addr.IsMulticast() || addr.Is4In6() || addr.Zone() != "" {
+			return errors.New("unsafe GATEWAY_TRUSTED_PROXIES: use explicit unicast proxy addresses or restricted CIDRs")
+		}
+	}
+	return nil
 }

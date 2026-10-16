@@ -44,11 +44,12 @@ func TestGatewayReportsAndAuditReachCoreWithAuthenticatedScope(t *testing.T) {
 	reports.EXPECT().GetUserUsageTimeline(mock.Anything, actorID, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Once()
 	reports.EXPECT().ListAuditEvents(mock.Anything, mock.Anything).Return(nil, 0, nil).Once()
 	noop := func(c *gin.Context) {}
-	router := gatewayhttp.NewRouter(gatewayhttp.DefaultConfig(), gatewayhttp.RouterDeps{
+	router, err := gatewayhttp.NewRouter(gatewayhttp.DefaultConfig(), gatewayhttp.RouterDeps{
 		CoreHandler: coreHandler, TokenVerifier: verifier, Logger: coretest.DiscardLogger(),
 		CoreHTTPProxy:      func(c *gin.Context) { c.Status(http.StatusAccepted) },
 		TelemetryLogsProxy: noop, TelemetryTerminalProxy: noop, AdminTelemetryLogsProxy: noop, AdminTelemetryTerminalProxy: noop,
 	})
+	require.NoError(t, err)
 	for _, path := range []string{"overview", "users", "users/" + actorID.String() + "/usage", "audit-events", "usage-snapshots/refresh"} {
 		method, want := http.MethodGet, http.StatusOK
 		if path == "usage-snapshots/refresh" {

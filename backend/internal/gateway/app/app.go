@@ -110,7 +110,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
-	router := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
+	router, err := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
 		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie, cfg.Router.AuthRedirect),
 		CoreHandler:                 handler.NewCoreHandler(useCases.core),
 		UserHandler:                 handler.NewUserManagementHandler(useCases.users),
@@ -124,6 +124,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		TokenVerifier:               useCases.auth,
 		Logger:                      logger,
 	})
+	if err != nil {
+		_ = clients.close()
+		return nil, fmt.Errorf("initialize gateway router: %w", err)
+	}
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		Handler:           router,

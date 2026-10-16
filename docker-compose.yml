@@ -188,6 +188,7 @@ services:
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=proxy_net"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.forwardedheaders.insecure=false"
       - "--api.dashboard=${TRAEFIK_DASHBOARD_ENABLED:-false}"
       - "--api.insecure=${TRAEFIK_DASHBOARD_ENABLED:-false}"
       - "--log.level=${TRAEFIK_LOG_LEVEL:-INFO}"
@@ -198,8 +199,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - proxy_net
-      - dcm_net
+      proxy_net: {}
+      dcm_net: {}
+      gateway_ingress:
+        ipv4_address: "${TRAEFIK_GATEWAY_IP:-172.30.251.2}"
 
   build-network-policy:
     build:
@@ -473,7 +476,7 @@ services:
       TELEMETRY_HTTP_TARGET: "http://telemetry:8084"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:3000,http://localhost:5173}"
-      GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-}"
+      GATEWAY_TRUSTED_PROXIES: "${TRAEFIK_GATEWAY_IP:-172.30.251.2}"
       GATEWAY_MAX_JSON_BODY_BYTES: "${GATEWAY_MAX_JSON_BODY_BYTES:-1048576}"
       GATEWAY_AUTH_RATE_LIMIT_REQUESTS: "${GATEWAY_AUTH_RATE_LIMIT_REQUESTS:-20}"
       GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS: "${GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}"
@@ -512,6 +515,7 @@ services:
       COOKIE_SAMESITE: "${COOKIE_SAMESITE:-lax}"
     labels:
       <<: [*traefik-common-labels, *traefik-security-headers]
+      traefik.docker.network: "dcm_gateway_ingress"
       traefik.http.routers.gateway-api.rule: "Host(`${DCM_HOST:-localhost}`) && PathPrefix(`/api/v1`)"
       traefik.http.routers.gateway-api.priority: "10"
       traefik.http.routers.gateway-api.service: "gateway"
@@ -535,7 +539,7 @@ services:
       traefik.http.middlewares.dcm-json-buffer.buffering.maxrequestbodybytes: "1048576"
       traefik.http.middlewares.dcm-json-buffer.buffering.memrequestbodybytes: "1048576"
     networks:
-      - proxy_net
+      - gateway_ingress
       - dcm_net
     depends_on:
       - sso
@@ -567,6 +571,12 @@ services:
       - proxy_net
 
 networks:
+  gateway_ingress:
+    name: dcm_gateway_ingress
+    internal: true
+    ipam:
+      config:
+        - subnet: "${GATEWAY_INGRESS_SUBNET:-172.30.251.0/24}"
   proxy_net:
     name: proxy_net
   dcm_net:

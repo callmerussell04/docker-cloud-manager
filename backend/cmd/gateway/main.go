@@ -89,7 +89,13 @@ func routerConfigFromEnv() gatewayhttp.Config {
 	cfg.CORSAllowedOrigins = csvEnv("CORS_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
 	cfg.AuthRedirect.AllowedOrigins = csvEnv("GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
 	cfg.AuthRedirect.CallbackPath = getenv("GATEWAY_AUTH_CALLBACK_PATH", cfg.AuthRedirect.CallbackPath)
-	cfg.TrustedProxies = csvEnv("GATEWAY_TRUSTED_PROXIES", nil)
+	// Preserve empty CSV entries so malformed proxy lists fail router validation.
+	if raw := os.Getenv("GATEWAY_TRUSTED_PROXIES"); raw != "" {
+		cfg.TrustedProxies = strings.Split(raw, ",")
+		for i := range cfg.TrustedProxies {
+			cfg.TrustedProxies[i] = strings.TrimSpace(cfg.TrustedProxies[i])
+		}
+	}
 	cfg.MaxJSONBodyBytes = int64Env("GATEWAY_MAX_JSON_BODY_BYTES", cfg.MaxJSONBodyBytes)
 	cfg.AuthRateLimit = middleware.RateLimitConfig{
 		Requests: intEnv("GATEWAY_AUTH_RATE_LIMIT_REQUESTS", cfg.AuthRateLimit.Requests),

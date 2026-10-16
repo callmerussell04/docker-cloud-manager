@@ -141,6 +141,8 @@ docker compose --env-file backend/.env config --quiet
 docker compose --env-file backend/.env up -d --build
 ```
 
+Настройка доверенного адреса Traefik и клиентских лимитов описана в [справочнике конфигурации](docs/configuration.md#gateway-и-файлы-cookie).
+
 Миграции PostgreSQL и ClickHouse запускаются автоматически как one-shot сервисы перед стартом зависимых компонентов.
 
 ### 4. Проверьте состояние

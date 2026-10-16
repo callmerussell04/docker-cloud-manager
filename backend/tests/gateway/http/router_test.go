@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
@@ -30,7 +31,7 @@ import (
 
 func TestRouterRegistersGatewayRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	router := gatewayhttp.NewRouter(gatewayhttp.DefaultConfig(), gatewayhttp.RouterDeps{
+	router, err := gatewayhttp.NewRouter(gatewayhttp.DefaultConfig(), gatewayhttp.RouterDeps{
 		AuthHandler:                 (*handler.AuthHandler)(nil),
 		CoreHandler:                 (*handler.CoreHandler)(nil),
 		UserHandler:                 (*handler.UserManagementHandler)(nil),
@@ -44,6 +45,7 @@ func TestRouterRegistersGatewayRoutes(t *testing.T) {
 		Logger:                      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 
+	require.NoError(t, err)
 	routes := map[string]struct{}{}
 	for _, route := range router.Routes() {
 		routes[route.Method+" "+route.Path] = struct{}{}
@@ -176,7 +178,8 @@ func TestRouterAuthBoundariesAndUploadProxyChain(t *testing.T) {
 	cfg := gatewayhttp.DefaultConfig()
 	cfg.AuthRateLimit = middleware.RateLimitConfig{}
 	cfg.UploadRateLimit = middleware.RateLimitConfig{Requests: 1, Window: 0}
-	router := gatewayhttp.NewRouter(cfg, deps.routerDeps())
+	router, err := gatewayhttp.NewRouter(cfg, deps.routerDeps())
+	require.NoError(t, err)
 	userID := uuid.NewString()
 
 	deps.auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{LocalLoginEnabled: true}, nil)
@@ -264,3 +267,152 @@ func routerRequest(router http.Handler, method, path, body string, headers map[s
 }
 
 func noopHandler(c *gin.Context) {}
+
+func TestRouterRejectsInvalidTrustedProxies(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name    string
+		proxies []string
+	}{
+		{name: "malformed", proxies: []string{"proxy-secret.invalid"}},
+		{name: "invalid CIDR", proxies: []string{"172.30.251.2/99"}},
+		{name: "empty entry", proxies: []string{"172.30.251.2", ""}},
+		{name: "IPv4 world", proxies: []string{"0.0.0.0/0"}},
+		{name: "IPv6 world", proxies: []string{"::/0"}},
+		{name: "IPv4 unspecified", proxies: []string{"0.0.0.0"}},
+		{name: "IPv6 unspecified", proxies: []string{"::"}},
+		{name: "multicast", proxies: []string{"224.0.0.1"}},
+		{name: "IPv6 multicast", proxies: []string{"ff00::/8"}},
+		{name: "multicast address with broad mask", proxies: []string{"224.1.2.3/2"}},
+		{name: "mapped address with broad mask", proxies: []string{"::ffff:192.0.2.1/81"}},
+		{name: "mapped world", proxies: []string{"::ffff:0.0.0.0/96"}},
+		{name: "zoned address", proxies: []string{"fe80::1%eth0"}},
+		{name: "valid then malformed", proxies: []string{"172.30.251.2", "proxy-secret.invalid"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := gatewayhttp.DefaultConfig()
+			cfg.TrustedProxies = tc.proxies
+			router, err := gatewayhttp.NewRouter(cfg, gatewayhttp.RouterDeps{})
+			require.Error(t, err)
+			require.Nil(t, router)
+			require.Contains(t, err.Error(), "GATEWAY_TRUSTED_PROXIES")
+			require.NotContains(t, err.Error(), "proxy-secret.invalid")
+		})
+	}
+}
+
+func TestRouterForwardedClientRateLimitsAndAttribution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name      string
+		proxies   []string
+		peer      string
+		forwarded []string
+		wantIPs   []string
+	}{
+		{
+			name:      "trusted Traefik",
+			proxies:   []string{"172.30.251.2"},
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"198.51.100.1", "198.51.100.2", "198.51.100.1"},
+			wantIPs:   []string{"198.51.100.1", "198.51.100.2"},
+		},
+		{
+			name:      "trusted CIDR",
+			proxies:   []string{"172.30.251.0/24"},
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"198.51.100.1", "198.51.100.2", "198.51.100.1"},
+			wantIPs:   []string{"198.51.100.1", "198.51.100.2"},
+		},
+		{
+			name:      "trusted IPv6",
+			proxies:   []string{"fd00:abcd::/64"},
+			peer:      "[fd00:abcd::2]:1234",
+			forwarded: []string{"2001:db8::1", "2001:db8::2", "2001:db8::1"},
+			wantIPs:   []string{"2001:db8::1", "2001:db8::2"},
+		},
+		{
+			name:      "untrusted spoofing",
+			proxies:   []string{"172.30.251.2"},
+			peer:      "198.51.100.9:1234",
+			forwarded: []string{"198.51.100.1", "198.51.100.2", "198.51.100.3"},
+			wantIPs:   []string{"198.51.100.9"},
+		},
+		{
+			name:      "trust disabled",
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"198.51.100.1", "198.51.100.2", "198.51.100.3"},
+			wantIPs:   []string{"172.30.251.2"},
+		},
+		{
+			name:      "malformed forwarded header",
+			proxies:   []string{"172.30.251.2"},
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"invalid", "invalid", "invalid"},
+			wantIPs:   []string{"172.30.251.2"},
+		},
+		{
+			name:      "missing forwarded header",
+			proxies:   []string{"172.30.251.2"},
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"", "", ""},
+			wantIPs:   []string{"172.30.251.2"},
+		},
+		{
+			name:      "rightmost untrusted hop",
+			proxies:   []string{"172.30.251.2"},
+			peer:      "172.30.251.2:1234",
+			forwarded: []string{"203.0.113.1, 198.51.100.1", "203.0.113.2, 198.51.100.1", "203.0.113.3, 198.51.100.1"},
+			wantIPs:   []string{"198.51.100.1"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, path := range []string{
+				"/api/v1/auth/providers",
+				"/api/v1/images/build", "/api/v1/images/build/git",
+				"/api/v1/projects/compose", "/api/v1/projects/compose/git",
+			} {
+				t.Run(path, func(t *testing.T) {
+					deps := newRouterDeps(t)
+					cfg := gatewayhttp.DefaultConfig()
+					cfg.TrustedProxies = tc.proxies
+					cfg.AuthRateLimit = middleware.RateLimitConfig{Requests: 1, Window: time.Minute}
+					cfg.UploadRateLimit = cfg.AuthRateLimit
+					router, err := gatewayhttp.NewRouter(cfg, deps.routerDeps())
+					require.NoError(t, err)
+					method, success := http.MethodGet, http.StatusOK
+					if path == "/api/v1/auth/providers" {
+						deps.auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{}, nil).Times(len(tc.wantIPs))
+					} else {
+						method, success = http.MethodPost, http.StatusAccepted
+						deps.verifier.EXPECT().
+							VerifyAccessToken(mock.Anything, "Bearer user").
+							Return(model.AuthUser{UserID: uuid.NewString(), Username: "alice", Role: "user"}, nil).
+							Times(len(tc.forwarded))
+						for _, ip := range tc.wantIPs {
+							deps.core.EXPECT().RecordAuditEvent(mock.Anything, mock.MatchedBy(func(event model.AuditEvent) bool {
+								return event.ClientIP == ip && event.Outcome == "success"
+							})).Return(nil).Once()
+						}
+					}
+					for i, forwarded := range tc.forwarded {
+						req := httptest.NewRequest(method, path, nil)
+						req.RemoteAddr = tc.peer
+						req.Header.Set("X-Forwarded-For", forwarded)
+						// Alternate spoofed fallback headers even when X-Forwarded-For is absent/invalid.
+						req.Header.Set("X-Real-IP", []string{"203.0.113.11", "203.0.113.12", "203.0.113.13"}[i])
+						req.Header.Set("Forwarded", "for=203.0.113.100")
+						req.Header.Set("Authorization", "Bearer user")
+						resp := httptest.NewRecorder()
+						router.ServeHTTP(resp, req)
+						want := http.StatusTooManyRequests
+						if i < len(tc.wantIPs) {
+							want = success
+						}
+						require.Equal(t, want, resp.Code, resp.Body.String())
+					}
+				})
+			}
+		})
+	}
+}
