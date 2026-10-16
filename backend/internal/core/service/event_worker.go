@@ -82,6 +82,15 @@ func (w *EventWorker) Run(ctx context.Context) {
 
 	var msgCh <-chan model.ContainerEvent
 	var errCh <-chan error
+	var cancelSubscription context.CancelFunc
+	releaseSubscription := func() {
+		if cancelSubscription != nil {
+			cancelSubscription()
+			cancelSubscription = nil
+		}
+		msgCh, errCh = nil, nil
+	}
+	defer releaseSubscription()
 	reconnectAt := time.NewTimer(0)
 	defer reconnectAt.Stop()
 
@@ -94,21 +103,23 @@ func (w *EventWorker) Run(ctx context.Context) {
 			w.syncState(ctx)
 			resetTicker(syncTicker, time.Duration(w.cfg.Get().EventSyncIntervalSeconds)*time.Second)
 		case <-reconnectAt.C:
-			msgCh, errCh = w.dockerAPI.ListenEvents(ctx)
+			subscriptionCtx, cancel := context.WithCancel(ctx)
+			cancelSubscription = cancel
+			msgCh, errCh = w.dockerAPI.ListenEvents(subscriptionCtx)
 		case err, ok := <-errCh:
 			if !ok {
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}
 			if err != nil {
 				w.logger.ErrorContext(ctx, "docker event stream error", "error", err)
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 			}
 		case msg, ok := <-msgCh:
 			if !ok {
-				msgCh, errCh = nil, nil
+				releaseSubscription()
 				resetTimer(reconnectAt, time.Duration(w.cfg.Get().EventReconnectDelaySeconds)*time.Second)
 				continue
 			}

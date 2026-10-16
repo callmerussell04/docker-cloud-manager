@@ -2,9 +2,11 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -12,6 +14,7 @@ import (
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -182,4 +185,112 @@ func closedEventStreams(ctx context.Context) (<-chan model.ContainerEvent, <-cha
 	close(eventCh)
 	close(errCh)
 	return eventCh, errCh
+}
+
+func TestEventWorkerReleasesSubscriptions(t *testing.T) {
+	for _, termination := range []string{"error_with_messages_open", "errors_closed", "messages_closed", "shutdown_during_backoff"} {
+		t.Run(termination, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				repo := coremocks.NewEventContainerRepo(t)
+				dockerAPI := coremocks.NewEventDockerAPI(t)
+				rebalancer := coremocks.NewContainerRebalancer(t)
+				cfg := coremocks.NewEventConfigProvider(t)
+				settings := staticConfig{}.Get()
+				settings.EventSyncIntervalSeconds = 1
+				settings.EventReconnectDelaySeconds = 2
+				cfg.EXPECT().Get().Return(settings)
+				var syncs int
+				repo.EXPECT().GetNonExited(mock.Anything).RunAndReturn(func(ctx context.Context) ([]model.Container, error) {
+					assert.NoError(t, ctx.Err(), "reconciliation must retain the application context")
+					syncs++
+					return nil, nil
+				})
+
+				type subscription struct {
+					ctx      context.Context
+					messages chan model.ContainerEvent
+					errors   chan error
+					stopped  chan struct{}
+				}
+				var subscriptions []subscription
+				dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(func(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
+					if len(subscriptions) > 0 {
+						previous := subscriptions[len(subscriptions)-1]
+						assert.ErrorIs(t, previous.ctx.Err(), context.Canceled, "cancel before replacing the subscription")
+						select {
+						case <-previous.stopped:
+						default:
+							t.Error("previous subscription is still running at reconnect")
+						}
+					}
+					sub := subscription{ctx, make(chan model.ContainerEvent), make(chan error, 1), make(chan struct{})}
+					subscriptions = append(subscriptions, sub)
+					go func() {
+						<-ctx.Done()
+						close(sub.stopped)
+					}()
+					return sub.messages, sub.errors
+				})
+				worker := NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					worker.Run(ctx)
+				}()
+				synctest.Wait()
+				require.Len(t, subscriptions, 1)
+
+				for cycle := 0; cycle < 5; cycle++ {
+					sub := subscriptions[cycle]
+					switch termination {
+					case "error_with_messages_open", "shutdown_during_backoff":
+						sub.errors <- errors.New("daemon disconnected")
+					case "errors_closed":
+						close(sub.errors)
+					case "messages_closed":
+						close(sub.messages)
+					}
+					synctest.Wait()
+					require.ErrorIs(t, sub.ctx.Err(), context.Canceled)
+					select {
+					case <-sub.stopped:
+					default:
+						t.Fatal("abandoned subscription did not stop during backoff")
+					}
+					time.Sleep(time.Second)
+					synctest.Wait()
+					require.Len(t, subscriptions, cycle+1, "respect reconnect delay")
+					require.NoError(t, ctx.Err())
+					time.Sleep(time.Second)
+					synctest.Wait()
+					require.Len(t, subscriptions, cycle+2)
+					require.NoError(t, subscriptions[cycle+1].ctx.Err())
+				}
+				require.GreaterOrEqual(t, syncs, 11, "periodic reconciliation continues through reconnects")
+				if termination == "shutdown_during_backoff" {
+					subscriptions[len(subscriptions)-1].errors <- errors.New("daemon disconnected")
+					synctest.Wait()
+				}
+				cancel()
+				synctest.Wait()
+				select {
+				case <-done:
+				default:
+					t.Fatal("event worker did not stop")
+				}
+				time.Sleep(3 * time.Second)
+				synctest.Wait()
+				require.Len(t, subscriptions, 6, "shutdown must not reconnect")
+				for _, sub := range subscriptions {
+					select {
+					case <-sub.stopped:
+					default:
+						t.Fatal("subscription survived application shutdown")
+					}
+				}
+			})
+		})
+	}
 }

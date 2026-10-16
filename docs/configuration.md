@@ -195,6 +195,8 @@ Builder сохраняет результат выполнения в `BUILD_STO
 - Отчёты: `reports_usage_snapshot_interval_seconds`, допустимый диапазон `60..86400` секунд, значение по умолчанию `300`.
 - Телеметрия: `telemetry_max_log_tail_lines`, `telemetry_max_log_streams_per_user`, `telemetry_max_terminal_sessions_per_user`, `telemetry_terminal_idle_timeout_seconds`, `telemetry_terminal_max_duration_seconds`, `telemetry_allowed_exec_commands`, `telemetry_max_command_args`, `telemetry_max_command_arg_bytes`, `telemetry_ws_read_limit_bytes`.
 
+Core выделяет отдельный отменяемый контекст каждой подписке Docker Events. Ошибка потока или закрытие любого из его каналов отменяет предыдущую подписку до повторного подключения через `event_reconnect_delay_seconds`, даже если канал сообщений Docker SDK остаётся открытым. Периодическая сверка через `event_sync_interval_seconds` продолжается при разрывах; остановка приложения отменяет активную подписку и ожидание переподключения.
+
 Все поля количества, интервала, времени ожидания и размера должны быть положительными, кроме явно разрешённых нулевых ограничений. Разрешённые серверы, команды и префиксы должны быть непустыми и уникальными.
 
 [Аутентификация](authentication.md) · [Руководство администратора](admin-guide.md) · [К оглавлению](README.md)
