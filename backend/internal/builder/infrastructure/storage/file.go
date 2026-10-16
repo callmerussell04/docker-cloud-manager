@@ -50,7 +50,10 @@ func (fm *FileManager) ValidateArchive(filePath, contextDir, dockerfile string) 
 }
 
 func (fm *FileManager) CleanUp(filePath string) error {
-	return os.Remove(filePath)
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (fm *FileManager) checkZip(filePath, expectedDockerfile string) error {

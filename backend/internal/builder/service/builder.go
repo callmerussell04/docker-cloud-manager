@@ -27,6 +27,7 @@ type FileManager interface {
 type WorkspaceManager interface {
 	ArchivePath(buildID, objectKey string) string
 	Create(buildID string) (string, func(), error)
+	CleanUp(ctx context.Context, buildID string) error
 }
 
 type ArchiveExtractor interface {
@@ -60,6 +61,12 @@ type CoreClient interface {
 	GetBuildStatus(ctx context.Context, buildID string) (string, error)
 }
 
+type BuildResultStore interface {
+	Load(ctx context.Context, buildID string) (model.BuildResult, bool, error)
+	Save(ctx context.Context, buildID string, result model.BuildResult) error
+	Delete(ctx context.Context, buildID string) error
+}
+
 type BuildNetworkAdmission interface {
 	ValidateBuildNetwork(ctx context.Context, networkName string) error
 }
@@ -87,6 +94,9 @@ type BuilderService struct {
 	logManager   LogManager
 	objectStore  ObjectStorage
 	coreClient   CoreClient
+	results      BuildResultStore
+	pending      map[string]model.BuildResult
+	handling     map[string]bool
 	config       *config.RuntimeManager
 	activeMu     sync.Mutex
 	active       map[string]context.CancelFunc
@@ -103,6 +113,7 @@ func NewBuilderService(
 	logManager LogManager,
 	objectStore ObjectStorage,
 	coreClient CoreClient,
+	results BuildResultStore,
 	config *config.RuntimeManager,
 	logger *slog.Logger,
 ) *BuilderService {
@@ -114,6 +125,9 @@ func NewBuilderService(
 		logManager:  logManager,
 		objectStore: objectStore,
 		coreClient:  coreClient,
+		results:     results,
+		pending:     make(map[string]model.BuildResult),
+		handling:    make(map[string]bool),
 		config:      config,
 		active:      make(map[string]context.CancelFunc),
 		logger:      logging.WithComponent(logger, "builder_service"),
@@ -177,11 +191,48 @@ func (s *BuilderService) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.ImageBuildMessage) (handleErr error) {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
 	ctx = logging.ContextWithRequestID(ctx, msg.RequestID)
+	s.activeMu.Lock()
+	if s.handling[msg.BuildID] {
+		s.activeMu.Unlock()
+		return apperrors.New(apperrors.ErrUnavailable, "build execution is active")
+	}
+	s.handling[msg.BuildID] = true
+	result, pending := s.pending[msg.BuildID]
+	s.activeMu.Unlock()
+	defer func() {
+		if handleErr == nil {
+			s.activeMu.Lock()
+			_, finalized := s.pending[msg.BuildID]
+			s.activeMu.Unlock()
+			if finalized {
+				if err := s.cleanupFinalizedBuild(context.WithoutCancel(ctx), msg); err != nil {
+					handleErr = apperrors.Wrap(apperrors.ErrUnavailable, "build cleanup is pending", err)
+				}
+			}
+		}
+		s.activeMu.Lock()
+		delete(s.handling, msg.BuildID)
+		s.activeMu.Unlock()
+	}()
+	if !pending {
+		var err error
+		result, pending, err = s.results.Load(ctx, msg.BuildID)
+		if err != nil {
+			return fmt.Errorf("load build finalization: %w", err)
+		}
+	}
+	if pending {
+		if err := s.completeBuild(ctx, msg.BuildID, result.ImageID, result.Status, result.SizeMB); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	cfg := s.config.Refresh(ctx)
 
 	if !s.acquireBuildSlot(ctx, cfg.MaxConcurrentBuilds) {
@@ -204,6 +255,9 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 			if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
 				s.logger.WarnContext(ctx, "failed to delete skipped build archive object", "build_id", msg.BuildID, "error", deleteErr)
 			}
+		}
+		if !isTerminalBuildStatus(status) {
+			return apperrors.New(apperrors.ErrUnavailable, "build execution has no finalization result yet")
 		}
 		return nil
 	}
@@ -232,26 +286,22 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 
 	archivePath := s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)
 	defer s.fileManager.CleanUp(archivePath)
-	defer s.logManager.CleanUp(msg.BuildID)
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath, cfg.MaxBuildLogSizeBytes)
+			return s.completeCanceledBuild(msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath, msg.ContextDir, msg.Dockerfile); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath, cfg.MaxBuildLogSizeBytes)
+			return s.completeCanceledBuild(msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
 		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes)
 		if uploadErr := s.uploadBuildLog(buildCtx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
 			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
 		}
-		if completeErr := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
+		if completeErr := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
 			return completeErr
-		}
-		if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
-			s.logger.WarnContext(ctx, "failed to delete invalid build archive object", "build_id", msg.BuildID, "error", deleteErr)
 		}
 		return nil
 	}
@@ -270,23 +320,62 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}); err != nil {
 		return err
 	}
-	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
-		s.logger.WarnContext(ctx, "failed to delete build archive object", "build_id", msg.BuildID, "error", err)
+	return nil
+}
+
+func (s *BuilderService) completeBuild(ctx context.Context, buildID, imageID, status string, sizeMB int) error {
+	result := model.BuildResult{ImageID: imageID, Status: status, SizeMB: sizeMB}
+	s.activeMu.Lock()
+	s.pending[buildID] = result
+	s.activeMu.Unlock()
+	if err := s.results.Save(ctx, buildID, result); err != nil {
+		return fmt.Errorf("persist build finalization: %w", err)
+	}
+	if err := s.coreClient.CompleteBuildRecord(ctx, buildID, imageID, status, sizeMB); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			// Missing image/user metadata is not proof that the build was deleted.
+			if _, statusErr := s.coreClient.GetBuildStatus(ctx, buildID); errors.Is(statusErr, apperrors.ErrNotFound) {
+				return nil
+			}
+		}
+		s.logger.WarnContext(ctx, "build finalization remains pending", "build_id", buildID, "error", err)
+		// Even application errors must not dead-letter a durably retained outcome.
+		return apperrors.Wrap(apperrors.ErrUnavailable, "build finalization is pending", err)
 	}
 	return nil
 }
 
-func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID, archivePath string, maxLogSize int64) error {
+func (s *BuilderService) cleanupFinalizedBuild(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
+	if err := s.objectStore.DeleteObject(ctx, msg.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		return fmt.Errorf("clean finalized build archive object: %w", err)
+	}
+	if err := s.fileManager.CleanUp(s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)); err != nil {
+		return fmt.Errorf("clean finalized build archive file: %w", err)
+	}
+	if err := s.workspaces.CleanUp(ctx, msg.BuildID); err != nil {
+		return fmt.Errorf("clean finalized build workspace: %w", err)
+	}
+	if err := s.logManager.CleanUp(msg.BuildID); err != nil {
+		return fmt.Errorf("clean finalized build log: %w", err)
+	}
+	return s.forgetBuildResult(ctx, msg.BuildID)
+}
+
+func (s *BuilderService) forgetBuildResult(ctx context.Context, buildID string) error {
+	if err := s.results.Delete(ctx, buildID); err != nil {
+		return fmt.Errorf("clean build finalization: %w", err)
+	}
+	s.activeMu.Lock()
+	delete(s.pending, buildID)
+	s.activeMu.Unlock()
+	return nil
+}
+
+func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID string, maxLogSize int64) error {
 	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
-	if archivePath != "" {
-		_ = s.fileManager.CleanUp(archivePath)
-	}
 	s.writeCancelledBuildLog(context.Background(), logger, msg.BuildID, msg.LogObjectKey, maxLogSize)
-	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
+	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
 		return err
-	}
-	if err := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); err != nil {
-		logger.WarnContext(context.Background(), "failed to delete canceled build archive object", "error", err)
 	}
 	return nil
 }
@@ -410,7 +499,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			status = buildStatusFailedInternal
 		}
 	}
-	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), job.RequestID), job.BuildID, job.ImageID, status, sizeMB); err != nil {
+	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), job.RequestID), job.BuildID, job.ImageID, status, sizeMB); err != nil {
 		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
 		return err
 	}

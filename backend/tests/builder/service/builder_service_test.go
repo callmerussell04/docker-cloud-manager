@@ -86,7 +86,32 @@ func TestBuilderServiceHandleBuildMessageSuccessUsesRuntimeConfigAndSanitizesLog
 	}
 }
 
-func TestBuilderServiceHandleBuildMessageSkipsTerminalAndRunningDuplicates(t *testing.T) {
+func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
+	h := newBuilderHarness(t, testBuilderRuntimeConfig())
+	msg := testBuildMessage()
+	expectStarted(h, msg, msg.ImageID)
+	expectBuildPrepared(h, msg)
+	expectDockerRunWithLogs(h, "log\n")
+	h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).Return("/tmp/build.log", nil).Once()
+	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Once()
+	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+	expectLogUpload(h, msg, 1)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(apperrors.ErrUnavailable).Once()
+	require.ErrorIs(t, h.service.HandleBuildMessage(context.Background(), msg), apperrors.ErrUnavailable)
+	h.objects.AssertNotCalled(t, "DeleteObject", mock.Anything, msg.ArchiveObjectKey)
+	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
+	var err error
+	h.results, err = storage.NewResultStore(h.resultDir)
+	require.NoError(t, err)
+	h.service = service.NewBuilderService(h.files, h.workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, h.results,
+		config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
+	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+	h.docker.AssertNumberOfCalls(t, "RunBuildContainer", 1)
+}
+
+func TestBuilderServiceHandleBuildMessageKeepsRunningDuplicatesRetryable(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		status     string
@@ -104,7 +129,11 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalAndRunningDuplicates(t *te
 			}
 
 			err := h.service.HandleBuildMessage(context.Background(), msg)
-			require.NoError(t, err)
+			if tt.status == "running" {
+				require.ErrorIs(t, err, apperrors.ErrUnavailable)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
@@ -130,7 +159,6 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				expectStarted(h, msg, msg.ImageID)
 				h.workspaces.EXPECT().ArchivePath(msg.BuildID, msg.ArchiveObjectKey).Return("/tmp/archive.zip")
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
-				h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil)
 				h.objects.EXPECT().DownloadFile(mock.Anything, msg.ArchiveObjectKey, "/tmp/archive.zip").Return(apperrors.ErrUnavailable)
 				return msg
 			},
@@ -392,6 +420,7 @@ func TestBuilderServiceMaxConcurrentBuildsBlocksUntilContextCanceled(t *testing.
 		firstDone <- h.service.HandleBuildMessage(context.Background(), msg)
 	}()
 	<-firstRunning
+	require.ErrorIs(t, h.service.HandleBuildMessage(context.Background(), msg), apperrors.ErrUnavailable)
 	secondCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
 	err := h.service.HandleBuildMessage(secondCtx, testBuildMessageWithID("second-build"))
@@ -408,6 +437,8 @@ type builderHarness struct {
 	logs       *builderservicemocks.LogManager
 	objects    *builderservicemocks.ObjectStorage
 	core       *builderservicemocks.CoreClient
+	results    *storage.ResultStore
+	resultDir  string
 	service    *service.BuilderService
 }
 
@@ -422,6 +453,11 @@ func newBuilderHarness(t *testing.T, cfg config.BuilderConfig) *builderHarness {
 		objects:    builderservicemocks.NewObjectStorage(t),
 		core:       builderservicemocks.NewCoreClient(t),
 	}
+	h.workspaces.EXPECT().CleanUp(mock.Anything, mock.Anything).Return(nil).Maybe()
+	var err error
+	h.resultDir = t.TempDir()
+	h.results, err = storage.NewResultStore(h.resultDir)
+	require.NoError(t, err)
 	h.service = service.NewBuilderService(
 		h.files,
 		h.workspaces,
@@ -430,6 +466,7 @@ func newBuilderHarness(t *testing.T, cfg config.BuilderConfig) *builderHarness {
 		h.logs,
 		h.objects,
 		h.core,
+		h.results,
 		config.NewRuntimeManager(cfg, nil, nil),
 		slog.Default(),
 	)
@@ -475,13 +512,13 @@ func testBuildMessageWithID(buildID string) buildqueue.ImageBuildMessage {
 }
 
 func expectStarted(h *builderHarness, msg buildqueue.ImageBuildMessage, imageID string) {
-	h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{ImageID: imageID, RegistryUsername: msg.BuildID, RegistryPassword: "scoped-secret", Destination: "registry:5000/owner-id_app:latest"}, true, "running", nil)
+	h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{ImageID: imageID, RegistryUsername: msg.BuildID, RegistryPassword: "scoped-secret", Destination: "registry:5000/owner-id_app:latest"}, true, "running", nil).Once()
 }
 
 func expectPreparedArchive(h *builderHarness, msg buildqueue.ImageBuildMessage, validateErr error) {
 	h.workspaces.EXPECT().ArchivePath(msg.BuildID, msg.ArchiveObjectKey).Return("/tmp/archive.zip")
 	h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
-	h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil)
+	h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil).Maybe()
 	h.objects.EXPECT().DownloadFile(mock.Anything, msg.ArchiveObjectKey, "/tmp/archive.zip").Return(nil)
 	h.files.EXPECT().ValidateArchive("/tmp/archive.zip", msg.ContextDir, msg.Dockerfile).Return(validateErr)
 }
@@ -641,4 +678,111 @@ type closeFailingLogFile struct{ *os.File }
 
 func (f *closeFailingLogFile) Close() error {
 	return errors.Join(f.File.Close(), errors.New("injected close failure"))
+}
+
+func TestBuilderServiceRetainsFinalizationUntilCoreAccepts(t *testing.T) {
+	for _, tt := range []struct {
+		name                     string
+		completionErr, statusErr error
+		wantRetry                bool
+	}{
+		{name: "temporary failure", completionErr: apperrors.ErrUnavailable, wantRetry: true},
+		{name: "application conflict", completionErr: apperrors.ErrConflict, wantRetry: true},
+		{name: "missing metadata", completionErr: apperrors.ErrNotFound, wantRetry: true},
+		{name: "deleted build", completionErr: apperrors.ErrNotFound, statusErr: apperrors.ErrNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newBuilderHarness(t, testBuilderRuntimeConfig())
+			msg := testBuildMessage()
+			result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
+			require.NoError(t, h.results.Save(context.Background(), msg.BuildID, result))
+			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(tt.completionErr).Once()
+			if errors.Is(tt.completionErr, apperrors.ErrNotFound) {
+				h.core.EXPECT().GetBuildStatus(mock.Anything, msg.BuildID).Return("running", tt.statusErr).Once()
+			}
+			if !tt.wantRetry {
+				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
+				h.workspaces.EXPECT().ArchivePath(msg.BuildID, msg.ArchiveObjectKey).Return("/tmp/archive.zip")
+				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
+				h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil)
+			}
+			err := h.service.HandleBuildMessage(context.Background(), msg)
+			if tt.wantRetry {
+				require.ErrorIs(t, err, apperrors.ErrUnavailable)
+				require.ErrorIs(t, err, tt.completionErr)
+			} else {
+				require.NoError(t, err)
+			}
+			_, found, err := h.results.Load(context.Background(), msg.BuildID)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantRetry, found)
+			h.docker.AssertNotCalled(t, "RunBuildContainer", mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestBuilderServiceRetainsOutcomeWhenJournalWriteFails(t *testing.T) {
+	h := newBuilderHarness(t, testBuilderRuntimeConfig())
+	msg := testBuildMessage()
+	results := builderservicemocks.NewBuildResultStore(t)
+	h.service = service.NewBuilderService(h.files, h.workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, results,
+		config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+	result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
+	results.EXPECT().Load(mock.Anything, msg.BuildID).Return(model.BuildResult{}, false, nil).Once()
+	results.EXPECT().Save(mock.Anything, msg.BuildID, result).Return(errors.New("disk full")).Once()
+	expectStarted(h, msg, msg.ImageID)
+	expectBuildPrepared(h, msg)
+	expectDockerRunWithLogs(h, "built\n")
+	h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).Return("/tmp/build.log", nil).Once()
+	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Once()
+	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+	expectLogUpload(h, msg, 1)
+	require.ErrorContains(t, h.service.HandleBuildMessage(context.Background(), msg), "persist build finalization")
+	h.core.AssertNotCalled(t, "CompleteBuildRecord", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
+	results.EXPECT().Save(mock.Anything, msg.BuildID, result).Return(nil).Once()
+	results.EXPECT().Delete(mock.Anything, msg.BuildID).Return(nil).Once()
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
+	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+	h.docker.AssertNumberOfCalls(t, "RunBuildContainer", 1)
+}
+
+func TestBuilderServiceRetriesCleanupBeforeDiscardingResult(t *testing.T) {
+	for _, stage := range []string{"archive object", "archive file", "workspace", "log"} {
+		t.Run(stage, func(t *testing.T) {
+			h := newBuilderHarness(t, testBuilderRuntimeConfig())
+			msg := testBuildMessage()
+			result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
+			require.NoError(t, h.results.Save(context.Background(), msg.BuildID, result))
+			workspaces := builderservicemocks.NewWorkspaceManager(t)
+			h.service = service.NewBuilderService(h.files, workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, h.results,
+				config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Twice()
+			errCleanup := apperrors.ErrForbidden
+			switch stage {
+			case "archive object":
+				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(errCleanup).Once()
+			case "archive file":
+				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(errCleanup).Once()
+			case "workspace":
+				workspaces.EXPECT().CleanUp(mock.Anything, msg.BuildID).Return(errCleanup).Once()
+			case "log":
+				h.logs.EXPECT().CleanUp(msg.BuildID).Return(errCleanup).Once()
+			}
+			h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+			workspaces.EXPECT().ArchivePath(msg.BuildID, msg.ArchiveObjectKey).Return("/tmp/archive.zip").Maybe()
+			h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil).Maybe()
+			workspaces.EXPECT().CleanUp(mock.Anything, msg.BuildID).Return(nil).Maybe()
+			h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil).Maybe()
+			require.ErrorIs(t, h.service.HandleBuildMessage(context.Background(), msg), apperrors.ErrUnavailable)
+			_, found, err := h.results.Load(context.Background(), msg.BuildID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+			_, found, err = h.results.Load(context.Background(), msg.BuildID)
+			require.NoError(t, err)
+			require.False(t, found)
+		})
+	}
 }

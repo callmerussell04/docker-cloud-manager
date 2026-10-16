@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -28,4 +29,11 @@ func (m *WorkspaceManager) Create(buildID string) (string, func(), error) {
 		return "", func() {}, err
 	}
 	return path, func() { _ = os.RemoveAll(path) }, nil
+}
+
+func (m *WorkspaceManager) CleanUp(ctx context.Context, buildID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return os.RemoveAll(filepath.Join(m.baseDir, buildID+"_workspace"))
 }

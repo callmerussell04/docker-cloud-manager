@@ -152,6 +152,10 @@ func (c *Consumer) handleDelivery(ctx context.Context, delivery amqp.Delivery, h
 }
 
 func isPermanentQueueError(err error) bool {
+	// Finalization can wrap a Core application error while retaining a retryable outcome.
+	if errors.Is(err, apperrors.ErrUnavailable) {
+		return false
+	}
 	return errors.Is(err, apperrors.ErrBadRequest) ||
 		errors.Is(err, apperrors.ErrForbidden) ||
 		errors.Is(err, apperrors.ErrNotFound) ||
