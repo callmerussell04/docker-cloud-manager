@@ -41,7 +41,7 @@ type DockerAPI interface {
 
 type LogManager interface {
 	SaveLogs(logID string, dockerStream io.Reader, maxLogSize int64) (string, error)
-	WriteSystemLog(logID string, message string) error
+	WriteSystemLog(logID string, message string, maxLogSize int64) error
 	IsLogSizeLimitExceeded(err error) bool
 	LogPath(logID string) string
 	Exists(logID string) (bool, error)
@@ -235,15 +235,15 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	defer s.logManager.CleanUp(msg.BuildID)
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath)
+			return s.completeCanceledBuild(msg, imageID, archivePath, cfg.MaxBuildLogSizeBytes)
 		}
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath, msg.ContextDir, msg.Dockerfile); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(msg, imageID, archivePath)
+			return s.completeCanceledBuild(msg, imageID, archivePath, cfg.MaxBuildLogSizeBytes)
 		}
-		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.")
+		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes)
 		if uploadErr := s.uploadBuildLog(buildCtx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
 			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
 		}
@@ -276,12 +276,12 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	return nil
 }
 
-func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID, archivePath string) error {
+func (s *BuilderService) completeCanceledBuild(msg buildqueue.ImageBuildMessage, imageID, archivePath string, maxLogSize int64) error {
 	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
 	if archivePath != "" {
 		_ = s.fileManager.CleanUp(archivePath)
 	}
-	s.writeCancelledBuildLog(context.Background(), logger, msg.BuildID, msg.LogObjectKey)
+	s.writeCancelledBuildLog(context.Background(), logger, msg.BuildID, msg.LogObjectKey, maxLogSize)
 	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
 		return err
 	}
@@ -340,7 +340,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 	workspaceDir, cleanupWorkspace, err := s.workspaces.Create(job.BuildID)
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to create build workspace", "error", err)
-		s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+		s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 	} else {
 		defer cleanupWorkspace()
 
@@ -349,20 +349,20 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 			logger.ErrorContext(ctx, "failed to extract build archive", "error", err)
 			if isResourceExhaustedError(err) {
 				status = buildStatusFailedResourceExhausted
-				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 			} else {
-				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 			}
 		} else {
 			cleanContextDir, err := gitsource.CleanRelativePath(job.ContextDir)
 			if err != nil {
 				logger.ErrorContext(ctx, "invalid build context path in queue message", "error", err)
-				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 			} else {
 				dfPath, err := cleanDockerfilePath(job.Dockerfile)
 				if err != nil {
 					logger.ErrorContext(ctx, "invalid dockerfile path in queue message", "error", err)
-					s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+					s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 				} else {
 					destinationTag := job.Claim.Destination
 
@@ -393,7 +393,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 
 	if ctx.Err() == context.DeadlineExceeded {
 		status = buildStatusFailedTimeout
-		if err := s.logManager.WriteSystemLog(job.BuildID, "Build failed because it exceeded the maximum build time."); err != nil {
+		if err := s.logManager.WriteSystemLog(job.BuildID, "Build failed because it exceeded the maximum build time.", cfg.MaxBuildLogSizeBytes); err != nil {
 			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
 		}
 		if uploadErr := s.uploadBuildLog(ctx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
@@ -401,11 +401,14 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		}
 	} else if ctx.Err() == context.Canceled {
 		status = buildStatusCanceled
-		s.writeCancelledBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+		s.writeCancelledBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 	}
 
 	if uploadErr := s.uploadBuildLog(ctx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
 		logger.WarnContext(ctx, "failed to upload final build log", "error", uploadErr)
+		if status == buildStatusSuccess {
+			status = buildStatusFailedInternal
+		}
 	}
 	if err := s.coreClient.CompleteBuildRecord(logging.ContextWithRequestID(context.Background(), job.RequestID), job.BuildID, job.ImageID, status, sizeMB); err != nil {
 		logger.ErrorContext(ctx, "failed to complete build record", "status", status, "error", err)
@@ -425,10 +428,10 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 		if ctx.Err() == nil {
 			logger.ErrorContext(ctx, "failed to start build container", "error", buildErr)
 			if isResourceExhaustedError(buildErr) {
-				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+				s.writeResourceExhaustedBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 				return buildStatusFailedResourceExhausted
 			}
-			s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
+			s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 		}
 		return buildStatusFailedInternal
 	}
@@ -436,43 +439,40 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
 
 	sanitizedLogs := newBuildLogSanitizer(logStream, buildLogSanitizerOptions{
+		MaxBytes:       cfg.MaxBuildLogSizeBytes,
 		RegistryURL:    cfg.RegistryURL,
 		DestinationTag: destinationTag,
 	})
 
 	_, logErr := s.logManager.SaveLogs(job.BuildID, sanitizedLogs, cfg.MaxBuildLogSizeBytes)
-	if logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr) {
+	if logErr != nil {
+		// Stop Kaniko immediately on any log failure; keep the build context's
+		// cancellation reason independent from a local logging failure.
 		_ = logStream.Close()
-		_ = s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+		if s.logManager.IsLogSizeLimitExceeded(logErr) {
+			logger.WarnContext(ctx, "build log size limit exceeded")
+			return buildStatusFailed
+		}
+		logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
+		return buildStatusFailedInternal
 	}
 
 	waitErr := s.dockerAPI.WaitForBuild(ctx, containerID)
 
 	switch {
-	case logErr == nil && waitErr == nil && ctx.Err() == nil:
+	case waitErr == nil && ctx.Err() == nil:
 		return buildStatusSuccess
+	case isResourceExhaustedError(waitErr):
+		return buildStatusFailedResourceExhausted
 	case waitErr != nil:
-		if logErr != nil {
-			logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
-		}
-		if isResourceExhaustedError(waitErr) {
-			return buildStatusFailedResourceExhausted
-		}
 		return buildStatusFailed
-	case logErr != nil && s.logManager.IsLogSizeLimitExceeded(logErr):
-		logger.WarnContext(ctx, "build log size limit exceeded", "error", logErr)
-		return buildStatusFailed
-	case logErr != nil:
-		logger.WarnContext(ctx, "failed to save build logs", "error", logErr)
-		s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
-		return buildStatusFailedInternal
 	default:
 		return buildStatusFailedInternal
 	}
 }
 
-func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error."); err != nil {
+func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string, maxLogSize int64) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build failed due to an internal platform error.", maxLogSize); err != nil {
 		logger.WarnContext(ctx, "failed to write internal build log", "error", err)
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
@@ -480,8 +480,8 @@ func (s *BuilderService) writeInternalBuildLog(ctx context.Context, logger *slog
 	}
 }
 
-func (s *BuilderService) writeResourceExhaustedBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build failed because server resources were exhausted."); err != nil {
+func (s *BuilderService) writeResourceExhaustedBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string, maxLogSize int64) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build failed because server resources were exhausted.", maxLogSize); err != nil {
 		logger.WarnContext(ctx, "failed to write resource exhausted build log", "error", err)
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {
@@ -489,8 +489,8 @@ func (s *BuilderService) writeResourceExhaustedBuildLog(ctx context.Context, log
 	}
 }
 
-func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string) {
-	if err := s.logManager.WriteSystemLog(buildID, "Build was canceled before it completed."); err != nil {
+func (s *BuilderService) writeCancelledBuildLog(ctx context.Context, logger *slog.Logger, buildID, logObjectKey string, maxLogSize int64) {
+	if err := s.logManager.WriteSystemLog(buildID, "Build was canceled before it completed.", maxLogSize); err != nil {
 		logger.WarnContext(ctx, "failed to write cancelled build log", "error", err)
 	}
 	if err := s.uploadBuildLog(ctx, logger, buildID, logObjectKey); err != nil {

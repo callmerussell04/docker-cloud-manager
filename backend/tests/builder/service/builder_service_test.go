@@ -3,10 +3,13 @@ package service_test
 import (
 	"context"
 	"errors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
@@ -138,7 +141,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
 				expectStarted(h, msg, msg.ImageID)
 				expectPreparedArchive(h, msg, apperrors.ErrBadRequest)
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 1)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -153,7 +156,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				expectPreparedArchive(h, msg, nil)
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("", func() {}, errors.New("workspace"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -169,7 +172,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("/tmp/workspace", func() {}, nil)
 				h.extractor.EXPECT().Extract("/tmp/archive.zip", "/tmp/workspace", int64(500<<20)).Return(errors.New("extract"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -186,7 +189,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("/tmp/workspace", func() {}, nil)
 				h.extractor.EXPECT().Extract("/tmp/archive.zip", "/tmp/workspace", int64(500<<20)).Return(nil)
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -200,7 +203,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				expectStarted(h, msg, msg.ImageID)
 				expectBuildPrepared(h, msg)
 				h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("", nil, errors.New("docker"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -225,15 +228,14 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 			wantStatus: "failed",
 		},
 		{
-			name: "log limit completes failed and cleans container twice",
+			name: "log limit completes failed and stops container",
 			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
 				expectStarted(h, msg, msg.ImageID)
 				expectBuildPrepared(h, msg)
 				expectDockerRunWithLogs(h, "log\n")
 				h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).Return("/tmp/build.log", errLogLimit)
-				h.logs.EXPECT().IsLogSizeLimitExceeded(errLogLimit).Return(true).Twice()
-				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Twice()
-				h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil)
+				h.logs.EXPECT().IsLogSizeLimitExceeded(errLogLimit).Return(true).Once()
+				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
 				expectLogUpload(h, msg, 1)
 				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -290,7 +292,7 @@ func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTer
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.").Return(nil)
+	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "canceled", 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -317,7 +319,7 @@ func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because it exceeded the maximum build time.").Return(nil)
+	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because it exceeded the maximum build time.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_timeout", 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -345,7 +347,7 @@ func TestBuilderServiceStopCancelsActiveBuildsAndRespectsContext(t *testing.T) {
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.").Return(nil)
+	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "canceled", 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
@@ -506,4 +508,137 @@ func canceledContext() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
+}
+
+func TestBuilderServiceBoundsRawNewlineFreeLogs(t *testing.T) {
+	cfg := testBuilderRuntimeConfig()
+	cfg.MaxBuildLogSizeBytes = 1024
+	h := newBuilderHarness(t, cfg)
+	msg := testBuildMessage()
+	manager, err := storage.NewLogManager(t.TempDir())
+	require.NoError(t, err)
+	source := &generatedOutput{remaining: 1 << 20}
+	expectStarted(h, msg, msg.ImageID)
+	expectBuildPrepared(h, msg)
+	h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("container-id", io.NopCloser(source), nil)
+	var path string
+	h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(1024)).RunAndReturn(func(id string, input io.Reader, limit int64) (string, error) {
+		var err error
+		path, err = manager.SaveLogs(id, input, limit)
+		return path, err
+	})
+	h.logs.EXPECT().IsLogSizeLimitExceeded(mock.Anything).Return(true).Maybe()
+	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Maybe()
+	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Maybe()
+	expectLogUpload(h, msg, 1)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+	require.LessOrEqual(t, source.read, int64(1025))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.LessOrEqual(t, info.Size(), int64(1024))
+}
+
+type generatedOutput struct{ remaining, read int64 }
+
+func (r *generatedOutput) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), r.remaining)
+	for i := range p[:n] {
+		p[i] = 'x'
+	}
+	r.remaining -= n
+	r.read += n
+	return int(n), nil
+}
+
+func TestBuilderServiceLogPipelineOutcomes(t *testing.T) {
+	for _, tt := range []struct {
+		name, input, status string
+		limit               int64
+		failure             error
+		uploadFailure       bool
+		closeFailure        bool
+	}{
+		{name: "normal", input: "hello\nworld", status: "success", limit: 8192},
+		{name: "secrets and references across buffers", input: strings.Repeat("x", 4093) + " token=supersecret password=hunter2 registry:5000/owner-id_app:latest\nAuthorization: Bearer private-token", status: "success", limit: 8192},
+		{name: "large line within budget", input: strings.Repeat("x", 70<<10), status: "success", limit: 80 << 10},
+		{name: "oversized line with newline", input: strings.Repeat("x", 2048) + "\n", status: "failed", limit: 1024},
+		{name: "suppressed output still uses raw budget", input: strings.Repeat("INFO[0001] Pushing registry:5000/owner-id_app:latest\n", 100), status: "failed", limit: 1024},
+		{name: "secret crosses budget boundary", input: strings.Repeat("x", 1015) + " token=supersecret", status: "failed", limit: 1024},
+		{name: "write failure", input: "hello\n", status: "failed_internal", limit: 8192, failure: io.ErrClosedPipe},
+		{name: "short write", input: "hello\n", status: "failed_internal", limit: 8192, failure: io.ErrShortWrite},
+		{name: "close failure", input: "hello\n", status: "failed_internal", limit: 8192, failure: errors.New("close build log failed")},
+		{name: "upstream read failure", input: "hello\n", status: "failed_internal", limit: 8192, failure: io.ErrUnexpectedEOF},
+		{name: "raw overflow and close failure", input: strings.Repeat("x", 2048), status: "failed_internal", limit: 1024, closeFailure: true},
+		{name: "saved overflow and close failure", input: "token=x", status: "failed_internal", limit: 8, closeFailure: true},
+		{name: "upload failure", input: "hello\n", status: "failed_internal", limit: 8192, uploadFailure: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testBuilderRuntimeConfig()
+			cfg.MaxBuildLogSizeBytes = tt.limit
+			h := newBuilderHarness(t, cfg)
+			msg := testBuildMessage()
+			manager, err := storage.NewLogManager(t.TempDir())
+			require.NoError(t, err)
+			expectStarted(h, msg, msg.ImageID)
+			expectBuildPrepared(h, msg)
+			h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("container-id", io.NopCloser(iotest.OneByteReader(strings.NewReader(tt.input))), nil)
+			var savedPath string
+			h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, tt.limit).RunAndReturn(func(id string, reader io.Reader, limit int64) (string, error) {
+				var err error
+				if tt.closeFailure {
+					savedPath = manager.LogPath(id)
+					file, err := os.Create(savedPath)
+					if err != nil {
+						return "", err
+					}
+					return savedPath, storage.WriteLogs(&closeFailingLogFile{File: file}, reader, limit)
+				}
+				savedPath, err = manager.SaveLogs(id, reader, limit)
+				if tt.failure != nil {
+					return savedPath, tt.failure
+				}
+				return savedPath, err
+			})
+			h.logs.EXPECT().IsLogSizeLimitExceeded(mock.Anything).RunAndReturn(manager.IsLogSizeLimitExceeded).Maybe()
+			h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+			if tt.status == "success" || tt.uploadFailure {
+				h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil)
+			}
+			h.logs.EXPECT().Exists(msg.BuildID).Return(true, nil)
+			h.logs.EXPECT().LogPath(msg.BuildID).RunAndReturn(func(string) string { return savedPath })
+			var uploadErr error
+			if tt.uploadFailure {
+				uploadErr = apperrors.ErrUnavailable
+			}
+			h.objects.EXPECT().UploadFile(mock.Anything, msg.LogObjectKey, mock.Anything, "text/plain").Return(uploadErr)
+			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, tt.status, 0).Return(nil)
+			h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+			require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+			data, err := os.ReadFile(savedPath)
+			require.NoError(t, err)
+			require.LessOrEqual(t, int64(len(data)), tt.limit)
+			for _, secret := range []string{"supersecret", "hunter2", "registry:5000", "owner-id_app", "private-token"} {
+				require.NotContains(t, string(data), secret)
+			}
+			if tt.name == "normal" {
+				require.Equal(t, "hello\nworld", string(data))
+			}
+			if tt.name == "secrets and references across buffers" {
+				require.Contains(t, string(data), "token=[REDACTED]")
+				require.Contains(t, string(data), "[internal-image]")
+				require.Contains(t, string(data), "Authorization=[REDACTED]")
+			}
+		})
+	}
+}
+
+type closeFailingLogFile struct{ *os.File }
+
+func (f *closeFailingLogFile) Close() error {
+	return errors.Join(f.File.Close(), errors.New("injected close failure"))
 }

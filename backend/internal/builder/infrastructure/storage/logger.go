@@ -1,14 +1,17 @@
 package storage
 
 import (
-	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 )
 
-var ErrLogSizeLimitExceeded = errors.New("log size limit exceeded")
+var errLogCloseFailed = errors.New("close build log")
 
 type LogManager struct {
 	logDir string
@@ -29,48 +32,50 @@ func (m *LogManager) SaveLogs(buildID string, logStream io.Reader, maxLogSize in
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
-
-	reader := bufio.NewReader(logStream)
-	var totalBytes int64
-
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			n, _ := file.WriteString(line)
-			totalBytes += int64(n)
-
-			if totalBytes > maxLogSize {
-				file.WriteString("\n[SYSTEM] Log size limit exceeded. Build aborted.\n")
-				return logFilePath, ErrLogSizeLimitExceeded
-			}
-		}
-
-		if errors.Is(err, io.EOF) {
-			return logFilePath, nil
-		}
-		if err != nil {
-			return logFilePath, err
-		}
-	}
+	return logFilePath, WriteLogs(file, logStream, maxLogSize)
 }
 
-func (m *LogManager) WriteSystemLog(buildID string, message string) error {
+// WriteLogs owns and closes the destination, and never writes beyond maxLogSize.
+func WriteLogs(destination io.WriteCloser, source io.Reader, maxLogSize int64) (err error) {
+	defer func() {
+		if closeErr := destination.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("%w: %w", errLogCloseFailed, closeErr))
+		}
+	}()
+	if maxLogSize < 0 {
+		maxLogSize = 0
+	}
+	n, err := io.Copy(destination, io.LimitReader(source, maxLogSize))
+	if err != nil {
+		return fmt.Errorf("write build log: %w", err)
+	}
+	if n == maxLogSize {
+		var probe [1]byte
+		if _, err := io.ReadFull(source, probe[:]); err != io.EOF {
+			if err != nil {
+				return fmt.Errorf("read build log: %w", err)
+			}
+			return model.ErrBuildLogSizeLimitExceeded
+		}
+	}
+	return nil
+}
+
+func (m *LogManager) WriteSystemLog(buildID string, message string, maxLogSize int64) error {
 	logFilePath := m.LogPath(buildID)
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-
-	if _, err := file.WriteString("\n[SYSTEM] " + message + "\n"); err != nil {
-		return err
+	info, err := file.Stat()
+	if err != nil {
+		return errors.Join(err, file.Close())
 	}
-	return nil
+	return WriteLogs(file, strings.NewReader("\n[SYSTEM] "+message+"\n"), maxLogSize-info.Size())
 }
 
 func (m *LogManager) IsLogSizeLimitExceeded(err error) bool {
-	return errors.Is(err, ErrLogSizeLimitExceeded)
+	return errors.Is(err, model.ErrBuildLogSizeLimitExceeded) && !errors.Is(err, errLogCloseFailed)
 }
 
 func (m *LogManager) LogPath(buildID string) string {

@@ -4,12 +4,15 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +81,7 @@ func TestLogManagerSaveLogsSystemLogExistsAndCleanup(t *testing.T) {
 	require.Contains(t, string(data), longLine)
 	require.Contains(t, string(data), "next line\n")
 
-	require.NoError(t, manager.WriteSystemLog("build-id", "hello"))
+	require.NoError(t, manager.WriteSystemLog("build-id", "hello", int64(len(input)+1024)))
 	data, err = os.ReadFile(logPath)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "[SYSTEM] hello")
@@ -93,16 +96,16 @@ func TestLogManagerSaveLogsSystemLogExistsAndCleanup(t *testing.T) {
 	require.NoError(t, manager.CleanUp("build-id"))
 }
 
-func TestLogManagerSaveLogsReturnsLimitErrorAndMarker(t *testing.T) {
+func TestLogManagerSaveLogsNeverWritesBeyondLimit(t *testing.T) {
 	manager, err := storage.NewLogManager(t.TempDir())
 	require.NoError(t, err)
 
 	logPath, err := manager.SaveLogs("build-id", strings.NewReader("12345\n"), 4)
-	require.ErrorIs(t, err, storage.ErrLogSizeLimitExceeded)
+	require.ErrorIs(t, err, model.ErrBuildLogSizeLimitExceeded)
 	require.True(t, manager.IsLogSizeLimitExceeded(err))
 	data, readErr := os.ReadFile(logPath)
 	require.NoError(t, readErr)
-	require.Contains(t, string(data), "Log size limit exceeded")
+	require.Equal(t, "1234", string(data))
 }
 
 func TestWorkspaceManagerArchivePathAndWorkspaceCleanup(t *testing.T) {
@@ -183,3 +186,95 @@ func writeTarFiles(w *tar.Writer, files map[string]string) error {
 	}
 	return nil
 }
+
+func TestLogManagerSaveLogsBoundsNewlineFreeInput(t *testing.T) {
+	manager, err := storage.NewLogManager(t.TempDir())
+	require.NoError(t, err)
+	source := &countedOutput{remaining: 1 << 30}
+	path, err := manager.SaveLogs("huge", source, 1024)
+	require.ErrorIs(t, err, model.ErrBuildLogSizeLimitExceeded)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, int64(1024), info.Size())
+	require.LessOrEqual(t, source.read, int64(1025))
+}
+
+type countedOutput struct{ remaining, read int64 }
+
+func (r *countedOutput) Read(p []byte) (int, error) {
+	if r.remaining == 0 {
+		return 0, io.EOF
+	}
+	n := min(int64(len(p)), r.remaining)
+	for i := range p[:n] {
+		p[i] = 'x'
+	}
+	r.remaining -= n
+	r.read += n
+	return int(n), nil
+}
+
+func TestWriteLogsPreservesWriteShortWriteReadAndCloseErrors(t *testing.T) {
+	writeErr := errors.New("write failed")
+	closeErr := errors.New("close failed")
+	for _, tt := range []struct {
+		name   string
+		source io.Reader
+		writer *faultLogWriter
+		want   error
+		also   error
+	}{
+		{name: "write", source: strings.NewReader("hello"), writer: &faultLogWriter{writeErr: writeErr}, want: writeErr},
+		{name: "short write", source: strings.NewReader("hello"), writer: &faultLogWriter{short: true}, want: io.ErrShortWrite},
+		{name: "close", source: strings.NewReader("hello"), writer: &faultLogWriter{closeErr: closeErr}, want: closeErr},
+		{name: "write and close", source: strings.NewReader("hello"), writer: &faultLogWriter{writeErr: writeErr, closeErr: closeErr}, want: writeErr, also: closeErr},
+		{name: "read", source: &failedLogReader{err: io.ErrUnexpectedEOF}, writer: &faultLogWriter{}, want: io.ErrUnexpectedEOF},
+		{name: "limit and close", source: strings.NewReader("12345678901"), writer: &faultLogWriter{closeErr: closeErr}, want: model.ErrBuildLogSizeLimitExceeded, also: closeErr},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := storage.WriteLogs(tt.writer, tt.source, 10)
+			require.ErrorIs(t, err, tt.want)
+			if tt.also != nil {
+				require.ErrorIs(t, err, tt.also)
+			}
+			require.True(t, tt.writer.closed)
+			require.LessOrEqual(t, tt.writer.written, 10)
+		})
+	}
+}
+
+func TestLogManagerSystemMessagesRespectRemainingBudget(t *testing.T) {
+	manager, err := storage.NewLogManager(t.TempDir())
+	require.NoError(t, err)
+	path, err := manager.SaveLogs("build", strings.NewReader("1234"), 4)
+	require.NoError(t, err)
+	require.ErrorIs(t, manager.WriteSystemLog("build", "failure", 4), model.ErrBuildLogSizeLimitExceeded)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "1234", string(data))
+}
+
+// Fault injection at the storage stream boundary; a real file cannot reliably
+// produce short writes or close failures in an isolated test.
+type faultLogWriter struct {
+	writeErr, closeErr error
+	short, closed      bool
+	written            int
+}
+
+func (w *faultLogWriter) Write(p []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	n := len(p)
+	if w.short {
+		n--
+	}
+	w.written += n
+	return n, nil
+}
+func (w *faultLogWriter) Close() error { w.closed = true; return w.closeErr }
+
+type failedLogReader struct{ err error }
+
+func (r *failedLogReader) Read(p []byte) (int, error) { return 0, r.err }
