@@ -112,7 +112,7 @@ func main() {
 		StoragePath:               storagePath,
 		RegistryURL:               registryURL,
 		BuildNetworkName:          buildNetworkName,
-		KanikoImage:               getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor:latest"),
+		KanikoImage:               getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"),
 		MaxBuildTime:              time.Duration(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
 		MaxConcurrentBuilds:       getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 		MaxUnpackedSizeBytes:      getEnvInt64("MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
@@ -121,12 +121,13 @@ func main() {
 	}
 
 	application, err := app.New(app.Config{
-		CoreTarget:    coreTarget,
-		InternalToken: internalToken,
-		Builder:       builderConfig,
-		StoragePath:   storagePath,
-		RabbitMQURL:   rabbitMQURL,
-		InstanceID:    instanceID,
+		RegistryCAFile: getEnvString("REGISTRY_CA_FILE", "/run/dcm-registry/ca.crt"),
+		CoreTarget:     coreTarget,
+		InternalToken:  internalToken,
+		Builder:        builderConfig,
+		StoragePath:    storagePath,
+		RabbitMQURL:    rabbitMQURL,
+		InstanceID:     instanceID,
 		ObjectStorage: objectstorage.Config{
 			Endpoint:  objectStorageEndpoint,
 			Bucket:    objectStorageBucket,

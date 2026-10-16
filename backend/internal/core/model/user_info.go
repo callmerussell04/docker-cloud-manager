@@ -3,6 +3,7 @@ package model
 import "github.com/google/uuid"
 
 type UserInfo struct {
+	Status      string
 	ID          uuid.UUID
 	Username    string
 	Role        string

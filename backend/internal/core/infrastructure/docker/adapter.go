@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/build"
 	"github.com/docker/docker/api/types/container"
@@ -27,9 +28,14 @@ import (
 type Adapter struct {
 	cli            *client.Client
 	hostPathPrefix string
+	pullAuth       func(context.Context, string) (string, error)
 }
 
 type AdapterOption func(*Adapter)
+
+func WithPullAuthorization(auth func(context.Context, string) (string, error)) AdapterOption {
+	return func(a *Adapter) { a.pullAuth = auth }
+}
 
 func WithHostPathPrefix(path string) AdapterOption {
 	return func(a *Adapter) {
@@ -267,14 +273,35 @@ func (a *Adapter) Close() error {
 }
 
 func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
-	out, err := a.cli.ImagePull(ctx, imageName, image.PullOptions{})
+	options := image.PullOptions{}
+	if a.pullAuth != nil {
+		auth, err := a.pullAuth(ctx, imageName)
+		if err != nil {
+			return err
+		}
+		options.RegistryAuth = auth
+	}
+	out, err := a.cli.ImagePull(ctx, imageName, options)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
 
-	_, err = io.Copy(io.Discard, out)
-	return err
+	decoder := json.NewDecoder(out)
+	for {
+		var progress struct {
+			Error string `json:"error"`
+		}
+		if err := decoder.Decode(&progress); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if progress.Error != "" {
+			return apperrors.New(apperrors.ErrUnavailable, "image pull failed")
+		}
+	}
 }
 
 func (a *Adapter) InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error) {

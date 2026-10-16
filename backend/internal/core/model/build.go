@@ -52,6 +52,7 @@ func IsBuildFailedStatus(status string) bool {
 }
 
 type Build struct {
+	RegistryCredential RegistryCredential
 	ID                 uuid.UUID
 	ImageID            uuid.UUID
 	OwnerID            uuid.UUID

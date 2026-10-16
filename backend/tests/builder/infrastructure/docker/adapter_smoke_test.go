@@ -8,9 +8,12 @@ import (
 	"time"
 
 	builderdocker "github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +46,7 @@ func TestAdapterCleanupOrphanBuildContainersSmoke(t *testing.T) {
 		_ = cli.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
 	})
 
-	adapter, err := builderdocker.NewAdapter()
+	adapter, err := builderdocker.NewAdapter(builderdocker.Config{})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapter.Close() })
 	require.NoError(t, adapter.CleanupOrphanBuildContainers(ctx))
@@ -56,4 +59,22 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func TestAdapterRejectsUnprotectedBuildNetworkSmoke(t *testing.T) {
+	if os.Getenv("BUILDER_TEST_DOCKER") != "1" {
+		t.Skip("set BUILDER_TEST_DOCKER=1 for Docker admission check")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer cli.Close()
+	created, err := cli.NetworkCreate(ctx, "dcm-unprotected-test-"+uuid.NewString(), network.CreateOptions{Driver: "bridge"})
+	require.NoError(t, err)
+	defer cli.NetworkRemove(context.Background(), created.ID)
+	adapter, err := builderdocker.NewAdapter(builderdocker.Config{RequireNetworkPolicy: true})
+	require.NoError(t, err)
+	defer adapter.Close()
+	require.ErrorIs(t, adapter.ValidateBuildNetwork(ctx, created.ID), apperrors.ErrUnavailable)
 }

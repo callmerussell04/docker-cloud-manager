@@ -317,6 +317,9 @@ message ImageActionRequest {
 }
 
 message StartBuildRecordResponse {
+ string registry_username = 4;
+ string registry_password = 5;
+ string registry_destination = 6;
   bool started = 1;
   string status = 2;
   string image_id = 3;

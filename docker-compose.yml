@@ -34,7 +34,7 @@ x-build-runtime-env: &build-runtime-env
   BUILD_CPU_PERIOD: "${BUILD_CPU_PERIOD:-100000}"
   BUILD_MEMORY_SWAP_MULTIPLIER: "${BUILD_MEMORY_SWAP_MULTIPLIER:-2}"
   BUILD_PIDS_LIMIT: "${BUILD_PIDS_LIMIT:-512}"
-  KANIKO_IMAGE: "${KANIKO_IMAGE:-gcr.io/kaniko-project/executor:latest}"
+  KANIKO_IMAGE: "${KANIKO_IMAGE:-gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698}"
   MAX_BUILD_TIME_MINUTES: "${MAX_BUILD_TIME_MINUTES:-10}"
   MAX_CONCURRENT_BUILDS: "${MAX_CONCURRENT_BUILDS:-2}"
   MAX_UPLOAD_SIZE_BYTES: "${MAX_UPLOAD_SIZE_BYTES:-52428800}"
@@ -201,19 +201,74 @@ services:
       - proxy_net
       - dcm_net
 
+  build-network-policy:
+    build:
+      context: .
+      dockerfile: deployment/registry/network-policy.Dockerfile
+    network_mode: host
+    cap_add: [NET_ADMIN]
+    read_only: true
+    tmpfs: [/run]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "sh", "/usr/local/bin/network-policy-check"]
+      interval: 2s
+      timeout: 1s
+      retries: 10
+
+  build-egress:
+    build:
+      context: .
+      dockerfile: deployment/registry/egress.Dockerfile
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp, /var/run/squid, /var/cache/squid]
+    networks:
+      build_net:
+        ipv4_address: 172.30.252.3
+      build_egress_net: {}
+
+  registry-edge:
+    build:
+      context: .
+      dockerfile: deployment/registry/edge.Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      registry_front_net: {}
+      build_net:
+        ipv4_address: 172.30.252.2
+        aliases: [registry]
+    depends_on:
+      core:
+        condition: service_started
+
   registry:
     <<: *service-defaults
-    image: registry:2
+    image: registry:2.8.3
     container_name: registry
     environment:
       REGISTRY_STORAGE_DELETE_ENABLED: "true"
-    ports:
-      - "127.0.0.1:5000:5000"
+      REGISTRY_HTTP_TLS_CERTIFICATE: /run/dcm-registry/backend.crt
+      REGISTRY_HTTP_TLS_KEY: /run/dcm-registry/backend.key
+      REGISTRY_HTTP_SECRET: "${REGISTRY_HTTP_SECRET:?REGISTRY_HTTP_SECRET is required}"
+      REGISTRY_HTTP_HOST: "https://${REGISTRY_URL:-registry:5000}"
+      REGISTRY_AUTH: token
+      REGISTRY_AUTH_TOKEN_REALM: "https://${REGISTRY_URL:-registry:5000}/token"
+      REGISTRY_AUTH_TOKEN_SERVICE: dcm-registry
+      REGISTRY_AUTH_TOKEN_ISSUER: "${REGISTRY_TOKEN_ISSUER:-dcm-core}"
+      REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE: /run/dcm-registry/signing.crt
     volumes:
       - registry_data:/var/lib/registry
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/backend.crt:/run/dcm-registry/backend.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/backend.key:/run/dcm-registry/backend.key:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.crt:/run/dcm-registry/signing.crt:ro
     networks:
-      - dcm_net
-      - build_net
+      registry_net:
+        aliases: [registry-backend]
 
   sso:
     <<: *service-defaults
@@ -262,8 +317,16 @@ services:
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is required}"
-      REGISTRY_API_URL: "${REGISTRY_API_URL:-registry:5000}"
-      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-localhost:5000}"
+      REGISTRY_API_URL: "${REGISTRY_API_URL:-https://registry-backend:5000}"
+      REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
+      REGISTRY_BACKEND_URL: "https://registry-backend:5000"
+      REGISTRY_CA_FILE: /run/dcm-registry/ca.crt
+      REGISTRY_TLS_CERT_FILE: /run/dcm-registry/registry.crt
+      REGISTRY_TLS_KEY_FILE: /run/dcm-registry/registry.key
+      REGISTRY_SIGNING_CERT_FILE: /run/dcm-registry/signing.crt
+      REGISTRY_SIGNING_KEY_FILE: /run/dcm-registry/signing.key
+      REGISTRY_TOKEN_ISSUER: "${REGISTRY_TOKEN_ISSUER:-dcm-core}"
+      REGISTRY_PUBLIC_URL: "${REGISTRY_PUBLIC_URL:-registry:5000}"
       REGISTRY_CONTAINER_NAME: "${REGISTRY_CONTAINER_NAME:-registry}"
       CONTAINER_PIDS_LIMIT: "${CONTAINER_PIDS_LIMIT:-256}"
       CONTAINER_MEMORY_SWAP_MULTIPLIER: "${CONTAINER_MEMORY_SWAP_MULTIPLIER:-2}"
@@ -313,11 +376,20 @@ services:
       CORE_HTTP_PORT: "8083"
       CORE_HOST_DISK_PATH: "${CORE_HOST_DISK_PATH:-/host}"
     volumes:
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/ca.crt:/run/dcm-registry/ca.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/registry.crt:/run/dcm-registry/registry.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/registry.key:/run/dcm-registry/registry.key:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.crt:/run/dcm-registry/signing.crt:ro
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.key:/run/dcm-registry/signing.key:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - /:/host:ro
       - core_config_data:/app/config
     networks:
-      - dcm_net
+      dcm_net:
+        aliases: [registry-edge]
+      registry_net: {}
+      registry_front_net:
+        aliases: [core-registry]
     depends_on:
       migrate_core:
         condition: service_completed_successfully
@@ -341,15 +413,21 @@ services:
       BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-}"
       REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
+      REGISTRY_CA_FILE: /run/dcm-registry/ca.crt
       BUILD_STORAGE_PATH: "/tmp/builds"
       BUILD_LOGS_PATH: "/tmp/build_logs"
     volumes:
+      - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/ca.crt:/run/dcm-registry/ca.crt:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - builder_storage:/tmp/builds
       - builder_logs:/tmp/build_logs
     networks:
       - dcm_net
     depends_on:
+      build-network-policy:
+        condition: service_healthy
+      build-egress:
+        condition: service_started
       core:
         condition: service_started
       rabbitmq:
@@ -493,8 +571,22 @@ networks:
     name: proxy_net
   dcm_net:
     name: dcm_net
+  registry_front_net:
+    internal: true
+  registry_net:
+    internal: true
+  build_egress_net:
+    driver_opts:
+      com.docker.network.bridge.name: br-dcm-egress
   build_net:
     name: build_net
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-dcm-build
+    ipam:
+      config:
+        - subnet: 172.30.252.0/24
 
 volumes:
   core_db_data:

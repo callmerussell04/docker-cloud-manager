@@ -8,6 +8,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 )
@@ -46,13 +47,13 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 	}, nil
 }
 
-func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error) {
+func (c *CoreClient) StartBuildRecord(ctx context.Context, buildID string) (model.BuildClaim, bool, string, error) {
 	ctx = accessscope.WithSystemScope(ctx)
 	resp, err := c.imageAPI.StartBuildRecord(ctx, &coreapi.BuildActionRequest{BuildId: buildID})
 	if err != nil {
-		return "", false, "", grpcerrors.FromGRPC(err)
+		return model.BuildClaim{}, false, "", grpcerrors.FromGRPC(err)
 	}
-	return resp.GetImageId(), resp.GetStarted(), resp.GetStatus(), nil
+	return model.BuildClaim{ImageID: resp.GetImageId(), RegistryUsername: resp.GetRegistryUsername(), RegistryPassword: resp.GetRegistryPassword(), Destination: resp.GetRegistryDestination()}, resp.GetStarted(), resp.GetStatus(), nil
 }
 
 func (c *CoreClient) CompleteBuildRecord(ctx context.Context, buildID, imageID, buildStatus string, sizeMB int) error {

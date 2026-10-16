@@ -12,6 +12,7 @@ import (
 type Adapter struct {
 	baseURL    string
 	httpClient *http.Client
+	tokens     TokenProvider
 }
 
 func NewAdapter(registryURL string) *Adapter {
@@ -42,6 +43,9 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	}
 	req.Header.Set("Accept", strings.Join(acceptHeaders, ", "))
 
+	if err := a.authorize(ctx, req, repo, false); err != nil {
+		return 0, "", err
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return 0, "", err
@@ -49,7 +53,7 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, "", fmt.Errorf("registry returned status: %d", resp.StatusCode)
+		return 0, "", responseError(resp.StatusCode)
 	}
 
 	digest := resp.Header.Get("Docker-Content-Digest")
@@ -77,6 +81,9 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 		return err
 	}
 
+	if err := a.authorize(ctx, req, repo, true); err != nil {
+		return err
+	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -84,7 +91,7 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("failed to delete manifest, status: %d", resp.StatusCode)
+		return responseError(resp.StatusCode)
 	}
 	return nil
 }

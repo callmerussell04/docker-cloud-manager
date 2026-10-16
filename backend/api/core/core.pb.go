@@ -2322,12 +2322,15 @@ func (x *ImageActionRequest) GetImageId() string {
 }
 
 type StartBuildRecordResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Started       bool                   `protobuf:"varint,1,opt,name=started,proto3" json:"started,omitempty"`
-	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	ImageId       string                 `protobuf:"bytes,3,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	RegistryUsername    string                 `protobuf:"bytes,4,opt,name=registry_username,json=registryUsername,proto3" json:"registry_username,omitempty"`
+	RegistryPassword    string                 `protobuf:"bytes,5,opt,name=registry_password,json=registryPassword,proto3" json:"registry_password,omitempty"`
+	RegistryDestination string                 `protobuf:"bytes,6,opt,name=registry_destination,json=registryDestination,proto3" json:"registry_destination,omitempty"`
+	Started             bool                   `protobuf:"varint,1,opt,name=started,proto3" json:"started,omitempty"`
+	Status              string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
+	ImageId             string                 `protobuf:"bytes,3,opt,name=image_id,json=imageId,proto3" json:"image_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *StartBuildRecordResponse) Reset() {
@@ -2358,6 +2361,27 @@ func (x *StartBuildRecordResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StartBuildRecordResponse.ProtoReflect.Descriptor instead.
 func (*StartBuildRecordResponse) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *StartBuildRecordResponse) GetRegistryUsername() string {
+	if x != nil {
+		return x.RegistryUsername
+	}
+	return ""
+}
+
+func (x *StartBuildRecordResponse) GetRegistryPassword() string {
+	if x != nil {
+		return x.RegistryPassword
+	}
+	return ""
+}
+
+func (x *StartBuildRecordResponse) GetRegistryDestination() string {
+	if x != nil {
+		return x.RegistryDestination
+	}
+	return ""
 }
 
 func (x *StartBuildRecordResponse) GetStarted() bool {
@@ -4855,8 +4879,11 @@ const file_api_core_core_proto_rawDesc = "" +
 	"containers\x18\x01 \x03(\v2\x13.core.ContainerDataR\n" +
 	"containers\"?\n" +
 	"\x12ImageActionRequest\x12\x19\n" +
-	"\bimage_id\x18\x02 \x01(\tR\aimageIdJ\x04\b\x01\x10\x02R\bowner_id\"g\n" +
-	"\x18StartBuildRecordResponse\x12\x18\n" +
+	"\bimage_id\x18\x02 \x01(\tR\aimageIdJ\x04\b\x01\x10\x02R\bowner_id\"\xf4\x01\n" +
+	"\x18StartBuildRecordResponse\x12+\n" +
+	"\x11registry_username\x18\x04 \x01(\tR\x10registryUsername\x12+\n" +
+	"\x11registry_password\x18\x05 \x01(\tR\x10registryPassword\x121\n" +
+	"\x14registry_destination\x18\x06 \x01(\tR\x13registryDestination\x12\x18\n" +
 	"\astarted\x18\x01 \x01(\bR\astarted\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x19\n" +
 	"\bimage_id\x18\x03 \x01(\tR\aimageId\"-\n" +

@@ -174,3 +174,33 @@ func validSystemConfig() SystemConfig {
 		TelemetryWSReadLimitBytes:            4096,
 	}
 }
+
+func TestRegistryEndpointsRemainBootstrapSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	initial := validSystemConfig()
+	initial.RegistryAPIURL = "https://old-registry:5000"
+	manager, err := NewManager(path, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := initial
+	next.RegistryAPIURL = "https://registry-backend:5000"
+	next.RegistryPublicURL = "registry:5000"
+	manager, err = NewManager(path, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := manager.Get()
+	if cfg.RegistryAPIURL != next.RegistryAPIURL || cfg.RegistryPublicURL != next.RegistryPublicURL {
+		t.Fatal("persisted config overrode Registry bootstrap endpoints")
+	}
+	cfg.RegistryAPIURL = "http://unauthenticated:5000"
+	cfg.RegistryPublicURL = "unauthenticated:5000"
+	if err := manager.Update(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg = manager.Get()
+	if cfg.RegistryAPIURL != next.RegistryAPIURL || cfg.RegistryPublicURL != next.RegistryPublicURL {
+		t.Fatal("runtime update changed Registry bootstrap endpoints")
+	}
+}

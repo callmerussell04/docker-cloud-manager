@@ -55,6 +55,9 @@ func (m *Manager) Update(newConfig SystemConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	newConfig.RegistryAPIURL = m.config.RegistryAPIURL
+	newConfig.RegistryPublicURL = m.config.RegistryPublicURL
+	newConfig.RegistryContainerName = m.config.RegistryContainerName
 	if err := ValidateSystemConfig(newConfig); err != nil {
 		return err
 	}
@@ -105,6 +108,9 @@ func (m *Manager) loadFromFile(defaultConfig SystemConfig) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
+	cfg.RegistryAPIURL = defaultConfig.RegistryAPIURL
+	cfg.RegistryPublicURL = defaultConfig.RegistryPublicURL
+	cfg.RegistryContainerName = defaultConfig.RegistryContainerName
 	m.config = cfg
 	return nil
 }

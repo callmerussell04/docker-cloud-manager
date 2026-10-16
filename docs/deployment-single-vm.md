@@ -137,9 +137,9 @@ COOKIE_SAMESITE=lax
 Для реестра образов на одной машине оставьте:
 
 ```env
-REGISTRY_API_URL=registry:5000
+REGISTRY_API_URL=https://registry-backend:5000
 REGISTRY_URL=registry:5000
-REGISTRY_PUBLIC_URL=localhost:5000
+REGISTRY_PUBLIC_URL=registry:5000
 ```
 
 OIDC по умолчанию выключен:
@@ -149,6 +149,8 @@ SSO_OIDC_ENABLED=false
 ```
 
 Полное назначение переменных описано в [справочнике конфигурации](configuration.md).
+
+Перед первым запуском выполните раздел «TLS и изоляция Registry» ниже.
 
 ## 7. Проверьте конфигурацию
 
@@ -236,3 +238,38 @@ docker compose --env-file backend/.env down
 - [Диагностика](troubleshooting.md)
 
 [К оглавлению документации](README.md)
+
+## TLS и изоляция Registry
+
+Перед запуском подготовьте `REGISTRY_CERTS_DIR` (например `/etc/dcm/registry`) с правами, ограничивающими чтение private keys:
+
+- `ca.crt` — CA для TLS;
+- `registry.crt`, `registry.key` — TLS certificate/key для Core edge, SAN включает `registry`;
+- `backend.crt`, `backend.key` — TLS certificate/key backend, SAN включает `registry-backend`;
+- `signing.crt`, `signing.key` — отдельный RSA signing certificate/key Core. Используйте отдельный self-signed certificate либо certificate, непосредственно доверенный в `signing.crt` Registry. Приватный signing key монтируется только в Core.
+
+Создайте сертификаты своей CA, задайте `REGISTRY_HTTP_SECRET` независимо от остальных секретов. Включите `br_netfilter` и `net.bridge.bridge-nf-call-iptables=1`, `net.bridge.bridge-nf-call-ip6tables=1`. Compose требует iptables backend Docker и устанавливает ограничения для отдельных bridges `br-dcm-build`/`br-dcm-egress`; не используйте эти имена для других сетей. Диапазон `172.30.252.0/24` должен быть свободен.
+
+Для single-server конфигурации установите `REGISTRY_URL=registry:5000` и `REGISTRY_PUBLIC_URL=registry:5000`. Добавьте на Docker host `registry` в `/etc/hosts` с адресом `127.0.0.1` и установите `ca.crt` в `/etc/docker/certs.d/registry:5000/ca.crt`. Docker должен доверять этой CA. Канонический TLS realm должен быть достижим по одному имени и из Kaniko, и из daemon. Для другого DNS имени обновите SAN, host DNS, оба адреса и network alias согласованно.
+
+Порт `127.0.0.1:5000` принадлежит TCP forwarder `registry-edge`, который передаёт TLS только в аутентифицированный listener Core. Core не подключается к сети сборки. Сам Registry не публикует порты и находится в отдельной внутренней сети. Не добавляйте его в `build_net`, `dcm_net` или Traefik. Запрос без credentials к `https://registry:5000/v2/` должен вернуть `401` и Bearer challenge; plaintext HTTP и Core management paths на этом порту недоступны.
+
+`build-network-policy` требует `CAP_NET_ADMIN` и host network для установки host firewall. `build-egress` обеспечивает доступ Dockerfile к внешним пакетам по HTTP(S) через `HTTP_PROXY`/`HTTPS_PROXY`; клиенты, игнорирующие proxy, не получают прямой интернет-доступ. Builder ждёт готовности policy. Для обновления существующего стенда остановите новые сборки, дождитесь завершения текущих, затем пересоздайте `build_net` как internal network. Согласуйте действующий host firewall с этими правилами; не снимайте ограничения при остановке worker.
+
+Изолированная проверка (только disposable test database):
+
+```bash
+cd backend
+CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
+  GOCACHE=/tmp/go-build-cache go test -count=1 -timeout=5m ./tests/core/integration/registry_isolation
+```
+
+Тест создаёт собственные Registry storage, bridge и execution containers, проверяет реальные Dockerfile RUN с прочитанным job credential и удаляет свои fixtures. Он не устанавливает host firewall и не проверяет policy container; перед эксплуатацией отдельно проверьте сетевую политику из execution network.
+
+Для изолированной проверки host firewall с уникальными временными bridges/chains и их удалением после теста:
+
+```bash
+cd backend
+CORE_TEST_NETWORK_POLICY=1 GOCACHE=/tmp/go-build-cache \
+  go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/core/integration/registry_isolation
+```

@@ -32,13 +32,14 @@ type App struct {
 }
 
 type Config struct {
-	CoreTarget    string
-	InternalToken string
-	Builder       config.BuilderConfig
-	StoragePath   string
-	RabbitMQURL   string
-	InstanceID    string
-	ObjectStorage objectstorage.Config
+	RegistryCAFile string
+	CoreTarget     string
+	InternalToken  string
+	Builder        config.BuilderConfig
+	StoragePath    string
+	RabbitMQURL    string
+	InstanceID     string
+	ObjectStorage  objectstorage.Config
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -74,7 +75,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	extractor := archive.NewExtractor()
 
-	dockerAdapter, err := docker.NewAdapter()
+	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true})
 	if err != nil {
 		return nil, err
 	}

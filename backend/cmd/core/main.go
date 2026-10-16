@@ -118,8 +118,8 @@ func main() {
 		fatal(logger, "required environment variable is not set", "env_var", "INTERNAL_SERVICE_TOKEN")
 	}
 
-	registryAPIURL := getEnvString("REGISTRY_API_URL", "registry:5000")
-	registryPublicURL := getEnvString("REGISTRY_PUBLIC_URL", "localhost:5000")
+	registryAPIURL := getEnvString("REGISTRY_API_URL", "https://registry-backend:5000")
+	registryPublicURL := getEnvString("REGISTRY_PUBLIC_URL", "registry:5000")
 	registryContainerName := getEnvString("REGISTRY_CONTAINER_NAME", "registry")
 
 	defaultCfg := config.SystemConfig{
@@ -158,7 +158,7 @@ func main() {
 		BuildMemorySwapMultiplier:            getEnvFloat("BUILD_MEMORY_SWAP_MULTIPLIER", 2),
 		BuildPidsLimit:                       getEnvInt64("BUILD_PIDS_LIMIT", 512),
 		BuildNetworkName:                     getEnvString("BUILD_NETWORK_NAME", "build_net"),
-		KanikoImage:                          getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor:latest"),
+		KanikoImage:                          getEnvString("KANIKO_IMAGE", "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"),
 		MaxBuildTimeMinutes:                  int64(getEnvInt("MAX_BUILD_TIME_MINUTES", 10)),
 		MaxConcurrentBuilds:                  getEnvInt("MAX_CONCURRENT_BUILDS", 2),
 		MaxUploadSizeBytes:                   getEnvInt64("MAX_UPLOAD_SIZE_BYTES", 50<<20),
@@ -215,6 +215,16 @@ func main() {
 	}
 
 	application, err := app.New(app.Config{
+		Registry: app.RegistryConfig{
+			Authority:              requiredEnv(logger, "REGISTRY_URL"),
+			BackendURL:             requiredEnv(logger, "REGISTRY_BACKEND_URL"),
+			CAFile:                 requiredEnv(logger, "REGISTRY_CA_FILE"),
+			CertificateFile:        requiredEnv(logger, "REGISTRY_TLS_CERT_FILE"),
+			KeyFile:                requiredEnv(logger, "REGISTRY_TLS_KEY_FILE"),
+			SigningCertificateFile: requiredEnv(logger, "REGISTRY_SIGNING_CERT_FILE"),
+			SigningKeyFile:         requiredEnv(logger, "REGISTRY_SIGNING_KEY_FILE"),
+			Issuer:                 requiredEnv(logger, "REGISTRY_TOKEN_ISSUER"),
+		},
 		Port:          port,
 		HTTPPort:      httpPort,
 		DBURL:         dbURL,

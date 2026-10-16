@@ -34,6 +34,7 @@ import (
 type App struct {
 	gRPCServer        *grpc.Server
 	httpServer        *http.Server
+	registryServer    *http.Server
 	db                *sql.DB
 	reportsRepo       *clickhouserepo.ReportsRepository
 	dockerCli         *docker.Adapter
@@ -61,6 +62,7 @@ type Config struct {
 	ConfigManager *config.Manager
 	ObjectStorage objectstorage.Config
 	ClickHouse    ClickHouseConfig
+	Registry      RegistryConfig
 }
 
 type ClickHouseConfig struct {
@@ -82,12 +84,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath))
+	registryClient, err := registry.TLSClient(cfg.Registry.CAFile)
 	if err != nil {
 		return nil, err
 	}
-
-	registryAdapter := registry.NewAdapter(cfg.ConfigManager.Get().RegistryAPIURL)
+	signer, err := registry.NewSigner(cfg.Registry.SigningCertificateFile, cfg.Registry.SigningKeyFile, cfg.Registry.Issuer)
+	if err != nil {
+		return nil, err
+	}
 	ssoConn, err := grpc.NewClient(
 		cfg.SSOTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -100,6 +104,30 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
 	}
 	ssoClient := grpcclient.NewSSOClient(ssoConn)
+	registryGrants := repository.NewRegistryGrantRepository(db)
+	registryAuth := service.NewRegistryAuthorization(registryGrants, ssoClient, signer, cfg.Registry.Authority)
+	registryAdapter, err := registry.NewSecureAdapter(cfg.Registry.BackendURL, registryClient, registryAuth.TrustedToken)
+	if err != nil {
+		return nil, err
+	}
+	registryEdge, err := registryServer(cfg.Registry, registryClient, registryAuth)
+	if err != nil {
+		return nil, err
+	}
+	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithPullAuthorization(func(ctx context.Context, imageName string) (string, error) {
+		repo, custom := registry.RepositoryFromImage(imageName, cfg.ConfigManager.Get().RegistryPublicURL)
+		if !custom {
+			return "", nil
+		}
+		credential, err := registryAuth.PullCredential(ctx, repo)
+		if err != nil {
+			return "", err
+		}
+		return registry.DockerAuth(credential.Username, credential.Password, cfg.ConfigManager.Get().RegistryPublicURL), nil
+	}))
+	if err != nil {
+		return nil, err
+	}
 
 	contRepo := repository.NewContainerRepository(db)
 	volRepo := repository.NewVolumeRepository(db)
@@ -128,8 +156,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
 	volService.SetLifecycleRepository(resourceLifecycleRepo)
 	imgService.SetLifecycleRepository(resourceLifecycleRepo)
+	imgService.SetRegistryAuthorization(registryAuth)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, service.BuildServiceDeps{
+		RegistryAuth:  registryAuth,
 		VolumeRepo:    volRepo,
 		Config:        cfg.ConfigManager,
 		ObjectStore:   objectStore,
@@ -218,6 +248,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
 	startWorkers(ctx, wg,
+		func(ctx context.Context) { registryAuth.RunCleanup(ctx, registryAdapter) },
 		ttlWorker.Run,
 		eventWorker.Run,
 		gcWorker.Run,
@@ -238,6 +269,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	return &App{
 		gRPCServer:        gRPCServer,
 		httpServer:        httpServer,
+		registryServer:    registryEdge,
 		db:                db,
 		reportsRepo:       reportsRepo,
 		dockerCli:         dockerAdapter,
@@ -267,6 +299,14 @@ func startWorkers(ctx context.Context, wg *sync.WaitGroup, workers ...func(conte
 }
 
 func (a *App) Run() error {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		if err := a.registryServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			a.logger.Error("registry edge failed")
+			a.cancel()
+		}
+	}()
 	go func() {
 		a.logger.Info("core http server starting", "port", a.httpServer.Addr)
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -286,6 +326,13 @@ func (a *App) Run() error {
 func (a *App) Stop() {
 	a.logger.Info("core application stopping")
 	a.cancel()
+	if a.registryServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := a.registryServer.Shutdown(shutdownCtx); err != nil {
+			_ = a.registryServer.Close()
+		}
+		cancel()
+	}
 	if a.httpServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {

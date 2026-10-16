@@ -74,9 +74,9 @@ DCM использует два уровня настроек:
 | `OBJECT_STORAGE_ACCESS_KEY` | `dcm_minio` | Ключ доступа S3 |
 | `OBJECT_STORAGE_SECRET_KEY` | `change_me_*` | Секретный ключ S3 |
 | `OBJECT_STORAGE_USE_SSL` | `false` | TLS между Core, Builder и объектным хранилищем |
-| `REGISTRY_API_URL` | `registry:5000` | Адрес API реестра образов для Core |
+| `REGISTRY_API_URL` | `https://registry-backend:5000` | Адрес API реестра образов для Core |
 | `REGISTRY_URL` | `registry:5000` | Адрес реестра образов для Builder |
-| `REGISTRY_PUBLIC_URL` | `localhost:5000` | Адрес реестра, с которого сервер Docker загружает образы |
+| `REGISTRY_PUBLIC_URL` | `registry:5000` | Адрес реестра, с которого сервер Docker загружает образы |
 | `CLICKHOUSE_DB` | `dcm_reports` | База данных отчётов |
 | `CLICKHOUSE_USER` | `dcm_reports` | Пользователь базы данных отчётов |
 | `CLICKHOUSE_PASSWORD` | `change_me_*` | Секрет базы данных отчётов |
@@ -190,3 +190,33 @@ DCM использует два уровня настроек:
 Все поля количества, интервала, времени ожидания и размера должны быть положительными, кроме явно разрешённых нулевых ограничений. Разрешённые серверы, команды и префиксы должны быть непустыми и уникальными.
 
 [Аутентификация](authentication.md) · [Руководство администратора](admin-guide.md) · [К оглавлению](README.md)
+
+## Авторизация Registry
+
+Registry использует native Distribution token auth (`registry:2.8.3`) на всех адресах. Core предоставляет отдельный TLS listener `:5000`: только `/token` и `/v2/`. Не публикуйте прямой порт контейнера Registry. Его TLS listener находится в отдельной внутренней сети `registry_net`; API продолжает проверять подпись и права даже при прямом обращении.
+
+Bootstrap-параметры (секреты не входят в runtime config):
+
+| Переменная | Назначение |
+| --- | --- |
+| `REGISTRY_URL` | Канонический адрес для Kaniko и token realm, по умолчанию `registry:5000` |
+| `REGISTRY_PUBLIC_URL` | Адрес для Docker daemon, в штатной конфигурации также `registry:5000` |
+| `REGISTRY_BACKEND_URL` | Внутренний HTTPS backend, Compose задаёт `https://registry-backend:5000` |
+| `REGISTRY_CERTS_DIR` | Абсолютный каталог сертификатов на сервере |
+| `REGISTRY_CA_FILE` | CA для соединений Core/Builder, в Compose `/run/dcm-registry/ca.crt` |
+| `REGISTRY_TLS_CERT_FILE`, `REGISTRY_TLS_KEY_FILE` | TLS identity отдельного listener Core |
+| `REGISTRY_SIGNING_CERT_FILE`, `REGISTRY_SIGNING_KEY_FILE` | Отдельная RSA signing identity Core (минимум 2048 бит) |
+| `REGISTRY_TOKEN_ISSUER` | Issuer, одинаковый у Core и Registry; `dcm-core` |
+| `REGISTRY_HTTP_SECRET` | Независимый секрет Registry для состояния resumable uploads |
+
+После успешного durable claim Core выдаёт единственный случайный exchange credential, сохраняя только SHA-256. Он действует до сохранённого execution deadline. Kaniko получает его в `/kaniko/.docker/config.json`, вне build context и snapshot образа; считайте, что Dockerfile может прочитать его. В очереди, аргументах сборки и публичных DTO его нет. Credentials удаляются вместе с execution container. Используется Kaniko v1.24.0, закреплённый по digest: `gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698`, TLS verification включена.
+
+Build credential получает `pull,push` только для своего destination repository и `pull` для других доступных образов своего владельца. Удаление, catalog и чужие repositories запрещены. Права действуют на все теги repository. Core выдаёт Docker daemon отдельный renewable credential с правом чтения одного repository, сроком 30 минут; он не попадает в application container. Metadata/cleanup используют отдельный Core principal с exact-repository `pull,delete`, подписываемый внутри доверенного процесса.
+
+Bearer TTL — 60 секунд; Distribution допускает ещё 60 секунд clock skew. Edge ограничивает чтение, запись и контекст запроса одной минутой. Отмена немедленно запрещает renewal и ставит durable cleanup, который ждёт 181 секунду от последнего issuance. Cleanup сохраняется после удаления build/image rows и повторяется при недоступности Registry. Удаление успешного образа выполняется worker после такой же fence. Нужны синхронизированные часы; компрометация signing key требует ротации Registry trust.
+
+Сеть сборки `172.30.252.0/24` должна быть свободна. Она внутренняя; доступны только TCP forwarder Registry edge (`172.30.252.2:5000`), который передаёт TLS только в отдельный listener Core и egress proxy (`172.30.252.3:3128`). Proxy разрешает внешние HTTP/HTTPS endpoints и запрещает private/link-local адреса. `build-network-policy` устанавливает IPv4/IPv6 правила в Docker forwarding и host INPUT; Builder запускается только после успешной установки. Требуются Linux Docker с iptables backend, `DOCKER-USER`, `br_netfilter` и обе bridge-nf-call настройки, равные `1`. Правила сохраняются при остановке policy container. Не отключайте policy и не подключайте execution containers к другим сетям. При перезапуске Docker перезапустите policy до возобновления Builder. Это изменение deployment требует пересоздания сети сборок при отсутствии активных сборок.
+
+Cleanup и claim новой сборки используют одну блокировку repository в PostgreSQL. Отложенное удаление проверяет активных publishers и оставшееся время всех write tokens repository, поскольку bearer даёт права на все его теги. Удаление одного тега ждёт завершения уже работающих сборок соседних тегов; новые claims повторяются после освобождения блокировки. Если появился доступный replacement того же тега, устаревшая cleanup job завершается без удаления его manifest.
+
+Builder проверяет internal bridge и health policy container перед durable claim и перед запуском executor. Healthcheck проверяет сами IPv4/IPv6 правила, а не только файл готовности. Если policy ещё не восстановилась после перезапуска Docker, сообщение остаётся retryable и executor не запускается.

@@ -55,14 +55,19 @@ type ObjectStorage interface {
 }
 
 type CoreClient interface {
-	StartBuildRecord(ctx context.Context, buildID string) (string, bool, string, error)
+	StartBuildRecord(ctx context.Context, buildID string) (model.BuildClaim, bool, string, error)
 	CompleteBuildRecord(ctx context.Context, buildID, imageID, status string, sizeMB int) error
 	GetBuildStatus(ctx context.Context, buildID string) (string, error)
+}
+
+type BuildNetworkAdmission interface {
+	ValidateBuildNetwork(ctx context.Context, networkName string) error
 }
 
 const defaultBuildCancelPollInterval = 2 * time.Second
 
 type buildJob struct {
+	Claim        model.BuildClaim
 	BuildID      string
 	ImageID      string
 	OwnerID      string
@@ -184,7 +189,12 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 	defer s.releaseBuildSlot()
 
-	imageID, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
+	if admission, ok := s.dockerAPI.(BuildNetworkAdmission); ok {
+		if err := admission.ValidateBuildNetwork(ctx, cfg.BuildNetworkName); err != nil {
+			return err
+		}
+	}
+	claim, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
 	if err != nil {
 		return err
 	}
@@ -197,8 +207,9 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		}
 		return nil
 	}
-	if imageID == "" {
-		imageID = msg.ImageID
+	imageID := claim.ImageID
+	if imageID == "" || claim.RegistryUsername == "" || claim.RegistryPassword == "" || claim.Destination == "" {
+		return apperrors.New(apperrors.ErrUnavailable, "build authorization is unavailable")
 	}
 
 	buildCtx, cancel := context.WithTimeout(ctx, cfg.MaxBuildTime)
@@ -246,6 +257,7 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 
 	if err := s.processBuild(buildCtx, cancel, cfg, archivePath, buildJob{
+		Claim:        claim,
 		BuildID:      msg.BuildID,
 		ImageID:      imageID,
 		OwnerID:      msg.OwnerID,
@@ -352,10 +364,11 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 					logger.ErrorContext(ctx, "invalid dockerfile path in queue message", "error", err)
 					s.writeInternalBuildLog(ctx, logger, job.BuildID, job.LogObjectKey)
 				} else {
-					repoName := imageref.CustomRepositoryNameString(job.OwnerID, baseName)
-					destinationTag := fmt.Sprintf("%s/%s:%s", cfg.RegistryURL, repoName, version)
+					destinationTag := job.Claim.Destination
 
 					params := model.BuildRuntimeSpec{
+						RegistryUsername:     job.Claim.RegistryUsername,
+						RegistryPassword:     job.Claim.RegistryPassword,
 						BuildID:              job.BuildID,
 						OwnerID:              job.OwnerID,
 						WorkspaceDir:         workspaceDir,    // Путь к папке на хосте/в контейнере билдера

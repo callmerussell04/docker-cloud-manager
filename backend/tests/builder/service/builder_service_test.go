@@ -95,7 +95,7 @@ func TestBuilderServiceHandleBuildMessageSkipsTerminalAndRunningDuplicates(t *te
 		t.Run(tt.name, func(t *testing.T) {
 			h := newBuilderHarness(t, testBuilderRuntimeConfig())
 			msg := testBuildMessage()
-			h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return("image-id", false, tt.status, nil)
+			h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{ImageID: "image-id"}, false, tt.status, nil)
 			if tt.wantDelete {
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 			}
@@ -116,7 +116,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 		{
 			name: "start build record error",
 			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
-				h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return("", false, "", apperrors.ErrUnavailable)
+				h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "", apperrors.ErrUnavailable)
 				return msg
 			},
 			wantErr: apperrors.ErrUnavailable,
@@ -473,7 +473,7 @@ func testBuildMessageWithID(buildID string) buildqueue.ImageBuildMessage {
 }
 
 func expectStarted(h *builderHarness, msg buildqueue.ImageBuildMessage, imageID string) {
-	h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(imageID, true, "running", nil)
+	h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{ImageID: imageID, RegistryUsername: msg.BuildID, RegistryPassword: "scoped-secret", Destination: "registry:5000/owner-id_app:latest"}, true, "running", nil)
 }
 
 func expectPreparedArchive(h *builderHarness, msg buildqueue.ImageBuildMessage, validateErr error) {

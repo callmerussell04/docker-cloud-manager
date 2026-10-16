@@ -37,12 +37,13 @@ type ImageRegistryAPI interface {
 }
 
 type ImageService struct {
-	repo        ImageRepository
-	dockerAPI   ImageDockerAPI
-	registryAPI ImageRegistryAPI
-	contRepo    ImageContainerRepository
-	cfg         ConfigManager
-	lifecycle   ImageLifecycleRepository
+	repo         ImageRepository
+	dockerAPI    ImageDockerAPI
+	registryAPI  ImageRegistryAPI
+	contRepo     ImageContainerRepository
+	cfg          ConfigManager
+	lifecycle    ImageLifecycleRepository
+	registryAuth *RegistryAuthorization
 }
 
 type ImageLifecycleRepository interface {
@@ -68,6 +69,8 @@ func NewImageService(
 		cfg:         cfg,
 	}
 }
+
+func (s *ImageService) SetRegistryAuthorization(auth *RegistryAuthorization) { s.registryAuth = auth }
 
 func (s *ImageService) SetLifecycleRepository(repo ImageLifecycleRepository) {
 	s.lifecycle = repo
@@ -147,10 +150,26 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	baseName, version := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
+	if s.registryAuth != nil {
+		unlock, err := s.registryAuth.LockRepository(ctx, repoName)
+		if err != nil {
+			_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
+			return err
+		}
+		defer unlock()
+		if err := s.registryAuth.FenceRepository(ctx, repoName); err != nil {
+			_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
+			return err
+		}
+	}
 	// Удаление из Registry (Soft Delete)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err == nil && digest != "" {
-		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+		err = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+	}
+	if s.registryAuth != nil && err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
+		return err
 	}
 
 	// Удаление из локального кэша Docker Engine

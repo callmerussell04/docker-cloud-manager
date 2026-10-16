@@ -123,6 +123,7 @@ type BuildService struct {
 	diskMetrics  HostDiskMetricsProvider
 	hostMetrics  HostMetricsProvider
 	hostDiskPath string
+	registryAuth *RegistryAuthorization
 	logger       *slog.Logger
 }
 
@@ -136,6 +137,7 @@ type BuildServiceDeps struct {
 	DiskMetrics   HostDiskMetricsProvider
 	HostMetrics   HostMetricsProvider
 	HostDiskPath  string
+	RegistryAuth  *RegistryAuthorization
 }
 
 type createBuildJobInput struct {
@@ -153,6 +155,7 @@ type createBuildJobInput struct {
 func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps BuildServiceDeps) *BuildService {
 	return &BuildService{
 		repo:         repo,
+		registryAuth: deps.RegistryAuth,
 		imageRepo:    imageRepo,
 		volumeRepo:   deps.VolumeRepo,
 		registryAPI:  registryAPI,
@@ -714,7 +717,14 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 }
 
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
-	b, started, err := s.repo.StartBuild(ctx, buildID)
+	var b model.Build
+	var started bool
+	var err error
+	if s.registryAuth != nil {
+		b, started, err = s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(s.buildConfig().MaxBuildTimeMinutes)*time.Minute)
+	} else {
+		b, started, err = s.repo.StartBuild(ctx, buildID)
+	}
 	if err != nil {
 		return model.Build{}, false, err
 	}
@@ -736,7 +746,12 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
-	if b.Status == model.BuildStatusRunning {
+	if s.registryAuth != nil {
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+			return err
+		}
+	}
+	if s.registryAuth == nil && b.Status == model.BuildStatusRunning {
 		if img, err := s.imageRepo.GetByID(ctx, b.ImageID); err == nil {
 			s.cleanupBuiltImageManifestForImage(ctx, b.ID, img)
 		} else if !errors.Is(err, apperrors.ErrNotFound) {
@@ -781,8 +796,16 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err != nil {
 		return err
 	}
+	if b.ImageID != imageID {
+		return apperrors.ErrForbidden
+	}
+	if s.registryAuth != nil {
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, status != model.BuildStatusSuccess || b.Status == model.BuildStatusCanceled); err != nil {
+			return err
+		}
+	}
 	if model.IsBuildTerminalStatus(b.Status) {
-		if b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
+		if s.registryAuth == nil && b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
 			s.cleanupBuiltImageManifest(ctx, b)
 		}
 		s.cleanupBuildArchive(ctx, b)
@@ -811,6 +834,11 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
+		if s.registryAuth != nil {
+			if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, true); revokeErr != nil {
+				return revokeErr
+			}
+		}
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
 
@@ -840,7 +868,13 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
 			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
 		}
-		_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+		if s.registryAuth != nil {
+			if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+				return err
+			}
+		} else {
+			_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+		}
 		s.cleanupBuildArchive(ctx, b)
 		s.cancelDeploymentForBuild(ctx, b)
 		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
@@ -907,6 +941,11 @@ func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 	}
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
+	}
+	if s.registryAuth != nil {
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, !model.IsBuildTerminalStatus(b.Status) || b.Status != model.BuildStatusSuccess); err != nil {
+			return err
+		}
 	}
 	if err := s.repo.Delete(ctx, buildID); err != nil {
 		return err

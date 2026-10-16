@@ -56,6 +56,7 @@ func userFromProto(pbUser *ssoapi.UserData) (model.UserInfo, error) {
 	}
 	return model.UserInfo{
 		ID:          userID,
+		Status:      pbUser.GetStatus(),
 		Username:    pbUser.GetUsername(),
 		Role:        pbUser.GetRole(),
 		QuotaRAMMB:  pbUser.GetQuotaRamMb(),

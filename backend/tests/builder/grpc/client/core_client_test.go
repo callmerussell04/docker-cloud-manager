@@ -50,7 +50,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, images.startScope.Kind)
 	require.Equal(t, "build-id", images.startedBuildID)
-	require.Equal(t, "image-id", imageID)
+	require.Equal(t, "image-id", imageID.ImageID)
 	require.True(t, started)
 	require.Equal(t, "running", buildStatus)
 

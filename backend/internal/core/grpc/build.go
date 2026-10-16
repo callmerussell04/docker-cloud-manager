@@ -36,9 +36,12 @@ func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildA
 	}
 
 	return &coreapi.StartBuildRecordResponse{
-		Started: started,
-		Status:  build.Status,
-		ImageId: build.ImageID.String(),
+		Started:             started,
+		RegistryUsername:    build.RegistryCredential.Username,
+		RegistryPassword:    build.RegistryCredential.Password,
+		RegistryDestination: build.RegistryCredential.Destination,
+		Status:              build.Status,
+		ImageId:             build.ImageID.String(),
 	}, nil
 }
 
