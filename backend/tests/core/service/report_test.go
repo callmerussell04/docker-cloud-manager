@@ -13,6 +13,7 @@ import (
 	coreconfig "github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -47,14 +48,14 @@ func TestReportServiceListMethodsNormalizePagination(t *testing.T) {
 		}).
 		Return([]model.AuditEvent(nil), 0, nil)
 
-	_, total, err := svc.ListUserUsageReport(context.Background(), time.Time{}, time.Time{}, "", "", -1, -10)
+	_, total, err := svc.ListUserUsageReport(accessscope.WithAdminScope(context.Background(), uuid.New(), "admin", "admin"), time.Time{}, time.Time{}, "", "", -1, -10)
 	require.NoError(t, err)
 	require.Equal(t, 7, total)
 	require.Equal(t, 20, userUsageLimit)
 	require.Equal(t, 0, userUsageOffset)
 	require.True(t, userUsageFrom.Before(userUsageTo))
 
-	_, _, err = svc.ListAuditEvents(context.Background(), model.AuditEventFilters{Limit: 500, Offset: -20})
+	_, _, err = svc.ListAuditEvents(accessscope.WithAdminScope(context.Background(), uuid.New(), "admin", "admin"), model.AuditEventFilters{Limit: 500, Offset: -20})
 	require.NoError(t, err)
 	require.Equal(t, 20, auditFilters.Limit)
 	require.Equal(t, 0, auditFilters.Offset)
@@ -70,7 +71,7 @@ func TestReportServiceReadErrorsReturnUnavailable(t *testing.T) {
 		ListAuditEvents(mock.Anything, mock.AnythingOfType("model.AuditEventFilters")).
 		Return(nil, 0, errors.New("clickhouse illegal aggregation"))
 
-	_, _, err := svc.ListAuditEvents(context.Background(), model.AuditEventFilters{Limit: 20})
+	_, _, err := svc.ListAuditEvents(accessscope.WithAdminScope(context.Background(), uuid.New(), "admin", "admin"), model.AuditEventFilters{Limit: 20})
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 	require.Equal(t, apperrors.ErrUnavailable.Error(), apperrors.SafeMessage(err))
 	require.True(t, strings.Contains(logs.String(), "list_audit_events"))
@@ -80,7 +81,7 @@ func TestReportServiceReadErrorsReturnUnavailable(t *testing.T) {
 func TestReportServiceRecordAuditEventFillsDefaultsAndSwallowsWriteErrors(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
 	svc := NewReportService(reports, coremocks.NewUsageSnapshotSource(t), coremocks.NewReportUserDirectory(t), testReportConfig(), discardLogger())
-	ctx := logging.ContextWithRequestID(context.Background(), "req-123")
+	ctx := logging.ContextWithRequestID(accessscope.WithSystemScope(context.Background()), "req-123")
 	var recorded model.AuditEvent
 
 	reports.EXPECT().
@@ -94,7 +95,7 @@ func TestReportServiceRecordAuditEventFillsDefaultsAndSwallowsWriteErrors(t *tes
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, recorded.ID)
 	require.False(t, recorded.OccurredAt.IsZero())
-	require.Equal(t, auditlog.ActorScopeUnknown, recorded.ActorScope)
+	require.Equal(t, string(accessscope.KindSystem), recorded.ActorScope)
 	require.Equal(t, auditlog.OutcomeSuccess, recorded.Outcome)
 	require.Equal(t, "{}", recorded.DetailsJSON)
 	require.Equal(t, "req-123", recorded.RequestID)
@@ -154,7 +155,7 @@ func TestReportServiceGetUserUsageTimelineUsesConfiguredBucketInterval(t *testin
 		}).
 		Return([]model.UserUsagePoint{{BucketStart: from}}, nil)
 
-	points, err := svc.GetUserUsageTimeline(context.Background(), ownerID, from, to)
+	points, err := svc.GetUserUsageTimeline(accessscope.WithAdminScope(context.Background(), uuid.New(), "admin", "admin"), ownerID, from, to)
 	require.NoError(t, err)
 	require.Len(t, points, 1)
 	require.Equal(t, 5*time.Minute, gotInterval)
@@ -172,4 +173,35 @@ func testReportConfig() staticReportConfig {
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func TestReportServiceRejectsInvalidActorScopesBeforeStorage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"missing", context.Background(), apperrors.ErrUnauthorized},
+		{"unknown", accessscope.WithScope(context.Background(), accessscope.Scope{Kind: "unknown"}), apperrors.ErrForbidden},
+		{"user_without_identity", accessscope.WithUserScope(context.Background(), uuid.Nil, "alice", "user"), apperrors.ErrForbidden},
+		{"admin_without_identity", accessscope.WithAdminScope(context.Background(), uuid.Nil, "admin", "admin"), apperrors.ErrForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reports := coremocks.NewReportsRepository(t)
+			svc := NewReportService(reports, nil, nil, nil, discardLogger())
+			_, err := svc.GetReportsOverview(tc.ctx, time.Time{}, time.Time{})
+			require.ErrorIs(t, err, tc.want)
+			_, _, err = svc.ListUserUsageReport(tc.ctx, time.Time{}, time.Time{}, "", "", 20, 0)
+			require.ErrorIs(t, err, tc.want)
+			_, err = svc.GetUserUsageTimeline(tc.ctx, uuid.New(), time.Time{}, time.Time{})
+			require.ErrorIs(t, err, tc.want)
+			_, _, err = svc.ListAuditEvents(tc.ctx, model.AuditEventFilters{})
+			require.ErrorIs(t, err, tc.want)
+			_, err = svc.RefreshUsageSnapshots(tc.ctx)
+			require.ErrorIs(t, err, tc.want)
+			err = svc.RecordAuditEvent(tc.ctx, model.AuditEvent{ActorScope: "admin"})
+			require.ErrorIs(t, err, tc.want)
+			require.Empty(t, reports.Calls)
+		})
+	}
 }

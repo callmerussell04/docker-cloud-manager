@@ -44,7 +44,7 @@ func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
 	if scope.UserID.String() != "00000000-0000-0000-0000-000000000000" {
 		actorUserID = scope.UserID.String()
 	}
-	_ = h.service.RecordAuditEvent(context.Background(), model.AuditEvent{
+	_ = h.service.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
 		OccurredAt:    time.Now().UTC().Unix(),
 		ActorUserID:   actorUserID,
 		ActorUsername: scope.Username,

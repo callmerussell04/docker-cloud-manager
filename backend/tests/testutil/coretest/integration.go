@@ -96,7 +96,7 @@ type CoreGRPCRegistration struct {
 	Users      coregrpc.UserDirectory
 }
 
-func NewCoreGRPCConn(t *testing.T, token string, reg CoreGRPCRegistration) *grpc.ClientConn {
+func NewCoreGRPCConn(t *testing.T, token string, reg CoreGRPCRegistration, clientOptions ...grpc.DialOption) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(grpc.ChainUnaryInterceptor(internalauth.UnaryServerInterceptor(token)))
@@ -129,14 +129,15 @@ func NewCoreGRPCConn(t *testing.T, token string, reg CoreGRPCRegistration) *grpc
 		_ = listener.Close()
 	})
 
-	conn, err := grpc.NewClient("passthrough:///bufnet",
+	options := []grpc.DialOption{
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		// Bound every fixture RPC, including callers that omit a deadline.
 		grpc.WithDefaultServiceConfig(`{"methodConfig":[{"name":[{}],"timeout":"5s"}]}`),
-	)
+	}
+	conn, err := grpc.NewClient("passthrough:///bufnet", append(options, clientOptions...)...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn

@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"bufio"
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
 	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/gateway/http/handler"
 	gatewaymiddlewaremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/gateway/http/middleware"
@@ -198,7 +200,10 @@ func TestRouterAuthBoundariesAndUploadProxyChain(t *testing.T) {
 	deps.verifier.EXPECT().
 		VerifyAccessToken(mock.Anything, "Bearer upload").
 		Return(model.AuthUser{UserID: userID, Username: "alice", Role: "user"}, nil)
-	deps.core.EXPECT().RecordAuditEvent(mock.Anything, mock.MatchedBy(func(event model.AuditEvent) bool {
+	deps.core.EXPECT().RecordAuditEvent(mock.MatchedBy(func(ctx context.Context) bool {
+		scope, ok := accessscope.FromContext(ctx)
+		return ok && scope.Kind == accessscope.KindUser && scope.UserID.String() == userID && scope.Username == "alice" && ctx.Err() == nil
+	}), mock.MatchedBy(func(event model.AuditEvent) bool {
 		return event.ActorUserID == userID && event.Action != "" && event.Outcome == "success"
 	})).Return(nil)
 	resp = routerRequest(router, http.MethodPost, "/api/v1/images/build", "archive", map[string]string{"Authorization": "Bearer upload"})

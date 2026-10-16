@@ -8,6 +8,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -61,6 +62,9 @@ func NewReportService(reports ReportsRepository, source UsageSnapshotSource, use
 }
 
 func (s *ReportService) GetReportsOverview(ctx context.Context, from, to time.Time) (model.ReportsOverview, error) {
+	if err := requireReportAdminScope(ctx); err != nil {
+		return model.ReportsOverview{}, err
+	}
 	from, to = normalizeFromTo(from, to, s.now())
 	overview, err := s.reports.GetReportsOverview(ctx, from, to)
 	if err != nil {
@@ -76,6 +80,9 @@ func (s *ReportService) GetReportsOverview(ctx context.Context, from, to time.Ti
 }
 
 func (s *ReportService) ListUserUsageReport(ctx context.Context, from, to time.Time, sort, search string, limit, offset int) ([]model.UserUsageReportItem, int, error) {
+	if err := requireReportAdminScope(ctx); err != nil {
+		return nil, 0, err
+	}
 	from, to = normalizeFromTo(from, to, s.now())
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -91,6 +98,9 @@ func (s *ReportService) ListUserUsageReport(ctx context.Context, from, to time.T
 }
 
 func (s *ReportService) GetUserUsageTimeline(ctx context.Context, ownerID uuid.UUID, from, to time.Time) ([]model.UserUsagePoint, error) {
+	if err := requireReportAdminScope(ctx); err != nil {
+		return nil, err
+	}
 	from, to = normalizeFromTo(from, to, s.now())
 	points, err := s.reports.GetUserUsageTimeline(ctx, ownerID, from, to, s.usageSnapshotInterval())
 	if err != nil {
@@ -100,6 +110,9 @@ func (s *ReportService) GetUserUsageTimeline(ctx context.Context, ownerID uuid.U
 }
 
 func (s *ReportService) ListAuditEvents(ctx context.Context, filters model.AuditEventFilters) ([]model.AuditEvent, int, error) {
+	if err := requireReportAdminScope(ctx); err != nil {
+		return nil, 0, err
+	}
 	filters.From, filters.To = normalizeFromTo(filters.From, filters.To, s.now())
 	if filters.Limit <= 0 || filters.Limit > 100 {
 		filters.Limit = 20
@@ -115,14 +128,31 @@ func (s *ReportService) ListAuditEvents(ctx context.Context, filters model.Audit
 }
 
 func (s *ReportService) RecordAuditEvent(ctx context.Context, event model.AuditEvent) error {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	switch scope.Kind {
+	case accessscope.KindUser, accessscope.KindAdmin:
+		if scope.UserID == uuid.Nil {
+			return apperrors.ErrForbidden
+		}
+	case accessscope.KindSystem:
+	default:
+		return apperrors.ErrForbidden
+	}
+	// Actor identity comes only from the authenticated scope, never the event payload.
+	event.ActorUserID, event.ActorUsername, event.ActorScope = auditActorFromContext(ctx)
+	if scope.Kind == accessscope.KindSystem {
+		event.ActorUserID = nil
+		event.ActorUsername = ""
+	}
+
 	if event.ID == uuid.Nil {
 		event.ID = uuid.New()
 	}
 	if event.OccurredAt.IsZero() {
 		event.OccurredAt = s.now().UTC()
-	}
-	if event.ActorScope == "" {
-		event.ActorScope = auditlog.ActorScopeUnknown
 	}
 	if event.Outcome == "" {
 		event.Outcome = auditlog.OutcomeSuccess
@@ -163,6 +193,9 @@ func (s *ReportService) CollectUsageSnapshot(ctx context.Context, at time.Time) 
 }
 
 func (s *ReportService) RefreshUsageSnapshots(ctx context.Context) (model.UsageSnapshotCollection, error) {
+	if err := requireReportAdminScope(ctx); err != nil {
+		return model.UsageSnapshotCollection{}, err
+	}
 	now := s.now().UTC()
 	select {
 	case s.refresh <- struct{}{}:
@@ -258,4 +291,15 @@ func (w *ReportsUsageWorker) collect(ctx context.Context) {
 	if _, err := w.reports.CollectUsageSnapshot(ctx, time.Now().UTC()); err != nil {
 		w.logger.Warn("failed to collect reports usage snapshot", "error", err)
 	}
+}
+
+func requireReportAdminScope(ctx context.Context) error {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return err
+	}
+	if scope.Kind != accessscope.KindAdmin || scope.UserID == uuid.Nil {
+		return apperrors.ErrForbidden
+	}
+	return nil
 }
