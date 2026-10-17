@@ -77,9 +77,16 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			dockerAPI := coremocks.NewImageDockerAPI(t)
 			dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Once()
 			cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
-			images := service.NewImageService(repos.Images, dockerAPI, adapter, repos.Containers, cfg)
 			lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
-			images.SetLifecycleRepository(lifecycle)
+			images, err := service.NewImageService(service.ImageServiceDeps{
+				Repository: repos.Images,
+				Docker:     dockerAPI,
+				Registry:   adapter,
+				Containers: repos.Containers,
+				Config:     cfg,
+				Lifecycle:  lifecycle,
+			})
+			require.NoError(t, err)
 			require.ErrorIs(t, images.Delete(coretest.UserContext(uuid.New()), imageID), apperrors.ErrNotFound)
 			require.NoError(t, images.Delete(coretest.UserContext(ownerID), imageID))
 			outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
@@ -107,8 +114,15 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 				require.NotContains(t, *op.LastError, "private malformed response")
 				dockerAPI.AssertNotCalled(t, "RemoveImage", mock.Anything, mock.Anything, mock.Anything)
 				// Reconstruct the service to prove retry uses durable state.
-				images = service.NewImageService(repos.Images, dockerAPI, adapter, repos.Containers, cfg)
-				images.SetLifecycleRepository(lifecycle)
+				images, err = service.NewImageService(service.ImageServiceDeps{
+					Repository: repos.Images,
+					Docker:     dockerAPI,
+					Registry:   adapter,
+					Containers: repos.Containers,
+					Config:     cfg,
+					Lifecycle:  lifecycle,
+				})
+				require.NoError(t, err)
 				worker = service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
 				failedAttempt.Store(false)
 			}

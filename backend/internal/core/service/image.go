@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -13,6 +14,7 @@ import (
 )
 
 type ImageRepository interface {
+	imageStateRepository
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
@@ -54,26 +56,43 @@ type ImageLifecycleRepository interface {
 	RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error
 }
 
-func NewImageService(
-	repo ImageRepository,
-	dockerAPI ImageDockerAPI,
-	registryAPI ImageRegistryAPI,
-	contRepo ImageContainerRepository,
-	cfg ConfigManager,
-) *ImageService {
-	return &ImageService{
-		repo:        repo,
-		dockerAPI:   dockerAPI,
-		registryAPI: registryAPI,
-		contRepo:    contRepo,
-		cfg:         cfg,
-	}
+// ImageServiceDeps requires the durable deletion workflow dependencies.
+type ImageServiceDeps struct {
+	Repository ImageRepository
+	// Docker is required for best-effort local cache cleanup after Registry deletion.
+	Docker     ImageDockerAPI
+	Registry   ImageRegistryAPI
+	Containers ImageContainerRepository
+	Config     ConfigManager
+	Lifecycle  ImageLifecycleRepository
+	// RegistryAuth optionally fences repositories against concurrent build pushes.
+	// Production supplies it; isolated workflows without registry grants may omit it.
+	RegistryAuth *RegistryAuthorization
 }
 
-func (s *ImageService) SetRegistryAuthorization(auth *RegistryAuthorization) { s.registryAuth = auth }
-
-func (s *ImageService) SetLifecycleRepository(repo ImageLifecycleRepository) {
-	s.lifecycle = repo
+func NewImageService(deps ImageServiceDeps) (*ImageService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"docker", deps.Docker},
+		{"registry", deps.Registry}, {"containers", deps.Containers},
+		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+			return nil, fmt.Errorf("image service: %s is required", dependency.name)
+		}
+	}
+	return &ImageService{
+		repo:         deps.Repository,
+		dockerAPI:    deps.Docker,
+		registryAPI:  deps.Registry,
+		contRepo:     deps.Containers,
+		cfg:          deps.Config,
+		lifecycle:    deps.Lifecycle,
+		registryAuth: deps.RegistryAuth,
+	}, nil
 }
 
 func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
@@ -96,9 +115,6 @@ func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 	if img.Status != model.ImageStatusAvailable && img.Status != model.ImageStatusMissing {
 		return apperrors.New(apperrors.ErrConflict, "image is not available")
 	}
-	if s.lifecycle == nil {
-		return apperrors.New(apperrors.ErrUnavailable, "image lifecycle queue is unavailable")
-	}
 	active, err := s.lifecycle.HasActiveOperation(ctx, model.ResourceTypeImage, imageID)
 	if err != nil {
 		return err
@@ -114,9 +130,6 @@ func (s *ImageService) Delete(ctx context.Context, imageID uuid.UUID) error {
 }
 
 func (s *ImageService) ExecuteQueuedImageOperation(ctx context.Context, operationID, imageID uuid.UUID) error {
-	if s.lifecycle == nil {
-		return apperrors.New(apperrors.ErrUnavailable, "image lifecycle queue is unavailable")
-	}
 	op, claimed, err := s.lifecycle.ClaimPendingOperation(ctx, operationID, s.cfg.Get().ContainerCreateMaxAttempts)
 	if err != nil {
 		return err
@@ -230,17 +243,9 @@ func (s *ImageService) List(ctx context.Context, limit, offset int) ([]model.Ima
 }
 
 func (s *ImageService) setImageStatus(ctx context.Context, imageID uuid.UUID, status string) {
-	stateRepo, ok := s.repo.(imageStateRepository)
-	if !ok {
-		return
-	}
-	_ = stateRepo.UpdateStatus(ctx, imageID, status)
+	_ = s.repo.UpdateStatus(ctx, imageID, status)
 }
 
 func (s *ImageService) markImageError(ctx context.Context, imageID uuid.UUID, status string, cause error) {
-	stateRepo, ok := s.repo.(imageStateRepository)
-	if !ok {
-		return
-	}
-	_ = stateRepo.MarkStatusError(ctx, imageID, status, cause)
+	_ = s.repo.MarkStatusError(ctx, imageID, status, cause)
 }

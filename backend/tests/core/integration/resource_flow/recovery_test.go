@@ -97,10 +97,16 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 						}).Maybe()
 					}
 					newWorker := func() (*service.VolumeService, *service.ImageService, *service.ResourceLifecycleWorker) {
-						volumes := service.NewVolumeService(repos.Volumes, volumeDocker, cfg, service.VolumeServiceDeps{})
-						volumes.SetLifecycleRepository(repository.NewResourceLifecycleRepository(repos.DB))
-						images := service.NewImageService(repos.Images, imageDocker, registry, repos.Containers, cfg)
-						images.SetLifecycleRepository(repository.NewResourceLifecycleRepository(repos.DB))
+						volumes := newRecoveryVolumeService(t, repos, volumeDocker, cfg, repository.NewResourceLifecycleRepository(repos.DB))
+						images, err := service.NewImageService(service.ImageServiceDeps{
+							Repository: repos.Images,
+							Docker:     imageDocker,
+							Registry:   registry,
+							Containers: repos.Containers,
+							Config:     cfg,
+							Lifecycle:  repository.NewResourceLifecycleRepository(repos.DB),
+						})
+						require.NoError(t, err)
 						return volumes, images, service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
 					}
 					volumes, images, worker := newWorker()
@@ -189,10 +195,16 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 				lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
 				ownerID, resourceID := uuid.New(), uuid.New()
 				cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
-				volumes := service.NewVolumeService(repos.Volumes, coremocks.NewVolumeDockerAPI(t), cfg, service.VolumeServiceDeps{})
-				volumes.SetLifecycleRepository(lifecycle)
-				images := service.NewImageService(repos.Images, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), repos.Containers, cfg)
-				images.SetLifecycleRepository(lifecycle)
+				volumes := newRecoveryVolumeService(t, repos, coremocks.NewVolumeDockerAPI(t), cfg, lifecycle)
+				images, err := service.NewImageService(service.ImageServiceDeps{
+					Repository: repos.Images,
+					Docker:     coremocks.NewImageDockerAPI(t),
+					Registry:   coremocks.NewImageRegistryAPI(t),
+					Containers: repos.Containers,
+					Config:     cfg,
+					Lifecycle:  lifecycle,
+				})
+				require.NoError(t, err)
 				if kind == "image delete" {
 					require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
 					require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
@@ -252,8 +264,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 				if kind == "volume create" {
 					docker := coremocks.NewVolumeDockerAPI(t)
 					docker.EXPECT().CreateVolume(mock.Anything, mock.Anything).Return("stable-volume", nil).Once()
-					volumes = service.NewVolumeService(repos.Volumes, docker, cfg, service.VolumeServiceDeps{})
-					volumes.SetLifecycleRepository(lifecycle)
+					volumes = newRecoveryVolumeService(t, repos, docker, cfg, lifecycle)
 				}
 				var msg resourcequeue.LifecycleMessage
 				require.NoError(t, json.Unmarshal(outbox[0].Payload, &msg))
@@ -323,10 +334,16 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, mock.Anything, "latest").Return(int64(0), "", apperrors.ErrNotFound).Once()
 				imageDocker.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(cerrdefs.ErrNotFound).Once()
 			}
-			volumes := service.NewVolumeService(repos.Volumes, volumeDocker, cfg, service.VolumeServiceDeps{})
-			volumes.SetLifecycleRepository(lifecycle)
-			images := service.NewImageService(repos.Images, imageDocker, registry, repos.Containers, cfg)
-			images.SetLifecycleRepository(lifecycle)
+			volumes := newRecoveryVolumeService(t, repos, volumeDocker, cfg, lifecycle)
+			images, err := service.NewImageService(service.ImageServiceDeps{
+				Repository: repos.Images,
+				Docker:     imageDocker,
+				Registry:   registry,
+				Containers: repos.Containers,
+				Config:     cfg,
+				Lifecycle:  lifecycle,
+			})
+			require.NoError(t, err)
 			switch kind {
 			case "volume create":
 				var err error
@@ -419,4 +436,23 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newRecoveryVolumeService(t *testing.T, repos coretest.CoreRepositories, docker service.VolumeDockerAPI, cfg service.ConfigManager, lifecycle service.VolumeLifecycleRepository) *service.VolumeService {
+	t.Helper()
+	users := coremocks.NewUserInfoProvider(t)
+	users.EXPECT().GetUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, id uuid.UUID) (model.UserInfo, error) {
+		return model.UserInfo{ID: id, QuotaDiskMB: 4096}, nil
+	}).Maybe()
+	svc, err := service.NewVolumeService(service.VolumeServiceDeps{
+		Repository:  repos.Volumes,
+		Docker:      docker,
+		Config:      cfg,
+		Lifecycle:   lifecycle,
+		Users:       users,
+		ImageRepo:   repos.Images,
+		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
+	})
+	require.NoError(t, err)
+	return svc
 }

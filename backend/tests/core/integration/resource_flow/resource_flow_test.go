@@ -55,10 +55,17 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	statsMetrics.EXPECT().GetMemoryStats().Return(model.HostMemoryStats{TotalBytes: 64 << 30, AvailableBytes: 32 << 30}, nil).Maybe()
 	statsMetrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{TotalBytes: 1 << 40, FreeBytes: 1 << 39}, nil).Maybe()
 
-	volumes := service.NewVolumeService(repos.Volumes, volumeDocker, cfg, service.VolumeServiceDeps{
-		Users:     users,
-		ImageRepo: repos.Images,
+	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
+	volumes, err := service.NewVolumeService(service.VolumeServiceDeps{
+		Repository:  repos.Volumes,
+		Docker:      volumeDocker,
+		Config:      cfg,
+		Lifecycle:   lifecycle,
+		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
+		Users:       users,
+		ImageRepo:   repos.Images,
 	})
+	require.NoError(t, err)
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
 		Repository:   repos.Containers,
 		Builds:       repos.Builds,
@@ -73,12 +80,16 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Logger:       coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
-	images := service.NewImageService(repos.Images, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), repos.Containers, cfg)
+	images, err := service.NewImageService(service.ImageServiceDeps{
+		Repository: repos.Images,
+		Docker:     coremocks.NewImageDockerAPI(t),
+		Registry:   coremocks.NewImageRegistryAPI(t),
+		Containers: repos.Containers,
+		Config:     cfg,
+		Lifecycle:  lifecycle,
+	})
+	require.NoError(t, err)
 	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)
-
-	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
-	volumes.SetLifecycleRepository(lifecycle)
-	images.SetLifecycleRepository(lifecycle)
 
 	ownerCtx := coretest.UserContext(ownerID)
 	volumeID, err := volumes.Create(ownerCtx, model.VolumeCreateParams{Name: "data"})

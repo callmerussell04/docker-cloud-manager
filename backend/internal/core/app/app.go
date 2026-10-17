@@ -186,16 +186,31 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, service.VolumeServiceDeps{
+	volService, err := service.NewVolumeService(service.VolumeServiceDeps{
+		Repository:   volRepo,
+		Docker:       dockerAdapter,
+		Config:       cfg.ConfigManager,
+		Lifecycle:    resourceLifecycleRepo,
 		Users:        ssoClient,
 		ImageRepo:    imgRepo,
 		DiskMetrics:  metricsProvider,
 		HostDiskPath: cfg.HostDiskPath,
 	})
-	imgService := service.NewImageService(imgRepo, dockerAdapter, registryAdapter, contRepo, cfg.ConfigManager)
-	volService.SetLifecycleRepository(resourceLifecycleRepo)
-	imgService.SetLifecycleRepository(resourceLifecycleRepo)
-	imgService.SetRegistryAuthorization(registryAuth)
+	if err != nil {
+		return nil, err
+	}
+	imgService, err := service.NewImageService(service.ImageServiceDeps{
+		Repository:   imgRepo,
+		Docker:       dockerAdapter,
+		Registry:     registryAdapter,
+		Containers:   contRepo,
+		Config:       cfg.ConfigManager,
+		Lifecycle:    resourceLifecycleRepo,
+		RegistryAuth: registryAuth,
+	})
+	if err != nil {
+		return nil, err
+	}
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 	buildService, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    buildRepo,

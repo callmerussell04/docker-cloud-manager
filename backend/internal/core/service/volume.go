@@ -18,6 +18,8 @@ import (
 )
 
 type VolumeRepository interface {
+	volumeDiskUsageRepository
+	volumeStateRepository
 	Save(ctx context.Context, vol model.Volume) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 	GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error)
@@ -69,38 +71,50 @@ type VolumeService struct {
 	lifecycle    VolumeLifecycleRepository
 }
 
+// VolumeServiceDeps contains the mandatory lifecycle and admission capabilities.
+// An empty HostDiskPath uses the host filesystem root for disk admission.
 type VolumeServiceDeps struct {
+	Repository   VolumeRepository
+	Docker       VolumeDockerAPI
+	Config       ConfigManager
+	Lifecycle    VolumeLifecycleRepository
 	Users        UserInfoProvider
 	ImageRepo    volumeImageDiskRepository
 	DiskMetrics  HostDiskMetricsProvider
 	HostDiskPath string
 }
 
-func (s *VolumeService) SetLifecycleRepository(repo VolumeLifecycleRepository) {
-	s.lifecycle = repo
-}
-
-func NewVolumeService(repo VolumeRepository, dockerAPI VolumeDockerAPI, cfg ConfigManager, deps VolumeServiceDeps) *VolumeService {
+func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"docker", deps.Docker},
+		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
+		{"users", deps.Users}, {"images", deps.ImageRepo}, {"disk metrics", deps.DiskMetrics},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+			return nil, fmt.Errorf("volume service: %s is required", dependency.name)
+		}
+	}
 	return &VolumeService{
-		repo:         repo,
-		dockerAPI:    dockerAPI,
-		cfg:          cfg,
+		repo:         deps.Repository,
+		dockerAPI:    deps.Docker,
+		cfg:          deps.Config,
+		lifecycle:    deps.Lifecycle,
 		users:        deps.Users,
 		imageRepo:    deps.ImageRepo,
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
-	}
+	}, nil
 }
 
 func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID) error {
-	volumeRepo, _ := s.repo.(volumeDiskUsageRepository)
-	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, volumeRepo)
+	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, s.repo)
 }
 
 func (s *VolumeService) ensureHostDiskFloor() error {
-	if s.cfg == nil {
-		return nil
-	}
 	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes)
 }
 
@@ -140,9 +154,6 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		Status:     model.VolumeStatusCreating,
 	}
 
-	if s.lifecycle == nil {
-		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, "volume lifecycle queue is unavailable")
-	}
 	op, outbox, err := resourceOperationOutbox(ctx, model.ResourceTypeVolume, volID, ownerID, model.OperationCreate)
 	if err != nil {
 		return uuid.Nil, err
@@ -250,9 +261,6 @@ func (s *VolumeService) Delete(ctx context.Context, volumeID uuid.UUID) error {
 	if inUse {
 		return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 	}
-	if s.lifecycle == nil {
-		return apperrors.New(apperrors.ErrUnavailable, "volume lifecycle queue is unavailable")
-	}
 	active, err := s.lifecycle.HasActiveOperation(ctx, model.ResourceTypeVolume, volumeID)
 	if err != nil {
 		return err
@@ -287,9 +295,6 @@ func (s *VolumeService) GetByID(ctx context.Context, id uuid.UUID) (model.Volume
 }
 
 func (s *VolumeService) ExecuteQueuedVolumeOperation(ctx context.Context, operationID, volumeID uuid.UUID) error {
-	if s.lifecycle == nil {
-		return apperrors.New(apperrors.ErrUnavailable, "volume lifecycle queue is unavailable")
-	}
 	op, claimed, err := s.lifecycle.ClaimPendingOperation(ctx, operationID, s.cfg.Get().ContainerCreateMaxAttempts)
 	if err != nil {
 		return err
@@ -386,19 +391,11 @@ func (s *VolumeService) failQueuedVolume(ctx context.Context, operationID, volum
 }
 
 func (s *VolumeService) setVolumeStatus(ctx context.Context, volumeID uuid.UUID, status string) {
-	stateRepo, ok := s.repo.(volumeStateRepository)
-	if !ok {
-		return
-	}
-	_ = stateRepo.UpdateStatus(ctx, volumeID, status)
+	_ = s.repo.UpdateStatus(ctx, volumeID, status)
 }
 
 func (s *VolumeService) markVolumeError(ctx context.Context, volumeID uuid.UUID, status string, cause error) {
-	stateRepo, ok := s.repo.(volumeStateRepository)
-	if !ok {
-		return
-	}
-	_ = stateRepo.MarkStatusError(ctx, volumeID, status, cause)
+	_ = s.repo.MarkStatusError(ctx, volumeID, status, cause)
 }
 
 func resourceOperationOutbox(ctx context.Context, resourceType string, resourceID, ownerID uuid.UUID, operation string) (model.ResourceOperation, model.ResourceLifecycleOutbox, error) {

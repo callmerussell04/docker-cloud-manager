@@ -23,14 +23,19 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	users := coremocks.NewUserInfoProvider(t)
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	cfg := newVolumeConfigMock(t)
-	svc := NewVolumeService(repo, dockerAPI, cfg, VolumeServiceDeps{Users: users, ImageRepo: imageRepo})
 	lifecycle := &volumeLifecycleFake{}
-	svc.SetLifecycleRepository(lifecycle)
+	svc := newTestVolumeService(t, VolumeServiceDeps{
+		Repository: repo,
+		Docker:     dockerAPI,
+		Config:     cfg,
+		Lifecycle:  lifecycle,
+		Users:      users,
+		ImageRepo:  imageRepo})
 	var saved model.Volume
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 
 	volumeID, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
@@ -74,7 +79,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+				repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
 			},
 			wantErr: apperrors.ErrLimitExceeded,
@@ -86,7 +91,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
+				repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
 			wantErr: apperrors.ErrQuotaExceeded,
 		},
@@ -98,10 +103,13 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			users := coremocks.NewUserInfoProvider(t)
 			imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 			tt.setup(repo, users, imageRepo)
-			svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{
-				Users:     users,
-				ImageRepo: imageRepo,
-			})
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     coremocks.NewVolumeDockerAPI(t),
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  &volumeLifecycleFake{},
+				Users:      users,
+				ImageRepo:  imageRepo})
 			_, err := svc.Create(tt.ctx, tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
 		})
@@ -138,7 +146,12 @@ func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *test
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newVolumeRepoMock(t)
 			repo.VolumeRepository.EXPECT().GetByName(mock.Anything, ownerID, "data").Return(tt.volume, nil)
-			svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{})
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     coremocks.NewVolumeDockerAPI(t),
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  &volumeLifecycleFake{},
+			})
 
 			gotID, err := svc.ResolveByName(accessscope.WithUserScope(context.Background(), ownerID, "", ""), "data")
 			if tt.wantErr != nil {
@@ -218,7 +231,12 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			if tt.setup != nil {
 				tt.setup(repo)
 			}
-			svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{})
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     coremocks.NewVolumeDockerAPI(t),
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  &volumeLifecycleFake{},
+			})
 
 			gotID, reused, err := svc.ResolveProjectManagedByName(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID, "project_a_data")
 			if tt.wantErr != nil {
@@ -243,16 +261,19 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 	cfgData.HostMinFreeDiskBytes = 1024
 	cfg := coremocks.NewConfigManager(t)
 	cfg.EXPECT().Get().Return(cfgData).Maybe()
-	svc := NewVolumeService(repo, dockerAPI, cfg, VolumeServiceDeps{
+	svc := newTestVolumeService(t, VolumeServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		Lifecycle:    &volumeLifecycleFake{},
 		Users:        users,
 		ImageRepo:    imageRepo,
 		DiskMetrics:  metrics,
-		HostDiskPath: "/host",
-	})
+		HostDiskPath: "/host"})
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeDiskUsageRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
@@ -268,13 +289,17 @@ func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
 	repo := newVolumeRepoMock(t)
 	dockerAPI := coremocks.NewVolumeDockerAPI(t)
 	dockerErr := errors.New("docker create failed")
-	svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
 	lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationCreate)
-	svc.SetLifecycleRepository(lifecycle)
+	svc := newTestVolumeService(t, VolumeServiceDeps{
+		Repository: repo,
+		Docker:     dockerAPI,
+		Config:     newVolumeConfigMock(t),
+		Lifecycle:  lifecycle,
+	})
 
 	repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 	dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("", dockerErr)
-	repo.VolumeStateRepository.EXPECT().MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusError, dockerErr).Return(nil)
+	repo.VolumeRepository.EXPECT().MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusError, dockerErr).Return(nil)
 
 	err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
 	require.ErrorIs(t, err, dockerErr)
@@ -313,9 +338,13 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 			repo := newVolumeRepoMock(t)
 			dockerAPI := coremocks.NewVolumeDockerAPI(t)
 			tt.setup(repo, dockerAPI)
-			svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
 			lifecycle := &volumeLifecycleFake{}
-			svc.SetLifecycleRepository(lifecycle)
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  lifecycle,
+			})
 			err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), volumeID)
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -352,7 +381,7 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 				removeErr := errors.New("remove failed")
 				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(removeErr)
-				repo.VolumeStateRepository.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
+				repo.VolumeRepository.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
 			},
 			wantErr: errors.New("remove failed"),
 		},
@@ -363,9 +392,13 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 			repo := newVolumeRepoMock(t)
 			dockerAPI := coremocks.NewVolumeDockerAPI(t)
 			tt.setup(repo, dockerAPI)
-			svc := NewVolumeService(repo, dockerAPI, newVolumeConfigMock(t), VolumeServiceDeps{})
 			lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationDelete)
-			svc.SetLifecycleRepository(lifecycle)
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  lifecycle,
+			})
 			err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
 			if tt.wantErr != nil {
 				require.Error(t, err)
@@ -381,7 +414,12 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 func TestVolumeServiceListUsesScopeOwnerFilter(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)
-	svc := NewVolumeService(repo, coremocks.NewVolumeDockerAPI(t), newVolumeConfigMock(t), VolumeServiceDeps{})
+	svc := newTestVolumeService(t, VolumeServiceDeps{
+		Repository: repo,
+		Docker:     coremocks.NewVolumeDockerAPI(t),
+		Config:     newVolumeConfigMock(t),
+		Lifecycle:  &volumeLifecycleFake{},
+	})
 	var userOpts model.ListOptions
 	var adminOpts model.ListOptions
 
@@ -414,16 +452,12 @@ func TestVolumeServiceListUsesScopeOwnerFilter(t *testing.T) {
 
 type volumeRepoMock struct {
 	*coremocks.VolumeRepository
-	*coremocks.VolumeDiskUsageRepository
-	*coremocks.VolumeStateRepository
 }
 
 func newVolumeRepoMock(t *testing.T) *volumeRepoMock {
 	t.Helper()
 	return &volumeRepoMock{
-		VolumeRepository:          coremocks.NewVolumeRepository(t),
-		VolumeDiskUsageRepository: coremocks.NewVolumeDiskUsageRepository(t),
-		VolumeStateRepository:     coremocks.NewVolumeStateRepository(t),
+		VolumeRepository: coremocks.NewVolumeRepository(t),
 	}
 }
 

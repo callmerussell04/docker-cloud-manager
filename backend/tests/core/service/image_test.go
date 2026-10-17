@@ -24,9 +24,16 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	registry := coremocks.NewImageRegistryAPI(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
-	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
-	svc.SetLifecycleRepository(lifecycle)
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     dockerAPI,
+		Registry:   registry,
+		Containers: containerRepo,
+		Config:     staticConfig{},
+		Lifecycle:  lifecycle,
+	})
+	require.NoError(t, err)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:1.2.3"}, nil)
 	var registryRepo, registryTag, deletedDigest string
@@ -48,7 +55,7 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil)
 
-	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.NoError(t, err)
 	require.Equal(t, ownerID.String()+"_demo", registryRepo)
 	require.Equal(t, "1.2.3", registryTag)
@@ -61,12 +68,20 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 	imageID := uuid.New()
 	repo := newImageRepoMock(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
-	svc := NewImageService(repo, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), containerRepo, staticConfig{})
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     coremocks.NewImageDockerAPI(t),
+		Registry:   coremocks.NewImageRegistryAPI(t),
+		Containers: containerRepo,
+		Config:     staticConfig{},
+		Lifecycle:  &imageLifecycleFake{},
+	})
+	require.NoError(t, err)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
 	containerRepo.EXPECT().IsImageInUse(mock.Anything, ownerID, "demo:latest").Return(true, nil)
 
-	err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
+	err = svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
 	require.ErrorIs(t, err, apperrors.ErrResourceInUse)
 }
 
@@ -74,14 +89,21 @@ func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) 
 	ownerID, imageID, operationID := uuid.New(), uuid.New(), uuid.New()
 	repo := newImageRepoMock(t)
 	registry := coremocks.NewImageRegistryAPI(t)
-	svc := NewImageService(repo, coremocks.NewImageDockerAPI(t), registry, coremocks.NewImageContainerRepository(t), staticConfig{})
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
-	svc.SetLifecycleRepository(lifecycle)
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     coremocks.NewImageDockerAPI(t),
+		Registry:   registry,
+		Containers: coremocks.NewImageContainerRepository(t),
+		Config:     staticConfig{},
+		Lifecycle:  lifecycle,
+	})
+	require.NoError(t, err)
 	cause := apperrors.Wrap(apperrors.ErrUnavailable, "registry lookup failed", errors.New("connection refused"))
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", cause)
 
-	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.ErrorIs(t, err, cause)
 	require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
 }
@@ -93,9 +115,16 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			repo := newImageRepoMock(t)
 			registry := coremocks.NewImageRegistryAPI(t)
 			dockerAPI := coremocks.NewImageDockerAPI(t)
-			svc := NewImageService(repo, dockerAPI, registry, coremocks.NewImageContainerRepository(t), staticConfig{})
 			lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
-			svc.SetLifecycleRepository(lifecycle)
+			svc, err := NewImageService(ImageServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Registry:   registry,
+				Containers: coremocks.NewImageContainerRepository(t),
+				Config:     staticConfig{},
+				Lifecycle:  lifecycle,
+			})
+			require.NoError(t, err)
 			cause := apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", context.DeadlineExceeded)
 			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
 			repoName := ownerID.String() + "_demo"
@@ -106,7 +135,7 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 				registry.EXPECT().DeleteManifest(mock.Anything, repoName, "sha256:digest").Return(cause).Once()
 			}
 
-			err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+			err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 			require.ErrorIs(t, err, apperrors.ErrTimeout)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
@@ -130,9 +159,16 @@ func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	registry := coremocks.NewImageRegistryAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
-	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
-	svc.SetLifecycleRepository(lifecycle)
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     dockerAPI,
+		Registry:   registry,
+		Containers: containerRepo,
+		Config:     staticConfig{},
+		Lifecycle:  lifecycle,
+	})
+	require.NoError(t, err)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
@@ -141,7 +177,7 @@ func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil)
 
-	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.NoError(t, err)
 	require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 }
@@ -155,9 +191,16 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 	registry := coremocks.NewImageRegistryAPI(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	dockerAPI := coremocks.NewImageDockerAPI(t)
-	svc := NewImageService(repo, dockerAPI, registry, containerRepo, staticConfig{})
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
-	svc.SetLifecycleRepository(lifecycle)
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     dockerAPI,
+		Registry:   registry,
+		Containers: containerRepo,
+		Config:     staticConfig{},
+		Lifecycle:  lifecycle,
+	})
+	require.NoError(t, err)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
@@ -165,9 +208,9 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 		return strings.HasSuffix(tag, "demo:latest")
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(deleteErr)
-	repo.ImageStateRepository.EXPECT().MarkStatusError(mock.Anything, imageID, model.ImageStatusError, deleteErr).Return(nil)
+	repo.ImageRepository.EXPECT().MarkStatusError(mock.Anything, imageID, model.ImageStatusError, deleteErr).Return(nil)
 
-	err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.ErrorIs(t, err, deleteErr)
 	require.Equal(t, model.OperationStatusFailed, lifecycle.op.Status)
 }
@@ -175,7 +218,15 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newImageRepoMock(t)
-	svc := NewImageService(repo, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), coremocks.NewImageContainerRepository(t), staticConfig{})
+	svc, err := NewImageService(ImageServiceDeps{
+		Repository: repo,
+		Docker:     coremocks.NewImageDockerAPI(t),
+		Registry:   coremocks.NewImageRegistryAPI(t),
+		Containers: coremocks.NewImageContainerRepository(t),
+		Config:     staticConfig{},
+		Lifecycle:  &imageLifecycleFake{},
+	})
+	require.NoError(t, err)
 	var userOpts model.ListOptions
 	var adminOpts model.ListOptions
 
@@ -194,7 +245,7 @@ func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 		Return([]model.Image(nil), 0, nil).
 		Once()
 
-	_, _, err := svc.List(accessscope.WithUserScope(context.Background(), ownerID, "", ""), 50, 10)
+	_, _, err = svc.List(accessscope.WithUserScope(context.Background(), ownerID, "", ""), 50, 10)
 	require.NoError(t, err)
 	require.NotNil(t, userOpts.OwnerID)
 	require.Equal(t, ownerID, *userOpts.OwnerID)
@@ -208,14 +259,12 @@ func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 
 type imageRepoMock struct {
 	*coremocks.ImageRepository
-	*coremocks.ImageStateRepository
 }
 
 func newImageRepoMock(t *testing.T) *imageRepoMock {
 	t.Helper()
 	return &imageRepoMock{
-		ImageRepository:      coremocks.NewImageRepository(t),
-		ImageStateRepository: coremocks.NewImageStateRepository(t),
+		ImageRepository: coremocks.NewImageRepository(t),
 	}
 }
 

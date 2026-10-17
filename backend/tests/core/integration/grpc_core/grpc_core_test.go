@@ -8,6 +8,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
@@ -53,7 +54,16 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 		Logger:       coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
-	volumes := service.NewVolumeService(repos.Volumes, coremocks.NewVolumeDockerAPI(t), cfg, service.VolumeServiceDeps{Users: users, ImageRepo: repos.Images})
+	volumes, err := service.NewVolumeService(service.VolumeServiceDeps{
+		Repository:  repos.Volumes,
+		Docker:      coremocks.NewVolumeDockerAPI(t),
+		Config:      cfg,
+		Lifecycle:   repository.NewResourceLifecycleRepository(repos.DB),
+		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
+		Users:       users,
+		ImageRepo:   repos.Images,
+	})
+	require.NoError(t, err)
 
 	runtimeID := uuid.New()
 	require.NoError(t, repos.Containers.Save(ctx, model.Container{
