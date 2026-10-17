@@ -71,7 +71,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	certFile, keyFile := testCertificate(t, gateway)
 	signer, err := registry.NewSigner(certFile, keyFile, "dcm-core")
 	require.NoError(t, err)
-	grants := repository.NewRegistryGrantRepository(db)
+	grants := repository.NewRegistryGrantRepository(db, db)
 	users := coremocks.NewUserInfoProvider(t)
 	users.EXPECT().GetUser(mock.Anything, mock.Anything).Return(model.UserInfo{Status: "active"}, nil)
 	auth := service.NewRegistryAuthorization(grants, users, signer, authority)
@@ -135,7 +135,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	t.Cleanup(func() { _ = adapter.Close() })
 	metadata, err := registry.NewSecureAdapter(backendURL, httpClient, auth.TrustedToken)
 	require.NoError(t, err)
-	buildRepo := repository.NewBuildRepository(db)
+	buildRepo := repository.NewBuildRepository(db, db)
 	imageRepo := repository.NewImageRepository(db)
 	ownerA, ownerB := uuid.New(), uuid.New()
 	seed := func(owner uuid.UUID, tag, dockerfile, source string) (model.Build, string, string) {

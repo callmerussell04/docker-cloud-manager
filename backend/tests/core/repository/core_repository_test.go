@@ -26,7 +26,7 @@ func TestCoreMigrationsApply(t *testing.T) {
 func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	repo := repository.NewBuildRepository(db)
+	repo := repository.NewBuildRepository(db, db)
 
 	ownerID := uuid.New()
 	imageID := uuid.New()
@@ -85,7 +85,7 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	buildRepo := repository.NewBuildRepository(db)
+	buildRepo := repository.NewBuildRepository(db, db)
 	imageRepo := repository.NewImageRepository(db)
 
 	ownerID := uuid.New()
@@ -302,7 +302,7 @@ func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
 
 func leaseOneBuildOutbox(t *testing.T, db *sql.DB) model.BuildQueueOutbox {
 	t.Helper()
-	repo := repository.NewBuildRepository(db)
+	repo := repository.NewBuildRepository(db, db)
 	entries, err := repo.LeasePendingBuildOutbox(context.Background(), 10)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)

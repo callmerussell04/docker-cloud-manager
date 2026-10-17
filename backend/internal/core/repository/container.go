@@ -16,14 +16,15 @@ import (
 )
 
 type ContainerRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	lockDB *sql.DB
 }
 
 const containerDomainPrefixIndex = "idx_containers_domain_prefix"
 const containerOwnerNameUniqueIndex = "idx_containers_owner_name_unique"
 
-func NewContainerRepository(db *sql.DB) *ContainerRepository {
-	return &ContainerRepository{db: db}
+func NewContainerRepository(db, lockDB *sql.DB) *ContainerRepository {
+	return &ContainerRepository{db: db, lockDB: lockDB}
 }
 
 func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error {
@@ -685,7 +686,11 @@ func (r *ContainerRepository) SaveWithMountsAndOperation(ctx context.Context, c 
 }
 
 func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	pool := r.db
+	if lockOwner || lockCapacity {
+		pool = r.lockDB
+	}
+	tx, err := pool.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1173,24 +1178,7 @@ func (r *ContainerRepository) updateContainerOutboxStatus(ctx context.Context, i
 }
 
 func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
-	conn, err := r.db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	unlock := func() {
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "dcm:capacity")
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "dcm:owner:"+ownerID.String())
-		_ = conn.Close()
-	}
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "dcm:owner:"+ownerID.String()); err != nil {
-		unlock()
-		return nil, err
-	}
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "dcm:capacity"); err != nil {
-		unlock()
-		return nil, err
-	}
-	return unlock, nil
+	return acquireAdmissionLock(ctx, r.lockDB, []string{"dcm:owner:" + ownerID.String(), "dcm:capacity"})
 }
 
 func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error {

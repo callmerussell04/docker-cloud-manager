@@ -14,11 +14,12 @@ import (
 )
 
 type BuildRepository struct {
-	db *sql.DB
+	db     *sql.DB
+	lockDB *sql.DB
 }
 
-func NewBuildRepository(db *sql.DB) *BuildRepository {
-	return &BuildRepository{db: db}
+func NewBuildRepository(db, lockDB *sql.DB) *BuildRepository {
+	return &BuildRepository{db: db, lockDB: lockDB}
 }
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
@@ -372,19 +373,7 @@ func (r *BuildRepository) CountActive(ctx context.Context) (int, error) {
 }
 
 func (r *BuildRepository) AcquireCapacityLock(ctx context.Context) (func(), error) {
-	conn, err := r.db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	unlock := func() {
-		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext($1))`, "dcm:capacity")
-		_ = conn.Close()
-	}
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext($1))`, "dcm:capacity"); err != nil {
-		unlock()
-		return nil, err
-	}
-	return unlock, nil
+	return acquireAdmissionLock(ctx, r.lockDB, []string{"dcm:capacity"})
 }
 
 func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {

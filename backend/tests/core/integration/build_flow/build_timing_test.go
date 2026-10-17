@@ -50,7 +50,7 @@ func TestBuildQueueResidenceDoesNotConsumeExecutionOrReservations(t *testing.T) 
 			var claimed bool
 			if claimPath == "registry grant" {
 				hash := sha256.Sum256([]byte("build-secret"))
-				started, claimed, err = repository.NewRegistryGrantRepository(repos.DB).ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute)
+				started, claimed, err = repository.NewRegistryGrantRepository(repos.DB, repos.LockDB).ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute)
 			} else {
 				started, claimed, err = builds.StartBuildRecord(ctx, result.BuildID)
 			}

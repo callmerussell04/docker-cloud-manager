@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	_ "github.com/lib/pq"
 )
 
@@ -214,7 +215,12 @@ func main() {
 		fatal(logger, "failed to initialize config manager", "error", err)
 	}
 
+	poolCfg, err := pgpool.Parse(os.LookupEnv, "CORE")
+	if err != nil {
+		fatal(logger, "invalid postgres pool settings", "error", err)
+	}
 	application, err := app.New(app.Config{
+		DBPool: poolCfg,
 		Registry: app.RegistryConfig{
 			Authority:              requiredEnv(logger, "REGISTRY_URL"),
 			BackendURL:             requiredEnv(logger, "REGISTRY_BACKEND_URL"),

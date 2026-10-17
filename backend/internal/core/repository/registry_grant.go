@@ -12,10 +12,13 @@ import (
 	"github.com/google/uuid"
 )
 
-type RegistryGrantRepository struct{ db *sql.DB }
+type RegistryGrantRepository struct {
+	db     *sql.DB
+	lockDB *sql.DB
+}
 
-func NewRegistryGrantRepository(db *sql.DB) *RegistryGrantRepository {
-	return &RegistryGrantRepository{db: db}
+func NewRegistryGrantRepository(db, lockDB *sql.DB) *RegistryGrantRepository {
+	return &RegistryGrantRepository{db: db, lockDB: lockDB}
 }
 
 func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error) {
@@ -184,7 +187,7 @@ func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uui
 // Claims take the same transaction lock without waiting. Cleanup holds it until
 // the Registry operation finishes, so a new publisher cannot race deletion.
 func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, repository string) (func(), error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.lockDB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

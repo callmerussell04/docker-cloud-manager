@@ -20,7 +20,7 @@ import (
 func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	buildRepo := repository.NewBuildRepository(db)
+	buildRepo := repository.NewBuildRepository(db, db)
 	imageRepo := repository.NewImageRepository(db)
 	ownerID := uuid.New()
 	imageID := uuid.New()
@@ -63,7 +63,7 @@ func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	containerRepo := repository.NewContainerRepository(db)
+	containerRepo := repository.NewContainerRepository(db, db)
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	operationID := uuid.New()
@@ -128,7 +128,7 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
 	projectRepo := repository.NewProjectRepository(db)
-	containerRepo := repository.NewContainerRepository(db)
+	containerRepo := repository.NewContainerRepository(db, db)
 	volumeRepo := repository.NewVolumeRepository(db)
 	ownerID := uuid.New()
 	projectID := uuid.New()
@@ -179,7 +179,7 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 func TestContainerRepositoryOperationsAndConflict(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	containerRepo := repository.NewContainerRepository(db)
+	containerRepo := repository.NewContainerRepository(db, db)
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	op := model.ResourceOperation{
@@ -228,7 +228,7 @@ func TestContainerRepositoryOperationsAndConflict(t *testing.T) {
 func TestContainerRepositoryFailActiveOperationsUnblocksResource(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
-	containerRepo := repository.NewContainerRepository(db)
+	containerRepo := repository.NewContainerRepository(db, db)
 	ownerID := uuid.New()
 	containerID := uuid.New()
 

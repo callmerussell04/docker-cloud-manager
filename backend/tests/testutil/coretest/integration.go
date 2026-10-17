@@ -20,6 +20,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -60,6 +61,7 @@ func IntegrationConfig() config.SystemConfig {
 
 type CoreRepositories struct {
 	DB         *sql.DB
+	LockDB     *sql.DB
 	Builds     *repository.BuildRepository
 	Images     *repository.ImageRepository
 	Volumes    *repository.VolumeRepository
@@ -72,12 +74,18 @@ type CoreRepositories struct {
 func OpenCoreRepositories(t *testing.T) CoreRepositories {
 	t.Helper()
 	db := dbtest.OpenCorePostgres(t)
+	lockDB := dbtest.OpenCoreAdmissionPool(t, db)
+	queryCfg, lockCfg, err := pgpool.DefaultConfig().CoreBudgets()
+	require.NoError(t, err)
+	require.NoError(t, queryCfg.Apply(db))
+	require.NoError(t, lockCfg.Apply(lockDB))
 	return CoreRepositories{
+		LockDB:     lockDB,
 		DB:         db,
-		Builds:     repository.NewBuildRepository(db),
+		Builds:     repository.NewBuildRepository(db, lockDB),
 		Images:     repository.NewImageRepository(db),
 		Volumes:    repository.NewVolumeRepository(db),
-		Containers: repository.NewContainerRepository(db),
+		Containers: repository.NewContainerRepository(db, lockDB),
 		Projects:   repository.NewProjectRepository(db),
 		Staged:     repository.NewStagedObjectRepository(db),
 		Reports:    repository.NewReportSnapshotRepository(db, nil, DiscardLogger()),

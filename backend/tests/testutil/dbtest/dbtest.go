@@ -10,9 +10,11 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/require"
 )
 
 func OpenCorePostgres(t *testing.T) *sql.DB {
@@ -139,4 +141,74 @@ func CountRows(t *testing.T, db *sql.DB, table string) int {
 		t.Fatalf("count rows in %s: %v", table, err)
 	}
 	return count
+}
+
+// OpenCoreAdmissionPool opens a distinct pool in the existing isolated schema.
+func OpenCoreAdmissionPool(t *testing.T, db *sql.DB) *sql.DB {
+	t.Helper()
+	return openPeerPool(t, db, "CORE_TEST_DATABASE_URL")
+}
+
+func OpenSSOPeerPool(t *testing.T, db *sql.DB) *sql.DB {
+	t.Helper()
+	return openPeerPool(t, db, "SSO_TEST_DATABASE_URL")
+}
+
+func openPeerPool(t *testing.T, db *sql.DB, env string) *sql.DB {
+	t.Helper()
+	var schema string
+	if err := db.QueryRow(`SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := sql.Open("postgres", withSearchPath(t, os.Getenv(env), schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+	return pool
+}
+
+// CheckPoolProgress exercises blocked SQL, canceled SQL and queued acquisition.
+// The peer is an external lock holder, outside the application's pool budget.
+func CheckPoolProgress(t *testing.T, db, peer *sql.DB, table string, query func(context.Context) error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	tx, err := peer.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `LOCK TABLE `+quoteIdent(table)+` IN ACCESS EXCLUSIVE MODE`)
+	require.NoError(t, err)
+	blockedCtx, cancelBlocked := context.WithCancel(ctx)
+	defer cancelBlocked()
+	canceled := make(chan error, 1)
+	go func() { canceled <- query(blockedCtx) }()
+	require.Eventually(t, func() bool { return db.Stats().InUse == 1 }, time.Second, time.Millisecond)
+	results := make(chan error, 12)
+	for range 12 {
+		go func() { results <- query(ctx) }()
+	}
+	require.Eventually(t, func() bool { return db.Stats().WaitCount >= 12 }, time.Second, time.Millisecond)
+	require.LessOrEqual(t, db.Stats().OpenConnections, db.Stats().MaxOpenConnections)
+	cancelBlocked()
+	select {
+	case err := <-canceled:
+		require.Error(t, err)
+	case <-ctx.Done():
+		t.Fatal("blocked query did not cancel")
+	}
+	// A queued acquisition must preserve context cancellation too.
+	queuedCtx, cancelQueued := context.WithCancel(ctx)
+	cancelQueued()
+	require.ErrorIs(t, query(queuedCtx), context.Canceled)
+	require.NoError(t, tx.Rollback())
+	for range 12 {
+		select {
+		case err := <-results:
+			require.NoError(t, err)
+		case <-ctx.Done():
+			t.Fatal("queries did not progress")
+		}
+	}
+	require.LessOrEqual(t, db.Stats().OpenConnections, db.Stats().MaxOpenConnections)
 }

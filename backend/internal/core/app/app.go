@@ -19,6 +19,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -36,6 +37,7 @@ type App struct {
 	httpServer        *http.Server
 	registryServer    *http.Server
 	db                *sql.DB
+	lockDB            *sql.DB
 	reportsRepo       *clickhouserepo.ReportsRepository
 	dockerCli         *docker.Adapter
 	orchestrator      *compose.Orchestrator
@@ -55,6 +57,7 @@ type Config struct {
 	Port          int
 	HTTPPort      int
 	DBURL         string
+	DBPool        pgpool.Config
 	RabbitMQURL   string
 	SSOTarget     string
 	InternalToken string
@@ -75,12 +78,39 @@ type ClickHouseConfig struct {
 func New(cfg Config, logger *slog.Logger) (*App, error) {
 	appLogger := logging.WithComponent(logger, "app")
 
-	db, err := sql.Open("postgres", cfg.DBURL)
+	poolCfg := cfg.DBPool
+	queryCfg, lockCfg, err := poolCfg.CoreBudgets()
 	if err != nil {
 		return nil, err
 	}
-
-	if err := db.Ping(); err != nil {
+	db, err := sql.Open("postgres", cfg.DBURL)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres pool: %w", err)
+	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = db.Close()
+		}
+	}()
+	if err := queryCfg.Apply(db); err != nil {
+		return nil, err
+	}
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("ping postgres pool: %w", err)
+	}
+	lockDB, err := sql.Open("postgres", cfg.DBURL)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres lock pool: %w", err)
+	}
+	defer func() {
+		if !initialized {
+			_ = lockDB.Close()
+		}
+	}()
+	if err := lockCfg.Apply(lockDB); err != nil {
 		return nil, err
 	}
 
@@ -104,7 +134,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
 	}
 	ssoClient := grpcclient.NewSSOClient(ssoConn)
-	registryGrants := repository.NewRegistryGrantRepository(db)
+	registryGrants := repository.NewRegistryGrantRepository(db, lockDB)
 	registryAuth := service.NewRegistryAuthorization(registryGrants, ssoClient, signer, cfg.Registry.Authority)
 	registryAdapter, err := registry.NewSecureAdapter(cfg.Registry.BackendURL, registryClient, registryAuth.TrustedToken)
 	if err != nil {
@@ -129,10 +159,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	contRepo := repository.NewContainerRepository(db)
+	contRepo := repository.NewContainerRepository(db, lockDB)
 	volRepo := repository.NewVolumeRepository(db)
 	imgRepo := repository.NewImageRepository(db)
-	buildRepo := repository.NewBuildRepository(db)
+	buildRepo := repository.NewBuildRepository(db, lockDB)
 	projRepo := repository.NewProjectRepository(db)
 	stagedRepo := repository.NewStagedObjectRepository(db)
 	resourceLifecycleRepo := repository.NewResourceLifecycleRepository(db)
@@ -254,6 +284,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
 	startWorkers(ctx, wg,
+		func(ctx context.Context) {
+			pgpool.LogStats(ctx, appLogger, map[string]*sql.DB{"queries": db, "locks": lockDB})
+		},
 		func(ctx context.Context) { registryAuth.RunCleanup(ctx, registryAdapter) },
 		ttlWorker.Run,
 		eventWorker.Run,
@@ -272,11 +305,13 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	containerConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, containerCreateWorker.HandleMessage)
 	resourceConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, resourceLifecycleWorker.HandleMessage)
 
+	initialized = true
 	return &App{
 		gRPCServer:        gRPCServer,
 		httpServer:        httpServer,
 		registryServer:    registryEdge,
 		db:                db,
+		lockDB:            lockDB,
 		reportsRepo:       reportsRepo,
 		dockerCli:         dockerAdapter,
 		orchestrator:      orchestrator,
@@ -378,6 +413,9 @@ func (a *App) Stop() {
 		cancel()
 	}
 	a.wg.Wait()
+	if a.lockDB != nil {
+		_ = a.lockDB.Close()
+	}
 	if a.db != nil {
 		a.db.Close()
 	}

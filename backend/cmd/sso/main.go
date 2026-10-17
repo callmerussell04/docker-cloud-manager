@@ -11,6 +11,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/app"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	_ "github.com/lib/pq"
 )
 
@@ -50,7 +51,12 @@ func main() {
 	refreshTTL := 30 * 24 * time.Hour
 	oidcEnabled := getEnvBool("SSO_OIDC_ENABLED", false)
 
+	poolCfg, err := pgpool.Parse(os.LookupEnv, "SSO")
+	if err != nil {
+		fatal(logger, "invalid postgres pool settings", "error", err)
+	}
 	application, err := app.New(app.Config{
+		DBPool:        poolCfg,
 		Port:          port,
 		DBURL:         dbURL,
 		JWTSecret:     jwtSecret,

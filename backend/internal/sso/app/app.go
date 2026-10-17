@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	"google.golang.org/grpc"
 
 	authgrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
@@ -21,6 +23,8 @@ import (
 )
 
 type App struct {
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 	gRPCServer *grpc.Server
 	db         *sql.DB
 	port       int
@@ -30,6 +34,7 @@ type App struct {
 type Config struct {
 	Port           int
 	DBURL          string
+	DBPool         pgpool.Config
 	JWTSecret      string
 	InternalToken  string
 	AccessTTL      time.Duration
@@ -61,13 +66,28 @@ type OIDCConfig struct {
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
-	db, err := sql.Open("postgres", cfg.DBURL)
-	if err != nil {
+	poolCfg := cfg.DBPool
+	if err := poolCfg.Validate(1); err != nil {
 		return nil, err
 	}
-
-	if err := db.Ping(); err != nil {
+	queryCfg := poolCfg
+	db, err := sql.Open("postgres", cfg.DBURL)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres pool: %w", err)
+	}
+	initialized := false
+	defer func() {
+		if !initialized {
+			_ = db.Close()
+		}
+	}()
+	if err := queryCfg.Apply(db); err != nil {
 		return nil, err
+	}
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	if err := db.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("ping postgres pool: %w", err)
 	}
 
 	repo := repository.NewUserRepository(db)
@@ -94,12 +114,21 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	))
 	authgrpc.Register(gRPCServer, authService)
 
-	return &App{
+	ctx, cancel := context.WithCancel(context.Background())
+	application := &App{
 		gRPCServer: gRPCServer,
 		db:         db,
 		port:       cfg.Port,
 		logger:     logging.WithComponent(logger, "app"),
-	}, nil
+		cancel:     cancel,
+	}
+	application.wg.Add(1)
+	go func() {
+		defer application.wg.Done()
+		pgpool.LogStats(ctx, application.logger, map[string]*sql.DB{"queries": db})
+	}()
+	initialized = true
+	return application, nil
 }
 
 func buildOIDCProvider(cfg OIDCConfig) (service.OIDCProvider, error) {
@@ -162,6 +191,8 @@ func (a *App) Run() error {
 func (a *App) Stop() {
 	a.logger.Info("sso application stopping")
 	a.gRPCServer.GracefulStop()
+	a.cancel()
+	a.wg.Wait()
 	if a.db != nil {
 		a.db.Close()
 	}
