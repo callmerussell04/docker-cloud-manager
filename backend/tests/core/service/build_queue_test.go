@@ -30,11 +30,16 @@ func (buildAdmissionConfig) Get() config.SystemConfig {
 }
 
 func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
-	svc := NewBuildService(repo, imageRepo, registry, users, nil, BuildServiceDeps{})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository: repo,
+		Images:     imageRepo,
+		Registry:   registry,
+		Users:      users,
+	})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	var queuedImage model.Image
@@ -70,15 +75,17 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 }
 
 func TestBuildServiceCreateBuildJobRejectsHostMemoryExhaustion(t *testing.T) {
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	users := coremocks.NewUserInfoProvider(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
-	svc := NewBuildService(repo, imageRepo, registry, users, nil, BuildServiceDeps{
-		Config:      buildAdmissionConfig{},
-		HostMetrics: metrics,
-	})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository: repo,
+		Images:     imageRepo,
+		Registry:   registry,
+		Users:      users, Config: buildAdmissionConfig{},
+		HostMetrics: metrics})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
@@ -91,12 +98,18 @@ func TestBuildServiceCreateBuildJobRejectsHostMemoryExhaustion(t *testing.T) {
 }
 
 func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
 	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
-	svc := NewBuildService(repo, imageRepo, registry, users, nil, BuildServiceDeps{ObjectStore: objects})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository:  repo,
+		Images:      imageRepo,
+		Registry:    registry,
+		Users:       users,
+		ObjectStore: objects,
+	})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	var uploaded []string
@@ -140,10 +153,16 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing.T) {
 	ownerID := uuid.New()
 	buildID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
-	svc := NewBuildService(repo, imageRepo, coremocks.NewImageRegistryAPI(t), coremocks.NewUserInfoProvider(t), nil, BuildServiceDeps{ObjectStore: objects})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository:  repo,
+		Images:      imageRepo,
+		Registry:    coremocks.NewImageRegistryAPI(t),
+		Users:       coremocks.NewUserInfoProvider(t),
+		ObjectStore: objects,
+	})
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
 
 	repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{
@@ -160,8 +179,13 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 
 func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 	buildID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
-	svc := NewBuildService(repo, coremocks.NewBuildImageRepository(t), coremocks.NewImageRegistryAPI(t), coremocks.NewUserInfoProvider(t), nil, BuildServiceDeps{})
+	repo := newBuildRepository(t)
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository: repo,
+		Images:     coremocks.NewBuildImageRepository(t),
+		Registry:   coremocks.NewImageRegistryAPI(t),
+		Users:      coremocks.NewUserInfoProvider(t),
+	})
 
 	repo.EXPECT().StartBuild(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}, false, nil)
 
@@ -174,9 +198,14 @@ func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	buildID := uuid.New()
 	imageID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
-	svc := NewBuildService(repo, imageRepo, coremocks.NewImageRegistryAPI(t), coremocks.NewUserInfoProvider(t), nil, BuildServiceDeps{})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository: repo,
+		Images:     imageRepo,
+		Registry:   coremocks.NewImageRegistryAPI(t),
+		Users:      coremocks.NewUserInfoProvider(t),
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusFailed}, nil)
 
@@ -189,12 +218,18 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	buildID := uuid.New()
 	imageID := uuid.New()
 	ownerID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
 	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
-	svc := NewBuildService(repo, imageRepo, registry, users, nil, BuildServiceDeps{ObjectStore: objects})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository:  repo,
+		Images:      imageRepo,
+		Registry:    registry,
+		Users:       users,
+		ObjectStore: objects,
+	})
 	var failedStatus string
 	var deleted []string
 
@@ -230,11 +265,18 @@ func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) 
 	buildID := uuid.New()
 	imageID := uuid.New()
 	ownerID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
 	deployments := coremocks.NewBuildDeploymentCanceler(t)
-	svc := NewBuildService(repo, imageRepo, coremocks.NewImageRegistryAPI(t), coremocks.NewUserInfoProvider(t), nil, BuildServiceDeps{ObjectStore: objects, Deployments: deployments})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository:  repo,
+		Images:      imageRepo,
+		Registry:    coremocks.NewImageRegistryAPI(t),
+		Users:       coremocks.NewUserInfoProvider(t),
+		ObjectStore: objects,
+		Deployments: deployments,
+	})
 	var failedStatus string
 	var deleted []string
 
@@ -267,10 +309,16 @@ func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {
 	imageID := uuid.New()
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	repo := coremocks.NewBuildRepository(t)
+	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	deployments := coremocks.NewBuildDeploymentCanceler(t)
-	svc := NewBuildService(repo, imageRepo, coremocks.NewImageRegistryAPI(t), coremocks.NewUserInfoProvider(t), nil, BuildServiceDeps{Deployments: deployments})
+	svc := newTestBuildService(t, BuildServiceDeps{
+		Repository:  repo,
+		Images:      imageRepo,
+		Registry:    coremocks.NewImageRegistryAPI(t),
+		Users:       coremocks.NewUserInfoProvider(t),
+		Deployments: deployments,
+	})
 	pendingBuild := model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, ProjectID: &projectID, Status: model.BuildStatusPending}
 	canceledBuild := pendingBuild
 	canceledBuild.Status = model.BuildStatusCanceled

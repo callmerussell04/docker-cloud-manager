@@ -177,9 +177,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	metricsProvider := metrics.NewSystemMetrics()
 
 	contService, err := service.NewContainerService(service.ContainerServiceDeps{
-		Repository: contRepo, Volumes: volRepo, Images: imgRepo, Docker: dockerAdapter,
+		Repository: contRepo, Volumes: volRepo,
+		Images: imgRepo, Docker: dockerAdapter,
 		Metrics: metricsProvider, DiskMetrics: metricsProvider, Config: cfg.ConfigManager,
-		Users: ssoClient, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath, Logger: logger,
+		Users: ssoClient, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath,
+		Logger: logger,
 	})
 	if err != nil {
 		return nil, err
@@ -195,7 +197,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgService.SetLifecycleRepository(resourceLifecycleRepo)
 	imgService.SetRegistryAuthorization(registryAuth)
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
-	buildService := service.NewBuildService(buildRepo, imgRepo, registryAdapter, ssoClient, logger, service.BuildServiceDeps{
+	buildService, err := service.NewBuildService(service.BuildServiceDeps{
+		Repository:    buildRepo,
+		Images:        imgRepo,
+		Registry:      registryAdapter,
+		Users:         ssoClient,
+		Logger:        logger,
 		RegistryAuth:  registryAuth,
 		VolumeRepo:    volRepo,
 		Config:        cfg.ConfigManager,
@@ -206,6 +213,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		HostMetrics:   metricsProvider,
 		HostDiskPath:  cfg.HostDiskPath,
 	})
+	if err != nil {
+		return nil, err
+	}
+
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}
 	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)

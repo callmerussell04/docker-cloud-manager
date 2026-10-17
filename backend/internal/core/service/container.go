@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -177,7 +176,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		{"config", deps.Config}, {"users", deps.Users}, {"builds", deps.Builds},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilContainerDependency(dependency.value) {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
 			return nil, fmt.Errorf("container service: %s is required", dependency.name)
 		}
 	}
@@ -189,16 +188,6 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		logger:      logging.WithComponent(deps.Logger, "container_service"),
 		rebalanceCh: make(chan struct{}, 1),
 	}, nil
-}
-
-func isNilContainerDependency(dependency any) bool {
-	value := reflect.ValueOf(dependency)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
 }
 
 func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater) {

@@ -110,12 +110,23 @@ func newHTTPRouter(t *testing.T, cfgValue config.SystemConfig, ownerID uuid.UUID
 
 	users := coremocks.NewUserInfoProvider(t)
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, Username: "alice", QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil).Maybe()
+	hostMetrics := coremocks.NewHostMetricsProvider(t)
+	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
+	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
+
 	metrics := coremocks.NewHostDiskMetricsProvider(t)
 	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
 	registry := coremocks.NewImageRegistryAPI(t)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, mock.Anything, mock.Anything).Return(int64(1<<20), "sha256:digest", nil).Maybe()
 
-	builds := service.NewBuildService(repos.Builds, repos.Images, registry, users, coretest.DiscardLogger(), service.BuildServiceDeps{
+	builds, err := service.NewBuildService(service.BuildServiceDeps{
+		Repository:    repos.Builds,
+		Images:        repos.Images,
+		Registry:      registry,
+		Users:         users,
+		Logger:        coretest.DiscardLogger(),
+		Containers:    repos.Containers,
+		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,
 		ObjectStore:   store,
@@ -123,6 +134,7 @@ func newHTTPRouter(t *testing.T, cfgValue config.SystemConfig, ownerID uuid.UUID
 		DiskMetrics:   metrics,
 		HostDiskPath:  "/",
 	})
+	require.NoError(t, err)
 	orchestrator := compose.NewOrchestrator(context.Background(), repos.Projects, repos.Builds, composemocks.NewVolumeService(t), composemocks.NewContainerService(t), composemocks.NewComposeDockerAPI(t), cfg, store, builds, composemocks.NewImageCleaner(t), coretest.DiscardLogger())
 	orchestrator.SetStagedObjectRepository(repos.Staged)
 	orchestrator.SetHostDiskGuard(metrics, "/")

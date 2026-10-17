@@ -242,6 +242,10 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 		GetUser(mock.Anything, ownerID).
 		Return(model.UserInfo{ID: ownerID, Username: "builder", QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil).
 		Maybe()
+	hostMetrics := coremocks.NewHostMetricsProvider(t)
+	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
+	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
+
 	metrics := coremocks.NewHostDiskMetricsProvider(t)
 	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
 	registry := coremocks.NewImageRegistryAPI(t)
@@ -251,7 +255,14 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 		Maybe()
 	registry.EXPECT().DeleteManifest(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	return service.NewBuildService(repos.Builds, repos.Images, registry, users, coretest.DiscardLogger(), service.BuildServiceDeps{
+	svc, err := service.NewBuildService(service.BuildServiceDeps{
+		Repository:    repos.Builds,
+		Images:        repos.Images,
+		Registry:      registry,
+		Users:         users,
+		Logger:        coretest.DiscardLogger(),
+		Containers:    repos.Containers,
+		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,
 		ObjectStore:   store,
@@ -259,6 +270,8 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 		DiskMetrics:   metrics,
 		HostDiskPath:  "/",
 	})
+	require.NoError(t, err)
+	return svc
 }
 
 func countTable(t *testing.T, db *sql.DB, table string) int {

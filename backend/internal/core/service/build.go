@@ -26,6 +26,9 @@ import (
 )
 
 type BuildRepository interface {
+	AcquireCapacityLock(ctx context.Context) (func(), error)
+	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CountActive(ctx context.Context) (int, error)
 	Save(ctx context.Context, b model.Build) error
 	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
 	StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error)
@@ -35,19 +38,11 @@ type BuildRepository interface {
 	List(ctx context.Context, opts model.ListOptions) ([]model.Build, int, error)
 }
 
-type activeBuildCounter interface {
-	CountActiveByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
-}
-
 type activeSystemBuildCounter interface {
 	CountActive(ctx context.Context) (int, error)
 }
 
-type buildCapacityLockRepository interface {
-	AcquireCapacityLock(ctx context.Context) (func(), error)
-}
-
-type buildContainerReservationRepository interface {
+type BuildContainerReservationRepository interface {
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
@@ -119,7 +114,7 @@ type BuildService struct {
 	objectStore  BuildObjectStore
 	deployments  BuildDeploymentCanceler
 	staged       StagedObjectRepository
-	containers   buildContainerReservationRepository
+	containers   BuildContainerReservationRepository
 	diskMetrics  HostDiskMetricsProvider
 	hostMetrics  HostMetricsProvider
 	hostDiskPath string
@@ -127,13 +122,21 @@ type BuildService struct {
 	logger       *slog.Logger
 }
 
+// BuildServiceDeps requires admission and persistence dependencies. ObjectStore,
+// Deployments and RegistryAuth are optional; deployments may be wired after construction
+// to resolve the BuildService/Compose orchestrator cycle.
 type BuildServiceDeps struct {
+	Repository    BuildRepository
+	Images        BuildImageRepository
+	Registry      ImageRegistryAPI
+	Users         UserInfoProvider
+	Logger        *slog.Logger
 	VolumeRepo    BuildVolumeDiskRepository
 	Config        BuildConfigProvider
 	ObjectStore   BuildObjectStore
 	Deployments   BuildDeploymentCanceler
 	StagedObjects StagedObjectRepository
-	Containers    buildContainerReservationRepository
+	Containers    BuildContainerReservationRepository
 	DiskMetrics   HostDiskMetricsProvider
 	HostMetrics   HostMetricsProvider
 	HostDiskPath  string
@@ -152,14 +155,29 @@ type createBuildJobInput struct {
 	ProjectServiceName string
 }
 
-func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, registryAPI ImageRegistryAPI, users UserInfoProvider, logger *slog.Logger, deps BuildServiceDeps) *BuildService {
+func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"images", deps.Images},
+		{"registry", deps.Registry}, {"users", deps.Users},
+		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
+		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
+		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+			return nil, fmt.Errorf("build service: %s is required", dependency.name)
+		}
+	}
 	return &BuildService{
-		repo:         repo,
+		repo:         deps.Repository,
+		imageRepo:    deps.Images,
+		registryAPI:  deps.Registry,
+		users:        deps.Users,
 		registryAuth: deps.RegistryAuth,
-		imageRepo:    imageRepo,
 		volumeRepo:   deps.VolumeRepo,
-		registryAPI:  registryAPI,
-		users:        users,
 		cfg:          deps.Config,
 		objectStore:  deps.ObjectStore,
 		deployments:  deps.Deployments,
@@ -168,8 +186,8 @@ func NewBuildService(repo BuildRepository, imageRepo BuildImageRepository, regis
 		diskMetrics:  deps.DiskMetrics,
 		hostMetrics:  deps.HostMetrics,
 		hostDiskPath: deps.HostDiskPath,
-		logger:       logging.WithComponent(logger, "build_service"),
-	}
+		logger:       logging.WithComponent(deps.Logger, "build_service"),
+	}, nil
 }
 
 func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
@@ -177,7 +195,7 @@ func (s *BuildService) SetDeploymentCanceler(canceler BuildDeploymentCanceler) {
 }
 
 func (s *BuildService) ensureImageBuildsEnabled() error {
-	if s.cfg != nil && !s.cfg.Get().ImageBuildsEnabled {
+	if !s.cfg.Get().ImageBuildsEnabled {
 		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
 	return nil
@@ -199,40 +217,28 @@ func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
 	cfg := s.buildConfig()
 	reserved := int64(0)
 	reservedCPU := int64(0)
-	if s.containers != nil {
-		containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to calculate container reserved memory", "error", err)
-			return apperrors.ErrInternal
-		}
-		reserved += containerReserved
-		containerReservedCPU, err := s.containers.GetTotalSystemReservedCPU(ctx)
-		if err != nil {
-			s.logger.ErrorContext(ctx, "failed to calculate container reserved cpu", "error", err)
-			return apperrors.ErrInternal
-		}
-		reservedCPU += containerReservedCPU
+	containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to calculate container reserved memory", "error", err)
+		return apperrors.ErrInternal
 	}
-	if counter, ok := s.repo.(activeSystemBuildCounter); ok {
-		activeBuilds, err := counter.CountActive(ctx)
-		if err != nil {
-			return err
-		}
-		reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
-		reservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
+	reserved += containerReserved
+	containerReservedCPU, err := s.containers.GetTotalSystemReservedCPU(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to calculate container reserved cpu", "error", err)
+		return apperrors.ErrInternal
 	}
+	reservedCPU += containerReservedCPU
+	activeBuilds, err := s.repo.CountActive(ctx)
+	if err != nil {
+		return err
+	}
+	reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
+	reservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
 	if err := ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build"); err != nil {
 		return err
 	}
 	return ensureHostCPUCapacity(ctx, s.hostMetrics, cfg, reservedCPU, buildCPUMillicores(cfg), s.logger, "build")
-}
-
-func (s *BuildService) acquireBuildCapacityLock(ctx context.Context) (func(), error) {
-	lockRepo, ok := s.repo.(buildCapacityLockRepository)
-	if !ok {
-		return nil, nil
-	}
-	return lockRepo.AcquireCapacityLock(ctx)
 }
 
 func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
@@ -240,11 +246,7 @@ func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.U
 	if cfg.MaxQueuedBuildsPerUser <= 0 {
 		return nil
 	}
-	counter, ok := s.repo.(activeBuildCounter)
-	if !ok {
-		return nil
-	}
-	count, err := counter.CountActiveByOwner(ctx, ownerID)
+	count, err := s.repo.CountActiveByOwner(ctx, ownerID)
 	if err != nil {
 		return err
 	}
@@ -255,7 +257,7 @@ func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.U
 }
 
 func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
-	if s.staged == nil || objectKey == "" {
+	if objectKey == "" {
 		return nil
 	}
 	if bytesReserved < 0 {
@@ -275,9 +277,6 @@ func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uu
 }
 
 func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
-	if s.users == nil || s.staged == nil {
-		return nil
-	}
 	user, err := s.users.GetUser(ctx, ownerID)
 	if err != nil {
 		return err
@@ -298,7 +297,7 @@ func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uu
 }
 
 func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, objectKey string) {
-	if s.staged == nil || s.objectStore == nil || objectKey == "" {
+	if s.objectStore == nil || objectKey == "" {
 		return
 	}
 	statter, ok := s.objectStore.(buildObjectStatter)
@@ -316,7 +315,7 @@ func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, object
 }
 
 func (s *BuildService) releaseStagedBuildArchive(ctx context.Context, objectKey string) {
-	if s.staged == nil || objectKey == "" {
+	if objectKey == "" {
 		return
 	}
 	if err := s.staged.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
@@ -600,20 +599,6 @@ func (s *BuildService) OpenBuildLogs(ctx context.Context, buildID uuid.UUID) (io
 }
 
 func (s *BuildService) buildConfig() config.SystemConfig {
-	if s.cfg == nil {
-		return config.SystemConfig{
-			ImageBuildsEnabled:     true,
-			GitSourcesEnabled:      true,
-			MaxArchiveSizeBytes:    50 << 20,
-			GitCloneTimeoutSeconds: 60,
-			GitMaxRepositoryBytes:  200 * 1024 * 1024,
-			MaxQueuedBuildsPerUser: 10,
-			CPUOvercommitFactor:    4,
-			ContainerCPUPeriod:     100000,
-			BuildCPUQuota:          100000,
-			BuildCPUPeriod:         100000,
-		}
-	}
 	return s.cfg.Get()
 }
 
@@ -636,7 +621,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	unlock, err := s.acquireBuildCapacityLock(ctx)
+	unlock, err := s.repo.AcquireCapacityLock(ctx)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
