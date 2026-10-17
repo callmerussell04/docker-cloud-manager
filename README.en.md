@@ -5,7 +5,7 @@
 **A self-hosted PaaS for running and managing containerized applications on a single server**
 
 [![Status: in development](https://img.shields.io/badge/status-in%20development-f59e0b)](#project-status)
-[![Go 1.25](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
+[![Go 1.26.9](https://img.shields.io/badge/Go-1.26.9-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827)](frontend/package.json)
 [![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](docker-compose.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
@@ -166,12 +166,15 @@ Run backend commands from `backend/`:
 ```bash
 cd backend
 
-go mod tidy
-go build -o bin/ ./cmd/...
+make build
 make test-fast
-GOCACHE=/tmp/go-build-cache go vet ./...
+make vet
+make test-race
+make vulncheck
 make lint
 ```
+
+Canonical Make targets select Go **1.26.9** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.9` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` scans production roots and all five built binaries, reports every result, and fails if any scan fails. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
 
 Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
 

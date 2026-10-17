@@ -1,3 +1,7 @@
+# Match canonical local checks to the exact module patch, even on a newer host Go.
+export GOTOOLCHAIN := go$(shell awk '$$1 == "go" { print $$2 }' go.mod)
+export GOCACHE ?= /tmp/go-build-cache
+
 APP_NAME = docker-cloud-manager
 MAIN_PATH = ./cmd/...
 BUILD_DIR = ./bin
@@ -14,7 +18,8 @@ PROTOC_GEN_GO_GRPC = $(abspath $(BUILD_DIR)/tools/grpc-$(PROTOC_GEN_GO_GRPC_VERS
 PROTO_OUT ?= .
 PROTO_FILES = api/core/core.proto api/sso/sso.proto
 PROTO_GO_FILES = $(PROTO_FILES:.proto=.pb.go) $(PROTO_FILES:.proto=_grpc.pb.go)
-GOCACHE ?= /tmp/go-build-cache
+GOVULNCHECK_VERSION = v1.9.0
+GOVULNCHECK = $(abspath $(BUILD_DIR)/tools/govulncheck-$(GOVULNCHECK_VERSION)/govulncheck)
 TEST_PKGS ?= ./...
 TEST_ARGS ?= -count=1 -timeout=5m
 TEST_ALL_ARGS ?= -count=1 -p=1 -timeout=5m
@@ -40,8 +45,8 @@ DCM_CLICKHOUSE_TEST_PASSWORD ?= clickhouse
 all: build
 
 .PHONY: build
-build: tidy
-	go build -o $(BUILD_DIR)/ $(MAIN_PATH)
+build:
+	CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=false -o $(BUILD_DIR)/ $(MAIN_PATH)
 
 .PHONY: run
 run:
@@ -140,3 +145,19 @@ test test-all: check-generated
 .PHONY: lint
 lint: .install-linter
 	$(GOLANGCI_LINT) run ./... --config=./.golangci.yml
+
+.PHONY: vet test-race vulncheck
+vet: check-generated
+	go vet ./...
+
+test-race:
+	$(MAKE) test-fast TEST_ARGS='$(TEST_ARGS) -race'
+
+$(GOVULNCHECK):
+	GOBIN=$(dir $(GOVULNCHECK)) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+vulncheck: build $(GOVULNCHECK)
+	@status=0; CGO_ENABLED=0 $(GOVULNCHECK) ./cmd/... || status=1; \
+	for service in builder core gateway sso telemetry; do \
+		$(GOVULNCHECK) -mode=binary $(BUILD_DIR)/$$service || status=1; \
+	done; exit $$status

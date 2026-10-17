@@ -273,3 +273,120 @@ cd backend
 CORE_TEST_NETWORK_POLICY=1 GOCACHE=/tmp/go-build-cache \
   go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/core/integration/registry_isolation
 ```
+
+## Go toolchain and build inputs
+
+Reviewed 2026-10-17: [Go release policy and patch notes](https://go.dev/doc/devel/release)
+and [official downloads](https://go.dev/dl/?mode=json) list Go 1.27.2 and 1.26.9 as
+supported patched releases. DCM selects **1.26.9**, retaining the host's existing
+1.26 release line while replacing the unsupported module minimum 1.25.7 and the
+host baseline 1.26.1. No new language features or third-party dependency upgrades
+are part of this change.
+
+`backend/go.mod` sets the minimum to 1.26.9. Canonical Make targets export exactly
+`GOTOOLCHAIN=go1.26.9`; the `go` directive alone is a minimum and does not prevent a
+newer installed compiler from being selected. For direct commands, export
+`GOTOOLCHAIN=go1.26.9` explicitly. Keep the module version and all five Dockerfile
+builder pins synchronized when updating. Toolchain downloads use Go's checksum
+database; do not disable checksum verification.
+
+All five service Dockerfiles use these verified multi-platform image indexes:
+
+| Input | Pinned reference |
+| --- | --- |
+| Compiler | `golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade` |
+| Runtime | `alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6` |
+
+Docker sets `GOTOOLCHAIN=local`, so module changes cannot silently download another
+compiler. Module downloads are checked against committed `go.sum` and verified
+with `go mod verify`. Local and Docker service builds use `CGO_ENABLED=0`,
+`-mod=readonly -trimpath -buildvcs=false`. Core and Gateway additionally install
+`ca-certificates=20260909-r0` and `git=2.54.0-r0`; their complete runtime package
+closure, including transitive dependencies and base packages, is pinned in
+`backend/dockerfiles/runtime-packages.lock`. APK verifies signed packages.
+Unavailable locked versions fail the build; update the lock deliberately alongside
+base image pins. This is still an online build, not an offline repository archive
+or an OS-image CVE audit. The package lock was resolved and verified for Linux
+amd64; validate package availability for other target architectures before use.
+
+From `backend/`, verify with:
+
+```bash
+make build
+make test-fast
+make vet
+make test-race
+make test
+make vulncheck
+```
+
+`make vulncheck` installs **govulncheck v1.9.0** in a versioned ignored tools
+folder, scans `./cmd/...` (production roots, excluding test-only roots), and scans
+`bin/builder`, `bin/core`, `bin/gateway`, `bin/sso`, and `bin/telemetry` separately.
+It runs all scans even if one reports findings. The vulnerability database is
+live; record the scan date, compiler, scanner version, GOOS/GOARCH, and build
+settings when comparing results. Binary symbol inclusion is conservative evidence,
+not proof that an untrusted request reaches a vulnerable operation. Third-party
+advisories require separate dependency and transport-specific assessment.
+
+### Standard-library applicability
+
+The baseline assessment used local Go 1.26.1, while Docker used floating
+`golang:alpine3.22` and `alpine:latest`. A local scan therefore could not establish
+which Go standard library a Docker build contained.
+
+- [GO-2026-4869](https://pkg.go.dev/vuln/GO-2026-4869): untrusted tar uploads reach
+  Builder's `archive/tar.Reader.Next` through its extractor and storage adapter.
+  The fix landed in Go 1.25.9 / 1.26.2 and is included in 1.26.9. This is a
+  relevant parser boundary, without claiming a demonstrated DCM exploit.
+- [GO-2026-6608](https://pkg.go.dev/vuln/GO-2026-6608): Core accepts build and
+  Compose multipart uploads through `Request.MultipartReader` and `Reader.NextPart`,
+  which parses MIME headers. The advisory describes an arbitrarily long line
+  allocation when the remaining parser memory limit is below 400 bytes; fixed
+  in Go 1.26.9 / 1.27.2. Upload limits alone do not establish non-applicability.
+  This patch includes the fix; a reachable parser is not proof of a successful
+  attack against every HTTP service.
+- The selected patch also includes intervening TLS, X.509, HTTP, URL, MIME and
+  textproto fixes described in the release history. Platform-specific and unused
+  protocol reports must be assessed against Linux service builds and actual
+  callers, without blanket exclusions.
+
+### Verification snapshot (2026-10-17)
+
+Environment: Linux/amd64, Go 1.26.9, `CGO_ENABLED=0`, govulncheck v1.9.0,
+`https://vuln.go.dev` database last modified `2026-10-08T22:31:09Z`.
+Source scan: `CGO_ENABLED=0 govulncheck ./cmd/...`; binary scans:
+`govulncheck -mode=binary bin/<service>` after `make build`.
+Compiler and settings were confirmed with `go version -m`.
+
+| Scan | Symbol-level advisory IDs | Standard-library findings |
+| --- | ---: | ---: |
+| Production roots `./cmd/...` | 20 | 0 |
+| Builder binary | 19 | 0 |
+| Core binary | 19 | 0 |
+| Gateway binary | 8 | 0 |
+| SSO binary | 7 | 0 |
+| Telemetry binary | 10 | 0 |
+
+Counts are unique IDs per scan, not additive, and are not counts of demonstrated
+exploits. Remaining symbol findings concern Docker, go-archive, quic-go,
+amqp091-go, x/net and gRPC. Some x/net advisories share IDs with patched standard
+library copies: updating Go fixes `stdlib`, not the separately versioned x/net
+module. `make vulncheck` intentionally remains nonzero while these dependencies
+are affected; there are no suppressions.
+For example, GO-2026-6253 is an unreviewed archive-extraction advisory while DCM's
+direct go-archive use is `TarWithOptions`; scanner inclusion alone does not
+establish a DCM host escape. Review protocol and platform preconditions before
+classifying the other third-party reports or accepting exclusions.
+
+Compatibility checks passed: all five local service binaries, canonical fast
+checks (699 tests, 84 skipped), race checks (699 tests, 84 skipped), vet, generated
+protobuf drift checks, and the full integration suite (711 tests, 2 skipped).
+The integration run included Docker, PostgreSQL, ClickHouse, RabbitMQ and MinIO;
+the two skipped suites require explicit Registry isolation/network-policy opt-ins.
+Module tidy changed only the existing go-connections dependency's direct/indirect
+classification; dependency versions and `go.sum` were unchanged.
+
+Repeating `make build` produced identical SHA-256 checksums for all five binaries.
+Installing the runtime lock in the pinned Alpine image reproduced exactly its
+29 package versions, with no extra or missing packages.
