@@ -399,9 +399,17 @@ Review these upstream notes when updating again:
   routing keys and message fields remain compatible. URI-derived AMQPS now has
   an explicit TLS 1.2 minimum; development Compose still uses AMQP. Version 1.15
   preserves caller SASL credentials while redacting the connection's copy.
-  `amqp.Dial` leaves `Config.Recovery` nil: automatic recovery is disabled and
-  DCM continues to own reconnect/topology handling. Application attempt budgets
-  and publisher-confirm cancellation hardening remain separate work.
+  AMQP connections leave `Config.Recovery` nil: automatic recovery is disabled
+  and DCM continues to own reconnect/topology handling. Core shares one publisher
+  across outboxes. Each publication has a 10-second application budget covering
+  cancelable acquisition, TCP/TLS/AMQP connection setup, topology declaration,
+  writing and confirmation; an earlier caller deadline takes precedence.
+  Cancellation closes the transport to interrupt synchronous AMQP I/O. Failed
+  attempts discard their connection and confirmation stream, so late ACKs cannot
+  confirm subsequent messages. Shutdown cancels active and queued publications
+  before waiting for the publisher. Only a broker ACK permits marking an outbox
+  record published; failures remain retryable and may redeliver a message whose
+  ACK was lost.
 - Gin imports HTTP/3 support, but DCM starts ordinary HTTP servers, proxies
   HTTP/SSE/WebSocket and uses native gRPC; it does not start a QUIC listener or
   use an HTTP/3 client transport. GO-2026-5676 is patched anyway by the small
