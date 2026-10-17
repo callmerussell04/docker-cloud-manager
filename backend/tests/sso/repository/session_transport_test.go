@@ -35,7 +35,7 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	db := dbtest.OpenSSOPostgres(t)
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), nil, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true, Now: func() time.Time { return now },
 	})
@@ -136,7 +136,7 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	require.Equal(t, http.StatusUnauthorized, request("/refresh", idleRefresh, "").Code)
 	// Dependency failures preserve the cookie and expose only a safe availability error.
-	now = time.Now().UTC()
+	now = time.Now().UTC().Truncate(time.Microsecond)
 	_, liveRefresh := login()
 	require.NoError(t, db.Close())
 	response = request("/refresh", liveRefresh, "")

@@ -15,10 +15,13 @@ export function createSessionCoordinator(deps: SessionDependencies) {
   let logoutPromise: Promise<void> | null = null;
   let epoch = 0;
   let logoutRequested = false;
+  let suspended = false;
 
   return {
-    refresh(): Promise<string> {
+    refresh(explicitRetry = false): Promise<string> {
       if (logoutRequested) return Promise.reject(new Error('Session ended'));
+      if (suspended && !explicitRetry) return Promise.reject(new Error('Session temporarily unavailable'));
+      suspended = false;
       if (refreshPromise) return refreshPromise;
       const started = epoch;
       refreshPromise = deps.withLock(async () => {
@@ -34,6 +37,7 @@ export function createSessionCoordinator(deps: SessionDependencies) {
             logoutRequested = true;
             deps.onLogout();
           } else {
+            suspended = true;
             deps.onSuspend('refresh');
           }
         }
@@ -62,6 +66,7 @@ export function createSessionCoordinator(deps: SessionDependencies) {
     acceptLogin(token: string) {
       epoch++;
       logoutRequested = false;
+      suspended = false;
       deps.onToken(token);
     },
   };

@@ -48,7 +48,9 @@ test('uncertain refresh suspends instead of revoking; explicit retry can recover
  const { api, events } = fixture({ refresh: async () => { if (++calls === 1) throw new Error('network'); return 'recovered'; } });
  await assert.rejects(api.refresh());
  assert.deepEqual(events, [['suspend', 'refresh']]);
- await api.refresh();
+ await assert.rejects(api.refresh()); // A delayed interceptor 401 is not an explicit retry.
+ assert.equal(calls, 1);
+ await api.refresh(true);
  assert.deepEqual(events[1], ['token', 'recovered']);
 });
 

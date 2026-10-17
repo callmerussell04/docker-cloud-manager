@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { refreshSession, logoutSession } from '@/api/axios';
+import { refreshSession, retrySessionRefresh, logoutSession } from '@/api/axios';
 import { useAuthStore } from '@/store/authStore';
 import { useT } from '@/lib/i18n';
 
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setRetrying(true);
       try {
         if (sessionIssue === 'logout') await logoutSession();
-        else await refreshSession();
+        else await retrySessionRefresh();
       } catch {
         // The coordinator keeps the recovery screen and preserves the cookie.
       } finally {

@@ -236,3 +236,41 @@ func TestAuthHandlerCookieRequestsRequireTrustedBrowserOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestCookieOriginFallsBackToRefererOnlyWhenOriginIsAbsent(t *testing.T) {
+	for _, test := range []struct {
+		name, origin, referer string
+		allowed               bool
+	}{
+		{"trusted-origin", "http://frontend.example", "", true},
+		{"trusted-referer", "", "http://frontend.example/page?from=app", true},
+		{"origin-takes-precedence", "http://evil.example", "http://frontend.example/page", false},
+		{"null-origin-is-not-absent", "null", "http://frontend.example/page", false},
+		{"referer-userinfo", "", "http://user@frontend.example/page", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			auth := gatewayhandlermocks.NewMockAuthService(t)
+			h := handler.NewAuthHandler(auth, handler.CookieConfig{}, testRedirectConfig())
+			router := gin.New()
+			router.POST("/logout", h.Logout)
+			if test.allowed {
+				auth.EXPECT().Logout(mock.Anything, "").Return(nil)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+			if test.origin != "" {
+				req.Header.Set("Origin", test.origin)
+			}
+			if test.referer != "" {
+				req.Header.Set("Referer", test.referer)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if test.allowed {
+				require.Equal(t, http.StatusOK, response.Code)
+			} else {
+				require.Equal(t, http.StatusForbidden, response.Code)
+				require.Empty(t, response.Result().Cookies())
+			}
+		})
+	}
+}

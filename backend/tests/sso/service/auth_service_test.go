@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -417,4 +418,25 @@ func testSessions(t *testing.T, repo *ssomocks.UserRepository) *ssomocks.Session
 	tx.EXPECT().UpdateUser(mock.Anything, mock.Anything).RunAndReturn(repo.UpdateUser).Maybe()
 	tx.EXPECT().RevokeAll(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	return sessions
+}
+
+func TestLoginPreservesSafeLookupTimeoutClassification(t *testing.T) {
+	for _, kind := range []string{"deadline-error", "expired-context"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			lookupError := fmt.Errorf("lookup failed: %w", context.DeadlineExceeded)
+			if kind == "expired-context" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+				lookupError = errors.New("driver query canceled")
+			}
+			repo := ssomocks.NewUserRepository(t)
+			repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(model.User{}, lookupError)
+			svc := NewAuthService(repo, ssomocks.NewTokenProvider(t), ssomocks.NewSessionRepository(t))
+			result, err := svc.Login(ctx, "alice", "secret123")
+			require.Equal(t, model.Tokens{}, result)
+			require.ErrorIs(t, err, apperrors.ErrTimeout)
+		})
+	}
 }

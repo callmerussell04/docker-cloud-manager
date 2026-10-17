@@ -51,6 +51,7 @@ if (logoutChannel) logoutChannel.onmessage = (event) => {
 };
 
 export const refreshSession = () => session.refresh();
+export const retrySessionRefresh = () => session.refresh(true);
 export const logoutSession = () => session.logout();
 export const acceptLogin = (token: string) => session.acceptLogin(token);
 

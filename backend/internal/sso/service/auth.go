@@ -373,6 +373,9 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (mod
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return model.Tokens{}, apperrors.ErrInvalidCredentials
 		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return model.Tokens{}, apperrors.ErrTimeout
+		}
 		return model.Tokens{}, apperrors.ErrUnavailable
 	}
 	if user.Status != model.StatusActive {
