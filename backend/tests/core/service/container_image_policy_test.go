@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
@@ -20,7 +19,11 @@ func TestContainerCreateRejectsRegistryHostsBeforeAdmission(t *testing.T) {
 	for _, image := range []string{"evil.example/app", "localhost/app", "127.0.0.1/app", "registry:5000/app"} {
 		t.Run(image, func(t *testing.T) {
 			docker := coremocks.NewContainerDockerAPI(t)
-			svc := NewContainerService(nil, nil, nil, docker, nil, nil, nil, "", slog.Default())
+			svc := newTestContainerService(t, ContainerServiceDeps{
+				Docker:       docker,
+				HostDiskPath: "",
+				Logger:       slog.Default(),
+			})
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.ContainerCreateParams{Name: "web", ImageTag: image})
 			require.ErrorIs(t, err, apperrors.ErrBadRequest)
 			require.Equal(t, uuid.Nil, id)
@@ -46,15 +49,22 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 		{name: "queued localhost", image: "localhost/app", rejected: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			workerRepo := coremocks.NewContainerCreateWorkerRepository(t)
-			repo := &imagePolicyWorkerRepo{ContainerRepository: coremocks.NewContainerRepository(t), ContainerCreateWorkerRepository: workerRepo}
-			images := coremocks.NewContainerImageRepository(t)
+			workerRepo := newContainerRepository(t)
+			repo := workerRepo
+			images := newContainerImageRepository(t)
 			docker := coremocks.NewContainerDockerAPI(t)
 			cfg := coremocks.NewConfigManager(t)
 			config := containerCreateConfig()
 			config.RegistryPublicURL = "registry.internal:5000"
 			cfg.EXPECT().Get().Return(config).Maybe()
-			svc := NewContainerService(repo, nil, images, docker, nil, cfg, nil, "", slog.Default())
+			svc := newTestContainerService(t, ContainerServiceDeps{
+				Repository:   repo,
+				Images:       images,
+				Docker:       docker,
+				Config:       cfg,
+				HostDiskPath: "",
+				Logger:       slog.Default(),
+			})
 			id, opID := uuid.New(), uuid.New()
 			op := model.ResourceOperation{ID: opID, ResourceID: id, ResourceType: model.ResourceTypeContainer, Operation: model.OperationCreate, Status: model.OperationStatusRunning}
 			workerRepo.EXPECT().ClaimPendingOperation(mock.Anything, opID, mock.Anything).Return(op, true, nil)
@@ -81,7 +91,7 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 			if tc.rejected || tc.lookupError {
 				workerRepo.EXPECT().MarkStatusError(mock.Anything, id, model.ContainerStatusError, mock.Anything).Return(nil)
 				workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusFailed, mock.Anything).Return(nil)
-				repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, owner).Return(1, nil).Maybe()
+				repo.EXPECT().CountByOwnerID(mock.Anything, owner).Return(1, nil).Maybe()
 			} else {
 				if !tc.custom {
 					docker.EXPECT().ImageExists(mock.Anything, tc.pull).Return(false, nil)
@@ -105,27 +115,4 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 			}
 		})
 	}
-}
-
-type imagePolicyWorkerRepo struct {
-	*coremocks.ContainerRepository
-	*coremocks.ContainerCreateWorkerRepository
-}
-
-// Both generated interfaces contain these methods; select the worker mock.
-func (r *imagePolicyWorkerRepo) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
-	return r.ContainerCreateWorkerRepository.GetByID(ctx, id)
-}
-func (r *imagePolicyWorkerRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	return r.ContainerCreateWorkerRepository.Delete(ctx, id)
-}
-func (r *imagePolicyWorkerRepo) UpdateStatus(ctx context.Context, id uuid.UUID, s string) error {
-	return r.ContainerCreateWorkerRepository.UpdateStatus(ctx, id, s)
-}
-func (r *imagePolicyWorkerRepo) UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID, s string) error {
-	return r.ContainerCreateWorkerRepository.UpdateDockerIDAndStatus(ctx, id, dockerID, s)
-}
-
-func (r *imagePolicyWorkerRepo) UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, s string, deadline *time.Time) error {
-	return r.ContainerCreateWorkerRepository.UpdateStatusAndTTLDeadline(ctx, id, s, deadline)
 }

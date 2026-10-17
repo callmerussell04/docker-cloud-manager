@@ -72,10 +72,7 @@ func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg container
 }
 
 func (s *ContainerService) ExecuteQueuedContainerOperation(ctx context.Context, operationID, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
-	repo, ok := s.repo.(containerCreateWorkerRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "container lifecycle queue repository is unavailable")
-	}
+	repo := s.repo
 	op, err := repo.GetOperationByID(ctx, operationID)
 	if err != nil {
 		return err
@@ -87,10 +84,7 @@ func (s *ContainerService) ExecuteQueuedContainerOperation(ctx context.Context, 
 }
 
 func (s *ContainerService) ExecuteQueuedCreate(ctx context.Context, operationID, containerID uuid.UUID) (err error) {
-	repo, ok := s.repo.(containerCreateWorkerRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "container create queue repository is unavailable")
-	}
+	repo := s.repo
 	cfg := s.config.Get()
 	op, claimed, err := repo.ClaimPendingOperation(ctx, operationID, cfg.ContainerCreateMaxAttempts)
 	if err != nil {
@@ -530,10 +524,7 @@ func (s *ContainerService) executeQueuedExpose(ctx context.Context, repo contain
 }
 
 func (s *ContainerService) inspectQueuedCreateVolumes(ctx context.Context, mounts []model.VolumeMountParams) error {
-	inspector, ok := s.dockerAPI.(containerVolumeInspector)
-	if !ok {
-		return nil
-	}
+	inspector := s.dockerAPI
 	for _, mount := range mounts {
 		if _, err := inspector.InspectVolume(ctx, mount.VolumeName); err != nil {
 			if isDockerNotFound(err) {

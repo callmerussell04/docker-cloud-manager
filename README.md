@@ -198,6 +198,12 @@ make test
 
 `DCM_CLICKHOUSE_TEST_DB`, `DCM_CLICKHOUSE_TEST_USER` и `DCM_CLICKHOUSE_TEST_PASSWORD` задают параметры и сервера, и тестового клиента (по умолчанию: `dcm_reports_test`, `dcm_reports_test`, `clickhouse`). `TEST_COMPOSE_PROJECT` изолирует имена ресурсов Compose, но порты хоста должны быть свободны. `TEST_PKGS` выбирает пакеты, `TEST_ARGS` / `TEST_ALL_ARGS` переопределяют флаги Go-тестов.
 
+### Зависимости сервиса контейнеров
+
+`service.NewContainerService(service.ContainerServiceDeps{...})` возвращает сервис и ошибку. При сборке Core обязательны repository с возможностями блокировки owner/capacity, проверки очереди, атомарной записи контейнера/операции/outbox и выполнения lifecycle, репозитории томов и образов с учётом диска и записью missing/error, Docker с проверкой томов, метрики RAM/CPU и диска, runtime config, SSO users и счётчик активных сборок. Отсутствующая зависимость, включая typed nil, отклоняется конструктором до запуска workers; неполный адаптер не реализует требуемый интерфейс.
+
+Создание и запуск удерживают admission lock до сохранения резервирования, desired state, операции и outbox. Отдельного пути сохранения контейнера без lifecycle нет. Аудит и удаление скачанного образа при ошибке остаются best effort. `SetProjectStatusUpdater` разрешает цикл project/container после создания обоих сервисов; Core устанавливает его до запуска workers.
+
 ### Frontend
 
 ```bash

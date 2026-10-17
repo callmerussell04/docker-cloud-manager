@@ -99,9 +99,6 @@ func (s *ContainerService) RunRebalancer(ctx context.Context) {
 }
 
 func (s *ContainerService) activeBuildReservations(ctx context.Context, cfg config.SystemConfig) (int64, int64) {
-	if s.builds == nil {
-		return 0, 0
-	}
 	activeBuilds, err := s.builds.CountActive(ctx)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to count active builds for rebalancing", "error", err)

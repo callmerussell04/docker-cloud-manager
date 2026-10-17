@@ -176,7 +176,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	metricsProvider := metrics.NewSystemMetrics()
 
-	contService := service.NewContainerService(contRepo, volRepo, imgRepo, dockerAdapter, metricsProvider, cfg.ConfigManager, ssoClient, cfg.HostDiskPath, logger)
+	contService, err := service.NewContainerService(service.ContainerServiceDeps{
+		Repository: contRepo, Volumes: volRepo, Images: imgRepo, Docker: dockerAdapter,
+		Metrics: metricsProvider, DiskMetrics: metricsProvider, Config: cfg.ConfigManager,
+		Users: ssoClient, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath, Logger: logger,
+	})
+	if err != nil {
+		return nil, err
+	}
 	volService := service.NewVolumeService(volRepo, dockerAdapter, cfg.ConfigManager, service.VolumeServiceDeps{
 		Users:        ssoClient,
 		ImageRepo:    imgRepo,
@@ -199,7 +206,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		HostMetrics:   metricsProvider,
 		HostDiskPath:  cfg.HostDiskPath,
 	})
-	contService.SetActiveBuildCounter(buildRepo)
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}
 	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
 	contService.SetProjectStatusUpdater(projService)

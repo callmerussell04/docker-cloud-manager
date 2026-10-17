@@ -20,7 +20,7 @@ func TestContainerServiceCreateUsesNameAsDefaultNetworkAlias(t *testing.T) {
 	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
 
-	repo.EXPECT().Save(mock.Anything, mock.AnythingOfType("model.Container")).Run(func(ctx context.Context, c model.Container) {
+	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.Anything, mock.Anything, false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {
 		saved = c
 	}).Return(nil)
 
@@ -35,7 +35,7 @@ func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
 
-	repo.EXPECT().Save(mock.Anything, mock.AnythingOfType("model.Container")).Run(func(ctx context.Context, c model.Container) {
+	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.Anything, mock.Anything, false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {
 		saved = c
 	}).Return(nil)
 
@@ -51,9 +51,14 @@ func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 
 func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) {
 	ownerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, nil, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	var removed []string
 
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
@@ -67,9 +72,14 @@ func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) 
 
 func TestContainerServiceCleanupUserNetworkIfUnusedKeepsNetwork(t *testing.T) {
 	ownerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, nil, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil)
 
@@ -82,7 +92,12 @@ func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, nil, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id"}, nil)
 
@@ -95,18 +110,17 @@ func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
-	svc := NewContainerService(
-		repo,
-		nil,
-		coremocks.NewContainerImageRepository(t),
-		coremocks.NewContainerDockerAPI(t),
-		coremocks.NewHostMetricsProvider(t),
-		coremocks.NewConfigManager(t),
-		coremocks.NewUserInfoProvider(t),
-		"",
-		slog.Default(),
-	)
+	repo := newContainerRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Images:       newContainerImageRepository(t),
+		Docker:       coremocks.NewContainerDockerAPI(t),
+		Metrics:      coremocks.NewHostMetricsProvider(t),
+		Config:       coremocks.NewConfigManager(t),
+		Users:        coremocks.NewUserInfoProvider(t),
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	repo.EXPECT().
 		List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
@@ -127,9 +141,9 @@ func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 
 func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.ContainerRepository, *coremocks.ContainerDockerAPI, *ContainerService) {
 	t.Helper()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	imageRepo := coremocks.NewContainerImageRepository(t)
+	imageRepo := newContainerImageRepository(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
 	users := coremocks.NewUserInfoProvider(t)
@@ -144,7 +158,16 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
 	metrics.EXPECT().GetFreeMemory().Return(int64(1024*1024*1024), nil).Maybe()
 	imageRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 0, nil)
-	return repo, dockerAPI, NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	return repo, dockerAPI, newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Images:       imageRepo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 }
 
 func containerCreateConfig() config.SystemConfig {

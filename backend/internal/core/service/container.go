@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -19,6 +20,14 @@ import (
 )
 
 type ContainerRepository interface {
+	containerCreateRepository
+	containerStateRepository
+	containerCreateWorkerRepository
+	containerLifecycleQueueRepository
+	containerActiveOperationRepository
+	containerLockRepository
+	CountActiveCreateOperationsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CancelActiveCreateAndDeleteContainer(ctx context.Context, id uuid.UUID, cause error) error
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
@@ -39,7 +48,6 @@ type ContainerRepository interface {
 }
 
 type containerCreateRepository interface {
-	SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error
 	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 }
 
@@ -68,11 +76,13 @@ type containerExposeRepository interface {
 }
 
 type ContainerVolumeRepository interface {
+	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
-	SaveMounts(ctx context.Context, mounts []model.VolumeMount) error
 }
 
 type ContainerDockerAPI interface {
+	containerVolumeInspector
 	EnsureUserNetwork(ctx context.Context, networkName string) (string, error)
 	RemoveNetwork(ctx context.Context, networkName string) error
 	PullImage(ctx context.Context, imageName string) error
@@ -97,6 +107,8 @@ type HostMetricsProvider interface {
 }
 
 type ContainerImageRepository interface {
+	containerImageDiskRepository
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
 }
 
@@ -126,6 +138,7 @@ type ContainerService struct {
 	imageRepo    ContainerImageRepository
 	dockerAPI    ContainerDockerAPI
 	metrics      HostMetricsProvider
+	diskMetrics  HostDiskMetricsProvider
 	config       ConfigManager
 	users        UserInfoProvider
 	projects     ProjectStatusUpdater
@@ -136,28 +149,55 @@ type ContainerService struct {
 	rebalanceCh  chan struct{}
 }
 
-func NewContainerService(
-	repo ContainerRepository,
-	volumeRepo ContainerVolumeRepository,
-	imageRepo ContainerImageRepository,
-	dockerAPI ContainerDockerAPI,
-	metrics HostMetricsProvider,
-	config ConfigManager,
-	users UserInfoProvider,
-	hostDiskPath string,
-	logger *slog.Logger,
-) *ContainerService {
+// ContainerServiceDeps declares the capabilities needed by admission and lifecycle work.
+// Audit is best effort. Projects is wired separately to resolve the project/container cycle.
+type ContainerServiceDeps struct {
+	Repository   ContainerRepository
+	Volumes      ContainerVolumeRepository
+	Images       ContainerImageRepository
+	Docker       ContainerDockerAPI
+	Metrics      HostMetricsProvider
+	DiskMetrics  HostDiskMetricsProvider
+	Config       ConfigManager
+	Users        UserInfoProvider
+	Builds       activeSystemBuildCounter
+	HostDiskPath string
+	Logger       *slog.Logger
+	Audit        AuditRecorder
+}
+
+func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"volumes", deps.Volumes},
+		{"images", deps.Images}, {"docker", deps.Docker},
+		{"metrics", deps.Metrics}, {"disk metrics", deps.DiskMetrics},
+		{"config", deps.Config}, {"users", deps.Users}, {"builds", deps.Builds},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilContainerDependency(dependency.value) {
+			return nil, fmt.Errorf("container service: %s is required", dependency.name)
+		}
+	}
 	return &ContainerService{
-		repo:         repo,
-		volumeRepo:   volumeRepo,
-		imageRepo:    imageRepo,
-		dockerAPI:    dockerAPI,
-		metrics:      metrics,
-		config:       config,
-		users:        users,
-		hostDiskPath: hostDiskPath,
-		logger:       logging.WithComponent(logger, "container_service"),
-		rebalanceCh:  make(chan struct{}, 1),
+		repo: deps.Repository, volumeRepo: deps.Volumes, imageRepo: deps.Images,
+		dockerAPI: deps.Docker, metrics: deps.Metrics, diskMetrics: deps.DiskMetrics,
+		config: deps.Config, users: deps.Users, builds: deps.Builds,
+		hostDiskPath: deps.HostDiskPath, auditor: deps.Audit,
+		logger:      logging.WithComponent(deps.Logger, "container_service"),
+		rebalanceCh: make(chan struct{}, 1),
+	}, nil
+}
+
+func isNilContainerDependency(dependency any) bool {
+	value := reflect.ValueOf(dependency)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
 	}
 }
 
@@ -167,10 +207,6 @@ func (s *ContainerService) SetProjectStatusUpdater(updater ProjectStatusUpdater)
 
 func (s *ContainerService) SetAuditRecorder(auditor AuditRecorder) {
 	s.auditor = auditor
-}
-
-func (s *ContainerService) SetActiveBuildCounter(counter activeSystemBuildCounter) {
-	s.builds = counter
 }
 
 func (s *ContainerService) Create(ctx context.Context, params model.ContainerCreateParams) (createdID uuid.UUID, err error) {
@@ -229,10 +265,8 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		}
 
 	}
-	if queuedRepo, ok := s.repo.(interface {
-		CountActiveCreateOperationsByOwner(context.Context, uuid.UUID) (int, error)
-	}); ok && cfg.MaxQueuedContainerCreatesPerUser > 0 {
-		queued, err := queuedRepo.CountActiveCreateOperationsByOwner(ctx, ownerID)
+	if cfg.MaxQueuedContainerCreatesPerUser > 0 {
+		queued, err := s.repo.CountActiveCreateOperationsByOwner(ctx, ownerID)
 		if err != nil {
 			return uuid.Nil, err
 		}
@@ -365,20 +399,8 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}
-	if txRepo, ok := s.repo.(containerCreateRepository); ok {
-		if err := txRepo.SaveWithMountsOperationAndOutbox(ctx, c, dbMounts, op, outbox, false, false); err != nil {
-			return uuid.Nil, err
-		}
-	} else {
-		if err := s.repo.Save(ctx, c); err != nil {
-			return uuid.Nil, err
-		}
-		if len(dbMounts) > 0 {
-			if err := s.volumeRepo.SaveMounts(ctx, dbMounts); err != nil {
-				_ = s.repo.Delete(ctx, containerID)
-				return uuid.Nil, err
-			}
-		}
+	if err := s.repo.SaveWithMountsOperationAndOutbox(ctx, c, dbMounts, op, outbox, false, false); err != nil {
+		return uuid.Nil, err
 	}
 	releaseLock()
 	s.logger.InfoContext(ctx, "container create queued", "container_id", containerID, "owner_id", ownerID, "image_tag", normalizedInputTag)
@@ -600,28 +622,23 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 	}
 	ownerID := c.OwnerID
 	if c.DockerID == "" && (c.Status == model.ContainerStatusPending || c.Status == model.ContainerStatusCreating) {
-		if cancelRepo, ok := s.repo.(interface {
-			CancelActiveCreateAndDeleteContainer(context.Context, uuid.UUID, error) error
-		}); ok {
-			cause := apperrors.New(apperrors.ErrConflict, "container create canceled by delete")
-			if err := cancelRepo.CancelActiveCreateAndDeleteContainer(ctx, containerID, cause); err != nil {
-				return err
-			}
-			s.cleanupUserNetworkIfUnused(ctx, ownerID)
-			s.refreshProjectStatus(ctx, c.ProjectID)
-			s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
-			return nil
-		}
-	}
-	if activeRepo, ok := s.repo.(containerActiveOperationRepository); ok {
-		active, err := activeRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
-		if err != nil {
+		cause := apperrors.New(apperrors.ErrConflict, "container create canceled by delete")
+		if err := s.repo.CancelActiveCreateAndDeleteContainer(ctx, containerID, cause); err != nil {
 			return err
 		}
-		if active {
-			return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
-		}
+		s.cleanupUserNetworkIfUnused(ctx, ownerID)
+		s.refreshProjectStatus(ctx, c.ProjectID)
+		s.logger.InfoContext(ctx, "queued container create canceled and deleted", "container_id", containerID, "owner_id", ownerID)
+		return nil
 	}
+	active, err := s.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, containerID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
+	}
+
 	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, containerqueue.LifecycleMessage{
 		PreviousStatus: c.Status,
 	})

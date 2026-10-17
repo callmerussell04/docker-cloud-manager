@@ -59,7 +59,20 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Users:     users,
 		ImageRepo: repos.Images,
 	})
-	containers := service.NewContainerService(repos.Containers, repos.Volumes, repos.Images, containerDocker, metrics, cfg, users, "", coretest.DiscardLogger())
+	containers, err := service.NewContainerService(service.ContainerServiceDeps{
+		Repository:   repos.Containers,
+		Builds:       repos.Builds,
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:      repos.Volumes,
+		Images:       repos.Images,
+		Docker:       containerDocker,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
 	images := service.NewImageService(repos.Images, coremocks.NewImageDockerAPI(t), coremocks.NewImageRegistryAPI(t), repos.Containers, cfg)
 	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)
 
@@ -196,19 +209,22 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 	metrics.EXPECT().GetTotalMemory().Return(int64(64<<30), nil).Maybe()
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 
-	containers := service.NewContainerService(
-		repos.Containers,
-		repos.Volumes,
-		repos.Images,
-		coremocks.NewContainerDockerAPI(t),
-		metrics,
-		cfg,
-		users,
-		"",
-		coretest.DiscardLogger(),
-	)
+	containers, err := service.NewContainerService(service.ContainerServiceDeps{
+		Repository:   repos.Containers,
+		Builds:       repos.Builds,
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:      repos.Volumes,
+		Images:       repos.Images,
+		Docker:       coremocks.NewContainerDockerAPI(t),
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
 
-	_, err := containers.Create(coretest.UserContext(ownerID), model.ContainerCreateParams{
+	_, err = containers.Create(coretest.UserContext(ownerID), model.ContainerCreateParams{
 		Name:              "too-big",
 		ImageTag:          "nginx:latest",
 		RequestedMemoryMB: 2,

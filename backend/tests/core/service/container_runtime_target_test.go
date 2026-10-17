@@ -9,7 +9,6 @@ import (
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -18,8 +17,11 @@ import (
 func TestContainerServiceGetRuntimeTargetAllowsOwner(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
-	svc := NewContainerService(repo, nil, nil, nil, nil, nil, nil, "", nil)
+	repo := newContainerRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		HostDiskPath: "",
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
 		ID:               containerID,
@@ -40,8 +42,11 @@ func TestContainerServiceGetRuntimeTargetAllowsOwner(t *testing.T) {
 func TestContainerServiceGetRuntimeTargetHidesOtherOwners(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
-	svc := NewContainerService(repo, nil, nil, nil, nil, nil, nil, "", nil)
+	repo := newContainerRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		HostDiskPath: "",
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
 		ID:       containerID,
@@ -57,8 +62,11 @@ func TestContainerServiceGetRuntimeTargetHidesOtherOwners(t *testing.T) {
 func TestContainerServiceGetRuntimeTargetAllowsAdmin(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
-	svc := NewContainerService(repo, nil, nil, nil, nil, nil, nil, "", nil)
+	repo := newContainerRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		HostDiskPath: "",
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning}, nil)
 
@@ -69,8 +77,11 @@ func TestContainerServiceGetRuntimeTargetAllowsAdmin(t *testing.T) {
 func TestContainerServiceGetRuntimeTargetRejectsUnavailableContainer(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
-	svc := NewContainerService(repo, nil, nil, nil, nil, nil, nil, "", nil)
+	repo := newContainerRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		HostDiskPath: "",
+	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, Status: model.ContainerStatusMissing}, nil).Once()
 	_, err := svc.GetRuntimeTarget(accessscope.WithUserScope(context.Background(), ownerID, "alice", "user"), containerID)

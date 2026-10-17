@@ -27,7 +27,13 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -51,10 +57,16 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 
 func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
 	ownerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
@@ -77,7 +89,13 @@ func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -101,7 +119,13 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)
 
@@ -139,7 +163,7 @@ func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, staticConfig{}, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"}, nil)
 
@@ -155,7 +179,7 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, staticConfig{}, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning}, nil)
 
@@ -218,9 +242,9 @@ func TestTTLWorkerSkipsExpirationWhenTTLDisabled(t *testing.T) {
 func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, staticConfig{}, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker", Status: model.ContainerStatusMissing}, nil)
 
@@ -231,13 +255,28 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 
 func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	ownerID := uuid.New()
-	repo := newContainerCreateStateRepoMock(t)
-	imageRepo := coremocks.NewContainerImageRepository(t)
+	repo := coremocks.NewContainerRepository(t)
+	lockHeld := false
+	repo.EXPECT().AcquireOwnerCapacityLock(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (func(), error) {
+		lockHeld = true
+		return func() { lockHeld = false }, nil
+	}).Once()
+	repo.EXPECT().CountActiveCreateOperationsByOwner(mock.Anything, ownerID).Return(0, nil).Maybe()
+	imageRepo := newContainerImageRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
 	users := coremocks.NewUserInfoProvider(t)
-	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Images:       imageRepo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	ctx, cancel := context.WithCancel(accessscope.WithUserScope(context.Background(), ownerID, "", ""))
 	defer cancel()
 	cfgValue := staticConfig{}.Get()
@@ -245,20 +284,28 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	cfgValue.ContainerTTLHours = 24
 
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
-	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)
-	repo.ContainerRepository.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
+	repo.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
+	repo.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
 	imageRepo.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
 		return opts.OwnerID != nil && *opts.OwnerID == ownerID
 	})).Return(nil, 0, nil)
-	repo.ContainerCreateRepository.EXPECT().SaveWithMountsAndOperation(mock.Anything, mock.MatchedBy(func(c model.Container) bool {
+	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.MatchedBy(func(c model.Container) bool {
 		return c.TTLDeadline == nil
-	}), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), false, false).Return(nil)
+	}), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), mock.AnythingOfType("model.ContainerLifecycleOutbox"), false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {
+		require.True(t, lockHeld)
+		require.Equal(t, ownerID, c.OwnerID)
+		require.Equal(t, c.ID, op.ResourceID)
+		require.Equal(t, op.ID, outbox.OperationID)
+		require.Equal(t, c.ID, outbox.ContainerID)
+		require.Equal(t, model.OperationStatusPending, op.Status)
+		require.Equal(t, model.ContainerOutboxStatusPending, outbox.Status)
+	}).Return(nil).Once()
 
 	containerID, err := svc.Create(ctx, model.ContainerCreateParams{
 		Name:              "web",
@@ -267,6 +314,8 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, containerID)
+	require.False(t, lockHeld)
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceQueuedStartSetsTTLDeadline(t *testing.T) {
@@ -276,7 +325,13 @@ func TestContainerServiceQueuedStartSetsTTLDeadline(t *testing.T) {
 	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	cfgValue := staticConfig{}.Get()
 	cfgValue.ContainerTTLHours = 24
 
@@ -299,7 +354,13 @@ func TestContainerServiceQueuedStartClearsTTLDeadlineWhenDisabled(t *testing.T) 
 	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	cfgValue := staticConfig{}.Get()
 	cfgValue.ContainerTTLHours = 0
 
@@ -319,7 +380,13 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	repo := newContainerLifecycleRepoMock(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, nil, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)
 	projectID := uuid.New()
@@ -364,13 +431,20 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
 	done := make(chan struct{})
 	var updates int
-	svc := NewContainerService(repo, nil, nil, dockerAPI, metrics, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 
 	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128, BaseCPUReservation: 250}}, nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(1024), nil)
@@ -403,11 +477,18 @@ func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
 }
 
 func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
-	repo := coremocks.NewContainerRepository(t)
+	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
-	svc := NewContainerService(repo, nil, nil, dockerAPI, metrics, cfg, nil, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	cfgValue := staticConfig{}.Get()
 	cfgValue.MaxBurstMultiplier = 3
 	cfgValue.MaxCPUBurstMultiplier = 4
@@ -437,20 +518,29 @@ func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
 
 func TestContainerServiceCreateRejectsCPUQuotaExceeded(t *testing.T) {
 	ownerID := uuid.New()
-	repo := newContainerCreateStateRepoMock(t)
-	imageRepo := coremocks.NewContainerImageRepository(t)
+	repo := newContainerRepository(t)
+	imageRepo := newContainerImageRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
 	users := coremocks.NewUserInfoProvider(t)
-	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Images:       imageRepo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
 	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 0.1}, nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
 
 	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest"})
 	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
@@ -458,42 +548,38 @@ func TestContainerServiceCreateRejectsCPUQuotaExceeded(t *testing.T) {
 
 func TestContainerServiceCreateRejectsHostCPUCapacity(t *testing.T) {
 	ownerID := uuid.New()
-	repo := newContainerCreateStateRepoMock(t)
-	imageRepo := coremocks.NewContainerImageRepository(t)
+	repo := newContainerRepository(t)
+	imageRepo := newContainerImageRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	cfg := coremocks.NewConfigManager(t)
 	users := coremocks.NewUserInfoProvider(t)
-	svc := NewContainerService(repo, nil, imageRepo, dockerAPI, metrics, cfg, users, "", slog.Default())
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository:   repo,
+		Images:       imageRepo,
+		Docker:       dockerAPI,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       slog.Default(),
+	})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 	cfgValue := staticConfig{}.Get()
 	cfgValue.CPUOvercommitFactor = 0.2
 
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
-	repo.ContainerRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
-	repo.ContainerRepository.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
+	repo.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
 
 	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest"})
 	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
-}
-
-type containerStateRepoMock struct {
-	*coremocks.ContainerRepository
-	*coremocks.ContainerStateRepository
-}
-
-func newContainerStateRepoMock(t *testing.T) *containerStateRepoMock {
-	t.Helper()
-	return &containerStateRepoMock{
-		ContainerRepository:      coremocks.NewContainerRepository(t),
-		ContainerStateRepository: coremocks.NewContainerStateRepository(t),
-	}
 }
 
 type queuedContainerOperation struct {
@@ -510,7 +596,7 @@ type containerLifecycleRepoMock struct {
 
 func newContainerLifecycleRepoMock(t *testing.T) *containerLifecycleRepoMock {
 	t.Helper()
-	return &containerLifecycleRepoMock{ContainerRepository: coremocks.NewContainerRepository(t)}
+	return &containerLifecycleRepoMock{ContainerRepository: newContainerRepository(t)}
 }
 
 func (r *containerLifecycleRepoMock) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
@@ -557,25 +643,6 @@ func (r *ttlWorkerRepoFake) QueueContainerOperation(ctx context.Context, id uuid
 	return nil
 }
 
-type containerCreateStateRepoMock struct {
-	*coremocks.ContainerRepository
-	*coremocks.ContainerCreateRepository
-	*coremocks.ContainerStateRepository
-}
-
-func newContainerCreateStateRepoMock(t *testing.T) *containerCreateStateRepoMock {
-	t.Helper()
-	return &containerCreateStateRepoMock{
-		ContainerRepository:       coremocks.NewContainerRepository(t),
-		ContainerCreateRepository: coremocks.NewContainerCreateRepository(t),
-		ContainerStateRepository:  coremocks.NewContainerStateRepository(t),
-	}
-}
-
-func (r *containerCreateStateRepoMock) SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error {
-	return r.ContainerCreateRepository.SaveWithMountsAndOperation(ctx, c, mounts, op, lockOwner, lockCapacity)
-}
-
 type startLifecycleRepoMock struct {
 	*coremocks.ContainerRepository
 	container          model.Container
@@ -600,7 +667,7 @@ func newStartLifecycleRepoMock(t *testing.T, ownerID, containerID, operationID u
 	runningOp := pendingOp
 	runningOp.Status = model.OperationStatusRunning
 	return &startLifecycleRepoMock{
-		ContainerRepository: coremocks.NewContainerRepository(t),
+		ContainerRepository: newContainerRepository(t),
 		container: model.Container{
 			ID:       containerID,
 			OwnerID:  ownerID,

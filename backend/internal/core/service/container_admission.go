@@ -46,9 +46,7 @@ func (s *ContainerService) checkUserCPUQuota(ctx context.Context, ownerID uuid.U
 }
 
 func (s *ContainerService) checkUserDiskQuota(ctx context.Context, ownerID uuid.UUID) error {
-	imageRepo, _ := s.imageRepo.(containerImageDiskRepository)
-	volumeRepo, _ := s.volumeRepo.(volumeDiskUsageRepository)
-	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, imageRepo, volumeRepo)
+	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, s.volumeRepo)
 }
 
 func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error {
@@ -93,13 +91,11 @@ func (s *ContainerService) checkHostCPUCapacity(ctx context.Context, requestedCP
 		return apperrors.ErrInternal
 	}
 	cfg := s.config.Get()
-	if s.builds != nil {
-		activeBuilds, err := s.builds.CountActive(ctx)
-		if err != nil {
-			return err
-		}
-		totalReservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
+	activeBuilds, err := s.builds.CountActive(ctx)
+	if err != nil {
+		return err
 	}
+	totalReservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
 	return ensureHostCPUCapacity(ctx, s.metrics, cfg, totalReservedCPU, requestedCPU, s.logger, "container")
 }
 
@@ -108,9 +104,5 @@ func (s *ContainerService) checkHostDiskCapacity() error {
 }
 
 func (s *ContainerService) checkHostDiskCapacityForWrite(projectedWriteBytes int64) error {
-	diskMetrics, ok := s.metrics.(HostDiskMetricsProvider)
-	if !ok {
-		return nil
-	}
-	return ensureHostDiskFloorProjected(diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, projectedWriteBytes)
+	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, projectedWriteBytes)
 }

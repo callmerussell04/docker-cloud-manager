@@ -39,7 +39,20 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 	containerDocker := coremocks.NewContainerDockerAPI(t)
 	containerDocker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
-	containers := service.NewContainerService(repos.Containers, repos.Volumes, repos.Images, containerDocker, metrics, cfg, users, "", coretest.DiscardLogger())
+	containers, err := service.NewContainerService(service.ContainerServiceDeps{
+		Repository:   repos.Containers,
+		Builds:       repos.Builds,
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:      repos.Volumes,
+		Images:       repos.Images,
+		Docker:       containerDocker,
+		Metrics:      metrics,
+		Config:       cfg,
+		Users:        users,
+		HostDiskPath: "",
+		Logger:       coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
 	volumes := service.NewVolumeService(repos.Volumes, coremocks.NewVolumeDockerAPI(t), cfg, service.VolumeServiceDeps{Users: users, ImageRepo: repos.Images})
 
 	runtimeID := uuid.New()
@@ -68,7 +81,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	})
 	client := coreapi.NewContainerAPIClient(conn)
 
-	_, err := client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 10})
+	_, err = client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	wrongTokenCtx := coretest.InternalGRPCContext(context.Background(), "wrong", accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID})
 	_, err = client.ListContainers(wrongTokenCtx, &coreapi.PaginationRequest{Limit: 10})

@@ -18,18 +18,11 @@ import (
 const containerStateWriteTimeout = 10 * time.Second
 
 func (s *ContainerService) acquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
-	lockRepo, ok := s.repo.(containerLockRepository)
-	if !ok {
-		return nil, nil
-	}
-	return lockRepo.AcquireOwnerCapacityLock(ctx, ownerID)
+	return s.repo.AcquireOwnerCapacityLock(ctx, ownerID)
 }
 
 func (s *ContainerService) setContainerDesiredStatus(ctx context.Context, containerID uuid.UUID, status string) error {
-	stateRepo, ok := s.repo.(containerStateRepository)
-	if !ok {
-		return nil
-	}
+	stateRepo := s.repo
 	if err := stateRepo.SetDesiredStatus(ctx, containerID, status); err != nil {
 		s.logger.WarnContext(ctx, "failed to set desired container status", "container_id", containerID, "desired_status", status, "error", err)
 		return err
@@ -38,10 +31,7 @@ func (s *ContainerService) setContainerDesiredStatus(ctx context.Context, contai
 }
 
 func (s *ContainerService) markContainerError(ctx context.Context, containerID uuid.UUID, status string, cause error) {
-	stateRepo, ok := s.repo.(containerStateRepository)
-	if !ok {
-		return
-	}
+	stateRepo := s.repo
 	writeCtx, cancel := detachedContainerStateContext(ctx)
 	defer cancel()
 	if err := stateRepo.MarkStatusError(writeCtx, containerID, status, normalizeContainerRuntimeError(cause)); err != nil {
@@ -50,30 +40,21 @@ func (s *ContainerService) markContainerError(ctx context.Context, containerID u
 }
 
 func (s *ContainerService) markVolumeMissing(ctx context.Context, volumeID uuid.UUID) {
-	stateRepo, ok := s.volumeRepo.(volumeStateRepository)
-	if !ok {
-		return
-	}
+	stateRepo := s.volumeRepo
 	if err := stateRepo.MarkStatusError(ctx, volumeID, model.VolumeStatusMissing, resourceMissingError("volume")); err != nil {
 		s.logger.WarnContext(ctx, "failed to mark volume missing", "volume_id", volumeID, "error", err)
 	}
 }
 
 func (s *ContainerService) markImageMissing(ctx context.Context, imageID uuid.UUID) {
-	stateRepo, ok := s.imageRepo.(imageStateRepository)
-	if !ok {
-		return
-	}
+	stateRepo := s.imageRepo
 	if err := stateRepo.MarkStatusError(ctx, imageID, model.ImageStatusMissing, resourceMissingError("image")); err != nil {
 		s.logger.WarnContext(ctx, "failed to mark image missing", "image_id", imageID, "error", err)
 	}
 }
 
 func (s *ContainerService) createContainerOperation(ctx context.Context, containerID, ownerID uuid.UUID, operation string) error {
-	stateRepo, ok := s.repo.(containerStateRepository)
-	if !ok {
-		return nil
-	}
+	stateRepo := s.repo
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
 		ResourceType: model.ResourceTypeContainer,
@@ -90,10 +71,7 @@ func (s *ContainerService) createContainerOperation(ctx context.Context, contain
 }
 
 func (s *ContainerService) createContainerOperationAndSetDesired(ctx context.Context, containerID, ownerID uuid.UUID, operation, desiredStatus string) error {
-	stateRepo, ok := s.repo.(containerStateRepository)
-	if !ok {
-		return s.setContainerDesiredStatus(ctx, containerID, desiredStatus)
-	}
+	stateRepo := s.repo
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
 		ResourceType: model.ResourceTypeContainer,
@@ -110,10 +88,7 @@ func (s *ContainerService) createContainerOperationAndSetDesired(ctx context.Con
 }
 
 func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.Container, operation, busyStatus, desiredStatus string, msg containerqueue.LifecycleMessage) error {
-	queueRepo, ok := s.repo.(containerLifecycleQueueRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "container lifecycle queue repository is unavailable")
-	}
+	queueRepo := s.repo
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
 		ResourceType: model.ResourceTypeContainer,
@@ -149,10 +124,7 @@ func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.
 }
 
 func (s *ContainerService) completeContainerOperation(ctx context.Context, containerID uuid.UUID, status string, cause error) {
-	stateRepo, ok := s.repo.(containerStateRepository)
-	if !ok {
-		return
-	}
+	stateRepo := s.repo
 	writeCtx, cancel := detachedContainerStateContext(ctx)
 	defer cancel()
 	if err := stateRepo.CompleteLatestOperation(writeCtx, model.ResourceTypeContainer, containerID, status, normalizeContainerRuntimeError(cause)); err != nil {
