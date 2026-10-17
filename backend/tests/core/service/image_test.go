@@ -86,6 +86,42 @@ func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) 
 	require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
 }
 
+func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
+	for _, phase := range []string{"lookup", "delete"} {
+		t.Run(phase, func(t *testing.T) {
+			ownerID, imageID, operationID := uuid.New(), uuid.New(), uuid.New()
+			repo := newImageRepoMock(t)
+			registry := coremocks.NewImageRegistryAPI(t)
+			dockerAPI := coremocks.NewImageDockerAPI(t)
+			svc := NewImageService(repo, dockerAPI, registry, coremocks.NewImageContainerRepository(t), staticConfig{})
+			lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+			svc.SetLifecycleRepository(lifecycle)
+			cause := apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", context.DeadlineExceeded)
+			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+			repoName := ownerID.String() + "_demo"
+			if phase == "lookup" {
+				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "", cause).Once()
+			} else {
+				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "sha256:digest", nil).Once()
+				registry.EXPECT().DeleteManifest(mock.Anything, repoName, "sha256:digest").Return(cause).Once()
+			}
+
+			err := svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+			require.ErrorIs(t, err, apperrors.ErrTimeout)
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
+			repo.ImageRepository.AssertNotCalled(t, "Delete", mock.Anything, imageID)
+
+			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "sha256:digest", nil).Once()
+			registry.EXPECT().DeleteManifest(mock.Anything, repoName, "sha256:digest").Return(nil).Once()
+			dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Once()
+			repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil).Once()
+			require.NoError(t, svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID))
+			require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
+		})
+	}
+}
+
 func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()

@@ -60,7 +60,14 @@ func responseError(code int) error {
 		return apperrors.ErrNotFound
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return apperrors.ErrForbidden
+	case http.StatusRequestTimeout, http.StatusGatewayTimeout:
+		return apperrors.ErrTimeout
+	case http.StatusTooManyRequests:
+		return apperrors.ErrUnavailable
 	default:
+		if code >= 400 && code < 500 {
+			return apperrors.ErrBadRequest
+		}
 		return apperrors.ErrUnavailable
 	}
 }

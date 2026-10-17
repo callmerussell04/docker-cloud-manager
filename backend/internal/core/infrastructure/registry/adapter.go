@@ -8,9 +8,12 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
+
+const manifestAttemptTimeout = time.Minute
 
 type Adapter struct {
 	baseURL    string
@@ -31,6 +34,9 @@ func NewAdapter(registryURL string) *Adapter {
 }
 
 func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, manifestAttemptTimeout)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repo, tag)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -47,7 +53,7 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	req.Header.Set("Accept", strings.Join(acceptHeaders, ", "))
 
 	if err := a.authorize(ctx, req, repo, false); err != nil {
-		return 0, "", err
+		return 0, "", requestError("registry manifest authorization failed", err)
 	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -81,6 +87,9 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 }
 
 func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error {
+	ctx, cancel := context.WithTimeout(ctx, manifestAttemptTimeout)
+	defer cancel()
+
 	url := fmt.Sprintf("%s/v2/%s/manifests/%s", a.baseURL, repo, digest)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
 	if err != nil {
@@ -88,7 +97,7 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 	}
 
 	if err := a.authorize(ctx, req, repo, true); err != nil {
-		return err
+		return requestError("registry manifest authorization failed", err)
 	}
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -110,6 +119,8 @@ func requestError(message string, cause error) error {
 	var netErr net.Error
 	if errors.Is(cause, context.DeadlineExceeded) || (errors.As(cause, &netErr) && netErr.Timeout()) {
 		kind = apperrors.ErrTimeout
+	} else if errors.Is(cause, apperrors.ErrForbidden) {
+		kind = apperrors.ErrForbidden
 	}
 	return apperrors.Wrap(kind, message, cause)
 }
