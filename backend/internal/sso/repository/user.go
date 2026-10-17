@@ -202,6 +202,14 @@ func (r *UserRepository) ListUsers(ctx context.Context, opts model.ListUsersOpti
 }
 
 func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error {
+	return updateUser(ctx, r.db, user)
+}
+
+type userExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func updateUser(ctx context.Context, executor userExecutor, user model.User) error {
 	query := `
 		UPDATE users
 		SET username = $2,
@@ -220,7 +228,7 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error 
 		WHERE id = $1
 	`
 
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := executor.ExecContext(ctx, query,
 		user.ID,
 		user.Username,
 		user.Email,

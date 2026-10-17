@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
@@ -18,7 +19,7 @@ import (
 func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	auth := gatewayhandlermocks.NewMockAuthService(t)
-	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/", MaxAge: 3600, HTTPOnly: true}, testRedirectConfig())
+	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/", HTTPOnly: true}, testRedirectConfig())
 	router := gin.New()
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
@@ -31,13 +32,13 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 	require.Contains(t, resp.Body.String(), `"user_id":"user-id"`)
 
-	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh"}, nil)
+	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Now().Add(time.Hour)}, nil)
 	resp = perform(router, http.MethodPost, "/login", `{"username":"alice","password":"secret123"}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"access_token":"access"`)
 	requireCookie(t, resp.Result(), "refresh_token", "refresh", true)
 
-	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2"}, nil)
+	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2", RefreshExpiresAt: time.Now().Add(time.Hour)}, nil)
 	resp = perform(router, http.MethodPost, "/refresh", ``, []*http.Cookie{{Name: "refresh_token", Value: "refresh"}})
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"access_token":"access2"`)
@@ -53,6 +54,7 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	require.Contains(t, resp.Body.String(), `"local_login_enabled":true`)
 	require.Contains(t, resp.Body.String(), `"name":"keycloak"`)
 
+	auth.EXPECT().Logout(mock.Anything, "").Return(nil)
 	resp = perform(router, http.MethodPost, "/logout", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	requireCookieMaxAge(t, resp.Result(), "refresh_token", -1)
@@ -81,7 +83,7 @@ func TestAuthHandlerValidationAndErrors(t *testing.T) {
 func TestAuthHandlerOIDCFlowUsesHttpOnlyStateCookieAndSafeRedirect(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	auth := gatewayhandlermocks.NewMockAuthService(t)
-	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/", MaxAge: 3600, HTTPOnly: true}, testRedirectConfig())
+	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/", HTTPOnly: true}, testRedirectConfig())
 	router := gin.New()
 	router.GET("/start", h.StartKeycloakLogin)
 	router.GET("/callback", h.CompleteKeycloakCallback)
@@ -97,7 +99,7 @@ func TestAuthHandlerOIDCFlowUsesHttpOnlyStateCookieAndSafeRedirect(t *testing.T)
 
 	auth.EXPECT().
 		CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "state-binding").
-		Return(model.OIDCCallbackResult{Tokens: model.Tokens{AccessToken: "access", RefreshToken: "refresh"}, RedirectAfter: "http://frontend.example/auth/callback"}, nil)
+		Return(model.OIDCCallbackResult{Tokens: model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Now().Add(time.Hour)}, RedirectAfter: "http://frontend.example/auth/callback"}, nil)
 	resp = perform(router, http.MethodGet, "/callback?code=code&state=state", ``, []*http.Cookie{{Name: "oidc_state", Value: "state-binding"}})
 	require.Equal(t, http.StatusFound, resp.Code)
 	require.Equal(t, "http://frontend.example/auth/callback?login=success", resp.Header().Get("Location"))
@@ -125,13 +127,15 @@ func TestAuthHandlerOIDCRejectsUnsafeRedirectAndMissingState(t *testing.T) {
 
 func testRedirectConfig() handler.AuthRedirectConfig {
 	return handler.AuthRedirectConfig{
-		AllowedOrigins: []string{"http://frontend.example"},
-		CallbackPath:   "/auth/callback",
+		AllowedOrigins:       []string{"http://frontend.example"},
+		CookieAllowedOrigins: []string{"http://frontend.example"},
+		CallbackPath:         "/auth/callback",
 	}
 }
 
 func perform(router http.Handler, method, path, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Origin", "http://frontend.example")
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -166,3 +170,69 @@ func requireCookieMaxAge(t *testing.T, resp *http.Response, name string, maxAge 
 }
 
 var _ handler.AuthService = (*gatewayhandlermocks.MockAuthService)(nil)
+
+func TestAuthHandlerLogoutRevocationAndRefreshFailureCookies(t *testing.T) {
+	for _, action := range []string{"refresh", "logout"} {
+		for _, kind := range []string{"success", "invalid", "unavailable", "timeout"} {
+			t.Run(action+"/"+kind, func(t *testing.T) {
+				auth := gatewayhandlermocks.NewMockAuthService(t)
+				h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/api/v1/auth", Domain: "example.com", HTTPOnly: true, Secure: true}, testRedirectConfig())
+				router := gin.New()
+				router.POST("/refresh", h.Refresh)
+				router.POST("/logout", h.Logout)
+				var err error
+				statusCode := http.StatusOK
+				switch kind {
+				case "invalid":
+					err, statusCode = apperrors.ErrInvalidToken, http.StatusUnauthorized
+				case "unavailable":
+					err, statusCode = apperrors.ErrUnavailable, http.StatusServiceUnavailable
+				case "timeout":
+					err, statusCode = apperrors.ErrTimeout, http.StatusGatewayTimeout
+				}
+				if action == "refresh" {
+					auth.EXPECT().Refresh(mock.Anything, "secret").Return(model.Tokens{AccessToken: "access", RefreshToken: "next", RefreshExpiresAt: time.Now().Add(90 * time.Second)}, err)
+				} else {
+					auth.EXPECT().Logout(mock.Anything, "secret").Return(err)
+				}
+				resp := perform(router, http.MethodPost, "/"+action, "", []*http.Cookie{{Name: "refresh_token", Value: "secret"}})
+				require.Equal(t, statusCode, resp.Code)
+				if kind == "unavailable" || kind == "timeout" || (action == "logout" && kind == "invalid") {
+					require.Empty(t, resp.Result().Cookies())
+				} else if action == "logout" || kind == "invalid" {
+					requireCookieMaxAge(t, resp.Result(), "refresh_token", -1)
+				} else {
+					cookie := requireCookie(t, resp.Result(), "refresh_token", "next", true)
+					require.InDelta(t, 89, cookie.MaxAge, 1)
+					require.Equal(t, "/api/v1/auth", cookie.Path)
+					require.Equal(t, "example.com", cookie.Domain)
+					require.True(t, cookie.Secure)
+					require.NotContains(t, resp.Body.String(), "next")
+				}
+				require.Equal(t, "no-store", resp.Header().Get("Cache-Control"))
+			})
+		}
+	}
+}
+
+func TestAuthHandlerCookieRequestsRequireTrustedBrowserOrigin(t *testing.T) {
+	for _, action := range []string{"refresh", "logout"} {
+		for _, origin := range []string{"", "null", "http://evil.example", "http://frontend.example.evil", "http://frontend.example/path"} {
+			t.Run(action+"/"+origin, func(t *testing.T) {
+				auth := gatewayhandlermocks.NewMockAuthService(t)
+				h := handler.NewAuthHandler(auth, handler.CookieConfig{}, testRedirectConfig())
+				router := gin.New()
+				router.POST("/refresh", h.Refresh)
+				router.POST("/logout", h.Logout)
+				req := httptest.NewRequest(http.MethodPost, "/"+action, nil)
+				req.Header.Set("Origin", origin)
+				req.Header.Set("Referer", "http://evil.example/page")
+				req.AddCookie(&http.Cookie{Name: "refresh_token", Value: "secret"})
+				resp := httptest.NewRecorder()
+				router.ServeHTTP(resp, req)
+				require.Equal(t, http.StatusForbidden, resp.Code)
+				require.Empty(t, resp.Result().Cookies())
+			})
+		}
+	}
+}

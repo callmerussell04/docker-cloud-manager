@@ -3,6 +3,7 @@ package grpcclient
 import (
 	"context"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -51,8 +52,9 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (model
 	}
 
 	return model.Tokens{
-		AccessToken:  resp.GetAccessToken(),
-		RefreshToken: resp.GetRefreshToken(),
+		AccessToken:      resp.GetAccessToken(),
+		RefreshToken:     resp.GetRefreshToken(),
+		RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
 	}, nil
 }
 
@@ -67,8 +69,9 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 	}
 
 	return model.Tokens{
-		AccessToken:  resp.GetAccessToken(),
-		RefreshToken: resp.GetRefreshToken(),
+		AccessToken:      resp.GetAccessToken(),
+		RefreshToken:     resp.GetRefreshToken(),
+		RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
 	}, nil
 }
 
@@ -114,8 +117,9 @@ func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, st
 	}
 	return model.OIDCCallbackResult{
 		Tokens: model.Tokens{
-			AccessToken:  resp.GetAccessToken(),
-			RefreshToken: resp.GetRefreshToken(),
+			AccessToken:      resp.GetAccessToken(),
+			RefreshToken:     resp.GetRefreshToken(),
+			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
 		},
 		RedirectAfter: resp.GetRedirectAfter(),
 	}, nil
@@ -268,4 +272,12 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 		QuotaRAMMB:  user.GetQuotaRamMb(),
 		QuotaDiskMB: user.GetQuotaDiskMb(),
 	}
+}
+
+func (c *SSOClient) Logout(ctx context.Context, refreshToken string) error {
+	_, err := c.authAPI.Logout(ctx, &sso.LogoutRequest{RefreshToken: refreshToken})
+	if err != nil {
+		return grpcerrors.FromGRPC(err)
+	}
+	return nil
 }

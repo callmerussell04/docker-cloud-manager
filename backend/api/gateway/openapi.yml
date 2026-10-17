@@ -155,6 +155,11 @@ paths:
         '200':
           description: Successful login
           headers:
+            Cache-Control:
+              description: Credentials must not be cached
+              schema:
+                type: string
+                enum: [no-store]
             Set-Cookie:
               description: Refresh token cookie (refresh_token)
               schema:
@@ -168,10 +173,22 @@ paths:
                     type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
 
   /auth/refresh:
     post:
-      summary: Refresh access token using cookie
+      summary: Rotate the single-use refresh token
+      description: >-
+        Requires an allowed Origin header, or an allowed Referer origin when Origin is absent.
+        Reusing a consumed token revokes its session, including access JWTs. Do not automatically
+        retry an uncertain response. Invalid refresh returns 401 and expires the cookie;
+        503/504 preserve it. Session absolute lifetime is 30 days and refresh idle lifetime is 7 days.
+      parameters:
+        - $ref: '#/components/parameters/CookieOrigin'
+        - $ref: '#/components/parameters/CookieReferer'
       tags: [Auth]
       security:
         - CookieAuth: []
@@ -179,6 +196,11 @@ paths:
         '200':
           description: Token refreshed successfully
           headers:
+            Cache-Control:
+              description: Credentials must not be cached
+              schema:
+                type: string
+                enum: [no-store]
             Set-Cookie:
               description: New refresh token cookie
               schema:
@@ -192,15 +214,35 @@ paths:
                     type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   /auth/logout:
     post:
-      summary: Logout user (clears refresh token cookie)
+      summary: Revoke the current DCM session and clear its refresh cookie
+      description: >-
+        Accepts current or consumed refresh secrets, without an access JWT. Absent, unknown
+        or already revoked secrets succeed idempotently. Other sessions and Keycloak remain active.
+        Requires an allowed Origin or, if absent, an allowed Referer origin. Storage failure
+        returns 503/504 and preserves the cookie; success confirms revocation.
+      parameters:
+        - $ref: '#/components/parameters/CookieOrigin'
+        - $ref: '#/components/parameters/CookieReferer'
       tags: [Auth]
       security: []
       responses:
         '200':
           description: Successfully logged out
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
   # ================= CONTAINERS =================
   /containers:
@@ -1477,6 +1519,18 @@ components:
       description: Short-lived, opaque, single-use ticket issued by the matching ticket endpoint.
 
   parameters:
+    CookieOrigin:
+      in: header
+      name: Origin
+      description: Exact browser origin in CORS_ALLOWED_ORIGINS; required unless an allowed Referer is supplied.
+      schema:
+        type: string
+    CookieReferer:
+      in: header
+      name: Referer
+      description: Used only when Origin is absent; its origin must be in CORS_ALLOWED_ORIGINS.
+      schema:
+        type: string
     IdParam:
       name: id
       in: path

@@ -44,9 +44,23 @@ curl -sS \
 
 ```bash
 curl -sS -b cookies.txt -c cookies.txt \
+  -H 'Origin: http://dcm.example.com' \
   -X POST \
   http://dcm.example.com/api/v1/auth/refresh
 ```
+
+Обновление атомарно заменяет одноразовый refresh-токен. Повтор старого токена отзывает сессию, поэтому не повторяйте запрос автоматически при потере ответа. `Origin` должен входить в `CORS_ALLOWED_ORIGINS`; при его отсутствии проверяется origin `Referer`.
+
+### Выход
+
+```bash
+curl -sS -b cookies.txt -c cookies.txt \
+  -H 'Origin: http://dcm.example.com' \
+  -X POST \
+  http://dcm.example.com/api/v1/auth/logout
+```
+
+Успешный `200` подтверждает отзыв текущей сессии и удаление cookie; повторный выход и отсутствие cookie также дают `200`. Другие сессии и Keycloak сохраняются. При `503`/`504` cookie сохраняется для повтора; сервер не подтверждает отзыв. Обновление с `401` удаляет cookie. Подробности: [контракт сессий](session-security.md).
 
 Токен доступа проверяется службой Gateway через SSO. Для административных маршрутов дополнительно требуется соответствующее разрешение.
 

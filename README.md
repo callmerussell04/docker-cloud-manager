@@ -212,6 +212,8 @@ VITE_API_URL=http://localhost/api/v1 VITE_BASE_DOMAIN=localhost npm run dev
 cd frontend
 npm run lint
 npm run build
+# Node.js 24: тесты координации refresh/logout без дополнительных зависимостей
+npm test
 ```
 
 ### Весь стек

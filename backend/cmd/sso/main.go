@@ -48,7 +48,7 @@ func main() {
 	}
 
 	accessTTL := 15 * time.Minute
-	refreshTTL := 30 * 24 * time.Hour
+	sessionTTL := 30 * 24 * time.Hour
 	oidcEnabled := getEnvBool("SSO_OIDC_ENABLED", false)
 
 	poolCfg, err := pgpool.Parse(os.LookupEnv, "SSO")
@@ -56,13 +56,14 @@ func main() {
 		fatal(logger, "invalid postgres pool settings", "error", err)
 	}
 	application, err := app.New(app.Config{
-		DBPool:        poolCfg,
-		Port:          port,
-		DBURL:         dbURL,
-		JWTSecret:     jwtSecret,
-		InternalToken: internalToken,
-		AccessTTL:     accessTTL,
-		RefreshTTL:    refreshTTL,
+		DBPool:         poolCfg,
+		Port:           port,
+		DBURL:          dbURL,
+		JWTSecret:      jwtSecret,
+		InternalToken:  internalToken,
+		AccessTTL:      accessTTL,
+		SessionTTL:     sessionTTL,
+		SessionIdleTTL: 7 * 24 * time.Hour,
 		BootstrapAdmin: app.BootstrapAdminConfig{
 			Username: adminUsername,
 			Email:    adminEmail,

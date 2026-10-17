@@ -131,7 +131,9 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | Передача через прокси | `GATEWAY_PROXY_DIAL_TIMEOUT_SECONDS`, `GATEWAY_PROXY_TLS_HANDSHAKE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS`, `GATEWAY_PROXY_IDLE_CONN_TIMEOUT_SECONDS`, `GATEWAY_PROXY_EXPECT_CONTINUE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_MAX_IDLE_CONNS`, `GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST` | Передача HTTP-запросов к внутренним службам |
 | gRPC | `GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS`, `GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS`, `GATEWAY_GRPC_TLS_ENABLED`, `GATEWAY_GRPC_TLS_CA_FILE`, `GATEWAY_GRPC_TLS_CERT_FILE`, `GATEWAY_GRPC_TLS_KEY_FILE`, `GATEWAY_GRPC_TLS_SERVER_NAME` | Соединения gRPC от Gateway к внутренним службам |
 | Состояние и потоки | `GATEWAY_READINESS_TIMEOUT_SECONDS`, `GATEWAY_TELEMETRY_TICKET_TTL_SECONDS` | Время ожидания проверки готовности и срок действия билета доступа |
-| Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_MAX_AGE_SECONDS`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
+| Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
+
+Срок refresh-cookie вычисляется из срока сессии SSO (30 дней всего, 7 дней без обновления); `COOKIE_MAX_AGE_SECONDS` удалён. Для cookie-запросов refresh/logout обязателен разрешённый `Origin` или `Referer`; список берётся из `CORS_ALLOWED_ORIGINS`.
 
 Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Переменные с путями к файлам TLS используются только при `GATEWAY_GRPC_TLS_ENABLED=true`.
 

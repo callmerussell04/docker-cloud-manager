@@ -39,7 +39,6 @@ func main() {
 			Name:     getenv("COOKIE_NAME", "refresh_token"),
 			Path:     getenv("COOKIE_PATH", "/"),
 			Domain:   os.Getenv("COOKIE_DOMAIN"),
-			MaxAge:   intEnv("COOKIE_MAX_AGE_SECONDS", 30*24*3600),
 			Secure:   boolEnv("COOKIE_SECURE", false),
 			HTTPOnly: boolEnv("COOKIE_HTTP_ONLY", true),
 			SameSite: sameSiteEnv("COOKIE_SAMESITE", http.SameSiteLaxMode),

@@ -8,6 +8,7 @@ service Auth {
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc Refresh (RefreshRequest) returns (RefreshResponse);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
   rpc GetAuthConfig (GetAuthConfigRequest) returns (GetAuthConfigResponse);
   rpc StartOIDCLogin (StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
   rpc CompleteOIDCCallback (CompleteOIDCCallbackRequest) returns (CompleteOIDCCallbackResponse);
@@ -43,7 +44,14 @@ message LoginRequest {
 message LoginResponse {
   string access_token = 1;
   string refresh_token = 2;
+  int64 refresh_expires_at = 3;
 }
+
+message LogoutRequest {
+  string refresh_token = 1;
+}
+
+message LogoutResponse {}
 
 message RefreshRequest {
   string refresh_token = 1;
@@ -52,6 +60,7 @@ message RefreshRequest {
 message RefreshResponse {
   string access_token = 1;
   string refresh_token = 2;
+  int64 refresh_expires_at = 3;
 }
 
 message GetAuthConfigRequest {}
@@ -87,6 +96,7 @@ message CompleteOIDCCallbackResponse {
   string access_token = 1;
   string refresh_token = 2;
   string redirect_after = 3;
+  int64 refresh_expires_at = 4;
 }
 
 message VerifyTokenRequest {

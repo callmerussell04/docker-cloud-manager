@@ -10,6 +10,7 @@ type SSOProvider interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
 	Login(ctx context.Context, username, password string) (model.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
+	Logout(ctx context.Context, refreshToken string) error
 	GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error)
 	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error)
@@ -57,4 +58,8 @@ func (s *AuthService) VerifyAccessToken(ctx context.Context, authHeader string) 
 
 func (s *AuthService) CheckPermission(ctx context.Context, authHeader, permission string) (model.AuthUser, error) {
 	return s.sso.CheckPermission(ctx, authHeader, permission)
+}
+
+func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	return s.sso.Logout(ctx, refreshToken)
 }

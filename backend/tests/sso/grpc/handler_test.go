@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
@@ -25,12 +26,12 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth := ssogrpcmocks.NewMockAuthService(t)
 	userID := uuid.New()
 	auth.EXPECT().Register(mock.Anything, "alice", "alice@example.com", "secret123").Return(userID, nil)
-	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return("access", "refresh", nil)
-	auth.EXPECT().Refresh(mock.Anything, "refresh").Return("access2", "refresh2", nil)
+	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
+	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
 	auth.EXPECT().LocalAuthConfig().Return(true, false)
 	auth.EXPECT().AuthProviders().Return([]string{"keycloak"})
 	auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/dashboard").Return("https://keycloak/auth", "binding", nil)
-	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return("access3", "refresh3", "/dashboard", nil)
+	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)}, "/dashboard", nil)
 	conn := newSSOGRPCConn(t, auth, false)
 	client := ssoapi.NewAuthClient(conn)
 

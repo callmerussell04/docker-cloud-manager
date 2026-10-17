@@ -6,6 +6,7 @@ import (
 )
 
 type UserClaims struct {
+	SessionID uuid.UUID `json:"sid"`
 	UserID    uuid.UUID `json:"sub"`
 	Username  string    `json:"username"`
 	Role      string    `json:"role"`

@@ -39,31 +39,30 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
-	accessToken, refreshToken, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
+	tokens, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.LoginResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:      tokens.AccessToken,
+		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     tokens.RefreshToken,
 	}, nil
 }
 
 func (h *Handler) Refresh(ctx context.Context, req *sso.RefreshRequest) (*sso.RefreshResponse, error) {
 	refreshDTO := dto.RefreshRequest{RefreshToken: req.GetRefreshToken()}
-	if refreshDTO.RefreshToken == "" {
-		return nil, status.Error(codes.InvalidArgument, "missing refresh token")
-	}
 
-	accessToken, refreshToken, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
+	tokens, err := h.auth.Refresh(ctx, refreshDTO.RefreshToken)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.RefreshResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		AccessToken:      tokens.AccessToken,
+		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     tokens.RefreshToken,
 	}, nil
 }
 
@@ -100,14 +99,15 @@ func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOID
 		return nil, status.Error(codes.InvalidArgument, "missing provider, code, state or state binding")
 	}
 
-	accessToken, refreshToken, redirectAfter, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
+	tokens, redirectAfter, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 	return &sso.CompleteOIDCCallbackResponse{
-		AccessToken:   accessToken,
-		RefreshToken:  refreshToken,
-		RedirectAfter: redirectAfter,
+		AccessToken:      tokens.AccessToken,
+		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     tokens.RefreshToken,
+		RedirectAfter:    redirectAfter,
 	}, nil
 }
 
@@ -143,4 +143,11 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 		Allowed: allowed,
 		User:    userToProto(user),
 	}, nil
+}
+
+func (h *Handler) Logout(ctx context.Context, req *sso.LogoutRequest) (*sso.LogoutResponse, error) {
+	if err := h.auth.Logout(ctx, req.GetRefreshToken()); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &sso.LogoutResponse{}, nil
 }

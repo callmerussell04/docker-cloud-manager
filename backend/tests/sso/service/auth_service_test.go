@@ -18,12 +18,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func TestAuthServiceRegisterLoginRefreshAndVerify(t *testing.T) {
+func TestAuthServiceRegisterStoresPasswordHash(t *testing.T) {
 	ctx := context.Background()
-	userID := uuid.New()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := NewAuthService(repo, tokens)
+	svc := NewAuthService(repo, tokens, testSessions(t, repo))
 	var saved model.User
 
 	repo.EXPECT().
@@ -43,52 +42,31 @@ func TestAuthServiceRegisterLoginRefreshAndVerify(t *testing.T) {
 	require.Equal(t, int64(2048), saved.QuotaRAMMB)
 	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(saved.PasswordHash), []byte("secret123")))
 
-	saved.ID = userID
-	repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(saved, nil)
-	tokens.EXPECT().GenerateTokens(saved).Return("access", "refresh", nil).Once()
-	access, refresh, err := svc.Login(ctx, "alice", "secret123")
-	require.NoError(t, err)
-	require.Equal(t, "access", access)
-	require.Equal(t, "refresh", refresh)
-
-	tokens.EXPECT().ValidateRefreshToken("refresh").Return(userID, nil)
-	repo.EXPECT().GetUserByID(mock.Anything, userID).Return(saved, nil).Once()
-	tokens.EXPECT().GenerateTokens(saved).Return("access2", "refresh2", nil).Once()
-	access, refresh, err = svc.Refresh(ctx, "refresh")
-	require.NoError(t, err)
-	require.Equal(t, "access2", access)
-	require.Equal(t, "refresh2", refresh)
-
-	tokens.EXPECT().ValidateAccessToken("access2").Return(userID, nil)
-	repo.EXPECT().GetUserByID(mock.Anything, userID).Return(saved, nil).Once()
-	verified, err := svc.VerifyAccessToken(ctx, "access2")
-	require.NoError(t, err)
-	require.Equal(t, userID, verified.ID)
 }
 
 func TestAuthServiceRejectsDisabledOrInvalidLocalAuth(t *testing.T) {
 	ctx := context.Background()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := NewAuthServiceWithConfig(repo, tokens, nil, Config{
+	svc := NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), nil, Config{
 		LocalLoginEnabled:    false,
 		LocalRegisterEnabled: false,
 	})
 
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	_, _, err = svc.Login(ctx, "alice", "secret123")
+	_, err = svc.Login(ctx, "alice", "secret123")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 
-	localSvc := NewAuthService(repo, tokens)
+	localSvc := NewAuthService(repo, tokens, testSessions(t, repo))
 	repo.EXPECT().GetUserByUsername(mock.Anything, "missing").Return(model.User{}, apperrors.ErrNotFound)
-	_, _, err = localSvc.Login(ctx, "missing", "secret123")
+	_, err = localSvc.Login(ctx, "missing", "secret123")
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 
 	oidcUser := userWithPassword(uuid.New(), "oidc-user", "secret123", model.RoleUser, model.StatusActive)
 	oidcUser.AuthSource = model.AuthSourceOIDC
 	repo.EXPECT().GetUserByUsername(mock.Anything, "oidc-user").Return(oidcUser, nil)
-	_, _, err = localSvc.Login(ctx, "oidc-user", "secret123")
+	_, err = localSvc.Login(ctx, "oidc-user", "secret123")
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 }
 
@@ -98,17 +76,18 @@ func TestAuthServicePermissions(t *testing.T) {
 	userID := uuid.New()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := NewAuthService(repo, tokens)
+	sessions := ssomocks.NewSessionRepository(t)
+	svc := NewAuthService(repo, tokens, sessions)
 
-	tokens.EXPECT().ValidateAccessToken("admin-token").Return(adminID, nil)
-	repo.EXPECT().GetUserByID(mock.Anything, adminID).Return(model.User{ID: adminID, Role: model.RoleAdmin, Status: model.StatusActive}, nil)
+	tokens.EXPECT().ValidateAccessToken("admin-token").Return(model.AccessIdentity{UserID: adminID}, nil)
+	sessions.EXPECT().VerifySession(mock.Anything, model.AccessIdentity{UserID: adminID}, mock.Anything).Return(model.User{ID: adminID, Role: model.RoleAdmin, Status: model.StatusActive}, nil)
 	user, allowed, err := svc.CheckPermission(ctx, "admin-token", permissions.UsersAdminUpdate)
 	require.NoError(t, err)
 	require.True(t, allowed)
 	require.Equal(t, adminID, user.ID)
 
-	tokens.EXPECT().ValidateAccessToken("user-token").Return(userID, nil)
-	repo.EXPECT().GetUserByID(mock.Anything, userID).Return(model.User{ID: userID, Role: model.RoleUser, Status: model.StatusActive}, nil)
+	tokens.EXPECT().ValidateAccessToken("user-token").Return(model.AccessIdentity{UserID: userID}, nil)
+	sessions.EXPECT().VerifySession(mock.Anything, model.AccessIdentity{UserID: userID}, mock.Anything).Return(model.User{ID: userID, Role: model.RoleUser, Status: model.StatusActive}, nil)
 	_, allowed, err = svc.CheckPermission(ctx, "user-token", permissions.UsersAdminUpdate)
 	require.NoError(t, err)
 	require.False(t, allowed)
@@ -121,7 +100,7 @@ func TestAuthServiceUserManagement(t *testing.T) {
 	ctx := context.Background()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := NewAuthService(repo, tokens)
+	svc := NewAuthService(repo, tokens, testSessions(t, repo))
 	var created model.User
 
 	repo.EXPECT().
@@ -195,7 +174,7 @@ func TestAuthServiceRejectsInvalidUserInputAndLastAdminChanges(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewAuthService(ssomocks.NewUserRepository(t), ssomocks.NewTokenProvider(t))
+			svc := NewAuthService(ssomocks.NewUserRepository(t), ssomocks.NewTokenProvider(t), ssomocks.NewSessionRepository(t))
 			_, err := svc.CreateUser(ctx, tt.input)
 			require.ErrorIs(t, err, apperrors.ErrBadRequest)
 		})
@@ -203,7 +182,7 @@ func TestAuthServiceRejectsInvalidUserInputAndLastAdminChanges(t *testing.T) {
 
 	admin := userWithPassword(uuid.New(), "admin", "secret123", model.RoleAdmin, model.StatusActive)
 	repo := ssomocks.NewUserRepository(t)
-	svc := NewAuthService(repo, ssomocks.NewTokenProvider(t))
+	svc := NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
 	repo.EXPECT().GetUserByID(mock.Anything, admin.ID).Return(admin, nil)
 	repo.EXPECT().CountActiveAdmins(mock.Anything).Return(1, nil)
 	_, err := svc.DeactivateUser(ctx, admin.ID)
@@ -214,7 +193,7 @@ func TestAuthServiceEnsureBootstrapAdmin(t *testing.T) {
 	ctx := context.Background()
 	t.Run("creates missing admin", func(t *testing.T) {
 		repo := ssomocks.NewUserRepository(t)
-		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t))
+		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
 		var saved model.User
 		repo.EXPECT().GetUserByUsername(mock.Anything, "admin").Return(model.User{}, apperrors.ErrNotFound)
 		repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
@@ -230,7 +209,7 @@ func TestAuthServiceEnsureBootstrapAdmin(t *testing.T) {
 
 	t.Run("reactivates existing admin", func(t *testing.T) {
 		repo := ssomocks.NewUserRepository(t)
-		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t))
+		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
 		admin := userWithPassword(uuid.New(), "admin", "secret123", model.RoleAdmin, model.StatusDeactivated)
 		repo.EXPECT().GetUserByUsername(mock.Anything, "admin").Return(admin, nil)
 		repo.EXPECT().UpdateUser(mock.Anything, mock.MatchedBy(func(user model.User) bool {
@@ -241,7 +220,7 @@ func TestAuthServiceEnsureBootstrapAdmin(t *testing.T) {
 
 	t.Run("rejects non-admin username", func(t *testing.T) {
 		repo := ssomocks.NewUserRepository(t)
-		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t))
+		svc := NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
 		repo.EXPECT().GetUserByUsername(mock.Anything, "admin").Return(model.User{Username: "admin", Role: model.RoleUser, Status: model.StatusActive}, nil)
 		err := svc.EnsureBootstrapAdmin(ctx, BootstrapAdminConfig{Username: "admin", Email: "admin@example.com", Password: "secret123"})
 		require.ErrorIs(t, err, apperrors.ErrConflict)
@@ -253,7 +232,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
 	provider := ssomocks.NewOIDCProvider(t)
-	svc := NewAuthServiceWithConfig(repo, tokens, provider, Config{
+	svc := NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, Config{
 		OIDCEnabled:      true,
 		OIDCProviderName: "keycloak",
 		OIDCAdminGroups:  []string{"/dcm-admins"},
@@ -272,12 +251,12 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
 		created = user
 	}).Return(nil).Once()
-	tokens.EXPECT().GenerateTokens(mock.AnythingOfType("model.User")).Return("access", "refresh", nil).Once()
+	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access", nil).Once()
 
-	access, refresh, redirectAfter, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	pair, redirectAfter, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.NoError(t, err)
-	require.Equal(t, "access", access)
-	require.Equal(t, "refresh", refresh)
+	require.Equal(t, "access", pair.AccessToken)
+	require.Len(t, pair.RefreshToken, 43)
 	require.Equal(t, "/", redirectAfter)
 	require.Equal(t, "alice-external", created.Username)
 	require.Equal(t, "alice@example.com", created.Email)
@@ -285,7 +264,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	require.Equal(t, model.AuthSourceOIDC, created.AuthSource)
 	require.NotNil(t, created.LastLoginAt)
 
-	_, _, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 
 	existing := created
@@ -302,8 +281,8 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	repo.EXPECT().UpdateUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
 		updated = user
 	}).Return(nil).Once()
-	tokens.EXPECT().GenerateTokens(mock.AnythingOfType("model.User")).Return("access2", "refresh2", nil).Once()
-	_, _, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code2", state, binding)
+	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access2", nil).Once()
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code2", state, binding)
 	require.NoError(t, err)
 	require.Equal(t, existing.ID, updated.ID)
 	require.Equal(t, "alice-updated", updated.Username)
@@ -324,8 +303,8 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
 		collided = user
 	}).Return(nil).Once()
-	tokens.EXPECT().GenerateTokens(mock.AnythingOfType("model.User")).Return("access3", "refresh3", nil).Once()
-	_, _, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code3", state, binding)
+	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access3", nil).Once()
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code3", state, binding)
 	require.NoError(t, err)
 	require.Equal(t, "alice-external-subjectx", collided.Username)
 	require.True(t, strings.HasSuffix(collided.Email, "@oidc.local"))
@@ -336,7 +315,7 @@ func TestAuthServiceOIDCRejectsInvalidStateExpiredStateAndLastAdminDowngrade(t *
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
 	provider := ssomocks.NewOIDCProvider(t)
-	svc := NewAuthServiceWithConfig(repo, tokens, provider, Config{
+	svc := NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, Config{
 		OIDCEnabled:      true,
 		OIDCProviderName: "keycloak",
 		OIDCDefaultRole:  model.RoleUser,
@@ -345,14 +324,14 @@ func TestAuthServiceOIDCRejectsInvalidStateExpiredStateAndLastAdminDowngrade(t *
 	expectAuthCodeURL(provider)
 
 	state, binding := startOIDCTestLogin(t, svc)
-	_, _, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, "bad-binding")
+	_, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, "bad-binding")
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 
 	time.Sleep(time.Millisecond)
-	_, _, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 
-	svc = NewAuthServiceWithConfig(repo, tokens, provider, Config{OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCDefaultRole: model.RoleUser})
+	svc = NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, Config{OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCDefaultRole: model.RoleUser})
 	expectAuthCodeURL(provider)
 	admin := model.User{ID: uuid.New(), Username: "admin", Email: "admin@example.com", Role: model.RoleAdmin, Status: model.StatusActive, AuthSource: model.AuthSourceOIDC, ExternalProvider: "keycloak", ExternalSubject: "admin-subject"}
 	state, binding = startOIDCTestLogin(t, svc)
@@ -363,7 +342,7 @@ func TestAuthServiceOIDCRejectsInvalidStateExpiredStateAndLastAdminDowngrade(t *
 	repo.EXPECT().GetUserByUsername(mock.Anything, "admin").Return(admin, nil)
 	repo.EXPECT().GetUserByEmail(mock.Anything, "admin@example.com").Return(admin, nil)
 	repo.EXPECT().CountActiveAdmins(mock.Anything).Return(1, nil)
-	_, _, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.ErrorIs(t, err, apperrors.ErrConflict)
 }
 
@@ -410,17 +389,32 @@ func userWithPassword(id uuid.UUID, username, password, role, status string) mod
 
 func TestAuthServiceMapsTokenAndRepositoryErrors(t *testing.T) {
 	ctx := context.Background()
-	userID := uuid.New()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := NewAuthService(repo, tokens)
-
-	tokens.EXPECT().ValidateRefreshToken("bad-refresh").Return(uuid.Nil, errors.New("invalid"))
-	_, _, err := svc.Refresh(ctx, "bad-refresh")
+	sessions := ssomocks.NewSessionRepository(t)
+	svc := NewAuthService(repo, tokens, sessions)
+	_, err := svc.Refresh(ctx, "bad-refresh")
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
-
-	tokens.EXPECT().ValidateAccessToken("token").Return(userID, nil)
-	repo.EXPECT().GetUserByID(mock.Anything, userID).Return(model.User{ID: userID, Status: model.StatusDeactivated}, nil)
-	_, err = svc.VerifyAccessToken(ctx, "token")
+	tokens.EXPECT().ValidateAccessToken("bad-access").Return(model.AccessIdentity{}, errors.New("invalid"))
+	_, err = svc.VerifyAccessToken(ctx, "bad-access")
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
+	identity := model.AccessIdentity{UserID: uuid.New(), SessionID: uuid.New()}
+	tokens.EXPECT().ValidateAccessToken("access").Return(identity, nil)
+	sessions.EXPECT().VerifySession(mock.Anything, identity, mock.Anything).Return(model.User{}, apperrors.ErrUnavailable)
+	_, err = svc.VerifyAccessToken(ctx, "access")
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+}
+
+// These fixtures isolate profile/provisioning tests from persistence mechanics.
+// Session lifecycle and transaction behavior are tested through PostgreSQL.
+func testSessions(t *testing.T, repo *ssomocks.UserRepository) *ssomocks.SessionRepository {
+	sessions := ssomocks.NewSessionRepository(t)
+	tx := ssomocks.NewSessionTransaction(t)
+	sessions.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, fn func(model.User, SessionTransaction) error) error {
+		return fn(model.User{ID: id, Status: model.StatusActive}, tx)
+	}).Maybe()
+	tx.EXPECT().CreateSession(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	tx.EXPECT().UpdateUser(mock.Anything, mock.Anything).RunAndReturn(repo.UpdateUser).Maybe()
+	tx.EXPECT().RevokeAll(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return sessions
 }

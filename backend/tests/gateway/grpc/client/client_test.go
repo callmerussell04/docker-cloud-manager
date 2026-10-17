@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"testing"
+	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
@@ -33,7 +34,7 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 
 	tokens, err := client.Login(context.Background(), "alice", "secret")
 	require.NoError(t, err)
-	require.Equal(t, model.Tokens{AccessToken: "access", RefreshToken: "refresh"}, tokens)
+	require.Equal(t, model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(0, 0)}, tokens)
 
 	config, err := client.GetAuthConfig(context.Background())
 	require.NoError(t, err)

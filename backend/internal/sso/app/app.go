@@ -38,7 +38,8 @@ type Config struct {
 	JWTSecret      string
 	InternalToken  string
 	AccessTTL      time.Duration
-	RefreshTTL     time.Duration
+	SessionTTL     time.Duration
+	SessionIdleTTL time.Duration
 	BootstrapAdmin BootstrapAdminConfig
 	Auth           AuthConfig
 	OIDC           OIDCConfig
@@ -91,13 +92,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 
 	repo := repository.NewUserRepository(db)
-	tokenProvider := jwt.NewProvider(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
+	tokenProvider := jwt.NewProvider(cfg.JWTSecret)
 	oidcProvider, err := buildOIDCProvider(cfg.OIDC)
 	if err != nil {
 		return nil, err
 	}
-	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, oidcProvider, service.Config{
-		LocalLoginEnabled:    cfg.Auth.LocalLoginEnabled,
+	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, repository.NewSessionRepository(db), oidcProvider, service.Config{
+		LocalLoginEnabled: cfg.Auth.LocalLoginEnabled,
+		AccessTTL:         cfg.AccessTTL, SessionTTL: cfg.SessionTTL, SessionIdleTTL: cfg.SessionIdleTTL,
 		LocalRegisterEnabled: cfg.Auth.LocalRegisterEnabled,
 		OIDCEnabled:          cfg.OIDC.Enabled,
 		OIDCProviderName:     "keycloak",
@@ -126,6 +128,24 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	go func() {
 		defer application.wg.Done()
 		pgpool.LogStats(ctx, application.logger, map[string]*sql.DB{"queries": db})
+	}()
+	application.wg.Add(1)
+	go func() {
+		defer application.wg.Done()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cleanupCtx, cleanupCancel := context.WithTimeout(ctx, 10*time.Second)
+				if err := authService.CleanupSessions(cleanupCtx); err != nil {
+					application.logger.Error("session cleanup failed", "error", err)
+				}
+				cleanupCancel()
+			}
+		}
 	}()
 	initialized = true
 	return application, nil

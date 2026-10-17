@@ -109,6 +109,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
+	cfg.Router.AuthRedirect.CookieAllowedOrigins = cfg.Router.CORSAllowedOrigins
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
 	router, err := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
 		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie, cfg.Router.AuthRedirect),

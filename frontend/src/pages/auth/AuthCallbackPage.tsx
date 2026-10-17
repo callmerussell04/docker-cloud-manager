@@ -1,14 +1,12 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { publicApi } from '@/api/axios';
-import { useAuthStore } from '@/store/authStore';
+import { refreshSession } from '@/api/axios';
 import { useToastStore } from '@/store/toastStore';
 import { useT } from '@/lib/i18n';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
-  const setAccessToken = useAuthStore((state) => state.setAccessToken);
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
@@ -17,13 +15,11 @@ export function AuthCallbackPage() {
 
     async function completeLogin() {
       try {
-        const response = await publicApi.post<{ access_token?: string }>('/auth/refresh');
-        const token = response.data?.access_token;
+        const token = await refreshSession();
         if (!token) {
           throw new Error('missing access token');
         }
         if (!canceled) {
-          setAccessToken(token);
           navigate('/', { replace: true });
         }
       } catch {
@@ -39,7 +35,7 @@ export function AuthCallbackPage() {
     return () => {
       canceled = true;
     };
-  }, [addToast, navigate, setAccessToken, t]);
+  }, [addToast, navigate, t]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 text-sm text-slate-500 dark:text-slate-400">

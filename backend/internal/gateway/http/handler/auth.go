@@ -2,9 +2,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,6 +27,7 @@ type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
 	Login(ctx context.Context, username, password string) (model.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
+	Logout(ctx context.Context, refreshToken string) error
 	GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error)
 	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error)
@@ -40,15 +43,15 @@ type CookieConfig struct {
 	Name     string
 	Path     string
 	Domain   string
-	MaxAge   int
 	Secure   bool
 	HTTPOnly bool
 	SameSite http.SameSite
 }
 
 type AuthRedirectConfig struct {
-	AllowedOrigins []string
-	CallbackPath   string
+	AllowedOrigins       []string
+	CookieAllowedOrigins []string
+	CallbackPath         string
 }
 
 func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConfig AuthRedirectConfig) *AuthHandler {
@@ -57,9 +60,6 @@ func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConf
 	}
 	if cookieConfig.Path == "" {
 		cookieConfig.Path = "/"
-	}
-	if cookieConfig.MaxAge <= 0 {
-		cookieConfig.MaxAge = 30 * 24 * 3600
 	}
 	if cookieConfig.SameSite == 0 {
 		cookieConfig.SameSite = http.SameSiteLaxMode
@@ -95,6 +95,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
@@ -111,24 +112,36 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	h.setRefreshTokenCookie(c, tokens.RefreshToken)
+	if !h.setRefreshTokenCookie(c, tokens) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"access_token": tokens.AccessToken})
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !h.requireCookieOrigin(c) {
+		return
+	}
 	refreshToken, err := c.Cookie(h.cookieConfig.Name)
 	if err != nil {
+		h.clearRefreshTokenCookie(c)
 		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrUnauthorized)
 		return
 	}
 
 	tokens, err := h.service.Refresh(c.Request.Context(), refreshToken)
 	if err != nil {
+		if errors.Is(err, apperrors.ErrInvalidToken) || errors.Is(err, apperrors.ErrUnauthorized) {
+			h.clearRefreshTokenCookie(c)
+		}
 		h.handleAuthError(c, err)
 		return
 	}
 
-	h.setRefreshTokenCookie(c, tokens.RefreshToken)
+	if !h.setRefreshTokenCookie(c, tokens) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"access_token": tokens.AccessToken})
 }
 
@@ -168,6 +181,7 @@ func (h *AuthHandler) StartKeycloakLogin(c *gin.Context) {
 }
 
 func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	if c.Query("error") != "" {
 		h.clearOIDCStateCookie(c)
 		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidCredentials)
@@ -189,7 +203,9 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 	}
 
 	h.clearOIDCStateCookie(c)
-	h.setRefreshTokenCookie(c, result.Tokens.RefreshToken)
+	if !h.setRefreshTokenCookie(c, result.Tokens) {
+		return
+	}
 	redirectAfter, err := h.safeRedirectAfter(result.RedirectAfter)
 	if err != nil {
 		redirectAfter = h.defaultRedirectAfter()
@@ -198,18 +214,56 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if !h.requireCookieOrigin(c) {
+		return
+	}
+	value, _ := c.Cookie(h.cookieConfig.Name)
+	if err := h.service.Logout(c.Request.Context(), value); err != nil {
+		h.handleAuthError(c, err)
+		return
+	}
 	h.clearRefreshTokenCookie(c)
 	c.Status(http.StatusOK)
+}
+
+// Cookie-authenticated mutations require explicit trusted browser origin evidence.
+func (h *AuthHandler) requireCookieOrigin(c *gin.Context) bool {
+	raw := c.GetHeader("Origin")
+	fromReferer := raw == ""
+	if fromReferer {
+		raw = c.GetHeader("Referer")
+	}
+	parsed, err := url.Parse(raw)
+	allowed := err == nil && parsed.Host != "" && parsed.User == nil && (parsed.Scheme == "http" || parsed.Scheme == "https")
+	if allowed && !fromReferer {
+		allowed = raw == origin(parsed)
+	}
+	if allowed {
+		for _, candidate := range h.redirectConfig.CookieAllowedOrigins {
+			if candidate == origin(parsed) {
+				return true
+			}
+		}
+	}
+	httpresponse.Respond(c, http.StatusForbidden, apperrors.ErrForbidden)
+	return false
 }
 
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
 	httpresponse.Respond(c, httpresponse.Status(err), err)
 }
 
-func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, token string) {
+func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, tokens model.Tokens) bool {
+	seconds := int(time.Until(tokens.RefreshExpiresAt) / time.Second)
+	if seconds <= 0 || tokens.RefreshToken == "" || tokens.AccessToken == "" {
+		httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
+		return false
+	}
 	cfg := h.cookieConfig
 	c.SetSameSite(cfg.SameSite)
-	c.SetCookie(cfg.Name, token, cfg.MaxAge, cfg.Path, cfg.Domain, cfg.Secure, cfg.HTTPOnly)
+	c.SetCookie(cfg.Name, tokens.RefreshToken, seconds, cfg.Path, cfg.Domain, cfg.Secure, cfg.HTTPOnly)
+	return true
 }
 
 func (h *AuthHandler) clearRefreshTokenCookie(c *gin.Context) {

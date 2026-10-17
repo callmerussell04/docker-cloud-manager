@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/mail"
 	"strings"
 	"sync"
@@ -104,9 +105,8 @@ type UserRepository interface {
 }
 
 type TokenProvider interface {
-	GenerateTokens(user model.User) (string, string, error)
-	ValidateAccessToken(token string) (uuid.UUID, error)
-	ValidateRefreshToken(token string) (uuid.UUID, error)
+	GenerateAccessToken(user model.User, sessionID uuid.UUID, expiresAt time.Time) (string, error)
+	ValidateAccessToken(token string) (model.AccessIdentity, error)
 }
 
 type OIDCProvider interface {
@@ -127,6 +127,8 @@ type OIDCIdentity struct {
 type AuthService struct {
 	repo          UserRepository
 	tokenProvider TokenProvider
+	sessions      SessionRepository
+	random        io.Reader
 	cfg           Config
 	oidcProvider  OIDCProvider
 	states        map[string]oidcState
@@ -135,6 +137,11 @@ type AuthService struct {
 }
 
 type Config struct {
+	AccessTTL            time.Duration
+	SessionTTL           time.Duration
+	SessionIdleTTL       time.Duration
+	Now                  func() time.Time
+	Random               io.Reader
 	LocalLoginEnabled    bool
 	LocalRegisterEnabled bool
 	OIDCEnabled          bool
@@ -181,19 +188,15 @@ type UpdateUserInput struct {
 }
 
 func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
-	userID, err := s.tokenProvider.ValidateAccessToken(accessToken)
+	identity, err := s.tokenProvider.ValidateAccessToken(accessToken)
 	if err != nil {
 		return model.User{}, apperrors.ErrInvalidToken
 	}
-
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
+	user, err := s.sessions.VerifySession(ctx, identity, s.now())
+	if errors.Is(err, apperrors.ErrNotFound) {
 		return model.User{}, apperrors.ErrInvalidToken
 	}
-	if user.Status != model.StatusActive {
-		return model.User{}, apperrors.ErrInvalidToken
-	}
-	return user, nil
+	return user, err
 }
 
 func (s *AuthService) CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error) {
@@ -230,8 +233,8 @@ func (s *AuthService) ListUsers(ctx context.Context, limit, offset int) ([]model
 	return s.repo.ListUsers(ctx, model.ListUsersOptions{Limit: limit, Offset: offset})
 }
 
-func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthService {
-	return NewAuthServiceWithConfig(repo, tokenProvider, nil, Config{
+func NewAuthService(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository) *AuthService {
+	return NewAuthServiceWithConfig(repo, tokenProvider, sessions, nil, Config{
 		LocalLoginEnabled:    true,
 		LocalRegisterEnabled: true,
 		OIDCDefaultRole:      model.RoleUser,
@@ -240,7 +243,25 @@ func NewAuthService(repo UserRepository, tokenProvider TokenProvider) *AuthServi
 	})
 }
 
-func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, oidcProvider OIDCProvider, cfg Config) *AuthService {
+func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository, oidcProvider OIDCProvider, cfg Config) *AuthService {
+	if sessions == nil {
+		panic("session repository is required")
+	}
+	if cfg.AccessTTL <= 0 {
+		cfg.AccessTTL = 15 * time.Minute
+	}
+	if cfg.SessionTTL <= 0 {
+		cfg.SessionTTL = 30 * 24 * time.Hour
+	}
+	if cfg.SessionIdleTTL <= 0 {
+		cfg.SessionIdleTTL = 7 * 24 * time.Hour
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	if cfg.Random == nil {
+		cfg.Random = rand.Reader
+	}
 	if cfg.OIDCProviderName == "" {
 		cfg.OIDCProviderName = "keycloak"
 	}
@@ -256,7 +277,9 @@ func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, 
 		cfg:           cfg,
 		oidcProvider:  oidcProvider,
 		states:        map[string]oidcState{},
-		now:           time.Now,
+		now:           cfg.Now,
+		random:        cfg.Random,
+		sessions:      sessions,
 	}
 }
 
@@ -266,7 +289,7 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdm
 		if existing.Role == model.RoleAdmin {
 			if existing.Status != model.StatusActive {
 				existing.Status = model.StatusActive
-				if err := s.repo.UpdateUser(ctx, existing); err != nil {
+				if err := s.updateUser(ctx, existing, false, true); err != nil {
 					return fmt.Errorf("failed to activate bootstrap admin: %w", err)
 				}
 			}
@@ -340,36 +363,30 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	return user.ID, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string) (string, string, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string) (model.Tokens, error) {
 	if !s.cfg.LocalLoginEnabled {
-		return "", "", apperrors.ErrNotFound
+		return model.Tokens{}, apperrors.ErrNotFound
 	}
 
 	user, err := s.repo.GetUserByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			return "", "", apperrors.ErrInvalidCredentials
+			return model.Tokens{}, apperrors.ErrInvalidCredentials
 		}
-		return "", "", apperrors.ErrInternal
+		return model.Tokens{}, apperrors.ErrUnavailable
 	}
 	if user.Status != model.StatusActive {
-		return "", "", apperrors.ErrInvalidCredentials
+		return model.Tokens{}, apperrors.ErrInvalidCredentials
 	}
 	if user.AuthSource != "" && user.AuthSource != model.AuthSourceLocal {
-		return "", "", apperrors.ErrInvalidCredentials
+		return model.Tokens{}, apperrors.ErrInvalidCredentials
 	}
 
-	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
-	if err != nil {
-		return "", "", apperrors.ErrInvalidCredentials
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return model.Tokens{}, apperrors.ErrInvalidCredentials
 	}
 
-	accessToken, refreshToken, err := s.tokenProvider.GenerateTokens(user)
-	if err != nil {
-		return "", "", apperrors.ErrInternal
-	}
-
-	return accessToken, refreshToken, nil
+	return s.createSession(ctx, user, true)
 }
 
 func (s *AuthService) AuthProviders() []string {
@@ -419,38 +436,37 @@ func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfte
 	return s.oidcProvider.AuthCodeURL(state, nonce), browserBinding, nil
 }
 
-func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (string, string, string, error) {
+func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error) {
 	if !s.oidcAvailable(provider) {
-		return "", "", "", apperrors.ErrNotFound
+		return model.Tokens{}, "", apperrors.ErrNotFound
 	}
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" || strings.TrimSpace(stateBinding) == "" {
-		return "", "", "", apperrors.ErrBadRequest
+		return model.Tokens{}, "", apperrors.ErrBadRequest
 	}
 
 	oidcState, err := s.consumeOIDCState(provider, state, stateBinding)
 	if err != nil {
-		return "", "", "", err
+		return model.Tokens{}, "", err
 	}
 
 	identity, err := s.oidcProvider.ExchangeCode(ctx, code, oidcState.Nonce)
 	if err != nil {
-		return "", "", "", err
+		return model.Tokens{}, "", err
 	}
 
 	user, err := s.provisionOIDCUser(ctx, provider, identity)
 	if err != nil {
-		return "", "", "", err
+		return model.Tokens{}, "", err
 	}
 	if user.Status != model.StatusActive {
-		return "", "", "", apperrors.ErrInvalidCredentials
+		return model.Tokens{}, "", apperrors.ErrInvalidCredentials
 	}
 
-	accessToken, refreshToken, err := s.tokenProvider.GenerateTokens(user)
+	tokens, err := s.createSession(ctx, user, false)
 	if err != nil {
-		return "", "", "", apperrors.ErrInternal
+		return model.Tokens{}, "", err
 	}
-
-	return accessToken, refreshToken, oidcState.RedirectAfter, nil
+	return tokens, oidcState.RedirectAfter, nil
 }
 
 func (s *AuthService) oidcAvailable(provider string) bool {
@@ -509,7 +525,7 @@ func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, id
 		existing.ExternalSubject = identity.Subject
 		existing.ExternalUsername = firstNonEmpty(identity.Username, identity.PreferredUsername)
 		existing.LastLoginAt = &now
-		if err := s.repo.UpdateUser(ctx, existing); err != nil {
+		if err := s.updateUser(ctx, existing, false, false); err != nil {
 			if errors.Is(err, apperrors.ErrAlreadyExists) {
 				return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
 			}
@@ -632,28 +648,6 @@ func (s *AuthService) roleForOIDCIdentity(identity OIDCIdentity) string {
 	return model.RoleUser
 }
 
-func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (string, string, error) {
-	userID, err := s.tokenProvider.ValidateRefreshToken(refreshToken)
-	if err != nil {
-		return "", "", apperrors.ErrInvalidToken
-	}
-
-	user, err := s.repo.GetUserByID(ctx, userID)
-	if err != nil {
-		return "", "", apperrors.ErrInvalidToken
-	}
-	if user.Status != model.StatusActive {
-		return "", "", apperrors.ErrInvalidToken
-	}
-
-	accessToken, newRefreshToken, err := s.tokenProvider.GenerateTokens(user)
-	if err != nil {
-		return "", "", apperrors.ErrInternal
-	}
-
-	return accessToken, newRefreshToken, nil
-}
-
 func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (model.User, error) {
 	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
 		return model.User{}, err
@@ -713,7 +707,7 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 		user.PasswordHash = string(hash)
 	}
 
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, input.Password != "", true); err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return model.User{}, apperrors.ErrAlreadyExists
 		}
@@ -731,7 +725,7 @@ func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (mod
 		return model.User{}, err
 	}
 	user.Status = model.StatusDeactivated
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, false, true); err != nil {
 		return model.User{}, fmt.Errorf("failed to deactivate user: %w", err)
 	}
 	return user, nil
@@ -743,7 +737,7 @@ func (s *AuthService) ReactivateUser(ctx context.Context, userID uuid.UUID) (mod
 		return model.User{}, err
 	}
 	user.Status = model.StatusActive
-	if err := s.repo.UpdateUser(ctx, user); err != nil {
+	if err := s.updateUser(ctx, user, false, true); err != nil {
 		return model.User{}, fmt.Errorf("failed to reactivate user: %w", err)
 	}
 	return user, nil

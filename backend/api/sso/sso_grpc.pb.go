@@ -22,6 +22,7 @@ const (
 	Auth_Register_FullMethodName             = "/sso.Auth/Register"
 	Auth_Login_FullMethodName                = "/sso.Auth/Login"
 	Auth_Refresh_FullMethodName              = "/sso.Auth/Refresh"
+	Auth_Logout_FullMethodName               = "/sso.Auth/Logout"
 	Auth_GetAuthConfig_FullMethodName        = "/sso.Auth/GetAuthConfig"
 	Auth_StartOIDCLogin_FullMethodName       = "/sso.Auth/StartOIDCLogin"
 	Auth_CompleteOIDCCallback_FullMethodName = "/sso.Auth/CompleteOIDCCallback"
@@ -34,6 +35,7 @@ type AuthClient interface {
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Refresh(ctx context.Context, in *RefreshRequest, opts ...grpc.CallOption) (*RefreshResponse, error)
+	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
 	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
 	StartOIDCLogin(ctx context.Context, in *StartOIDCLoginRequest, opts ...grpc.CallOption) (*StartOIDCLoginResponse, error)
 	CompleteOIDCCallback(ctx context.Context, in *CompleteOIDCCallbackRequest, opts ...grpc.CallOption) (*CompleteOIDCCallbackResponse, error)
@@ -77,6 +79,16 @@ func (c *authClient) Refresh(ctx context.Context, in *RefreshRequest, opts ...gr
 	return out, nil
 }
 
+func (c *authClient) Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LogoutResponse)
+	err := c.cc.Invoke(ctx, Auth_Logout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *authClient) GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetAuthConfigResponse)
@@ -114,6 +126,7 @@ type AuthServer interface {
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error)
+	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
 	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
 	StartOIDCLogin(context.Context, *StartOIDCLoginRequest) (*StartOIDCLoginResponse, error)
 	CompleteOIDCCallback(context.Context, *CompleteOIDCCallbackRequest) (*CompleteOIDCCallbackResponse, error)
@@ -135,6 +148,9 @@ func (UnimplementedAuthServer) Login(context.Context, *LoginRequest) (*LoginResp
 }
 func (UnimplementedAuthServer) Refresh(context.Context, *RefreshRequest) (*RefreshResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Refresh not implemented")
+}
+func (UnimplementedAuthServer) Logout(context.Context, *LogoutRequest) (*LogoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Logout not implemented")
 }
 func (UnimplementedAuthServer) GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetAuthConfig not implemented")
@@ -220,6 +236,24 @@ func _Auth_Refresh_Handler(srv interface{}, ctx context.Context, dec func(interf
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Auth_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServer).Logout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Auth_Logout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServer).Logout(ctx, req.(*LogoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Auth_GetAuthConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetAuthConfigRequest)
 	if err := dec(in); err != nil {
@@ -292,6 +326,10 @@ var Auth_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Refresh",
 			Handler:    _Auth_Refresh_Handler,
+		},
+		{
+			MethodName: "Logout",
+			Handler:    _Auth_Logout_Handler,
 		},
 		{
 			MethodName: "GetAuthConfig",

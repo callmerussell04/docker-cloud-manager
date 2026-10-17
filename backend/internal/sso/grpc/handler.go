@@ -12,12 +12,13 @@ import (
 
 type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (uuid.UUID, error)
-	Login(ctx context.Context, username, password string) (string, string, error)
-	Refresh(ctx context.Context, refreshToken string) (string, string, error)
+	Login(ctx context.Context, username, password string) (model.Tokens, error)
+	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
+	Logout(ctx context.Context, refreshToken string) error
 	AuthProviders() []string
 	LocalAuthConfig() (bool, bool)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (string, string, error)
-	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (string, string, string, error)
+	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error)
 	VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error)
 	CheckPermission(ctx context.Context, accessToken, permission string) (model.User, bool, error)
 	GetUser(ctx context.Context, userID uuid.UUID) (model.User, error)
