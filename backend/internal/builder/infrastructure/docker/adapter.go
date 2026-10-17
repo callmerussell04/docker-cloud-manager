@@ -143,6 +143,8 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	}
 
 	// 2. Копируем исходный код прямо внутрь созданного контейнера в /workspace
+	// Keep this tar uncompressed and copy before starting Kaniko. Uploaded archives
+	// are extracted locally, never forwarded to the daemon's decompression path.
 	tarStream, err := archive.TarWithOptions(params.WorkspaceDir, &archive.TarOptions{})
 	if err != nil {
 		_ = a.CleanBuildContainer(context.Background(), resp.ID)
