@@ -92,7 +92,7 @@ func newComposeOrchestratorForTest(t *testing.T, parentCtx context.Context, repo
 		ComposeUploadMaxBytes:         1024 * 1024,
 		ComposePipelineTimeoutMinutes: 1,
 	}).Maybe()
-	return NewOrchestrator(parentCtx, repo, nil, nil, nil, nil, cfg, objectStore, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return NewOrchestrator(parentCtx, repo, nil, nil, nil, cfg, objectStore, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 const gitComposeWithBuild = `

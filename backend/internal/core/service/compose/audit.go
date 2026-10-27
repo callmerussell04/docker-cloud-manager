@@ -15,6 +15,46 @@ type AuditRecorder interface {
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
 }
 
+func (c *ComposeDeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ownerID, projectID uuid.UUID, projectName, sourceType string, srv model.ComposeService, containerID uuid.UUID, containerName string) {
+	if c.auditor == nil || srv.DomainPrefix == "" || srv.InternalPort <= 0 {
+		return
+	}
+	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	ownerUsername := actorUsername
+	if ownerUsername == "" && c.users != nil {
+		if user, err := c.users.GetUser(ctx, ownerID); err == nil {
+			ownerUsername = user.Username
+			if actorUsername == "" && actorID != nil && *actorID == ownerID {
+				actorUsername = user.Username
+			}
+		}
+	}
+	_ = c.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+		ActorUserID:   actorID,
+		ActorUsername: actorUsername,
+		ActorScope:    actorScope,
+		Action:        auditlog.ActionContainerExpose,
+		Outcome:       auditlog.OutcomeSuccess,
+		ResourceType:  auditlog.ResourceContainer,
+		ResourceID:    containerID.String(),
+		ResourceName:  containerName,
+		OwnerID:       ownerPtr(ownerID),
+		OwnerUsername: ownerUsername,
+		RequestID:     requestIDFromContext(ctx),
+		DetailsJSON: auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailSourceType:     sourceType,
+			auditlog.DetailProjectID:      projectID.String(),
+			auditlog.DetailProjectName:    projectName,
+			auditlog.DetailComposeService: srv.Name,
+			auditlog.DetailContainerID:    containerID.String(),
+			auditlog.DetailContainerName:  containerName,
+			auditlog.DetailDomainPrefix:   srv.DomainPrefix,
+			auditlog.DetailFullDomain:     composeFullDomain(srv.DomainPrefix, c.cfg.Get().BaseDomain),
+			auditlog.DetailInternalPort:   auditlog.IntDetail(srv.InternalPort),
+		}),
+	})
+}
+
 func auditActorFromContext(ctx context.Context) (*uuid.UUID, string, string) {
 	scope, ok := accessscope.FromContext(ctx)
 	if !ok || scope.Kind == "" {

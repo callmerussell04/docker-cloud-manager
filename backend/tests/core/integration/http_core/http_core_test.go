@@ -135,7 +135,7 @@ func newHTTPRouter(t *testing.T, cfgValue config.SystemConfig, ownerID uuid.UUID
 		HostDiskPath:  "/",
 	})
 	require.NoError(t, err)
-	orchestrator := compose.NewOrchestrator(context.Background(), repos.Projects, repos.Builds, composemocks.NewVolumeService(t), composemocks.NewContainerService(t), composemocks.NewComposeDockerAPI(t), cfg, store, builds, composemocks.NewImageCleaner(t), coretest.DiscardLogger())
+	orchestrator := compose.NewOrchestrator(context.Background(), repos.Projects, repos.Builds, composemocks.NewVolumeService(t), composemocks.NewContainerService(t), cfg, store, builds, composemocks.NewImageCleaner(t), coretest.DiscardLogger())
 	orchestrator.SetStagedObjectRepository(repos.Staged)
 	orchestrator.SetHostDiskGuard(metrics, "/")
 	orchestrator.SetUserInfoProvider(users)

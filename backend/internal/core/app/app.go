@@ -264,12 +264,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, dockerAdapter, cfg.ConfigManager, objectStore, buildService, imgService, logger)
+	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, cfg.ConfigManager, objectStore, buildService, imgService, logger)
 	orchestrator.SetResourceRepository(resourceRepo)
 	orchestrator.SetStagedObjectRepository(stagedRepo)
 	orchestrator.SetHostDiskGuard(metricsProvider, cfg.HostDiskPath)
 	orchestrator.SetUserInfoProvider(ssoClient)
-	orchestrator.SetAuditRecorder(reportService)
 	recoveryMessage := "deployment interrupted by core service restart"
 	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
 		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)
@@ -323,7 +322,25 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	resourceOutboxWorker := service.NewResourceOutboxWorker(resourceLifecycleRepo, buildPublisher, cfg.ConfigManager, logger)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
-	composeCoordinator := compose.NewComposeDeploymentCoordinator(orchestrator, logger)
+	composeCoordinator, err := compose.NewComposeDeploymentCoordinator(compose.ComposeDeploymentCoordinatorDeps{
+		Deployments:       projRepo,
+		Builds:            buildRepo,
+		Builder:           compose.NewLocalBuilderClient(objectStore, buildService),
+		Containers:        contService,
+		ProjectContainers: resourceRepo,
+		Volumes:           volService,
+		Docker:            dockerAdapter,
+		Images:            imgService,
+		Sources:           orchestrator,
+		Config:            cfg.ConfigManager,
+		Auditor:           reportService,
+		Users:             ssoClient,
+		Logger:            logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 
 	startWorkers(ctx, wg,

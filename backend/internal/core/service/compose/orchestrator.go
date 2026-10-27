@@ -19,7 +19,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -37,7 +36,8 @@ type ProjectRepository interface {
 	CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 	RequestComposeDeploymentCancel(ctx context.Context, projectID uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
-	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
+	SaveComposeDeploymentPlan(ctx context.Context, id uuid.UUID, stage string, planJSON, resourceMapJSON []byte) error
+	UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error
 }
 
 type activeComposeDeploymentCounter interface {
@@ -49,8 +49,13 @@ type BuildRepository interface {
 	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error)
 }
 
-type ResourceRepository interface {
+// ProjectContainerRepository lists containers already persisted for a project.
+type ProjectContainerRepository interface {
 	GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error)
+}
+
+type ResourceRepository interface {
+	ProjectContainerRepository
 	GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error)
 }
 
@@ -62,7 +67,7 @@ type StagedObjectRepository interface {
 }
 
 type VolumeService interface {
-	Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error)
+	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 	ResolveProjectManagedByName(ctx context.Context, projectID uuid.UUID, name string) (uuid.UUID, bool, error)
 	ResolveByName(ctx context.Context, name string) (uuid.UUID, error)
 	UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error
@@ -113,7 +118,6 @@ type Orchestrator struct {
 	resourceRepo  ResourceRepository
 	volumeService VolumeService
 	contService   ContainerService
-	dockerAPI     ComposeDockerAPI
 	cfg           ConfigProvider
 	imageCleaner  ImageCleaner
 	objectStore   ObjectStorage
@@ -121,7 +125,6 @@ type Orchestrator struct {
 	diskMetrics   HostDiskMetricsProvider
 	hostDiskPath  string
 	users         UserInfoProvider
-	auditor       AuditRecorder
 	builderClient BuilderClient
 	logger        *slog.Logger
 }
@@ -136,17 +139,6 @@ var (
 	archiveGitRepositoryToZip = gitsource.ArchiveToZip
 )
 
-type deploymentState struct {
-	jobID     uuid.UUID
-	projectID uuid.UUID
-	scope     accessscope.Scope
-	requestID string
-
-	buildIDs          []uuid.UUID
-	createdVolumes    []uuid.UUID
-	createdContainers []uuid.UUID
-}
-
 type preparedDeploymentSource struct {
 	ComposeYAML     []byte
 	ComposeBaseDir  string
@@ -160,7 +152,6 @@ func NewOrchestrator(
 	buildRepo BuildRepository,
 	volumeService VolumeService,
 	contService ContainerService,
-	dockerAPI ComposeDockerAPI,
 	cfg ConfigProvider,
 	objectStore ObjectStorage,
 	builds BuildJobCreator,
@@ -177,7 +168,6 @@ func NewOrchestrator(
 		buildRepo:     buildRepo,
 		volumeService: volumeService,
 		contService:   contService,
-		dockerAPI:     dockerAPI,
 		cfg:           cfg,
 		imageCleaner:  imageCleaner,
 		objectStore:   objectStore,
@@ -201,28 +191,6 @@ func (o *Orchestrator) SetHostDiskGuard(metrics HostDiskMetricsProvider, path st
 
 func (o *Orchestrator) SetUserInfoProvider(users UserInfoProvider) {
 	o.users = users
-}
-
-func (o *Orchestrator) SetAuditRecorder(auditor AuditRecorder) {
-	o.auditor = auditor
-}
-
-func (o *Orchestrator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs []uuid.UUID, logger *slog.Logger) {
-	if o.imageCleaner == nil {
-		return
-	}
-	for _, buildID := range buildIDs {
-		build, err := o.buildRepo.GetByID(ctx, buildID)
-		if err != nil {
-			continue
-		}
-		if build.Status != model.BuildStatusSuccess {
-			continue
-		}
-		if err := o.imageCleaner.Delete(ctx, build.ImageID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-			logger.WarnContext(ctx, "failed to delete compose-built image during cancellation cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
-		}
-	}
 }
 
 func (o *Orchestrator) deleteBuildImages(ctx context.Context, builds []model.Build, logger *slog.Logger) {
@@ -537,7 +505,7 @@ func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job mod
 	for _, build := range builds {
 		buildIDs = append(buildIDs, build.ID)
 	}
-	o.cancelBuilds(cleanupCtx, buildIDs)
+	cancelComposeBuilds(cleanupCtx, o.builderClient, o.logger, buildIDs)
 	o.deleteBuildImages(cleanupCtx, builds, o.logger.With("project_id", job.ProjectID, "job_id", job.ID))
 
 	cleanupMsg := errorMessage
@@ -671,6 +639,12 @@ func (o *Orchestrator) updateComposeSourceBytes(ctx context.Context, objectKey s
 	if err := o.stagedObjects.UpdateBytes(ctx, objectKey, bytesReserved); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		o.logger.WarnContext(ctx, "failed to update staged compose source reservation", "error", err)
 	}
+}
+
+// ReleaseComposeSource lets durable deployment execution return a staged source
+// to ingestion once the source is no longer needed.
+func (o *Orchestrator) ReleaseComposeSource(ctx context.Context, objectKey string) {
+	o.deleteComposeSourceObject(ctx, objectKey)
 }
 
 func (o *Orchestrator) deleteComposeSourceObject(ctx context.Context, objectKey string) {
@@ -904,10 +878,6 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 	jobCtx := logging.ContextWithRequestID(ctx, requestID)
 	jobCtx = accessscope.WithScope(jobCtx, scope)
 
-	progressRepo, ok := o.projectRepo.(composeProgressRepository)
-	if !ok {
-		return apperrors.New(apperrors.ErrUnavailable, "compose progress repository is unavailable")
-	}
 	project, err := o.projectRepo.GetByID(jobCtx, job.ProjectID)
 	if err != nil {
 		return err
@@ -951,14 +921,14 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		o.failDeploymentJob(jobCtx, job, err)
 		return nil
 	}
-	if err := progressRepo.SaveComposeDeploymentPlan(jobCtx, job.ID, stage, planJSON, resourceJSON); err != nil {
+	if err := o.projectRepo.SaveComposeDeploymentPlan(jobCtx, job.ID, stage, planJSON, resourceJSON); err != nil {
 		return err
 	}
 	if err := o.projectRepo.UpdateStatus(jobCtx, job.ProjectID, projectStatus, nil); err != nil {
 		return err
 	}
 	if stage == model.ComposeDeploymentStageBuilding {
-		if err := o.ensureComposeBuilds(jobCtx, job, plan, &resources); err != nil {
+		if err := ensureComposeBuilds(jobCtx, o.buildRepo, o.builderClient, job, plan, &resources); err != nil {
 			o.failDeploymentJob(jobCtx, job, err)
 			return nil
 		}
@@ -967,7 +937,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 			o.failDeploymentJob(jobCtx, job, err)
 			return nil
 		}
-		if err := progressRepo.UpdateComposeDeploymentProgress(jobCtx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON); err != nil {
+		if err := o.projectRepo.UpdateComposeDeploymentProgress(jobCtx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON); err != nil {
 			return err
 		}
 		o.deleteComposeSourceObject(jobCtx, job.SourceObjectKey)
@@ -988,10 +958,12 @@ func (o *Orchestrator) failDeploymentJob(ctx context.Context, job model.ComposeD
 	cancel()
 }
 
-func (o *Orchestrator) ensureComposeBuilds(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+// ensureComposeBuilds adopts persisted project builds before triggering missing
+// ones, so plan ingestion and stage resume never start a service build twice.
+func ensureComposeBuilds(ctx context.Context, buildRepo BuildRepository, builder BuilderClient, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
 	ensureComposeResourceMaps(resources)
-	if o.buildRepo != nil {
-		builds, err := o.buildRepo.GetByProjectID(ctx, job.ProjectID)
+	if buildRepo != nil {
+		builds, err := buildRepo.GetByProjectID(ctx, job.ProjectID)
 		if err != nil {
 			return err
 		}
@@ -1008,57 +980,13 @@ func (o *Orchestrator) ensureComposeBuilds(ctx context.Context, job model.Compos
 		if _, ok := resources.BuildIDs[srv.Name]; ok {
 			continue
 		}
-		buildID, err := o.builderClient.TriggerBuild(ctx, job.ProjectID, srv, job.SourceObjectKey)
+		buildID, err := builder.TriggerBuild(ctx, job.ProjectID, srv, job.SourceObjectKey)
 		if err != nil {
 			return fmt.Errorf("failed to trigger build for service %s: %w", srv.Name, err)
 		}
 		resources.BuildIDs[srv.Name] = buildID
 	}
 	return nil
-}
-
-func (o *Orchestrator) recordComposeExposeAudit(ctx context.Context, ownerID, projectID uuid.UUID, projectName, sourceType string, srv model.ComposeService, containerID uuid.UUID, containerName string) {
-	if o.auditor == nil || srv.DomainPrefix == "" || srv.InternalPort <= 0 {
-		return
-	}
-	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
-	ownerUsername := actorUsername
-	if ownerUsername == "" && o.users != nil {
-		if user, err := o.users.GetUser(ctx, ownerID); err == nil {
-			ownerUsername = user.Username
-			if actorUsername == "" && actorID != nil && *actorID == ownerID {
-				actorUsername = user.Username
-			}
-		}
-	}
-	baseDomain := ""
-	if o.cfg != nil {
-		baseDomain = o.cfg.Get().BaseDomain
-	}
-	_ = o.auditor.RecordAuditEvent(ctx, model.AuditEvent{
-		ActorUserID:   actorID,
-		ActorUsername: actorUsername,
-		ActorScope:    actorScope,
-		Action:        auditlog.ActionContainerExpose,
-		Outcome:       auditlog.OutcomeSuccess,
-		ResourceType:  auditlog.ResourceContainer,
-		ResourceID:    containerID.String(),
-		ResourceName:  containerName,
-		OwnerID:       ownerPtr(ownerID),
-		OwnerUsername: ownerUsername,
-		RequestID:     requestIDFromContext(ctx),
-		DetailsJSON: auditlog.SafeDetailsJSON(map[string]string{
-			auditlog.DetailSourceType:     sourceType,
-			auditlog.DetailProjectID:      projectID.String(),
-			auditlog.DetailProjectName:    projectName,
-			auditlog.DetailComposeService: srv.Name,
-			auditlog.DetailContainerID:    containerID.String(),
-			auditlog.DetailContainerName:  containerName,
-			auditlog.DetailDomainPrefix:   srv.DomainPrefix,
-			auditlog.DetailFullDomain:     composeFullDomain(srv.DomainPrefix, baseDomain),
-			auditlog.DetailInternalPort:   auditlog.IntDetail(srv.InternalPort),
-		}),
-	})
 }
 
 func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, serviceToContainerID map[string]uuid.UUID) ([]model.ProjectServiceNode, error) {
@@ -1110,10 +1038,10 @@ func projectServiceGraph(projectID uuid.UUID, services []model.ComposeService, s
 	return graph, nil
 }
 
-func (o *Orchestrator) cancelBuilds(ctx context.Context, buildIDs []uuid.UUID) {
+func cancelComposeBuilds(ctx context.Context, builder BuilderClient, logger *slog.Logger, buildIDs []uuid.UUID) {
 	for _, buildID := range buildIDs {
-		if err := o.builderClient.CancelBuild(ctx, buildID); err != nil {
-			o.logger.WarnContext(ctx, "failed to cancel build", "build_id", buildID, "error", err)
+		if err := builder.CancelBuild(ctx, buildID); err != nil {
+			logger.WarnContext(ctx, "failed to cancel build", "build_id", buildID, "error", err)
 		}
 	}
 }

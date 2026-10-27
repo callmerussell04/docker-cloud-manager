@@ -3,7 +3,6 @@ package compose_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -20,6 +19,10 @@ import (
 
 // coordinatorEnv holds the durable store and execution collaborators of one
 // coordinator tick. Tests arrange persisted jobs and observe recorded effects.
+// Stateful recording fakes replace mockery here: a tick re-reads state it just
+// changed (containers created then inspected) and iterates resource maps in
+// random order, which per-call expectations cannot express without coupling
+// tests to call sequence.
 type coordinatorEnv struct {
 	repo       *coordinatorRepo
 	builds     *coordinatorBuilds
@@ -44,15 +47,29 @@ func newCoordinatorEnv(job model.ComposeDeploymentJob) *coordinatorEnv {
 	}
 }
 
+func (e *coordinatorEnv) deps() compose.ComposeDeploymentCoordinatorDeps {
+	return compose.ComposeDeploymentCoordinatorDeps{
+		Deployments:       e.repo,
+		Builds:            e.builds,
+		Builder:           e.builds,
+		Containers:        e.containers,
+		ProjectContainers: e.resources,
+		Volumes:           e.volumes,
+		Docker:            e.docker,
+		Images:            e.images,
+		Sources:           e.sources,
+		Config:            coordinatorConfig{},
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
 // runOnce runs the coordinator until it has advanced the listed jobs once.
 func (e *coordinatorEnv) runOnce(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	e.repo.cancel = cancel
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	orch := compose.NewOrchestrator(ctx, e.repo, e.builds, e.volumes, e.containers, e.docker, coordinatorConfig{}, e.sources, e.builds, e.images, logger)
-	orch.SetResourceRepository(e.resources)
-	coordinator := compose.NewComposeDeploymentCoordinator(orch, logger)
+	coordinator, err := compose.NewComposeDeploymentCoordinator(e.deps())
+	require.NoError(t, err)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -142,9 +159,6 @@ func (r *coordinatorRepo) UpdateComposeDeploymentProgress(_ context.Context, _ u
 	r.progress = append(r.progress, savedProgress{projectStatus: projectStatus, stage: stage, resources: saved})
 	return nil
 }
-func (r *coordinatorRepo) SaveComposeDeploymentPlan(context.Context, uuid.UUID, string, []byte, []byte) error {
-	return nil
-}
 func (r *coordinatorRepo) CompleteComposeDeploymentJob(_ context.Context, _ uuid.UUID, status string, errorMsg *string) error {
 	r.completedStatus = status
 	if errorMsg != nil {
@@ -154,28 +168,6 @@ func (r *coordinatorRepo) CompleteComposeDeploymentJob(_ context.Context, _ uuid
 }
 func (r *coordinatorRepo) UpdateStatus(_ context.Context, _ uuid.UUID, status string, _ *string) error {
 	r.projectStatuses = append(r.projectStatuses, status)
-	return nil
-}
-func (r *coordinatorRepo) Save(context.Context, model.Project) error { return nil }
-func (r *coordinatorRepo) CreateWithComposeDeploymentJob(context.Context, model.Project, model.ComposeDeploymentJob, model.ComposeDeploymentOutbox) error {
-	return nil
-}
-func (r *coordinatorRepo) GetByID(context.Context, uuid.UUID) (model.Project, error) {
-	return model.Project{}, nil
-}
-func (r *coordinatorRepo) GetComposeDeploymentJob(context.Context, uuid.UUID) (model.ComposeDeploymentJob, error) {
-	return r.job, nil
-}
-func (r *coordinatorRepo) GetActiveComposeDeploymentJobByProjectID(context.Context, uuid.UUID) (model.ComposeDeploymentJob, error) {
-	return r.job, nil
-}
-func (r *coordinatorRepo) ListInterruptedComposeDeploymentJobs(context.Context) ([]model.ComposeDeploymentJob, error) {
-	return nil, nil
-}
-func (r *coordinatorRepo) StartComposeDeploymentJob(context.Context, uuid.UUID) (model.ComposeDeploymentJob, bool, error) {
-	return r.job, true, nil
-}
-func (r *coordinatorRepo) RequestComposeDeploymentCancel(context.Context, uuid.UUID) error {
 	return nil
 }
 func (r *coordinatorRepo) SaveServiceGraph(context.Context, uuid.UUID, []model.ProjectServiceNode) error {
@@ -250,7 +242,7 @@ type coordinatorVolumes struct {
 	unlinked        []uuid.UUID
 }
 
-func (v *coordinatorVolumes) Create(_ context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
+func (v *coordinatorVolumes) create(_ context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
 	v.created = append(v.created, params)
 	if id, ok := v.createIDs[params.Name]; ok {
 		return id, nil
@@ -263,7 +255,7 @@ func (v *coordinatorVolumes) ResolveProjectManagedByName(ctx context.Context, pr
 	if id, ok := v.managedIDs[name]; ok {
 		return id, true, nil
 	}
-	id, err := v.Create(ctx, model.VolumeCreateParams{ProjectID: &projectID, Name: name})
+	id, err := v.create(ctx, model.VolumeCreateParams{ProjectID: &projectID, Name: name})
 	return id, false, err
 }
 
@@ -316,15 +308,11 @@ func (b *coordinatorBuilds) GetByID(_ context.Context, id uuid.UUID) (model.Buil
 func (b *coordinatorBuilds) GetByProjectID(context.Context, uuid.UUID) ([]model.Build, error) {
 	return b.project, nil
 }
-func (b *coordinatorBuilds) CreateBuildJob(context.Context, string, string, string, string, string, map[string]string, string) (uuid.UUID, uuid.UUID, error) {
-	return uuid.Nil, uuid.Nil, errors.New("unexpected standalone build")
+func (b *coordinatorBuilds) TriggerBuild(_ context.Context, _ uuid.UUID, srv model.ComposeService, _ string) (uuid.UUID, error) {
+	b.triggered = append(b.triggered, srv.Name)
+	return uuid.New(), nil
 }
-func (b *coordinatorBuilds) CreateProjectBuildJob(_ context.Context, _ uuid.UUID, serviceName, _, _, _, _, _ string, _ map[string]string, _ string) (uuid.UUID, uuid.UUID, error) {
-	b.triggered = append(b.triggered, serviceName)
-	return uuid.New(), uuid.New(), nil
-}
-func (b *coordinatorBuilds) ReserveBuildArchive(context.Context, string) error { return nil }
-func (b *coordinatorBuilds) CancelBuildRecord(_ context.Context, id uuid.UUID) error {
+func (b *coordinatorBuilds) CancelBuild(_ context.Context, id uuid.UUID) error {
 	b.canceled = append(b.canceled, id)
 	return nil
 }
@@ -337,28 +325,14 @@ type coordinatorResources struct {
 func (r *coordinatorResources) GetByProjectID(context.Context, uuid.UUID) ([]model.Container, error) {
 	return r.containers, nil
 }
-func (r *coordinatorResources) GetVolumesByProjectID(context.Context, uuid.UUID) ([]model.Volume, error) {
-	return nil, nil
-}
 
 // coordinatorSources records staged Compose source objects the coordinator releases.
 type coordinatorSources struct {
 	released []string
 }
 
-func (s *coordinatorSources) DeleteObject(_ context.Context, key string) error {
+func (s *coordinatorSources) ReleaseComposeSource(_ context.Context, key string) {
 	s.released = append(s.released, key)
-	return nil
-}
-func (s *coordinatorSources) UploadStream(context.Context, string, io.Reader, int64, string) error {
-	return nil
-}
-func (s *coordinatorSources) CopyObject(context.Context, string, string, string) error { return nil }
-func (s *coordinatorSources) OpenObject(context.Context, string) (io.ReadCloser, error) {
-	return nil, errors.New("unexpected source read")
-}
-func (s *coordinatorSources) NewReaderAt(context.Context, string) (io.ReaderAt, int64, error) {
-	return nil, 0, errors.New("unexpected source read")
 }
 
 type coordinatorImages struct {

@@ -381,7 +381,6 @@ func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 		repos.Builds,
 		composemocks.NewVolumeService(t),
 		composemocks.NewContainerService(t),
-		composemocks.NewComposeDockerAPI(t),
 		cfg,
 		store,
 		buildService,
