@@ -21,15 +21,6 @@ func (s *ContainerService) acquireOwnerCapacityLock(ctx context.Context, ownerID
 	return s.repo.AcquireOwnerCapacityLock(ctx, ownerID)
 }
 
-func (s *ContainerService) setContainerDesiredStatus(ctx context.Context, containerID uuid.UUID, status string) error {
-	stateRepo := s.repo
-	if err := stateRepo.SetDesiredStatus(ctx, containerID, status); err != nil {
-		s.logger.WarnContext(ctx, "failed to set desired container status", "container_id", containerID, "desired_status", status, "error", err)
-		return err
-	}
-	return nil
-}
-
 func (s *ContainerService) markContainerError(ctx context.Context, containerID uuid.UUID, status string, cause error) {
 	stateRepo := s.repo
 	writeCtx, cancel := detachedContainerStateContext(ctx)
@@ -51,40 +42,6 @@ func (s *ContainerService) markImageMissing(ctx context.Context, imageID uuid.UU
 	if err := stateRepo.MarkStatusError(ctx, imageID, model.ImageStatusMissing, resourceMissingError("image")); err != nil {
 		s.logger.WarnContext(ctx, "failed to mark image missing", "image_id", imageID, "error", err)
 	}
-}
-
-func (s *ContainerService) createContainerOperation(ctx context.Context, containerID, ownerID uuid.UUID, operation string) error {
-	stateRepo := s.repo
-	op := model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    operation,
-		Status:       model.OperationStatusRunning,
-	}
-	if err := stateRepo.CreateOperation(ctx, op); err != nil {
-		s.logger.WarnContext(ctx, "failed to create resource operation", "container_id", containerID, "operation", operation, "error", err)
-		return err
-	}
-	return nil
-}
-
-func (s *ContainerService) createContainerOperationAndSetDesired(ctx context.Context, containerID, ownerID uuid.UUID, operation, desiredStatus string) error {
-	stateRepo := s.repo
-	op := model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    operation,
-		Status:       model.OperationStatusRunning,
-	}
-	if err := stateRepo.CreateOperationAndSetDesired(ctx, containerID, desiredStatus, op); err != nil {
-		s.logger.WarnContext(ctx, "failed to create resource operation and set desired container status", "container_id", containerID, "operation", operation, "desired_status", desiredStatus, "error", err)
-		return err
-	}
-	return nil
 }
 
 func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.Container, operation, busyStatus, desiredStatus string, msg containerqueue.LifecycleMessage) error {
@@ -121,15 +78,6 @@ func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.
 		return err
 	}
 	return nil
-}
-
-func (s *ContainerService) completeContainerOperation(ctx context.Context, containerID uuid.UUID, status string, cause error) {
-	stateRepo := s.repo
-	writeCtx, cancel := detachedContainerStateContext(ctx)
-	defer cancel()
-	if err := stateRepo.CompleteLatestOperation(writeCtx, model.ResourceTypeContainer, containerID, status, normalizeContainerRuntimeError(cause)); err != nil {
-		s.logger.WarnContext(ctx, "failed to complete resource operation", "container_id", containerID, "status", status, "error", err)
-	}
 }
 
 func detachedContainerStateContext(ctx context.Context) (context.Context, context.CancelFunc) {

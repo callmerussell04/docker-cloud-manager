@@ -139,7 +139,7 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			require.ErrorIs(t, err, apperrors.ErrTimeout)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
-			repo.ImageRepository.AssertNotCalled(t, "Delete", mock.Anything, imageID)
+			repo.AssertNotCalled(t, "Delete", mock.Anything, imageID)
 
 			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "sha256:digest", nil).Once()
 			registry.EXPECT().DeleteManifest(mock.Anything, repoName, "sha256:digest").Return(nil).Once()

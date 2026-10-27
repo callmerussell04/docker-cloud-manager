@@ -285,7 +285,7 @@ func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }() // read-only stream; close failure is not actionable
 
 	decoder := json.NewDecoder(out)
 	for {
@@ -531,7 +531,7 @@ func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (model
 	if err != nil {
 		return model.ContainerStats{}, err
 	}
-	defer statsResp.Body.Close()
+	defer func() { _ = statsResp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	var v struct {
 		MemoryStats struct {

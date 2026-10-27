@@ -59,7 +59,7 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	if err != nil {
 		return 0, "", requestError("registry manifest lookup failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, "", apperrors.Wrap(
@@ -103,7 +103,7 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 	if err != nil {
 		return requestError("registry manifest deletion failed", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusNotFound {
 		return apperrors.Wrap(

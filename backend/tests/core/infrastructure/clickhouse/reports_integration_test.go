@@ -29,11 +29,11 @@ func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testin
 	defer cancel()
 
 	db := openClickHouseTestDB(t, cfg)
-	defer db.Close()
+	defer func() { _ = db.Close() }() // test teardown; close failure is not actionable
 	applyReportsMigrations(t, ctx, db)
 
 	repo := clickhouserepo.NewReportsRepository(cfg)
-	defer repo.Close()
+	defer func() { _ = repo.Close() }() // test teardown; close failure is not actionable
 
 	ownerID := uuid.New()
 	actorID := uuid.New()

@@ -90,13 +90,13 @@ func (c *ComposeConsumer) consume(ctx context.Context, workerID int, handler fun
 	if err != nil {
 		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // connection teardown; close failure is not actionable
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return fmt.Errorf("failed to open rabbitmq channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }() // connection teardown; close failure is not actionable
 
 	if err := declareTopology(ch); err != nil {
 		return err

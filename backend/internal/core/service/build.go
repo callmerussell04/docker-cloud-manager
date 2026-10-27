@@ -205,10 +205,6 @@ func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID)
 	return usedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
-func (s *BuildService) ensureHostDiskFloor() error {
-	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes)
-}
-
 func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
 	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
 }
@@ -501,7 +497,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }() // best-effort temporary directory cleanup; failure is not actionable
 
 	repoDir := filepath.Join(tmpDir, "repo")
 	repoInfo, err := gitsource.Clone(ctx, gitsource.CloneRequest{
@@ -547,7 +543,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		releaseReservation()
 		return BuildInitResult{}, err
 	}
-	defer archive.Close()
+	defer func() { _ = archive.Close() }() // read-only stream; close failure is not actionable
 
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)

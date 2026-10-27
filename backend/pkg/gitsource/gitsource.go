@@ -220,8 +220,11 @@ func ArchiveToZipFile(ctx context.Context, sourceDir, archivePath string, limits
 	if err != nil {
 		return ArchiveStats{}, err
 	}
-	defer f.Close()
-	return ArchiveToZip(ctx, sourceDir, f, limits)
+	stats, err := ArchiveToZip(ctx, sourceDir, f, limits)
+	if closeErr := f.Close(); closeErr != nil {
+		return ArchiveStats{}, errors.Join(err, fmt.Errorf("close archive file: %w", closeErr))
+	}
+	return stats, err
 }
 
 func ArchiveToZip(ctx context.Context, sourceDir string, w io.Writer, limits ArchiveLimits) (ArchiveStats, error) {

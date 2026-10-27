@@ -79,7 +79,7 @@ func TestPublisherQueuedCallerCanCancelAndCloseInterruptsActiveAttempt(t *testin
 	closed := make(chan error, 1)
 	go func() { closed <- publisher.Close() }()
 	require.Error(t, receive(t, active))
-	receive(t, closed)
+	require.NoError(t, receive(t, closed))
 	require.Error(t, publisher.Publish(t.Context(), "test", "test", nil))
 	require.NoError(t, publisher.Close())
 	receive(t, broker.disconnected)
@@ -100,7 +100,7 @@ func TestPublisherCloseInterruptsStalledIO(t *testing.T) {
 			closed := make(chan error, 1)
 			go func() { closed <- publisher.Close() }()
 			require.Error(t, receive(t, result))
-			receive(t, closed)
+			require.NoError(t, receive(t, closed))
 		})
 	}
 }
@@ -215,7 +215,7 @@ func newPublisherBroker(t *testing.T, stall string) *publisherBroker {
 			}
 			sockets.Store(conn, struct{}{})
 			workers.Go(func() {
-				defer conn.Close()
+				defer func() { _ = conn.Close() }() // fake broker teardown; the peer may already have closed
 				defer sockets.Delete(conn)
 				defer func() { broker.disconnected <- struct{}{} }()
 				broker.serve(conn, stall)

@@ -739,7 +739,7 @@ func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Conte
 		}
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "save with mounts operation and outbox")
 }
 
 func (r *ContainerRepository) SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error {
@@ -844,13 +844,13 @@ func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid
 		return model.ResourceOperation{}, false, err
 	}
 	if op.Status != model.OperationStatusPending {
-		if err := tx.Commit(); err != nil {
+		if err := commitTx(tx, "skip non-pending container operation"); err != nil {
 			return model.ResourceOperation{}, false, err
 		}
 		return op, false, nil
 	}
 	if maxAttempts > 0 && op.Attempts >= maxAttempts {
-		if err := tx.Commit(); err != nil {
+		if err := commitTx(tx, "skip exhausted container operation"); err != nil {
 			return model.ResourceOperation{}, false, err
 		}
 		return op, false, nil
@@ -864,7 +864,7 @@ func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid
 	if err != nil {
 		return model.ResourceOperation{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "claim container operation"); err != nil {
 		return model.ResourceOperation{}, false, err
 	}
 	return op, true, nil
@@ -979,7 +979,7 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate); err != nil {
 		return 0, err
 	}
-	return rows, tx.Commit()
+	return rows, commitTx(tx, "recover interrupted container creates")
 }
 
 func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.Context, cause error) (int64, error) {
@@ -1058,7 +1058,7 @@ func (r *ContainerRepository) LeasePendingContainerOutbox(ctx context.Context, l
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "lease pending container outbox"); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -1147,7 +1147,7 @@ func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.C
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
-	return tx.Commit()
+	return commitTx(tx, "cancel active create and delete container")
 }
 
 func (r *ContainerRepository) updateContainerOutboxStatus(ctx context.Context, id uuid.UUID, status string, cause error) error {
@@ -1205,7 +1205,7 @@ func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, 
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
-	return tx.Commit()
+	return commitTx(tx, "create operation and set desired")
 }
 
 func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
@@ -1237,7 +1237,7 @@ func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uu
 	if err := insertContainerLifecycleOutboxTx(ctx, tx, outbox); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(tx, "queue container operation")
 }
 
 func insertContainerTx(ctx context.Context, tx *sql.Tx, c model.Container) error {

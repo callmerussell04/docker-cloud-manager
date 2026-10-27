@@ -70,10 +70,6 @@ type containerLockRepository interface {
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
 
-type containerExposeRepository interface {
-	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
-}
-
 type ContainerVolumeRepository interface {
 	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error

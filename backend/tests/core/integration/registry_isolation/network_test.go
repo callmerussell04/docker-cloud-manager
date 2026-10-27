@@ -139,7 +139,7 @@ done`, bridge, buildChain, egressBridge, egressChain, bridge, egressBridge, buil
 		logs, err := cli.ContainerLogs(ctx, probe.ID, container.LogsOptions{ShowStdout: true, ShowStderr: true})
 		require.NoError(t, err)
 		output, _ := io.ReadAll(logs)
-		logs.Close()
+		_ = logs.Close() // fully read log stream; close failure is not actionable
 		require.EqualValues(t, 0, status.StatusCode, "network probe: %s", output)
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())

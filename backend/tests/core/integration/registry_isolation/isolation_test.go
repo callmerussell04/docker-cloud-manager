@@ -127,7 +127,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close() // status-only probe; close failure is not actionable
 		return resp.StatusCode == 401
 	}, 10*time.Second, 100*time.Millisecond)
 	adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: certFile})
@@ -174,7 +174,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer "+bToken)
 	response, err := httpClient.Do(request)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close() // status-only probe; close failure is not actionable
 	require.Equal(t, 202, response.StatusCode)
 	uploadURL, err := url.Parse(response.Header.Get("Location"))
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer "+expired)
 	response, err = httpClient.Do(request)
 	require.NoError(t, err)
-	response.Body.Close()
+	_ = response.Body.Close() // status-only probe; close failure is not actionable
 	require.Equal(t, 401, response.StatusCode)
 	// Trusted cleanup succeeds independently of the revoked job credential.
 	require.NoError(t, metadata.DeleteManifest(ctx, bRepo, bDigest))

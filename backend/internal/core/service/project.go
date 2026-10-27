@@ -384,7 +384,9 @@ func (s *ProjectService) advanceProjectDelete(ctx context.Context, p model.Proje
 	if err != nil {
 		return err
 	}
-	for _, c := range containers {
+	// One container is advanced per tick; the next tick resumes with the remainder.
+	if len(containers) > 0 {
+		c := containers[0]
 		if c.Status == model.ContainerStatusDeleting {
 			return nil
 		}

@@ -2,6 +2,7 @@ package objectstorage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -155,9 +156,9 @@ func (r *rangeReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	if err != nil {
 		return 0, mapObjectStorageError(err)
 	}
-	defer obj.Close()
+	defer func() { _ = obj.Close() }() // read-only stream; close failure is not actionable
 	n, err := io.ReadFull(obj, p)
-	if err == io.ErrUnexpectedEOF {
+	if errors.Is(err, io.ErrUnexpectedEOF) {
 		err = io.EOF
 	}
 	return n, err

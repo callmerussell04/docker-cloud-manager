@@ -56,7 +56,7 @@ func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.
 		return err
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "reserve staged object")
 }
 
 func (r *StagedObjectRepository) UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error {

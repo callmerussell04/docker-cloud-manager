@@ -242,10 +242,6 @@ func (s *ImageService) List(ctx context.Context, limit, offset int) ([]model.Ima
 	})
 }
 
-func (s *ImageService) setImageStatus(ctx context.Context, imageID uuid.UUID, status string) {
-	_ = s.repo.UpdateStatus(ctx, imageID, status)
-}
-
 func (s *ImageService) markImageError(ctx context.Context, imageID uuid.UUID, status string, cause error) {
 	_ = s.repo.MarkStatusError(ctx, imageID, status, cause)
 }

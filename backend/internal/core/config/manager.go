@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -80,17 +81,13 @@ func (m *Manager) saveToFile(cfg SystemConfig) error {
 	}
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, tmp.Close(), os.Remove(tmpName))
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, os.Remove(tmpName))
 	}
 	if err := os.Chmod(tmpName, 0644); err != nil {
-		os.Remove(tmpName)
-		return err
+		return errors.Join(err, os.Remove(tmpName))
 	}
 	return os.Rename(tmpName, m.configPath)
 }

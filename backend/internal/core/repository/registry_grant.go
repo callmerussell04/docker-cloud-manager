@@ -57,7 +57,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	if err != nil {
 		return b, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "claim build"); err != nil {
 		return b, false, err
 	}
 	b.Status = model.BuildStatusRunning
@@ -130,7 +130,7 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 			return err
 		}
 	}
-	return tx.Commit()
+	return commitTx(tx, "revoke build")
 }
 
 func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string) (time.Time, error) {

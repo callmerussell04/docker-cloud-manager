@@ -403,14 +403,14 @@ func (a *App) Run() error {
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		if err := a.registryServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+		if err := a.registryServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.logger.Error("registry edge failed")
 			a.cancel()
 		}
 	}()
 	go func() {
 		a.logger.Info("core http server starting", "port", a.httpServer.Addr)
-		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := a.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.logger.Error("core http server failed", "error", err)
 		}
 	}()
@@ -477,7 +477,9 @@ func (a *App) Stop() {
 		_ = a.lockDB.Close()
 	}
 	if a.db != nil {
-		a.db.Close()
+		if err := a.db.Close(); err != nil {
+			a.logger.Warn("postgres connection close failed", "error", err)
+		}
 	}
 	if a.reportsRepo != nil {
 		if err := a.reportsRepo.Close(); err != nil {
@@ -485,13 +487,17 @@ func (a *App) Stop() {
 		}
 	}
 	if a.dockerCli != nil {
-		a.dockerCli.Close()
+		if err := a.dockerCli.Close(); err != nil {
+			a.logger.Warn("docker client close failed", "error", err)
+		}
 	}
 	if a.buildPublisher != nil {
 		_ = a.buildPublisher.Close()
 	}
 	if a.ssoConn != nil {
-		a.ssoConn.Close()
+		if err := a.ssoConn.Close(); err != nil {
+			a.logger.Warn("sso connection close failed", "error", err)
+		}
 	}
 }
 

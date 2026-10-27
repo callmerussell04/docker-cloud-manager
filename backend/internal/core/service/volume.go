@@ -353,7 +353,7 @@ func (s *VolumeService) executeQueuedVolumeCreate(ctx context.Context, operation
 func (s *VolumeService) executeQueuedVolumeDelete(ctx context.Context, operationID, volumeID uuid.UUID) error {
 	vol, err := s.repo.GetByID(ctx, volumeID)
 	if err != nil {
-		if err == apperrors.ErrNotFound {
+		if errors.Is(err, apperrors.ErrNotFound) {
 			_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
 			return nil
 		}
@@ -368,7 +368,7 @@ func (s *VolumeService) executeQueuedVolumeDelete(ctx context.Context, operation
 		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, err)
 		return err
 	}
-	if err := s.repo.Delete(ctx, volumeID); err != nil && err != apperrors.ErrNotFound {
+	if err := s.repo.Delete(ctx, volumeID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, err)
 		return err
 	}

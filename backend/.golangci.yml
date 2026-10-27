@@ -11,9 +11,18 @@ linters:
     - staticcheck
     - unused
     - ineffassign
+  settings:
+    errcheck:
+      # Non-actionable database/sql cleanup: Rows.Close after iteration reports its
+      # failure through Rows.Err, and Tx.Rollback after Commit returns ErrTxDone.
+      # Stmt.Close only releases a prepared statement already executed or failed.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Stmt).Close
 
 issues:
-  max-issues-per-linter: 20
-  max-issues: 50
+  max-issues-per-linter: 0
+  max-same-issues: 0
   exclude-dirs:
     - migrations

@@ -108,7 +108,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		return err
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "create queued build")
 }
 
 func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
@@ -431,7 +431,7 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 		return nil, err
 	}
 
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "lease pending build outbox"); err != nil {
 		return nil, err
 	}
 	return items, nil

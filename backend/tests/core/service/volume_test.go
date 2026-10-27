@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -35,8 +36,8 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
+	repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 
 	volumeID, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
 	require.NoError(t, err)
@@ -79,8 +80,8 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.VolumeRepository.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
+				repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+				repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
 			},
 			wantErr: apperrors.ErrLimitExceeded,
 		},
@@ -91,7 +92,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
+				repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
 			wantErr: apperrors.ErrQuotaExceeded,
 		},
@@ -145,7 +146,7 @@ func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newVolumeRepoMock(t)
-			repo.VolumeRepository.EXPECT().GetByName(mock.Anything, ownerID, "data").Return(tt.volume, nil)
+			repo.EXPECT().GetByName(mock.Anything, ownerID, "data").Return(tt.volume, nil)
 			svc := newTestVolumeService(t, VolumeServiceDeps{
 				Repository: repo,
 				Docker:     coremocks.NewVolumeDockerAPI(t),
@@ -182,7 +183,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "same project",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
+				repo.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
 			},
 			wantID:     volumeID,
 			wantReused: true,
@@ -191,7 +192,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "unassigned preserved volume attaches",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
+				repo.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
 			},
 			wantID:     volumeID,
 			wantReused: true,
@@ -200,7 +201,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "other project available volume links",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusAvailable},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
+				repo.EXPECT().LinkProjectVolume(mock.Anything, projectID, volumeID).Return(nil)
 			},
 			wantID:     volumeID,
 			wantReused: true,
@@ -209,7 +210,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "unavailable rejected",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, Name: "project_a_data", Status: model.VolumeStatusCreating},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(false, nil)
+				repo.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(false, nil)
 			},
 			wantErr: apperrors.ErrConflict,
 		},
@@ -217,7 +218,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			name:   "creating linked project waits",
 			volume: model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &otherProjectID, Name: "project_a_data", Status: model.VolumeStatusCreating},
 			setup: func(repo *volumeRepoMock) {
-				repo.VolumeRepository.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(true, nil)
+				repo.EXPECT().IsLinkedToProject(mock.Anything, projectID, volumeID).Return(true, nil)
 			},
 			wantID:     volumeID,
 			wantReused: false,
@@ -227,7 +228,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newVolumeRepoMock(t)
-			repo.VolumeRepository.EXPECT().GetByName(mock.Anything, ownerID, "project_a_data").Return(tt.volume, nil)
+			repo.EXPECT().GetByName(mock.Anything, ownerID, "project_a_data").Return(tt.volume, nil)
 			if tt.setup != nil {
 				tt.setup(repo)
 			}
@@ -273,12 +274,12 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.VolumeRepository.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
 	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
-	repo.VolumeRepository.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
+	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
 	dockerAPI.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
 }
 
@@ -297,9 +298,9 @@ func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
 		Lifecycle:  lifecycle,
 	})
 
-	repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+	repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 	dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("", dockerErr)
-	repo.VolumeRepository.EXPECT().MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusError, dockerErr).Return(nil)
+	repo.EXPECT().MarkStatusError(mock.Anything, mock.AnythingOfType("uuid.UUID"), model.VolumeStatusError, dockerErr).Return(nil)
 
 	err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
 	require.ErrorIs(t, err, dockerErr)
@@ -318,16 +319,16 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 		{
 			name: "in use",
 			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
-				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
-				repo.VolumeRepository.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(true, nil)
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				repo.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(true, nil)
 			},
 			wantErr: apperrors.ErrResourceInUse,
 		},
 		{
 			name: "delete is queued",
 			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
-				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
-				repo.VolumeRepository.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(false, nil)
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				repo.EXPECT().IsVolumeInUse(mock.Anything, volumeID).Return(false, nil)
 			},
 			wantQueued: true,
 		},
@@ -370,18 +371,32 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 		{
 			name: "docker missing is idempotent",
 			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
-				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(cerrdefs.ErrNotFound)
-				repo.VolumeRepository.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
+				repo.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
+			},
+		},
+		{
+			name: "wrapped missing volume record is idempotent",
+			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{}, fmt.Errorf("load volume: %w", apperrors.ErrNotFound))
+			},
+		},
+		{
+			name: "wrapped missing volume record on delete is idempotent",
+			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(nil)
+				repo.EXPECT().Delete(mock.Anything, volumeID).Return(fmt.Errorf("delete volume: %w", apperrors.ErrNotFound))
 			},
 		},
 		{
 			name: "docker error marks volume error",
 			setup: func(repo *volumeRepoMock, docker *coremocks.VolumeDockerAPI) {
 				removeErr := errors.New("remove failed")
-				repo.VolumeRepository.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+				repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 				docker.EXPECT().RemoveVolume(mock.Anything, "vol_data", false).Return(removeErr)
-				repo.VolumeRepository.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
+				repo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, removeErr).Return(nil)
 			},
 			wantErr: errors.New("remove failed"),
 		},
@@ -423,14 +438,14 @@ func TestVolumeServiceListUsesScopeOwnerFilter(t *testing.T) {
 	var userOpts model.ListOptions
 	var adminOpts model.ListOptions
 
-	repo.VolumeRepository.EXPECT().
+	repo.EXPECT().
 		List(mock.Anything, mock.AnythingOfType("model.ListOptions")).
 		Run(func(ctx context.Context, opts model.ListOptions) {
 			userOpts = opts
 		}).
 		Return([]model.Volume(nil), 0, nil).
 		Once()
-	repo.VolumeRepository.EXPECT().
+	repo.EXPECT().
 		List(mock.Anything, mock.AnythingOfType("model.ListOptions")).
 		Run(func(ctx context.Context, opts model.ListOptions) {
 			adminOpts = opts

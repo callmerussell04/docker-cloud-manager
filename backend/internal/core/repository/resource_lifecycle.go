@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -59,8 +60,8 @@ func (r *ResourceLifecycleRepository) RecoverInterruptedOperations(ctx context.C
 		model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage); err != nil {
 		return 0, fmt.Errorf("requeue resource lifecycle outbox: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("commit resource operation recovery: %w", err)
+	if err := commitTx(tx, "resource operation recovery"); err != nil {
+		return 0, err
 	}
 	return count, nil
 }
@@ -86,7 +87,7 @@ func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vo
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(tx, "create queued volume")
 }
 
 func (r *ResourceLifecycleRepository) QueueVolumeDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
@@ -113,7 +114,7 @@ func (r *ResourceLifecycleRepository) QueueVolumeDelete(ctx context.Context, id 
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(tx, "queue volume delete")
 }
 
 func (r *ResourceLifecycleRepository) QueueImageDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
@@ -140,7 +141,7 @@ func (r *ResourceLifecycleRepository) QueueImageDelete(ctx context.Context, id u
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return commitTx(tx, "queue image delete")
 }
 
 func (r *ResourceLifecycleRepository) HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
@@ -186,7 +187,7 @@ func (r *ResourceLifecycleRepository) ClaimPendingOperation(ctx context.Context,
 		return model.ResourceOperation{}, false, err
 	}
 	if op.Status != model.OperationStatusPending || (maxAttempts > 0 && op.Attempts >= maxAttempts) {
-		if err := tx.Commit(); err != nil {
+		if err := commitTx(tx, "skip unclaimable resource operation"); err != nil {
 			return model.ResourceOperation{}, false, err
 		}
 		return op, false, nil
@@ -200,7 +201,7 @@ func (r *ResourceLifecycleRepository) ClaimPendingOperation(ctx context.Context,
 	if err != nil {
 		return model.ResourceOperation{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "claim resource operation"); err != nil {
 		return model.ResourceOperation{}, false, err
 	}
 	return op, true, nil
@@ -269,7 +270,7 @@ func (r *ResourceLifecycleRepository) LeasePendingResourceOutbox(ctx context.Con
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "lease pending resource outbox"); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -332,7 +333,7 @@ func scanResourceLifecycleOutbox(s scanner) (model.ResourceLifecycleOutbox, erro
 		&item.UpdatedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return model.ResourceLifecycleOutbox{}, apperrors.ErrNotFound
 		}
 		return model.ResourceLifecycleOutbox{}, err

@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -47,7 +48,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 	buildArgs := make(map[string]string)
 	for {
 		part, err := reader.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -168,7 +169,7 @@ func (h *BuildHandler) BuildLogs(c *gin.Context) {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	defer logReader.Close()
+	defer func() { _ = logReader.Close() }() // read-only stream; close failure is not actionable
 
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Status(http.StatusOK)

@@ -230,7 +230,7 @@ func (r *VolumeRepository) SaveMounts(ctx context.Context, mounts []model.Volume
 		}
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "save mounts")
 }
 
 func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) {

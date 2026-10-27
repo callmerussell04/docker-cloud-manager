@@ -89,7 +89,7 @@ func (r *ProjectRepository) CreateWithComposeDeploymentJob(ctx context.Context, 
 		return err
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "create with compose deployment job")
 }
 
 func (r *ProjectRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Project, error) {
@@ -198,13 +198,13 @@ func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uu
 		return model.ComposeDeploymentJob{}, false, err
 	}
 	if isTerminalComposeDeploymentStatus(job.Status) || job.CancelRequested {
-		if err := tx.Commit(); err != nil {
+		if err := commitTx(tx, "start compose deployment job"); err != nil {
 			return model.ComposeDeploymentJob{}, false, err
 		}
 		return job, false, nil
 	}
 	if job.Status != model.ComposeDeploymentStatusQueued {
-		if err := tx.Commit(); err != nil {
+		if err := commitTx(tx, "start compose deployment job"); err != nil {
 			return model.ComposeDeploymentJob{}, false, err
 		}
 		return job, false, nil
@@ -222,7 +222,7 @@ func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uu
 	if err != nil {
 		return model.ComposeDeploymentJob{}, false, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "start compose deployment job"); err != nil {
 		return model.ComposeDeploymentJob{}, false, err
 	}
 	return job, true, nil
@@ -347,7 +347,7 @@ func (r *ProjectRepository) LeasePendingComposeOutbox(ctx context.Context, limit
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitTx(tx, "lease pending compose outbox"); err != nil {
 		return nil, err
 	}
 	return items, nil
@@ -415,7 +415,7 @@ func (r *ProjectRepository) UpdateComposeDeploymentProgress(ctx context.Context,
 			return err
 		}
 	}
-	return tx.Commit()
+	return commitTx(tx, "update compose deployment progress")
 }
 
 func (r *ProjectRepository) ListActiveComposeDeploymentJobs(ctx context.Context, limit int) ([]model.ComposeDeploymentJob, error) {
@@ -536,7 +536,7 @@ func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Con
 		}
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "recover interrupted compose deployments")
 }
 
 func composeDeploymentHasPartialWork(ctx context.Context, tx *sql.Tx, projectID uuid.UUID) (bool, error) {
@@ -601,7 +601,7 @@ func (r *ProjectRepository) SaveServiceGraph(ctx context.Context, projectID uuid
 		}
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "save service graph")
 }
 
 func (r *ProjectRepository) GetServiceGraph(ctx context.Context, projectID uuid.UUID) ([]model.ProjectServiceNode, error) {

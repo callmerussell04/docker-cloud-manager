@@ -388,7 +388,8 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 
 		// Копируем маунты томов
 		for _, vol := range srv.Volumes {
-			if vol.Type == types.VolumeTypeVolume {
+			switch vol.Type {
+			case types.VolumeTypeVolume:
 				if _, exists := volumeMap[vol.Source]; !exists {
 					return fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
 				}
@@ -400,7 +401,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 					MountPath:  vol.Target,
 					IsReadOnly: vol.ReadOnly,
 				})
-			} else if vol.Type == types.VolumeTypeBind {
+			case types.VolumeTypeBind:
 				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS for path: %s", apperrors.ErrBadRequest, vol.Source)
 			}
 		}

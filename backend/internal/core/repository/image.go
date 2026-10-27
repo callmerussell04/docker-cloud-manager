@@ -252,7 +252,7 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		return err
 	}
 	if affected == 0 {
-		return tx.Commit()
+		return commitTx(tx, "update build and image size")
 	}
 
 	if _, err = tx.ExecContext(ctx, `
@@ -268,7 +268,7 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		return err
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "update build and image size")
 }
 
 func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error {
@@ -306,7 +306,7 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		return err
 	}
 	if affected == 0 {
-		return tx.Commit()
+		return commitTx(tx, "mark build failed and delete image")
 	}
 
 	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1", imageID)
@@ -314,7 +314,7 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		return err
 	}
 
-	return tx.Commit()
+	return commitTx(tx, "mark build failed and delete image")
 }
 
 func scanImage(s scanner) (model.Image, error) {

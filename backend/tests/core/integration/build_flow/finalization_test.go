@@ -67,10 +67,10 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 
 			conn, err := amqp.Dial(url)
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Close() }() // test teardown; broker close failure is not actionable
 			ch, err := conn.Channel()
 			require.NoError(t, err)
-			defer ch.Close()
+			defer func() { _ = ch.Close() }() // test teardown; closing the connection already releases it
 			require.NoError(t, rabbitmqtopology.DeclareBuild(ch))
 			_, err = ch.QueuePurge(buildqueue.QueueName, false)
 			require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			_, found, err := results.Load(context.Background(), msg.BuildID)
 			require.NoError(t, err)
 			require.False(t, found)
-			queue, err := ch.QueueInspect(buildqueue.QueueName)
+			queue, err := ch.QueueDeclarePassive(buildqueue.QueueName, true, false, false, false, nil)
 			require.NoError(t, err)
 			require.Zero(t, queue.Messages)
 			require.Equal(t, int32(2), deliveries.Load())

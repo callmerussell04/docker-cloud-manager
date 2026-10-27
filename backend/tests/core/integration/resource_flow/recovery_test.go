@@ -156,16 +156,17 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, model.OperationStatusDone, op.Status)
 					require.Equal(t, 1, op.Attempts)
-					if kind == "volume create" {
+					switch kind {
+					case "volume create":
 						vol, err := volumes.GetByID(coretest.UserContext(ownerID), resourceID)
 						require.NoError(t, err)
 						require.Equal(t, model.VolumeStatusAvailable, vol.Status)
 						require.True(t, volumeExists)
-					} else if kind == "volume delete" {
+					case "volume delete":
 						_, err := volumes.GetByID(coretest.UserContext(ownerID), resourceID)
 						require.ErrorIs(t, err, apperrors.ErrNotFound)
 						require.False(t, volumeExists)
-					} else {
+					default:
 						_, err := repos.Images.GetByID(ctx, resourceID)
 						require.ErrorIs(t, err, apperrors.ErrNotFound)
 						require.False(t, manifestExists)
@@ -205,13 +206,14 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 					Lifecycle:  lifecycle,
 				})
 				require.NoError(t, err)
-				if kind == "image delete" {
+				switch kind {
+				case "image delete":
 					require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
 					require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
-				} else if kind == "volume delete" {
+				case "volume delete":
 					require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable}))
 					require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
-				} else {
+				default:
 					var err error
 					resourceID, err = volumes.Create(coretest.UserContext(ownerID), model.VolumeCreateParams{Name: "data"})
 					require.NoError(t, err)
@@ -346,8 +348,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			require.NoError(t, err)
 			switch kind {
 			case "volume create":
-				var err error
-				resourceID, err = volumes.Create(coretest.UserContext(ownerID), model.VolumeCreateParams{Name: "data"})
+				_, err := volumes.Create(coretest.UserContext(ownerID), model.VolumeCreateParams{Name: "data"})
 				require.NoError(t, err)
 			case "volume delete":
 				require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable}))
@@ -369,17 +370,17 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 
 			conn, err := amqp.Dial(url)
 			require.NoError(t, err)
-			defer conn.Close()
+			defer func() { _ = conn.Close() }() // test teardown; broker close failure is not actionable
 			ch, err := conn.Channel()
 			require.NoError(t, err)
-			defer ch.Close()
+			defer func() { _ = ch.Close() }() // test teardown; closing the connection already releases it
 			require.NoError(t, rabbitmqtopology.DeclareResource(ch))
 			for _, queue := range []string{resourcequeue.QueueName, resourcequeue.DLQName} {
 				_, err := ch.QueuePurge(queue, false)
 				require.NoError(t, err)
 			}
 			publisher := rabbitmq.NewPublisher(url)
-			defer publisher.Close()
+			defer func() { _ = publisher.Close() }() // test teardown; the publisher is reconnect-safe and nothing is pending
 			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
 			consumer := rabbitmq.NewResourceConsumer(url, "recovery-test", coretest.DiscardLogger())
 			results := make(chan error, 10)
@@ -430,7 +431,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			for _, queue := range []string{resourcequeue.QueueName, resourcequeue.DLQName} {
 				// Consumer shutdown closes the channel, returning any unacknowledged work.
 				require.Eventually(t, func() bool {
-					info, err := ch.QueueInspect(queue)
+					info, err := ch.QueueDeclarePassive(queue, true, false, false, false, nil)
 					return err == nil && info.Messages == 0 && info.Consumers == 0
 				}, 3*time.Second, 20*time.Millisecond, "no unacknowledged or dead-lettered work remains")
 			}

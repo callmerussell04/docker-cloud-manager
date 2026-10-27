@@ -1077,7 +1077,7 @@ func (o *Orchestrator) prepareRawComposeObjectSource(ctx context.Context, object
 	if err != nil {
 		return preparedDeploymentSource{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }() // read-only stream; close failure is not actionable
 	composeYAML, err := readLimitedComposeYAML(rc)
 	if err != nil {
 		return preparedDeploymentSource{}, err
@@ -1097,14 +1097,14 @@ func (o *Orchestrator) prepareTarObjectSource(ctx context.Context, objectKey, co
 	if err != nil {
 		return preparedDeploymentSource{}, err
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }() // read-only stream; close failure is not actionable
 	var tarReader io.Reader = rc
 	if gzipped {
 		gzr, err := gzip.NewReader(rc)
 		if err != nil {
 			return preparedDeploymentSource{}, apperrors.New(apperrors.ErrBadRequest, "invalid gzip archive")
 		}
-		defer gzr.Close()
+		defer func() { _ = gzr.Close() }() // read-only stream; close failure is not actionable
 		tarReader = gzr
 	}
 	return extractComposeFileFromTar(tar.NewReader(tarReader), objectKey, composeFile)
@@ -1147,7 +1147,7 @@ func extractComposeFileFromTar(tr *tar.Reader, objectKey, requested string) (pre
 	candidates := composeFileCandidates(requested)
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
