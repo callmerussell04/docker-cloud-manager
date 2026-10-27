@@ -163,24 +163,7 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	baseName, version := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	if s.registryAuth != nil {
-		unlock, err := s.registryAuth.FenceRepository(ctx, repoName)
-		if err != nil {
-			_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
-			return err
-		}
-		defer unlock()
-	}
-	// Удаление из Registry (Soft Delete)
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
-	if err == nil {
-		if digest == "" {
-			err = apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
-		} else {
-			err = s.registryAPI.DeleteManifest(ctx, repoName, digest)
-		}
-	}
-	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.deleteRegistryManifest(ctx, repoName, version); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		writeCtx, cancel := detachedContainerStateContext(ctx)
 		defer cancel()
 		if requeueErr := s.lifecycle.RequeueOperation(writeCtx, operationID, err); requeueErr != nil {
@@ -210,6 +193,28 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	}
 	_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
 	return nil
+}
+
+// deleteRegistryManifest removes the tag from the Registry (soft delete) while
+// new builds of the repository are excluded. The repository lock is released
+// before Docker and database cleanup so it covers only the bounded Registry
+// attempt. ErrNotFound means the manifest is already absent.
+func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, version string) error {
+	if s.registryAuth != nil {
+		unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
+	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	if err != nil {
+		return err
+	}
+	if digest == "" {
+		return apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
+	}
+	return s.registryAPI.DeleteManifest(ctx, repoName, digest)
 }
 
 func (s *ImageService) failQueuedImageDelete(ctx context.Context, operationID, imageID uuid.UUID, cause error) {

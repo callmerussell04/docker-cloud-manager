@@ -63,7 +63,7 @@ func TestImageDeletionDoesNotRevokeAnActiveSiblingBuild(t *testing.T) {
 	auth := service.NewRegistryAuthorization(repo, users, signer, "registry:5000")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	unlock, err := auth.FenceRepository(ctx, "owner_repository")
+	unlock, err := auth.FenceAndLockRepository(ctx, "owner_repository")
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, unlock)
 	repo.AssertNotCalled(t, "FenceRepository", mock.Anything, mock.Anything)

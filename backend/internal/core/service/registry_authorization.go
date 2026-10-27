@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -144,61 +145,61 @@ func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, c
 	return s.repo.RevokeBuild(ctx, id, cleanup)
 }
 
-// FenceRepository waits until no build can still write to the repository, then
-// locks it against new claims and returns the unlock function. Repository
-// tokens cover all tags, so sibling-tag builds must finish first. The wait runs
-// unlocked because the lock pool's single connection is shared with all
-// admission; a claim that slips in before the lock fails the fence with
+// FenceAndLockRepository waits until no build can still write to the
+// repository, then locks it against new claims and returns the unlock function.
+// Repository tokens cover all tags, so sibling-tag builds must finish first. The
+// wait runs unlocked because the lock pool's single connection is shared with
+// all admission; a claim that slips in before the lock fails the fence with
 // ErrUnavailable so the caller requeues instead of waiting under the lock.
-func (s *RegistryAuthorization) FenceRepository(ctx context.Context, repository string) (func(), error) {
-	if err := s.waitForRepositoryWriters(ctx, repository); err != nil {
-		return nil, err
+func (s *RegistryAuthorization) FenceAndLockRepository(ctx context.Context, repository string) (func(), error) {
+	for {
+		active, remaining, err := s.fenceRepository(ctx, repository)
+		if err != nil {
+			return nil, err
+		}
+		if !active {
+			if err := sleepContext(ctx, remaining); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if err := sleepContext(ctx, time.Second); err != nil {
+			return nil, err
+		}
 	}
 	unlock, err := s.repo.LockRegistryRepository(ctx, repository)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lock registry repository: %w", err)
 	}
-	quiet, err := s.repositoryWritersDone(ctx, repository)
+	// Claims take the same lock, so a quiet recheck stays true until unlock.
+	active, remaining, err := s.fenceRepository(ctx, repository)
 	if err != nil {
 		unlock()
 		return nil, err
 	}
-	if !quiet {
+	if active || remaining > 0 {
 		unlock()
 		return nil, apperrors.New(apperrors.ErrUnavailable, "registry repository received a new build during deletion fence")
 	}
 	return unlock, nil
 }
 
-func (s *RegistryAuthorization) waitForRepositoryWriters(ctx context.Context, repository string) error {
-	for {
-		active, err := s.repo.HasActiveRegistryBuilds(ctx, repository)
-		if err != nil {
-			return err
-		}
-		if !active {
-			break
-		}
-		if err := sleepContext(ctx, time.Second); err != nil {
-			return err
-		}
+// fenceRepository reports whether a build of the repository is running and,
+// when none is, revokes finished builds' credentials and returns how long their
+// issued tokens may still write.
+func (s *RegistryAuthorization) fenceRepository(ctx context.Context, repository string) (bool, time.Duration, error) {
+	active, err := s.repo.HasActiveRegistryBuilds(ctx, repository)
+	if err != nil {
+		return false, 0, fmt.Errorf("check active registry builds: %w", err)
+	}
+	if active {
+		return true, 0, nil
 	}
 	remaining, err := s.repo.FenceRepository(ctx, repository)
 	if err != nil {
-		return err
+		return false, 0, fmt.Errorf("fence registry repository: %w", err)
 	}
-	return sleepContext(ctx, remaining)
-}
-
-// repositoryWritersDone rechecks the fence without waiting; the caller holds the
-// repository lock, so its answer stays true until unlock.
-func (s *RegistryAuthorization) repositoryWritersDone(ctx context.Context, repository string) (bool, error) {
-	active, err := s.repo.HasActiveRegistryBuilds(ctx, repository)
-	if err != nil || active {
-		return false, err
-	}
-	remaining, err := s.repo.FenceRepository(ctx, repository)
-	return remaining <= 0, err
+	return false, remaining, nil
 }
 
 func sleepContext(ctx context.Context, d time.Duration) error {

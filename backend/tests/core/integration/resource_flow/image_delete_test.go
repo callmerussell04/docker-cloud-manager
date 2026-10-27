@@ -177,8 +177,20 @@ func TestQueuedImageDeletionKeepsAdmissionAvailableWhileFencing(t *testing.T) {
 	default:
 	}
 
+	// Docker cache cleanup runs after the Registry step and must not hold the lock.
+	var cleanupAdmission error
+	f.docker.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Run(func(context.Context, string, bool) {
+		admitCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		release, err := f.repos.Containers.AcquireOwnerCapacityLock(admitCtx, f.ownerID)
+		if err == nil {
+			release()
+		}
+		cleanupAdmission = err
+	}).Return(nil).Once()
 	f.finishBuild(t, sibling)
 	require.NoError(t, waitResult(t, result))
+	require.NoError(t, cleanupAdmission, "the repository lock must be released before Docker cleanup")
 	f.requireDeleted(t, message, 1)
 }
 
@@ -198,6 +210,11 @@ func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T
 		err := f.repos.DB.QueryRowContext(ctx, `SELECT revoked_at IS NOT NULL FROM registry_build_credentials WHERE build_id=$1`, previous).Scan(&revoked)
 		return err == nil && revoked
 	}, 5*time.Second, 10*time.Millisecond)
+	admitCtx, cancelAdmit := context.WithTimeout(ctx, time.Second)
+	release, err := f.repos.Containers.AcquireOwnerCapacityLock(admitCtx, f.ownerID)
+	cancelAdmit()
+	require.NoError(t, err, "admission must not wait behind the token fence")
+	release()
 
 	// A new publisher can claim while the deletion waits out the fence unlocked.
 	late := f.claimSibling(t, "demo:v3")
@@ -213,9 +230,10 @@ func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T
 	require.Zero(t, f.deletes.Load(), "Registry deletion must not race the late publisher")
 
 	f.finishBuild(t, late)
+	f.docker.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Once()
 	blocked := f.queueSibling(t, "demo:v4")
 	claimed := make(chan error, 1)
-	hook := func() {
+	hook := func(*http.Request) {
 		hash := sha256.Sum256([]byte("blocked-" + blocked.String()))
 		_, started, err := f.grants.ClaimBuild(ctx, blocked, hash[:], time.Minute)
 		if err == nil && started {
@@ -229,22 +247,57 @@ func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T
 	f.requireDeleted(t, message, 2)
 }
 
+func TestQueuedImageDeletionReleasesTheRepositoryLockWhenCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := newFencedImageDeletion(t)
+	message := f.queueDelete(t)
+	reached := make(chan struct{})
+	hook := func(r *http.Request) {
+		close(reached)
+		<-r.Context().Done()
+	}
+	f.onDelete.Store(&hook)
+	result := make(chan error, 1)
+	go func() { result <- f.worker.HandleMessage(ctx, message) }()
+	<-reached
+	sibling := f.queueSibling(t, "demo:v2")
+	hash := sha256.Sum256([]byte("sibling-secret"))
+	_, _, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute)
+	require.ErrorIs(t, err, apperrors.ErrUnavailable, "claims stay excluded during Registry deletion")
+
+	cancel()
+	require.Error(t, waitResult(t, result))
+	admitCtx, cancelAdmit := context.WithTimeout(context.Background(), time.Second)
+	defer cancelAdmit()
+	release, err := f.repos.Containers.AcquireOwnerCapacityLock(admitCtx, f.ownerID)
+	require.NoError(t, err, "cancellation must release the lock connection")
+	release()
+	_, started, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute)
+	require.NoError(t, err)
+	require.True(t, started, "cancellation must release the repository lock")
+	op, err := f.lifecycle.GetOperationByID(context.Background(), uuid.MustParse(message.OperationID))
+	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusPending, op.Status, "a canceled deletion stays retryable")
+}
+
 type fencedImageDeletion struct {
 	repos     coretest.CoreRepositories
 	grants    *repository.RegistryGrantRepository
 	lifecycle *repository.ResourceLifecycleRepository
 	images    *service.ImageService
+	docker    *coremocks.ImageDockerAPI
 	worker    *service.ResourceLifecycleWorker
 	ownerID   uuid.UUID
 	imageID   uuid.UUID
 	deletes   *atomic.Int32
-	onDelete  *atomic.Pointer[func()]
+	onDelete  *atomic.Pointer[func(*http.Request)]
 }
 
 func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 	t.Helper()
 	ctx := context.Background()
-	f := &fencedImageDeletion{repos: coretest.OpenCoreRepositories(t), ownerID: uuid.New(), imageID: uuid.New(), deletes: &atomic.Int32{}, onDelete: &atomic.Pointer[func()]{}}
+	f := &fencedImageDeletion{repos: coretest.OpenCoreRepositories(t), ownerID: uuid.New(), imageID: uuid.New(), deletes: &atomic.Int32{}, onDelete: &atomic.Pointer[func(*http.Request)]{}}
 	f.grants = repository.NewRegistryGrantRepository(f.repos.DB, f.repos.LockDB)
 	f.lifecycle = repository.NewResourceLifecycleRepository(f.repos.DB)
 	require.NoError(t, f.repos.Images.Save(ctx, model.Image{ID: f.imageID, OwnerID: f.ownerID, Tag: "demo:latest"}))
@@ -255,7 +308,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 			_, _ = w.Write([]byte(`{"config":{"size":100},"layers":[]}`))
 		case http.MethodDelete:
 			if hook := f.onDelete.Load(); hook != nil {
-				(*hook)()
+				(*hook)(r)
 			}
 			f.deletes.Add(1)
 			w.WriteHeader(http.StatusAccepted)
@@ -268,11 +321,10 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 		return "test-token", nil
 	})
 	require.NoError(t, err)
-	dockerAPI := coremocks.NewImageDockerAPI(t)
-	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Maybe()
+	f.docker = coremocks.NewImageDockerAPI(t)
 	f.images, err = service.NewImageService(service.ImageServiceDeps{
 		Repository:   f.repos.Images,
-		Docker:       dockerAPI,
+		Docker:       f.docker,
 		Registry:     adapter,
 		Containers:   f.repos.Containers,
 		Config:       coretest.StaticConfig{Config: coretest.IntegrationConfig()},

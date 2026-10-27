@@ -61,6 +61,9 @@ func TestRegistryGrantClaimIsExclusiveAndRevocationSurvivesRestart(t *testing.T)
 	restarted := repository.NewRegistryGrantRepository(db, db)
 	_, err = restarted.AuthorizeCredential(ctx, hashes[winner][:], time.Now())
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
+	// Deletion fences only after the repository's builds stop running.
+	_, err = db.ExecContext(ctx, `UPDATE builds SET status=$2 WHERE id=$1`, buildID, model.BuildStatusCanceled)
+	require.NoError(t, err)
 	remaining, err := restarted.FenceRepository(ctx, principal.Repository)
 	require.NoError(t, err)
 	require.Greater(t, remaining, 179*time.Second, "cleanup must wait for token skew and admitted writes")
@@ -110,4 +113,9 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	state, err := grants.RegistryCleanupState(ctx, job)
 	require.NoError(t, err)
 	require.Equal(t, model.RegistryCleanupPending, state, "repository-wide grants must keep sibling-tag publishers ahead of cleanup")
+	// An unlocked deletion fence can race a claim; it must not revoke a running publisher.
+	_, err = grants.FenceRepository(ctx, repo)
+	require.NoError(t, err)
+	_, err = grants.AuthorizeCredential(ctx, nextHash[:], time.Now())
+	require.NoError(t, err, "fencing must leave a running build's credential usable")
 }
