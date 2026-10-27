@@ -47,6 +47,9 @@ func (w *ContainerOutboxWorker) Run(ctx context.Context) {
 	w.publishBatch(ctx)
 	for {
 		interval := time.Duration(w.cfg.Get().ContainerCreateOutboxIntervalSeconds) * time.Second
+		if interval <= 0 {
+			interval = time.Second
+		}
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():

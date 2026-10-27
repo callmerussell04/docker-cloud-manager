@@ -273,6 +273,33 @@ func TestOutboxWorkersScheduleBatchesFromRuntimeInterval(t *testing.T) {
 	}
 }
 
+func TestOutboxWorkersFloorNonPositiveIntervalAtOneSecond(t *testing.T) {
+	for _, class := range outboxQueueClasses {
+		t.Run(class.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := class.newFixture(t)
+				f.expectLease(0, nil)
+				ctx, cancel := context.WithCancel(context.Background())
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					f.run(ctx)
+				}()
+
+				synctest.Wait()
+				require.EqualValues(t, 1, f.leases.Load())
+				time.Sleep(time.Second)
+				synctest.Wait()
+				require.EqualValues(t, 2, f.leases.Load())
+
+				cancel()
+				synctest.Wait()
+				requireClosed(t, done, "Run returns on cancellation")
+			})
+		})
+	}
+}
+
 func TestOutboxWorkersStopAfterCancellationDuringPublication(t *testing.T) {
 	for _, class := range outboxQueueClasses {
 		t.Run(class.name, func(t *testing.T) {
