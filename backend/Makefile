@@ -146,9 +146,12 @@ test test-all: check-generated
 lint: .install-linter
 	$(GOLANGCI_LINT) run ./... --config=./.golangci.yml
 
-.PHONY: vet test-race vulncheck
+.PHONY: vet check-architecture test-race vulncheck
 vet: check-generated
 	go vet ./...
+
+check-architecture:
+	go test $(TEST_ARGS) ./tests/architecture
 
 test-race:
 	$(MAKE) test-fast TEST_ARGS='$(TEST_ARGS) -race'
