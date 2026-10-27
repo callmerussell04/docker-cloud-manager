@@ -22,12 +22,12 @@ func NewStagedObjectRepository(db *sql.DB) *StagedObjectRepository {
 func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("staged object reserve", err)
 	}
 	defer tx.Rollback()
 
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "dcm:staged:"+reservation.OwnerID.String()); err != nil {
-		return err
+		return wrapOp("staged object reserve", err)
 	}
 
 	if maxBytesPerUser > 0 {
@@ -37,7 +37,7 @@ func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.
 			FROM staged_object_reservations
 			WHERE owner_id = $1 AND status = $2
 		`, reservation.OwnerID, model.StagedObjectStatusActive).Scan(&used); err != nil {
-			return err
+			return wrapOp("staged object reserve", err)
 		}
 		if used+reservation.BytesReserved > maxBytesPerUser {
 			return apperrors.New(apperrors.ErrQuotaExceeded, "staged source quota exceeded")
@@ -53,7 +53,7 @@ func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (object_key) DO NOTHING
 	`, reservation.ID, reservation.OwnerID, reservation.ObjectKey, reservation.Kind, reservation.BytesReserved, status); err != nil {
-		return err
+		return wrapOp("staged object reserve", err)
 	}
 
 	return commitTx(tx, "reserve staged object")

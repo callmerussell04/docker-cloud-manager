@@ -69,23 +69,23 @@ func (r *ResourceLifecycleRepository) RecoverInterruptedOperations(ctx context.C
 func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vol model.Volume, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("resource create queued volume", err)
 	}
 	defer tx.Rollback()
 
 	if err := insertVolumeTx(ctx, tx, vol); err != nil {
-		return err
+		return wrapOp("resource create queued volume", err)
 	}
 	if vol.ProjectID != nil {
 		if err := insertProjectVolumeLinkTx(ctx, tx, *vol.ProjectID, vol.ID); err != nil {
-			return err
+			return wrapOp("resource create queued volume", err)
 		}
 	}
 	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-		return err
+		return wrapOp("resource create queued volume", err)
 	}
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
-		return err
+		return wrapOp("resource create queued volume", err)
 	}
 	return commitTx(tx, "create queued volume")
 }
@@ -93,12 +93,12 @@ func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vo
 func (r *ResourceLifecycleRepository) QueueVolumeDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("resource queue volume delete", err)
 	}
 	defer tx.Rollback()
 
 	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-		return err
+		return wrapOp("resource queue volume delete", err)
 	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE volumes
@@ -106,13 +106,13 @@ func (r *ResourceLifecycleRepository) QueueVolumeDelete(ctx context.Context, id 
 		WHERE id = $2
 	`, model.VolumeStatusDeleting, id)
 	if err != nil {
-		return err
+		return wrapOp("resource queue volume delete", err)
 	}
 	if err := rowsAffectedOrNotFound(res); err != nil {
-		return err
+		return wrapOp("resource queue volume delete", err)
 	}
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
-		return err
+		return wrapOp("resource queue volume delete", err)
 	}
 	return commitTx(tx, "queue volume delete")
 }
@@ -120,12 +120,12 @@ func (r *ResourceLifecycleRepository) QueueVolumeDelete(ctx context.Context, id 
 func (r *ResourceLifecycleRepository) QueueImageDelete(ctx context.Context, id uuid.UUID, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("resource queue image delete", err)
 	}
 	defer tx.Rollback()
 
 	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-		return err
+		return wrapOp("resource queue image delete", err)
 	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE images
@@ -133,13 +133,13 @@ func (r *ResourceLifecycleRepository) QueueImageDelete(ctx context.Context, id u
 		WHERE id = $2
 	`, model.ImageStatusDeleting, id)
 	if err != nil {
-		return err
+		return wrapOp("resource queue image delete", err)
 	}
 	if err := rowsAffectedOrNotFound(res); err != nil {
-		return err
+		return wrapOp("resource queue image delete", err)
 	}
 	if err := insertResourceLifecycleOutboxTx(ctx, tx, outbox); err != nil {
-		return err
+		return wrapOp("resource queue image delete", err)
 	}
 	return commitTx(tx, "queue image delete")
 }
@@ -173,7 +173,7 @@ func (r *ResourceLifecycleRepository) GetOperationByID(ctx context.Context, id u
 func (r *ResourceLifecycleRepository) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("resource claim pending operation", err)
 	}
 	defer tx.Rollback()
 
@@ -184,7 +184,7 @@ func (r *ResourceLifecycleRepository) ClaimPendingOperation(ctx context.Context,
 		FOR UPDATE
 	`, id))
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("resource claim pending operation", err)
 	}
 	if op.Status != model.OperationStatusPending || (maxAttempts > 0 && op.Attempts >= maxAttempts) {
 		if err := commitTx(tx, "skip unclaimable resource operation"); err != nil {
@@ -199,7 +199,7 @@ func (r *ResourceLifecycleRepository) ClaimPendingOperation(ctx context.Context,
 		RETURNING id, resource_type, resource_id, owner_id, operation, status, attempts, last_error, created_at, updated_at
 	`, model.OperationStatusRunning, id))
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("resource claim pending operation", err)
 	}
 	if err := commitTx(tx, "claim resource operation"); err != nil {
 		return model.ResourceOperation{}, false, err
@@ -214,7 +214,7 @@ func (r *ResourceLifecycleRepository) CompleteOperation(ctx context.Context, id 
 		WHERE id = $3
 	`, status, nullableError(cause), id)
 	if err != nil {
-		return err
+		return wrapOp("resource complete operation", err)
 	}
 	return rowsAffectedOrNotFound(res)
 }
@@ -226,7 +226,7 @@ func (r *ResourceLifecycleRepository) RequeueOperation(ctx context.Context, id u
 		WHERE id = $3 AND status = $4
 	`, model.OperationStatusPending, nullableError(cause), id, model.OperationStatusRunning)
 	if err != nil {
-		return err
+		return wrapOp("resource requeue operation", err)
 	}
 	return rowsAffectedOrNotFound(res)
 }
@@ -234,7 +234,7 @@ func (r *ResourceLifecycleRepository) RequeueOperation(ctx context.Context, id u
 func (r *ResourceLifecycleRepository) LeasePendingResourceOutbox(ctx context.Context, limit int) ([]model.ResourceLifecycleOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("resource lease pending resource outbox", err)
 	}
 	defer tx.Rollback()
 
@@ -255,7 +255,7 @@ func (r *ResourceLifecycleRepository) LeasePendingResourceOutbox(ctx context.Con
 		RETURNING o.id, o.operation_id, o.resource_type, o.resource_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
 	`, model.ResourceOutboxStatusPending, model.ResourceOutboxStatusPublishing, limit)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("resource lease pending resource outbox", err)
 	}
 	defer rows.Close()
 
@@ -263,12 +263,12 @@ func (r *ResourceLifecycleRepository) LeasePendingResourceOutbox(ctx context.Con
 	for rows.Next() {
 		item, err := scanResourceLifecycleOutbox(rows)
 		if err != nil {
-			return nil, err
+			return nil, wrapOp("resource lease pending resource outbox", err)
 		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, wrapOp("resource lease pending resource outbox", err)
 	}
 	if err := commitTx(tx, "lease pending resource outbox"); err != nil {
 		return nil, err

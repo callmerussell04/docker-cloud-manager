@@ -220,7 +220,7 @@ func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, err
 func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("image update build and image size", err)
 	}
 	defer tx.Rollback()
 
@@ -245,11 +245,11 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		model.BuildStatusFailedInternal,
 	)
 	if err != nil {
-		return err
+		return wrapOp("image update build and image size", err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("image update build and image size", err)
 	}
 	if affected == 0 {
 		return commitTx(tx, "update build and image size")
@@ -261,11 +261,11 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 			AND owner_id = (SELECT owner_id FROM images WHERE id = $1)
 			AND tag = (SELECT tag FROM images WHERE id = $1)
 	`, imageID); err != nil {
-		return err
+		return wrapOp("image update build and image size", err)
 	}
 
 	if _, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID); err != nil {
-		return err
+		return wrapOp("image update build and image size", err)
 	}
 
 	return commitTx(tx, "update build and image size")
@@ -274,7 +274,7 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("image mark build failed and delete image", err)
 	}
 	defer tx.Rollback()
 
@@ -299,11 +299,11 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 		model.BuildStatusFailedInternal,
 	)
 	if err != nil {
-		return err
+		return wrapOp("image mark build failed and delete image", err)
 	}
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("image mark build failed and delete image", err)
 	}
 	if affected == 0 {
 		return commitTx(tx, "mark build failed and delete image")
@@ -311,7 +311,7 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 
 	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1", imageID)
 	if err != nil {
-		return err
+		return wrapOp("image mark build failed and delete image", err)
 	}
 
 	return commitTx(tx, "mark build failed and delete image")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"testing"
 	"time"
 
@@ -12,9 +13,12 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 )
 
 func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
@@ -269,4 +273,21 @@ func TestContainerRepositoryFailActiveOperationsUnblocksResource(t *testing.T) {
 		Operation:    model.OperationDelete,
 		Status:       model.OperationStatusRunning,
 	}))
+}
+
+func TestResourceLifecycleRepositoryNamesOperationAndKeepsCause(t *testing.T) {
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewResourceLifecycleRepository(db)
+	volumeID := uuid.New()
+	op := model.ResourceOperation{ID: uuid.New(), ResourceType: model.ResourceTypeVolume, ResourceID: volumeID, OwnerID: uuid.New(), Operation: model.OperationDelete, Status: model.OperationStatusPending}
+	outbox := model.ResourceLifecycleOutbox{ID: uuid.New(), OperationID: op.ID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}
+
+	err := repo.QueueVolumeDelete(context.Background(), volumeID, op, outbox)
+
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	require.ErrorContains(t, err, "resource queue volume delete")
+	require.Equal(t, apperrors.ErrNotFound.Error(), apperrors.SafeMessage(err))
+	require.Equal(t, "not_found", apperrors.Code(err))
+	require.Equal(t, codes.NotFound, grpcerrors.Code(err))
+	require.Equal(t, http.StatusNotFound, httpresponse.Status(err))
 }

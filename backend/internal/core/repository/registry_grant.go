@@ -24,7 +24,7 @@ func NewRegistryGrantRepository(db, lockDB *sql.DB) *RegistryGrantRepository {
 func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return model.Build{}, false, err
+		return model.Build{}, false, wrapOp("registry grant claim build", err)
 	}
 	defer tx.Rollback()
 	var b model.Build
@@ -34,7 +34,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return b, false, apperrors.ErrNotFound
 	}
 	if err != nil {
-		return b, false, err
+		return b, false, wrapOp("registry grant claim build", err)
 	}
 	if b.Status != model.BuildStatusPending {
 		return b, false, nil
@@ -43,7 +43,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	repository := imageref.CustomRepositoryName(b.OwnerID, base)
 	var locked bool
 	if err := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 84627))`, repository).Scan(&locked); err != nil {
-		return b, false, err
+		return b, false, wrapOp("registry grant claim build", err)
 	}
 	if !locked {
 		return b, false, apperrors.ErrUnavailable
@@ -51,11 +51,11 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 
 	_, err = tx.ExecContext(ctx, `INSERT INTO registry_build_credentials(build_id,owner_id,repository,tag,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+$6*interval '1 second')`, b.ID, b.OwnerID, repository, version, hash, lifetime.Seconds())
 	if err != nil {
-		return b, false, err
+		return b, false, wrapOp("registry grant claim build", err)
 	}
 	err = tx.QueryRowContext(ctx, `UPDATE builds SET status='running', started_at=clock_timestamp(), finished_at=NULL WHERE id=$1 RETURNING created_at, started_at`, id).Scan(&b.CreatedAt, &b.StartedAt)
 	if err != nil {
-		return b, false, err
+		return b, false, wrapOp("registry grant claim build", err)
 	}
 	if err := commitTx(tx, "claim build"); err != nil {
 		return b, false, err
@@ -115,19 +115,19 @@ func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, reposito
 func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("registry grant revoke build", err)
 	}
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `UPDATE registry_build_credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE build_id=$1`, id)
 	if err != nil {
-		return err
+		return wrapOp("registry grant revoke build", err)
 	}
 	if cleanup {
 		_, err = tx.ExecContext(ctx, `INSERT INTO registry_cleanup_jobs(id,owner_id,repository,tag,not_before)
    SELECT build_id,owner_id,repository,tag,last_issued_at+interval '181 seconds' FROM registry_build_credentials WHERE build_id=$1
    ON CONFLICT(id) DO UPDATE SET not_before=GREATEST(registry_cleanup_jobs.not_before,EXCLUDED.not_before)`, id)
 		if err != nil {
-			return err
+			return wrapOp("registry grant revoke build", err)
 		}
 	}
 	return commitTx(tx, "revoke build")

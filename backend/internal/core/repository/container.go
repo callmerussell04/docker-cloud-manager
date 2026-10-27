@@ -692,23 +692,23 @@ func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Conte
 	}
 	tx, err := pool.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("container save with mounts operation and outbox", err)
 	}
 	defer tx.Rollback()
 
 	if lockOwner {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "dcm:owner:"+c.OwnerID.String()); err != nil {
-			return err
+			return wrapOp("container save with mounts operation and outbox", err)
 		}
 	}
 	if lockCapacity {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "dcm:capacity"); err != nil {
-			return err
+			return wrapOp("container save with mounts operation and outbox", err)
 		}
 	}
 
 	if err := insertContainerTx(ctx, tx, c); err != nil {
-		return err
+		return wrapOp("container save with mounts operation and outbox", err)
 	}
 
 	if len(mounts) > 0 {
@@ -717,25 +717,25 @@ func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Conte
 			VALUES ($1, $2, $3, $4)
 		`)
 		if err != nil {
-			return err
+			return wrapOp("container save with mounts operation and outbox", err)
 		}
 		defer stmt.Close()
 
 		for _, m := range mounts {
 			if _, err = stmt.ExecContext(ctx, m.ContainerID, m.VolumeID, m.MountPath, m.IsReadOnly); err != nil {
-				return err
+				return wrapOp("container save with mounts operation and outbox", err)
 			}
 		}
 	}
 
 	if op.ResourceID != uuid.Nil {
 		if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-			return err
+			return wrapOp("container save with mounts operation and outbox", err)
 		}
 	}
 	if outbox.OperationID != uuid.Nil {
 		if err := insertContainerLifecycleOutboxTx(ctx, tx, outbox); err != nil {
-			return err
+			return wrapOp("container save with mounts operation and outbox", err)
 		}
 	}
 
@@ -746,11 +746,11 @@ func (r *ContainerRepository) SetDesiredStatus(ctx context.Context, id uuid.UUID
 	query := `UPDATE containers SET desired_status = $1, last_error = NULL WHERE id = $2`
 	res, err := r.db.ExecContext(ctx, query, desiredStatus, id)
 	if err != nil {
-		return err
+		return wrapOp("container set desired status", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container set desired status", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -767,11 +767,11 @@ func (r *ContainerRepository) MarkStatusError(ctx context.Context, id uuid.UUID,
 	query := `UPDATE containers SET status = $1, last_error = $2, last_observed_at = NOW() WHERE id = $3`
 	res, err := r.db.ExecContext(ctx, query, status, msg, id)
 	if err != nil {
-		return err
+		return wrapOp("container mark status error", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container mark status error", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -815,7 +815,7 @@ func (r *ContainerRepository) CompleteLatestOperation(ctx context.Context, resou
 			LIMIT 1
 		)
 	`, status, lastError, resourceType, resourceID, model.OperationStatusPending, model.OperationStatusRunning)
-	return err
+	return wrapOp("container complete latest operation", err)
 }
 
 func (r *ContainerRepository) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
@@ -830,7 +830,7 @@ func (r *ContainerRepository) GetOperationByID(ctx context.Context, id uuid.UUID
 func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("container claim pending operation", err)
 	}
 	defer tx.Rollback()
 
@@ -841,7 +841,7 @@ func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid
 		FOR UPDATE
 	`, id))
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("container claim pending operation", err)
 	}
 	if op.Status != model.OperationStatusPending {
 		if err := commitTx(tx, "skip non-pending container operation"); err != nil {
@@ -862,7 +862,7 @@ func (r *ContainerRepository) ClaimPendingOperation(ctx context.Context, id uuid
 		RETURNING id, resource_type, resource_id, owner_id, operation, status, attempts, last_error, created_at, updated_at
 	`, model.OperationStatusRunning, id))
 	if err != nil {
-		return model.ResourceOperation{}, false, err
+		return model.ResourceOperation{}, false, wrapOp("container claim pending operation", err)
 	}
 	if err := commitTx(tx, "claim container operation"); err != nil {
 		return model.ResourceOperation{}, false, err
@@ -877,11 +877,11 @@ func (r *ContainerRepository) CompleteOperation(ctx context.Context, id uuid.UUI
 		WHERE id = $3
 	`, status, nullableError(cause), id)
 	if err != nil {
-		return err
+		return wrapOp("container complete operation", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container complete operation", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -896,11 +896,11 @@ func (r *ContainerRepository) RequeueOperation(ctx context.Context, id uuid.UUID
 		WHERE id = $3 AND status = $4
 	`, model.OperationStatusPending, nullableError(cause), id, model.OperationStatusRunning)
 	if err != nil {
-		return err
+		return wrapOp("container requeue operation", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container requeue operation", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -941,7 +941,7 @@ func (r *ContainerRepository) FailActiveOperations(ctx context.Context, cause er
 		WHERE status IN ($3, $4)
 	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusPending, model.OperationStatusRunning)
 	if err != nil {
-		return 0, err
+		return 0, wrapOp("container fail active operations", err)
 	}
 	return res.RowsAffected()
 }
@@ -949,7 +949,7 @@ func (r *ContainerRepository) FailActiveOperations(ctx context.Context, cause er
 func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Context, cause error) (int64, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, err
+		return 0, wrapOp("container recover interrupted container creates", err)
 	}
 	defer tx.Rollback()
 
@@ -961,11 +961,11 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 			AND status = $5
 	`, model.OperationStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusRunning)
 	if err != nil {
-		return 0, err
+		return 0, wrapOp("container recover interrupted container creates", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return 0, wrapOp("container recover interrupted container creates", err)
 	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE container_lifecycle_queue_outbox
@@ -977,7 +977,7 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 				AND status = $1
 		)
 	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate); err != nil {
-		return 0, err
+		return 0, wrapOp("container recover interrupted container creates", err)
 	}
 	return rows, commitTx(tx, "recover interrupted container creates")
 }
@@ -993,7 +993,7 @@ func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.
 	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning,
 		model.ResourceTypeContainer, model.OperationCreate, model.ResourceTypeVolume, model.OperationDelete, model.ResourceTypeImage)
 	if err != nil {
-		return 0, err
+		return 0, wrapOp("container fail interrupted non resumable operations", err)
 	}
 	return res.RowsAffected()
 }
@@ -1023,7 +1023,7 @@ func (r *ContainerRepository) GetMountsByContainerID(ctx context.Context, contai
 func (r *ContainerRepository) LeasePendingContainerOutbox(ctx context.Context, limit int) ([]model.ContainerLifecycleOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("container lease pending container outbox", err)
 	}
 	defer tx.Rollback()
 
@@ -1044,19 +1044,19 @@ func (r *ContainerRepository) LeasePendingContainerOutbox(ctx context.Context, l
 		RETURNING o.id, o.operation_id, o.container_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
 	`, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing, limit)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("container lease pending container outbox", err)
 	}
 	defer rows.Close()
 	items := make([]model.ContainerLifecycleOutbox, 0)
 	for rows.Next() {
 		item, err := scanContainerLifecycleOutbox(rows)
 		if err != nil {
-			return nil, err
+			return nil, wrapOp("container lease pending container outbox", err)
 		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, wrapOp("container lease pending container outbox", err)
 	}
 	if err := commitTx(tx, "lease pending container outbox"); err != nil {
 		return nil, err
@@ -1082,13 +1082,13 @@ func (r *ContainerRepository) DiscardContainerOutboxByOperation(ctx context.Cont
 		SET status = $1, last_error = $2, updated_at = NOW()
 		WHERE operation_id = $3 AND status IN ($4, $5)
 	`, model.ContainerOutboxStatusDiscarded, nullableError(cause), operationID, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing)
-	return err
+	return wrapOp("container discard container outbox by operation", err)
 }
 
 func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.Context, containerID uuid.UUID, cause error) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 	defer tx.Rollback()
 
@@ -1102,22 +1102,22 @@ func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.C
 		FOR UPDATE
 	`, model.ResourceTypeContainer, containerID, model.OperationCreate, model.OperationStatusPending, model.OperationStatusRunning)
 	if err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 	var operationIDs []uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return err
+			return wrapOp("container cancel active create and delete container", err)
 		}
 		operationIDs = append(operationIDs, id)
 	}
 	if err := rows.Close(); err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 	if err := rows.Err(); err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 
 	for _, operationID := range operationIDs {
@@ -1126,23 +1126,23 @@ func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.C
 			SET status = $1, last_error = $2, updated_at = NOW()
 			WHERE id = $3
 		`, model.OperationStatusFailed, nullableError(cause), operationID); err != nil {
-			return err
+			return wrapOp("container cancel active create and delete container", err)
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE container_lifecycle_queue_outbox
 			SET status = $1, last_error = $2, updated_at = NOW()
 			WHERE operation_id = $3 AND status IN ($4, $5)
 		`, model.ContainerOutboxStatusDiscarded, nullableError(cause), operationID, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing); err != nil {
-			return err
+			return wrapOp("container cancel active create and delete container", err)
 		}
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM containers WHERE id = $1`, containerID)
 	if err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container cancel active create and delete container", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -1184,23 +1184,23 @@ func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, owne
 func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("container create operation and set desired", err)
 	}
 	defer tx.Rollback()
 
 	if op.ResourceID != uuid.Nil {
 		if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-			return err
+			return wrapOp("container create operation and set desired", err)
 		}
 	}
 
 	res, err := tx.ExecContext(ctx, `UPDATE containers SET desired_status = $1, last_error = NULL WHERE id = $2`, desiredStatus, id)
 	if err != nil {
-		return err
+		return wrapOp("container create operation and set desired", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container create operation and set desired", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -1211,12 +1211,12 @@ func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, 
 func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("container queue container operation", err)
 	}
 	defer tx.Rollback()
 
 	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-		return err
+		return wrapOp("container queue container operation", err)
 	}
 
 	res, err := tx.ExecContext(ctx, `
@@ -1225,17 +1225,17 @@ func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uu
 		WHERE id = $3
 	`, status, desiredStatus, id)
 	if err != nil {
-		return err
+		return wrapOp("container queue container operation", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("container queue container operation", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
 	if err := insertContainerLifecycleOutboxTx(ctx, tx, outbox); err != nil {
-		return err
+		return wrapOp("container queue container operation", err)
 	}
 	return commitTx(tx, "queue container operation")
 }

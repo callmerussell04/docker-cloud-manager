@@ -54,7 +54,7 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return wrapOp("build create queued build", err)
 	}
 	defer tx.Rollback()
 
@@ -70,7 +70,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
-		return err
+		return wrapOp("build create queued build", err)
 	}
 
 	var finishedAt sql.NullTime
@@ -94,7 +94,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		sql.NullTime{Time: build.StartedAt, Valid: !build.StartedAt.IsZero()},
 		finishedAt,
 	); err != nil {
-		return err
+		return wrapOp("build create queued build", err)
 	}
 
 	outboxStatus := outbox.Status
@@ -105,7 +105,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		INSERT INTO build_queue_outbox (id, build_id, exchange, routing_key, payload, status, attempts, last_error)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, outbox.ID, outbox.BuildID, outbox.Exchange, outbox.RoutingKey, string(outbox.Payload), outboxStatus, outbox.Attempts, nullableString(outbox.LastError)); err != nil {
-		return err
+		return wrapOp("build create queued build", err)
 	}
 
 	return commitTx(tx, "create queued build")
@@ -164,12 +164,12 @@ func (r *BuildRepository) StartBuild(ctx context.Context, id uuid.UUID) (model.B
 		return b, true, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return model.Build{}, false, err
+		return model.Build{}, false, wrapOp("build start build", err)
 	}
 
 	b, err = r.GetByID(ctx, id)
 	if err != nil {
-		return model.Build{}, false, err
+		return model.Build{}, false, wrapOp("build start build", err)
 	}
 	return b, false, nil
 }
@@ -379,7 +379,7 @@ func (r *BuildRepository) AcquireCapacityLock(ctx context.Context) (func(), erro
 func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
 	defer tx.Rollback()
 
@@ -400,7 +400,7 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 		RETURNING o.id, o.build_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
 	`, model.BuildOutboxStatusPending, model.BuildOutboxStatusPublishing, limit)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
 	defer rows.Close()
 
@@ -420,7 +420,7 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 			&item.CreatedAt,
 			&item.UpdatedAt,
 		); err != nil {
-			return nil, err
+			return nil, wrapOp("build lease pending build outbox", err)
 		}
 		if lastError.Valid {
 			item.LastError = &lastError.String
@@ -428,7 +428,7 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, wrapOp("build lease pending build outbox", err)
 	}
 
 	if err := commitTx(tx, "lease pending build outbox"); err != nil {
@@ -444,11 +444,11 @@ func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.
 		WHERE id = $2
 	`, model.BuildOutboxStatusPublished, id)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox published", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox published", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -468,11 +468,11 @@ func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.
 		WHERE id = $3
 	`, model.BuildOutboxStatusDiscarded, lastError, id)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox discarded", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox discarded", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
@@ -510,11 +510,11 @@ func (r *BuildRepository) MarkBuildOutboxPending(ctx context.Context, id uuid.UU
 		WHERE id = $3
 	`, model.BuildOutboxStatusPending, lastError, id)
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox pending", err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
-		return err
+		return wrapOp("build mark build outbox pending", err)
 	}
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound

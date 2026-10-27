@@ -13,3 +13,12 @@ func commitTx(tx *sql.Tx, operation string) error {
 	}
 	return nil
 }
+
+// wrapOp names the repository operation that failed while preserving the cause
+// for errors.Is/As (nil stays nil), so transports still map it by kind and expose only safe text.
+func wrapOp(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
+}
