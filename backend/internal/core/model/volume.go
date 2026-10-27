@@ -21,6 +21,18 @@ type Volume struct {
 	CreatedAt       time.Time
 }
 
+// VolumeUsageScan is the resumable progress of one volume usage measurement.
+// Bytes is the apparent size of files counted so far; it is a complete
+// measurement only when Complete is true.
+type VolumeUsageScan struct {
+	// Cursor is the slash-separated path, relative to the volume root, of the
+	// last entry counted in walk order. Empty before the first entry.
+	Cursor   string
+	Bytes    int64
+	Entries  int64
+	Complete bool
+}
+
 const (
 	VolumeStatusCreating  = "creating"
 	VolumeStatusAvailable = "available"

@@ -370,38 +370,6 @@ func (a *Adapter) InspectVolume(ctx context.Context, volumeName string) (model.V
 	}, nil
 }
 
-func (a *Adapter) GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error) {
-	vol, err := a.cli.VolumeInspect(ctx, volumeName)
-	if err != nil {
-		return 0, err
-	}
-	var total int64
-	mountpoint := a.volumeMountpointPath(vol.Mountpoint)
-	err = filepath.WalkDir(mountpoint, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		total += info.Size()
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return total, nil
-}
-
 func (a *Adapter) volumeMountpointPath(mountpoint string) string {
 	if a.hostPathPrefix == "" || mountpoint == "" || !filepath.IsAbs(mountpoint) {
 		return mountpoint

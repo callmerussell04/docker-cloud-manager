@@ -1,11 +1,13 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
@@ -24,7 +26,7 @@ type VolumeUsageRepo interface {
 }
 
 type VolumeUsageDockerAPI interface {
-	GetVolumeUsageBytes(ctx context.Context, volumeName string) (int64, error)
+	ScanVolumeUsage(ctx context.Context, volumeName string, scan model.VolumeUsageScan, maxEntries int) (model.VolumeUsageScan, error)
 }
 
 type VolumeUsageContainerRepo interface {
@@ -49,6 +51,21 @@ type VolumeUsageWorker struct {
 	users     UserInfoProvider
 	cfg       VolumeUsageConfigProvider
 	logger    *slog.Logger
+
+	// scans holds measurements not yet published and lastScanned is the
+	// round-robin position by volume ID. Only Run's goroutine touches them.
+	scans       map[uuid.UUID]pendingVolumeScan
+	lastScanned uuid.UUID
+}
+
+// pendingVolumeScan is a measurement that is unfinished or failed to publish.
+// Quota enforcement counts its bytes when they exceed the last published
+// measurement. Files deleted after being counted can overstate usage until the
+// pass completes, which errs toward enforcing the quota.
+type pendingVolumeScan struct {
+	ownerID        uuid.UUID
+	publishedBytes int64
+	scan           model.VolumeUsageScan
 }
 
 func NewVolumeUsageWorker(volRepo VolumeUsageRepo, contRepo VolumeUsageContainerRepo, imageRepo VolumeUsageImageRepo, dockerAPI VolumeUsageDockerAPI, users UserInfoProvider, cfg VolumeUsageConfigProvider, logger *slog.Logger) *VolumeUsageWorker {
@@ -60,6 +77,7 @@ func NewVolumeUsageWorker(volRepo VolumeUsageRepo, contRepo VolumeUsageContainer
 		users:     users,
 		cfg:       cfg,
 		logger:    logging.WithComponent(logger, "volume_usage_worker"),
+		scans:     map[uuid.UUID]pendingVolumeScan{},
 	}
 }
 
@@ -68,9 +86,9 @@ func (w *VolumeUsageWorker) Run(ctx context.Context) {
 	w.tick(ctx)
 
 	for {
-		interval := time.Duration(w.cfg.Get().EventSyncIntervalSeconds) * time.Second
+		interval := time.Duration(w.cfg.Get().VolumeUsageIntervalSeconds) * time.Second
 		if interval <= 0 {
-			interval = 30 * time.Second
+			interval = time.Second
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -86,23 +104,91 @@ func (w *VolumeUsageWorker) Run(ctx context.Context) {
 
 func (w *VolumeUsageWorker) tick(ctx context.Context) {
 	w.refreshUsage(ctx)
+	if ctx.Err() != nil {
+		return
+	}
 	w.enforceQuotas(ctx)
 }
 
+// refreshUsage advances volume measurements within the cycle budget. Volumes
+// are visited round-robin by ID, each for at most the per-volume entry budget.
+// A volume the deadline interrupts after others ran first leads the next
+// cycle, so it gets the whole budget before the rotation passes it; one
+// interrupted while leading is passed, so it cannot hold the lead. Unfinished
+// scans resume from their cursor; only complete scans are published.
 func (w *VolumeUsageWorker) refreshUsage(ctx context.Context) {
 	volumes, err := w.volRepo.GetReconcileCandidates(ctx)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch volumes for usage refresh", "error", err)
 		return
 	}
-	for _, vol := range volumes {
-		usedBytes, err := w.dockerAPI.GetVolumeUsageBytes(ctx, vol.DockerName)
+	w.forgetRemovedScans(volumes)
+	cfg := w.cfg.Get()
+	budget := max(time.Duration(cfg.VolumeUsageCycleBudgetSeconds)*time.Second, time.Second)
+	maxEntries := max(cfg.VolumeUsageScanEntryBudget, 1)
+	cycleCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+
+	for i, vol := range w.rotation(volumes) {
+		if cycleCtx.Err() != nil {
+			break
+		}
+		previous := w.lastScanned
+		w.lastScanned = vol.ID
+		scan, err := w.dockerAPI.ScanVolumeUsage(cycleCtx, vol.DockerName, w.scans[vol.ID].scan, maxEntries)
+		// Kept until published, on error too: the next slice retries from the
+		// last counted entry, and a complete scan is re-published.
+		w.scans[vol.ID] = pendingVolumeScan{ownerID: vol.OwnerID, publishedBytes: vol.UsedBytes, scan: scan}
 		if err != nil {
+			if cycleCtx.Err() != nil {
+				if i > 0 {
+					w.lastScanned = previous
+				}
+				break
+			}
 			w.logger.WarnContext(ctx, "failed to measure volume usage", "volume_id", vol.ID, "docker_name", vol.DockerName, "error", err)
 			continue
 		}
-		if err := w.volRepo.UpdateUsage(ctx, vol.ID, usedBytes); err != nil {
+		if !scan.Complete {
+			continue
+		}
+		if err := w.volRepo.UpdateUsage(ctx, vol.ID, scan.Bytes); err != nil {
 			w.logger.WarnContext(ctx, "failed to update volume usage", "volume_id", vol.ID, "error", err)
+			continue
+		}
+		delete(w.scans, vol.ID)
+	}
+	if ctx.Err() == nil && cycleCtx.Err() != nil {
+		w.logger.InfoContext(ctx, "volume usage cycle budget spent; unfinished scans resume next cycle", "budget_ms", budget.Milliseconds(), "unfinished_scans", len(w.scans))
+	}
+}
+
+// rotation orders volumes by ID, starting after the last volume scanned.
+func (w *VolumeUsageWorker) rotation(volumes []model.Volume) []model.Volume {
+	sorted := slices.SortedFunc(slices.Values(volumes), func(a, b model.Volume) int {
+		return compareVolumeIDs(a.ID, b.ID)
+	})
+	next, _ := slices.BinarySearchFunc(sorted, w.lastScanned, func(v model.Volume, id uuid.UUID) int {
+		return compareVolumeIDs(v.ID, id)
+	})
+	if next < len(sorted) && sorted[next].ID == w.lastScanned {
+		next++
+	}
+	return slices.Concat(sorted[next:], sorted[:next])
+}
+
+func compareVolumeIDs(a, b uuid.UUID) int {
+	return bytes.Compare(a[:], b[:])
+}
+
+func (w *VolumeUsageWorker) forgetRemovedScans(volumes []model.Volume) {
+	listed := make(map[uuid.UUID]struct{}, len(volumes))
+	for _, vol := range volumes {
+		listed[vol.ID] = struct{}{}
+	}
+	for id := range w.scans {
+		if _, ok := listed[id]; !ok {
+			delete(w.scans, id)
 		}
 	}
 }
@@ -129,12 +215,24 @@ func (w *VolumeUsageWorker) enforceQuotas(ctx context.Context) {
 			w.logger.WarnContext(ctx, "failed to fetch volume disk usage", "user_id", ownerID, "error", err)
 			continue
 		}
-		usedMB += bytesToMBRoundedUp(volumeBytes)
+		usedMB += bytesToMBRoundedUp(volumeBytes + w.unpublishedBytes(ownerID))
 		if usedMB < user.QuotaDiskMB {
 			continue
 		}
 		w.stopWritableVolumeContainers(ctx, ownerID, usedMB, user.QuotaDiskMB)
 	}
+}
+
+// unpublishedBytes is how far the owner's pending scans have already counted
+// beyond the last published measurements of those volumes.
+func (w *VolumeUsageWorker) unpublishedBytes(ownerID uuid.UUID) int64 {
+	var excess int64
+	for _, s := range w.scans {
+		if s.ownerID == ownerID && s.scan.Bytes > s.publishedBytes {
+			excess += s.scan.Bytes - s.publishedBytes
+		}
+	}
+	return excess
 }
 
 func (w *VolumeUsageWorker) stopWritableVolumeContainers(ctx context.Context, ownerID uuid.UUID, usedMB, quotaMB int64) {
