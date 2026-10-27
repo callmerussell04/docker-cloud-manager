@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -26,45 +24,27 @@ type ComposeOutboxConfigProvider interface {
 }
 
 type ComposeOutboxWorker struct {
-	repo      ComposeOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       ComposeOutboxConfigProvider
-	logger    *slog.Logger
+	repo  ComposeOutboxRepository
+	cfg   ComposeOutboxConfigProvider
+	relay outboxRelay
 }
 
 func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher BuildQueuePublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
 	return &ComposeOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "compose_outbox_worker"),
+		repo:  repo,
+		cfg:   cfg,
+		relay: newOutboxRelay("compose", publisher, logger),
 	}
 }
 
 func (w *ComposeOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "compose outbox worker started")
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().ComposeOutboxIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "compose outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.schedule(ctx, func() int64 { return w.cfg.Get().ComposeOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 	items, err := w.repo.LeasePendingComposeOutbox(ctx, w.cfg.Get().ComposeOutboxBatchSize)
 	if err != nil {
-		w.logger.ErrorContext(ctx, "failed to lease compose outbox messages", "error", err)
+		w.relay.logger.ErrorContext(ctx, "failed to lease compose outbox messages", "error", err)
 		return
 	}
 	for _, item := range items {
@@ -78,17 +58,16 @@ func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
+			w.relay.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish compose queue message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkComposeOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark compose outbox message published", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   []any{"job_id", item.JobID},
+		}, w.repo.MarkComposeOutboxPublished, w.repo.MarkComposeOutboxPending)
 	}
 }

@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -27,45 +25,27 @@ type ContainerOutboxConfigProvider interface {
 }
 
 type ContainerOutboxWorker struct {
-	repo      ContainerOutboxRepository
-	publisher BuildQueuePublisher
-	cfg       ContainerOutboxConfigProvider
-	logger    *slog.Logger
+	repo  ContainerOutboxRepository
+	cfg   ContainerOutboxConfigProvider
+	relay outboxRelay
 }
 
 func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher BuildQueuePublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
 	return &ContainerOutboxWorker{
-		repo:      repo,
-		publisher: publisher,
-		cfg:       cfg,
-		logger:    logging.WithComponent(logger, "container_outbox_worker"),
+		repo:  repo,
+		cfg:   cfg,
+		relay: newOutboxRelay("container", publisher, logger),
 	}
 }
 
 func (w *ContainerOutboxWorker) Run(ctx context.Context) {
-	w.logger.InfoContext(ctx, "container outbox worker started")
-	w.publishBatch(ctx)
-	for {
-		interval := time.Duration(w.cfg.Get().ContainerCreateOutboxIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "container outbox worker stopped")
-			return
-		case <-timer.C:
-			w.publishBatch(ctx)
-		}
-	}
+	w.relay.schedule(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 	items, err := w.repo.LeasePendingContainerOutbox(ctx, w.cfg.Get().ContainerCreateOutboxBatchSize)
 	if err != nil {
-		w.logger.ErrorContext(ctx, "failed to lease container outbox messages", "error", err)
+		w.relay.logger.ErrorContext(ctx, "failed to lease container outbox messages", "error", err)
 		return
 	}
 	for _, item := range items {
@@ -79,7 +59,7 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
+			w.relay.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
 			continue
 		}
@@ -88,17 +68,16 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
+			w.relay.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
 			continue
 		}
-		if err := w.publisher.Publish(ctx, item.Exchange, item.RoutingKey, item.Payload); err != nil {
-			w.logger.ErrorContext(ctx, "failed to publish container queue message", "container_id", item.ContainerID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
-			continue
-		}
-		if err := w.repo.MarkContainerOutboxPublished(ctx, item.ID); err != nil {
-			w.logger.ErrorContext(ctx, "failed to mark container outbox message published", "container_id", item.ContainerID, "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-		}
+		w.relay.publish(ctx, outboxMessage{
+			id:         item.ID,
+			exchange:   item.Exchange,
+			routingKey: item.RoutingKey,
+			payload:    item.Payload,
+			logAttrs:   []any{"container_id", item.ContainerID, "operation_id", item.OperationID},
+		}, w.repo.MarkContainerOutboxPublished, w.repo.MarkContainerOutboxPending)
 	}
 }
