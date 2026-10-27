@@ -233,7 +233,18 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 
 	resourceRepo := &projectResourceRepo{contRepo, volRepo}
-	projService := service.NewProjectService(projRepo, resourceRepo, dockerAdapter, contService, volService, cfg.ConfigManager)
+	projService, err := service.NewProjectService(service.ProjectServiceDeps{
+		Repository: projRepo,
+		Resources:  resourceRepo,
+		Docker:     dockerAdapter,
+		Containers: contService,
+		Volumes:    volService,
+		Capacity:   contService,
+		Config:     cfg.ConfigManager,
+	})
+	if err != nil {
+		return nil, err
+	}
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
 	systemService.SetRebalancer(contService)
