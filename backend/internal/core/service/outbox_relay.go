@@ -6,7 +6,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -20,19 +19,17 @@ type outboxRelay struct {
 	logger    *slog.Logger
 }
 
+// newOutboxRelay names the queue class in log messages; logger is the worker's
+// component logger.
 func newOutboxRelay(name string, publisher BuildQueuePublisher, logger *slog.Logger) outboxRelay {
-	return outboxRelay{
-		name:      name,
-		publisher: publisher,
-		logger:    logging.WithComponent(logger, name+"_outbox_worker"),
-	}
+	return outboxRelay{name: name, publisher: publisher, logger: logger}
 }
 
-// schedule runs one batch immediately and then one batch per interval until ctx
+// run runs one batch immediately and then one batch per interval until ctx
 // is canceled. The interval is read before each wait so runtime config changes
 // apply; non-positive values fall back to one second. Cancellation is observed
 // between batches; calls within a batch receive the canceled context.
-func (r outboxRelay) schedule(ctx context.Context, intervalSeconds func() int64, publishBatch func(context.Context)) {
+func (r outboxRelay) run(ctx context.Context, intervalSeconds func() int64, publishBatch func(context.Context)) {
 	r.logger.InfoContext(ctx, r.name+" outbox worker started")
 	publishBatch(ctx)
 	for {

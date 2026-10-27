@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -25,27 +26,30 @@ type ContainerOutboxConfigProvider interface {
 }
 
 type ContainerOutboxWorker struct {
-	repo  ContainerOutboxRepository
-	cfg   ContainerOutboxConfigProvider
-	relay outboxRelay
+	repo   ContainerOutboxRepository
+	cfg    ContainerOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
 func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher BuildQueuePublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
+	logger = logging.WithComponent(logger, "container_outbox_worker")
 	return &ContainerOutboxWorker{
-		repo:  repo,
-		cfg:   cfg,
-		relay: newOutboxRelay("container", publisher, logger),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("container", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *ContainerOutboxWorker) Run(ctx context.Context) {
-	w.relay.schedule(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 	items, err := w.repo.LeasePendingContainerOutbox(ctx, w.cfg.Get().ContainerCreateOutboxBatchSize)
 	if err != nil {
-		w.relay.logger.ErrorContext(ctx, "failed to lease container outbox messages", "error", err)
+		w.logger.ErrorContext(ctx, "failed to lease container outbox messages", "error", err)
 		return
 	}
 	for _, item := range items {
@@ -59,7 +63,7 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.relay.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
+			w.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
 			continue
 		}
@@ -68,7 +72,7 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.relay.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
+			w.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
 			continue
 		}

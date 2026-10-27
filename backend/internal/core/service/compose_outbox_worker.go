@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -24,27 +25,30 @@ type ComposeOutboxConfigProvider interface {
 }
 
 type ComposeOutboxWorker struct {
-	repo  ComposeOutboxRepository
-	cfg   ComposeOutboxConfigProvider
-	relay outboxRelay
+	repo   ComposeOutboxRepository
+	cfg    ComposeOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
 func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher BuildQueuePublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
+	logger = logging.WithComponent(logger, "compose_outbox_worker")
 	return &ComposeOutboxWorker{
-		repo:  repo,
-		cfg:   cfg,
-		relay: newOutboxRelay("compose", publisher, logger),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("compose", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *ComposeOutboxWorker) Run(ctx context.Context) {
-	w.relay.schedule(ctx, func() int64 { return w.cfg.Get().ComposeOutboxIntervalSeconds }, w.publishBatch)
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().ComposeOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 	items, err := w.repo.LeasePendingComposeOutbox(ctx, w.cfg.Get().ComposeOutboxBatchSize)
 	if err != nil {
-		w.relay.logger.ErrorContext(ctx, "failed to lease compose outbox messages", "error", err)
+		w.logger.ErrorContext(ctx, "failed to lease compose outbox messages", "error", err)
 		return
 	}
 	for _, item := range items {
@@ -58,7 +62,7 @@ func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.relay.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
+			w.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
 			continue
 		}

@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -29,27 +30,30 @@ type BuildOutboxConfigProvider interface {
 }
 
 type BuildOutboxWorker struct {
-	repo  BuildOutboxRepository
-	cfg   BuildOutboxConfigProvider
-	relay outboxRelay
+	repo   BuildOutboxRepository
+	cfg    BuildOutboxConfigProvider
+	relay  outboxRelay
+	logger *slog.Logger
 }
 
 func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher BuildQueuePublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
+	logger = logging.WithComponent(logger, "build_outbox_worker")
 	return &BuildOutboxWorker{
-		repo:  repo,
-		cfg:   cfg,
-		relay: newOutboxRelay("build", publisher, logger),
+		repo:   repo,
+		cfg:    cfg,
+		relay:  newOutboxRelay("build", publisher, logger),
+		logger: logger,
 	}
 }
 
 func (w *BuildOutboxWorker) Run(ctx context.Context) {
-	w.relay.schedule(ctx, func() int64 { return w.cfg.Get().BuildOutboxIntervalSeconds }, w.publishBatch)
+	w.relay.run(ctx, func() int64 { return w.cfg.Get().BuildOutboxIntervalSeconds }, w.publishBatch)
 }
 
 func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 	items, err := w.repo.LeasePendingBuildOutbox(ctx, w.cfg.Get().BuildOutboxBatchSize)
 	if err != nil {
-		w.relay.logger.ErrorContext(ctx, "failed to lease build outbox messages", "error", err)
+		w.logger.ErrorContext(ctx, "failed to lease build outbox messages", "error", err)
 		return
 	}
 
@@ -64,7 +68,7 @@ func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 				_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err)
 				continue
 			}
-			w.relay.logger.ErrorContext(ctx, "failed to fetch build for outbox message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
+			w.logger.ErrorContext(ctx, "failed to fetch build for outbox message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
 			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)
 			continue
 		}
