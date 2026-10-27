@@ -166,6 +166,7 @@ Backend-команды запускаются из `backend/`:
 ```bash
 cd backend
 
+make verify     # проверки без интеграционных сервисов (см. ниже)
 make build
 make test-fast
 make vet
@@ -174,7 +175,11 @@ make vulncheck
 make lint
 ```
 
-Канонические Make-команды выбирают Go **1.26.10** из `backend/go.mod` через `GOTOOLCHAIN`, в том числе на более новом host Go; первый запуск может скачать toolchain. Для прямых Go-команд задавайте `GOTOOLCHAIN=go1.26.10`. Сборка использует read-only module metadata, отключает CGO и удаляет локальные пути/VCS metadata. `make build` не форматирует и не изменяет зависимости; при необходимости запускайте `make tidy` отдельно. Сканер: govulncheck v1.9.0; `make vulncheck` проверяет production roots и все пять бинарников, показывает каждый результат и завершается ошибкой при сбое любой проверки. [Версии и применимость advisory](docs/deployment-single-vm.md#go-toolchain-and-build-inputs).
+`make verify` последовательно запускает `check-format` (gofmt для всех Go-файлов backend), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `check-architecture`, `lint` и `test-race` (быстрый набор с race detector) и останавливается на первой ошибке. `make test` (интеграция с Docker) и `make vulncheck` (живая база уязвимостей) запускаются отдельно. golangci-lint v2.11.4 устанавливается в игнорируемый `backend/bin/tools/`.
+
+GitHub Actions workflow `Backend` (`.github/workflows/backend.yml`) запускает `make verify`, `make test` и `make vulncheck` отдельными jobs при push и pull request с изменениями backend; еженедельное расписание повторяет только `make vulncheck`. У workflow только права чтения репозитория; actions закреплены по commit, protoc 34.1 — по checksum; у jobs есть таймауты, а при сбое интеграционных тестов выводятся состояние и логи тестовых сервисов, после чего они удаляются.
+
+Канонические Make-команды выбирают Go **1.26.10** из `backend/go.mod` через `GOTOOLCHAIN`, в том числе на более новом host Go; первый запуск может скачать toolchain. Для прямых Go-команд задавайте `GOTOOLCHAIN=go1.26.10`. Сборка использует read-only module metadata, отключает CGO и удаляет локальные пути/VCS metadata. `make build` не форматирует и не изменяет зависимости; при необходимости запускайте `make tidy` отдельно. Сканер: govulncheck v1.9.0; `make vulncheck` (нужен `jq`) проверяет production roots и все пять бинарников и завершается ошибкой при symbol-level находке, не принятой в `backend/vulncheck/policy.json`, или при принятой записи, которая больше не обнаруживается. [Версии и применимость advisory](docs/deployment-single-vm.md#go-toolchain-and-build-inputs).
 
 Для генерации нужны Go и `protoc` 34.1 из [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) в `PATH` (либо `make PROTOC=/path/to/protoc ...`). Make устанавливает Go-плагины фиксированных версий в игнорируемый `backend/bin/tools/`; глобальная установка mockery, плагинов и gotestsum не нужна. Первый запуск требует доступа к Go module proxy.
 

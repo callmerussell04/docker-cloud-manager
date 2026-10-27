@@ -5,8 +5,8 @@ export GOCACHE ?= /tmp/go-build-cache
 APP_NAME = docker-cloud-manager
 MAIN_PATH = ./cmd/...
 BUILD_DIR = ./bin
-GOLANGCI_LINT = $(BUILD_DIR)/golangci-lint
 GOLANGCI_LINT_VERSION = v2.11.4
+GOLANGCI_LINT = $(abspath $(BUILD_DIR)/tools/golangci-lint-$(GOLANGCI_LINT_VERSION)/golangci-lint)
 GOTESTSUM ?= go run gotest.tools/gotestsum@v1.13.0
 MOCKERY_VERSION = v2.53.6
 PROTOC ?= protoc
@@ -112,6 +112,11 @@ test-env-up:
 	DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)' \
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) up -d --wait
 
+.PHONY: test-env-logs
+test-env-logs:
+	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) ps --all
+	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) logs --no-color --timestamps
+
 .PHONY: test-env-down
 test-env-down:
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) down -v --remove-orphans
@@ -139,14 +144,22 @@ test test-all: check-generated
 	TELEMETRY_TEST_DOCKER='$(TEST_DOCKER_SMOKE)' \
 	GOCACHE=$(GOCACHE) $(GOTESTSUM) --format pkgname -- $(TEST_ALL_ARGS) $(TEST_PKGS)
 
-.install-linter:
-	[ -f $(GOLANGCI_LINT) ] || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(BUILD_DIR) $(GOLANGCI_LINT_VERSION)
+$(GOLANGCI_LINT):
+	GOBIN=$(dir $(GOLANGCI_LINT)) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: lint
-lint: .install-linter
+lint: check-generated $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./... --config=./.golangci.yml
 
-.PHONY: vet check-architecture test-race vulncheck
+.PHONY: check-format check-tidy vet check-architecture test-race vulncheck verify
+check-format:
+	@unformatted=$$(gofmt -l .); \
+	if [ -n "$$unformatted" ]; then printf 'Unformatted Go files; run gofmt -w:\n%s\n' "$$unformatted" >&2; exit 1; fi
+
+# Tidiness covers test imports, so the ignored mocks must exist first.
+check-tidy: check-generated
+	@go mod tidy -diff || { printf '%s\n' 'go.mod/go.sum are not tidy; run go mod tidy.' >&2; exit 1; }
+
 vet: check-generated
 	go vet ./...
 
@@ -160,7 +173,7 @@ $(GOVULNCHECK):
 	GOBIN=$(dir $(GOVULNCHECK)) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 vulncheck: build $(GOVULNCHECK)
-	@status=0; CGO_ENABLED=0 $(GOVULNCHECK) ./cmd/... || status=1; \
-	for service in builder core gateway sso telemetry; do \
-		$(GOVULNCHECK) -mode=binary $(BUILD_DIR)/$$service || status=1; \
-	done; exit $$status
+	./vulncheck/check.sh $(GOVULNCHECK) $(BUILD_DIR) builder core gateway sso telemetry
+
+# Integration-free gates in failure-cost order; make test and make vulncheck run separately.
+verify: check-format check-generated check-tidy build vet check-architecture lint test-race

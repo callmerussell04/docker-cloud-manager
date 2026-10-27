@@ -332,9 +332,17 @@ make vulncheck
 `make vulncheck` installs **govulncheck v1.9.0** in a versioned ignored tools
 folder, scans `./cmd/...` (production roots, excluding test-only roots), and scans
 `bin/builder`, `bin/core`, `bin/gateway`, `bin/sso`, and `bin/telemetry` separately.
-It runs all scans even if one reports findings. The vulnerability database is
-live; record the scan date, compiler, scanner version, GOOS/GOARCH, and build
-settings when comparing results. Binary symbol inclusion is conservative evidence,
+It runs all scans even if one reports findings, then applies the reviewed
+applicability policy in `backend/vulncheck/policy.json`. Each accepted advisory
+names the scans it covers, a review date, a rationale and evidence links. The
+target fails on any symbol-level finding not accepted for that scan, on an
+accepted entry a scan no longer reports, and on an incomplete entry.
+Module/package-only reports are listed by govulncheck but do not fail the gate,
+matching govulncheck's own exit semantics. Add an entry only after reviewing the
+advisory against DCM's callers; prefer an upgrade when a fixed version exists.
+The vulnerability database is live; the target prints its modification time,
+and CI rescans weekly. Record the scan date, compiler, scanner version,
+GOOS/GOARCH, and build settings when comparing results. Binary symbol inclusion is conservative evidence,
 not proof that an untrusted request reaches a vulnerable operation. Third-party
 advisories require separate dependency and transport-specific assessment.
 
@@ -425,6 +433,9 @@ Review these upstream notes when updating again:
 
 ### Verification snapshot (2026-10-17)
 
+Historical evidence for the accepted Docker SDK advisories. It predates the
+Go 1.26.10 update, which changes only the standard library.
+
 Environment: Linux/amd64, Go 1.26.9, `CGO_ENABLED=0`, govulncheck v1.9.0,
 `https://vuln.go.dev` database last modified `2026-10-08T22:31:09Z`.
 Source scan: `CGO_ENABLED=0 govulncheck ./cmd/...`; binary scans:
@@ -447,7 +458,10 @@ reports still require applicability review.
 Network dependency updates remove all 17 network-related symbol-level findings
 from the preceding 20-ID production-root baseline. Remaining Docker/archive
 findings are reviewed separately.
-`make vulncheck` remains nonzero and reports them without suppressions.
+At that snapshot `make vulncheck` exited nonzero. It now passes only because
+GO-2026-4883 and GO-2026-4887 are recorded as reviewed acceptances in
+`backend/vulncheck/policy.json`, scoped to the scans that report them; any
+other symbol-level finding still fails it.
 
 Residual applicability is deliberately narrower than a blanket module exclusion:
 

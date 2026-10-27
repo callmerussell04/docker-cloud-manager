@@ -1,0 +1,91 @@
+name: Backend
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  schedule:
+    # The vulnerability database is live; rescan weekly without a code change (vulncheck job only).
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PROTOC_VERSION: "34.1"
+  PROTOC_SHA256: af27ea66cd26938fe48587804ca7d4817457a08350021a1c6e23a27ccc8c6904
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  verify:
+    name: Format, generate, build, vet, architecture, lint, race tests
+    # The weekly schedule only rescans for newly published advisories.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install protoc
+        run: ../.github/scripts/install-protoc.sh
+      - name: Use the cached Go build directory
+        run: echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+      - run: make verify
+
+  integration:
+    name: Docker-backed integration tests
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install protoc
+        run: ../.github/scripts/install-protoc.sh
+      - name: Use the cached Go build directory
+        run: echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+      # Keep services after a failure so their logs can be collected below.
+      - run: make test TEST_KEEP_ENV=1
+        timeout-minutes: 35
+      - name: Report test service state
+        if: failure()
+        run: make test-env-logs
+      - name: Remove test services
+        if: always()
+        run: make test-env-down
+
+  vulncheck:
+    name: Vulnerability policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Use the cached Go build directory
+        run: echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_ENV"
+      - run: make vulncheck

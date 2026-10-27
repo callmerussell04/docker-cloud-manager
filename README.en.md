@@ -166,6 +166,7 @@ Run backend commands from `backend/`:
 ```bash
 cd backend
 
+make verify     # integration-free gates (see below)
 make build
 make test-fast
 make vet
@@ -174,7 +175,11 @@ make vulncheck
 make lint
 ```
 
-Canonical Make targets select Go **1.26.10** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.10` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` scans production roots and all five built binaries, reports every result, and fails if any scan fails. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
+`make verify` runs `check-format` (gofmt over all backend Go files), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `check-architecture`, `lint` and `test-race` (the fast suite under the race detector), stopping at the first failing gate. `make test` (Docker-backed integration) and `make vulncheck` (live vulnerability database) run separately. golangci-lint v2.11.4 is installed under ignored `backend/bin/tools/`.
+
+The `Backend` GitHub Actions workflow (`.github/workflows/backend.yml`) runs `make verify`, `make test` and `make vulncheck` as separate jobs on backend pushes and pull requests; a weekly schedule reruns only `make vulncheck`. It has read-only repository permissions, pins actions by commit and protoc 34.1 by checksum, sets job timeouts and prints test service state and logs when integration tests fail before removing the services.
+
+Canonical Make targets select Go **1.26.10** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.10` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` (requires `jq`) scans production roots and all five built binaries and fails on any symbol-level finding not accepted in `backend/vulncheck/policy.json`, or on an accepted entry that is no longer reported. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
 
 Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
 
