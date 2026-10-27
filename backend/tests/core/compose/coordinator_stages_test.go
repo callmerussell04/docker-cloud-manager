@@ -297,3 +297,60 @@ func TestComposeCoordinatorRollbackWaitsOnConflictingDelete(t *testing.T) {
 	require.Equal(t, model.ComposeDeploymentStageRollingBack, progress.stage)
 	require.Equal(t, model.ProjectStatusFailed, progress.projectStatus)
 }
+
+func TestComposeCoordinatorCancelDuringBuildingLeavesBuildRecordsAlone(t *testing.T) {
+	buildID := uuid.New()
+	job := persistedComposeJob(t, uuid.New(), uuid.New(), model.ComposeDeploymentStageBuilding, buildingPlan(),
+		map[string]any{"build_ids": map[string]uuid.UUID{"api": buildID}})
+	job.Status = model.ComposeDeploymentStatusCanceling
+	env := newCoordinatorEnv(job)
+	env.builds.builds = map[uuid.UUID]model.Build{buildID: {ID: buildID, Status: model.BuildStatusRunning}}
+
+	env.runOnce(t)
+
+	require.Empty(t, env.builds.canceled)
+	require.Equal(t, model.ComposeDeploymentStatusCanceled, env.repo.completedStatus)
+	require.Equal(t, "compose deployment canceled", env.repo.completedMessage)
+	require.Equal(t, []string{model.ProjectStatusCanceled}, env.repo.projectStatuses)
+	require.Contains(t, env.sources.released, job.SourceObjectKey)
+}
+
+func TestComposeCoordinatorCancelDuringStartingRollsBackContainers(t *testing.T) {
+	dbID := uuid.New()
+	migrateID := uuid.New()
+	job := startingComposeJob(t, uuid.New(), uuid.New(), dbID, migrateID, map[string]bool{"db": true})
+	job.CancelRequested = true
+	job.SourceObjectKey = "compose-sources/starting.zip"
+	env := newCoordinatorEnv(job)
+
+	env.runOnce(t)
+
+	require.Empty(t, env.containers.started)
+	require.ElementsMatch(t, []uuid.UUID{dbID, migrateID}, env.containers.deleted)
+	require.Empty(t, env.repo.completedStatus, "queued deletes keep the job rolling back")
+	progress := env.repo.lastProgress(t)
+	require.Equal(t, model.ComposeDeploymentStageRollingBack, progress.stage)
+	require.Equal(t, model.ProjectStatusCanceled, progress.projectStatus)
+	require.Equal(t, []string{job.SourceObjectKey}, env.sources.released)
+}
+
+func TestComposeCoordinatorStartingFailureRollsBack(t *testing.T) {
+	dbID := uuid.New()
+	migrateID := uuid.New()
+	lastError := "image pull failed"
+	job := startingComposeJob(t, uuid.New(), uuid.New(), dbID, migrateID, map[string]bool{"db": true})
+	env := newCoordinatorEnv(job)
+	env.containers = newCoordinatorContainers(map[uuid.UUID]model.Container{
+		dbID:      {ID: dbID, Status: model.ContainerStatusRunning},
+		migrateID: {ID: migrateID, Status: model.ContainerStatusError, LastError: &lastError},
+	})
+	env.containers.deleteErrs = map[uuid.UUID]error{dbID: apperrors.ErrNotFound, migrateID: apperrors.ErrNotFound}
+
+	env.runOnce(t)
+
+	require.Empty(t, env.containers.started)
+	require.ElementsMatch(t, []uuid.UUID{dbID, migrateID}, env.containers.deleted)
+	require.Equal(t, model.ComposeDeploymentStatusFailed, env.repo.completedStatus)
+	require.Equal(t, "service migrate failed: image pull failed", env.repo.completedMessage)
+	require.Equal(t, model.ProjectStatusFailed, env.repo.projectStatuses[len(env.repo.projectStatuses)-1])
+}
