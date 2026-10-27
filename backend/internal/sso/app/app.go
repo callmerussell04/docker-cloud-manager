@@ -214,6 +214,8 @@ func (a *App) Stop() {
 	a.cancel()
 	a.wg.Wait()
 	if a.db != nil {
-		a.db.Close()
+		if err := a.db.Close(); err != nil {
+			a.logger.Warn("postgres connection close failed", "error", err)
+		}
 	}
 }

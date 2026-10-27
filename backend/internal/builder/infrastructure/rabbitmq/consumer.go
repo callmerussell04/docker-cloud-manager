@@ -93,13 +93,13 @@ func (c *Consumer) consume(ctx context.Context, workerID int, handler func(conte
 	if err != nil {
 		return fmt.Errorf("failed to connect to rabbitmq: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // connection teardown; close failure is not actionable
 
 	ch, err := conn.Channel()
 	if err != nil {
 		return fmt.Errorf("failed to open rabbitmq channel: %w", err)
 	}
-	defer ch.Close()
+	defer func() { _ = ch.Close() }() // connection teardown; close failure is not actionable
 
 	if err := rabbitmqtopology.DeclareBuild(ch); err != nil {
 		return err

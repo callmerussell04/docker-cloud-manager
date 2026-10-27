@@ -44,7 +44,7 @@ func TestConsumerAcksValidBuildMessageSmoke(t *testing.T) {
 		t.Fatal("build message was not consumed")
 	}
 	require.Eventually(t, func() bool {
-		queue, err := ch.QueueInspect(buildqueue.QueueName)
+		queue, err := ch.QueueDeclarePassive(buildqueue.QueueName, true, false, false, false, nil)
 		require.NoError(t, err)
 		return queue.Messages == 0
 	}, 5*time.Second, 100*time.Millisecond)
@@ -77,7 +77,7 @@ func TestConsumerDoesNotRequeuePermanentErrorsSmoke(t *testing.T) {
 		t.Fatal("build message was not consumed")
 	}
 	require.Eventually(t, func() bool {
-		queue, err := ch.QueueInspect(buildqueue.QueueName)
+		queue, err := ch.QueueDeclarePassive(buildqueue.QueueName, true, false, false, false, nil)
 		require.NoError(t, err)
 		return queue.Messages == 0
 	}, 5*time.Second, 100*time.Millisecond)

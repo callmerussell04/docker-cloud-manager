@@ -51,7 +51,7 @@ func WriteLogs(destination io.WriteCloser, source io.Reader, maxLogSize int64) (
 	}
 	if n == maxLogSize {
 		var probe [1]byte
-		if _, err := io.ReadFull(source, probe[:]); err != io.EOF {
+		if _, err := io.ReadFull(source, probe[:]); !errors.Is(err, io.EOF) {
 			if err != nil {
 				return fmt.Errorf("read build log: %w", err)
 			}

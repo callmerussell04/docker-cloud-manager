@@ -62,7 +62,8 @@ func (s *ResultStore) Save(ctx context.Context, buildID string, result model.Bui
 	if err != nil {
 		return fmt.Errorf("create build result: %w", err)
 	}
-	defer os.Remove(file.Name())
+	// Best-effort removal of a temp file left by a failed save; after the rename it no longer exists.
+	defer func() { _ = os.Remove(file.Name()) }()
 	if _, err := file.Write(data); err != nil {
 		return errors.Join(err, file.Close())
 	}
@@ -70,7 +71,7 @@ func (s *ResultStore) Save(ctx context.Context, buildID string, result model.Bui
 		return errors.Join(err, file.Close())
 	}
 	if err := file.Close(); err != nil {
-		return err
+		return fmt.Errorf("close build result: %w", err)
 	}
 	if err := os.Rename(file.Name(), s.path(buildID)); err != nil {
 		return fmt.Errorf("persist build result: %w", err)

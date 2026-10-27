@@ -33,7 +33,7 @@ func TestPoolBudgets(t *testing.T) {
 			cfg := pgpool.Config{MaxOpen: tc.open, MaxIdle: tc.idle, MaxLifetime: tc.lifetime, MaxIdleTime: tc.idleTime}
 			db, err := sql.Open("postgres", "")
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }() // test teardown; no connection was opened
 			err = cfg.Apply(db)
 			if !tc.valid {
 				require.Error(t, err)
@@ -80,7 +80,7 @@ func TestParsePoolBootstrapSettings(t *testing.T) {
 func TestPoolDiagnosticsCancelWithoutDatabaseAccess(t *testing.T) {
 	db, err := sql.Open("postgres", "")
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }() // test teardown; no connection was opened
 	require.NoError(t, pgpool.DefaultConfig().Apply(db))
 	var output strings.Builder
 	logger := slog.New(slog.NewJSONHandler(&output, nil))

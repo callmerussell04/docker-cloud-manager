@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"io"
 	"os"
 	"path"
@@ -61,7 +62,7 @@ func (fm *FileManager) checkZip(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrBadRequest
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }() // read-only archive; close failure is not actionable
 
 	for _, f := range r.File {
 		if !f.FileInfo().IsDir() && cleanArchiveEntryName(f.Name) == expectedDockerfile {
@@ -77,12 +78,12 @@ func (fm *FileManager) checkTar(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrInternal
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only archive; close failure is not actionable
 
 	tr := tar.NewReader(f)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -101,18 +102,18 @@ func (fm *FileManager) checkTarGz(filePath, expectedDockerfile string) error {
 	if err != nil {
 		return apperrors.ErrInternal
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only archive; close failure is not actionable
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return apperrors.ErrBadRequest
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }() // read-only stream; close failure is not actionable
 
 	tr := tar.NewReader(gzr)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

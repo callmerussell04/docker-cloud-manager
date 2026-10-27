@@ -209,7 +209,7 @@ func TestOpenTerminalValidatesBoundaryAndWritesServiceError(t *testing.T) {
 			Once()
 
 		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal?cmd=/bin/sh&arg=-i&rows=30&cols=100")
-		defer conn.Close()
+		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 
 		var event wsEvent
 		require.NoError(t, conn.ReadJSON(&event))
@@ -247,7 +247,7 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
 		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
-		defer conn.Close()
+		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
 		require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("input")))
@@ -273,7 +273,7 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		session.EXPECT().Close().Return(nil).Maybe()
 
 		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
-		defer conn.Close()
+		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
 		var event wsEvent
@@ -301,7 +301,7 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
 		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
-		defer conn.Close()
+		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
 		var event wsEvent
@@ -370,7 +370,7 @@ func dialTerminal(t *testing.T, server *memoryServer, path string) *websocket.Co
 	}
 	conn, resp, err := dialer.Dial(wsURL, header)
 	if resp != nil {
-		defer resp.Body.Close()
+		_ = resp.Body.Close() // handshake response; the upgraded connection is returned separately
 	}
 	require.NoError(t, err)
 	return conn

@@ -60,7 +60,7 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }() // read-only stream; close failure is not actionable
 
 	w := c.Writer
 	flusher, ok := w.(http.Flusher)
@@ -92,14 +92,14 @@ func (h *Handler) OpenTerminal(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }() // WebSocket teardown; the peer may already have closed
 
 	session, cfg, err := h.service.OpenTerminal(c.Request.Context(), containerID, opts)
 	if err != nil {
 		_ = conn.WriteJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)})
 		return
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }() // exec session teardown; close failure is not actionable
 
 	sessionID := uuid.NewString()
 	started := time.Now()

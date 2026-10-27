@@ -528,7 +528,7 @@ func (r *readinessChecker) checkHTTP(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close() // status-only probe; close failure is not actionable
 	if resp.StatusCode >= http.StatusInternalServerError {
 		return fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}

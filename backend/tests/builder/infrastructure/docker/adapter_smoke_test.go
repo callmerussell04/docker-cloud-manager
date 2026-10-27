@@ -69,12 +69,12 @@ func TestAdapterRejectsUnprotectedBuildNetworkSmoke(t *testing.T) {
 	defer cancel()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
-	defer cli.Close()
+	defer func() { _ = cli.Close() }() // test teardown; close failure is not actionable
 	created, err := cli.NetworkCreate(ctx, "dcm-unprotected-test-"+uuid.NewString(), network.CreateOptions{Driver: "bridge"})
 	require.NoError(t, err)
-	defer cli.NetworkRemove(context.Background(), created.ID)
+	defer func() { _ = cli.NetworkRemove(context.Background(), created.ID) }() // best-effort test network removal
 	adapter, err := builderdocker.NewAdapter(builderdocker.Config{RequireNetworkPolicy: true})
 	require.NoError(t, err)
-	defer adapter.Close()
+	defer func() { _ = adapter.Close() }() // test teardown; close failure is not actionable
 	require.ErrorIs(t, adapter.ValidateBuildNetwork(ctx, created.ID), apperrors.ErrUnavailable)
 }

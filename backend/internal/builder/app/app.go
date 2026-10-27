@@ -60,16 +60,16 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	fileManager, err := storage.NewFileManager(cfg.StoragePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create build archive storage: %w", err)
 	}
 
 	logManager, err := storage.NewLogManager(cfg.Builder.LogsDirPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create build log storage: %w", err)
 	}
 	workspaceManager, err := storage.NewWorkspaceManager(cfg.StoragePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create build workspace storage: %w", err)
 	}
 	results, err := storage.NewResultStore(cfg.StoragePath)
 	if err != nil {
@@ -81,7 +81,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}
 	if err := dockerAdapter.CleanupOrphanBuildContainers(context.Background()); err != nil {
 		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)

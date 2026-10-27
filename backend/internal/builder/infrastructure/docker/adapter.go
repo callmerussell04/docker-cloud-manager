@@ -150,7 +150,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		_ = a.CleanBuildContainer(context.Background(), resp.ID)
 		return "", nil, fmt.Errorf("failed to tar workspace: %w", err)
 	}
-	defer tarStream.Close()
+	defer func() { _ = tarStream.Close() }() // read-only stream; close failure is not actionable
 
 	err = a.cli.CopyToContainer(ctx, resp.ID, "/workspace", tarStream, container.CopyToContainerOptions{})
 	if err != nil {
@@ -207,12 +207,15 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer pw.Close()
-		defer rawLogs.Close()
 		// StdCopy разделяет stdout и stderr, мы направляем оба потока в наш Pipe
-		if _, err := stdcopy.StdCopy(pw, pw, rawLogs); err != nil && ctx.Err() != nil {
-			_ = pw.CloseWithError(ctx.Err())
+		_, err := stdcopy.StdCopy(pw, pw, rawLogs)
+		_ = rawLogs.Close() // read-only stream; close failure is not actionable
+		if err != nil && ctx.Err() != nil {
+			err = ctx.Err()
 		}
+		// A nil error closes with io.EOF; a demux failure reaches the log reader
+		// so the build ends as failed_internal instead of with truncated logs.
+		_ = pw.CloseWithError(err)
 	}()
 	go func() {
 		select {

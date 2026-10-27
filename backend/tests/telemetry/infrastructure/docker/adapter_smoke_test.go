@@ -80,7 +80,7 @@ func TestAdapterDockerSmoke(t *testing.T) {
 
 	stream, err := adapter.StreamLogs(ctx, target, model.LogOptions{Tail: 20, Follow: false})
 	require.NoError(t, err)
-	defer stream.Close()
+	defer func() { _ = stream.Close() }() // read-only stream; close failure is not actionable
 	body, err := io.ReadAll(stream)
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(body), "stdout") && strings.Contains(string(body), "stderr"), string(body))

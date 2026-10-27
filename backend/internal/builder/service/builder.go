@@ -285,7 +285,7 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}()
 
 	archivePath := s.workspaces.ArchivePath(msg.BuildID, msg.ArchiveObjectKey)
-	defer s.fileManager.CleanUp(archivePath)
+	defer func() { _ = s.fileManager.CleanUp(archivePath) }() // best effort; cleanupFinalizedBuild retries and reports removal
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
 			return s.completeCanceledBuild(msg, imageID, cfg.MaxBuildLogSizeBytes)
@@ -413,8 +413,8 @@ func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel cont
 }
 
 func (s *BuilderService) processBuild(ctx context.Context, cancel context.CancelFunc, cfg config.BuilderConfig, archivePath string, job buildJob) error {
-	// Очищаем архив после сборки
-	defer s.fileManager.CleanUp(archivePath)
+	// Очищаем архив после сборки; cleanupFinalizedBuild retries and reports removal.
+	defer func() { _ = s.fileManager.CleanUp(archivePath) }()
 
 	defer cancel()
 	ctx = logging.ContextWithRequestID(ctx, job.RequestID)
@@ -480,7 +480,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		}
 	}
 
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		status = buildStatusFailedTimeout
 		if err := s.logManager.WriteSystemLog(job.BuildID, "Build failed because it exceeded the maximum build time.", cfg.MaxBuildLogSizeBytes); err != nil {
 			logger.WarnContext(ctx, "failed to write timeout build log", "error", err)
@@ -488,7 +488,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		if uploadErr := s.uploadBuildLog(ctx, logger, job.BuildID, job.LogObjectKey); uploadErr != nil {
 			logger.WarnContext(ctx, "failed to upload timeout build log", "error", uploadErr)
 		}
-	} else if ctx.Err() == context.Canceled {
+	} else if errors.Is(ctx.Err(), context.Canceled) {
 		status = buildStatusCanceled
 		s.writeCancelledBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes)
 	}
@@ -524,8 +524,13 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 		}
 		return buildStatusFailedInternal
 	}
-	defer logStream.Close()
-	defer s.dockerAPI.CleanBuildContainer(context.Background(), containerID)
+	defer func() { _ = logStream.Close() }() // read-only stream; log failures are reported by SaveLogs
+	defer func() {
+		// Orphan build containers are otherwise only removed at Builder startup.
+		if err := s.dockerAPI.CleanBuildContainer(context.Background(), containerID); err != nil {
+			logger.WarnContext(ctx, "failed to remove build container", "container_id", containerID, "error", err)
+		}
+	}()
 
 	sanitizedLogs := newBuildLogSanitizer(logStream, buildLogSanitizerOptions{
 		MaxBytes:       cfg.MaxBuildLogSizeBytes,

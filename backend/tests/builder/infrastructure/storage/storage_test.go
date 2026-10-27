@@ -123,12 +123,12 @@ func TestWorkspaceManagerArchivePathAndWorkspaceCleanup(t *testing.T) {
 	require.NoDirExists(t, workspace)
 }
 
-func writeZip(path string, files map[string]string) error {
+func writeZip(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	w := zip.NewWriter(f)
 	for name, body := range files {
 		entry, err := w.Create(name)
@@ -144,12 +144,12 @@ func writeZip(path string, files map[string]string) error {
 	return w.Close()
 }
 
-func writeTar(path string, files map[string]string) error {
+func writeTar(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	w := tar.NewWriter(f)
 	if err := writeTarFiles(w, files); err != nil {
 		_ = w.Close()
@@ -158,14 +158,14 @@ func writeTar(path string, files map[string]string) error {
 	return w.Close()
 }
 
-func writeTarGz(path string, files map[string]string) error {
+func writeTarGz(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
+	defer func() { err = errors.Join(err, gw.Close()) }()
 	w := tar.NewWriter(gw)
 	if err := writeTarFiles(w, files); err != nil {
 		_ = w.Close()

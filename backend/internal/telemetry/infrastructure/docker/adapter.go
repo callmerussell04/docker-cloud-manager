@@ -75,7 +75,7 @@ func (a *Adapter) StreamLogs(ctx context.Context, target model.ContainerTarget, 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer rawLogs.Close()
+		defer func() { _ = rawLogs.Close() }() // read-only stream; close failure is not actionable
 		if _, err := stdcopy.StdCopy(pw, pw, rawLogs); err != nil && ctx.Err() != nil {
 			_ = pw.CloseWithError(ctx.Err())
 			return

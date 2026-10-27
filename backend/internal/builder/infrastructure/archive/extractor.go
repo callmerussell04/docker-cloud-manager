@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,7 +44,7 @@ func (e *Extractor) extractZip(zipPath string, destDir string, maxUnpackedSize i
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }() // read-only archive; close failure is not actionable
 
 	remainingBytes := maxUnpackedSize
 
@@ -70,20 +71,13 @@ func (e *Extractor) extractZipFile(f *zip.File, destDir string, remainingBytes *
 		return err
 	}
 
-	dstFile, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
 	srcFile, err := f.Open()
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() { _ = srcFile.Close() }() // read-only entry; close failure is not actionable
 
-	lr := io.LimitReader(srcFile, *remainingBytes)
-	written, err := io.Copy(dstFile, lr)
+	written, err := writeExtractedFile(destPath, f.Mode(), io.LimitReader(srcFile, *remainingBytes))
 	if err != nil {
 		return err
 	}
@@ -101,7 +95,7 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only archive; close failure is not actionable
 
 	var tr *tar.Reader
 	if isGzip {
@@ -109,7 +103,7 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 		if err != nil {
 			return err
 		}
-		defer gzr.Close()
+		defer func() { _ = gzr.Close() }() // read-only stream; close failure is not actionable
 		tr = tar.NewReader(gzr)
 	} else {
 		tr = tar.NewReader(f)
@@ -119,7 +113,7 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -140,14 +134,7 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
 			}
-			outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
-			if err != nil {
-				return err
-			}
-
-			lr := io.LimitReader(tr, remainingBytes)
-			written, err := io.Copy(outFile, lr)
-			outFile.Close()
+			written, err := writeExtractedFile(destPath, os.FileMode(header.Mode), io.LimitReader(tr, remainingBytes))
 			if err != nil {
 				return err
 			}
@@ -159,6 +146,23 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 		}
 	}
 	return nil
+}
+
+// writeExtractedFile reports close failures because a failed close can leave
+// the extracted file incomplete in the build context.
+func writeExtractedFile(destPath string, mode os.FileMode, src io.Reader) (int64, error) {
+	dst, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return 0, fmt.Errorf("create extracted file: %w", err)
+	}
+	written, err := io.Copy(dst, src)
+	if err != nil {
+		err = fmt.Errorf("write extracted file: %w", err)
+	}
+	if closeErr := dst.Close(); closeErr != nil {
+		err = errors.Join(err, fmt.Errorf("close extracted file: %w", closeErr))
+	}
+	return written, err
 }
 
 // sanitizeExtractPath защищает от ZipSlip уязвимости (пути вида ../../etc/passwd)

@@ -63,7 +63,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
 		_ = coreConn.Close()
-		return nil, err
+		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}
 
 	coreClient := telemetrygrpc.NewCoreClient(coreConn)

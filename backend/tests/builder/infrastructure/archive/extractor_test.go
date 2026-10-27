@@ -3,6 +3,7 @@ package archive_test
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"os"
@@ -44,6 +45,27 @@ func TestExtractorExtractsZipTarAndTarGz(t *testing.T) {
 	}
 }
 
+func TestExtractorReplacesRepeatedTarEntry(t *testing.T) {
+	dir := t.TempDir()
+	var buf bytes.Buffer
+	w := tar.NewWriter(&buf)
+	for _, body := range []string{"FROM busybox\nRUN echo stale\n", "FROM scratch\n"} {
+		require.NoError(t, w.WriteHeader(&tar.Header{Name: "Dockerfile", Mode: 0644, Size: int64(len(body))}))
+		_, err := w.Write([]byte(body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Close())
+	archivePath := filepath.Join(dir, "repeated.tar")
+	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0644))
+
+	destDir := filepath.Join(dir, "out")
+	require.NoError(t, archive.NewExtractor().Extract(archivePath, destDir, 1024))
+
+	got, err := os.ReadFile(filepath.Join(destDir, "Dockerfile"))
+	require.NoError(t, err)
+	require.Equal(t, "FROM scratch\n", string(got))
+}
+
 func TestExtractorRejectsUnsupportedTraversalOversizeAndCorruptArchives(t *testing.T) {
 	dir := t.TempDir()
 	extractor := archive.NewExtractor()
@@ -69,12 +91,12 @@ func TestExtractorRejectsUnsupportedTraversalOversizeAndCorruptArchives(t *testi
 	require.False(t, errors.Is(err, apperrors.ErrInvalidFileFormat))
 }
 
-func writeZipArchive(path string, files map[string]string) error {
+func writeZipArchive(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	w := zip.NewWriter(f)
 	for name, body := range files {
 		entry, err := w.Create(name)
@@ -90,12 +112,12 @@ func writeZipArchive(path string, files map[string]string) error {
 	return w.Close()
 }
 
-func writeTarArchive(path string, files map[string]string) error {
+func writeTarArchive(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	w := tar.NewWriter(f)
 	if err := writeTarEntries(w, files); err != nil {
 		_ = w.Close()
@@ -104,14 +126,14 @@ func writeTarArchive(path string, files map[string]string) error {
 	return w.Close()
 }
 
-func writeTarGzArchive(path string, files map[string]string) error {
+func writeTarGzArchive(path string, files map[string]string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { err = errors.Join(err, f.Close()) }()
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
+	defer func() { err = errors.Join(err, gw.Close()) }()
 	tw := tar.NewWriter(gw)
 	if err := writeTarEntries(tw, files); err != nil {
 		_ = tw.Close()

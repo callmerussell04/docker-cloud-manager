@@ -137,7 +137,7 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce string) (servic
 	if err != nil {
 		return service.OIDCIdentity{}, apperrors.Wrap(apperrors.ErrUnavailable, "oidc token endpoint unavailable", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
 	}
@@ -177,7 +177,7 @@ func discover(ctx context.Context, client *http.Client, issuerURL string) (disco
 	if err != nil {
 		return discoveryDocument{}, fmt.Errorf("failed to discover oidc provider: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return discoveryDocument{}, fmt.Errorf("oidc discovery returned status %d", resp.StatusCode)
 	}
@@ -253,7 +253,7 @@ func (p *Provider) cachedJWKS(ctx context.Context) (jwks, error) {
 	if err != nil {
 		return jwks{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return jwks{}, errors.New("failed to fetch oidc jwks")
 	}
