@@ -280,15 +280,22 @@ CORE_TEST_NETWORK_POLICY=1 GOCACHE=/tmp/go-build-cache \
 
 Reviewed 2026-10-17: [Go release policy and patch notes](https://go.dev/doc/devel/release)
 and [official downloads](https://go.dev/dl/?mode=json) list Go 1.27.2 and 1.26.9 as
-supported patched releases. DCM selects **1.26.9**, retaining the host's existing
+supported patched releases. DCM selected 1.26.9, retaining the host's existing
 1.26 release line while replacing the unsupported module minimum 1.25.7 and the
 host baseline 1.26.1. No new language features or third-party dependency upgrades
 are part of this change.
 
-`backend/go.mod` sets the minimum to 1.26.9. Canonical Make targets export exactly
-`GOTOOLCHAIN=go1.26.9`; the `go` directive alone is a minimum and does not prevent a
+Updated 2026-10-27: DCM selects **1.26.10**, the current 1.26 patch release
+(alongside 1.27.3). It fixes [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809),
+a `crypto/x509` denylist of compromised intermediate certificates. The production
+scan reaches `Certificate.Verify` through `crypto/tls` handshakes, and every service
+binary links that verifier for its HTTPS/TLS clients, so the advisory is patched
+rather than accepted.
+
+`backend/go.mod` sets the minimum to 1.26.10. Canonical Make targets export exactly
+`GOTOOLCHAIN=go1.26.10`; the `go` directive alone is a minimum and does not prevent a
 newer installed compiler from being selected. For direct commands, export
-`GOTOOLCHAIN=go1.26.9` explicitly. Keep the module version and all five Dockerfile
+`GOTOOLCHAIN=go1.26.10` explicitly. Keep the module version and all five Dockerfile
 builder pins synchronized when updating. Toolchain downloads use Go's checksum
 database; do not disable checksum verification.
 
@@ -296,7 +303,7 @@ All five service Dockerfiles use these verified multi-platform image indexes:
 
 | Input | Pinned reference |
 | --- | --- |
-| Compiler | `golang:1.26.9-alpine3.24@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade` |
+| Compiler | `golang:1.26.10-alpine3.24@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308` |
 | Runtime | `alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6` |
 
 Docker sets `GOTOOLCHAIN=local`, so module changes cannot silently download another
