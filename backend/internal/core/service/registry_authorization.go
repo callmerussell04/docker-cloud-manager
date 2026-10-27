@@ -27,7 +27,7 @@ type RegistryGrantRepository interface {
 	RepositoryExists(ctx context.Context, repository string) (bool, error)
 	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte) error
 	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error
-	FenceRepository(ctx context.Context, repository string) (time.Time, error)
+	FenceRepository(ctx context.Context, repository string) (time.Duration, error)
 	PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error)
 	CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error
 	LockRegistryRepository(ctx context.Context, repository string) (func(), error)
@@ -144,9 +144,33 @@ func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, c
 	return s.repo.RevokeBuild(ctx, id, cleanup)
 }
 
-func (s *RegistryAuthorization) FenceRepository(ctx context.Context, repository string) error {
-	// Repository tokens cover all tags. Let existing sibling-tag builds finish;
-	// the caller's repository lock keeps new claims out during deletion.
+// FenceRepository waits until no build can still write to the repository, then
+// locks it against new claims and returns the unlock function. Repository
+// tokens cover all tags, so sibling-tag builds must finish first. The wait runs
+// unlocked because the lock pool's single connection is shared with all
+// admission; a claim that slips in before the lock fails the fence with
+// ErrUnavailable so the caller requeues instead of waiting under the lock.
+func (s *RegistryAuthorization) FenceRepository(ctx context.Context, repository string) (func(), error) {
+	if err := s.waitForRepositoryWriters(ctx, repository); err != nil {
+		return nil, err
+	}
+	unlock, err := s.repo.LockRegistryRepository(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	quiet, err := s.repositoryWritersDone(ctx, repository)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	if !quiet {
+		unlock()
+		return nil, apperrors.New(apperrors.ErrUnavailable, "registry repository received a new build during deletion fence")
+	}
+	return unlock, nil
+}
+
+func (s *RegistryAuthorization) waitForRepositoryWriters(ctx context.Context, repository string) error {
 	for {
 		active, err := s.repo.HasActiveRegistryBuilds(ctx, repository)
 		if err != nil {
@@ -155,29 +179,40 @@ func (s *RegistryAuthorization) FenceRepository(ctx context.Context, repository 
 		if !active {
 			break
 		}
-		timer := time.NewTimer(time.Second)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		case <-timer.C:
+		if err := sleepContext(ctx, time.Second); err != nil {
+			return err
 		}
 	}
-
-	until, err := s.repo.FenceRepository(ctx, repository)
+	remaining, err := s.repo.FenceRepository(ctx, repository)
 	if err != nil {
 		return err
 	}
-	if delay := time.Until(until); delay > 0 {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-		}
+	return sleepContext(ctx, remaining)
+}
+
+// repositoryWritersDone rechecks the fence without waiting; the caller holds the
+// repository lock, so its answer stays true until unlock.
+func (s *RegistryAuthorization) repositoryWritersDone(ctx context.Context, repository string) (bool, error) {
+	active, err := s.repo.HasActiveRegistryBuilds(ctx, repository)
+	if err != nil || active {
+		return false, err
 	}
-	return nil
+	remaining, err := s.repo.FenceRepository(ctx, repository)
+	return remaining <= 0, err
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *RegistryAuthorization) RunCleanup(ctx context.Context, registry ImageRegistryAPI) {
@@ -216,10 +251,6 @@ func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository s
 		return model.RegistryCredential{}, err
 	}
 	return model.RegistryCredential{Username: id.String(), Password: password}, nil
-}
-
-func (s *RegistryAuthorization) LockRepository(ctx context.Context, repository string) (func(), error) {
-	return s.repo.LockRegistryRepository(ctx, repository)
 }
 
 func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry ImageRegistryAPI, job model.RegistryCleanup) error {

@@ -164,16 +164,12 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
 	if s.registryAuth != nil {
-		unlock, err := s.registryAuth.LockRepository(ctx, repoName)
+		unlock, err := s.registryAuth.FenceRepository(ctx, repoName)
 		if err != nil {
 			_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
 			return err
 		}
 		defer unlock()
-		if err := s.registryAuth.FenceRepository(ctx, repoName); err != nil {
-			_ = s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err)
-			return err
-		}
 	}
 	// Удаление из Registry (Soft Delete)
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)

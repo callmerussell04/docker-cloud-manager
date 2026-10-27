@@ -133,12 +133,15 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 	return commitTx(tx, "revoke build")
 }
 
-func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string) (time.Time, error) {
-	var until time.Time
+// FenceRepository revokes every build credential for the repository and returns
+// how long previously issued tokens may still write. The database clock measures
+// the remainder so Core clock skew cannot shorten it.
+func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string) (time.Duration, error) {
+	var seconds float64
 	err := r.db.QueryRowContext(ctx, `WITH revoked AS (
  UPDATE registry_build_credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE repository=$1 RETURNING last_issued_at)
- SELECT COALESCE(max(last_issued_at)+interval '181 seconds',clock_timestamp()) FROM revoked`, repository).Scan(&until)
-	return until, err
+ SELECT COALESCE(EXTRACT(EPOCH FROM max(last_issued_at)+interval '181 seconds'-clock_timestamp()),0)::float8 FROM revoked`, repository).Scan(&seconds)
+	return time.Duration(seconds * float64(time.Second)), err
 }
 
 func (r *RegistryGrantRepository) PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error) {

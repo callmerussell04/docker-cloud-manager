@@ -2,11 +2,14 @@ package resource_flow_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -140,5 +143,208 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			require.NoError(t, worker.HandleMessage(ctx, message))
 			require.Equal(t, 1, countTable(t, repos.DB, "resource_lifecycle_queue_outbox"))
 		})
+	}
+}
+
+func TestQueuedImageDeletionKeepsAdmissionAvailableWhileFencing(t *testing.T) {
+	ctx := context.Background()
+	f := newFencedImageDeletion(t)
+	sibling := f.claimSibling(t, "demo:v2")
+	message := f.queueDelete(t)
+	result := make(chan error, 1)
+	go func() { result <- f.worker.HandleMessage(ctx, message) }()
+	require.Eventually(t, func() bool {
+		op, err := f.lifecycle.GetOperationByID(ctx, uuid.MustParse(message.OperationID))
+		return err == nil && op.Status == model.OperationStatusRunning
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// The deletion waits for the sibling build for as long as it runs; admission
+	// must keep its single lock connection throughout that wait.
+	for range 3 {
+		time.Sleep(200 * time.Millisecond)
+		admitCtx, cancel := context.WithTimeout(ctx, time.Second)
+		release, err := f.repos.Containers.AcquireOwnerCapacityLock(admitCtx, f.ownerID)
+		require.NoError(t, err, "container admission must not wait behind a fencing deletion")
+		release()
+		unlock, err := f.repos.Builds.AcquireCapacityLock(admitCtx)
+		require.NoError(t, err, "build admission must not wait behind a fencing deletion")
+		unlock()
+		cancel()
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("deletion finished while a sibling build was still running: %v", err)
+	default:
+	}
+
+	f.finishBuild(t, sibling)
+	require.NoError(t, waitResult(t, result))
+	f.requireDeleted(t, message, 1)
+}
+
+func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T) {
+	ctx := context.Background()
+	f := newFencedImageDeletion(t)
+	previous := f.claimSibling(t, "demo:v2")
+	f.finishBuild(t, previous)
+	// Leave three seconds of the token fence open.
+	_, err := f.repos.DB.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '178 seconds' WHERE build_id=$1`, previous)
+	require.NoError(t, err)
+	message := f.queueDelete(t)
+	result := make(chan error, 1)
+	go func() { result <- f.worker.HandleMessage(ctx, message) }()
+	require.Eventually(t, func() bool {
+		var revoked bool
+		err := f.repos.DB.QueryRowContext(ctx, `SELECT revoked_at IS NOT NULL FROM registry_build_credentials WHERE build_id=$1`, previous).Scan(&revoked)
+		return err == nil && revoked
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A new publisher can claim while the deletion waits out the fence unlocked.
+	late := f.claimSibling(t, "demo:v3")
+	require.ErrorIs(t, waitResult(t, result), apperrors.ErrUnavailable)
+	operationID := uuid.MustParse(message.OperationID)
+	op, err := f.lifecycle.GetOperationByID(ctx, operationID)
+	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusPending, op.Status)
+	require.Equal(t, 1, op.Attempts)
+	image, err := f.repos.Images.GetByID(ctx, f.imageID)
+	require.NoError(t, err)
+	require.Equal(t, model.ImageStatusDeleting, image.Status)
+	require.Zero(t, f.deletes.Load(), "Registry deletion must not race the late publisher")
+
+	f.finishBuild(t, late)
+	blocked := f.queueSibling(t, "demo:v4")
+	claimed := make(chan error, 1)
+	hook := func() {
+		hash := sha256.Sum256([]byte("blocked-" + blocked.String()))
+		_, started, err := f.grants.ClaimBuild(ctx, blocked, hash[:], time.Minute)
+		if err == nil && started {
+			err = errors.New("claim started during Registry deletion")
+		}
+		claimed <- err
+	}
+	f.onDelete.Store(&hook)
+	require.NoError(t, f.worker.HandleMessage(ctx, message))
+	require.ErrorIs(t, <-claimed, apperrors.ErrUnavailable, "claims stay excluded during Registry deletion")
+	f.requireDeleted(t, message, 2)
+}
+
+type fencedImageDeletion struct {
+	repos     coretest.CoreRepositories
+	grants    *repository.RegistryGrantRepository
+	lifecycle *repository.ResourceLifecycleRepository
+	images    *service.ImageService
+	worker    *service.ResourceLifecycleWorker
+	ownerID   uuid.UUID
+	imageID   uuid.UUID
+	deletes   *atomic.Int32
+	onDelete  *atomic.Pointer[func()]
+}
+
+func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
+	t.Helper()
+	ctx := context.Background()
+	f := &fencedImageDeletion{repos: coretest.OpenCoreRepositories(t), ownerID: uuid.New(), imageID: uuid.New(), deletes: &atomic.Int32{}, onDelete: &atomic.Pointer[func()]{}}
+	f.grants = repository.NewRegistryGrantRepository(f.repos.DB, f.repos.LockDB)
+	f.lifecycle = repository.NewResourceLifecycleRepository(f.repos.DB)
+	require.NoError(t, f.repos.Images.Save(ctx, model.Image{ID: f.imageID, OwnerID: f.ownerID, Tag: "demo:latest"}))
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Docker-Content-Digest", "sha256:abc")
+			_, _ = w.Write([]byte(`{"config":{"size":100},"layers":[]}`))
+		case http.MethodDelete:
+			if hook := f.onDelete.Load(); hook != nil {
+				(*hook)()
+			}
+			f.deletes.Add(1)
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(server.Close)
+	adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, bool) (string, error) {
+		return "test-token", nil
+	})
+	require.NoError(t, err)
+	dockerAPI := coremocks.NewImageDockerAPI(t)
+	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Maybe()
+	f.images, err = service.NewImageService(service.ImageServiceDeps{
+		Repository:   f.repos.Images,
+		Docker:       dockerAPI,
+		Registry:     adapter,
+		Containers:   f.repos.Containers,
+		Config:       coretest.StaticConfig{Config: coretest.IntegrationConfig()},
+		Lifecycle:    f.lifecycle,
+		RegistryAuth: service.NewRegistryAuthorization(f.grants, nil, nil, "registry.test"),
+	})
+	require.NoError(t, err)
+	f.worker = service.NewResourceLifecycleWorker(nil, f.images, coretest.DiscardLogger())
+	return f
+}
+
+func (f *fencedImageDeletion) queueSibling(t *testing.T, tag string) uuid.UUID {
+	t.Helper()
+	imageID, buildID := uuid.New(), uuid.New()
+	require.NoError(t, f.repos.Builds.CreateQueuedBuild(context.Background(),
+		model.Image{ID: imageID, OwnerID: f.ownerID, Tag: tag},
+		model.Build{ID: buildID, ImageID: imageID, OwnerID: f.ownerID, Status: model.BuildStatusPending, StartedAt: time.Now()},
+		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+	return buildID
+}
+
+func (f *fencedImageDeletion) claimSibling(t *testing.T, tag string) uuid.UUID {
+	t.Helper()
+	buildID := f.queueSibling(t, tag)
+	hash := sha256.Sum256([]byte("secret-" + buildID.String()))
+	_, started, err := f.grants.ClaimBuild(context.Background(), buildID, hash[:], time.Minute)
+	require.NoError(t, err)
+	require.True(t, started)
+	return buildID
+}
+
+// finishBuild ends a sibling build whose credential is outside the token fence.
+func (f *fencedImageDeletion) finishBuild(t *testing.T, buildID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	_, err := f.repos.DB.ExecContext(ctx, `UPDATE builds SET status=$2, finished_at=clock_timestamp() WHERE id=$1`, buildID, model.BuildStatusSuccess)
+	require.NoError(t, err)
+	_, err = f.repos.DB.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, buildID)
+	require.NoError(t, err)
+}
+
+func (f *fencedImageDeletion) queueDelete(t *testing.T) resourcequeue.LifecycleMessage {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, f.images.Delete(coretest.UserContext(f.ownerID), f.imageID))
+	outbox, err := f.lifecycle.LeasePendingResourceOutbox(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, outbox, 1)
+	var message resourcequeue.LifecycleMessage
+	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
+	require.NoError(t, f.lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
+	return message
+}
+
+func (f *fencedImageDeletion) requireDeleted(t *testing.T, message resourcequeue.LifecycleMessage, attempts int) {
+	t.Helper()
+	_, err := f.repos.Images.GetByID(context.Background(), f.imageID)
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	op, err := f.lifecycle.GetOperationByID(context.Background(), uuid.MustParse(message.OperationID))
+	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusDone, op.Status)
+	require.Equal(t, attempts, op.Attempts)
+	require.Equal(t, int32(1), f.deletes.Load())
+}
+
+func waitResult(t *testing.T, result <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(15 * time.Second):
+		t.Fatal("image deletion did not finish")
+		return nil
 	}
 }
