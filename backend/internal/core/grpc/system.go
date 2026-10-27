@@ -94,6 +94,9 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		ComposeDependencyWaitTimeoutMinutes:  cfg.ComposeDependencyWaitTimeoutMinutes,
 		ComposeDependencyPollIntervalSeconds: cfg.ComposeDependencyPollIntervalSeconds,
 		ComposeCoordinatorIntervalSeconds:    cfg.ComposeCoordinatorIntervalSeconds,
+		VolumeUsageIntervalSeconds:           cfg.VolumeUsageIntervalSeconds,
+		VolumeUsageCycleBudgetSeconds:        cfg.VolumeUsageCycleBudgetSeconds,
+		VolumeUsageScanEntryBudget:           int32(cfg.VolumeUsageScanEntryBudget),
 		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
@@ -181,6 +184,9 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
 	newCfg.ComposeDependencyPollIntervalSeconds = req.GetComposeDependencyPollIntervalSeconds()
 	newCfg.ComposeCoordinatorIntervalSeconds = req.GetComposeCoordinatorIntervalSeconds()
+	newCfg.VolumeUsageIntervalSeconds = req.GetVolumeUsageIntervalSeconds()
+	newCfg.VolumeUsageCycleBudgetSeconds = req.GetVolumeUsageCycleBudgetSeconds()
+	newCfg.VolumeUsageScanEntryBudget = int(req.GetVolumeUsageScanEntryBudget())
 	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())

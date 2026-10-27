@@ -90,6 +90,34 @@ func TestValidateSystemConfigRejectsInvalidBlockedDomainPrefixPattern(t *testing
 	}
 }
 
+func TestValidateSystemConfigBoundsVolumeUsageAccounting(t *testing.T) {
+	tests := []struct {
+		name  string
+		apply func(*SystemConfig)
+		valid bool
+	}{
+		{name: "defaults", apply: func(*SystemConfig) {}, valid: true},
+		{name: "zero interval", apply: func(c *SystemConfig) { c.VolumeUsageIntervalSeconds = 0 }},
+		{name: "zero cycle budget", apply: func(c *SystemConfig) { c.VolumeUsageCycleBudgetSeconds = 0 }},
+		{name: "zero entry budget", apply: func(c *SystemConfig) { c.VolumeUsageScanEntryBudget = 0 }},
+		{name: "maximum entry budget", apply: func(c *SystemConfig) { c.VolumeUsageScanEntryBudget = MaxVolumeUsageScanEntryBudget }, valid: true},
+		{name: "entry budget above maximum", apply: func(c *SystemConfig) { c.VolumeUsageScanEntryBudget = MaxVolumeUsageScanEntryBudget + 1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tt.apply(&cfg)
+			err := ValidateSystemConfig(cfg)
+			if tt.valid && err != nil {
+				t.Fatalf("ValidateSystemConfig() error = %v", err)
+			}
+			if !tt.valid && err == nil {
+				t.Fatal("ValidateSystemConfig() returned nil error")
+			}
+		})
+	}
+}
+
 func validSystemConfig() SystemConfig {
 	return SystemConfig{
 		BaseDomain:                           "localhost",
@@ -159,6 +187,9 @@ func validSystemConfig() SystemConfig {
 		ComposeDependencyWaitTimeoutMinutes:  5,
 		ComposeDependencyPollIntervalSeconds: 2,
 		ComposeCoordinatorIntervalSeconds:    2,
+		VolumeUsageIntervalSeconds:           60,
+		VolumeUsageCycleBudgetSeconds:        15,
+		VolumeUsageScanEntryBudget:           50000,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,

@@ -66,6 +66,9 @@ type SystemConfigDTO struct {
 	ComposeDependencyWaitTimeoutMinutes  int64    `json:"compose_dependency_wait_timeout_minutes"`
 	ComposeDependencyPollIntervalSeconds int64    `json:"compose_dependency_poll_interval_seconds"`
 	ComposeCoordinatorIntervalSeconds    int64    `json:"compose_coordinator_interval_seconds"`
+	VolumeUsageIntervalSeconds           int64    `json:"volume_usage_interval_seconds"`
+	VolumeUsageCycleBudgetSeconds        int64    `json:"volume_usage_cycle_budget_seconds"`
+	VolumeUsageScanEntryBudget           int      `json:"volume_usage_scan_entry_budget"`
 	HostMinFreeDiskBytes                 int64    `json:"host_min_free_disk_bytes"`
 	GitSourcesEnabled                    bool     `json:"git_sources_enabled"`
 	GitAllowedHosts                      []string `json:"git_allowed_hosts"`

@@ -56,6 +56,9 @@ export interface SystemConfig {
   stale_build_timeout_minutes: number;
   event_sync_interval_seconds: number;
   event_reconnect_delay_seconds: number;
+  volume_usage_interval_seconds: number;
+  volume_usage_cycle_budget_seconds: number;
+  volume_usage_scan_entry_budget: number;
   build_outbox_interval_seconds: number;
   build_outbox_batch_size: number;
   reports_usage_snapshot_interval_seconds: number;
@@ -169,6 +172,9 @@ export const systemConfigSchema = z.object({
   stale_build_timeout_minutes: z.number().min(1),
   event_sync_interval_seconds: z.number().min(1),
   event_reconnect_delay_seconds: z.number().min(1),
+  volume_usage_interval_seconds: z.number().min(1),
+  volume_usage_cycle_budget_seconds: z.number().min(1),
+  volume_usage_scan_entry_budget: z.number().min(1).max(10000000),
   build_outbox_interval_seconds: z.number().min(1),
   build_outbox_batch_size: z.number().min(1),
   reports_usage_snapshot_interval_seconds: z.number().min(60).max(86400),

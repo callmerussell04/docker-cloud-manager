@@ -66,6 +66,9 @@ type SystemConfig struct {
 	ComposeDependencyWaitTimeoutMinutes  int64
 	ComposeDependencyPollIntervalSeconds int64
 	ComposeCoordinatorIntervalSeconds    int64
+	VolumeUsageIntervalSeconds           int64
+	VolumeUsageCycleBudgetSeconds        int64
+	VolumeUsageScanEntryBudget           int
 	HostMinFreeDiskBytes                 int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string

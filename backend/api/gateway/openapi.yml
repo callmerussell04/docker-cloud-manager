@@ -2657,6 +2657,14 @@ components:
         compose_coordinator_interval_seconds:
           type: integer
           format: int64
+        volume_usage_interval_seconds:
+          type: integer
+          format: int64
+        volume_usage_cycle_budget_seconds:
+          type: integer
+          format: int64
+        volume_usage_scan_entry_budget:
+          type: integer
         host_min_free_disk_bytes:
           type: integer
           format: int64

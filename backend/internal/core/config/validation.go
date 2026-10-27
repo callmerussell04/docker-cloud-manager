@@ -148,6 +148,12 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeCoordinatorIntervalSeconds <= 0 {
 		return fmt.Errorf("compose coordinator interval must be positive")
 	}
+	if cfg.VolumeUsageIntervalSeconds <= 0 || cfg.VolumeUsageCycleBudgetSeconds <= 0 {
+		return fmt.Errorf("volume usage interval and cycle budget must be positive")
+	}
+	if cfg.VolumeUsageScanEntryBudget <= 0 || cfg.VolumeUsageScanEntryBudget > MaxVolumeUsageScanEntryBudget {
+		return fmt.Errorf("volume usage scan entry budget must be between 1 and %d", MaxVolumeUsageScanEntryBudget)
+	}
 	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
 		return fmt.Errorf("git source limits must be positive")
 	}
