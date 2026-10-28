@@ -60,8 +60,7 @@ type outboxMessage struct {
 }
 
 // publish marks the record published only after broker confirmation. A failed
-// publication returns it to pending with the cause. A failed published mark is
-// logged and the record is redelivered after its lease expires.
+// publication returns it to pending with the cause.
 func (r outboxRelay) publish(
 	ctx context.Context,
 	msg outboxMessage,
@@ -69,15 +68,22 @@ func (r outboxRelay) publish(
 	markPending func(context.Context, uuid.UUID, error) error,
 ) {
 	if err := r.publisher.Publish(ctx, msg.exchange, msg.routingKey, msg.payload); err != nil {
-		r.logger.ErrorContext(ctx, "failed to publish "+r.name+" queue message", msg.failureAttrs(err)...)
-		_ = markPending(ctx, msg.id, err)
+		r.logger.ErrorContext(ctx, "failed to publish "+r.name+" queue message", failureAttrs(msg.id, err, msg.logAttrs...)...)
+		r.logMarkFailure(ctx, "pending", msg.id, markPending(ctx, msg.id, err), msg.logAttrs...)
 		return
 	}
-	if err := markPublished(ctx, msg.id); err != nil {
-		r.logger.ErrorContext(ctx, "failed to mark "+r.name+" outbox message published", msg.failureAttrs(err)...)
+	r.logMarkFailure(ctx, "published", msg.id, markPublished(ctx, msg.id), msg.logAttrs...)
+}
+
+// logMarkFailure logs a failed status transition of a leased record once. The record
+// keeps its lease and is redelivered after the lease expires, so the worker
+// continues the batch.
+func (r outboxRelay) logMarkFailure(ctx context.Context, transition string, id uuid.UUID, err error, logAttrs ...any) {
+	if err != nil {
+		r.logger.ErrorContext(ctx, "failed to mark "+r.name+" outbox message "+transition, failureAttrs(id, err, logAttrs...)...)
 	}
 }
 
-func (m outboxMessage) failureAttrs(err error) []any {
-	return append(slices.Clip(m.logAttrs), "outbox_id", m.id, "error", err)
+func failureAttrs(id uuid.UUID, err error, logAttrs ...any) []any {
+	return append(slices.Clip(logAttrs), "outbox_id", id, "error", err)
 }

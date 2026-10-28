@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
@@ -43,7 +44,7 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 		var err error
 		ca, err = os.ReadFile(cfg.RegistryCAFile)
 		if err != nil {
-			return nil, errors.New("read registry CA")
+			return nil, fmt.Errorf("read registry CA: %w", err)
 		}
 		if !x509.NewCertPool().AppendCertsFromPEM(ca) {
 			return nil, errors.New("invalid registry CA")
@@ -51,7 +52,7 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	}
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create docker client: %w", err)
 	}
 	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy}, nil
 }
@@ -68,6 +69,12 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	if !ok {
 		return "", nil, errors.New("invalid build destination")
 	}
+	// Auth lives under Kaniko's excluded directory, outside the uploaded context.
+	authJSON, err := json.Marshal(map[string]any{"auths": map[string]any{authority: map[string]string{"auth": base64.StdEncoding.EncodeToString([]byte(params.RegistryUsername + ":" + params.RegistryPassword))}}})
+	if err != nil {
+		return "", nil, fmt.Errorf("encode build registry credentials: %w", err)
+	}
+
 	// 1. Убеждаемся, что образ Kaniko есть на хосте
 	kanikoImage := params.KanikoImage
 	if _, err := a.cli.ImageInspect(ctx, kanikoImage); err != nil {
@@ -147,19 +154,17 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	// are extracted locally, never forwarded to the daemon's decompression path.
 	tarStream, err := archive.TarWithOptions(params.WorkspaceDir, &archive.TarOptions{})
 	if err != nil {
-		_ = a.CleanBuildContainer(context.Background(), resp.ID)
+		a.removeFailedBuildContainer(ctx, resp.ID)
 		return "", nil, fmt.Errorf("failed to tar workspace: %w", err)
 	}
 	defer func() { _ = tarStream.Close() }() // read-only stream; close failure is not actionable
 
 	err = a.cli.CopyToContainer(ctx, resp.ID, "/workspace", tarStream, container.CopyToContainerOptions{})
 	if err != nil {
-		_ = a.CleanBuildContainer(context.Background(), resp.ID)
+		a.removeFailedBuildContainer(ctx, resp.ID)
 		return "", nil, fmt.Errorf("failed to copy files to kaniko: %w", err)
 	}
 
-	// Auth lives under Kaniko's excluded directory, outside the uploaded context.
-	authJSON, _ := json.Marshal(map[string]any{"auths": map[string]any{authority: map[string]string{"auth": base64.StdEncoding.EncodeToString([]byte(params.RegistryUsername + ":" + params.RegistryPassword))}}})
 	var secrets bytes.Buffer
 	tw := tar.NewWriter(&secrets)
 	for _, f := range []struct {
@@ -167,28 +172,28 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		data []byte
 	}{{"kaniko/.docker/config.json", authJSON}, {"kaniko/ssl/certs/dcm-registry.crt", a.registryCA}} {
 		if err := tw.WriteHeader(&tar.Header{Name: f.name, Mode: 0600, Size: int64(len(f.data))}); err != nil {
-			_ = a.CleanBuildContainer(context.WithoutCancel(ctx), resp.ID)
-			return "", nil, err
+			a.removeFailedBuildContainer(ctx, resp.ID)
+			return "", nil, fmt.Errorf("archive scoped build registry credentials: %w", err)
 		}
 		if _, err := tw.Write(f.data); err != nil {
-			_ = a.CleanBuildContainer(context.WithoutCancel(ctx), resp.ID)
-			return "", nil, err
+			a.removeFailedBuildContainer(ctx, resp.ID)
+			return "", nil, fmt.Errorf("archive scoped build registry credentials: %w", err)
 		}
 	}
 	if err := tw.Close(); err != nil {
-		_ = a.CleanBuildContainer(context.WithoutCancel(ctx), resp.ID)
-		return "", nil, err
+		a.removeFailedBuildContainer(ctx, resp.ID)
+		return "", nil, fmt.Errorf("archive scoped build registry credentials: %w", err)
 	}
 	if err := a.cli.CopyToContainer(ctx, resp.ID, "/", &secrets, container.CopyToContainerOptions{}); err != nil {
-		_ = a.CleanBuildContainer(context.WithoutCancel(ctx), resp.ID)
-		return "", nil, errors.New("install scoped build registry credentials")
+		a.removeFailedBuildContainer(ctx, resp.ID)
+		return "", nil, fmt.Errorf("install scoped build registry credentials: %w", err)
 	}
 
 	// 3. Запускаем сборку
 	err = a.cli.ContainerStart(ctx, resp.ID, container.StartOptions{})
 	if err != nil {
-		_ = a.CleanBuildContainer(context.Background(), resp.ID)
-		return "", nil, err
+		a.removeFailedBuildContainer(ctx, resp.ID)
+		return "", nil, fmt.Errorf("start build container: %w", err)
 	}
 
 	// 4. Получаем сырой поток логов
@@ -198,8 +203,8 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		Follow:     true,
 	})
 	if err != nil {
-		_ = a.CleanBuildContainer(context.Background(), resp.ID)
-		return "", nil, err
+		a.removeFailedBuildContainer(ctx, resp.ID)
+		return "", nil, fmt.Errorf("stream build container logs: %w", err)
 	}
 
 	// 5. Очищаем Docker-заголовки из логов с помощью stdcopy
@@ -215,13 +220,13 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		}
 		// A nil error closes with io.EOF; a demux failure reaches the log reader
 		// so the build ends as failed_internal instead of with truncated logs.
-		_ = pw.CloseWithError(err)
+		_ = pw.CloseWithError(err) // PipeWriter.CloseWithError always returns nil
 	}()
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = rawLogs.Close()
-			_ = pw.CloseWithError(ctx.Err())
+			_ = rawLogs.Close()              // read-only stream; closing unblocks the demux copy
+			_ = pw.CloseWithError(ctx.Err()) // PipeWriter.CloseWithError always returns nil
 		case <-done:
 		}
 	}()
@@ -248,6 +253,19 @@ func (a *Adapter) WaitForBuild(ctx context.Context, containerID string) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+// failedBuildCleanupTimeout bounds removal of a container whose start failed.
+const failedBuildCleanupTimeout = 30 * time.Second
+
+// removeFailedBuildContainer removes a container that never produced a build.
+// It runs detached from ctx, which may already be canceled, and is bounded.
+// The start error is the one reported; a container left behind is removed by
+// CleanupOrphanBuildContainers at the next Builder startup.
+func (a *Adapter) removeFailedBuildContainer(ctx context.Context, containerID string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), failedBuildCleanupTimeout)
+	defer cancel()
+	_ = a.CleanBuildContainer(cleanupCtx, containerID) // best-effort rollback; orphan cleanup retries at startup
 }
 
 func (a *Adapter) CleanBuildContainer(ctx context.Context, containerID string) error {

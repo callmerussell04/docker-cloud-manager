@@ -65,13 +65,16 @@ func NewRegistryAuthorization(repo RegistryGrantRepository, users UserInfoProvid
 func (s *RegistryAuthorization) ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
-		return model.Build{}, false, apperrors.ErrInternal
+		return model.Build{}, false, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate registry build credential: %w", err))
 	}
 	password := base64.RawURLEncoding.EncodeToString(secret)
 	hash := sha256.Sum256([]byte(password))
 	b, started, err := s.repo.ClaimBuild(ctx, id, hash[:], lifetime)
-	if err != nil || !started {
-		return b, started, err
+	if err != nil {
+		return b, false, fmt.Errorf("claim registry build: %w", err)
+	}
+	if !started {
+		return b, false, nil
 	}
 	b.RegistryCredential.Username = id.String()
 	b.RegistryCredential.Password = password
@@ -91,14 +94,14 @@ func (s *RegistryAuthorization) Exchange(ctx context.Context, username, password
 	hash := sha256.Sum256([]byte(password))
 	principal, err := s.repo.AuthorizeCredential(ctx, hash[:], now)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("authorize registry credential: %w", err)
 	}
 	if principal.BuildID != id {
 		return "", apperrors.ErrForbidden
 	}
 	user, err := s.users.GetUser(ctx, principal.OwnerID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get registry credential owner: %w", err)
 	}
 	if user.Status != "active" {
 		return "", apperrors.ErrForbidden
@@ -137,7 +140,7 @@ func (s *RegistryAuthorization) Exchange(ctx context.Context, username, password
 func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository string, cleanup bool) (string, error) {
 	exists, err := s.repo.RepositoryExists(ctx, repository)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("check trusted registry repository: %w", err)
 	}
 	if !exists {
 		return "", apperrors.ErrForbidden
@@ -153,7 +156,10 @@ func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository str
 }
 
 func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error {
-	return s.repo.RevokeBuild(ctx, id, cleanup, RegistryCleanupDelay)
+	if err := s.repo.RevokeBuild(ctx, id, cleanup, RegistryCleanupDelay); err != nil {
+		return fmt.Errorf("revoke registry build: %w", err)
+	}
+	return nil
 }
 
 // FenceAndLockRepository waits until no build can still write to the
@@ -272,13 +278,13 @@ func (s *RegistryAuthorization) cleanupRegistryTick(ctx context.Context, registr
 func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository string) (model.RegistryCredential, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
-		return model.RegistryCredential{}, apperrors.ErrInternal
+		return model.RegistryCredential{}, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate registry pull credential: %w", err))
 	}
 	password := base64.RawURLEncoding.EncodeToString(secret)
 	hash := sha256.Sum256([]byte(password))
 	id := uuid.New()
 	if err := s.repo.SavePullCredential(ctx, id, repository, hash[:], RegistryPullCredentialLifetime); err != nil {
-		return model.RegistryCredential{}, err
+		return model.RegistryCredential{}, fmt.Errorf("save registry pull credential: %w", err)
 	}
 	return model.RegistryCredential{Username: id.String(), Password: password}, nil
 }
@@ -286,12 +292,12 @@ func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository s
 func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry ImageRegistryAPI, job model.RegistryCleanup) error {
 	unlock, err := s.repo.LockRegistryRepository(ctx, job.Repository)
 	if err != nil {
-		return err
+		return fmt.Errorf("lock registry repository: %w", err)
 	}
 	defer unlock()
 	state, err := s.repo.RegistryCleanupState(ctx, job, RegistryCleanupDelay)
 	if err != nil {
-		return err
+		return fmt.Errorf("read registry cleanup state: %w", err)
 	}
 	if state == model.RegistryCleanupPending {
 		return nil
@@ -302,8 +308,11 @@ func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry
 			err = registry.DeleteManifest(ctx, job.Repository, digest)
 		}
 		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-			return err
+			return fmt.Errorf("delete registry manifest: %w", err)
 		}
 	}
-	return s.repo.CompleteRegistryCleanup(ctx, job.ID)
+	if err := s.repo.CompleteRegistryCleanup(ctx, job.ID); err != nil {
+		return fmt.Errorf("complete registry cleanup: %w", err)
+	}
+	return nil
 }

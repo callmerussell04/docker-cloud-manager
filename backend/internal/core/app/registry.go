@@ -3,12 +3,15 @@ package app
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
 	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 )
 
 // RegistryConfig is bootstrap-only. The TLS edge has no Core control API routes.
@@ -23,7 +26,7 @@ type RegistryConfig struct {
 	Issuer                 string
 }
 
-func registryServer(cfg RegistryConfig, client *http.Client, auth *service.RegistryAuthorization) (*http.Server, error) {
+func registryServer(cfg RegistryConfig, client *http.Client, auth *service.RegistryAuthorization, logger *slog.Logger) (*http.Server, error) {
 	endpoint, err := url.Parse("https://" + cfg.Authority)
 	if err != nil || endpoint.Host != cfg.Authority || endpoint.Port() != "5000" || endpoint.Path != "" || endpoint.User != nil {
 		return nil, errors.New("invalid canonical registry authority")
@@ -34,8 +37,8 @@ func registryServer(cfg RegistryConfig, client *http.Client, auth *service.Regis
 	}
 	pair, err := tls.LoadX509KeyPair(cfg.CertificateFile, cfg.KeyFile)
 	if err != nil {
-		return nil, errors.New("load registry edge TLS identity")
+		return nil, fmt.Errorf("load registry edge TLS identity: %w", err)
 	}
-	handler := corehttp.RegistryEdgeHandler(target, endpoint.Host, client.Transport, auth)
+	handler := corehttp.RegistryEdgeHandler(target, endpoint.Host, client.Transport, auth, logging.WithComponent(logger, "registry_edge"))
 	return &http.Server{Addr: ":5000", Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: time.Minute, WriteTimeout: time.Minute, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 16 << 10, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}, NextProtos: []string{"http/1.1"}}}, nil
 }

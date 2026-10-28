@@ -1,7 +1,9 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
 	"io"
@@ -302,6 +304,26 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 	}
 }
 
+func TestBuilderServiceReportsInvalidArchiveSystemLogWriteFailure(t *testing.T) {
+	h := newBuilderHarness(t, testBuilderRuntimeConfig())
+	msg := testBuildMessage()
+	writeErr := errors.New("disk full")
+	expectStarted(h, msg, msg.ImageID)
+	expectPreparedArchive(h, msg, apperrors.ErrBadRequest)
+	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(writeErr)
+	expectLogUpload(h, msg, 1)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+
+	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg), "the build still completes as failed")
+
+	entries := h.logEntries(t, "failed to write invalid archive build log")
+	require.Len(t, entries, 1, "the write failure is reported once")
+	require.Equal(t, "WARN", entries[0]["level"])
+	require.Equal(t, msg.BuildID, entries[0]["build_id"])
+	require.Equal(t, writeErr.Error(), entries[0]["error"])
+}
+
 func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTerminal(t *testing.T) {
 	cfg := testBuilderRuntimeConfig()
 	cfg.BuildCancelPollInterval = time.Millisecond
@@ -440,6 +462,8 @@ type builderHarness struct {
 	results    *storage.ResultStore
 	resultDir  string
 	service    *service.BuilderService
+	// output captures the service's structured log output.
+	output bytes.Buffer
 }
 
 func newBuilderHarness(t *testing.T, cfg config.BuilderConfig) *builderHarness {
@@ -468,9 +492,25 @@ func newBuilderHarness(t *testing.T, cfg config.BuilderConfig) *builderHarness {
 		h.core,
 		h.results,
 		config.NewRuntimeManager(cfg, nil, nil),
-		slog.Default(),
+		slog.New(slog.NewJSONHandler(&h.output, nil)),
 	)
 	return h
+}
+
+func (h *builderHarness) logEntries(t *testing.T, msg string) []map[string]any {
+	t.Helper()
+	var entries []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(h.output.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		if entry["msg"] == msg {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
 }
 
 func testBuilderRuntimeConfig() config.BuilderConfig {

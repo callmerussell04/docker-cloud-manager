@@ -1,9 +1,13 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,6 +70,9 @@ type outboxQueueFixture struct {
 
 	mu     sync.Mutex
 	events []string
+	// logs captures the worker's structured log output.
+	logs   bytes.Buffer
+	logger *slog.Logger
 
 	expectLease     func(records int, err error)
 	expectAggregate func(i int, state outboxAggregate)
@@ -197,6 +204,76 @@ func TestOutboxWorkersApplyAggregatePolicyAndPublication(t *testing.T) {
 
 				require.Equal(t, scenario.want, f.recorded())
 				require.EqualValues(t, 1, f.leases.Load())
+			})
+		}
+	}
+}
+
+func TestOutboxWorkersLogFailedStatusMarksOnce(t *testing.T) {
+	scenarios := []struct {
+		name       string
+		arrange    func(f *outboxQueueFixture)
+		transition string
+	}{
+		{
+			name: "pending mark after publication failure",
+			arrange: func(f *outboxQueueFixture) {
+				f.expectAggregate(0, outboxAggregateActive)
+				f.expectPublish(0, errOutboxPublish)
+				f.expectMark(outboxMarkPending, 0, errOutboxMark)
+			},
+			transition: "pending",
+		},
+		{
+			name: "pending mark after aggregate lookup failure",
+			arrange: func(f *outboxQueueFixture) {
+				f.expectAggregate(0, outboxAggregateUnavailable)
+				f.expectMark(outboxMarkPending, 0, errOutboxMark)
+			},
+			transition: "pending",
+		},
+		{
+			name: "discarded mark for a missing aggregate",
+			arrange: func(f *outboxQueueFixture) {
+				f.expectAggregate(0, outboxAggregateMissing)
+				f.expectMark(outboxMarkDiscarded, 0, errOutboxMark)
+			},
+			transition: "discarded",
+		},
+		{
+			name: "published mark after broker confirmation",
+			arrange: func(f *outboxQueueFixture) {
+				f.expectAggregate(0, outboxAggregateActive)
+				f.expectPublish(0, nil)
+				f.expectMark(outboxMarkPublished, 0, errOutboxMark)
+			},
+			transition: "published",
+		},
+	}
+
+	for _, class := range outboxQueueClasses {
+		for _, scenario := range scenarios {
+			t.Run(class.name+"/"+scenario.name, func(t *testing.T) {
+				f := class.newFixture(t)
+				f.interval.Store(1)
+				f.expectLease(1, nil)
+				scenario.arrange(f)
+
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				f.run(ctx)
+
+				msg := "failed to mark " + class.name + " outbox message " + scenario.transition
+				var marks []map[string]any
+				for _, entry := range f.decodedLogs(t) {
+					if entry["msg"] == msg {
+						marks = append(marks, entry)
+					}
+				}
+				require.Len(t, marks, 1, "a failed status mark is logged once")
+				require.Equal(t, "ERROR", marks[0]["level"])
+				require.Equal(t, f.outboxIDs[0].String(), marks[0]["outbox_id"])
+				require.Equal(t, errOutboxMark.Error(), marks[0]["error"])
 			})
 		}
 	}
@@ -348,6 +425,7 @@ func requireClosed(t *testing.T, done <-chan struct{}, msg string) {
 func newOutboxQueueFixture(t *testing.T) *outboxQueueFixture {
 	t.Helper()
 	f := &outboxQueueFixture{publisher: coremocks.NewBuildQueuePublisher(t)}
+	f.logger = slog.New(slog.NewJSONHandler(&f.logs, nil))
 	for range 2 {
 		f.outboxIDs = append(f.outboxIDs, uuid.New())
 		f.targetIDs = append(f.targetIDs, uuid.New())
@@ -359,6 +437,20 @@ func (f *outboxQueueFixture) record(event string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.events = append(f.events, event)
+}
+
+func (f *outboxQueueFixture) decodedLogs(t *testing.T) []map[string]any {
+	t.Helper()
+	var entries []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(f.logs.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &entry))
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 func (f *outboxQueueFixture) recorded() []string {
@@ -489,7 +581,7 @@ func newBuildOutboxFixture(t *testing.T) *outboxQueueFixture {
 		}
 	}
 	f.run = func(ctx context.Context) {
-		NewBuildOutboxWorker(repo, f.publisher, cfg, discardLogger()).Run(ctx)
+		NewBuildOutboxWorker(repo, f.publisher, cfg, f.logger).Run(ctx)
 	}
 	return f
 }
@@ -550,7 +642,7 @@ func newComposeOutboxFixture(t *testing.T) *outboxQueueFixture {
 		}
 	}
 	f.run = func(ctx context.Context) {
-		NewComposeOutboxWorker(repo, f.publisher, cfg, discardLogger()).Run(ctx)
+		NewComposeOutboxWorker(repo, f.publisher, cfg, f.logger).Run(ctx)
 	}
 	return f
 }
@@ -621,7 +713,7 @@ func newContainerOutboxFixture(t *testing.T) *outboxQueueFixture {
 		}
 	}
 	f.run = func(ctx context.Context) {
-		NewContainerOutboxWorker(repo, f.publisher, cfg, discardLogger()).Run(ctx)
+		NewContainerOutboxWorker(repo, f.publisher, cfg, f.logger).Run(ctx)
 	}
 	return f
 }
@@ -681,7 +773,7 @@ func newResourceOutboxFixture(t *testing.T) *outboxQueueFixture {
 		}
 	}
 	f.run = func(ctx context.Context) {
-		NewResourceOutboxWorker(repo, f.publisher, cfg, discardLogger()).Run(ctx)
+		NewResourceOutboxWorker(repo, f.publisher, cfg, f.logger).Run(ctx)
 	}
 	return f
 }

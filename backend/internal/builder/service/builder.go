@@ -73,6 +73,16 @@ type BuildNetworkAdmission interface {
 
 const defaultBuildCancelPollInterval = 2 * time.Second
 
+// buildCleanupTimeout bounds cleanup that must outlive the build's own context.
+const buildCleanupTimeout = 30 * time.Second
+
+// cleanupContext detaches cleanup from the build's cancellation while keeping
+// its request values, and bounds it so an unresponsive dependency cannot hold
+// the queue delivery.
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), buildCleanupTimeout)
+}
+
 type buildJob struct {
 	Claim        model.BuildClaim
 	BuildID      string
@@ -210,7 +220,9 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 			_, finalized := s.pending[msg.BuildID]
 			s.activeMu.Unlock()
 			if finalized {
-				if err := s.cleanupFinalizedBuild(context.WithoutCancel(ctx), msg); err != nil {
+				cleanupCtx, cancel := cleanupContext(ctx)
+				defer cancel()
+				if err := s.cleanupFinalizedBuild(cleanupCtx, msg); err != nil {
 					handleErr = apperrors.Wrap(apperrors.ErrUnavailable, "build cleanup is pending", err)
 				}
 			}
@@ -252,7 +264,9 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	if !started {
 		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
 		if isTerminalBuildStatus(status) {
-			if deleteErr := s.objectStore.DeleteObject(context.Background(), msg.ArchiveObjectKey); deleteErr != nil {
+			cleanupCtx, cancel := cleanupContext(ctx)
+			defer cancel()
+			if deleteErr := s.objectStore.DeleteObject(cleanupCtx, msg.ArchiveObjectKey); deleteErr != nil {
 				s.logger.WarnContext(ctx, "failed to delete skipped build archive object", "build_id", msg.BuildID, "error", deleteErr)
 			}
 		}
@@ -296,9 +310,12 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		if buildCtx.Err() != nil {
 			return s.completeCanceledBuild(msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
-		_ = s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes)
-		if uploadErr := s.uploadBuildLog(buildCtx, s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID), msg.BuildID, msg.LogObjectKey); uploadErr != nil {
-			s.logger.WarnContext(ctx, "failed to upload invalid archive build log", "build_id", msg.BuildID, "error", uploadErr)
+		logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
+		if err := s.logManager.WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes); err != nil {
+			logger.WarnContext(ctx, "failed to write invalid archive build log", "error", err)
+		}
+		if uploadErr := s.uploadBuildLog(buildCtx, logger, msg.BuildID, msg.LogObjectKey); uploadErr != nil {
+			logger.WarnContext(ctx, "failed to upload invalid archive build log", "error", uploadErr)
 		}
 		if completeErr := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusFailed, 0); completeErr != nil {
 			return completeErr
@@ -527,7 +544,9 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	defer func() { _ = logStream.Close() }() // read-only stream; log failures are reported by SaveLogs
 	defer func() {
 		// Orphan build containers are otherwise only removed at Builder startup.
-		if err := s.dockerAPI.CleanBuildContainer(context.Background(), containerID); err != nil {
+		cleanupCtx, cancel := cleanupContext(ctx)
+		defer cancel()
+		if err := s.dockerAPI.CleanBuildContainer(cleanupCtx, containerID); err != nil {
 			logger.WarnContext(ctx, "failed to remove build container", "container_id", containerID, "error", err)
 		}
 	}()

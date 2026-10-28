@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -118,7 +119,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	require.NoError(t, err)
 	pair, err := tls.LoadX509KeyPair(certFile, keyFile)
 	require.NoError(t, err)
-	edge := &http.Server{Handler: corehttp.RegistryEdgeHandler(target, authority, httpClient.Transport, auth), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: time.Minute, WriteTimeout: time.Minute}
+	edge := &http.Server{Handler: corehttp.RegistryEdgeHandler(target, authority, httpClient.Transport, auth, slog.New(slog.DiscardHandler)), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: time.Minute, WriteTimeout: time.Minute}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

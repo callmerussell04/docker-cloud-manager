@@ -60,16 +60,16 @@ func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		build, err := w.repo.GetByID(ctx, item.BuildID)
 		if err == nil && model.IsBuildTerminalStatus(build.Status) {
-			_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil), "build_id", item.BuildID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, err), "build_id", item.BuildID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch build for outbox message", "build_id", item.BuildID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkBuildOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkBuildOutboxPending(ctx, item.ID, err), "build_id", item.BuildID)
 			continue
 		}
 		w.relay.publish(ctx, outboxMessage{

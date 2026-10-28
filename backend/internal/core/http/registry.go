@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -19,7 +20,7 @@ type RegistryTokenLogic interface {
 
 // RegistryTokenHandler is mounted on a dedicated TLS listener, never alongside
 // Core's control-plane routes. Passwords are accepted only in Basic auth headers.
-func RegistryTokenHandler(logic RegistryTokenLogic) http.Handler {
+func RegistryTokenHandler(logic RegistryTokenLogic, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
@@ -50,17 +51,32 @@ func RegistryTokenHandler(logic RegistryTokenLogic) http.Handler {
 			if errors.Is(err, apperrors.ErrForbidden) || errors.Is(err, apperrors.ErrNotFound) {
 				code = http.StatusUnauthorized
 			}
-			w.WriteHeader(code)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "registry authorization unavailable or denied"})
+			writeRegistryTokenResponse(r.Context(), w, logger, code, map[string]string{"error": "registry authorization unavailable or denied"})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"token": token, "access_token": token, "expires_in": 60, "issued_at": time.Now().UTC().Format(time.RFC3339)})
+		writeRegistryTokenResponse(r.Context(), w, logger, http.StatusOK, map[string]any{"token": token, "access_token": token, "expires_in": 60, "issued_at": time.Now().UTC().Format(time.RFC3339)})
 	})
+}
+
+// writeRegistryTokenResponse encodes before writing so an encoding failure
+// still produces a status. A failed write means the client is gone; it is
+// logged once without the body, which may carry a token.
+func writeRegistryTokenResponse(ctx context.Context, w http.ResponseWriter, logger *slog.Logger, status int, body any) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		logger.ErrorContext(ctx, "failed to encode registry token response", "operation", "registry token response", "error", err)
+		return
+	}
+	w.WriteHeader(status)
+	if _, err := w.Write(append(raw, '\n')); err != nil {
+		logger.WarnContext(ctx, "failed to write registry token response", "operation", "registry token response", "status", status, "error", err)
+	}
 }
 
 // RegistryEdgeHandler exposes only the Registry API and token realm. All access
 // decisions on API paths are still enforced by Distribution's native verifier.
-func RegistryEdgeHandler(target *url.URL, authority string, transport http.RoundTripper, logic RegistryTokenLogic) http.Handler {
+func RegistryEdgeHandler(target *url.URL, authority string, transport http.RoundTripper, logic RegistryTokenLogic, logger *slog.Logger) http.Handler {
 	proxy := &httputil.ReverseProxy{
 		Rewrite:   func(r *httputil.ProxyRequest) { r.SetURL(target); r.Out.Host = authority },
 		Transport: transport,
@@ -68,7 +84,7 @@ func RegistryEdgeHandler(target *url.URL, authority string, transport http.Round
 			http.Error(w, "registry unavailable", http.StatusServiceUnavailable)
 		},
 	}
-	tokenHandler := RegistryTokenHandler(logic)
+	tokenHandler := RegistryTokenHandler(logic, logger)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 		defer cancel()

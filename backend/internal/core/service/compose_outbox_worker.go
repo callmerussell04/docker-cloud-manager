@@ -54,16 +54,16 @@ func (w *ComposeOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		job, err := w.repo.GetComposeDeploymentJob(ctx, item.JobID)
 		if err == nil && model.IsComposeDeploymentTerminalStatus(job.Status) {
-			_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, nil), "job_id", item.JobID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkComposeOutboxDiscarded(ctx, item.ID, err), "job_id", item.JobID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch compose deployment job for outbox message", "job_id", item.JobID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkComposeOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkComposeOutboxPending(ctx, item.ID, err), "job_id", item.JobID)
 			continue
 		}
 		w.relay.publish(ctx, outboxMessage{

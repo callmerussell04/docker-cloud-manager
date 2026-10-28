@@ -54,16 +54,16 @@ func (w *ResourceOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		op, err := w.repo.GetOperationByID(ctx, item.OperationID)
 		if err == nil && op.Status != model.OperationStatusPending {
-			_ = w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch resource operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkResourceOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkResourceOutboxPending(ctx, item.ID, err), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
 			continue
 		}
 		w.relay.publish(ctx, outboxMessage{

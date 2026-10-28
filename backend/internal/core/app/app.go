@@ -140,7 +140,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	registryEdge, err := registryServer(cfg.Registry, registryClient, registryAuth)
+	registryEdge, err := registryServer(cfg.Registry, registryClient, registryAuth, logger)
 	if err != nil {
 		return nil, err
 	}

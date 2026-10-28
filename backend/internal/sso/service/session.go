@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
@@ -58,12 +59,12 @@ func (s *AuthService) createSession(ctx context.Context, authenticated model.Use
 func (s *AuthService) issueTokens(user model.User, session model.Session, now time.Time) (model.Tokens, model.RefreshToken, error) {
 	var secret [32]byte
 	if _, err := io.ReadFull(s.random, secret[:]); err != nil {
-		return model.Tokens{}, model.RefreshToken{}, apperrors.ErrInternal
+		return model.Tokens{}, model.RefreshToken{}, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate refresh token: %w", err))
 	}
 	value := base64.RawURLEncoding.EncodeToString(secret[:])
 	access, err := s.tokenProvider.GenerateAccessToken(user, session.ID, earlier(now.Add(s.cfg.AccessTTL), session.AbsoluteExpiresAt))
 	if err != nil {
-		return model.Tokens{}, model.RefreshToken{}, apperrors.ErrInternal
+		return model.Tokens{}, model.RefreshToken{}, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate access token: %w", err))
 	}
 	digest := sha256.Sum256([]byte(value))
 	return model.Tokens{AccessToken: access, RefreshToken: value, RefreshExpiresAt: earlier(session.IdleExpiresAt, session.AbsoluteExpiresAt)},

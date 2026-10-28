@@ -56,7 +56,7 @@ func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, bo
 			err = ctx.Err()
 		}
 		if err != nil {
-			_ = p.resetLocked()
+			_ = p.resetLocked() // discards the failed connection; the attempt's error is the one reported
 		}
 	}()
 	if p.socket != nil {
@@ -93,7 +93,7 @@ func interruptOnCancel(ctx context.Context, socket net.Conn) func() {
 	done := make(chan struct{})
 	stop := context.AfterFunc(ctx, func() {
 		defer close(done)
-		_ = socket.Close()
+		_ = socket.Close() // interrupts blocked I/O; the canceled context is reported instead
 	})
 	return func() {
 		if !stop() {
@@ -116,7 +116,7 @@ func (p *Publisher) ensureConnected(ctx context.Context, stopIO *func()) error {
 	}
 	(*stopIO)()
 	*stopIO = func() {}
-	_ = p.resetLocked()
+	_ = p.resetLocked() // discards a dead connection before redialing; the dial reports any failure
 	conn, err := amqp.DialConfig(p.url, amqp.Config{
 		Dial: func(network, addr string) (net.Conn, error) {
 			socket, err := (&net.Dialer{}).DialContext(ctx, network, addr)
@@ -155,7 +155,7 @@ func (p *Publisher) resetLocked() error {
 		err = p.socket.Close()
 	}
 	if p.conn != nil {
-		_ = p.conn.CloseDeadline(time.Now())
+		_ = p.conn.CloseDeadline(time.Now()) // the socket is already closed; this only releases AMQP state
 	}
 	p.socket = nil
 	p.conn = nil

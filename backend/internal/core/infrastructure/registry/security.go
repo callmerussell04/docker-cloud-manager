@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,7 +20,7 @@ import (
 func TLSClient(caFile string) (*http.Client, error) {
 	ca, err := os.ReadFile(caFile)
 	if err != nil {
-		return nil, errors.New("read registry CA")
+		return nil, fmt.Errorf("read registry CA: %w", err)
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(ca) {
@@ -74,7 +75,7 @@ func responseError(code int) error {
 
 // DockerAuth encodes only an exact-repository exchange identity for the daemon.
 func DockerAuth(username, password, authority string) string {
-	raw, _ := json.Marshal(map[string]string{"username": username, "password": password, "serveraddress": authority})
+	raw, _ := json.Marshal(map[string]string{"username": username, "password": password, "serveraddress": authority}) // a string map always encodes
 	return base64.URLEncoding.EncodeToString(raw)
 }
 

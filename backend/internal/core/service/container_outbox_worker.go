@@ -55,25 +55,25 @@ func (w *ContainerOutboxWorker) publishBatch(ctx context.Context) {
 	for _, item := range items {
 		op, err := w.repo.GetOperationByID(ctx, item.OperationID)
 		if err == nil && op.Status != model.OperationStatusPending {
-			_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, nil)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, nil), "operation_id", item.OperationID)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err), "operation_id", item.OperationID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch container operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkContainerOutboxPending(ctx, item.ID, err), "operation_id", item.OperationID)
 			continue
 		}
 		if _, err := w.repo.GetByID(ctx, item.ContainerID); err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				_ = w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkContainerOutboxDiscarded(ctx, item.ID, err), "operation_id", item.OperationID)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch container for outbox message", "container_id", item.ContainerID, "outbox_id", item.ID, "error", err)
-			_ = w.repo.MarkContainerOutboxPending(ctx, item.ID, err)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkContainerOutboxPending(ctx, item.ID, err), "operation_id", item.OperationID)
 			continue
 		}
 		w.relay.publish(ctx, outboxMessage{

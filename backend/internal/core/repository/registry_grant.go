@@ -31,7 +31,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	// row may already be gone, as canceled and failed builds delete it.
 	b, err := scanBuild(tx.QueryRowContext(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
 	if errors.Is(err, sql.ErrNoRows) {
-		return model.Build{}, false, apperrors.ErrNotFound
+		return model.Build{}, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build", err))
 	}
 	if err != nil {
 		return model.Build{}, false, wrapOp("registry grant claim build", err)
@@ -42,7 +42,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	var tag string
 	err = tx.QueryRowContext(ctx, `SELECT tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag)
 	if errors.Is(err, sql.ErrNoRows) {
-		return b, false, apperrors.ErrNotFound
+		return b, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build image", err))
 	}
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
@@ -65,7 +65,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
-	if err := commitTx(tx, "claim build"); err != nil {
+	if err := commitTx(tx, "registry grant claim build"); err != nil {
 		return b, false, err
 	}
 	b.Status = model.BuildStatusRunning
@@ -83,30 +83,30 @@ func (r *RegistryGrantRepository) AuthorizeCredential(ctx context.Context, hash 
 	if errors.Is(err, sql.ErrNoRows) {
 		err = r.db.QueryRowContext(ctx, `SELECT c.id,c.owner_id,c.repository FROM registry_pull_credentials c WHERE c.secret_hash=$1 AND c.expires_at>$2 AND EXISTS(SELECT 1 FROM images i WHERE i.owner_id=c.owner_id AND i.status='available' AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=c.repository)`, hash, now).Scan(&p.BuildID, &p.OwnerID, &p.Repository)
 		if errors.Is(err, sql.ErrNoRows) {
-			return p, apperrors.ErrForbidden
+			return p, apperrors.Wrap(apperrors.ErrForbidden, apperrors.ErrForbidden.Error(), wrapOp("registry grant authorize credential", err))
 		}
 		p.ReadOnly = true
 	}
 	if err != nil {
-		return p, apperrors.ErrUnavailable
+		return p, unavailableOp("registry grant authorize credential", err)
 	}
 	if p.ReadOnly {
 		return p, nil
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT lower(owner_id::text || '_' || split_part(tag,':',1)) FROM images WHERE owner_id=$1 AND status='available'`, p.OwnerID)
 	if err != nil {
-		return p, apperrors.ErrUnavailable
+		return p, unavailableOp("registry grant list pull repositories", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			return p, apperrors.ErrUnavailable
+			return p, unavailableOp("registry grant list pull repositories", err)
 		}
 		p.PullRepositories = append(p.PullRepositories, name)
 	}
 	if err := rows.Err(); err != nil {
-		return p, apperrors.ErrUnavailable
+		return p, unavailableOp("registry grant list pull repositories", err)
 	}
 	return p, nil
 }
@@ -115,7 +115,7 @@ func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, reposito
 	var exists bool
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE lower(owner_id::text || '_' || split_part(tag,':',1))=$1 UNION ALL SELECT 1 FROM registry_cleanup_jobs WHERE repository=$1)`, repository).Scan(&exists)
 	if err != nil {
-		return false, apperrors.ErrUnavailable
+		return false, unavailableOp("registry grant check repository", err)
 	}
 	return exists, nil
 }
@@ -138,7 +138,7 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 			return wrapOp("registry grant revoke build", err)
 		}
 	}
-	return commitTx(tx, "revoke build")
+	return commitTx(tx, "registry grant revoke build")
 }
 
 // FenceRepository revokes the repository's build credentials whose builds no
@@ -162,39 +162,39 @@ func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repositor
 func (r *RegistryGrantRepository) PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT id,repository,tag FROM registry_cleanup_jobs WHERE not_before<clock_timestamp() ORDER BY not_before LIMIT 20`)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("registry grant list pending cleanup", err)
 	}
 	defer rows.Close()
 	var jobs []model.RegistryCleanup
 	for rows.Next() {
 		var job model.RegistryCleanup
 		if err := rows.Scan(&job.ID, &job.Repository, &job.Tag); err != nil {
-			return nil, err
+			return nil, wrapOp("registry grant list pending cleanup", err)
 		}
 		jobs = append(jobs, job)
 	}
-	return jobs, rows.Err()
+	return jobs, wrapOp("registry grant list pending cleanup", rows.Err())
 }
 
 func (r *RegistryGrantRepository) CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM registry_cleanup_jobs WHERE id=$1`, id)
-	return err
+	return wrapOp("registry grant complete cleanup", err)
 }
 
 func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM registry_pull_credentials WHERE expires_at<clock_timestamp()`)
 	if err != nil {
-		return apperrors.ErrUnavailable
+		return unavailableOp("registry grant prune pull credentials", err)
 	}
 	result, err := r.db.ExecContext(ctx, `INSERT INTO registry_pull_credentials(id,owner_id,repository,secret_hash,expires_at)
  SELECT $1,owner_id,$2,$3,clock_timestamp()+$4*interval '1 second' FROM images
  WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$2 LIMIT 1`, id, repository, hash, lifetime.Seconds())
 	if err != nil {
-		return apperrors.ErrUnavailable
+		return unavailableOp("registry grant save pull credential", err)
 	}
 	count, err := result.RowsAffected()
 	if err != nil {
-		return apperrors.ErrUnavailable
+		return unavailableOp("registry grant save pull credential", err)
 	}
 	if count != 1 {
 		return apperrors.ErrForbidden
@@ -207,12 +207,14 @@ func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uui
 func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, repository string) (func(), error) {
 	tx, err := r.lockDB.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, wrapOp("registry grant lock repository", err)
 	}
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 84627))`, repository); err != nil {
-		_ = tx.Rollback()
-		return nil, err
+		_ = tx.Rollback() // the lock was not taken; the lock error is the one reported
+		return nil, wrapOp("registry grant lock repository", err)
 	}
+	// Rolling back releases the transaction lock; a failed rollback ends the
+	// session, which releases it too.
 	return func() { _ = tx.Rollback() }, nil
 }
 
@@ -225,11 +227,17 @@ func (r *RegistryGrantRepository) RegistryCleanupState(ctx context.Context, job 
  THEN 'pending'
  WHEN EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND split_part(tag,':',2)=$2)
  THEN 'obsolete' ELSE 'ready' END`, job.Repository, job.Tag, fence.Seconds()).Scan(&state)
-	return state, err
+	return state, wrapOp("registry grant cleanup state", err)
 }
 
 func (r *RegistryGrantRepository) HasActiveRegistryBuilds(ctx context.Context, repository string) (bool, error) {
 	var active bool
 	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM registry_build_credentials c JOIN builds b ON b.id=c.build_id WHERE c.repository=$1 AND b.status='running')`, repository).Scan(&active)
-	return active, err
+	return active, wrapOp("registry grant check active builds", err)
+}
+
+// unavailableOp reports a storage failure as ErrUnavailable, keeping the
+// "service unavailable" safe message while preserving the operation and cause.
+func unavailableOp(operation string, err error) error {
+	return apperrors.Wrap(apperrors.ErrUnavailable, apperrors.ErrUnavailable.Error(), wrapOp(operation, err))
 }
