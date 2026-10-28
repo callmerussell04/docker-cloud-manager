@@ -322,7 +322,7 @@ under the locked Squid 7.6. Compose and the Registry isolation test run the upst
 Distribution image as
 `registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`.
 
-The other upstream infrastructure images in `docker-compose.yml`,
+The other third-party infrastructure images in `docker-compose.yml`,
 `backend/docker-compose.test.yml` and `backend/docker-compose.keycloak.yml` are pinned
 to exact release tags without digests: `postgres:17.10-alpine3.23`,
 `migrate/migrate:v4.19.1`, `clickhouse/clickhouse-server:25.5.11.15`,
@@ -335,10 +335,11 @@ and keep it identical across the Compose files.
 Object storage uses `pgsty/minio`, a community MinIO fork, because the upstream
 `minio/minio` image is no longer pullable from Docker Hub or Quay. It keeps the
 upstream image's entrypoint, `minio` command, `MINIO_ROOT_*` variables, `/data`
-volume and bundled `curl` health check, so the Compose service is unchanged. DCM
-uses only basic S3 object and bucket calls, so any S3-compatible server can
-replace it; update the tag in `docker-compose.yml` and
-`backend/docker-compose.test.yml` together.
+volume and bundled `curl` health check, so the Compose service is unchanged. The
+DCM storage client uses only basic S3 object and bucket calls, so it works with
+other S3-compatible servers, but the Compose services are MinIO-specific: another
+server needs its own command, credentials variables and health check in both
+Compose files.
 
 `backend/tests/buildinputs` runs in `make test-fast` and therefore in `make verify`
 and CI. It fails when a Dockerfile in `backend/dockerfiles/` or
