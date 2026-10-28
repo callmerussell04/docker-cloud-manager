@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -81,7 +82,7 @@ func TestLogManagerSaveLogsSystemLogExistsAndCleanup(t *testing.T) {
 	require.Contains(t, string(data), longLine)
 	require.Contains(t, string(data), "next line\n")
 
-	require.NoError(t, manager.WriteSystemLog("build-id", "hello", int64(len(input)+1024)))
+	require.NoError(t, manager.WriteSystemLog(context.Background(), "build-id", "hello", int64(len(input)+1024)))
 	data, err = os.ReadFile(logPath)
 	require.NoError(t, err)
 	require.Contains(t, string(data), "[SYSTEM] hello")
@@ -248,7 +249,7 @@ func TestLogManagerSystemMessagesRespectRemainingBudget(t *testing.T) {
 	require.NoError(t, err)
 	path, err := manager.SaveLogs("build", strings.NewReader("1234"), 4)
 	require.NoError(t, err)
-	require.ErrorIs(t, manager.WriteSystemLog("build", "failure", 4), model.ErrBuildLogSizeLimitExceeded)
+	require.ErrorIs(t, manager.WriteSystemLog(context.Background(), "build", "failure", 4), model.ErrBuildLogSizeLimitExceeded)
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, "1234", string(data))
@@ -278,3 +279,17 @@ func (w *faultLogWriter) Close() error { w.closed = true; return w.closeErr }
 type failedLogReader struct{ err error }
 
 func (r *failedLogReader) Read(p []byte) (int, error) { return 0, r.err }
+
+func TestLogManagerSystemMessageHonoursCancellation(t *testing.T) {
+	manager, err := storage.NewLogManager(t.TempDir())
+	require.NoError(t, err)
+	path, err := manager.SaveLogs("build", strings.NewReader("log\n"), 1024)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	require.ErrorIs(t, manager.WriteSystemLog(ctx, "build", "failure", 1024), context.Canceled)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "log\n", string(data))
+}

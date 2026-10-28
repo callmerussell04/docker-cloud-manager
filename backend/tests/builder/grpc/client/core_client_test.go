@@ -8,6 +8,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	grpcclient "github.com/callmerussell04/docker-cloud-manager/internal/builder/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -52,7 +53,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.Equal(t, "build-id", images.startedBuildID)
 	require.Equal(t, "image-id", imageID.ImageID)
 	require.True(t, started)
-	require.Equal(t, "running", buildStatus)
+	require.Equal(t, model.BuildStatus("running"), buildStatus)
 
 	err = client.CompleteBuildRecord(userCtx, "build-id", "image-id", "success", 42)
 	require.NoError(t, err)
@@ -65,7 +66,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	gotStatus, err := client.GetBuildStatus(userCtx, "build-id")
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, images.statusScope.Kind)
-	require.Equal(t, "canceled", gotStatus)
+	require.Equal(t, model.BuildStatus("canceled"), gotStatus)
 	require.Equal(t, "build-id", images.getBuildID)
 }
 

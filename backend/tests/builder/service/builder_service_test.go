@@ -65,7 +65,7 @@ func TestBuilderServiceHandleBuildMessageSuccessUsesRuntimeConfigAndSanitizesLog
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 	expectLogUpload(h, msg, 1)
 	h.core.EXPECT().
-		CompleteBuildRecord(mock.Anything, msg.BuildID, "image-from-core", "success", 0).
+		CompleteBuildRecord(mock.Anything, msg.BuildID, "image-from-core", model.BuildStatus("success"), 0).
 		Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
@@ -98,7 +98,7 @@ func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
 	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Once()
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
 	expectLogUpload(h, msg, 1)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(apperrors.ErrUnavailable).Once()
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(apperrors.ErrUnavailable).Once()
 	require.ErrorIs(t, h.service.HandleBuildMessage(context.Background(), msg), apperrors.ErrUnavailable)
 	h.objects.AssertNotCalled(t, "DeleteObject", mock.Anything, msg.ArchiveObjectKey)
 	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
@@ -106,7 +106,7 @@ func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
 	h.results, err = storage.NewResultStore(h.resultDir)
 	require.NoError(t, err)
 	h.service = newBuilderService(t, h.deps())
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil).Once()
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
 	h.docker.AssertNumberOfCalls(t, "RunBuildContainer", 1)
@@ -115,7 +115,7 @@ func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
 func TestBuilderServiceHandleBuildMessageKeepsRunningDuplicatesRetryable(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
-		status     string
+		status     model.BuildStatus
 		wantDelete bool
 	}{
 		{name: "terminal success deletes archive", status: "success", wantDelete: true},
@@ -209,9 +209,9 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
 				expectStarted(h, msg, msg.ImageID)
 				expectPreparedArchive(h, msg, apperrors.ErrBadRequest)
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 1)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -224,9 +224,9 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				expectPreparedArchive(h, msg, nil)
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("", func() {}, errors.New("workspace"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_internal"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -240,9 +240,9 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("/tmp/workspace", func() {}, nil)
 				h.extractor.EXPECT().Extract("/tmp/archive.zip", "/tmp/workspace", int64(500<<20)).Return(errors.New("extract"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_internal"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -257,9 +257,9 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
 				h.workspaces.EXPECT().Create(msg.BuildID).Return("/tmp/workspace", func() {}, nil)
 				h.extractor.EXPECT().Extract("/tmp/archive.zip", "/tmp/workspace", int64(500<<20)).Return(nil)
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_internal"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -271,9 +271,9 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				expectStarted(h, msg, msg.ImageID)
 				expectBuildPrepared(h, msg)
 				h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("", nil, errors.New("docker"))
-				h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed due to an internal platform error.", int64(5<<20)).Return(nil)
 				expectLogUpload(h, msg, 2)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_internal", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_internal"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -289,7 +289,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(errors.New("wait"))
 				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 				expectLogUpload(h, msg, 1)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -305,7 +305,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.logs.EXPECT().IsLogSizeLimitExceeded(errLogLimit).Return(true).Once()
 				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
 				expectLogUpload(h, msg, 1)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed"), 0).Return(nil)
 				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 				return msg
 			},
@@ -321,7 +321,7 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 				h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil)
 				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 				expectLogUpload(h, msg, 1)
-				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(apperrors.ErrUnavailable)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(apperrors.ErrUnavailable)
 				return msg
 			},
 			wantErr: apperrors.ErrUnavailable,
@@ -348,9 +348,9 @@ func TestBuilderServiceReportsInvalidArchiveSystemLogWriteFailure(t *testing.T) 
 	writeErr := errors.New("disk full")
 	expectStarted(h, msg, msg.ImageID)
 	expectPreparedArchive(h, msg, apperrors.ErrBadRequest)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(writeErr)
+	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because the uploaded archive is invalid.", int64(5<<20)).Return(writeErr)
 	expectLogUpload(h, msg, 1)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg), "the build still completes as failed")
@@ -380,9 +380,9 @@ func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTer
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
+	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "canceled", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("canceled"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
 	err := h.service.HandleBuildMessage(context.Background(), msg)
@@ -407,9 +407,9 @@ func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build failed because it exceeded the maximum build time.", int64(5<<20)).Return(nil)
+	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because it exceeded the maximum build time.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed_timeout", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_timeout"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
 	err := h.service.HandleBuildMessage(context.Background(), msg)
@@ -435,9 +435,9 @@ func TestBuilderServiceStopCancelsActiveBuildsAndRespectsContext(t *testing.T) {
 			return ctx.Err()
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
-	h.logs.EXPECT().WriteSystemLog(msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
+	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
 	expectLogUpload(h, msg, 2)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "canceled", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("canceled"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
 	done := make(chan error, 1)
@@ -472,7 +472,7 @@ func TestBuilderServiceMaxConcurrentBuildsBlocksUntilContextCanceled(t *testing.
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 	expectLogUpload(h, msg, 1)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 
 	firstDone := make(chan error, 1)
@@ -663,7 +663,7 @@ func TestBuilderServiceBoundsRawNewlineFreeLogs(t *testing.T) {
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Maybe()
 	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Maybe()
 	expectLogUpload(h, msg, 1)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "failed", 0).Return(nil)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed"), 0).Return(nil)
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
 	require.LessOrEqual(t, source.read, int64(1025))
@@ -689,11 +689,12 @@ func (r *generatedOutput) Read(p []byte) (int, error) {
 
 func TestBuilderServiceLogPipelineOutcomes(t *testing.T) {
 	for _, tt := range []struct {
-		name, input, status string
-		limit               int64
-		failure             error
-		uploadFailure       bool
-		closeFailure        bool
+		name, input   string
+		status        model.BuildStatus
+		limit         int64
+		failure       error
+		uploadFailure bool
+		closeFailure  bool
 	}{
 		{name: "normal", input: "hello\nworld", status: "success", limit: 8192},
 		{name: "secrets and references across buffers", input: strings.Repeat("x", 4093) + " token=supersecret password=hunter2 registry:5000/owner-id_app:latest\nAuthorization: Bearer private-token", status: "success", limit: 8192},
@@ -791,7 +792,7 @@ func TestBuilderServiceRetainsFinalizationUntilCoreAccepts(t *testing.T) {
 			msg := testBuildMessage()
 			result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
 			require.NoError(t, h.results.Save(context.Background(), msg.BuildID, result))
-			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(tt.completionErr).Once()
+			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(tt.completionErr).Once()
 			if errors.Is(tt.completionErr, apperrors.ErrNotFound) {
 				h.core.EXPECT().GetBuildStatus(mock.Anything, msg.BuildID).Return("running", tt.statusErr).Once()
 			}
@@ -838,7 +839,7 @@ func TestBuilderServiceRetainsOutcomeWhenJournalWriteFails(t *testing.T) {
 	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
 	results.EXPECT().Save(mock.Anything, msg.BuildID, result).Return(nil).Once()
 	results.EXPECT().Delete(mock.Anything, msg.BuildID).Return(nil).Once()
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil).Once()
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
 	h.docker.AssertNumberOfCalls(t, "RunBuildContainer", 1)
@@ -855,7 +856,7 @@ func TestBuilderServiceRetriesCleanupBeforeDiscardingResult(t *testing.T) {
 			deps := h.deps()
 			deps.Workspaces = workspaces
 			h.service = newBuilderService(t, deps)
-			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Twice()
+			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil).Twice()
 			errCleanup := apperrors.ErrForbidden
 			switch stage {
 			case "archive object":
@@ -903,7 +904,7 @@ func TestBuilderServiceQueuedBuildReceivesFullExecutionBudget(t *testing.T) {
 	h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil).Once()
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
 	expectLogUpload(h, msg, 1)
-	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil).Once()
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
 }

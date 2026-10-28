@@ -4,6 +4,6 @@ package model
 // Credentials and source configuration must never enter the result journal.
 type BuildResult struct {
 	ImageID string
-	Status  string
+	Status  BuildStatus
 	SizeMB  int
 }

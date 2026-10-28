@@ -91,22 +91,22 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			network := buildermocks.NewBuildNetworkAdmission(t)
 			network.EXPECT().ValidateBuildNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 			core := buildermocks.NewCoreClient(t)
-			core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).RunAndReturn(func(ctx context.Context, _ string) (buildermodel.BuildClaim, bool, string, error) {
+			core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).RunAndReturn(func(ctx context.Context, _ string) (buildermodel.BuildClaim, bool, buildermodel.BuildStatus, error) {
 				b, started, err := builds.StartBuildRecord(ctx, created.BuildID)
-				return buildermodel.BuildClaim{ImageID: b.ImageID.String(), RegistryUsername: "scoped", RegistryPassword: "secret", Destination: "registry:5000/build:latest"}, started, b.Status, err
+				return buildermodel.BuildClaim{ImageID: b.ImageID.String(), RegistryUsername: "scoped", RegistryPassword: "secret", Destination: "registry:5000/build:latest"}, started, buildermodel.BuildStatus(b.Status), err
 			}).Once()
 			core.EXPECT().GetBuildStatus(mock.Anything, msg.BuildID).Return("running", nil).Maybe()
 			var completions atomic.Int32
-			core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).RunAndReturn(func(ctx context.Context, _, _, status string, size int) error {
+			core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, buildermodel.BuildStatus("success"), 0).RunAndReturn(func(ctx context.Context, _, _ string, status buildermodel.BuildStatus, size int) error {
 				if completions.Add(1) == 1 {
 					if scenario.lostResponse {
-						if err := builds.CompleteBuildRecord(ctx, created.BuildID, build.ImageID, status, size); err != nil {
+						if err := builds.CompleteBuildRecord(ctx, created.BuildID, build.ImageID, string(status), size); err != nil {
 							return err
 						}
 					}
 					return apperrors.ErrUnavailable
 				}
-				return builds.CompleteBuildRecord(ctx, created.BuildID, build.ImageID, status, size)
+				return builds.CompleteBuildRecord(ctx, created.BuildID, build.ImageID, string(status), size)
 			}).Twice()
 			first := make(chan error, 1)
 			done := make(chan error, 1)

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -61,7 +62,10 @@ func WriteLogs(destination io.WriteCloser, source io.Reader, maxLogSize int64) (
 	return nil
 }
 
-func (m *LogManager) WriteSystemLog(buildID string, message string, maxLogSize int64) error {
+func (m *LogManager) WriteSystemLog(ctx context.Context, buildID string, message string, maxLogSize int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	logFilePath := m.LogPath(buildID)
 	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
