@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service/compose"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReleaseComposeSourceDeletesObjectAndReleasesReservation(t *testing.T) {
@@ -23,9 +24,16 @@ func TestReleaseComposeSourceDeletesObjectAndReleasesReservation(t *testing.T) {
 			store.EXPECT().DeleteObject(mock.Anything, objectKey).Return(nil).Once()
 			staged := composemocks.NewStagedObjectRepository(t)
 			staged.EXPECT().Release(mock.Anything, objectKey).Return(releaseErr).Once()
-			orch := compose.NewOrchestrator(context.Background(), composemocks.NewProjectRepository(t), nil, nil, nil,
-				composemocks.NewConfigProvider(t), store, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			orch.SetStagedObjectRepository(staged)
+			orch, err := compose.NewOrchestrator(compose.OrchestratorDeps{
+				Projects:          composemocks.NewProjectRepository(t),
+				DeploymentCounter: composemocks.NewActiveComposeDeploymentCounter(t),
+				Capacity:          composemocks.NewCapacityChecker(t),
+				Config:            composemocks.NewConfigProvider(t),
+				ObjectStore:       store,
+				StagedObjects:     staged,
+				Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+			})
+			require.NoError(t, err)
 
 			orch.ReleaseComposeSource(context.Background(), objectKey)
 		})

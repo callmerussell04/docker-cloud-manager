@@ -9,6 +9,7 @@ import (
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
 	"github.com/google/uuid"
@@ -116,6 +117,73 @@ func TestBuildServiceAdmission(t *testing.T) {
 					}
 					require.False(t, locked, "capacity lock must be released on every return")
 				})
+			}
+		})
+	}
+}
+
+func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
+	const archiveKey = "build-archives/copied.zip"
+	const archiveSize = int64(5 << 20)
+	stagedFull := apperrors.New(apperrors.ErrQuotaExceeded, "staged source quota exceeded")
+	statFailure := errors.New("object storage unavailable")
+	scenarios := []struct {
+		name        string
+		quotaDiskMB int64
+		statErr     error
+		reserveErr  error
+		wantErr     error
+		wantMessage string
+	}{
+		{name: "reserves the stat size", quotaDiskMB: 1024},
+		{name: "staged quota exceeded", quotaDiskMB: 1024, reserveErr: stagedFull, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "staged source quota exceeded"},
+		{name: "disk quota exceeded", quotaDiskMB: 1, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "user disk quota exceeded"},
+		{name: "stat fails", statErr: statFailure, wantErr: statFailure},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			owner := uuid.New()
+			cfg := coretest.IntegrationConfig()
+			cfg.MaxStagedSourceBytesPerUser = 64 << 20
+			objects := coremocks.NewBuildObjectStore(t)
+			objects.EXPECT().StatObject(mock.Anything, archiveKey).
+				Return(objectstorage.ObjectInfo{Size: archiveSize}, scenario.statErr).Once()
+			users := coremocks.NewUserInfoProvider(t)
+			images := coremocks.NewBuildImageRepository(t)
+			staged := coremocks.NewStagedObjectRepository(t)
+			if scenario.statErr == nil {
+				users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaDiskMB: scenario.quotaDiskMB}, nil).Once()
+				images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Once()
+				staged.EXPECT().ActiveBytesByOwner(mock.Anything, owner).Return(int64(0), nil).Once()
+			}
+			if scenario.statErr == nil && scenario.quotaDiskMB > 1 {
+				staged.EXPECT().Reserve(mock.Anything, mock.Anything, cfg.MaxStagedSourceBytesPerUser).
+					Run(func(_ context.Context, reservation model.StagedObjectReservation, _ int64) {
+						require.Equal(t, owner, reservation.OwnerID)
+						require.Equal(t, archiveKey, reservation.ObjectKey)
+						require.Equal(t, model.StagedObjectKindBuildArchive, reservation.Kind)
+						require.Equal(t, archiveSize, reservation.BytesReserved)
+					}).Return(scenario.reserveErr).Once()
+			}
+			svc := newTestBuildService(t, BuildServiceDeps{
+				Repository:    newBuildRepository(t),
+				Images:        images,
+				Registry:      coremocks.NewImageRegistryAPI(t),
+				Users:         users,
+				Config:        coretest.StaticConfig{Config: cfg},
+				ObjectStore:   objects,
+				StagedObjects: staged,
+			})
+			ctx := accessscope.WithUserScope(context.Background(), owner, "", "")
+
+			err := svc.ReserveBuildArchive(ctx, archiveKey)
+			if scenario.wantErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, scenario.wantErr)
+			if scenario.wantMessage != "" {
+				require.Equal(t, scenario.wantMessage, apperrors.SafeMessage(err))
 			}
 		})
 	}

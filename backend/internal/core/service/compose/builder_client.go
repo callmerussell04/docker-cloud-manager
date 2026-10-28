@@ -23,6 +23,7 @@ type BuildJobCreator interface {
 	CreateBuildJob(ctx context.Context, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	CreateProjectBuildJob(ctx context.Context, projectID uuid.UUID, projectServiceName, tag, archiveObjectKey, logObjectKey, contextDir, dockerfile string, buildArgs map[string]string, requestID string) (uuid.UUID, uuid.UUID, error)
 	ReserveBuildArchive(ctx context.Context, archiveObjectKey string) error
+	ReleaseBuildArchive(ctx context.Context, archiveObjectKey string)
 	CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -64,11 +65,7 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
 		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
-		if releaser, ok := c.builds.(interface {
-			ReleaseBuildArchive(context.Context, string)
-		}); ok {
-			releaser.ReleaseBuildArchive(cleanupCtx, archiveObjectKey)
-		}
+		c.builds.ReleaseBuildArchive(cleanupCtx, archiveObjectKey)
 		cancel()
 		return uuid.Nil, err
 	}

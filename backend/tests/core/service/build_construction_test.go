@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
 	"github.com/stretchr/testify/mock"
@@ -51,6 +52,7 @@ func TestBuildServiceAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *t
 
 var _ BuildRepository = (*repository.BuildRepository)(nil)
 var _ BuildContainerReservationRepository = (*repository.ContainerRepository)(nil)
+var _ BuildObjectStore = (*objectstorage.LazyStorage)(nil)
 
 func newBuildRepository(t *testing.T) *coremocks.BuildRepository {
 	t.Helper()

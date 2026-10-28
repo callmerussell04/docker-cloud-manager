@@ -264,11 +264,28 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	orchestrator := compose.NewOrchestrator(ctx, projRepo, buildRepo, volService, contService, cfg.ConfigManager, objectStore, buildService, imgService, logger)
-	orchestrator.SetResourceRepository(resourceRepo)
-	orchestrator.SetStagedObjectRepository(stagedRepo)
-	orchestrator.SetHostDiskGuard(metricsProvider, cfg.HostDiskPath)
-	orchestrator.SetUserInfoProvider(ssoClient)
+	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
+		Projects:          projRepo,
+		DeploymentCounter: projRepo,
+		Capacity:          contService,
+		Config:            cfg.ConfigManager,
+		Builds:            buildRepo,
+		Resources:         resourceRepo,
+		Volumes:           volService,
+		Containers:        contService,
+		ObjectStore:       objectStore,
+		BuildJobs:         buildService,
+		Images:            imgService,
+		StagedObjects:     stagedRepo,
+		DiskMetrics:       metricsProvider,
+		HostDiskPath:      cfg.HostDiskPath,
+		Users:             ssoClient,
+		Logger:            logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	recoveryMessage := "deployment interrupted by core service restart"
 	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
 		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)

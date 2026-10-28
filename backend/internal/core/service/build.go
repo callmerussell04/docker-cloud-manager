@@ -61,13 +61,12 @@ type BuildVolumeDiskRepository interface {
 	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
+// BuildObjectStore stages build archives and logs. StatObject sizes staged
+// archives so their quota reservation reflects the stored bytes.
 type BuildObjectStore interface {
 	UploadStream(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
-}
-
-type buildObjectStatter interface {
 	StatObject(ctx context.Context, objectKey string) (objectstorage.ObjectInfo, error)
 }
 
@@ -296,11 +295,7 @@ func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, object
 	if s.objectStore == nil || objectKey == "" {
 		return
 	}
-	statter, ok := s.objectStore.(buildObjectStatter)
-	if !ok {
-		return
-	}
-	info, err := statter.StatObject(ctx, objectKey)
+	info, err := s.objectStore.StatObject(ctx, objectKey)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "error", err)
 		return
@@ -356,11 +351,7 @@ func (s *BuildService) ReserveBuildArchive(ctx context.Context, archiveObjectKey
 	if s.objectStore == nil {
 		return apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
 	}
-	statter, ok := s.objectStore.(buildObjectStatter)
-	if !ok {
-		return nil
-	}
-	info, err := statter.StatObject(ctx, archiveObjectKey)
+	info, err := s.objectStore.StatObject(ctx, archiveObjectKey)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,7 @@ func TestCancelDeploymentRequestsCancelForActiveProject(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
 	repo := composemocks.NewProjectRepository(t)
-	o := newComposeOrchestratorForTest(t, context.Background(), repo)
+	o := newComposeOrchestratorForTest(t, repo)
 	var updatedStatus string
 	var cancelRequests int
 
@@ -41,7 +41,7 @@ func TestCancelDeploymentForBuildIgnoresInactiveProject(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
 	repo := composemocks.NewProjectRepository(t)
-	o := newComposeOrchestratorForTest(t, context.Background(), repo)
+	o := newComposeOrchestratorForTest(t, repo)
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID, Status: model.ProjectStatusRunning}, nil)
 
@@ -53,7 +53,7 @@ func TestCancelDeploymentRejectsInactiveProject(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
 	repo := composemocks.NewProjectRepository(t)
-	o := newComposeOrchestratorForTest(t, context.Background(), repo)
+	o := newComposeOrchestratorForTest(t, repo)
 
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID, Status: model.ProjectStatusRunning}, nil)
 

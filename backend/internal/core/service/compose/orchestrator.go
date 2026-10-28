@@ -40,7 +40,9 @@ type ProjectRepository interface {
 	UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error
 }
 
-type activeComposeDeploymentCounter interface {
+// ActiveComposeDeploymentCounter counts an owner's queued and running Compose
+// deployments for the queued-deployment limit.
+type ActiveComposeDeploymentCounter interface {
 	CountActiveComposeDeploymentsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
 }
 
@@ -81,6 +83,8 @@ type ContainerService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
+// CapacityChecker preflights a deployment's estimated RAM/CPU against host and
+// owner capacity.
 type CapacityChecker interface {
 	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error
 }
@@ -111,22 +115,23 @@ type BuilderClient interface {
 }
 
 type Orchestrator struct {
-	parentCtx     context.Context
-	parser        *Parser
-	projectRepo   ProjectRepository
-	buildRepo     BuildRepository
-	resourceRepo  ResourceRepository
-	volumeService VolumeService
-	contService   ContainerService
-	cfg           ConfigProvider
-	imageCleaner  ImageCleaner
-	objectStore   ObjectStorage
-	stagedObjects StagedObjectRepository
-	diskMetrics   HostDiskMetricsProvider
-	hostDiskPath  string
-	users         UserInfoProvider
-	builderClient BuilderClient
-	logger        *slog.Logger
+	parser            *Parser
+	projectRepo       ProjectRepository
+	deploymentCounter ActiveComposeDeploymentCounter
+	capacity          CapacityChecker
+	buildRepo         BuildRepository
+	resourceRepo      ResourceRepository
+	volumeService     VolumeService
+	contService       ContainerService
+	cfg               ConfigProvider
+	imageCleaner      ImageCleaner
+	objectStore       ObjectStorage
+	stagedObjects     StagedObjectRepository
+	diskMetrics       HostDiskMetricsProvider
+	hostDiskPath      string
+	users             UserInfoProvider
+	builderClient     BuilderClient
+	logger            *slog.Logger
 }
 
 const (
@@ -146,51 +151,63 @@ type preparedDeploymentSource struct {
 	Archive         bool
 }
 
-func NewOrchestrator(
-	parentCtx context.Context,
-	projectRepo ProjectRepository,
-	buildRepo BuildRepository,
-	volumeService VolumeService,
-	contService ContainerService,
-	cfg ConfigProvider,
-	objectStore ObjectStorage,
-	builds BuildJobCreator,
-	imageCleaner ImageCleaner,
-	logger *slog.Logger,
-) *Orchestrator {
-	if parentCtx == nil {
-		parentCtx = context.Background()
+// OrchestratorDeps contains the capabilities Compose source ingestion needs.
+// Projects, DeploymentCounter, Capacity and Config are required because they
+// enforce the queued-deployment limit and the RAM/CPU preflight. The remaining
+// integrations are optional: without ObjectStore deployments are unavailable,
+// without BuildJobs image builds are unavailable, and without Resources
+// interrupted-deployment cleanup is skipped.
+type OrchestratorDeps struct {
+	Projects          ProjectRepository
+	DeploymentCounter ActiveComposeDeploymentCounter
+	Capacity          CapacityChecker
+	Config            ConfigProvider
+	Builds            BuildRepository
+	Resources         ResourceRepository
+	Volumes           VolumeService
+	Containers        ContainerService
+	ObjectStore       ObjectStorage
+	BuildJobs         BuildJobCreator
+	Images            ImageCleaner
+	StagedObjects     StagedObjectRepository
+	DiskMetrics       HostDiskMetricsProvider
+	HostDiskPath      string
+	Users             UserInfoProvider
+	Logger            *slog.Logger
+}
+
+func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"projects", deps.Projects}, {"deployment counter", deps.DeploymentCounter},
+		{"capacity", deps.Capacity}, {"config", deps.Config},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilDependency(dependency.value) {
+			return nil, fmt.Errorf("compose orchestrator: %s is required", dependency.name)
+		}
 	}
 	return &Orchestrator{
-		parentCtx:     parentCtx,
-		parser:        NewParser(),
-		projectRepo:   projectRepo,
-		buildRepo:     buildRepo,
-		volumeService: volumeService,
-		contService:   contService,
-		cfg:           cfg,
-		imageCleaner:  imageCleaner,
-		objectStore:   objectStore,
-		builderClient: NewLocalBuilderClient(objectStore, builds),
-		logger:        logging.WithComponent(logger, "compose_orchestrator"),
-	}
-}
-
-func (o *Orchestrator) SetResourceRepository(repo ResourceRepository) {
-	o.resourceRepo = repo
-}
-
-func (o *Orchestrator) SetStagedObjectRepository(repo StagedObjectRepository) {
-	o.stagedObjects = repo
-}
-
-func (o *Orchestrator) SetHostDiskGuard(metrics HostDiskMetricsProvider, path string) {
-	o.diskMetrics = metrics
-	o.hostDiskPath = path
-}
-
-func (o *Orchestrator) SetUserInfoProvider(users UserInfoProvider) {
-	o.users = users
+		parser:            NewParser(),
+		projectRepo:       deps.Projects,
+		deploymentCounter: deps.DeploymentCounter,
+		capacity:          deps.Capacity,
+		buildRepo:         deps.Builds,
+		resourceRepo:      deps.Resources,
+		volumeService:     deps.Volumes,
+		contService:       deps.Containers,
+		cfg:               deps.Config,
+		imageCleaner:      deps.Images,
+		objectStore:       deps.ObjectStore,
+		stagedObjects:     deps.StagedObjects,
+		diskMetrics:       deps.DiskMetrics,
+		hostDiskPath:      deps.HostDiskPath,
+		users:             deps.Users,
+		builderClient:     NewLocalBuilderClient(deps.ObjectStore, deps.BuildJobs),
+		logger:            logging.WithComponent(deps.Logger, "compose_orchestrator"),
+	}, nil
 }
 
 func (o *Orchestrator) deleteBuildImages(ctx context.Context, builds []model.Build, logger *slog.Logger) {
@@ -558,11 +575,7 @@ func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid
 	if limit <= 0 {
 		return nil
 	}
-	counter, ok := o.projectRepo.(activeComposeDeploymentCounter)
-	if !ok {
-		return nil
-	}
-	count, err := counter.CountActiveComposeDeploymentsByOwner(ctx, ownerID)
+	count, err := o.deploymentCounter.CountActiveComposeDeploymentsByOwner(ctx, ownerID)
 	if err != nil {
 		return err
 	}
@@ -576,14 +589,13 @@ func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uui
 	if err := o.ensureHostDiskFloor(); err != nil {
 		return err
 	}
-	checker, ok := o.contService.(CapacityChecker)
-	if !ok || project == nil {
+	if project == nil {
 		return nil
 	}
 	cfg := o.cfg.Get()
 	requestedRam := int64(len(project.Services)) * cfg.DefaultMemoryReservation
 	requestedCPU := int64(len(project.Services)) * cfg.DefaultCPUReservation
-	return checker.CheckCapacity(ctx, ownerID, requestedRam, requestedCPU, 0)
+	return o.capacity.CheckCapacity(ctx, ownerID, requestedRam, requestedCPU, 0)
 }
 
 func (o *Orchestrator) reserveComposeSource(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {

@@ -359,6 +359,8 @@ func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
 	registry := coremocks.NewImageRegistryAPI(t)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, mock.Anything, mock.Anything).Return(int64(1<<20), "sha256:digest", nil).Maybe()
+	capacity := composemocks.NewCapacityChecker(t)
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, mock.Anything, mock.Anything, int64(0)).Return(nil).Maybe()
 	buildService, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
 		Images:        repos.Images,
@@ -369,28 +371,31 @@ func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,
-		ObjectStore:   store,
+		ObjectStore:   coretest.StatObjectStorage{ObjectStorage: store, Objects: objects},
 		StagedObjects: repos.Staged,
 		DiskMetrics:   metrics,
 		HostDiskPath:  "/",
 	})
 	require.NoError(t, err)
-	orchestrator := compose.NewOrchestrator(
-		context.Background(),
-		repos.Projects,
-		repos.Builds,
-		composemocks.NewVolumeService(t),
-		composemocks.NewContainerService(t),
-		cfg,
-		store,
-		buildService,
-		composemocks.NewImageCleaner(t),
-		coretest.DiscardLogger(),
-	)
-	orchestrator.SetResourceRepository(resourceRepository{containers: repos.Containers, volumes: repos.Volumes})
-	orchestrator.SetStagedObjectRepository(repos.Staged)
-	orchestrator.SetHostDiskGuard(metrics, "/")
-	orchestrator.SetUserInfoProvider(users)
+	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
+		Projects:          repos.Projects,
+		DeploymentCounter: repos.Projects,
+		Capacity:          capacity,
+		Config:            cfg,
+		Builds:            repos.Builds,
+		Resources:         resourceRepository{containers: repos.Containers, volumes: repos.Volumes},
+		Volumes:           composemocks.NewVolumeService(t),
+		Containers:        composemocks.NewContainerService(t),
+		ObjectStore:       store,
+		BuildJobs:         buildService,
+		Images:            composemocks.NewImageCleaner(t),
+		StagedObjects:     repos.Staged,
+		DiskMetrics:       metrics,
+		HostDiskPath:      "/",
+		Users:             users,
+		Logger:            coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
 	return orchestrator
 }
 

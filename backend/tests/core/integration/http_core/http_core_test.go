@@ -129,16 +129,32 @@ func newHTTPRouter(t *testing.T, cfgValue config.SystemConfig, ownerID uuid.UUID
 		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,
-		ObjectStore:   store,
+		ObjectStore:   coretest.StatObjectStorage{ObjectStorage: store, Objects: objects},
 		StagedObjects: repos.Staged,
 		DiskMetrics:   metrics,
 		HostDiskPath:  "/",
 	})
 	require.NoError(t, err)
-	orchestrator := compose.NewOrchestrator(context.Background(), repos.Projects, repos.Builds, composemocks.NewVolumeService(t), composemocks.NewContainerService(t), cfg, store, builds, composemocks.NewImageCleaner(t), coretest.DiscardLogger())
-	orchestrator.SetStagedObjectRepository(repos.Staged)
-	orchestrator.SetHostDiskGuard(metrics, "/")
-	orchestrator.SetUserInfoProvider(users)
+	capacity := composemocks.NewCapacityChecker(t)
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, mock.Anything, mock.Anything, int64(0)).Return(nil).Maybe()
+	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
+		Projects:          repos.Projects,
+		DeploymentCounter: repos.Projects,
+		Capacity:          capacity,
+		Config:            cfg,
+		Builds:            repos.Builds,
+		Volumes:           composemocks.NewVolumeService(t),
+		Containers:        composemocks.NewContainerService(t),
+		ObjectStore:       store,
+		BuildJobs:         builds,
+		Images:            composemocks.NewImageCleaner(t),
+		StagedObjects:     repos.Staged,
+		DiskMetrics:       metrics,
+		HostDiskPath:      "/",
+		Users:             users,
+		Logger:            coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
 
 	router := coretest.CoreHTTPRouter(corehttp.NewComposeHandler(orchestrator, cfg), corehttp.NewBuildHandler(builds, cfg), "core-token")
 	return router, repos
@@ -170,7 +186,15 @@ func configureObjectStorageMock(store *composemocks.ObjectStorage, objects map[s
 			}
 			return io.NopCloser(bytes.NewReader(data)), nil
 		}).Maybe()
-	store.EXPECT().CopyObject(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	store.EXPECT().CopyObject(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceKey, destKey, contentType string) error {
+			data, ok := objects[sourceKey]
+			if !ok {
+				return apperrors.ErrNotFound
+			}
+			objects[destKey] = append([]byte(nil), data...)
+			return nil
+		}).Maybe()
 	store.EXPECT().DeleteObject(mock.Anything, mock.AnythingOfType("string")).
 		RunAndReturn(func(ctx context.Context, key string) error {
 			delete(objects, key)

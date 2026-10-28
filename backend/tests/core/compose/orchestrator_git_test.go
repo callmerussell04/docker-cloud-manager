@@ -21,7 +21,7 @@ import (
 
 func TestStartDeploymentAllowsImageOnlyComposeWhenImageBuildsDisabled(t *testing.T) {
 	repo := composemocks.NewProjectRepository(t)
-	o := newComposeOrchestratorForTest(t, context.Background(), repo)
+	o := newComposeOrchestratorForTest(t, repo)
 	var savedProject model.Project
 	var savedJob model.ComposeDeploymentJob
 
@@ -44,7 +44,7 @@ func TestStartDeploymentAllowsImageOnlyComposeWhenImageBuildsDisabled(t *testing
 
 func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T) {
 	repo := composemocks.NewProjectRepository(t)
-	o := newComposeOrchestratorForTest(t, context.Background(), repo)
+	o := newComposeOrchestratorForTest(t, repo)
 
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
 	_, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithBuild)))
@@ -52,7 +52,17 @@ func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T)
 	repo.AssertNotCalled(t, "CreateWithComposeDeploymentJob", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func newComposeOrchestratorForTest(t *testing.T, parentCtx context.Context, repo *composemocks.ProjectRepository) *Orchestrator {
+func newComposeOrchestratorForTest(t *testing.T, repo *composemocks.ProjectRepository) *Orchestrator {
+	t.Helper()
+	deps, _ := composeOrchestratorDeps(t, repo, composeTestConfig())
+	o, err := NewOrchestrator(deps)
+	require.NoError(t, err)
+	return o
+}
+
+// composeOrchestratorDeps admits every deployment by default and stores
+// uploaded sources in the returned map, which tracks object deletion.
+func composeOrchestratorDeps(t *testing.T, repo *composemocks.ProjectRepository, cfg config.SystemConfig) (OrchestratorDeps, map[string][]byte) {
 	t.Helper()
 	objectStore := composemocks.NewObjectStorage(t)
 	objects := make(map[string][]byte)
@@ -82,8 +92,24 @@ func newComposeOrchestratorForTest(t *testing.T, parentCtx context.Context, repo
 		}).
 		Return(nil).
 		Maybe()
-	cfg := composemocks.NewConfigProvider(t)
-	cfg.EXPECT().Get().Return(config.SystemConfig{
+	configProvider := composemocks.NewConfigProvider(t)
+	configProvider.EXPECT().Get().Return(cfg).Maybe()
+	counter := composemocks.NewActiveComposeDeploymentCounter(t)
+	counter.EXPECT().CountActiveComposeDeploymentsByOwner(mock.Anything, mock.Anything).Return(0, nil).Maybe()
+	capacity := composemocks.NewCapacityChecker(t)
+	capacity.EXPECT().CheckCapacity(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return OrchestratorDeps{
+		Projects:          repo,
+		DeploymentCounter: counter,
+		Capacity:          capacity,
+		Config:            configProvider,
+		ObjectStore:       objectStore,
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, objects
+}
+
+func composeTestConfig() config.SystemConfig {
+	return config.SystemConfig{
 		GitSourcesEnabled:             true,
 		GitAllowedHosts:               []string{"github.com"},
 		GitCloneTimeoutSeconds:        1,
@@ -91,8 +117,7 @@ func newComposeOrchestratorForTest(t *testing.T, parentCtx context.Context, repo
 		ImageBuildsEnabled:            false,
 		ComposeUploadMaxBytes:         1024 * 1024,
 		ComposePipelineTimeoutMinutes: 1,
-	}).Maybe()
-	return NewOrchestrator(parentCtx, repo, nil, nil, nil, cfg, objectStore, nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}
 }
 
 const gitComposeWithBuild = `

@@ -231,6 +231,16 @@ func newBuildService(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 			return io.NopCloser(bytes.NewReader(data)), nil
 		}).
 		Maybe()
+	store.EXPECT().
+		StatObject(mock.Anything, mock.AnythingOfType("string")).
+		RunAndReturn(func(ctx context.Context, key string) (objectstorage.ObjectInfo, error) {
+			data, ok := objects[key]
+			if !ok {
+				return objectstorage.ObjectInfo{}, apperrors.ErrNotFound
+			}
+			return objectstorage.ObjectInfo{Size: int64(len(data))}, nil
+		}).
+		Maybe()
 	return newBuildServiceWithStore(t, repos, ownerID, store)
 }
 

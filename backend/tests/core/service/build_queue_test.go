@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -103,12 +104,16 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	objects := coremocks.NewBuildObjectStore(t)
 	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
+	staged := coremocks.NewStagedObjectRepository(t)
+	staged.EXPECT().ActiveBytesByOwner(mock.Anything, mock.Anything).Return(int64(0), nil)
+	staged.EXPECT().Reserve(mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 	svc := newTestBuildService(t, BuildServiceDeps{
-		Repository:  repo,
-		Images:      imageRepo,
-		Registry:    registry,
-		Users:       users,
-		ObjectStore: objects,
+		Repository:    repo,
+		Images:        imageRepo,
+		Registry:      registry,
+		Users:         users,
+		ObjectStore:   objects,
+		StagedObjects: staged,
 	})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
@@ -125,6 +130,14 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 			require.NoError(t, err)
 		}).
 		Return(nil)
+	objects.EXPECT().
+		StatObject(mock.Anything, mock.MatchedBy(func(objectKey string) bool {
+			return len(uploaded) == 1 && objectKey == uploaded[0]
+		})).
+		Return(objectstorage.ObjectInfo{Size: int64(len("archive"))}, nil).Once()
+	staged.EXPECT().
+		UpdateBytes(mock.Anything, mock.AnythingOfType("string"), int64(len("archive"))).
+		Return(nil).Once()
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().
