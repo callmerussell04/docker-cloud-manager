@@ -3,9 +3,9 @@ name: Backend
 on:
   push:
     branches: [main, develop]
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "deployment/**", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "deployment/**", ".github/workflows/backend.yml"]
   schedule:
     # The vulnerability database is live; rescan weekly without a code change (vulncheck job only).
     - cron: "17 4 * * 1"

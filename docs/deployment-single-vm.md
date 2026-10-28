@@ -318,6 +318,27 @@ base image pins. This is still an online build, not an offline repository archiv
 or an OS-image CVE audit. The package lock was resolved and verified for Linux
 amd64; validate package availability for other target architectures before use.
 
+The Registry deployment images under `deployment/registry/` follow the same
+convention on the same runtime index. Each installs its complete package closure
+from its own lock: `edge-packages.lock` (`socat=1.8.1.3-r0`),
+`egress-packages.lock` (`squid=7.6-r0`) and `network-policy-packages.lock`
+(`iptables=1.8.13-r0`, nf_tables backend). Moving from the previous floating
+`alpine:3.22` raised Squid from 6.12 to 7.6; `squid -k parse` accepts
+`squid.conf` unchanged. Compose and the Registry isolation test run the upstream
+Distribution image as
+`registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`.
+
+`backend/tests/buildinputs` runs in `make test-fast` and therefore in `make verify`
+and CI. It fails when a Dockerfile in `backend/dockerfiles/` or
+`deployment/registry/` uses a base image without a `sha256` digest, or installs
+APK packages other than from a COPYed lock of `name=version` entries. It cannot
+check that a lock is a complete closure or that its versions are still published.
+Only an image build checks that. No CI job builds the service or Registry images,
+so a stale lock surfaces at `docker compose build` or in the opt-in network-policy
+test, which builds `network-policy.Dockerfile`. `make vulncheck` scans Go binaries only, so
+it does not apply to these Alpine images or the upstream Registry image. They
+receive no OS-package CVE scan, which matches the backend runtime images.
+
 From `backend/`, verify with:
 
 ```bash

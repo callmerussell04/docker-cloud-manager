@@ -58,7 +58,7 @@ func TestBuildNetworkPolicyDeniesControlPlaneAndHost(t *testing.T) {
 	policyImage := "dcm-registry-policy-test:" + suffix
 	buildContext := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(buildContext, "deployment/registry"), 0700))
-	for _, name := range []string{"network-policy.sh", "network-policy-check.sh", "network-policy.Dockerfile"} {
+	for _, name := range []string{"network-policy.sh", "network-policy-check.sh", "network-policy.Dockerfile", "network-policy-packages.lock"} {
 		data, err := os.ReadFile(filepath.Join(root, "deployment/registry", name))
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(filepath.Join(buildContext, "deployment/registry", name), data, 0600))

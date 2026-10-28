@@ -47,6 +47,9 @@ import (
 
 // This test uses only a fresh schema, network, registry and executor containers.
 // It never contacts the platform's Registry or changes host firewall rules.
+// registryImage matches the digest-pinned registry service in docker-compose.yml.
+const registryImage = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
+
 func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	if os.Getenv("CORE_TEST_REGISTRY_ISOLATION") != "1" {
 		t.Skip("set CORE_TEST_REGISTRY_ISOLATION=1 and CORE_TEST_DATABASE_URL for the isolated Docker test")
@@ -75,7 +78,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	users := coremocks.NewUserInfoProvider(t)
 	users.EXPECT().GetUser(mock.Anything, mock.Anything).Return(model.UserInfo{Status: "active"}, nil)
 	auth := service.NewRegistryAuthorization(grants, users, signer, authority)
-	for _, img := range []string{"registry:2.8.3", "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"} {
+	for _, img := range []string{registryImage, "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"} {
 		_, err := cli.ImageInspect(ctx, img)
 		if err != nil {
 			stream, err := cli.ImagePull(ctx, img, image.PullOptions{})
@@ -85,7 +88,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 			require.NoError(t, stream.Close())
 		}
 	}
-	created, err := cli.ContainerCreate(ctx, &container.Config{Image: "registry:2.8.3", Env: []string{
+	created, err := cli.ContainerCreate(ctx, &container.Config{Image: registryImage, Env: []string{
 		"REGISTRY_STORAGE_DELETE_ENABLED=true", "REGISTRY_HTTP_SECRET=isolated-test-upload-state-secret",
 		"REGISTRY_HTTP_HOST=https://" + authority, "REGISTRY_HTTP_TLS_CERTIFICATE=/etc/docker/registry/test.crt", "REGISTRY_HTTP_TLS_KEY=/etc/docker/registry/test.key",
 		"REGISTRY_AUTH=token", "REGISTRY_AUTH_TOKEN_REALM=https://" + authority + "/token", "REGISTRY_AUTH_TOKEN_SERVICE=dcm-registry", "REGISTRY_AUTH_TOKEN_ISSUER=dcm-core", "REGISTRY_AUTH_TOKEN_ROOTCERTBUNDLE=/etc/docker/registry/test.crt",

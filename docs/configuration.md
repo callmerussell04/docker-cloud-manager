@@ -244,7 +244,7 @@ Core выделяет отдельный отменяемый контекст �
 
 ## Авторизация Registry
 
-Registry использует native Distribution token auth (`registry:2.8.3`) на всех адресах. Core предоставляет отдельный TLS listener `:5000`: только `/token` и `/v2/`. Не публикуйте прямой порт контейнера Registry. Его TLS listener находится в отдельной внутренней сети `registry_net`; API продолжает проверять подпись и права даже при прямом обращении.
+Registry использует native Distribution token auth (`registry:2.8.3`, digest-pinned in `docker-compose.yml`) на всех адресах. Core предоставляет отдельный TLS listener `:5000`: только `/token` и `/v2/`. Не публикуйте прямой порт контейнера Registry. Его TLS listener находится в отдельной внутренней сети `registry_net`; API продолжает проверять подпись и права даже при прямом обращении.
 
 Bootstrap-параметры (секреты не входят в runtime config):
 
