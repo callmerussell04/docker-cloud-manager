@@ -87,7 +87,22 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logging.WithComponent(logger, "app").Warn("failed to cleanup orphan build containers", "error", err)
 	}
 
-	builderService := service.NewBuilderService(fileManager, workspaceManager, extractor, dockerAdapter, logManager, objectStore, coreClient, results, runtimeConfig, logger.With("builder_instance_id", cfg.InstanceID))
+	builderService, err := service.NewBuilderService(service.BuilderServiceDeps{
+		Files:            fileManager,
+		Workspaces:       workspaceManager,
+		Extractor:        extractor,
+		Docker:           dockerAdapter,
+		NetworkAdmission: dockerAdapter,
+		Logs:             logManager,
+		ObjectStore:      objectStore,
+		Core:             coreClient,
+		Results:          results,
+		Config:           runtimeConfig,
+		Logger:           logger.With("builder_instance_id", cfg.InstanceID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create builder service: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	queueConsumer := rabbitmq.NewConsumer(cfg.RabbitMQURL, cfg.InstanceID, logger)
 

@@ -88,6 +88,8 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("kaniko", io.NopCloser(bytes.NewBufferString("built\n")), nil).Once()
 			docker.EXPECT().WaitForBuild(mock.Anything, "kaniko").Return(nil).Once()
 			docker.EXPECT().CleanBuildContainer(mock.Anything, "kaniko").Return(nil).Once()
+			network := buildermocks.NewBuildNetworkAdmission(t)
+			network.EXPECT().ValidateBuildNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 			core := buildermocks.NewCoreClient(t)
 			core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).RunAndReturn(func(ctx context.Context, _ string) (buildermodel.BuildClaim, bool, string, error) {
 				b, started, err := builds.StartBuildRecord(ctx, created.BuildID)
@@ -126,7 +128,14 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 					return err
 				}
 				cfg := builderconfig.BuilderConfig{MaxBuildTime: time.Minute, MaxConcurrentBuilds: 1, MaxUnpackedSizeBytes: 1 << 20, MaxBuildLogSizeBytes: 1 << 20, BuildCancelPollInterval: time.Hour}
-				worker := builderservice.NewBuilderService(files, workspaces, archive.NewExtractor(), docker, logs, store, core, results, builderconfig.NewRuntimeManager(cfg, nil, nil), coretest.DiscardLogger())
+				worker, err := builderservice.NewBuilderService(builderservice.BuilderServiceDeps{
+					Files: files, Workspaces: workspaces, Extractor: archive.NewExtractor(), Docker: docker,
+					NetworkAdmission: network, Logs: logs, ObjectStore: store, Core: core, Results: results,
+					Config: builderconfig.NewRuntimeManager(cfg, nil, nil), Logger: coretest.DiscardLogger(),
+				})
+				if err != nil {
+					return err
+				}
 				err = worker.HandleBuildMessage(ctx, msg)
 				if attempt == 1 {
 					first <- err

@@ -105,8 +105,7 @@ func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
 	var err error
 	h.results, err = storage.NewResultStore(h.resultDir)
 	require.NoError(t, err)
-	h.service = service.NewBuilderService(h.files, h.workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, h.results,
-		config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+	h.service = newBuilderService(t, h.deps())
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Once()
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
@@ -136,6 +135,45 @@ func TestBuilderServiceHandleBuildMessageKeepsRunningDuplicatesRetryable(t *test
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestBuilderServiceRefusesBuildWhenNetworkAdmissionFails(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		admission error
+	}{
+		{
+			name:      "invalid network",
+			admission: apperrors.Wrap(apperrors.ErrUnavailable, "build network inspection failed", errors.New("network build_net not found")),
+		},
+		{
+			name:      "unisolated network",
+			admission: apperrors.New(apperrors.ErrUnavailable, "build network is not isolated"),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newBuilderHarness(t, testBuilderRuntimeConfig())
+			network := builderservicemocks.NewBuildNetworkAdmission(t)
+			network.EXPECT().ValidateBuildNetwork(mock.Anything, "build_net").Return(tt.admission).Once()
+			deps := h.deps()
+			deps.NetworkAdmission = network
+			h.service = newBuilderService(t, deps)
+			msg := testBuildMessage()
+
+			err := h.service.HandleBuildMessage(context.Background(), msg)
+
+			// A retryable refusal leaves the build pending for redelivery
+			// rather than claiming it or recording a platform failure.
+			require.ErrorIs(t, err, apperrors.ErrUnavailable)
+			require.ErrorIs(t, err, tt.admission)
+			h.core.AssertNotCalled(t, "StartBuildRecord", mock.Anything, mock.Anything)
+			h.docker.AssertNotCalled(t, "RunBuildContainer", mock.Anything, mock.Anything)
+			h.core.AssertNotCalled(t, "CompleteBuildRecord", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			_, journaled, loadErr := h.results.Load(context.Background(), msg.BuildID)
+			require.NoError(t, loadErr)
+			require.False(t, journaled)
 		})
 	}
 }
@@ -456,11 +494,13 @@ type builderHarness struct {
 	workspaces *builderservicemocks.WorkspaceManager
 	extractor  *builderservicemocks.ArchiveExtractor
 	docker     *builderservicemocks.DockerAPI
+	network    *builderservicemocks.BuildNetworkAdmission
 	logs       *builderservicemocks.LogManager
 	objects    *builderservicemocks.ObjectStorage
 	core       *builderservicemocks.CoreClient
 	results    *storage.ResultStore
 	resultDir  string
+	config     *config.RuntimeManager
 	service    *service.BuilderService
 	// output captures the service's structured log output.
 	output bytes.Buffer
@@ -473,28 +513,43 @@ func newBuilderHarness(t *testing.T, cfg config.BuilderConfig) *builderHarness {
 		workspaces: builderservicemocks.NewWorkspaceManager(t),
 		extractor:  builderservicemocks.NewArchiveExtractor(t),
 		docker:     builderservicemocks.NewDockerAPI(t),
+		network:    builderservicemocks.NewBuildNetworkAdmission(t),
 		logs:       builderservicemocks.NewLogManager(t),
 		objects:    builderservicemocks.NewObjectStorage(t),
 		core:       builderservicemocks.NewCoreClient(t),
+		config:     config.NewRuntimeManager(cfg, nil, nil),
 	}
 	h.workspaces.EXPECT().CleanUp(mock.Anything, mock.Anything).Return(nil).Maybe()
+	h.network.EXPECT().ValidateBuildNetwork(mock.Anything, cfg.BuildNetworkName).Return(nil).Maybe()
 	var err error
 	h.resultDir = t.TempDir()
 	h.results, err = storage.NewResultStore(h.resultDir)
 	require.NoError(t, err)
-	h.service = service.NewBuilderService(
-		h.files,
-		h.workspaces,
-		h.extractor,
-		h.docker,
-		h.logs,
-		h.objects,
-		h.core,
-		h.results,
-		config.NewRuntimeManager(cfg, nil, nil),
-		slog.New(slog.NewJSONHandler(&h.output, nil)),
-	)
+	h.service = newBuilderService(t, h.deps())
 	return h
+}
+
+func (h *builderHarness) deps() service.BuilderServiceDeps {
+	return service.BuilderServiceDeps{
+		Files:            h.files,
+		Workspaces:       h.workspaces,
+		Extractor:        h.extractor,
+		Docker:           h.docker,
+		NetworkAdmission: h.network,
+		Logs:             h.logs,
+		ObjectStore:      h.objects,
+		Core:             h.core,
+		Results:          h.results,
+		Config:           h.config,
+		Logger:           slog.New(slog.NewJSONHandler(&h.output, nil)),
+	}
+}
+
+func newBuilderService(t *testing.T, deps service.BuilderServiceDeps) *service.BuilderService {
+	t.Helper()
+	svc, err := service.NewBuilderService(deps)
+	require.NoError(t, err)
+	return svc
 }
 
 func (h *builderHarness) logEntries(t *testing.T, msg string) []map[string]any {
@@ -765,8 +820,9 @@ func TestBuilderServiceRetainsOutcomeWhenJournalWriteFails(t *testing.T) {
 	h := newBuilderHarness(t, testBuilderRuntimeConfig())
 	msg := testBuildMessage()
 	results := builderservicemocks.NewBuildResultStore(t)
-	h.service = service.NewBuilderService(h.files, h.workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, results,
-		config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+	deps := h.deps()
+	deps.Results = results
+	h.service = newBuilderService(t, deps)
 	result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
 	results.EXPECT().Load(mock.Anything, msg.BuildID).Return(model.BuildResult{}, false, nil).Once()
 	results.EXPECT().Save(mock.Anything, msg.BuildID, result).Return(errors.New("disk full")).Once()
@@ -796,8 +852,9 @@ func TestBuilderServiceRetriesCleanupBeforeDiscardingResult(t *testing.T) {
 			result := model.BuildResult{ImageID: msg.ImageID, Status: "success"}
 			require.NoError(t, h.results.Save(context.Background(), msg.BuildID, result))
 			workspaces := builderservicemocks.NewWorkspaceManager(t)
-			h.service = service.NewBuilderService(h.files, workspaces, h.extractor, h.docker, h.logs, h.objects, h.core, h.results,
-				config.NewRuntimeManager(testBuilderRuntimeConfig(), nil, nil), slog.Default())
+			deps := h.deps()
+			deps.Workspaces = workspaces
+			h.service = newBuilderService(t, deps)
 			h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, "success", 0).Return(nil).Twice()
 			errCleanup := apperrors.ErrForbidden
 			switch stage {

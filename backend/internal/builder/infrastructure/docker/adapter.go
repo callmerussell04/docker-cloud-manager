@@ -27,6 +27,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
+const buildNetworkPolicyUnavailableMessage = "build network policy is unavailable"
+
 type Adapter struct {
 	cli                  *client.Client
 	registryCA           []byte
@@ -308,20 +310,28 @@ func (a *Adapter) ValidateBuildNetwork(ctx context.Context, networkName string) 
 	}
 	nw, err := a.cli.NetworkInspect(ctx, networkName, network.InspectOptions{})
 	if err != nil {
-		return apperrors.ErrUnavailable
+		return apperrors.Wrap(apperrors.ErrUnavailable, "build network inspection failed", fmt.Errorf("inspect build network: %w", err))
 	}
 	if !nw.Internal || nw.EnableIPv6 || nw.Options["com.docker.network.bridge.name"] != "br-dcm-build" {
-		return apperrors.ErrUnavailable
+		return apperrors.New(apperrors.ErrUnavailable, "build network is not isolated")
 	}
 	containers, err := a.cli.ContainerList(ctx, container.ListOptions{Filters: filters.NewArgs(filters.Arg("label", "com.docker.compose.service=build-network-policy"))})
 	if err != nil {
-		return apperrors.ErrUnavailable
+		return apperrors.Wrap(apperrors.ErrUnavailable, buildNetworkPolicyUnavailableMessage, fmt.Errorf("list build network policy containers: %w", err))
 	}
+	var inspectErrs []error
 	for _, policy := range containers {
 		state, err := a.cli.ContainerInspect(ctx, policy.ID)
-		if err == nil && state.State != nil && state.State.Running && state.State.Health != nil && state.State.Health.Status == "healthy" {
+		if err != nil {
+			inspectErrs = append(inspectErrs, fmt.Errorf("inspect build network policy container: %w", err))
+			continue
+		}
+		if state.State != nil && state.State.Running && state.State.Health != nil && state.State.Health.Status == "healthy" {
 			return nil
 		}
 	}
-	return apperrors.ErrUnavailable
+	if len(inspectErrs) > 0 {
+		return apperrors.Wrap(apperrors.ErrUnavailable, buildNetworkPolicyUnavailableMessage, errors.Join(inspectErrs...))
+	}
+	return apperrors.New(apperrors.ErrUnavailable, buildNetworkPolicyUnavailableMessage)
 }

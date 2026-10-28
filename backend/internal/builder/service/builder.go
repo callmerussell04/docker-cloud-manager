@@ -67,6 +67,8 @@ type BuildResultStore interface {
 	Delete(ctx context.Context, buildID string) error
 }
 
+// BuildNetworkAdmission refuses builds while the build network lacks tenant
+// isolation or its host policy is unhealthy.
 type BuildNetworkAdmission interface {
 	ValidateBuildNetwork(ctx context.Context, networkName string) error
 }
@@ -96,52 +98,75 @@ type buildJob struct {
 	LogObjectKey string
 }
 
-type BuilderService struct {
-	fileManager  FileManager
-	workspaces   WorkspaceManager
-	extractor    ArchiveExtractor
-	dockerAPI    DockerAPI
-	logManager   LogManager
-	objectStore  ObjectStorage
-	coreClient   CoreClient
-	results      BuildResultStore
-	pending      map[string]model.BuildResult
-	handling     map[string]bool
-	config       *config.RuntimeManager
-	activeMu     sync.Mutex
-	active       map[string]context.CancelFunc
-	activeBuilds int
-	wg           sync.WaitGroup
-	logger       *slog.Logger
+// BuilderServiceDeps requires every execution dependency, including build
+// network admission, so tenant build-network isolation cannot be skipped.
+// Logger is optional and defaults to slog.Default.
+type BuilderServiceDeps struct {
+	Files            FileManager
+	Workspaces       WorkspaceManager
+	Extractor        ArchiveExtractor
+	Docker           DockerAPI
+	NetworkAdmission BuildNetworkAdmission
+	Logs             LogManager
+	ObjectStore      ObjectStorage
+	Core             CoreClient
+	Results          BuildResultStore
+	Config           *config.RuntimeManager
+	Logger           *slog.Logger
 }
 
-func NewBuilderService(
-	fileManager FileManager,
-	workspaces WorkspaceManager,
-	extractor ArchiveExtractor,
-	dockerAPI DockerAPI,
-	logManager LogManager,
-	objectStore ObjectStorage,
-	coreClient CoreClient,
-	results BuildResultStore,
-	config *config.RuntimeManager,
-	logger *slog.Logger,
-) *BuilderService {
-	return &BuilderService{
-		fileManager: fileManager,
-		workspaces:  workspaces,
-		extractor:   extractor,
-		dockerAPI:   dockerAPI,
-		logManager:  logManager,
-		objectStore: objectStore,
-		coreClient:  coreClient,
-		results:     results,
-		pending:     make(map[string]model.BuildResult),
-		handling:    make(map[string]bool),
-		config:      config,
-		active:      make(map[string]context.CancelFunc),
-		logger:      logging.WithComponent(logger, "builder_service"),
+type BuilderService struct {
+	fileManager      FileManager
+	workspaces       WorkspaceManager
+	extractor        ArchiveExtractor
+	dockerAPI        DockerAPI
+	networkAdmission BuildNetworkAdmission
+	logManager       LogManager
+	objectStore      ObjectStorage
+	coreClient       CoreClient
+	results          BuildResultStore
+	pending          map[string]model.BuildResult
+	handling         map[string]bool
+	config           *config.RuntimeManager
+	activeMu         sync.Mutex
+	active           map[string]context.CancelFunc
+	activeBuilds     int
+	wg               sync.WaitGroup
+	logger           *slog.Logger
+}
+
+func NewBuilderService(deps BuilderServiceDeps) (*BuilderService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"files", deps.Files}, {"workspaces", deps.Workspaces},
+		{"extractor", deps.Extractor}, {"docker", deps.Docker},
+		{"network admission", deps.NetworkAdmission}, {"logs", deps.Logs},
+		{"object store", deps.ObjectStore}, {"core", deps.Core},
+		{"results", deps.Results}, {"config", deps.Config},
 	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilDependency(dependency.value) {
+			return nil, fmt.Errorf("builder service: %s is required", dependency.name)
+		}
+	}
+	return &BuilderService{
+		fileManager:      deps.Files,
+		workspaces:       deps.Workspaces,
+		extractor:        deps.Extractor,
+		dockerAPI:        deps.Docker,
+		networkAdmission: deps.NetworkAdmission,
+		logManager:       deps.Logs,
+		objectStore:      deps.ObjectStore,
+		coreClient:       deps.Core,
+		results:          deps.Results,
+		pending:          make(map[string]model.BuildResult),
+		handling:         make(map[string]bool),
+		config:           deps.Config,
+		active:           make(map[string]context.CancelFunc),
+		logger:           logging.WithComponent(deps.Logger, "builder_service"),
+	}, nil
 }
 
 func (s *BuilderService) acquireBuildSlot(ctx context.Context, maxConcurrent int) bool {
@@ -252,10 +277,10 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	}
 	defer s.releaseBuildSlot()
 
-	if admission, ok := s.dockerAPI.(BuildNetworkAdmission); ok {
-		if err := admission.ValidateBuildNetwork(ctx, cfg.BuildNetworkName); err != nil {
-			return err
-		}
+	// Admit before the claim so an unhealthy network leaves the build pending
+	// and the delivery retryable instead of recording a platform failure.
+	if err := s.networkAdmission.ValidateBuildNetwork(ctx, cfg.BuildNetworkName); err != nil {
+		return fmt.Errorf("admit build network: %w", err)
 	}
 	claim, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
 	if err != nil {
