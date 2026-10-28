@@ -402,3 +402,64 @@ func waitResult(t *testing.T, result <-chan error) error {
 		return nil
 	}
 }
+
+// Core's lock pool has one connection shared with all admission. A Registry
+// that never answers must not hold it past the Registry lock budget.
+func TestStalledRegistryReleasesAdmissionAfterLockBudget(t *testing.T) {
+	ctx := context.Background()
+	repos := coretest.OpenCoreRepositories(t)
+	ownerID, imageID := uuid.New(), uuid.New()
+	require.NoError(t, repos.Images.Save(ctx, model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}))
+	stalled, release := make(chan struct{}), make(chan struct{})
+	var responded atomic.Bool
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(stalled)
+		<-release
+		responded.Store(true)
+	}))
+	t.Cleanup(server.Close)
+	t.Cleanup(func() { close(release) })
+	adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
+		return "test-token", nil
+	})
+	require.NoError(t, err)
+	systemConfig := coretest.IntegrationConfig()
+	systemConfig.RegistryCleanupJobTimeoutSeconds = 2
+	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
+	images, err := service.NewImageService(service.ImageServiceDeps{
+		Repository:   repos.Images,
+		Docker:       coremocks.NewImageDockerAPI(t),
+		Registry:     adapter,
+		Containers:   repos.Containers,
+		Config:       coretest.StaticConfig{Config: systemConfig},
+		Lifecycle:    lifecycle,
+		RegistryAuth: repos.RegistryAuthorization(t),
+	})
+	require.NoError(t, err)
+	require.NoError(t, images.Delete(coretest.UserContext(ownerID), imageID))
+	outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, outbox, 1)
+	var message resourcequeue.LifecycleMessage
+	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
+	worker := service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
+	deleted := make(chan error, 1)
+	go func() { deleted <- worker.HandleMessage(ctx, message) }()
+
+	<-stalled // the Registry repository lock is held from here
+	started := time.Now()
+	admissionCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	unlock, err := repos.Containers.AcquireOwnerCapacityLock(admissionCtx, uuid.New())
+	require.NoError(t, err, "admission must proceed once the Registry lock budget expires")
+	waited := time.Since(started)
+	unlock()
+
+	require.False(t, responded.Load(), "the Registry is still stalled when admission proceeds")
+	require.GreaterOrEqual(t, waited, time.Second, "admission shares the lock pool, so it waits for the locked Registry work")
+	require.Less(t, waited, 4*time.Second, "the lock is held for the 2-second budget, not the adapter's per-attempt minute")
+	require.ErrorIs(t, <-deleted, apperrors.ErrTimeout)
+	op, err := lifecycle.GetOperationByID(ctx, uuid.MustParse(message.OperationID))
+	require.NoError(t, err)
+	require.Equal(t, model.OperationStatusPending, op.Status, "the timed-out deletion is retried")
+}
