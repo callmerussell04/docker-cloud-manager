@@ -84,22 +84,8 @@ func NewVolumeUsageWorker(volRepo VolumeUsageRepo, contRepo VolumeUsageContainer
 func (w *VolumeUsageWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "volume usage worker started")
 	w.tick(ctx)
-
-	for {
-		interval := time.Duration(w.cfg.Get().VolumeUsageIntervalSeconds) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			w.logger.InfoContext(ctx, "volume usage worker stopped")
-			return
-		case <-timer.C:
-			w.tick(ctx)
-		}
-	}
+	runPeriodically(ctx, func() int64 { return w.cfg.Get().VolumeUsageIntervalSeconds }, w.tick)
+	w.logger.InfoContext(ctx, "volume usage worker stopped")
 }
 
 func (w *VolumeUsageWorker) tick(ctx context.Context) {

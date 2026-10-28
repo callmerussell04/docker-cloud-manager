@@ -31,7 +31,7 @@ type ResourceOutboxWorker struct {
 	logger *slog.Logger
 }
 
-func NewResourceOutboxWorker(repo ResourceOutboxRepository, publisher BuildQueuePublisher, cfg ResourceOutboxConfigProvider, logger *slog.Logger) *ResourceOutboxWorker {
+func NewResourceOutboxWorker(repo ResourceOutboxRepository, publisher OutboxPublisher, cfg ResourceOutboxConfigProvider, logger *slog.Logger) *ResourceOutboxWorker {
 	logger = logging.WithComponent(logger, "resource_outbox_worker")
 	return &ResourceOutboxWorker{
 		repo:   repo,

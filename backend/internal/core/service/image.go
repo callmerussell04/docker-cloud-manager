@@ -217,14 +217,21 @@ func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, ver
 		return err
 	}
 	defer unlock()
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	return deleteTaggedManifest(ctx, s.registryAPI, repoName, version)
+}
+
+// deleteTaggedManifest resolves the tag's manifest digest and deletes the
+// manifest. ErrNotFound means the manifest is already absent; any other error
+// is an upstream failure the caller retries.
+func deleteTaggedManifest(ctx context.Context, registry ImageRegistryAPI, repository, tag string) error {
+	_, digest, err := registry.GetImageSizeAndDigest(ctx, repository, tag)
 	if err != nil {
 		return err
 	}
 	if digest == "" {
 		return apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
 	}
-	return s.registryAPI.DeleteManifest(ctx, repoName, digest)
+	return registry.DeleteManifest(ctx, repository, digest)
 }
 
 // failQueuedImageDelete marks the image and its operation failed and returns

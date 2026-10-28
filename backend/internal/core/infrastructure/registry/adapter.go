@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
@@ -52,7 +53,7 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 	}
 	req.Header.Set("Accept", strings.Join(acceptHeaders, ", "))
 
-	if err := a.authorize(ctx, req, repo, false); err != nil {
+	if err := a.authorize(ctx, req, repo, model.RegistryTrustedPull); err != nil {
 		return 0, "", requestError("registry manifest authorization failed", err)
 	}
 	resp, err := a.httpClient.Do(req)
@@ -96,7 +97,7 @@ func (a *Adapter) DeleteManifest(ctx context.Context, repo, digest string) error
 		return err
 	}
 
-	if err := a.authorize(ctx, req, repo, true); err != nil {
+	if err := a.authorize(ctx, req, repo, model.RegistryTrustedCleanup); err != nil {
 		return requestError("registry manifest authorization failed", err)
 	}
 	resp, err := a.httpClient.Do(req)

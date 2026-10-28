@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/stretchr/testify/require"
 )
@@ -77,7 +78,9 @@ func TestRegistryAdapterBoundsBodyAndRecovers(t *testing.T) {
 			resp := httpResponse(http.StatusOK, "sha256:stalled", "")
 			resp.Body = body
 			return resp, nil
-		})}, func(context.Context, string, bool) (string, error) { return "trusted-token", nil })
+		})}, func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
+			return "trusted-token", nil
+		})
 		require.NoError(t, err)
 
 		_, _, err = adapter.GetImageSizeAndDigest(context.Background(), "repo", "tag")
@@ -113,7 +116,9 @@ func TestRegistryAdapterPreservesCallerCancellation(t *testing.T) {
 					<-r.Context().Done()
 				}))
 				defer server.Close()
-				tokens := func(context.Context, string, bool) (string, error) { return "trusted-token", nil }
+				tokens := func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
+					return "trusted-token", nil
+				}
 				adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), tokens)
 				require.NoError(t, err)
 				var ctx context.Context
@@ -153,7 +158,7 @@ func TestRegistryAdapterBoundsAuthorization(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				adapter, err := registry.NewSecureAdapter("https://registry.test", &http.Client{}, func(ctx context.Context, _ string, _ bool) (string, error) {
+				adapter, err := registry.NewSecureAdapter("https://registry.test", &http.Client{}, func(ctx context.Context, _ string, _ model.RegistryTrustedAccess) (string, error) {
 					<-ctx.Done()
 					return "", ctx.Err()
 				})

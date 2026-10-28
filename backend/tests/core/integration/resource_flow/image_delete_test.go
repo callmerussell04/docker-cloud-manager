@@ -73,7 +73,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 				}
 			}))
 			t.Cleanup(server.Close)
-			adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, bool) (string, error) {
+			adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
 				return "test-token", nil
 			})
 			require.NoError(t, err)
@@ -319,7 +319,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 		}
 	}))
 	t.Cleanup(server.Close)
-	adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, bool) (string, error) {
+	adapter, err := registry.NewSecureAdapter(server.URL, server.Client(), func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
 		return "test-token", nil
 	})
 	require.NoError(t, err)

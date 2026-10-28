@@ -79,7 +79,7 @@ type BuildImageMetadataAPI interface {
 // credential and revokes that credential when the build ends.
 type BuildRegistryAuthorizer interface {
 	ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error)
-	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error
+	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition) error
 }
 
 type BuildDeploymentCanceler interface {
@@ -724,7 +724,7 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
-	if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
 		return err
 	}
 	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
@@ -771,7 +771,11 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	// A redelivered success after cancellation or failure still queues cleanup
 	// of the manifest it may have pushed.
 	failedEarlier := model.IsBuildTerminalStatus(b.Status) && b.Status != model.BuildStatusSuccess
-	if err := s.registryAuth.RevokeBuild(ctx, b.ID, status != model.BuildStatusSuccess || failedEarlier); err != nil {
+	pushedTag := model.PushedTagDisposition(status)
+	if failedEarlier {
+		pushedTag = model.RegistryTagDelete
+	}
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, pushedTag); err != nil {
 		return err
 	}
 	if model.IsBuildTerminalStatus(b.Status) {
@@ -801,7 +805,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	sizeBytes, _, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
-		if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, true); revokeErr != nil {
+		if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); revokeErr != nil {
 			return revokeErr
 		}
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
@@ -833,7 +837,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
 			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
 		}
-		if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
 			return err
 		}
 		s.cleanupBuildArchive(ctx, b)
@@ -869,7 +873,7 @@ func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
 	}
-	if err := s.registryAuth.RevokeBuild(ctx, b.ID, !model.IsBuildTerminalStatus(b.Status) || b.Status != model.BuildStatusSuccess); err != nil {
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.PushedTagDisposition(b.Status)); err != nil {
 		return err
 	}
 	if err := s.repo.Delete(ctx, buildID); err != nil {

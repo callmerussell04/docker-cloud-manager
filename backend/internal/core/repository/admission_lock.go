@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"sync"
 )
 
 // Admission transactions use their own bounded pool so pinned lock holders and
@@ -15,8 +14,7 @@ func acquireAdmissionLock(ctx context.Context, db *sql.DB, keys []string) (func(
 	if err != nil {
 		return nil, fmt.Errorf("begin admission lock: %w", err)
 	}
-	var once sync.Once
-	release := func() { once.Do(func() { _ = tx.Rollback() }) }
+	release := lockRelease(tx)
 	for _, key := range keys {
 		if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key); err != nil {
 			release()

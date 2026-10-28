@@ -41,7 +41,7 @@ type App struct {
 	reportsRepo       *clickhouserepo.ReportsRepository
 	dockerCli         *docker.Adapter
 	orchestrator      *compose.Orchestrator
-	buildPublisher    service.BuildQueuePublisher
+	outboxPublisher   service.OutboxPublisher
 	composeConsumer   *rabbitmq.ComposeConsumer
 	containerConsumer *rabbitmq.ContainerConsumer
 	resourceConsumer  *rabbitmq.ResourceConsumer
@@ -251,7 +251,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
-	buildPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
+	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
 	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
 	containerConsumer := rabbitmq.NewContainerConsumer(cfg.RabbitMQURL, "core", logger)
 	resourceConsumer := rabbitmq.NewResourceConsumer(cfg.RabbitMQURL, "core", logger)
@@ -333,10 +333,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
-	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, buildPublisher, cfg.ConfigManager, logger)
-	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, buildPublisher, cfg.ConfigManager, logger)
-	containerOutboxWorker := service.NewContainerOutboxWorker(contRepo, buildPublisher, cfg.ConfigManager, logger)
-	resourceOutboxWorker := service.NewResourceOutboxWorker(resourceLifecycleRepo, buildPublisher, cfg.ConfigManager, logger)
+	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, outboxPublisher, cfg.ConfigManager, logger)
+	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, outboxPublisher, cfg.ConfigManager, logger)
+	containerOutboxWorker := service.NewContainerOutboxWorker(contRepo, outboxPublisher, cfg.ConfigManager, logger)
+	resourceOutboxWorker := service.NewResourceOutboxWorker(resourceLifecycleRepo, outboxPublisher, cfg.ConfigManager, logger)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
 	composeCoordinator, err := compose.NewComposeDeploymentCoordinator(compose.ComposeDeploymentCoordinatorDeps{
@@ -392,7 +392,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		reportsRepo:       reportsRepo,
 		dockerCli:         dockerAdapter,
 		orchestrator:      orchestrator,
-		buildPublisher:    buildPublisher,
+		outboxPublisher:   outboxPublisher,
 		composeConsumer:   composeConsumer,
 		containerConsumer: containerConsumer,
 		resourceConsumer:  resourceConsumer,
@@ -513,8 +513,8 @@ func (a *App) Stop() {
 			a.logger.Warn("docker client close failed", "error", err)
 		}
 	}
-	if a.buildPublisher != nil {
-		if err := a.buildPublisher.Close(); err != nil {
+	if a.outboxPublisher != nil {
+		if err := a.outboxPublisher.Close(); err != nil {
 			a.logger.Warn("rabbitmq publisher close failed", "error", err)
 		}
 	}

@@ -4,10 +4,16 @@ import (
 	"context"
 	"log/slog"
 	"slices"
-	"time"
 
 	"github.com/google/uuid"
 )
+
+// OutboxPublisher delivers leased build, Compose, container and resource
+// outbox records to their RabbitMQ queues with broker confirmation.
+type OutboxPublisher interface {
+	Publish(ctx context.Context, exchange, routingKey string, body []byte) error
+	Close() error
+}
 
 // outboxRelay holds the scheduling and publication mechanics shared by the
 // Core outbox workers. Each worker keeps its own lease query and the
@@ -15,38 +21,23 @@ import (
 // returned to pending or discarded.
 type outboxRelay struct {
 	name      string
-	publisher BuildQueuePublisher
+	publisher OutboxPublisher
 	logger    *slog.Logger
 }
 
 // newOutboxRelay names the queue class in log messages; logger is the worker's
 // component logger.
-func newOutboxRelay(name string, publisher BuildQueuePublisher, logger *slog.Logger) outboxRelay {
+func newOutboxRelay(name string, publisher OutboxPublisher, logger *slog.Logger) outboxRelay {
 	return outboxRelay{name: name, publisher: publisher, logger: logger}
 }
 
 // run runs one batch immediately and then one batch per interval until ctx
-// is canceled. The interval is read before each wait so runtime config changes
-// apply; non-positive values fall back to one second. Cancellation is observed
-// between batches; calls within a batch receive the canceled context.
+// is canceled, on the shared periodic schedule.
 func (r outboxRelay) run(ctx context.Context, intervalSeconds func() int64, publishBatch func(context.Context)) {
 	r.logger.InfoContext(ctx, r.name+" outbox worker started")
 	publishBatch(ctx)
-	for {
-		interval := time.Duration(intervalSeconds()) * time.Second
-		if interval <= 0 {
-			interval = time.Second
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			r.logger.InfoContext(ctx, r.name+" outbox worker stopped")
-			return
-		case <-timer.C:
-			publishBatch(ctx)
-		}
-	}
+	runPeriodically(ctx, intervalSeconds, publishBatch)
+	r.logger.InfoContext(ctx, r.name+" outbox worker stopped")
 }
 
 // outboxMessage is a leased record whose aggregate policy allows publication.

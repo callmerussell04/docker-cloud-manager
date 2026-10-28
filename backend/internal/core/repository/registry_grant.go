@@ -12,6 +12,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// registryRepositoryLockSalt seeds the advisory lock key of a Registry
+// repository. Build claims and cleanup must derive the same key.
+const registryRepositoryLockSalt int64 = 84627
+
 type RegistryGrantRepository struct {
 	db     *sql.DB
 	lockDB *sql.DB
@@ -50,7 +54,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	base, version := imageref.ParseTag(tag)
 	repository := imageref.CustomRepositoryName(b.OwnerID, base)
 	var locked bool
-	if err := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, 84627))`, repository).Scan(&locked); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt).Scan(&locked); err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
 	if !locked {
@@ -120,7 +124,7 @@ func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, reposito
 	return exists, nil
 }
 
-func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool, fence time.Duration) error {
+func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition, fence time.Duration) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapOp("registry grant revoke build", err)
@@ -130,7 +134,7 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 	if err != nil {
 		return wrapOp("registry grant revoke build", err)
 	}
-	if cleanup {
+	if pushedTag == model.RegistryTagDelete {
 		_, err = tx.ExecContext(ctx, `INSERT INTO registry_cleanup_jobs(id,owner_id,repository,tag,not_before)
    SELECT build_id,owner_id,repository,tag,last_issued_at+$2*interval '1 second' FROM registry_build_credentials WHERE build_id=$1
    ON CONFLICT(id) DO UPDATE SET not_before=GREATEST(registry_cleanup_jobs.not_before,EXCLUDED.not_before)`, id, fence.Seconds())
@@ -209,13 +213,12 @@ func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, re
 	if err != nil {
 		return nil, wrapOp("registry grant lock repository", err)
 	}
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 84627))`, repository); err != nil {
-		_ = tx.Rollback() // the lock was not taken; the lock error is the one reported
+	release := lockRelease(tx)
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt); err != nil {
+		release()
 		return nil, wrapOp("registry grant lock repository", err)
 	}
-	// Rolling back releases the transaction lock; a failed rollback ends the
-	// session, which releases it too.
-	return func() { _ = tx.Rollback() }, nil
+	return release, nil
 }
 
 func (r *RegistryGrantRepository) RegistryCleanupState(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupState, error) {

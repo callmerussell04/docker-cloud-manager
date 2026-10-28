@@ -47,3 +47,30 @@ const (
 	RegistryCleanupObsolete RegistryCleanupState = "obsolete"
 	RegistryCleanupReady    RegistryCleanupState = "ready"
 )
+
+// RegistryTrustedAccess selects the actions a Core-internal Registry token
+// grants on one durable repository.
+type RegistryTrustedAccess string
+
+const (
+	RegistryTrustedPull    RegistryTrustedAccess = "pull"
+	RegistryTrustedCleanup RegistryTrustedAccess = "cleanup"
+)
+
+// RegistryTagDisposition says what becomes of the tag a revoked build may have
+// pushed: a successful build keeps it, any other outcome schedules its deletion.
+type RegistryTagDisposition string
+
+const (
+	RegistryTagKeep   RegistryTagDisposition = "keep"
+	RegistryTagDelete RegistryTagDisposition = "delete"
+)
+
+// PushedTagDisposition returns the disposition of the tag pushed by a build
+// that ended with status.
+func PushedTagDisposition(status string) RegistryTagDisposition {
+	if status == BuildStatusSuccess {
+		return RegistryTagKeep
+	}
+	return RegistryTagDelete
+}

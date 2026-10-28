@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -68,4 +69,58 @@ func TestImageDeletionDoesNotRevokeAnActiveSiblingBuild(t *testing.T) {
 	require.Nil(t, unlock)
 	repo.AssertNotCalled(t, "FenceRepository", mock.Anything, mock.Anything)
 	repo.AssertNotCalled(t, "LockRegistryRepository", mock.Anything, mock.Anything)
+}
+
+func TestTrustedTokenGrantsOnlyTheActionsOfItsAccess(t *testing.T) {
+	tests := []struct {
+		name            string
+		access          model.RegistryTrustedAccess
+		expectedSubject string
+		expectedActions []string
+	}{
+		{name: "pull", access: model.RegistryTrustedPull, expectedSubject: "core-pull", expectedActions: []string{"pull"}},
+		{name: "cleanup", access: model.RegistryTrustedCleanup, expectedSubject: "core-cleanup", expectedActions: []string{"pull", "delete"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := coremocks.NewRegistryGrantRepository(t)
+			signer := coremocks.NewRegistryTokenSigner(t)
+			repo.EXPECT().RepositoryExists(mock.Anything, "owner_app").Return(true, nil)
+			signer.EXPECT().SignRegistryToken(mock.Anything, mock.MatchedBy(func(g model.RegistryTokenGrant) bool {
+				return g.Subject == tc.expectedSubject && g.Service == service.RegistryService &&
+					assert.ObjectsAreEqual([]model.RegistryAccess{{Repository: "owner_app", Actions: tc.expectedActions}}, g.Access)
+			})).Return("trusted-token", nil)
+			auth := service.NewRegistryAuthorization(repo, nil, signer, "registry:5000")
+			token, err := auth.TrustedToken(context.Background(), "owner_app", tc.access)
+			require.NoError(t, err)
+			require.Equal(t, "trusted-token", token)
+		})
+	}
+}
+
+func TestTrustedTokenRejectsUnknownAccessWithoutSigning(t *testing.T) {
+	repo := coremocks.NewRegistryGrantRepository(t)
+	signer := coremocks.NewRegistryTokenSigner(t)
+	auth := service.NewRegistryAuthorization(repo, nil, signer, "registry:5000")
+	_, err := auth.TrustedToken(context.Background(), "owner_app", model.RegistryTrustedAccess("push"))
+	require.ErrorIs(t, err, apperrors.ErrForbidden)
+}
+
+func TestRevokeBuildPassesTheTagDispositionToTheRepository(t *testing.T) {
+	for _, disposition := range []model.RegistryTagDisposition{model.RegistryTagKeep, model.RegistryTagDelete} {
+		t.Run(string(disposition), func(t *testing.T) {
+			id := uuid.New()
+			repo := coremocks.NewRegistryGrantRepository(t)
+			repo.EXPECT().RevokeBuild(mock.Anything, id, disposition, service.RegistryCleanupDelay).Return(nil).Once()
+			auth := service.NewRegistryAuthorization(repo, nil, nil, "registry:5000")
+			require.NoError(t, auth.RevokeBuild(context.Background(), id, disposition))
+		})
+	}
+}
+
+func TestRevokeBuildRejectsUnknownTagDispositionWithoutRevoking(t *testing.T) {
+	repo := coremocks.NewRegistryGrantRepository(t)
+	auth := service.NewRegistryAuthorization(repo, nil, nil, "registry:5000")
+	err := auth.RevokeBuild(context.Background(), uuid.New(), model.RegistryTagDisposition("archive"))
+	require.ErrorIs(t, err, apperrors.ErrInternal)
 }

@@ -31,7 +31,7 @@ type ComposeOutboxWorker struct {
 	logger *slog.Logger
 }
 
-func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher BuildQueuePublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
+func NewComposeOutboxWorker(repo ComposeOutboxRepository, publisher OutboxPublisher, cfg ComposeOutboxConfigProvider, logger *slog.Logger) *ComposeOutboxWorker {
 	logger = logging.WithComponent(logger, "compose_outbox_worker")
 	return &ComposeOutboxWorker{
 		repo:   repo,

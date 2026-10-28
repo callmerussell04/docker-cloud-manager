@@ -32,7 +32,7 @@ type ContainerOutboxWorker struct {
 	logger *slog.Logger
 }
 
-func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher BuildQueuePublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
+func NewContainerOutboxWorker(repo ContainerOutboxRepository, publisher OutboxPublisher, cfg ContainerOutboxConfigProvider, logger *slog.Logger) *ContainerOutboxWorker {
 	logger = logging.WithComponent(logger, "container_outbox_worker")
 	return &ContainerOutboxWorker{
 		repo:   repo,

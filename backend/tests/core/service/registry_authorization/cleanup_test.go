@@ -110,3 +110,61 @@ func TestRegistryCleanupStopsQuietlyWhenCanceledDuringAJob(t *testing.T) {
 		}
 	})
 }
+
+// runCleanupTick runs RunCleanup through its first 5-second tick and returns
+// the error-level log entries.
+func runCleanupTick(t *testing.T, repo *coremocks.RegistryGrantRepository, registry *coremocks.ImageRegistryAPI) []map[string]any {
+	t.Helper()
+	var logs bytes.Buffer
+	auth := service.NewRegistryAuthorization(repo, nil, nil, "registry:5000")
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	wg.Go(func() { auth.RunCleanup(ctx, registry, cleanupConfig, slog.New(slog.NewJSONHandler(&logs, nil))) })
+	time.Sleep(6 * time.Second)
+	synctest.Wait()
+	cancel()
+	wg.Wait()
+	var failures []map[string]any
+	for _, entry := range decodeLogs(t, &logs) {
+		if entry["level"] == "ERROR" {
+			failures = append(failures, entry)
+		}
+	}
+	return failures
+}
+
+func TestRegistryCleanupSeparatesAbsentManifestFromUpstreamFailure(t *testing.T) {
+	tests := []struct {
+		name             string
+		digest           string
+		lookupErr        error
+		expectedComplete bool
+	}{
+		{name: "absent manifest completes the job", lookupErr: apperrors.ErrNotFound, expectedComplete: true},
+		{name: "missing digest keeps the job", digest: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				repo := coremocks.NewRegistryGrantRepository(t)
+				registry := coremocks.NewImageRegistryAPI(t)
+				job := model.RegistryCleanup{ID: uuid.New(), Repository: "owner_app", Tag: "v1"}
+				repo.EXPECT().PendingRegistryCleanup(mock.Anything).Return([]model.RegistryCleanup{job}, nil).Once()
+				repo.EXPECT().LockRegistryRepository(mock.Anything, job.Repository).Return(func() {}, nil).Once()
+				repo.EXPECT().RegistryCleanupState(mock.Anything, job, service.RegistryCleanupDelay).Return(model.RegistryCleanupReady, nil).Once()
+				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, job.Repository, job.Tag).Return(10, tc.digest, tc.lookupErr).Once()
+				if tc.expectedComplete {
+					repo.EXPECT().CompleteRegistryCleanup(mock.Anything, job.ID).Return(nil).Once()
+				}
+
+				failures := runCleanupTick(t, repo, registry)
+				if tc.expectedComplete {
+					require.Empty(t, failures)
+					return
+				}
+				require.Len(t, failures, 1)
+				require.Equal(t, job.ID.String(), failures[0]["cleanup_id"])
+			})
+		})
+	}
+}

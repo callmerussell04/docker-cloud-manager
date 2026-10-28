@@ -62,7 +62,7 @@ const (
 // It records publications and status marks in call order; lookups are verified
 // by the strict mocks.
 type outboxQueueFixture struct {
-	publisher *coremocks.BuildQueuePublisher
+	publisher *coremocks.OutboxPublisher
 	interval  atomic.Int64
 	leases    atomic.Int32
 	outboxIDs []uuid.UUID
@@ -424,7 +424,7 @@ func requireClosed(t *testing.T, done <-chan struct{}, msg string) {
 
 func newOutboxQueueFixture(t *testing.T) *outboxQueueFixture {
 	t.Helper()
-	f := &outboxQueueFixture{publisher: coremocks.NewBuildQueuePublisher(t)}
+	f := &outboxQueueFixture{publisher: coremocks.NewOutboxPublisher(t)}
 	f.logger = slog.New(slog.NewJSONHandler(&f.logs, nil))
 	for range 2 {
 		f.outboxIDs = append(f.outboxIDs, uuid.New())

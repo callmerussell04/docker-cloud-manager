@@ -183,7 +183,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	uploadURL, err := url.Parse(response.Header.Get("Location"))
 	require.NoError(t, err)
 	uploadPath := uploadURL.RequestURI()
-	require.NoError(t, auth.RevokeBuild(ctx, b.ID, false))
+	require.NoError(t, auth.RevokeBuild(ctx, b.ID, model.RegistryTagKeep))
 	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, b.ID, b.ImageID, model.BuildStatusSuccess, 1))
 	// Daemon gets a separate exact-repository pull identity. Loopback addresses
 	// are Docker's test-only implicit insecure registries; no host CA is changed.
@@ -203,7 +203,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	require.NoError(t, puller.PullImage(ctx, pullImageName))
 
 	aBase, aBaseRepo, _ := seed(ownerA, "base:latest", "FROM scratch\nCOPY payload /base\n", "")
-	require.NoError(t, auth.RevokeBuild(ctx, aBase.ID, false))
+	require.NoError(t, auth.RevokeBuild(ctx, aBase.ID, model.RegistryTagKeep))
 	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, aBase.ID, aBase.ImageID, model.BuildStatusSuccess, 1))
 	_, file, _, _ := runtime.Caller(0)
 	probePath := filepath.Join(t.TempDir(), "probe")
@@ -217,7 +217,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	_, after, err := metadata.GetImageSizeAndDigest(ctx, bRepo, "latest")
 	require.NoError(t, err)
 	require.Equal(t, bDigest, after, "B must be unchanged")
-	require.NoError(t, auth.RevokeBuild(ctx, a.ID, true))
+	require.NoError(t, auth.RevokeBuild(ctx, a.ID, model.RegistryTagDelete))
 	_, err = auth.Exchange(ctx, a.RegistryCredential.Username, a.RegistryCredential.Password, service.RegistryService, nil)
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
 	// A previously issued bearer remains scoped; a token outside the full skew

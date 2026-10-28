@@ -232,12 +232,12 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessfulBuilds(t *testing.T) {
 	for _, tc := range []struct {
 		persisted string
-		cleanup   bool
+		pushedTag model.RegistryTagDisposition
 	}{
-		{model.BuildStatusCanceled, true},
-		{model.BuildStatusFailedQuotaExceeded, true},
-		{model.BuildStatusFailedInternal, true},
-		{model.BuildStatusSuccess, false},
+		{model.BuildStatusCanceled, model.RegistryTagDelete},
+		{model.BuildStatusFailedQuotaExceeded, model.RegistryTagDelete},
+		{model.BuildStatusFailedInternal, model.RegistryTagDelete},
+		{model.BuildStatusSuccess, model.RegistryTagKeep},
 	} {
 		t.Run(tc.persisted, func(t *testing.T) {
 			buildID := uuid.New()
@@ -252,7 +252,7 @@ func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessf
 				RegistryAuth: auth,
 			})
 			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: tc.persisted}, nil)
-			auth.EXPECT().RevokeBuild(mock.Anything, buildID, tc.cleanup).Return(nil).Once()
+			auth.EXPECT().RevokeBuild(mock.Anything, buildID, tc.pushedTag).Return(nil).Once()
 
 			require.NoError(t, svc.CompleteBuildRecord(context.Background(), buildID, imageID, model.BuildStatusSuccess, 0))
 		})
@@ -298,9 +298,9 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 			failedStatus = status
 		}).
 		Return(nil)
-	revoke := auth.EXPECT().RevokeBuild(mock.Anything, buildID, false).Return(nil).Once()
+	revoke := auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagKeep).Return(nil).Once()
 	// The rejected manifest is removed by the fenced Registry cleanup job.
-	auth.EXPECT().RevokeBuild(mock.Anything, buildID, true).Return(nil).Once().NotBefore(revoke)
+	auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagDelete).Return(nil).Once().NotBefore(revoke)
 	objects.EXPECT().DeleteObject(mock.Anything, "build-archives/source.zip").Run(func(ctx context.Context, objectKey string) {
 		deleted = append(deleted, objectKey)
 	}).Return(nil)

@@ -20,11 +20,6 @@ type BuildOutboxRepository interface {
 	MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error
 }
 
-type BuildQueuePublisher interface {
-	Publish(ctx context.Context, exchange, routingKey string, body []byte) error
-	Close() error
-}
-
 type BuildOutboxConfigProvider interface {
 	Get() config.SystemConfig
 }
@@ -36,7 +31,7 @@ type BuildOutboxWorker struct {
 	logger *slog.Logger
 }
 
-func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher BuildQueuePublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
+func NewBuildOutboxWorker(repo BuildOutboxRepository, publisher OutboxPublisher, cfg BuildOutboxConfigProvider, logger *slog.Logger) *BuildOutboxWorker {
 	logger = logging.WithComponent(logger, "build_outbox_worker")
 	return &BuildOutboxWorker{
 		repo:   repo,

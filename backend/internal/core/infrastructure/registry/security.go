@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
@@ -33,7 +34,7 @@ func TLSClient(caFile string) (*http.Client, error) {
 	return &http.Client{Transport: transport, Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
-type TokenProvider func(context.Context, string, bool) (string, error)
+type TokenProvider func(context.Context, string, model.RegistryTrustedAccess) (string, error)
 
 func NewSecureAdapter(registryURL string, client *http.Client, tokens TokenProvider) (*Adapter, error) {
 	u, err := url.Parse(registryURL)
@@ -44,11 +45,11 @@ func NewSecureAdapter(registryURL string, client *http.Client, tokens TokenProvi
 	return &Adapter{baseURL: registryURL, httpClient: client, tokens: tokens}, nil
 }
 
-func (a *Adapter) authorize(ctx context.Context, req *http.Request, repository string, cleanup bool) error {
+func (a *Adapter) authorize(ctx context.Context, req *http.Request, repository string, access model.RegistryTrustedAccess) error {
 	if a.tokens == nil {
 		return nil
 	}
-	token, err := a.tokens(ctx, repository, cleanup)
+	token, err := a.tokens(ctx, repository, access)
 	if err != nil {
 		return err
 	}

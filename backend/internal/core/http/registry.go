@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 )
 
@@ -54,7 +55,7 @@ func RegistryTokenHandler(logic RegistryTokenLogic, logger *slog.Logger) http.Ha
 			writeRegistryTokenResponse(r.Context(), w, logger, code, map[string]string{"error": "registry authorization unavailable or denied"})
 			return
 		}
-		writeRegistryTokenResponse(r.Context(), w, logger, http.StatusOK, map[string]any{"token": token, "access_token": token, "expires_in": 60, "issued_at": time.Now().UTC().Format(time.RFC3339)})
+		writeRegistryTokenResponse(r.Context(), w, logger, http.StatusOK, map[string]any{"token": token, "access_token": token, "expires_in": int64(service.RegistryTokenTTL / time.Second), "issued_at": time.Now().UTC().Format(time.RFC3339)})
 	})
 }
 

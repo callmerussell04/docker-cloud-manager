@@ -34,7 +34,7 @@ type RegistryGrantRepository interface {
 	AuthorizeCredential(ctx context.Context, hash []byte, now time.Time) (model.RegistryPrincipal, error)
 	RepositoryExists(ctx context.Context, repository string) (bool, error)
 	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error
-	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool, fence time.Duration) error
+	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition, fence time.Duration) error
 	FenceRepository(ctx context.Context, repository string, fence time.Duration) (time.Duration, error)
 	PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error)
 	CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error
@@ -137,7 +137,17 @@ func (s *RegistryAuthorization) Exchange(ctx context.Context, username, password
 
 // TrustedToken is available only in the Core process. It never accepts a
 // tenant-supplied action list and only signs exact durable repositories.
-func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository string, cleanup bool) (string, error) {
+func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository string, access model.RegistryTrustedAccess) (string, error) {
+	var subject string
+	var actions []string
+	switch access {
+	case model.RegistryTrustedPull:
+		subject, actions = "core-pull", []string{"pull"}
+	case model.RegistryTrustedCleanup:
+		subject, actions = "core-cleanup", []string{"pull", "delete"}
+	default:
+		return "", apperrors.ErrForbidden
+	}
 	exists, err := s.repo.RepositoryExists(ctx, repository)
 	if err != nil {
 		return "", fmt.Errorf("check trusted registry repository: %w", err)
@@ -145,18 +155,15 @@ func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository str
 	if !exists {
 		return "", apperrors.ErrForbidden
 	}
-	actions := []string{"pull"}
-	subject := "core-pull"
-	if cleanup {
-		actions = append(actions, "delete")
-		subject = "core-cleanup"
-	}
 	now := time.Now().UTC()
 	return s.signer.SignRegistryToken(ctx, model.RegistryTokenGrant{Subject: subject, Service: RegistryService, IssuedAt: now, ExpiresAt: now.Add(RegistryTokenTTL), Access: []model.RegistryAccess{{Repository: repository, Actions: actions}}})
 }
 
-func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error {
-	if err := s.repo.RevokeBuild(ctx, id, cleanup, RegistryCleanupDelay); err != nil {
+func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition) error {
+	if pushedTag != model.RegistryTagKeep && pushedTag != model.RegistryTagDelete {
+		return apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("revoke registry build: unknown tag disposition %q", pushedTag))
+	}
+	if err := s.repo.RevokeBuild(ctx, id, pushedTag, RegistryCleanupDelay); err != nil {
 		return fmt.Errorf("revoke registry build: %w", err)
 	}
 	return nil
@@ -238,18 +245,10 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 // job stays durable, so a later tick retries it.
 func (s *RegistryAuthorization) RunCleanup(ctx context.Context, registry ImageRegistryAPI, cfg RegistryCleanupConfigProvider, logger *slog.Logger) {
 	logger = logging.WithComponent(logger, "registry_cleanup_worker")
-	for {
-		interval := max(time.Duration(cfg.Get().RegistryCleanupIntervalSeconds)*time.Second, time.Second)
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-			timeout := max(time.Duration(cfg.Get().RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
-			s.cleanupRegistryTick(ctx, registry, timeout, logger)
-		}
-	}
+	runPeriodically(ctx, func() int64 { return cfg.Get().RegistryCleanupIntervalSeconds }, func(ctx context.Context) {
+		timeout := max(time.Duration(cfg.Get().RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
+		s.cleanupRegistryTick(ctx, registry, timeout, logger)
+	})
 }
 
 func (s *RegistryAuthorization) cleanupRegistryTick(ctx context.Context, registry ImageRegistryAPI, timeout time.Duration, logger *slog.Logger) {
@@ -303,11 +302,7 @@ func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry
 		return nil
 	}
 	if state == model.RegistryCleanupReady {
-		_, digest, err := registry.GetImageSizeAndDigest(ctx, job.Repository, job.Tag)
-		if err == nil {
-			err = registry.DeleteManifest(ctx, job.Repository, digest)
-		}
-		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		if err := deleteTaggedManifest(ctx, registry, job.Repository, job.Tag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			return fmt.Errorf("delete registry manifest: %w", err)
 		}
 	}
