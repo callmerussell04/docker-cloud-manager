@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -9,7 +10,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 )
@@ -24,6 +28,64 @@ type RegistryConfig struct {
 	SigningCertificateFile string
 	SigningKeyFile         string
 	Issuer                 string
+}
+
+// registryComponents is Core's Registry trust boundary. The adapter signs its
+// requests with the authorization's trusted tokens, and the cleanup worker uses
+// the adapter, so they are built in that order.
+type registryComponents struct {
+	auth    *service.RegistryAuthorization
+	adapter *registry.Adapter
+	cleanup *service.RegistryCleanupWorker
+	edge    *http.Server
+}
+
+func newRegistryComponents(cfg RegistryConfig, grants *repository.RegistryGrantRepository, users service.UserInfoProvider, runtime *config.Manager, logger *slog.Logger) (registryComponents, error) {
+	client, err := registry.TLSClient(cfg.CAFile)
+	if err != nil {
+		return registryComponents{}, err
+	}
+	signer, err := registry.NewSigner(cfg.SigningCertificateFile, cfg.SigningKeyFile, cfg.Issuer)
+	if err != nil {
+		return registryComponents{}, err
+	}
+	auth, err := service.NewRegistryAuthorization(service.RegistryAuthorizationDeps{
+		Repository: grants, Users: users, Signer: signer, Authority: cfg.Authority,
+	})
+	if err != nil {
+		return registryComponents{}, err
+	}
+	adapter, err := registry.NewSecureAdapter(cfg.BackendURL, client, auth.TrustedToken)
+	if err != nil {
+		return registryComponents{}, err
+	}
+	cleanup, err := service.NewRegistryCleanupWorker(service.RegistryCleanupWorkerDeps{
+		Repository: grants, Registry: adapter, Config: runtime, Logger: logger,
+	})
+	if err != nil {
+		return registryComponents{}, err
+	}
+	edge, err := registryServer(cfg, client, auth, logger)
+	if err != nil {
+		return registryComponents{}, err
+	}
+	return registryComponents{auth: auth, adapter: adapter, cleanup: cleanup, edge: edge}, nil
+}
+
+// pullAuthorization gives the Docker daemon an exact-repository pull identity
+// for DCM-built images and no credentials for public images.
+func pullAuthorization(auth *service.RegistryAuthorization, runtime *config.Manager) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, imageName string) (string, error) {
+		repo, custom := registry.RepositoryFromImage(imageName, runtime.Get().RegistryPublicURL)
+		if !custom {
+			return "", nil
+		}
+		credential, err := auth.PullCredential(ctx, repo)
+		if err != nil {
+			return "", err
+		}
+		return registry.DockerAuth(credential.Username, credential.Password, runtime.Get().RegistryPublicURL), nil
+	}
 }
 
 func registryServer(cfg RegistryConfig, client *http.Client, auth *service.RegistryAuthorization, logger *slog.Logger) (*http.Server, error) {

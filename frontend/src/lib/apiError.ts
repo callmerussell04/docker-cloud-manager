@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { TFunction, TranslationKey } from '@/lib/i18n';
+import { SessionUnavailableError } from '@/shared/api/sessionCoordinator';
 
 export interface ApiErrorResponse {
   error?: string;
@@ -52,6 +53,10 @@ const legacyErrorCodeByMessage: Record<string, string> = {
 };
 
 export function getApiErrorMessage(error: unknown, fallback: string, t?: TFunction): ApiErrorMessage {
+  if (error instanceof SessionUnavailableError) {
+    return { message: t ? t(error.messageKey) : fallback };
+  }
+
   if (axios.isAxiosError<ApiErrorResponse>(error)) {
     const responseError = error.response?.data?.error;
     const responseErrorCode = error.response?.data?.error_code;

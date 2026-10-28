@@ -41,6 +41,8 @@ func NewResourceOutboxWorker(repo ResourceOutboxRepository, publisher OutboxPubl
 	}
 }
 
+// Run relays volume and image operations on the lifecycle outbox schedule it
+// shares with the container outbox worker.
 func (w *ResourceOutboxWorker) Run(ctx context.Context) {
 	w.relay.run(ctx, func() int64 { return w.cfg.Get().ContainerCreateOutboxIntervalSeconds }, w.publishBatch)
 }
@@ -52,18 +54,19 @@ func (w *ResourceOutboxWorker) publishBatch(ctx context.Context) {
 		return
 	}
 	for _, item := range items {
+		attrs := []any{"resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID}
 		op, err := w.repo.GetOperationByID(ctx, item.OperationID)
 		if err == nil && op.Status != model.OperationStatusPending {
-			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
+			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, nil), attrs...)
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, apperrors.ErrNotFound) {
-				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
+				w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkResourceOutboxDiscarded(ctx, item.ID, err), attrs...)
 				continue
 			}
 			w.logger.ErrorContext(ctx, "failed to fetch resource operation for outbox message", "operation_id", item.OperationID, "outbox_id", item.ID, "error", err)
-			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkResourceOutboxPending(ctx, item.ID, err), "resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID)
+			w.relay.logMarkFailure(ctx, "pending", item.ID, w.repo.MarkResourceOutboxPending(ctx, item.ID, err), attrs...)
 			continue
 		}
 		w.relay.publish(ctx, outboxMessage{
@@ -71,7 +74,7 @@ func (w *ResourceOutboxWorker) publishBatch(ctx context.Context) {
 			exchange:   item.Exchange,
 			routingKey: item.RoutingKey,
 			payload:    item.Payload,
-			logAttrs:   []any{"resource_type", item.ResourceType, "resource_id", item.ResourceID, "operation_id", item.OperationID},
+			logAttrs:   attrs,
 		}, w.repo.MarkResourceOutboxPublished, w.repo.MarkResourceOutboxPending)
 	}
 }

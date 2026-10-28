@@ -88,7 +88,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 				Containers:   repos.Containers,
 				Config:       cfg,
 				Lifecycle:    lifecycle,
-				RegistryAuth: repos.RegistryAuthorization(),
+				RegistryAuth: repos.RegistryAuthorization(t),
 			})
 			require.NoError(t, err)
 			require.ErrorIs(t, images.Delete(coretest.UserContext(uuid.New()), imageID), apperrors.ErrNotFound)
@@ -125,7 +125,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 					Containers:   repos.Containers,
 					Config:       cfg,
 					Lifecycle:    lifecycle,
-					RegistryAuth: repos.RegistryAuthorization(),
+					RegistryAuth: repos.RegistryAuthorization(t),
 				})
 				require.NoError(t, err)
 				worker = service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
@@ -331,7 +331,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 		Containers:   f.repos.Containers,
 		Config:       coretest.StaticConfig{Config: coretest.IntegrationConfig()},
 		Lifecycle:    f.lifecycle,
-		RegistryAuth: f.repos.RegistryAuthorization(),
+		RegistryAuth: f.repos.RegistryAuthorization(t),
 	})
 	require.NoError(t, err)
 	f.worker = service.NewResourceLifecycleWorker(nil, f.images, coretest.DiscardLogger())

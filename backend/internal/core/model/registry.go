@@ -40,6 +40,16 @@ type RegistryCleanup struct {
 	Tag        string
 }
 
+// RegistryCleanupFacts are read in one snapshot under the repository lock.
+type RegistryCleanupFacts struct {
+	// PublisherActive: a pending or running build targets the repository.
+	PublisherActive bool
+	// TokenMayWrite: a build token issued within the fence may still push.
+	TokenMayWrite bool
+	// TagAvailable: an available image owns the job's tag.
+	TagAvailable bool
+}
+
 type RegistryCleanupState string
 
 const (

@@ -258,21 +258,21 @@ docker compose --env-file backend/.env down
 
 `build-network-policy` требует `CAP_NET_ADMIN` и host network для установки host firewall. `build-egress` обеспечивает доступ Dockerfile к внешним пакетам по HTTP(S) через `HTTP_PROXY`/`HTTPS_PROXY`; клиенты, игнорирующие proxy, не получают прямой интернет-доступ. Builder ждёт готовности policy. Для обновления существующего стенда остановите новые сборки, дождитесь завершения текущих, затем пересоздайте `build_net` как internal network. Согласуйте действующий host firewall с этими правилами; не снимайте ограничения при остановке worker.
 
-Изолированная проверка (только disposable test database):
+Двухвладельческая проверка изоляции Registry входит в `make test` (и в CI) вместе с Docker smoke-тестами: `make test` задаёт `CORE_TEST_REGISTRY_ISOLATION` из `TEST_DOCKER_SMOKE` (по умолчанию `1`) и использует свою disposable test database. Ей нужны Docker и доступ к pinned-образам Registry и Kaniko. Отдельный запуск (только disposable test database):
 
 ```bash
 cd backend
-CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
-  GOCACHE=/tmp/go-build-cache go test -count=1 -timeout=5m ./tests/core/integration/registry_isolation
+GOTOOLCHAIN=go1.26.10 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
+  go test -count=1 -timeout=5m ./tests/core/integration/registry_isolation
 ```
 
 Тест создаёт собственные Registry storage, bridge и execution containers, проверяет реальные Dockerfile RUN с прочитанным job credential и удаляет свои fixtures. Он не устанавливает host firewall и не проверяет policy container; перед эксплуатацией отдельно проверьте сетевую политику из execution network.
 
-Для изолированной проверки host firewall с уникальными временными bridges/chains и их удалением после теста:
+Проверка host firewall остаётся ручной проверкой развёртывания: `make test` и CI её не запускают, потому что она собирает policy-образ и меняет правила iptables/ip6tables хоста (нужны root-доступ к Docker, `CAP_NET_ADMIN` и host network). Выполните её на целевом хосте перед эксплуатацией и после изменения `deployment/registry/network-policy*` или host firewall. Тест использует уникальные временные bridges/chains и удаляет их после завершения:
 
 ```bash
 cd backend
-CORE_TEST_NETWORK_POLICY=1 GOCACHE=/tmp/go-build-cache \
+GOTOOLCHAIN=go1.26.10 CORE_TEST_NETWORK_POLICY=1 \
   go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/core/integration/registry_isolation
 ```
 

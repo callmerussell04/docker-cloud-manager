@@ -47,7 +47,7 @@ func NewSecureAdapter(registryURL string, client *http.Client, tokens TokenProvi
 
 func (a *Adapter) authorize(ctx context.Context, req *http.Request, repository string, access model.RegistryTrustedAccess) error {
 	if a.tokens == nil {
-		return nil
+		return errors.New("registry authorization is not configured")
 	}
 	token, err := a.tokens(ctx, repository, access)
 	if err != nil {

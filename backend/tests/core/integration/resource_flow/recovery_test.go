@@ -105,7 +105,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 							Containers:   repos.Containers,
 							Config:       cfg,
 							Lifecycle:    repository.NewResourceLifecycleRepository(repos.DB),
-							RegistryAuth: repos.RegistryAuthorization(),
+							RegistryAuth: repos.RegistryAuthorization(t),
 						})
 						require.NoError(t, err)
 						return volumes, images, service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
@@ -205,7 +205,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 					Containers:   repos.Containers,
 					Config:       cfg,
 					Lifecycle:    lifecycle,
-					RegistryAuth: repos.RegistryAuthorization(),
+					RegistryAuth: repos.RegistryAuthorization(t),
 				})
 				require.NoError(t, err)
 				switch kind {
@@ -346,7 +346,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				Containers:   repos.Containers,
 				Config:       cfg,
 				Lifecycle:    lifecycle,
-				RegistryAuth: repos.RegistryAuthorization(),
+				RegistryAuth: repos.RegistryAuthorization(t),
 			})
 			require.NoError(t, err)
 			switch kind {

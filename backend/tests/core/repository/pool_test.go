@@ -145,9 +145,9 @@ func TestRegistryLockPreservesQueryProgress(t *testing.T) {
 		}()
 	}
 	require.Eventually(t, func() bool { return locks.Stats().WaitCount >= 8 }, time.Second, time.Millisecond)
-	state, err := grants.RegistryCleanupState(ctx, model.RegistryCleanup{Repository: "pool-test-repository", Tag: "latest"}, service.RegistryCleanupDelay)
+	facts, err := grants.RegistryCleanupFacts(ctx, model.RegistryCleanup{Repository: "pool-test-repository", Tag: "latest"}, service.RegistryCleanupDelay)
 	require.NoError(t, err)
-	require.Equal(t, model.RegistryCleanupReady, state)
+	require.Equal(t, model.RegistryCleanupFacts{}, facts)
 	unlock()
 	for range 8 {
 		require.NoError(t, <-results)

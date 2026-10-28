@@ -22,18 +22,6 @@ type Adapter struct {
 	tokens     TokenProvider
 }
 
-func NewAdapter(registryURL string) *Adapter {
-	baseURL := registryURL
-	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
-		baseURL = "http://" + baseURL
-	}
-	baseURL = strings.TrimRight(baseURL, "/")
-	return &Adapter{
-		baseURL:    baseURL,
-		httpClient: &http.Client{},
-	}
-}
-
 func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, manifestAttemptTimeout)
 	defer cancel()

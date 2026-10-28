@@ -204,9 +204,7 @@ func (s *ContainerService) ExecuteQueuedCreate(ctx context.Context, operationID,
 	defer func() {
 		if err != nil && pulledPublicImage {
 			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			if remover, ok := s.dockerAPI.(containerImageRemover); ok {
-				_ = remover.RemoveImage(cleanupCtx, actualImageTag, false) // best-effort removal of an image pulled for a failed create; create's error is returned
-			}
+			_ = s.dockerAPI.RemoveImage(cleanupCtx, actualImageTag, false) // best-effort removal of an image pulled for a failed create; create's error is returned
 			cancel()
 		}
 	}()

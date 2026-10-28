@@ -22,6 +22,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
+	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -74,9 +75,15 @@ type CoreRepositories struct {
 }
 
 // RegistryAuthorization returns production Registry authorization over the
-// test database. It claims, revokes and fences builds; it does not issue tokens.
-func (r CoreRepositories) RegistryAuthorization() *service.RegistryAuthorization {
-	return service.NewRegistryAuthorization(r.Grants, nil, nil, "registry.test")
+// test database. It claims, revokes and fences builds; it does not issue
+// tokens, so its users and signer mocks fail any call.
+func (r CoreRepositories) RegistryAuthorization(t *testing.T) *service.RegistryAuthorization {
+	t.Helper()
+	auth, err := service.NewRegistryAuthorization(service.RegistryAuthorizationDeps{
+		Repository: r.Grants, Users: coremocks.NewUserInfoProvider(t), Signer: coremocks.NewRegistryTokenSigner(t), Authority: "registry.test",
+	})
+	require.NoError(t, err)
+	return auth
 }
 
 func OpenCoreRepositories(t *testing.T) CoreRepositories {

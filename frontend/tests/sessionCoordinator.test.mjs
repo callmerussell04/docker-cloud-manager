@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSessionCoordinator } from '../src/shared/api/sessionCoordinator.ts';
+import { createSessionCoordinator, SessionUnavailableError } from '../src/shared/api/sessionCoordinator.ts';
 
 function deferred() {
  let resolve, reject;
@@ -48,7 +48,8 @@ test('uncertain refresh suspends instead of revoking; explicit retry can recover
  const { api, events } = fixture({ refresh: async () => { if (++calls === 1) throw new Error('network'); return 'recovered'; } });
  await assert.rejects(api.refresh());
  assert.deepEqual(events, [['suspend', 'refresh']]);
- await assert.rejects(api.refresh()); // A delayed interceptor 401 is not an explicit retry.
+ // A delayed interceptor 401 is not an explicit retry; it gets the translatable suspension error.
+ await assert.rejects(api.refresh(), (error) => error instanceof SessionUnavailableError && error.messageKey === 'auth.session.unavailable');
  assert.equal(calls, 1);
  await api.refresh(true);
  assert.deepEqual(events[1], ['token', 'recovered']);

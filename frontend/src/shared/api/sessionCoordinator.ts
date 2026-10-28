@@ -1,3 +1,15 @@
+// SessionUnavailableError rejects requests while a refresh or logout result is
+// uncertain. It carries the i18n key; this module stays free of React and i18n
+// so the coordinator tests run directly under Node.
+export class SessionUnavailableError extends Error {
+  readonly messageKey = 'auth.session.unavailable';
+
+  constructor() {
+    super('session unavailable');
+    this.name = 'SessionUnavailableError';
+  }
+}
+
 interface SessionDependencies {
   refresh: () => Promise<string>;
   logout: () => Promise<void>;
@@ -20,7 +32,7 @@ export function createSessionCoordinator(deps: SessionDependencies) {
   return {
     refresh(explicitRetry = false): Promise<string> {
       if (logoutRequested) return Promise.reject(new Error('Session ended'));
-      if (suspended && !explicitRetry) return Promise.reject(new Error('Session temporarily unavailable'));
+      if (suspended && !explicitRetry) return Promise.reject(new SessionUnavailableError());
       suspended = false;
       if (refreshPromise) return refreshPromise;
       const started = epoch;

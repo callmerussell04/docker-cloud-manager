@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -209,15 +211,25 @@ func (s *ImageService) completeImageOperation(ctx context.Context, operationID u
 
 // deleteRegistryManifest removes the tag from the Registry (soft delete) while
 // new builds of the repository are excluded. The repository lock is released
-// before Docker and database cleanup so it covers only the bounded Registry
-// attempt. ErrNotFound means the manifest is already absent.
+// before Docker and database cleanup, and the lookup and delete share the
+// Registry lock budget, so a stalled Registry blocks admission for at most that
+// budget. ErrNotFound means the manifest is already absent.
 func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, version string) error {
 	unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	return deleteTaggedManifest(ctx, s.registryAPI, repoName, version)
+	lockedCtx, cancel := context.WithTimeout(ctx, registryLockBudget(s.cfg.Get()))
+	defer cancel()
+	return deleteTaggedManifest(lockedCtx, s.registryAPI, repoName, version)
+}
+
+// registryLockBudget bounds Registry work done while holding a repository
+// lock. The lock pool's single connection is shared with all admission, so this
+// budget is the longest a stalled Registry can block admission.
+func registryLockBudget(cfg config.SystemConfig) time.Duration {
+	return max(time.Duration(cfg.RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
 }
 
 // deleteTaggedManifest resolves the tag's manifest digest and deletes the

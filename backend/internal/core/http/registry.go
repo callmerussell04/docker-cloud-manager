@@ -21,6 +21,9 @@ type RegistryTokenLogic interface {
 
 // RegistryTokenHandler is mounted on a dedicated TLS listener, never alongside
 // Core's control-plane routes. Passwords are accepted only in Basic auth headers.
+// It speaks the Distribution token protocol, so failures are protocol status
+// codes with a fixed body rather than httpresponse errors. No request-logging
+// middleware wraps this listener, so an outage is logged here.
 func RegistryTokenHandler(logic RegistryTokenLogic, logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -51,6 +54,8 @@ func RegistryTokenHandler(logic RegistryTokenLogic, logger *slog.Logger) http.Ha
 			code := http.StatusServiceUnavailable
 			if errors.Is(err, apperrors.ErrForbidden) || errors.Is(err, apperrors.ErrNotFound) {
 				code = http.StatusUnauthorized
+			} else {
+				logger.ErrorContext(r.Context(), "registry token exchange failed", "operation", "registry token exchange", "error", err)
 			}
 			writeRegistryTokenResponse(r.Context(), w, logger, code, map[string]string{"error": "registry authorization unavailable or denied"})
 			return
@@ -82,6 +87,7 @@ func RegistryEdgeHandler(target *url.URL, authority string, transport http.Round
 		Rewrite:   func(r *httputil.ProxyRequest) { r.SetURL(target); r.Out.Host = authority },
 		Transport: transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			logger.ErrorContext(r.Context(), "registry backend request failed", "operation", "registry proxy", "error", err)
 			http.Error(w, "registry unavailable", http.StatusServiceUnavailable)
 		},
 	}

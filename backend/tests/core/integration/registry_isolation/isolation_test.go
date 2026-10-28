@@ -53,7 +53,7 @@ const registryImage = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5
 
 func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	if os.Getenv("CORE_TEST_REGISTRY_ISOLATION") != "1" {
-		t.Skip("set CORE_TEST_REGISTRY_ISOLATION=1 and CORE_TEST_DATABASE_URL for the isolated Docker test")
+		t.Skip("make test runs this; set CORE_TEST_REGISTRY_ISOLATION=1 and CORE_TEST_DATABASE_URL to run it directly")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -78,7 +78,8 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	grants := repository.NewRegistryGrantRepository(db, db)
 	users := coremocks.NewUserInfoProvider(t)
 	users.EXPECT().GetUser(mock.Anything, mock.Anything).Return(model.UserInfo{Status: "active"}, nil)
-	auth := service.NewRegistryAuthorization(grants, users, signer, authority)
+	auth, err := service.NewRegistryAuthorization(service.RegistryAuthorizationDeps{Repository: grants, Users: users, Signer: signer, Authority: authority})
+	require.NoError(t, err)
 	for _, img := range []string{registryImage, "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"} {
 		_, err := cli.ImageInspect(ctx, img)
 		if err != nil {
@@ -208,7 +209,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	probePath := filepath.Join(t.TempDir(), "probe")
 	compile := exec.CommandContext(ctx, "go", "build", "-o", probePath, filepath.Join(filepath.Dir(file), "../../../testdata/registry-probe/main.go"))
-	compile.Env = append(os.Environ(), "CGO_ENABLED=0", "GOCACHE=/tmp/go-build-cache")
+	compile.Env = append(os.Environ(), "CGO_ENABLED=0")
 	compileOutput, err := compile.CombinedOutput()
 	require.NoError(t, err, "compile probe: %s", compileOutput)
 	aRepo := strings.ToLower(ownerA.String() + "_destination")

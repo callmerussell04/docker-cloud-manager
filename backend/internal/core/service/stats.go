@@ -36,9 +36,6 @@ type StatsImageRepository interface {
 
 type StatsBuildRepository interface {
 	CountAll(ctx context.Context) (int, error)
-}
-
-type statsActiveBuildRepository interface {
 	CountActive(ctx context.Context) (int, error)
 }
 
@@ -179,12 +176,9 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 	if err != nil {
 		return model.SystemMonitoring{}, err
 	}
-	activeBuilds := 0
-	if activeRepo, ok := s.buildRepo.(statsActiveBuildRepository); ok {
-		activeBuilds, err = activeRepo.CountActive(ctx)
-		if err != nil {
-			return model.SystemMonitoring{}, err
-		}
+	activeBuilds, err := s.buildRepo.CountActive(ctx)
+	if err != nil {
+		return model.SystemMonitoring{}, err
 	}
 	cfg := s.monitoringConfig()
 	reservedBuildMemory := int64(activeBuilds) * cfg.BuildMemoryBytes

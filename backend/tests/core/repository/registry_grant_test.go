@@ -111,9 +111,9 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute)
 	require.NoError(t, err)
 	require.True(t, started)
-	state, err := grants.RegistryCleanupState(ctx, job, service.RegistryCleanupDelay)
+	facts, err := grants.RegistryCleanupFacts(ctx, job, service.RegistryCleanupDelay)
 	require.NoError(t, err)
-	require.Equal(t, model.RegistryCleanupPending, state, "repository-wide grants must keep sibling-tag publishers ahead of cleanup")
+	require.True(t, facts.PublisherActive, "repository-wide grants must keep sibling-tag publishers ahead of cleanup")
 	// An unlocked deletion fence can race a claim; it must not revoke a running publisher.
 	_, err = grants.FenceRepository(ctx, repo, service.RegistryCleanupDelay)
 	require.NoError(t, err)

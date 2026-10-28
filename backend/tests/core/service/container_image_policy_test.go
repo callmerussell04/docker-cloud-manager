@@ -116,3 +116,39 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestQueuedContainerCreateRemovesPulledPublicImageAfterFailure(t *testing.T) {
+	owner := uuid.New()
+	workerRepo := newContainerRepository(t)
+	docker := coremocks.NewContainerDockerAPI(t)
+	cfg := coremocks.NewConfigManager(t)
+	cfg.EXPECT().Get().Return(containerCreateConfig()).Maybe()
+	images := newContainerImageRepository(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository: workerRepo,
+		Images:     images,
+		Docker:     docker,
+		Config:     cfg,
+		Logger:     slog.Default(),
+	})
+	id, opID := uuid.New(), uuid.New()
+	op := model.ResourceOperation{ID: opID, ResourceID: id, ResourceType: model.ResourceTypeContainer, Operation: model.OperationCreate, Status: model.OperationStatusRunning}
+	createErr := apperrors.New(apperrors.ErrBadRequest, "invalid container spec")
+	workerRepo.EXPECT().ClaimPendingOperation(mock.Anything, opID, mock.Anything).Return(op, true, nil)
+	workerRepo.EXPECT().UpdateStatus(mock.Anything, id, model.ContainerStatusCreating).Return(nil)
+	workerRepo.EXPECT().GetByID(mock.Anything, id).Return(model.Container{ID: id, OwnerID: owner, Name: "web", ImageTag: "nginx"}, nil)
+	workerRepo.EXPECT().GetMountsByContainerID(mock.Anything, id).Return(nil, nil).Maybe()
+	workerRepo.EXPECT().GetOperationByID(mock.Anything, opID).Return(op, nil).Maybe()
+	workerRepo.EXPECT().MarkStatusError(mock.Anything, id, model.ContainerStatusError, mock.Anything).Return(nil)
+	workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusFailed, mock.Anything).Return(nil)
+	workerRepo.EXPECT().CountByOwnerID(mock.Anything, owner).Return(1, nil).Maybe()
+	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	docker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil)
+	docker.EXPECT().ImageExists(mock.Anything, "nginx:latest").Return(false, nil)
+	docker.EXPECT().PullImage(mock.Anything, "nginx:latest").Return(nil).Once()
+	docker.EXPECT().CreateContainer(mock.Anything, mock.Anything).Return("", createErr)
+	docker.EXPECT().RemoveImage(mock.Anything, "nginx:latest", false).Return(nil).Once()
+
+	err := svc.ExecuteQueuedCreate(context.Background(), opID, id)
+	require.ErrorIs(t, err, apperrors.ErrBadRequest)
+}

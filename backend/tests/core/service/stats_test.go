@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	volRepo.EXPECT().CountAll(ctx).Return(4, nil)
 	imgRepo.EXPECT().GetTotalUsedDiskSpace(ctx).Return(int64(2), nil)
 	imgRepo.EXPECT().CountAll(ctx).Return(5, nil)
+	buildRepo.EXPECT().CountActive(ctx).Return(2, nil)
 	buildRepo.EXPECT().CountAll(ctx).Return(6, nil)
 	projRepo.EXPECT().CountAll(ctx).Return(2, nil)
 	metrics.EXPECT().GetCPULoad().Return(42.5, nil)
@@ -66,7 +68,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.EqualValues(t, 1500, stats.DiskUsedBytes)
 	require.EqualValues(t, 500, stats.DiskFreeBytes)
 	require.EqualValues(t, 3*bytesPerMBForTest, stats.DCMReservedMemoryBytes)
-	require.EqualValues(t, 0, stats.DCMReservedBuildMemoryBytes)
+	require.EqualValues(t, 200, stats.DCMReservedBuildMemoryBytes)
 	require.EqualValues(t, 2*bytesPerMBForTest+512, stats.DCMDiskUsedBytes)
 	require.EqualValues(t, 100, stats.HostMinFreeDiskBytes)
 	require.Equal(t, "open", stats.AdmissionStatus)
@@ -82,3 +84,5 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.Equal(t, 2, stats.ProjectsTotal)
 	require.False(t, stats.ObservedAt.IsZero())
 }
+
+var _ StatsBuildRepository = (*repository.BuildRepository)(nil)

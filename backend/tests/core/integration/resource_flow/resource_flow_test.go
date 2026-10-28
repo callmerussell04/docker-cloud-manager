@@ -87,7 +87,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Containers:   repos.Containers,
 		Config:       cfg,
 		Lifecycle:    lifecycle,
-		RegistryAuth: repos.RegistryAuthorization(),
+		RegistryAuth: repos.RegistryAuthorization(t),
 	})
 	require.NoError(t, err)
 	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)

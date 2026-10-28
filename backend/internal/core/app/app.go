@@ -14,7 +14,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/clickhouse"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/rabbitmq"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
@@ -78,50 +77,18 @@ type ClickHouseConfig struct {
 func New(cfg Config, logger *slog.Logger) (*App, error) {
 	appLogger := logging.WithComponent(logger, "app")
 
-	poolCfg := cfg.DBPool
-	queryCfg, lockCfg, err := poolCfg.CoreBudgets()
+	db, lockDB, err := openPostgresPools(cfg.DBURL, cfg.DBPool)
 	if err != nil {
 		return nil, err
-	}
-	db, err := sql.Open("postgres", cfg.DBURL)
-	if err != nil {
-		return nil, fmt.Errorf("open postgres pool: %w", err)
 	}
 	initialized := false
 	defer func() {
 		if !initialized {
-			_ = db.Close() // startup failed and its error is returned; the process exits without reusing the pool
-		}
-	}()
-	if err := queryCfg.Apply(db); err != nil {
-		return nil, err
-	}
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer pingCancel()
-	if err := db.PingContext(pingCtx); err != nil {
-		return nil, fmt.Errorf("ping postgres pool: %w", err)
-	}
-	lockDB, err := sql.Open("postgres", cfg.DBURL)
-	if err != nil {
-		return nil, fmt.Errorf("open postgres lock pool: %w", err)
-	}
-	defer func() {
-		if !initialized {
+			_ = db.Close()     // startup failed and its error is returned; the process exits without reusing the pool
 			_ = lockDB.Close() // startup failed and its error is returned; the process exits without reusing the pool
 		}
 	}()
-	if err := lockCfg.Apply(lockDB); err != nil {
-		return nil, err
-	}
 
-	registryClient, err := registry.TLSClient(cfg.Registry.CAFile)
-	if err != nil {
-		return nil, err
-	}
-	signer, err := registry.NewSigner(cfg.Registry.SigningCertificateFile, cfg.Registry.SigningKeyFile, cfg.Registry.Issuer)
-	if err != nil {
-		return nil, err
-	}
 	ssoConn, err := grpc.NewClient(
 		cfg.SSOTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -134,27 +101,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
 	}
 	ssoClient := grpcclient.NewSSOClient(ssoConn)
-	registryGrants := repository.NewRegistryGrantRepository(db, lockDB)
-	registryAuth := service.NewRegistryAuthorization(registryGrants, ssoClient, signer, cfg.Registry.Authority)
-	registryAdapter, err := registry.NewSecureAdapter(cfg.Registry.BackendURL, registryClient, registryAuth.TrustedToken)
+	registry, err := newRegistryComponents(cfg.Registry, repository.NewRegistryGrantRepository(db, lockDB), ssoClient, cfg.ConfigManager, logger)
 	if err != nil {
 		return nil, err
 	}
-	registryEdge, err := registryServer(cfg.Registry, registryClient, registryAuth, logger)
-	if err != nil {
-		return nil, err
-	}
-	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithPullAuthorization(func(ctx context.Context, imageName string) (string, error) {
-		repo, custom := registry.RepositoryFromImage(imageName, cfg.ConfigManager.Get().RegistryPublicURL)
-		if !custom {
-			return "", nil
-		}
-		credential, err := registryAuth.PullCredential(ctx, repo)
-		if err != nil {
-			return "", err
-		}
-		return registry.DockerAuth(credential.Username, credential.Password, cfg.ConfigManager.Get().RegistryPublicURL), nil
-	}))
+	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +153,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	imgService, err := service.NewImageService(service.ImageServiceDeps{
 		Repository:   imgRepo,
 		Docker:       dockerAdapter,
-		Registry:     registryAdapter,
+		Registry:     registry.adapter,
 		Containers:   contRepo,
 		Config:       cfg.ConfigManager,
 		Lifecycle:    resourceLifecycleRepo,
-		RegistryAuth: registryAuth,
+		RegistryAuth: registry.auth,
 	})
 	if err != nil {
 		return nil, err
@@ -215,10 +166,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	buildService, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    buildRepo,
 		Images:        imgRepo,
-		Registry:      registryAdapter,
+		Registry:      registry.adapter,
 		Users:         ssoClient,
 		Logger:        logger,
-		RegistryAuth:  registryAuth,
+		RegistryAuth:  registry.auth,
 		VolumeRepo:    volRepo,
 		Config:        cfg.ConfigManager,
 		ObjectStore:   objectStore,
@@ -287,29 +238,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		cancel()
 		return nil, err
 	}
-	recoveryMessage := "deployment interrupted by core service restart"
-	if err := orchestrator.CleanupInterruptedDeployments(context.Background(), recoveryMessage); err != nil {
-		appLogger.Warn("failed to cleanup interrupted compose deployments", "error", err)
-	}
-	if err := projRepo.RecoverInterruptedComposeDeployments(context.Background(), cfg.ConfigManager.Get().ComposeDeployMaxAttempts, recoveryMessage); err != nil {
-		appLogger.Warn("failed to recover interrupted compose deployments", "error", err)
-	}
-	operationRecoveryMessage := "operation interrupted by core service restart"
-	if recovered, err := resourceLifecycleRepo.RecoverInterruptedOperations(ctx, errors.New(operationRecoveryMessage)); err != nil {
+	if err := recoverInterruptedWork(ctx, orchestrator, projRepo, resourceLifecycleRepo, contRepo, cfg.ConfigManager, appLogger); err != nil {
 		cancel()
-		return nil, fmt.Errorf("recover interrupted resource operations: %w", err)
-	} else if recovered > 0 {
-		appLogger.Warn("requeued interrupted volume and image operations", "count", recovered)
-	}
-	if recovered, err := contRepo.RecoverInterruptedContainerCreates(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
-		appLogger.Warn("failed to recover interrupted container create operations", "error", err)
-	} else if recovered > 0 {
-		appLogger.Warn("requeued interrupted container create operations", "count", recovered)
-	}
-	if recovered, err := contRepo.FailInterruptedNonResumableOperations(context.Background(), errors.New(operationRecoveryMessage)); err != nil {
-		appLogger.Warn("failed to mark interrupted non-resumable operations", "error", err)
-	} else if recovered > 0 {
-		appLogger.Warn("failed interrupted non-resumable operations", "count", recovered)
+		return nil, err
 	}
 	buildService.SetDeploymentCanceler(orchestrator)
 	projService.SetDeploymentCanceler(orchestrator)
@@ -334,10 +265,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
-	buildOutboxWorker := service.NewBuildOutboxWorker(buildRepo, outboxPublisher, cfg.ConfigManager, logger)
-	composeOutboxWorker := service.NewComposeOutboxWorker(projRepo, outboxPublisher, cfg.ConfigManager, logger)
-	containerOutboxWorker := service.NewContainerOutboxWorker(contRepo, outboxPublisher, cfg.ConfigManager, logger)
-	resourceOutboxWorker := service.NewResourceOutboxWorker(resourceLifecycleRepo, outboxPublisher, cfg.ConfigManager, logger)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
 	composeCoordinator, err := compose.NewComposeDeploymentCoordinator(compose.ComposeDeploymentCoordinatorDeps{
@@ -365,20 +292,17 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		func(ctx context.Context) {
 			pgpool.LogStats(ctx, appLogger, map[string]*sql.DB{"queries": db, "locks": lockDB})
 		},
-		func(ctx context.Context) { registryAuth.RunCleanup(ctx, registryAdapter, cfg.ConfigManager, logger) },
+		registry.cleanup.Run,
 		ttlWorker.Run,
 		eventWorker.Run,
 		gcWorker.Run,
 		volumeUsageWorker.Run,
 		contService.RunRebalancer,
-		buildOutboxWorker.Run,
-		composeOutboxWorker.Run,
-		containerOutboxWorker.Run,
-		resourceOutboxWorker.Run,
 		composeCoordinator.Run,
 		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,
 	)
+	startWorkers(ctx, wg, outboxWorkers(outboxPublisher, buildRepo, projRepo, contRepo, resourceLifecycleRepo, cfg.ConfigManager, logger)...)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
 	containerConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, containerCreateWorker.HandleMessage)
 	resourceConsumer.Run(ctx, cfg.ConfigManager.Get().ContainerCreateWorkerCount, resourceLifecycleWorker.HandleMessage)
@@ -387,7 +311,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	return &App{
 		gRPCServer:        gRPCServer,
 		httpServer:        httpServer,
-		registryServer:    registryEdge,
+		registryServer:    registry.edge,
 		db:                db,
 		lockDB:            lockDB,
 		reportsRepo:       reportsRepo,

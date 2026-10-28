@@ -88,11 +88,8 @@ type ContainerDockerAPI interface {
 	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	ImageExists(ctx context.Context, imageTag string) (bool, error)
-	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
-}
-
-type containerImageRemover interface {
 	RemoveImage(ctx context.Context, imageID string, force bool) error
+	GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error)
 }
 
 type HostMetricsProvider interface {

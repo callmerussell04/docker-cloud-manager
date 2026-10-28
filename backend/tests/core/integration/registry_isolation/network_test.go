@@ -27,7 +27,7 @@ import (
 // No production network or firewall chain owned by DCM is modified.
 func TestBuildNetworkPolicyDeniesControlPlaneAndHost(t *testing.T) {
 	if os.Getenv("CORE_TEST_NETWORK_POLICY") != "1" {
-		t.Skip("set CORE_TEST_NETWORK_POLICY=1 for isolated host firewall verification")
+		t.Skip("manual deployment check (docs/deployment-single-vm.md): set CORE_TEST_NETWORK_POLICY=1 for isolated host firewall verification")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()

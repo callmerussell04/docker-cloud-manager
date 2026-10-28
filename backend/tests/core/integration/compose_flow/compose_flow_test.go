@@ -363,7 +363,7 @@ func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, mock.Anything, mock.Anything, int64(0)).Return(nil).Maybe()
 	buildService, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
-		RegistryAuth:  repos.RegistryAuthorization(),
+		RegistryAuth:  repos.RegistryAuthorization(t),
 		Images:        repos.Images,
 		Registry:      registry,
 		Users:         users,

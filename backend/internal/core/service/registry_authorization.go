@@ -7,14 +7,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -36,15 +33,8 @@ type RegistryGrantRepository interface {
 	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error
 	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition, fence time.Duration) error
 	FenceRepository(ctx context.Context, repository string, fence time.Duration) (time.Duration, error)
-	PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error)
-	CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error
 	LockRegistryRepository(ctx context.Context, repository string) (func(), error)
-	RegistryCleanupState(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupState, error)
 	HasActiveRegistryBuilds(ctx context.Context, repository string) (bool, error)
-}
-
-type RegistryCleanupConfigProvider interface {
-	Get() config.SystemConfig
 }
 
 type RegistryTokenSigner interface {
@@ -58,8 +48,32 @@ type RegistryAuthorization struct {
 	authority string
 }
 
-func NewRegistryAuthorization(repo RegistryGrantRepository, users UserInfoProvider, signer RegistryTokenSigner, authority string) *RegistryAuthorization {
-	return &RegistryAuthorization{repo: repo, users: users, signer: signer, authority: authority}
+// RegistryAuthorizationDeps are all required: claims, token exchange and
+// trusted tokens each depend on every one of them.
+type RegistryAuthorizationDeps struct {
+	Repository RegistryGrantRepository
+	Users      UserInfoProvider
+	Signer     RegistryTokenSigner
+	// Authority is the Registry host[:port] that build destinations name.
+	Authority string
+}
+
+func NewRegistryAuthorization(deps RegistryAuthorizationDeps) (*RegistryAuthorization, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"repository", deps.Repository}, {"users", deps.Users}, {"signer", deps.Signer},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+			return nil, fmt.Errorf("registry authorization: %s is required", dependency.name)
+		}
+	}
+	if deps.Authority == "" {
+		return nil, errors.New("registry authorization: authority is required")
+	}
+	return &RegistryAuthorization{repo: deps.Repository, users: deps.Users, signer: deps.Signer, authority: deps.Authority}, nil
 }
 
 func (s *RegistryAuthorization) ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error) {
@@ -240,38 +254,6 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// RunCleanup deletes fenced Registry tags. Interval and per-job timeout are
-// read fresh before each tick; a failed poll or job is logged here once and the
-// job stays durable, so a later tick retries it.
-func (s *RegistryAuthorization) RunCleanup(ctx context.Context, registry ImageRegistryAPI, cfg RegistryCleanupConfigProvider, logger *slog.Logger) {
-	logger = logging.WithComponent(logger, "registry_cleanup_worker")
-	runPeriodically(ctx, func() int64 { return cfg.Get().RegistryCleanupIntervalSeconds }, func(ctx context.Context) {
-		timeout := max(time.Duration(cfg.Get().RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
-		s.cleanupRegistryTick(ctx, registry, timeout, logger)
-	})
-}
-
-func (s *RegistryAuthorization) cleanupRegistryTick(ctx context.Context, registry ImageRegistryAPI, timeout time.Duration, logger *slog.Logger) {
-	jobs, err := s.repo.PendingRegistryCleanup(ctx)
-	if err != nil {
-		if ctx.Err() == nil {
-			logger.ErrorContext(ctx, "registry cleanup poll failed", "operation", "registry cleanup poll", "error", err)
-		}
-		return
-	}
-	for _, job := range jobs {
-		jobCtx, cancel := context.WithTimeout(ctx, timeout)
-		err := s.cleanupRegistryJob(jobCtx, registry, job)
-		cancel()
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			logger.ErrorContext(ctx, "registry cleanup job failed", "operation", "registry cleanup job", "cleanup_id", job.ID, "error", err)
-		}
-	}
-}
-
 // PullCredential gives the daemon a renewable, exact-repository identity. It
 // cannot push/delete, and is never installed inside an application container.
 func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository string) (model.RegistryCredential, error) {
@@ -286,28 +268,4 @@ func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository s
 		return model.RegistryCredential{}, fmt.Errorf("save registry pull credential: %w", err)
 	}
 	return model.RegistryCredential{Username: id.String(), Password: password}, nil
-}
-
-func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry ImageRegistryAPI, job model.RegistryCleanup) error {
-	unlock, err := s.repo.LockRegistryRepository(ctx, job.Repository)
-	if err != nil {
-		return fmt.Errorf("lock registry repository: %w", err)
-	}
-	defer unlock()
-	state, err := s.repo.RegistryCleanupState(ctx, job, RegistryCleanupDelay)
-	if err != nil {
-		return fmt.Errorf("read registry cleanup state: %w", err)
-	}
-	if state == model.RegistryCleanupPending {
-		return nil
-	}
-	if state == model.RegistryCleanupReady {
-		if err := deleteTaggedManifest(ctx, registry, job.Repository, job.Tag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-			return fmt.Errorf("delete registry manifest: %w", err)
-		}
-	}
-	if err := s.repo.CompleteRegistryCleanup(ctx, job.ID); err != nil {
-		return fmt.Errorf("complete registry cleanup: %w", err)
-	}
-	return nil
 }

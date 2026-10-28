@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -68,3 +69,53 @@ func TestRegistryRealmReportsFailedTokenResponseWriteWithoutToken(t *testing.T) 
 	require.NotContains(t, logs.String(), "signed-registry-token")
 	require.NotContains(t, logs.String(), "job-secret")
 }
+
+// The realm runs on a raw net/http listener with no request-logging
+// middleware, so it logs an outage itself; a denial is an expected answer.
+func TestRegistryRealmLogsOutageButNotDenial(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		cause  error
+		logged bool
+	}{
+		{"denied", apperrors.ErrForbidden, false},
+		{"outage", fmt.Errorf("sign registry token: %w", apperrors.ErrUnavailable), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			logic := corehttpmocks.NewMockRegistryTokenLogic(t)
+			logic.EXPECT().Exchange(mock.Anything, "job-id", "job-secret", "dcm-registry", []string{}).Return("", test.cause)
+			req := httptest.NewRequest(http.MethodGet, "/token?service=dcm-registry", nil)
+			req.SetBasicAuth("job-id", "job-secret")
+			var logs bytes.Buffer
+
+			corehttp.RegistryTokenHandler(logic, slog.New(slog.NewTextHandler(&logs, nil))).ServeHTTP(httptest.NewRecorder(), req)
+
+			if !test.logged {
+				require.Empty(t, logs.String())
+				return
+			}
+			require.Equal(t, 1, strings.Count(logs.String(), "registry token exchange failed"))
+			require.Contains(t, logs.String(), "sign registry token")
+			require.NotContains(t, logs.String(), "job-secret")
+		})
+	}
+}
+
+func TestRegistryEdgeLogsUnavailableBackend(t *testing.T) {
+	target, err := url.Parse("https://registry-backend.test")
+	require.NoError(t, err)
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("connection refused") })
+	var logs bytes.Buffer
+	handler := corehttp.RegistryEdgeHandler(target, "registry:5000", transport, corehttpmocks.NewMockRegistryTokenLogic(t), slog.New(slog.NewTextHandler(&logs, nil)))
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v2/owner_image/manifests/latest", nil))
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.Equal(t, 1, strings.Count(logs.String(), "registry backend request failed"))
+	require.Contains(t, logs.String(), "connection refused")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

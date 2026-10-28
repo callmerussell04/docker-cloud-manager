@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
@@ -211,3 +212,5 @@ func TestContainerServiceCreateEnforcesQueuedCreateLimit(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrLimitExceeded)
 	require.True(t, released)
 }
+
+var _ ContainerDockerAPI = (*docker.Adapter)(nil)

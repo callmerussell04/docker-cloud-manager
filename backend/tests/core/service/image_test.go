@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
@@ -153,6 +155,46 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 		})
 	}
+}
+
+// The lock pool has one connection shared with all admission, so a stalled
+// Registry call may hold the repository lock only for the cleanup job budget.
+func TestImageServiceDeleteBoundsRegistryWorkUnderRepositoryLock(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ownerID, imageID, operationID := uuid.New(), uuid.New(), uuid.New()
+		repo := newImageRepoMock(t)
+		registry := coremocks.NewImageRegistryAPI(t)
+		lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+		fence := coremocks.NewImageRepositoryFencer(t)
+		started := time.Now()
+		var heldFor time.Duration
+		fence.EXPECT().FenceAndLockRepository(mock.Anything, ownerID.String()+"_demo").Return(func() { heldFor = time.Since(started) }, nil)
+		cfg := staticConfig{}.Get()
+		cfg.RegistryCleanupJobTimeoutSeconds = 20
+		configManager := coremocks.NewConfigManager(t)
+		configManager.EXPECT().Get().Return(cfg)
+		svc, err := NewImageService(ImageServiceDeps{
+			Repository:   repo,
+			Docker:       coremocks.NewImageDockerAPI(t),
+			Registry:     registry,
+			Containers:   coremocks.NewImageContainerRepository(t),
+			Config:       configManager,
+			Lifecycle:    lifecycle,
+			RegistryAuth: fence,
+		})
+		require.NoError(t, err)
+		repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+		registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").
+			RunAndReturn(func(ctx context.Context, _, _ string) (int64, string, error) {
+				<-ctx.Done()
+				return 0, "", apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", ctx.Err())
+			})
+
+		err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+		require.ErrorIs(t, err, apperrors.ErrTimeout)
+		require.Equal(t, 20*time.Second, heldFor)
+		require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
+	})
 }
 
 func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {

@@ -6,12 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
-	"unsafe"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -23,7 +21,7 @@ func TestRegistryAdapterManifestSuccess(t *testing.T) {
 	var acceptHeader string
 	adapter := newAdapterWithRoundTripper(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, http.MethodGet, req.Method)
-		require.Equal(t, "http://registry.test/v2/owners/demo/manifests/latest", req.URL.String())
+		require.Equal(t, "https://registry.test/v2/owners/demo/manifests/latest", req.URL.String())
 		acceptHeader = req.Header.Get("Accept")
 		return httpResponse(http.StatusOK, "sha256:digest", `{"config":{"size":100},"layers":[{"size":200},{"size":300}]}`), nil
 	}))
@@ -154,6 +152,17 @@ func TestRegistryAdapterPreservesCallerCancellation(t *testing.T) {
 	}
 }
 
+func TestRegistryAdapterRequiresAuthorization(t *testing.T) {
+	_, err := registry.NewSecureAdapter("https://registry.test", &http.Client{}, nil)
+	require.Error(t, err)
+
+	// A zero adapter has no token provider; it must fail before sending an unauthenticated request.
+	adapter := &registry.Adapter{}
+	_, _, err = adapter.GetImageSizeAndDigest(context.Background(), "repo", "tag")
+	require.Error(t, err)
+	require.Error(t, adapter.DeleteManifest(context.Background(), "repo", "sha256:digest"))
+}
+
 func TestRegistryAdapterBoundsAuthorization(t *testing.T) {
 	for _, method := range []string{http.MethodGet, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {
@@ -249,7 +258,7 @@ func TestRegistryAdapterDeleteManifestStatuses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			adapter := newAdapterWithRoundTripper(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				require.Equal(t, http.MethodDelete, req.Method)
-				require.Equal(t, "http://registry.test/v2/repo/manifests/sha256:digest", req.URL.String())
+				require.Equal(t, "https://registry.test/v2/repo/manifests/sha256:digest", req.URL.String())
 				return httpResponse(tt.statusCode, "", ""), nil
 			}))
 
@@ -265,11 +274,10 @@ func TestRegistryAdapterDeleteManifestStatuses(t *testing.T) {
 
 func newAdapterWithRoundTripper(t *testing.T, rt http.RoundTripper) *registry.Adapter {
 	t.Helper()
-	adapter := registry.NewAdapter("http://registry.test")
-	field := reflect.ValueOf(adapter).Elem().FieldByName("httpClient")
-	require.True(t, field.IsValid())
-	ptr := unsafe.Pointer(field.UnsafeAddr())
-	reflect.NewAt(field.Type(), ptr).Elem().Set(reflect.ValueOf(&http.Client{Transport: rt}))
+	adapter, err := registry.NewSecureAdapter("https://registry.test", &http.Client{Transport: rt}, func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
+		return "test-token", nil
+	})
+	require.NoError(t, err)
 	return adapter
 }
 

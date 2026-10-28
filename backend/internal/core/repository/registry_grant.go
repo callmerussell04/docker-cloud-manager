@@ -25,6 +25,11 @@ func NewRegistryGrantRepository(db, lockDB *sql.DB) *RegistryGrantRepository {
 	return &RegistryGrantRepository{db: db, lockDB: lockDB}
 }
 
+// ClaimBuild keeps its pending check, repository try-lock, credential insert
+// and running transition in one transaction because only together do they
+// exclude a concurrent tag deletion: the build row lock serializes claims, and
+// the transaction-scoped repository lock must still be held when the credential
+// becomes visible. The repository name comes from the shared imageref policy.
 func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -221,16 +226,17 @@ func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, re
 	return release, nil
 }
 
-func (r *RegistryGrantRepository) RegistryCleanupState(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupState, error) {
-	var state model.RegistryCleanupState
-	err := r.db.QueryRowContext(ctx, `SELECT CASE
- WHEN EXISTS(SELECT 1 FROM builds b JOIN images i ON i.id=b.image_id
-   WHERE b.status IN ('pending','running') AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=$1 )
- OR EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+$3*interval '1 second'>clock_timestamp())
- THEN 'pending'
- WHEN EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND split_part(tag,':',2)=$2)
- THEN 'obsolete' ELSE 'ready' END`, job.Repository, job.Tag, fence.Seconds()).Scan(&state)
-	return state, wrapOp("registry grant cleanup state", err)
+// RegistryCleanupFacts reads the facts the cleanup worker decides on in one
+// statement, so they describe a single snapshot.
+func (r *RegistryGrantRepository) RegistryCleanupFacts(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupFacts, error) {
+	var facts model.RegistryCleanupFacts
+	err := r.db.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM builds b JOIN images i ON i.id=b.image_id
+   WHERE b.status IN ('pending','running') AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=$1),
+ EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+$3*interval '1 second'>clock_timestamp()),
+ EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND split_part(tag,':',2)=$2)`,
+		job.Repository, job.Tag, fence.Seconds()).Scan(&facts.PublisherActive, &facts.TokenMayWrite, &facts.TagAvailable)
+	return facts, wrapOp("registry grant cleanup facts", err)
 }
 
 func (r *RegistryGrantRepository) HasActiveRegistryBuilds(ctx context.Context, repository string) (bool, error) {

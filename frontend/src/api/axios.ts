@@ -1,7 +1,7 @@
 import axios, { type InternalAxiosRequestConfig } from 'axios';
 import { API_URL } from '@/config';
 import { useAuthStore } from '@/store/authStore';
-import { createSessionCoordinator } from '@/shared/api/sessionCoordinator';
+import { createSessionCoordinator, SessionUnavailableError } from '@/shared/api/sessionCoordinator';
 
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
@@ -57,7 +57,7 @@ export const acceptLogin = (token: string) => session.acceptLogin(token);
 
 privateApi.interceptors.request.use((config) => {
   const state = useAuthStore.getState();
-  if (state.sessionIssue) return Promise.reject(new Error('Session temporarily unavailable'));
+  if (state.sessionIssue) return Promise.reject(new SessionUnavailableError());
   if (state.accessToken) config.headers.Authorization = `Bearer ${state.accessToken}`;
   return config;
 });
