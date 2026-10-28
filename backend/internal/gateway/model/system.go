@@ -69,6 +69,8 @@ type SystemConfig struct {
 	VolumeUsageIntervalSeconds           int64
 	VolumeUsageCycleBudgetSeconds        int64
 	VolumeUsageScanEntryBudget           int
+	RegistryCleanupIntervalSeconds       int64
+	RegistryCleanupJobTimeoutSeconds     int64
 	HostMinFreeDiskBytes                 int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string

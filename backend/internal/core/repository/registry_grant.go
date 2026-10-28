@@ -112,7 +112,7 @@ func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, reposito
 	return exists, nil
 }
 
-func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error {
+func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool, fence time.Duration) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return wrapOp("registry grant revoke build", err)
@@ -124,8 +124,8 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 	}
 	if cleanup {
 		_, err = tx.ExecContext(ctx, `INSERT INTO registry_cleanup_jobs(id,owner_id,repository,tag,not_before)
-   SELECT build_id,owner_id,repository,tag,last_issued_at+interval '181 seconds' FROM registry_build_credentials WHERE build_id=$1
-   ON CONFLICT(id) DO UPDATE SET not_before=GREATEST(registry_cleanup_jobs.not_before,EXCLUDED.not_before)`, id)
+   SELECT build_id,owner_id,repository,tag,last_issued_at+$2*interval '1 second' FROM registry_build_credentials WHERE build_id=$1
+   ON CONFLICT(id) DO UPDATE SET not_before=GREATEST(registry_cleanup_jobs.not_before,EXCLUDED.not_before)`, id, fence.Seconds())
 		if err != nil {
 			return wrapOp("registry grant revoke build", err)
 		}
@@ -138,13 +138,13 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 // claimed concurrently with an unlocked fence keeps its credential; the caller
 // detects it as active. The database clock measures the remainder so Core clock
 // skew cannot shorten it.
-func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string) (time.Duration, error) {
+func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string, fence time.Duration) (time.Duration, error) {
 	var seconds float64
 	err := r.db.QueryRowContext(ctx, `WITH revoked AS (
  UPDATE registry_build_credentials c SET revoked_at=COALESCE(c.revoked_at,clock_timestamp())
  WHERE c.repository=$1 AND NOT EXISTS(SELECT 1 FROM builds b WHERE b.id=c.build_id AND b.status='running')
  RETURNING c.last_issued_at)
- SELECT COALESCE(EXTRACT(EPOCH FROM max(last_issued_at)+interval '181 seconds'-clock_timestamp()),0)::float8 FROM revoked`, repository).Scan(&seconds)
+ SELECT COALESCE(EXTRACT(EPOCH FROM max(last_issued_at)+$2*interval '1 second'-clock_timestamp()),0)::float8 FROM revoked`, repository, fence.Seconds()).Scan(&seconds)
 	if err != nil {
 		return 0, wrapOp("registry grant fence repository", err)
 	}
@@ -173,14 +173,14 @@ func (r *RegistryGrantRepository) CompleteRegistryCleanup(ctx context.Context, i
 	return err
 }
 
-func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte) error {
+func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM registry_pull_credentials WHERE expires_at<clock_timestamp()`)
 	if err != nil {
 		return apperrors.ErrUnavailable
 	}
 	result, err := r.db.ExecContext(ctx, `INSERT INTO registry_pull_credentials(id,owner_id,repository,secret_hash,expires_at)
- SELECT $1,owner_id,$2,$3,clock_timestamp()+interval '30 minutes' FROM images
- WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$2 LIMIT 1`, id, repository, hash)
+ SELECT $1,owner_id,$2,$3,clock_timestamp()+$4*interval '1 second' FROM images
+ WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$2 LIMIT 1`, id, repository, hash, lifetime.Seconds())
 	if err != nil {
 		return apperrors.ErrUnavailable
 	}
@@ -208,15 +208,15 @@ func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, re
 	return func() { _ = tx.Rollback() }, nil
 }
 
-func (r *RegistryGrantRepository) RegistryCleanupState(ctx context.Context, job model.RegistryCleanup) (model.RegistryCleanupState, error) {
+func (r *RegistryGrantRepository) RegistryCleanupState(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupState, error) {
 	var state model.RegistryCleanupState
 	err := r.db.QueryRowContext(ctx, `SELECT CASE
  WHEN EXISTS(SELECT 1 FROM builds b JOIN images i ON i.id=b.image_id
    WHERE b.status IN ('pending','running') AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=$1 )
- OR EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+interval '181 seconds'>clock_timestamp())
+ OR EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+$3*interval '1 second'>clock_timestamp())
  THEN 'pending'
  WHEN EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND split_part(tag,':',2)=$2)
- THEN 'obsolete' ELSE 'ready' END`, job.Repository, job.Tag).Scan(&state)
+ THEN 'obsolete' ELSE 'ready' END`, job.Repository, job.Tag, fence.Seconds()).Scan(&state)
 	return state, err
 }
 

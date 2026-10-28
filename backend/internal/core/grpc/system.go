@@ -97,6 +97,8 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		VolumeUsageIntervalSeconds:           cfg.VolumeUsageIntervalSeconds,
 		VolumeUsageCycleBudgetSeconds:        cfg.VolumeUsageCycleBudgetSeconds,
 		VolumeUsageScanEntryBudget:           int32(cfg.VolumeUsageScanEntryBudget),
+		RegistryCleanupIntervalSeconds:       cfg.RegistryCleanupIntervalSeconds,
+		RegistryCleanupJobTimeoutSeconds:     cfg.RegistryCleanupJobTimeoutSeconds,
 		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
@@ -187,6 +189,8 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.VolumeUsageIntervalSeconds = req.GetVolumeUsageIntervalSeconds()
 	newCfg.VolumeUsageCycleBudgetSeconds = req.GetVolumeUsageCycleBudgetSeconds()
 	newCfg.VolumeUsageScanEntryBudget = int(req.GetVolumeUsageScanEntryBudget())
+	newCfg.RegistryCleanupIntervalSeconds = req.GetRegistryCleanupIntervalSeconds()
+	newCfg.RegistryCleanupJobTimeoutSeconds = req.GetRegistryCleanupJobTimeoutSeconds()
 	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())

@@ -9,6 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
@@ -57,14 +58,14 @@ func TestRegistryGrantClaimIsExclusiveAndRevocationSurvivesRestart(t *testing.T)
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
 	_, err = grants.AuthorizeCredential(ctx, hashes[winner][:], time.Now().Add(2*time.Minute))
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
-	require.NoError(t, grants.RevokeBuild(ctx, buildID, true))
+	require.NoError(t, grants.RevokeBuild(ctx, buildID, true, service.RegistryCleanupDelay))
 	restarted := repository.NewRegistryGrantRepository(db, db)
 	_, err = restarted.AuthorizeCredential(ctx, hashes[winner][:], time.Now())
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
 	// Deletion fences only after the repository's builds stop running.
 	_, err = db.ExecContext(ctx, `UPDATE builds SET status=$2 WHERE id=$1`, buildID, model.BuildStatusCanceled)
 	require.NoError(t, err)
-	remaining, err := restarted.FenceRepository(ctx, principal.Repository)
+	remaining, err := restarted.FenceRepository(ctx, principal.Repository, service.RegistryCleanupDelay)
 	require.NoError(t, err)
 	require.Greater(t, remaining, 179*time.Second, "cleanup must wait for token skew and admitted writes")
 	require.NoError(t, builds.Delete(ctx, buildID))
@@ -93,7 +94,7 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	old, started, err := grants.ClaimBuild(ctx, oldID, oldHash[:], time.Minute)
 	require.NoError(t, err)
 	require.True(t, started)
-	require.NoError(t, grants.RevokeBuild(ctx, oldID, true))
+	require.NoError(t, grants.RevokeBuild(ctx, oldID, true, service.RegistryCleanupDelay))
 	require.NoError(t, repository.NewImageRepository(db).MarkBuildFailedAndDeleteImageTx(ctx, oldID, old.ImageID, model.BuildStatusCanceled))
 	_, err = db.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, oldID)
 	require.NoError(t, err)
@@ -110,11 +111,11 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute)
 	require.NoError(t, err)
 	require.True(t, started)
-	state, err := grants.RegistryCleanupState(ctx, job)
+	state, err := grants.RegistryCleanupState(ctx, job, service.RegistryCleanupDelay)
 	require.NoError(t, err)
 	require.Equal(t, model.RegistryCleanupPending, state, "repository-wide grants must keep sibling-tag publishers ahead of cleanup")
 	// An unlocked deletion fence can race a claim; it must not revoke a running publisher.
-	_, err = grants.FenceRepository(ctx, repo)
+	_, err = grants.FenceRepository(ctx, repo, service.RegistryCleanupDelay)
 	require.NoError(t, err)
 	_, err = grants.AuthorizeCredential(ctx, nextHash[:], time.Now())
 	require.NoError(t, err, "fencing must leave a running build's credential usable")

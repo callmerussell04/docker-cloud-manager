@@ -84,6 +84,8 @@ type SystemConfig struct {
 	VolumeUsageIntervalSeconds           int64 `json:"volume_usage_interval_seconds"`
 	VolumeUsageCycleBudgetSeconds        int64 `json:"volume_usage_cycle_budget_seconds"`
 	VolumeUsageScanEntryBudget           int   `json:"volume_usage_scan_entry_budget"`
+	RegistryCleanupIntervalSeconds       int64 `json:"registry_cleanup_interval_seconds"`
+	RegistryCleanupJobTimeoutSeconds     int64 `json:"registry_cleanup_job_timeout_seconds"`
 	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`

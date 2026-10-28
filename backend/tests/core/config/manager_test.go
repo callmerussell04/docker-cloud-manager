@@ -118,6 +118,27 @@ func TestValidateSystemConfigBoundsVolumeUsageAccounting(t *testing.T) {
 	}
 }
 
+func TestValidateSystemConfigRequiresPositiveRegistryCleanupTiming(t *testing.T) {
+	tests := []struct {
+		name  string
+		apply func(*SystemConfig)
+	}{
+		{name: "zero interval", apply: func(c *SystemConfig) { c.RegistryCleanupIntervalSeconds = 0 }},
+		{name: "negative interval", apply: func(c *SystemConfig) { c.RegistryCleanupIntervalSeconds = -1 }},
+		{name: "zero job timeout", apply: func(c *SystemConfig) { c.RegistryCleanupJobTimeoutSeconds = 0 }},
+		{name: "negative job timeout", apply: func(c *SystemConfig) { c.RegistryCleanupJobTimeoutSeconds = -1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tt.apply(&cfg)
+			if err := ValidateSystemConfig(cfg); err == nil {
+				t.Fatal("ValidateSystemConfig() returned nil error")
+			}
+		})
+	}
+}
+
 func validSystemConfig() SystemConfig {
 	return SystemConfig{
 		BaseDomain:                           "localhost",
@@ -190,6 +211,8 @@ func validSystemConfig() SystemConfig {
 		VolumeUsageIntervalSeconds:           60,
 		VolumeUsageCycleBudgetSeconds:        15,
 		VolumeUsageScanEntryBudget:           50000,
+		RegistryCleanupIntervalSeconds:       5,
+		RegistryCleanupJobTimeoutSeconds:     20,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,

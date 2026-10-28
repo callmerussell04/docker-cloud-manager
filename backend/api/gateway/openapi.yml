@@ -2665,6 +2665,12 @@ components:
           format: int64
         volume_usage_scan_entry_budget:
           type: integer
+        registry_cleanup_interval_seconds:
+          type: integer
+          format: int64
+        registry_cleanup_job_timeout_seconds:
+          type: integer
+          format: int64
         host_min_free_disk_bytes:
           type: integer
           format: int64

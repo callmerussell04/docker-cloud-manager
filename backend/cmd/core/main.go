@@ -197,6 +197,8 @@ func main() {
 		VolumeUsageIntervalSeconds:           int64(getEnvInt("VOLUME_USAGE_INTERVAL_SECONDS", 60)),
 		VolumeUsageCycleBudgetSeconds:        int64(getEnvInt("VOLUME_USAGE_CYCLE_BUDGET_SECONDS", 15)),
 		VolumeUsageScanEntryBudget:           getEnvInt("VOLUME_USAGE_SCAN_ENTRY_BUDGET", 50000),
+		RegistryCleanupIntervalSeconds:       int64(getEnvInt("REGISTRY_CLEANUP_INTERVAL_SECONDS", 5)),
+		RegistryCleanupJobTimeoutSeconds:     int64(getEnvInt("REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS", 20)),
 		HostMinFreeDiskBytes:                 getEnvInt64("HOST_MIN_FREE_DISK_BYTES", 1024*1024*1024),
 		GitSourcesEnabled:                    getEnvBool("GIT_SOURCES_ENABLED", true),
 		GitAllowedHosts:                      getEnvStringList("GIT_ALLOWED_HOSTS", []string{"github.com", "gitlab.com", "bitbucket.org"}),

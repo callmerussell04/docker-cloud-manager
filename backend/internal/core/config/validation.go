@@ -154,6 +154,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.VolumeUsageScanEntryBudget <= 0 || cfg.VolumeUsageScanEntryBudget > MaxVolumeUsageScanEntryBudget {
 		return fmt.Errorf("volume usage scan entry budget must be between 1 and %d", MaxVolumeUsageScanEntryBudget)
 	}
+	if cfg.RegistryCleanupIntervalSeconds <= 0 || cfg.RegistryCleanupJobTimeoutSeconds <= 0 {
+		return fmt.Errorf("registry cleanup interval and job timeout must be positive")
+	}
 	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
 		return fmt.Errorf("git source limits must be positive")
 	}

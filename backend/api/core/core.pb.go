@@ -3757,6 +3757,8 @@ type SystemConfigData struct {
 	VolumeUsageIntervalSeconds           int64                  `protobuf:"varint,85,opt,name=volume_usage_interval_seconds,json=volumeUsageIntervalSeconds,proto3" json:"volume_usage_interval_seconds,omitempty"`
 	VolumeUsageCycleBudgetSeconds        int64                  `protobuf:"varint,86,opt,name=volume_usage_cycle_budget_seconds,json=volumeUsageCycleBudgetSeconds,proto3" json:"volume_usage_cycle_budget_seconds,omitempty"`
 	VolumeUsageScanEntryBudget           int32                  `protobuf:"varint,87,opt,name=volume_usage_scan_entry_budget,json=volumeUsageScanEntryBudget,proto3" json:"volume_usage_scan_entry_budget,omitempty"`
+	RegistryCleanupIntervalSeconds       int64                  `protobuf:"varint,88,opt,name=registry_cleanup_interval_seconds,json=registryCleanupIntervalSeconds,proto3" json:"registry_cleanup_interval_seconds,omitempty"`
+	RegistryCleanupJobTimeoutSeconds     int64                  `protobuf:"varint,89,opt,name=registry_cleanup_job_timeout_seconds,json=registryCleanupJobTimeoutSeconds,proto3" json:"registry_cleanup_job_timeout_seconds,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4361,6 +4363,20 @@ func (x *SystemConfigData) GetVolumeUsageCycleBudgetSeconds() int64 {
 func (x *SystemConfigData) GetVolumeUsageScanEntryBudget() int32 {
 	if x != nil {
 		return x.VolumeUsageScanEntryBudget
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetRegistryCleanupIntervalSeconds() int64 {
+	if x != nil {
+		return x.RegistryCleanupIntervalSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetRegistryCleanupJobTimeoutSeconds() int64 {
+	if x != nil {
+		return x.RegistryCleanupJobTimeoutSeconds
 	}
 	return 0
 }
@@ -5027,7 +5043,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xdc(\n" +
+	"totalCount\"\xf7)\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5113,7 +5129,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1eblocked_domain_prefix_patterns\x18T \x03(\tR\x1bblockedDomainPrefixPatterns\x12A\n" +
 	"\x1dvolume_usage_interval_seconds\x18U \x01(\x03R\x1avolumeUsageIntervalSeconds\x12H\n" +
 	"!volume_usage_cycle_budget_seconds\x18V \x01(\x03R\x1dvolumeUsageCycleBudgetSeconds\x12B\n" +
-	"\x1evolume_usage_scan_entry_budget\x18W \x01(\x05R\x1avolumeUsageScanEntryBudgetJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x1evolume_usage_scan_entry_budget\x18W \x01(\x05R\x1avolumeUsageScanEntryBudget\x12I\n" +
+	"!registry_cleanup_interval_seconds\x18X \x01(\x03R\x1eregistryCleanupIntervalSeconds\x12N\n" +
+	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSecondsJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

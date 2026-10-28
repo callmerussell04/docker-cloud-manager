@@ -347,7 +347,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		func(ctx context.Context) {
 			pgpool.LogStats(ctx, appLogger, map[string]*sql.DB{"queries": db, "locks": lockDB})
 		},
-		func(ctx context.Context) { registryAuth.RunCleanup(ctx, registryAdapter) },
+		func(ctx context.Context) { registryAuth.RunCleanup(ctx, registryAdapter, cfg.ConfigManager, logger) },
 		ttlWorker.Run,
 		eventWorker.Run,
 		gcWorker.Run,

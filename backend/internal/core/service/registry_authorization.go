@@ -7,11 +7,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	"github.com/google/uuid"
 )
 
@@ -20,20 +23,28 @@ const RegistryTokenTTL = time.Minute
 
 // Distribution v2.8.3 allows 60 seconds of clock skew. The private edge bounds
 // admitted requests to another minute. Include one second for timestamp rounding.
+// The repository applies this fence to issued build tokens and cleanup jobs.
 const RegistryCleanupDelay = 181 * time.Second
+
+// RegistryPullCredentialLifetime bounds the daemon's read-only pull identity.
+const RegistryPullCredentialLifetime = 30 * time.Minute
 
 type RegistryGrantRepository interface {
 	ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error)
 	AuthorizeCredential(ctx context.Context, hash []byte, now time.Time) (model.RegistryPrincipal, error)
 	RepositoryExists(ctx context.Context, repository string) (bool, error)
-	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte) error
-	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error
-	FenceRepository(ctx context.Context, repository string) (time.Duration, error)
+	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error
+	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool, fence time.Duration) error
+	FenceRepository(ctx context.Context, repository string, fence time.Duration) (time.Duration, error)
 	PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error)
 	CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error
 	LockRegistryRepository(ctx context.Context, repository string) (func(), error)
-	RegistryCleanupState(ctx context.Context, job model.RegistryCleanup) (model.RegistryCleanupState, error)
+	RegistryCleanupState(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupState, error)
 	HasActiveRegistryBuilds(ctx context.Context, repository string) (bool, error)
+}
+
+type RegistryCleanupConfigProvider interface {
+	Get() config.SystemConfig
 }
 
 type RegistryTokenSigner interface {
@@ -142,7 +153,7 @@ func (s *RegistryAuthorization) TrustedToken(ctx context.Context, repository str
 }
 
 func (s *RegistryAuthorization) RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error {
-	return s.repo.RevokeBuild(ctx, id, cleanup)
+	return s.repo.RevokeBuild(ctx, id, cleanup, RegistryCleanupDelay)
 }
 
 // FenceAndLockRepository waits until no build can still write to the
@@ -195,7 +206,7 @@ func (s *RegistryAuthorization) fenceRepository(ctx context.Context, repository 
 	if active {
 		return true, 0, nil
 	}
-	remaining, err := s.repo.FenceRepository(ctx, repository)
+	remaining, err := s.repo.FenceRepository(ctx, repository, RegistryCleanupDelay)
 	if err != nil {
 		return false, 0, fmt.Errorf("fence registry repository: %w", err)
 	}
@@ -216,24 +227,42 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (s *RegistryAuthorization) RunCleanup(ctx context.Context, registry ImageRegistryAPI) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+// RunCleanup deletes fenced Registry tags. Interval and per-job timeout are
+// read fresh before each tick; a failed poll or job is logged here once and the
+// job stays durable, so a later tick retries it.
+func (s *RegistryAuthorization) RunCleanup(ctx context.Context, registry ImageRegistryAPI, cfg RegistryCleanupConfigProvider, logger *slog.Logger) {
+	logger = logging.WithComponent(logger, "registry_cleanup_worker")
 	for {
+		interval := max(time.Duration(cfg.Get().RegistryCleanupIntervalSeconds)*time.Second, time.Second)
+		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			jobs, err := s.repo.PendingRegistryCleanup(ctx)
-			if err != nil {
-				continue
-			}
-			for _, job := range jobs {
-				taskCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-				_ = s.cleanupRegistryJob(taskCtx, registry, job)
-				cancel()
-			}
+		case <-timer.C:
+			timeout := max(time.Duration(cfg.Get().RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
+			s.cleanupRegistryTick(ctx, registry, timeout, logger)
+		}
+	}
+}
 
+func (s *RegistryAuthorization) cleanupRegistryTick(ctx context.Context, registry ImageRegistryAPI, timeout time.Duration, logger *slog.Logger) {
+	jobs, err := s.repo.PendingRegistryCleanup(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			logger.ErrorContext(ctx, "registry cleanup poll failed", "operation", "registry cleanup poll", "error", err)
+		}
+		return
+	}
+	for _, job := range jobs {
+		jobCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := s.cleanupRegistryJob(jobCtx, registry, job)
+		cancel()
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.ErrorContext(ctx, "registry cleanup job failed", "operation", "registry cleanup job", "cleanup_id", job.ID, "error", err)
 		}
 	}
 }
@@ -248,7 +277,7 @@ func (s *RegistryAuthorization) PullCredential(ctx context.Context, repository s
 	password := base64.RawURLEncoding.EncodeToString(secret)
 	hash := sha256.Sum256([]byte(password))
 	id := uuid.New()
-	if err := s.repo.SavePullCredential(ctx, id, repository, hash[:]); err != nil {
+	if err := s.repo.SavePullCredential(ctx, id, repository, hash[:], RegistryPullCredentialLifetime); err != nil {
 		return model.RegistryCredential{}, err
 	}
 	return model.RegistryCredential{Username: id.String(), Password: password}, nil
@@ -260,7 +289,7 @@ func (s *RegistryAuthorization) cleanupRegistryJob(ctx context.Context, registry
 		return err
 	}
 	defer unlock()
-	state, err := s.repo.RegistryCleanupState(ctx, job)
+	state, err := s.repo.RegistryCleanupState(ctx, job, RegistryCleanupDelay)
 	if err != nil {
 		return err
 	}

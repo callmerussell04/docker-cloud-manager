@@ -551,6 +551,8 @@ message SystemConfigData {
   int64 volume_usage_interval_seconds = 85;
   int64 volume_usage_cycle_budget_seconds = 86;
   int32 volume_usage_scan_entry_budget = 87;
+  int64 registry_cleanup_interval_seconds = 88;
+  int64 registry_cleanup_job_timeout_seconds = 89;
 }
 
 message BuilderRuntimeConfigData {

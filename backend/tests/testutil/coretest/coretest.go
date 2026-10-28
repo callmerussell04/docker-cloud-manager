@@ -92,6 +92,8 @@ func SystemConfig() config.SystemConfig {
 		VolumeUsageIntervalSeconds:           60,
 		VolumeUsageCycleBudgetSeconds:        15,
 		VolumeUsageScanEntryBudget:           50000,
+		RegistryCleanupIntervalSeconds:       5,
+		RegistryCleanupJobTimeoutSeconds:     20,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,

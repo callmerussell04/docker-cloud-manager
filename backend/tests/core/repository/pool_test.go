@@ -7,6 +7,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
 	"github.com/google/uuid"
@@ -144,7 +145,7 @@ func TestRegistryLockPreservesQueryProgress(t *testing.T) {
 		}()
 	}
 	require.Eventually(t, func() bool { return locks.Stats().WaitCount >= 8 }, time.Second, time.Millisecond)
-	state, err := grants.RegistryCleanupState(ctx, model.RegistryCleanup{Repository: "pool-test-repository", Tag: "latest"})
+	state, err := grants.RegistryCleanupState(ctx, model.RegistryCleanup{Repository: "pool-test-repository", Tag: "latest"}, service.RegistryCleanupDelay)
 	require.NoError(t, err)
 	require.Equal(t, model.RegistryCleanupReady, state)
 	unlock()
