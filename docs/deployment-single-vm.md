@@ -322,6 +322,17 @@ under the locked Squid 7.6. Compose and the Registry isolation test run the upst
 Distribution image as
 `registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`.
 
+The other upstream infrastructure images in `docker-compose.yml`,
+`backend/docker-compose.test.yml` and `backend/docker-compose.keycloak.yml` are pinned
+to exact release tags without digests: `postgres:17.10-alpine3.23`,
+`migrate/migrate:v4.19.1`, `clickhouse/clickhouse-server:25.5.11.15`,
+`rabbitmq:4.3.1-management`, `traefik:v3.6.20` and `quay.io/keycloak/keycloak:26.0.8`.
+An exact tag stops silent minor or major upgrades, but a publisher can still
+rebuild it, so these pulls are not byte-reproducible. Update a tag deliberately
+and keep it identical across the Compose files. `minio/minio:latest` remains
+floating because the `minio/minio` repository is no longer pullable from Docker
+Hub, so no exact tag can be selected there.
+
 `backend/tests/buildinputs` runs in `make test-fast` and therefore in `make verify`
 and CI. It fails when a Dockerfile in `backend/dockerfiles/` or
 `deployment/registry/` uses a base image without a `sha256` digest, or installs

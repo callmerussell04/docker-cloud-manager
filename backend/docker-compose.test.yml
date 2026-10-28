@@ -1,6 +1,6 @@
 services:
   core_test_db:
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -14,7 +14,7 @@ services:
       retries: 20
 
   sso_test_db:
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -28,7 +28,7 @@ services:
       retries: 20
 
   clickhouse_test:
-    image: clickhouse/clickhouse-server:25.5
+    image: clickhouse/clickhouse-server:25.5.11.15
     environment:
       CLICKHOUSE_DB: ${DCM_CLICKHOUSE_TEST_DB:-dcm_reports_test}
       CLICKHOUSE_USER: ${DCM_CLICKHOUSE_TEST_USER:-dcm_reports_test}
@@ -43,7 +43,7 @@ services:
       retries: 30
 
   rabbitmq_test:
-    image: rabbitmq:4-management
+    image: rabbitmq:4.3.1-management
     ports:
       - "127.0.0.1:15692:5672"
       - "127.0.0.1:15693:15672"

@@ -55,7 +55,7 @@ x-traefik-security-headers: &traefik-security-headers
 services:
   core_db:
     <<: *service-defaults
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       <<: *postgres-env
       POSTGRES_DB: "${CORE_POSTGRES_DB:-dcm_core_db}"
@@ -71,7 +71,7 @@ services:
 
   sso_db:
     <<: *service-defaults
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       <<: *postgres-env
       POSTGRES_DB: "${SSO_POSTGRES_DB:-dcm_sso_db}"
@@ -87,7 +87,7 @@ services:
 
   migrate_core:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       core_db:
         condition: service_healthy
@@ -99,7 +99,7 @@ services:
 
   migrate_sso:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       sso_db:
         condition: service_healthy
@@ -111,7 +111,7 @@ services:
 
   clickhouse:
     <<: *service-defaults
-    image: clickhouse/clickhouse-server:25.5
+    image: clickhouse/clickhouse-server:25.5.11.15
     environment:
       CLICKHOUSE_DB: "${CLICKHOUSE_DB:-dcm_reports}"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-dcm_reports}"
@@ -128,7 +128,7 @@ services:
 
   migrate_reports:
     <<: *one-shot-defaults
-    image: migrate/migrate
+    image: migrate/migrate:v4.19.1
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -140,7 +140,7 @@ services:
 
   rabbitmq:
     <<: *service-defaults
-    image: rabbitmq:4-management
+    image: rabbitmq:4.3.1-management
     environment:
       RABBITMQ_DEFAULT_USER: "${RABBITMQ_USER:-dcm}"
       RABBITMQ_DEFAULT_PASS: "${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}"
@@ -179,7 +179,7 @@ services:
 
   traefik:
     <<: *service-defaults
-    image: traefik:v3.6
+    image: traefik:v3.6.20
     container_name: dcm_traefik
     user: root
     command:

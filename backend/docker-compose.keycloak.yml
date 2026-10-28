@@ -1,6 +1,6 @@
 services:
   keycloak_db:
-    image: postgres:17-alpine
+    image: postgres:17.10-alpine3.23
     environment:
       POSTGRES_USER: "${KEYCLOAK_POSTGRES_USER:-keycloak}"
       POSTGRES_PASSWORD: "${KEYCLOAK_POSTGRES_PASSWORD:?KEYCLOAK_POSTGRES_PASSWORD is required}"
@@ -16,7 +16,7 @@ services:
       - dcm_net
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.0.8
     command: ["start-dev"]
     environment:
       KC_DB: "postgres"
