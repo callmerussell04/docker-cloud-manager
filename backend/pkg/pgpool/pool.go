@@ -4,6 +4,7 @@ package pgpool
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -23,6 +24,8 @@ func DefaultConfig() Config {
 
 // Parse reads service-prefixed bootstrap settings through the entrypoint's lookup.
 // Invalid values fail startup rather than silently selecting an unlimited pool.
+// Errors name the setting but never echo its raw value, so only value-free
+// causes are wrapped.
 func Parse(lookup func(string) (string, bool), prefix string) (Config, error) {
 	cfg := DefaultConfig()
 	for suffix, target := range map[string]*int{"MAX_OPEN": &cfg.MaxOpen, "MAX_IDLE": &cfg.MaxIdle} {
@@ -30,7 +33,8 @@ func Parse(lookup func(string) (string, bool), prefix string) (Config, error) {
 		if raw, ok := lookup(key); ok {
 			value, err := strconv.Atoi(raw)
 			if err != nil {
-				return Config{}, fmt.Errorf("invalid %s", key)
+				// *strconv.NumError quotes the raw value; its unwrapped ErrSyntax or ErrRange does not.
+				return Config{}, fmt.Errorf("invalid %s: %w", key, errors.Unwrap(err))
 			}
 			*target = value
 		}
@@ -40,6 +44,7 @@ func Parse(lookup func(string) (string, bool), prefix string) (Config, error) {
 		if raw, ok := lookup(key); ok {
 			value, err := time.ParseDuration(raw)
 			if err != nil {
+				// time.ParseDuration has no value-free cause; its message quotes the raw value.
 				return Config{}, fmt.Errorf("invalid %s", key)
 			}
 			*target = value

@@ -411,7 +411,7 @@ func TestAuthServiceMapsTokenAndRepositoryErrors(t *testing.T) {
 func testSessions(t *testing.T, repo *ssomocks.UserRepository) *ssomocks.SessionRepository {
 	sessions := ssomocks.NewSessionRepository(t)
 	tx := ssomocks.NewSessionTransaction(t)
-	sessions.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, fn func(model.User, SessionTransaction) error) error {
+	sessions.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error {
 		return fn(model.User{ID: id, Status: model.StatusActive}, tx)
 	}).Maybe()
 	tx.EXPECT().CreateSession(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()

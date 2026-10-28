@@ -144,14 +144,13 @@ func (s *ImageService) ExecuteQueuedImageOperation(ctx context.Context, operatio
 	if !claimed {
 		if op.Status == model.OperationStatusPending && s.cfg.Get().ContainerCreateMaxAttempts > 0 && op.Attempts >= s.cfg.Get().ContainerCreateMaxAttempts {
 			cause := apperrors.New(apperrors.ErrTimeout, "image lifecycle attempts exhausted")
-			s.failQueuedImageDelete(ctx, operationID, imageID, cause)
+			return s.failQueuedImageDelete(ctx, operationID, imageID, cause)
 		}
 		return nil
 	}
 	if op.ResourceType != model.ResourceTypeImage || op.ResourceID != imageID || op.Operation != model.OperationDelete {
 		cause := apperrors.New(apperrors.ErrBadRequest, "image lifecycle message does not match operation")
-		_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusFailed, cause)
-		return cause
+		return errors.Join(cause, s.completeImageOperation(ctx, operationID, model.OperationStatusFailed, cause))
 	}
 	return s.executeQueuedImageDelete(ctx, operationID, imageID)
 }
@@ -160,11 +159,9 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	img, err := s.repo.GetByID(ctx, imageID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
-			return nil
+			return s.completeImageOperation(ctx, operationID, model.OperationStatusDone, nil)
 		}
-		_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusFailed, err)
-		return err
+		return errors.Join(err, s.completeImageOperation(ctx, operationID, model.OperationStatusFailed, err))
 	}
 
 	baseName, version := parseImageTag(img.Tag)
@@ -181,24 +178,32 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 
 	// Удаление из локального кэша Docker Engine
 	fullTag := customImageFullTag(s.cfg.Get().RegistryPublicURL, img.OwnerID, baseName, version)
-	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false)
+	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false) // best-effort local cache cleanup; the Registry tag is already gone
 
 	// Удаление записи из бд
 	if err := s.repo.Delete(ctx, imageID); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
-			return nil
+			return s.completeImageOperation(ctx, operationID, model.OperationStatusDone, nil)
 		}
 		if retryableLifecycleError(err) {
 			if requeueErr := s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, err); requeueErr != nil {
-				s.failQueuedImageDelete(ctx, operationID, imageID, requeueErr)
+				return errors.Join(err, requeueErr, s.failQueuedImageDelete(ctx, operationID, imageID, requeueErr))
 			}
 			return err
 		}
-		s.failQueuedImageDelete(ctx, operationID, imageID, err)
-		return err
+		return errors.Join(err, s.failQueuedImageDelete(ctx, operationID, imageID, err))
 	}
-	_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
+	return s.completeImageOperation(ctx, operationID, model.OperationStatusDone, nil)
+}
+
+// completeImageOperation records the operation's terminal status. A failed
+// write leaves the operation running until restart recovery requeues it, so
+// the error is returned for the resource queue consumer to log with the
+// operation ID.
+func (s *ImageService) completeImageOperation(ctx context.Context, operationID uuid.UUID, status string, cause error) error {
+	if err := s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, status, cause); err != nil {
+		return fmt.Errorf("record image operation %s status: %w", status, err)
+	}
 	return nil
 }
 
@@ -222,11 +227,17 @@ func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, ver
 	return s.registryAPI.DeleteManifest(ctx, repoName, digest)
 }
 
-func (s *ImageService) failQueuedImageDelete(ctx context.Context, operationID, imageID uuid.UUID, cause error) {
+// failQueuedImageDelete marks the image and its operation failed and returns
+// any failed status write.
+func (s *ImageService) failQueuedImageDelete(ctx context.Context, operationID, imageID uuid.UUID, cause error) error {
 	writeCtx, cancel := detachedContainerStateContext(ctx)
 	defer cancel()
-	s.markImageError(writeCtx, imageID, model.ImageStatusError, normalizeContainerRuntimeError(cause))
-	_ = s.lifecycle.CompleteOperation(writeCtx, operationID, model.OperationStatusFailed, normalizeContainerRuntimeError(cause))
+	cause = normalizeContainerRuntimeError(cause)
+	var markErr error
+	if err := s.repo.MarkStatusError(writeCtx, imageID, model.ImageStatusError, cause); err != nil {
+		markErr = fmt.Errorf("record image %s status: %w", model.ImageStatusError, err)
+	}
+	return errors.Join(markErr, s.completeImageOperation(writeCtx, operationID, model.OperationStatusFailed, cause))
 }
 
 func parseImageTag(rawTag string) (baseName, version string) {
@@ -246,8 +257,4 @@ func (s *ImageService) List(ctx context.Context, limit, offset int) ([]model.Ima
 		Limit:   limit,
 		Offset:  offset,
 	})
-}
-
-func (s *ImageService) markImageError(ctx context.Context, imageID uuid.UUID, status string, cause error) {
-	_ = s.repo.MarkStatusError(ctx, imageID, status, cause)
 }

@@ -79,7 +79,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	initialized := false
 	defer func() {
 		if !initialized {
-			_ = db.Close()
+			_ = db.Close() // startup failed and its error is returned; the process exits without reusing the pool
 		}
 	}()
 	if err := queryCfg.Apply(db); err != nil {

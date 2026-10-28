@@ -16,7 +16,8 @@ import (
 
 // SessionRepository serializes mutations with user changes across SSO instances.
 type SessionRepository interface {
-	WithUser(ctx context.Context, userID uuid.UUID, fn func(model.User, SessionTransaction) error) error
+	// WithUser commits fn's writes; operation names the commit in returned errors.
+	WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error
 	FindRefresh(ctx context.Context, digest []byte) (model.RefreshToken, error)
 	VerifySession(ctx context.Context, identity model.AccessIdentity, now time.Time) (model.User, error)
 	DeleteExpired(ctx context.Context, now time.Time, limit int) error
@@ -35,7 +36,7 @@ type SessionTransaction interface {
 
 func (s *AuthService) createSession(ctx context.Context, authenticated model.User, local bool) (model.Tokens, error) {
 	var result model.Tokens
-	err := s.sessions.WithUser(ctx, authenticated.ID, func(user model.User, tx SessionTransaction) error {
+	err := s.sessions.WithUser(ctx, authenticated.ID, "create session", func(user model.User, tx SessionTransaction) error {
 		if user.Status != model.StatusActive || (local && (user.PasswordHash != authenticated.PasswordHash || user.AuthSource == model.AuthSourceOIDC)) {
 			return apperrors.ErrInvalidCredentials
 		}
@@ -97,7 +98,7 @@ func (s *AuthService) Refresh(ctx context.Context, value string) (model.Tokens, 
 	}
 	var result model.Tokens
 	var rejected bool
-	err = s.sessions.WithUser(ctx, found.UserID, func(user model.User, tx SessionTransaction) error {
+	err = s.sessions.WithUser(ctx, found.UserID, "refresh session", func(user model.User, tx SessionTransaction) error {
 		session, token, err := tx.GetRefresh(ctx, digest)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			rejected = true
@@ -145,7 +146,7 @@ func (s *AuthService) Logout(ctx context.Context, value string) error {
 	if err != nil {
 		return err
 	}
-	err = s.sessions.WithUser(ctx, found.UserID, func(_ model.User, tx SessionTransaction) error {
+	err = s.sessions.WithUser(ctx, found.UserID, "logout session", func(_ model.User, tx SessionTransaction) error {
 		session, _, err := tx.GetRefresh(ctx, digest)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil
@@ -170,7 +171,7 @@ func earlier(a, b time.Time) time.Time {
 
 // updateUser serializes credential/status mutations with session creation/refresh.
 func (s *AuthService) updateUser(ctx context.Context, user model.User, passwordChanged, statusChanged bool) error {
-	return s.sessions.WithUser(ctx, user.ID, func(current model.User, tx SessionTransaction) error {
+	return s.sessions.WithUser(ctx, user.ID, "update session user", func(current model.User, tx SessionTransaction) error {
 		if !passwordChanged {
 			user.PasswordHash = current.PasswordHash
 		}

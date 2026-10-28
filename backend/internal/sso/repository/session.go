@@ -21,7 +21,7 @@ func NewSessionRepository(db *sql.DB) *SessionRepository { return &SessionReposi
 const userColumns = `id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
  auth_source, external_provider, external_subject, external_username, last_login_at`
 
-func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, fn func(model.User, service.SessionTransaction) error) error {
+func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return sessionStorageError(ctx, "begin session transaction", err)
@@ -35,7 +35,7 @@ func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, fn f
 	if err := fn(user, &sessionTransaction{tx: tx, userID: userID}); err != nil {
 		return err
 	}
-	return sessionStorageError(ctx, "commit session transaction", tx.Commit())
+	return sessionStorageError(ctx, "commit "+operation, tx.Commit())
 }
 
 func (r *SessionRepository) FindRefresh(ctx context.Context, digest []byte) (model.RefreshToken, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,9 @@ func TestParsePoolBootstrapSettings(t *testing.T) {
 				_, err := pgpool.Parse(func(key string) (string, bool) { value, ok := values[key]; return value, ok }, prefix)
 				require.ErrorContains(t, err, key)
 				require.NotContains(t, err.Error(), "secret-invalid-value")
+				if suffix == "MAX_OPEN" || suffix == "MAX_IDLE" {
+					require.ErrorIs(t, err, strconv.ErrSyntax)
+				}
 				values[key] = previous
 			}
 		})

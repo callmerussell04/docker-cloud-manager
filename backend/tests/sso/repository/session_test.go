@@ -241,8 +241,8 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			case "write":
 				store := ssomocks.NewSessionRepository(t)
 				store.EXPECT().FindRefresh(mock.Anything, mock.Anything).RunAndReturn(sessions.FindRefresh)
-				store.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, fn func(model.User, service.SessionTransaction) error) error {
-					return sessions.WithUser(ctx, id, func(user model.User, tx service.SessionTransaction) error {
+				store.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {
+					return sessions.WithUser(ctx, id, operation, func(user model.User, tx service.SessionTransaction) error {
 						wrapper := ssomocks.NewSessionTransaction(t)
 						wrapper.EXPECT().GetRefresh(mock.Anything, mock.Anything).RunAndReturn(tx.GetRefresh)
 						wrapper.EXPECT().Rotate(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, s model.Session, old, next model.RefreshToken) error {
@@ -264,8 +264,8 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			case "commit-uncertain":
 				store := ssomocks.NewSessionRepository(t)
 				store.EXPECT().FindRefresh(mock.Anything, mock.Anything).RunAndReturn(sessions.FindRefresh)
-				store.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, fn func(model.User, service.SessionTransaction) error) error {
-					if err := sessions.WithUser(ctx, id, fn); err != nil {
+				store.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, id uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {
+					if err := sessions.WithUser(ctx, id, operation, fn); err != nil {
 						return err
 					}
 					return apperrors.ErrTimeout

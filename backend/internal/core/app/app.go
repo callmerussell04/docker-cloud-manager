@@ -90,7 +90,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	initialized := false
 	defer func() {
 		if !initialized {
-			_ = db.Close()
+			_ = db.Close() // startup failed and its error is returned; the process exits without reusing the pool
 		}
 	}()
 	if err := queryCfg.Apply(db); err != nil {
@@ -107,7 +107,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	defer func() {
 		if !initialized {
-			_ = lockDB.Close()
+			_ = lockDB.Close() // startup failed and its error is returned; the process exits without reusing the pool
 		}
 	}()
 	if err := lockCfg.Apply(lockDB); err != nil {
@@ -421,7 +421,7 @@ func (a *App) Run() error {
 	go func() {
 		defer a.wg.Done()
 		if err := a.registryServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			a.logger.Error("registry edge failed")
+			a.logger.Error("core registry edge failed", "error", err)
 			a.cancel()
 		}
 	}()
@@ -447,7 +447,10 @@ func (a *App) Stop() {
 	if a.registryServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if err := a.registryServer.Shutdown(shutdownCtx); err != nil {
-			_ = a.registryServer.Close()
+			a.logger.Warn("core registry edge shutdown failed", "error", err)
+			if err := a.registryServer.Close(); err != nil {
+				a.logger.Warn("core registry edge close failed", "error", err)
+			}
 		}
 		cancel()
 	}
@@ -491,7 +494,9 @@ func (a *App) Stop() {
 	}
 	a.wg.Wait()
 	if a.lockDB != nil {
-		_ = a.lockDB.Close()
+		if err := a.lockDB.Close(); err != nil {
+			a.logger.Warn("postgres lock connection close failed", "error", err)
+		}
 	}
 	if a.db != nil {
 		if err := a.db.Close(); err != nil {
@@ -509,7 +514,9 @@ func (a *App) Stop() {
 		}
 	}
 	if a.buildPublisher != nil {
-		_ = a.buildPublisher.Close()
+		if err := a.buildPublisher.Close(); err != nil {
+			a.logger.Warn("rabbitmq publisher close failed", "error", err)
+		}
 	}
 	if a.ssoConn != nil {
 		if err := a.ssoConn.Close(); err != nil {

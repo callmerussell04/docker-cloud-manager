@@ -27,6 +27,8 @@ type RegistryConfig struct {
 }
 
 func registryServer(cfg RegistryConfig, client *http.Client, auth *service.RegistryAuthorization, logger *slog.Logger) (*http.Server, error) {
+	// Parse errors are replaced, not wrapped: *url.Error and its causes quote the
+	// raw setting, which may carry userinfo, and bootstrap errors omit values.
 	endpoint, err := url.Parse("https://" + cfg.Authority)
 	if err != nil || endpoint.Host != cfg.Authority || endpoint.Port() != "5000" || endpoint.Path != "" || endpoint.User != nil {
 		return nil, errors.New("invalid canonical registry authority")

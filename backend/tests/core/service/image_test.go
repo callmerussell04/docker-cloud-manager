@@ -221,6 +221,55 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 	require.Equal(t, model.OperationStatusFailed, lifecycle.op.Status)
 }
 
+func TestImageServiceDeleteReturnsTerminalStatusWriteFailure(t *testing.T) {
+	deleteErr := errors.New("delete failed")
+	markErr := errors.New("mark image error failed")
+	writeErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
+	tests := []struct {
+		name       string
+		deleteErr  error
+		markErr    error
+		wantErrors []error
+	}{
+		{name: "done", wantErrors: []error{writeErr}},
+		{name: "failed", deleteErr: deleteErr, wantErrors: []error{deleteErr, writeErr}},
+		{name: "image error mark", deleteErr: deleteErr, markErr: markErr, wantErrors: []error{deleteErr, markErr, writeErr}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ownerID, imageID, operationID := uuid.New(), uuid.New(), uuid.New()
+			repo := newImageRepoMock(t)
+			registry := coremocks.NewImageRegistryAPI(t)
+			dockerAPI := coremocks.NewImageDockerAPI(t)
+			lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+			lifecycle.completeErr = writeErr
+			svc, err := NewImageService(ImageServiceDeps{
+				Repository:   repo,
+				Docker:       dockerAPI,
+				Registry:     registry,
+				Containers:   coremocks.NewImageContainerRepository(t),
+				Config:       staticConfig{},
+				Lifecycle:    lifecycle,
+				RegistryAuth: unlockedRepositoryFence(t),
+			})
+			require.NoError(t, err)
+			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
+			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
+			dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil)
+			repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(tt.deleteErr)
+			if tt.deleteErr != nil {
+				repo.ImageRepository.EXPECT().MarkStatusError(mock.Anything, imageID, model.ImageStatusError, tt.deleteErr).Return(tt.markErr)
+			}
+
+			err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+			for _, want := range tt.wantErrors {
+				require.ErrorIs(t, err, want)
+			}
+			require.Equal(t, model.OperationStatusRunning, lifecycle.op.Status)
+		})
+	}
+}
+
 func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newImageRepoMock(t)
@@ -276,7 +325,8 @@ func newImageRepoMock(t *testing.T) *imageRepoMock {
 }
 
 type imageLifecycleFake struct {
-	op model.ResourceOperation
+	op          model.ResourceOperation
+	completeErr error
 }
 
 func newImageLifecycleFake(operationID, imageID, ownerID uuid.UUID) *imageLifecycleFake {
@@ -311,6 +361,9 @@ func (f *imageLifecycleFake) ClaimPendingOperation(ctx context.Context, id uuid.
 }
 
 func (f *imageLifecycleFake) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if f.completeErr != nil {
+		return f.completeErr
+	}
 	f.op.Status = status
 	return nil
 }

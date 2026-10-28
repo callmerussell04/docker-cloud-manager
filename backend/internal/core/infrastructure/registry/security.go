@@ -37,6 +37,7 @@ type TokenProvider func(context.Context, string, bool) (string, error)
 
 func NewSecureAdapter(registryURL string, client *http.Client, tokens TokenProvider) (*Adapter, error) {
 	u, err := url.Parse(registryURL)
+	// The parse error is replaced, not wrapped: it quotes the raw URL, which may carry userinfo.
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || tokens == nil {
 		return nil, errors.New("invalid authenticated registry endpoint")
 	}
