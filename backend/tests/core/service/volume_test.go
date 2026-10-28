@@ -426,6 +426,62 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 	}
 }
 
+func TestVolumeServiceExecuteQueuedReturnsStatusWriteFailure(t *testing.T) {
+	ownerID, volumeID := uuid.New(), uuid.New()
+	dockerErr := errors.New("docker create failed")
+	retryableErr := apperrors.Wrap(apperrors.ErrUnavailable, "docker unavailable", errors.New("connection refused"))
+	statusErr := errors.New("update volume status failed")
+	markErr := errors.New("mark volume error failed")
+	writeErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
+	requeueErr := errors.New("requeue failed")
+	tests := []struct {
+		name        string
+		createErr   error
+		statusErr   error
+		markErr     error
+		completeErr error
+		requeueErr  error
+		wantErrors  []error
+		wantStatus  string
+	}{
+		{name: "done", completeErr: writeErr, wantErrors: []error{writeErr}, wantStatus: model.OperationStatusRunning},
+		{name: "available status", statusErr: statusErr, wantErrors: []error{statusErr}, wantStatus: model.OperationStatusFailed},
+		{name: "failed", createErr: dockerErr, completeErr: writeErr, wantErrors: []error{dockerErr, writeErr}, wantStatus: model.OperationStatusRunning},
+		{name: "volume error mark", createErr: dockerErr, markErr: markErr, wantErrors: []error{dockerErr, markErr}, wantStatus: model.OperationStatusFailed},
+		{name: "requeue", createErr: retryableErr, requeueErr: requeueErr, wantErrors: []error{retryableErr, requeueErr}, wantStatus: model.OperationStatusFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			operationID := uuid.New()
+			repo := newVolumeRepoMock(t)
+			dockerAPI := coremocks.NewVolumeDockerAPI(t)
+			lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationCreate)
+			lifecycle.requeueErr = tt.requeueErr
+			lifecycle.completeErr = tt.completeErr
+			svc := newTestVolumeService(t, VolumeServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Config:     newVolumeConfigMock(t),
+				Lifecycle:  lifecycle,
+			})
+			repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
+			dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("", tt.createErr)
+			if tt.createErr == nil {
+				repo.EXPECT().UpdateStatus(mock.Anything, volumeID, model.VolumeStatusAvailable).Return(tt.statusErr)
+			}
+			if tt.createErr != nil || tt.statusErr != nil {
+				repo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, mock.Anything).Return(tt.markErr)
+			}
+
+			err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
+			for _, want := range tt.wantErrors {
+				require.ErrorIs(t, err, want)
+			}
+			require.Equal(t, tt.wantStatus, lifecycle.op.Status)
+		})
+	}
+}
+
 func TestVolumeServiceListUsesScopeOwnerFilter(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)
@@ -482,6 +538,8 @@ type volumeLifecycleFake struct {
 	createQueued bool
 	deleteQueued bool
 	active       bool
+	completeErr  error
+	requeueErr   error
 }
 
 func newVolumeLifecycleFake(operationID, volumeID, ownerID uuid.UUID, operation string) *volumeLifecycleFake {
@@ -528,11 +586,17 @@ func (f *volumeLifecycleFake) ClaimPendingOperation(ctx context.Context, id uuid
 }
 
 func (f *volumeLifecycleFake) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if f.completeErr != nil {
+		return f.completeErr
+	}
 	f.op.Status = status
 	return nil
 }
 
 func (f *volumeLifecycleFake) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
+	if f.requeueErr != nil {
+		return f.requeueErr
+	}
 	f.op.Status = model.OperationStatusPending
 	return nil
 }

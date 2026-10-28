@@ -141,7 +141,7 @@ func RecoveryMiddleware(logger *slog.Logger) gin.HandlerFunc {
 		defer func() {
 			if rec := recover(); rec != nil {
 				err := fmt.Errorf("panic: %v", rec)
-				_ = c.Error(err)
+				_ = c.Error(err) // records the panic for the access log; c.Error returns its argument
 				logger.ErrorContext(
 					c.Request.Context(),
 					"http request panicked",

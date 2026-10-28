@@ -50,13 +50,13 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 
 	if err := c.objectStore.CopyObject(ctx, sourceObjectKey, archiveObjectKey, composeArchiveContentType(sourceObjectKey)); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the unused copy; the job error is returned
 		cancel()
 		return uuid.Nil, err
 	}
 	if err := c.builds.ReserveBuildArchive(ctx, archiveObjectKey); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the unused copy; the job error is returned
 		cancel()
 		return uuid.Nil, err
 	}
@@ -64,7 +64,7 @@ func (c *LocalBuilderClient) TriggerBuild(ctx context.Context, projectID uuid.UU
 	buildID, _, err := c.builds.CreateProjectBuildJob(ctx, projectID, srv.Name, srv.ImageTag, archiveObjectKey, logObjectKey, srv.BuildContext, srv.Dockerfile, srv.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = c.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the unused copy; the job error is returned
 		c.builds.ReleaseBuildArchive(cleanupCtx, archiveObjectKey)
 		cancel()
 		return uuid.Nil, err

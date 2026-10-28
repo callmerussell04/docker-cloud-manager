@@ -59,12 +59,12 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 		name := part.FormName()
 		if name == "archive" {
 			if projectName == "" || part.FileName() == "" {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the request is rejected
 				httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 				return
 			}
 			projectID, err := h.orchestrator.StartDeployment(c.Request.Context(), projectName, part.FileName(), composeFile, part)
-			_ = part.Close()
+			_ = part.Close() // read-only multipart part, already consumed
 			if err != nil {
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
@@ -76,7 +76,7 @@ func (h *ComposeHandler) DeployCompose(c *gin.Context) {
 			return
 		}
 		value, err := readComposeFormField(part, 1<<20)
-		_ = part.Close()
+		_ = part.Close() // read-only multipart part; the read result decides the outcome
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return

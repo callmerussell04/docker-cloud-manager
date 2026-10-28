@@ -1,7 +1,9 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync/atomic"
@@ -166,6 +168,61 @@ func TestEventWorkerMarksMissingVolumeOnSync(t *testing.T) {
 	go worker.Run(ctx)
 
 	require.Equal(t, model.VolumeStatusMissing, waitForEventWorkerStatus(t, statusCh))
+}
+
+func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		containerID, volumeID := uuid.New(), uuid.New()
+		writeErr := errors.New("database unavailable")
+		repo := coremocks.NewEventContainerRepo(t)
+		volumeRepo := coremocks.NewEventVolumeRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		rebalancer := coremocks.NewContainerRebalancer(t)
+		cfg := coremocks.NewEventConfigProvider(t)
+		settings := staticConfig{}.Get()
+		settings.EventSyncIntervalSeconds = 3600
+		cfg.EXPECT().Get().Return(settings).Maybe()
+		repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{ID: containerID, DockerID: "missing-docker", Status: model.ContainerStatusRunning}}, nil).Once()
+		dockerAPI.EXPECT().InspectContainer(mock.Anything, "missing-docker").Return(model.ContainerInspection{}, cerrdefs.ErrNotFound)
+		repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Return(writeErr)
+		volumeRepo.EXPECT().GetReconcileCandidates(mock.Anything).Return([]model.Volume{{ID: volumeID, DockerName: "missing-volume", Status: model.VolumeStatusAvailable}}, nil).Once()
+		dockerAPI.EXPECT().InspectVolume(mock.Anything, "missing-volume").Return(model.VolumeInspection{}, cerrdefs.ErrNotFound)
+		volumeRepo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusMissing, mock.Anything).Return(writeErr)
+		events := make(chan model.ContainerEvent)
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(func(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
+			return events, make(chan error)
+		}).Once()
+		repo.EXPECT().UpdateObservedStatusByDockerID(mock.Anything, "docker-id", model.ContainerStatusRunning, mock.Anything, mock.Anything, mock.Anything).Return(writeErr)
+		rebalancer.EXPECT().RequestRebalance().Return().Once()
+		var logs bytes.Buffer
+		worker := NewEventWorker(repo, volumeRepo, dockerAPI, rebalancer, nil, cfg, slog.New(slog.NewJSONHandler(&logs, nil)))
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			worker.Run(ctx)
+		}()
+		synctest.Wait()
+		events <- model.ContainerEvent{Type: "container", Action: "start", DockerID: "docker-id"}
+		synctest.Wait()
+		cancel()
+		<-done
+
+		errorsByMessage := map[string]string{}
+		for line := range bytes.Lines(logs.Bytes()) {
+			var entry struct {
+				Msg   string `json:"msg"`
+				Error string `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(line, &entry))
+			errorsByMessage[entry.Msg] = entry.Error
+		}
+		for _, msg := range []string{"failed to record container status", "failed to record volume status", "failed to record container event status"} {
+			require.Equal(t, writeErr.Error(), errorsByMessage[msg], msg)
+		}
+		require.NotContains(t, errorsByMessage, "docker container missing during state sync")
+		require.NotContains(t, errorsByMessage, "docker volume missing during state sync")
+	})
 }
 
 func waitForEventWorkerStatus(t *testing.T, statusCh <-chan string) string {

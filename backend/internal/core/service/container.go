@@ -479,7 +479,8 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 	if c.ProjectID != nil {
 		details[auditlog.DetailProjectID] = c.ProjectID.String()
 	}
-	_ = s.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+	// Audit is best effort: a failed write is logged and never fails the expose.
+	err := s.auditor.RecordAuditEvent(ctx, model.AuditEvent{
 		ActorUserID:   actorID,
 		ActorUsername: actorUsername,
 		ActorScope:    actorScope,
@@ -494,6 +495,9 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 		ErrorCode:     errorCode,
 		DetailsJSON:   auditlog.SafeDetailsJSON(details),
 	})
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to record audit event", "container_id", c.ID, "action", auditlog.ActionContainerExpose, "error", err)
+	}
 }
 
 func (s *ContainerService) fullDomain(domainPrefix string) string {
@@ -652,7 +656,7 @@ func (s *ContainerService) CleanupUserNetworkIfUnused(ctx context.Context, owner
 }
 
 func (s *ContainerService) cleanupUserNetworkIfUnused(ctx context.Context, ownerID uuid.UUID) {
-	_ = s.CleanupUserNetworkIfUnused(ctx, ownerID)
+	_ = s.CleanupUserNetworkIfUnused(ctx, ownerID) // best-effort cleanup; CleanupUserNetworkIfUnused logs its own failures
 }
 
 func userNetworkName(ownerID uuid.UUID) string {

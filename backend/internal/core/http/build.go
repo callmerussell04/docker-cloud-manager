@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -59,7 +60,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		name := part.FormName()
 		if name == "archive" {
 			if tag == "" || part.FileName() == "" {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the request is rejected
 				err := apperrors.New(apperrors.ErrBadRequest, "build metadata fields must be sent before archive")
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
@@ -73,11 +74,11 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 				Archive:     part,
 			})
 			if err != nil {
-				_ = part.Close()
+				_ = part.Close() // read-only multipart part; the build error is returned
 				httpresponse.Respond(c, httpresponse.Status(err), err)
 				return
 			}
-			_ = part.Close()
+			_ = part.Close() // read-only multipart part, already consumed
 			c.JSON(http.StatusAccepted, gin.H{
 				"build_id": result.BuildID.String(),
 				"message":  "build initialized",
@@ -86,7 +87,7 @@ func (h *BuildHandler) BuildImage(c *gin.Context) {
 		}
 
 		value, err := readLimitedFormField(part, maxBuildFormFieldBytes)
-		_ = part.Close()
+		_ = part.Close() // read-only multipart part; the read result decides the outcome
 		if err != nil {
 			httpresponse.Respond(c, httpresponse.Status(err), err)
 			return
@@ -173,7 +174,10 @@ func (h *BuildHandler) BuildLogs(c *gin.Context) {
 
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 	c.Status(http.StatusOK)
-	_, _ = io.Copy(c.Writer, logReader)
+	if _, err := io.Copy(c.Writer, logReader); err != nil {
+		// The status is already sent, so the failure goes to the access log.
+		_ = c.Error(fmt.Errorf("stream build log: %w", err)) // c.Error returns its argument
+	}
 }
 
 func readLimitedFormField(r io.Reader, maxBytes int64) ([]byte, error) {

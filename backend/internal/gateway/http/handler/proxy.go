@@ -129,7 +129,7 @@ func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 
 	rw.Header().Set("Content-Type", "application/json; charset=utf-8")
 	rw.WriteHeader(statusCode)
-	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{
+	_ = json.NewEncoder(rw).Encode(httpresponse.ErrorResponse{ // headers are sent; a failed body write means the client left
 		Error:     apperrors.SafeMessage(appErr),
 		ErrorCode: apperrors.Code(appErr),
 		RequestID: logging.RequestIDFromContext(req.Context()),
@@ -137,5 +137,5 @@ func proxyErrorHandler(rw http.ResponseWriter, req *http.Request, err error) {
 }
 
 func clearWriteDeadline(c *gin.Context) {
-	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{})
+	_ = http.NewResponseController(c.Writer).SetWriteDeadline(time.Time{}) // writers without deadline support keep the server default
 }

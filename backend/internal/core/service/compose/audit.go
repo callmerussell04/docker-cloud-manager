@@ -29,7 +29,8 @@ func (c *ComposeDeploymentCoordinator) recordComposeExposeAudit(ctx context.Cont
 			}
 		}
 	}
-	_ = c.auditor.RecordAuditEvent(ctx, model.AuditEvent{
+	// Audit is best effort: a failed write is logged and never fails the deployment.
+	err := c.auditor.RecordAuditEvent(ctx, model.AuditEvent{
 		ActorUserID:   actorID,
 		ActorUsername: actorUsername,
 		ActorScope:    actorScope,
@@ -53,6 +54,9 @@ func (c *ComposeDeploymentCoordinator) recordComposeExposeAudit(ctx context.Cont
 			auditlog.DetailInternalPort:   auditlog.IntDetail(srv.InternalPort),
 		}),
 	})
+	if err != nil {
+		c.logger.WarnContext(ctx, "failed to record audit event", "project_id", projectID, "container_id", containerID, "action", auditlog.ActionContainerExpose, "error", err)
+	}
 }
 
 func auditActorFromContext(ctx context.Context) (*uuid.UUID, string, string) {

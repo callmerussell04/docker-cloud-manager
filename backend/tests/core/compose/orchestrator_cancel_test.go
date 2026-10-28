@@ -2,11 +2,13 @@ package compose_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/composequeue"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service/compose"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -59,4 +61,40 @@ func TestCancelDeploymentRejectsInactiveProject(t *testing.T) {
 
 	err := o.CancelDeployment(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
 	require.ErrorIs(t, err, apperrors.ErrConflict)
+}
+
+func TestHandleDeploymentMessageReturnsFailedCancellationWrites(t *testing.T) {
+	jobErr := errors.New("complete job failed")
+	projectErr := errors.New("update project failed")
+	tests := []struct {
+		name       string
+		jobErr     error
+		projectErr error
+	}{
+		{name: "recorded"},
+		{name: "job status", jobErr: jobErr},
+		{name: "project status", projectErr: projectErr},
+		{name: "both", jobErr: jobErr, projectErr: projectErr},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := composemocks.NewProjectRepository(t)
+			o := newComposeOrchestratorForTest(t, repo)
+			job := model.ComposeDeploymentJob{ID: uuid.New(), ProjectID: uuid.New(), OwnerID: uuid.New(), CancelRequested: true}
+			repo.EXPECT().GetComposeDeploymentJob(mock.Anything, job.ID).Return(job, nil)
+			repo.EXPECT().CompleteComposeDeploymentJob(mock.Anything, job.ID, model.ComposeDeploymentStatusCanceled, mock.Anything).Return(tt.jobErr)
+			repo.EXPECT().UpdateStatus(mock.Anything, job.ProjectID, model.ProjectStatusCanceled, mock.Anything).Return(tt.projectErr)
+
+			err := o.HandleDeploymentMessage(context.Background(), composequeue.DeploymentMessage{JobID: job.ID.String()})
+			if tt.jobErr == nil && tt.projectErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			for _, want := range []error{tt.jobErr, tt.projectErr} {
+				if want != nil {
+					require.ErrorIs(t, err, want)
+				}
+			}
+		})
+	}
 }

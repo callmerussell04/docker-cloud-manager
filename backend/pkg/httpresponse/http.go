@@ -16,7 +16,7 @@ type ErrorResponse struct {
 }
 
 func Respond(c *gin.Context, statusCode int, err error) {
-	_ = c.Error(err)
+	_ = c.Error(err) // records the cause for the access log; c.Error returns its argument
 	c.AbortWithStatusJSON(statusCode, ErrorResponse{
 		Error:     apperrors.SafeMessage(err),
 		ErrorCode: apperrors.Code(err),

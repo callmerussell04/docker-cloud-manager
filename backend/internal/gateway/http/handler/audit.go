@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
@@ -44,7 +45,9 @@ func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
 	if scope.UserID.String() != "00000000-0000-0000-0000-000000000000" {
 		actorUserID = scope.UserID.String()
 	}
-	_ = h.service.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
+	// Audit is best effort: a failed write never changes the response. It is
+	// attached to the request so the access log records it.
+	err := h.service.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
 		OccurredAt:    time.Now().UTC().Unix(),
 		ActorUserID:   actorUserID,
 		ActorUsername: scope.Username,
@@ -61,6 +64,9 @@ func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
 		ErrorCode:     input.ErrorCode,
 		DetailsJSON:   detailsJSON,
 	})
+	if err != nil {
+		_ = c.Error(fmt.Errorf("record audit event: %w", err)) // c.Error returns its argument
+	}
 }
 
 func auditOutcome(err error) (string, string) {

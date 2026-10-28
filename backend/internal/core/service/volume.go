@@ -302,14 +302,13 @@ func (s *VolumeService) ExecuteQueuedVolumeOperation(ctx context.Context, operat
 	if !claimed {
 		if op.Status == model.OperationStatusPending && s.cfg.Get().ContainerCreateMaxAttempts > 0 && op.Attempts >= s.cfg.Get().ContainerCreateMaxAttempts {
 			cause := apperrors.New(apperrors.ErrTimeout, "volume lifecycle attempts exhausted")
-			s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, cause)
+			return s.failQueuedVolume(ctx, operationID, volumeID, cause)
 		}
 		return nil
 	}
 	if op.ResourceType != model.ResourceTypeVolume || op.ResourceID != volumeID {
 		cause := apperrors.New(apperrors.ErrBadRequest, "volume lifecycle message does not match operation")
-		_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusFailed, cause)
-		return cause
+		return errors.Join(cause, s.completeVolumeOperation(ctx, operationID, model.OperationStatusFailed, cause))
 	}
 	switch op.Operation {
 	case model.OperationCreate:
@@ -318,16 +317,14 @@ func (s *VolumeService) ExecuteQueuedVolumeOperation(ctx context.Context, operat
 		return s.executeQueuedVolumeDelete(ctx, operationID, volumeID)
 	default:
 		cause := apperrors.New(apperrors.ErrBadRequest, "unsupported volume lifecycle operation")
-		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, cause)
-		return cause
+		return errors.Join(cause, s.failQueuedVolume(ctx, operationID, volumeID, cause))
 	}
 }
 
 func (s *VolumeService) executeQueuedVolumeCreate(ctx context.Context, operationID, volumeID uuid.UUID) error {
 	vol, err := s.repo.GetByID(ctx, volumeID)
 	if err != nil {
-		_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusFailed, err)
-		return err
+		return errors.Join(err, s.completeVolumeOperation(ctx, operationID, model.OperationStatusFailed, err))
 	}
 	dockerParams := model.VolumeRuntimeSpec{
 		VolumeName: vol.DockerName,
@@ -338,64 +335,71 @@ func (s *VolumeService) executeQueuedVolumeCreate(ctx context.Context, operation
 		dockerParams.ProjectID = vol.ProjectID.String()
 	}
 	if _, err := s.dockerAPI.CreateVolume(ctx, dockerParams); err != nil {
-		err = normalizeContainerRuntimeError(err)
-		if s.requeueQueuedVolumeIfRetryable(ctx, operationID, err) {
-			return err
-		}
-		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, err)
-		return err
+		return s.retryOrFailQueuedVolume(ctx, operationID, volumeID, normalizeContainerRuntimeError(err))
 	}
-	s.setVolumeStatus(ctx, volumeID, model.VolumeStatusAvailable)
-	_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
-	return nil
+	if err := s.repo.UpdateStatus(ctx, volumeID, model.VolumeStatusAvailable); err != nil {
+		// Docker volume creation is idempotent by name, so a retried operation
+		// can record the status the failed write left behind.
+		err = fmt.Errorf("record volume %s status: %w", model.VolumeStatusAvailable, err)
+		return s.retryOrFailQueuedVolume(ctx, operationID, volumeID, err)
+	}
+	return s.completeVolumeOperation(ctx, operationID, model.OperationStatusDone, nil)
 }
 
 func (s *VolumeService) executeQueuedVolumeDelete(ctx context.Context, operationID, volumeID uuid.UUID) error {
 	vol, err := s.repo.GetByID(ctx, volumeID)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
-			return nil
+			return s.completeVolumeOperation(ctx, operationID, model.OperationStatusDone, nil)
 		}
-		_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusFailed, err)
-		return err
+		return errors.Join(err, s.completeVolumeOperation(ctx, operationID, model.OperationStatusFailed, err))
 	}
 	if err := s.dockerAPI.RemoveVolume(ctx, vol.DockerName, false); err != nil && !cerrdefs.IsNotFound(err) {
-		err = normalizeContainerRuntimeError(err)
-		if s.requeueQueuedVolumeIfRetryable(ctx, operationID, err) {
-			return err
-		}
-		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, err)
-		return err
+		return s.retryOrFailQueuedVolume(ctx, operationID, volumeID, normalizeContainerRuntimeError(err))
 	}
 	if err := s.repo.Delete(ctx, volumeID); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		s.failQueuedVolume(ctx, operationID, volumeID, model.VolumeStatusError, err)
-		return err
+		return errors.Join(err, s.failQueuedVolume(ctx, operationID, volumeID, err))
 	}
-	_ = s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, model.OperationStatusDone, nil)
+	return s.completeVolumeOperation(ctx, operationID, model.OperationStatusDone, nil)
+}
+
+// completeVolumeOperation records the operation's terminal status. A failed
+// write leaves the operation running until restart recovery requeues it, so
+// the error is returned for the resource queue consumer to log with the
+// operation ID.
+func (s *VolumeService) completeVolumeOperation(ctx context.Context, operationID uuid.UUID, status string, cause error) error {
+	if err := s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, status, cause); err != nil {
+		return fmt.Errorf("record volume operation %s status: %w", status, err)
+	}
 	return nil
 }
 
-func (s *VolumeService) requeueQueuedVolumeIfRetryable(ctx context.Context, operationID uuid.UUID, cause error) bool {
+// retryOrFailQueuedVolume returns a retryable failure's operation to pending,
+// or otherwise marks the volume and its operation failed. It returns cause
+// joined with any failed requeue or status write.
+func (s *VolumeService) retryOrFailQueuedVolume(ctx context.Context, operationID, volumeID uuid.UUID, cause error) error {
 	if !retryableLifecycleError(cause) {
-		return false
+		return errors.Join(cause, s.failQueuedVolume(ctx, operationID, volumeID, cause))
 	}
-	return s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, cause) == nil
+	requeueErr := s.lifecycle.RequeueOperation(context.WithoutCancel(ctx), operationID, cause)
+	if requeueErr == nil {
+		return cause
+	}
+	requeueErr = fmt.Errorf("requeue volume operation: %w", requeueErr)
+	return errors.Join(cause, requeueErr, s.failQueuedVolume(ctx, operationID, volumeID, cause))
 }
 
-func (s *VolumeService) failQueuedVolume(ctx context.Context, operationID, volumeID uuid.UUID, status string, cause error) {
+// failQueuedVolume marks the volume and its operation failed and returns any
+// failed status write.
+func (s *VolumeService) failQueuedVolume(ctx context.Context, operationID, volumeID uuid.UUID, cause error) error {
 	writeCtx, cancel := detachedContainerStateContext(ctx)
 	defer cancel()
-	s.markVolumeError(writeCtx, volumeID, status, normalizeContainerRuntimeError(cause))
-	_ = s.lifecycle.CompleteOperation(writeCtx, operationID, model.OperationStatusFailed, normalizeContainerRuntimeError(cause))
-}
-
-func (s *VolumeService) setVolumeStatus(ctx context.Context, volumeID uuid.UUID, status string) {
-	_ = s.repo.UpdateStatus(ctx, volumeID, status)
-}
-
-func (s *VolumeService) markVolumeError(ctx context.Context, volumeID uuid.UUID, status string, cause error) {
-	_ = s.repo.MarkStatusError(ctx, volumeID, status, cause)
+	cause = normalizeContainerRuntimeError(cause)
+	var markErr error
+	if err := s.repo.MarkStatusError(writeCtx, volumeID, model.VolumeStatusError, cause); err != nil {
+		markErr = fmt.Errorf("record volume %s status: %w", model.VolumeStatusError, err)
+	}
+	return errors.Join(markErr, s.completeVolumeOperation(writeCtx, operationID, model.OperationStatusFailed, cause))
 }
 
 func resourceOperationOutbox(ctx context.Context, resourceType string, resourceID, ownerID uuid.UUID, operation string) (model.ResourceOperation, model.ResourceLifecycleOutbox, error) {

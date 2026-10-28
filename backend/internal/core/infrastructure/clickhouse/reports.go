@@ -74,7 +74,7 @@ func (r *ReportsRepository) dbConn() (*sql.DB, error) {
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(pingCtx); err != nil {
-		_ = db.Close()
+		_ = db.Close() // startup already failed; the ping error is returned
 		return nil, fmt.Errorf("failed to ping clickhouse: %w", err)
 	}
 	r.db = db
@@ -137,7 +137,7 @@ func (r *ReportsRepository) InsertUsageSnapshots(ctx context.Context, snapshots 
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback()
+			_ = tx.Rollback() // cleanup after a failed insert, whose error is returned
 		}
 	}()
 

@@ -134,18 +134,26 @@ func (a *App) Stop(ctx context.Context) {
 	}
 	if a.queueConsumer != nil {
 		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_ = a.queueConsumer.Stop(stopCtx)
+		if err := a.queueConsumer.Stop(stopCtx); err != nil {
+			a.logger.Error("failed to stop build queue consumer", "error", err)
+		}
 		cancel()
 	}
 	if a.builderService != nil {
 		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		_ = a.builderService.Stop(stopCtx)
+		if err := a.builderService.Stop(stopCtx); err != nil {
+			a.logger.Error("failed to stop builder service", "error", err)
+		}
 		cancel()
 	}
 	if a.coreConn != nil {
-		_ = a.coreConn.Close()
+		if err := a.coreConn.Close(); err != nil {
+			a.logger.Error("failed to close core connection", "error", err)
+		}
 	}
 	if a.dockerAdapter != nil {
-		_ = a.dockerAdapter.Close()
+		if err := a.dockerAdapter.Close(); err != nil {
+			a.logger.Error("failed to close docker adapter", "error", err)
+		}
 	}
 }

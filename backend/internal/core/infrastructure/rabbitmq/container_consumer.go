@@ -123,16 +123,16 @@ func (c *ContainerConsumer) handleDelivery(ctx context.Context, delivery amqp.De
 	var msg containerqueue.LifecycleMessage
 	if err := json.Unmarshal(delivery.Body, &msg); err != nil {
 		c.logger.ErrorContext(ctx, "invalid container queue message", "error", err)
-		_ = delivery.Nack(false, false)
+		nackDelivery(ctx, c.logger, delivery, false)
 		return
 	}
 	msgCtx := logging.ContextWithRequestID(ctx, msg.RequestID)
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.ErrorContext(msgCtx, "container queue message failed", "container_id", msg.ContainerID, "operation_id", msg.OperationID, "error", err)
-		_ = delivery.Nack(false, !isPermanentContainerQueueError(err))
+		nackDelivery(msgCtx, c.logger, delivery, !isPermanentContainerQueueError(err))
 		return
 	}
-	_ = delivery.Ack(false)
+	ackDelivery(msgCtx, c.logger, delivery)
 }
 
 func isPermanentContainerQueueError(err error) bool {

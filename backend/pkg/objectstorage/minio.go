@@ -114,7 +114,7 @@ func (s *MinIOStorage) OpenObject(ctx context.Context, objectKey string) (io.Rea
 		return nil, mapObjectStorageError(err)
 	}
 	if _, err := obj.Stat(); err != nil {
-		_ = obj.Close()
+		_ = obj.Close() // read-only object; the stat error is returned
 		return nil, mapObjectStorageError(err)
 	}
 	return obj, nil

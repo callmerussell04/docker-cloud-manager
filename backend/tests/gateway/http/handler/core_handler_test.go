@@ -1,13 +1,17 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"net/http"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/gateway/http/handler"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -191,6 +195,23 @@ func TestCoreHandlerRejectsInvalidInputAndMapsErrors(t *testing.T) {
 	svc.EXPECT().DeleteImage(mock.Anything, id).Return(apperrors.ErrNotFound)
 	resp = perform(router, http.MethodDelete, "/images/"+id, ``, nil)
 	require.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestCoreHandlerLogsFailedAuditWriteWithoutChangingResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := gatewayhandlermocks.NewMockCoreService(t)
+	containerID := uuid.NewString()
+	svc.EXPECT().ActionContainer(mock.Anything, containerID, "start").Return(nil)
+	svc.EXPECT().RecordAuditEvent(mock.Anything, mock.AnythingOfType("model.AuditEvent")).Return(errors.New("core unavailable"))
+	var logs bytes.Buffer
+	h := handler.NewCoreHandler(svc)
+	router := gin.New()
+	router.Use(logging.AccessLogMiddleware(slog.New(slog.NewJSONHandler(&logs, nil))))
+	router.POST("/containers/:id/action/:action", h.ActionContainer)
+
+	resp := perform(router, http.MethodPost, "/containers/"+containerID+"/action/start", ``, nil)
+	require.Equal(t, http.StatusAccepted, resp.Code)
+	require.Contains(t, logs.String(), `"error":"record audit event: core unavailable"`)
 }
 
 func newCoreServiceMock(t *testing.T) *gatewayhandlermocks.MockCoreService {

@@ -123,16 +123,16 @@ func (c *ResourceConsumer) handleDelivery(ctx context.Context, delivery amqp.Del
 	var msg resourcequeue.LifecycleMessage
 	if err := json.Unmarshal(delivery.Body, &msg); err != nil {
 		c.logger.ErrorContext(ctx, "invalid resource queue message", "error", err)
-		_ = delivery.Nack(false, false)
+		nackDelivery(ctx, c.logger, delivery, false)
 		return
 	}
 	msgCtx := logging.ContextWithRequestID(ctx, msg.RequestID)
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.ErrorContext(msgCtx, "resource queue message failed", "resource_type", msg.ResourceType, "resource_id", msg.ResourceID, "operation_id", msg.OperationID, "error", err)
-		_ = delivery.Nack(false, !isPermanentResourceQueueError(err))
+		nackDelivery(msgCtx, c.logger, delivery, !isPermanentResourceQueueError(err))
 		return
 	}
-	_ = delivery.Ack(false)
+	ackDelivery(msgCtx, c.logger, delivery)
 }
 
 func isPermanentResourceQueueError(err error) bool {

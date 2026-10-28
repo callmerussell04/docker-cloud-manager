@@ -62,7 +62,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	dockerAdapter, err := docker.NewAdapter()
 	if err != nil {
-		_ = coreConn.Close()
+		_ = coreConn.Close() // startup already failed; the adapter error is returned
 		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}
 
@@ -107,8 +107,7 @@ func (a *App) Run() error {
 
 	select {
 	case err := <-runErr:
-		_ = a.close()
-		return err
+		return errors.Join(err, a.close())
 	case <-ctx.Done():
 		a.logger.Info("telemetry shutdown signal received")
 	}

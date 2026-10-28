@@ -1428,12 +1428,25 @@ func scanContainerFull(s scanner) (model.Container, error) {
 		value := int(lastExitCode.Int64)
 		c.LastExitCode = &value
 	}
-	_ = json.Unmarshal(command, &c.Command)
-	_ = json.Unmarshal(entrypoint, &c.Entrypoint)
-	if len(healthcheck) > 0 && string(healthcheck) != "null" {
-		_ = json.Unmarshal(healthcheck, &c.Healthcheck)
+	if err := decodeJSONColumn(command, &c.Command); err != nil {
+		return model.Container{}, wrapOp("container decode command", err)
+	}
+	if err := decodeJSONColumn(entrypoint, &c.Entrypoint); err != nil {
+		return model.Container{}, wrapOp("container decode entrypoint", err)
+	}
+	if err := decodeJSONColumn(healthcheck, &c.Healthcheck); err != nil {
+		return model.Container{}, wrapOp("container decode healthcheck", err)
 	}
 	return c, nil
+}
+
+// decodeJSONColumn decodes a nullable JSONB column; SQL or JSON null leaves dst
+// unchanged.
+func decodeJSONColumn(raw []byte, dst any) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	return json.Unmarshal(raw, dst)
 }
 
 func nullableInt(value *int) sql.NullInt64 {

@@ -96,7 +96,7 @@ func (h *Handler) OpenTerminal(c *gin.Context) {
 
 	session, cfg, err := h.service.OpenTerminal(c.Request.Context(), containerID, opts)
 	if err != nil {
-		_ = conn.WriteJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)})
+		_ = conn.WriteJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)}) // best-effort error frame before closing; the peer may be gone
 		return
 	}
 	defer func() { _ = session.Close() }() // exec session teardown; close failure is not actionable
@@ -132,7 +132,7 @@ func (h *Handler) writeLogEvents(ctx context.Context, w gin.ResponseWriter, flus
 		case <-ctx.Done():
 			return
 		case <-heartbeat.C:
-			_, _ = io.WriteString(w, ": heartbeat\n\n")
+			_, _ = io.WriteString(w, ": heartbeat\n\n") // a departed client ends the request context, which stops the stream
 			flusher.Flush()
 		case line, ok := <-lines:
 			if !ok {
@@ -161,7 +161,7 @@ func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, sess
 	writeJSON := func(event wsEvent) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		_ = conn.WriteJSON(event)
+		_ = conn.WriteJSON(event) // control frames are best effort; a broken connection ends the input reader
 	}
 	writeBinary := func(data []byte) error {
 		writeMu.Lock()
@@ -183,8 +183,8 @@ func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, sess
 	select {
 	case reason := <-inputDone:
 		cancel()
-		_ = session.Close()
-		_ = conn.Close()
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
 		h.waitTerminalBridge(outputDone)
 		return reason
 	case reason := <-outputDone:
@@ -193,20 +193,20 @@ func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, sess
 			writeJSON(wsEvent{Type: "exit", ExitCode: &state.ExitCode})
 		}
 		cancel()
-		_ = session.Close()
-		_ = conn.Close()
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
 		h.waitTerminalBridge(inputDone)
 		return reason
 	case <-sessionCtx.Done():
 		if errors.Is(sessionCtx.Err(), context.DeadlineExceeded) {
 			writeJSON(wsEvent{Type: "error", Error: "terminal session timed out"})
-			_ = session.Close()
-			_ = conn.Close()
+			_ = session.Close() // teardown; the bridge outcome is already decided
+			_ = conn.Close()    // teardown; the peer may already have closed
 			h.waitTerminalBridge(inputDone, outputDone)
 			return "timeout"
 		}
-		_ = session.Close()
-		_ = conn.Close()
+		_ = session.Close() // teardown; the bridge outcome is already decided
+		_ = conn.Close()    // teardown; the peer may already have closed
 		h.waitTerminalBridge(inputDone, outputDone)
 		return "context_cancelled"
 	}
@@ -229,7 +229,7 @@ func readTerminalInput(ctx context.Context, conn *websocket.Conn, session model.
 	if idle <= 0 {
 		idle = 5 * time.Minute
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(idle))
+	_ = conn.SetReadDeadline(time.Now().Add(idle)) // fails only on a broken connection, which the next read reports
 	conn.SetPongHandler(func(string) error {
 		return conn.SetReadDeadline(time.Now().Add(idle))
 	})
@@ -239,7 +239,7 @@ func readTerminalInput(ctx context.Context, conn *websocket.Conn, session model.
 		if err != nil {
 			return "client_disconnect"
 		}
-		_ = conn.SetReadDeadline(time.Now().Add(idle))
+		_ = conn.SetReadDeadline(time.Now().Add(idle)) // fails only on a broken connection, which the next read reports
 		select {
 		case <-ctx.Done():
 			return "context_cancelled"
@@ -302,7 +302,7 @@ func handleTerminalControl(ctx context.Context, session model.TerminalSession, p
 		}
 		return "", false
 	case "close":
-		_ = session.CloseWrite()
+		_ = session.CloseWrite() // half-close on client request; session failures surface when output ends
 		return "client_close", true
 	default:
 		writeJSON(wsEvent{Type: "error", Error: "unknown terminal control message"})
@@ -310,16 +310,18 @@ func handleTerminalControl(ctx context.Context, session model.TerminalSession, p
 	}
 }
 
+// writeSSE writes one event. Write errors are ignored: a departed client ends
+// the request context, which stops the stream.
 func writeSSE(w io.Writer, event, data string) {
-	_, _ = fmt.Fprintf(w, "event: %s\n", event)
+	_, _ = fmt.Fprintf(w, "event: %s\n", event) // see writeSSE
 	if data != "" {
 		data = strings.ReplaceAll(data, "\r\n", "\n")
 		data = strings.ReplaceAll(data, "\r", "\n")
 		for _, line := range strings.Split(data, "\n") {
-			_, _ = fmt.Fprintf(w, "data: %s\n", line)
+			_, _ = fmt.Fprintf(w, "data: %s\n", line) // see writeSSE
 		}
 	}
-	_, _ = io.WriteString(w, "\n")
+	_, _ = io.WriteString(w, "\n") // see writeSSE
 }
 
 func pathUUID(c *gin.Context, name string) (string, bool) {

@@ -593,7 +593,7 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	if logErr != nil {
 		// Stop Kaniko immediately on any log failure; keep the build context's
 		// cancellation reason independent from a local logging failure.
-		_ = logStream.Close()
+		_ = logStream.Close() // stops Kaniko's output; the log error decides the outcome
 		if s.logManager.IsLogSizeLimitExceeded(logErr) {
 			logger.WarnContext(ctx, "build log size limit exceeded")
 			return buildStatusFailed

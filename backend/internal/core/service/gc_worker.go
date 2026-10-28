@@ -105,7 +105,9 @@ func (w *GCWorker) runPrune(ctx context.Context) {
 
 	for _, b := range staleBuilds {
 		w.logger.WarnContext(ctx, "failing stale build", "build_id", b.ID, "image_id", b.ImageID)
-		_ = w.imgSvc.CompleteBuildRecord(ctx, b.ID, b.ImageID, model.BuildStatusFailedTimeout, 0)
+		if err := w.imgSvc.CompleteBuildRecord(ctx, b.ID, b.ImageID, model.BuildStatusFailedTimeout, 0); err != nil {
+			w.logger.ErrorContext(ctx, "failed to fail stale build", "build_id", b.ID, "image_id", b.ImageID, "error", err)
+		}
 	}
 
 	w.cleanupStaleStagedObjects(ctx)

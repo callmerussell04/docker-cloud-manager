@@ -241,6 +241,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Volumes:    volService,
 		Capacity:   contService,
 		Config:     cfg.ConfigManager,
+		Logger:     logger,
 	})
 	if err != nil {
 		return nil, err

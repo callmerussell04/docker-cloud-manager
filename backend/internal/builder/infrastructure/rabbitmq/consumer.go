@@ -138,17 +138,17 @@ func (c *Consumer) handleDelivery(ctx context.Context, delivery amqp.Delivery, h
 	var msg buildqueue.ImageBuildMessage
 	if err := json.Unmarshal(delivery.Body, &msg); err != nil {
 		c.logger.ErrorContext(ctx, "invalid build queue message", "error", err)
-		_ = delivery.Nack(false, false)
+		nackDelivery(ctx, c.logger, delivery, false)
 		return
 	}
 
 	msgCtx := logging.ContextWithRequestID(ctx, msg.RequestID)
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.ErrorContext(msgCtx, "build queue message failed", "build_id", msg.BuildID, "error", err)
-		_ = delivery.Nack(false, !isPermanentQueueError(err))
+		nackDelivery(msgCtx, c.logger, delivery, !isPermanentQueueError(err))
 		return
 	}
-	_ = delivery.Ack(false)
+	ackDelivery(msgCtx, c.logger, delivery)
 }
 
 func isPermanentQueueError(err error) bool {
@@ -162,4 +162,20 @@ func isPermanentQueueError(err error) bool {
 		errors.Is(err, apperrors.ErrAlreadyExists) ||
 		errors.Is(err, apperrors.ErrConflict) ||
 		errors.Is(err, apperrors.ErrLimitExceeded)
+}
+
+// ackDelivery acknowledges a handled delivery. A failed ack means the channel
+// closed, so the broker redelivers the message to the idempotent handler.
+func ackDelivery(ctx context.Context, logger *slog.Logger, delivery amqp.Delivery) {
+	if err := delivery.Ack(false); err != nil {
+		logger.WarnContext(ctx, "failed to acknowledge queue message", "error", err)
+	}
+}
+
+// nackDelivery rejects a delivery, requeueing it when requeue is true. A failed
+// nack means the channel closed, so the broker redelivers the message.
+func nackDelivery(ctx context.Context, logger *slog.Logger, delivery amqp.Delivery, requeue bool) {
+	if err := delivery.Nack(false, requeue); err != nil {
+		logger.WarnContext(ctx, "failed to reject queue message", "requeue", requeue, "error", err)
+	}
 }

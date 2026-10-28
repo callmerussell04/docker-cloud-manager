@@ -77,16 +77,16 @@ func (a *Adapter) StreamLogs(ctx context.Context, target model.ContainerTarget, 
 		defer close(done)
 		defer func() { _ = rawLogs.Close() }() // read-only stream; close failure is not actionable
 		if _, err := stdcopy.StdCopy(pw, pw, rawLogs); err != nil && ctx.Err() != nil {
-			_ = pw.CloseWithError(ctx.Err())
+			_ = pw.CloseWithError(ctx.Err()) // always nil; it hands the reader the cancellation
 			return
 		}
-		_ = pw.Close()
+		_ = pw.Close() // always nil; it hands the reader EOF
 	}()
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = rawLogs.Close()
-			_ = pw.CloseWithError(ctx.Err())
+			_ = rawLogs.Close()              // read-only stream; closing unblocks the copy
+			_ = pw.CloseWithError(ctx.Err()) // always nil; it hands the reader the cancellation
 		case <-done:
 		}
 	}()
@@ -156,7 +156,7 @@ func (s *terminalSession) Write(p []byte) (int, error) {
 
 func (s *terminalSession) Close() error {
 	if s.conn != nil {
-		_ = s.conn.CloseWrite()
+		_ = s.conn.CloseWrite() // teardown; the connection is closed next
 		s.conn.Close()
 	}
 	return nil

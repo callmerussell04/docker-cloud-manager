@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
@@ -68,10 +69,12 @@ type ProjectService struct {
 	capacity       CapacityChecker
 	cfg            ProjectConfigProvider
 	deployments    ProjectDeploymentCanceler
+	logger         *slog.Logger
 }
 
 // ProjectServiceDeps contains the mandatory project lifecycle and start-admission
 // capabilities. Network cleanup stays optional and is discovered on Containers.
+// A nil Logger uses the default logger.
 type ProjectServiceDeps struct {
 	Repository ProjectRepository
 	Resources  ProjectResourceRepository
@@ -80,6 +83,7 @@ type ProjectServiceDeps struct {
 	Volumes    ProjectVolumeLifecycle
 	Capacity   CapacityChecker
 	Config     ProjectConfigProvider
+	Logger     *slog.Logger
 }
 
 func NewProjectService(deps ProjectServiceDeps) (*ProjectService, error) {
@@ -106,6 +110,7 @@ func NewProjectService(deps ProjectServiceDeps) (*ProjectService, error) {
 		networkCleaner: networkCleaner,
 		capacity:       deps.Capacity,
 		cfg:            deps.Config,
+		logger:         logging.WithComponent(deps.Logger, "project_service"),
 	}, nil
 }
 
@@ -138,6 +143,7 @@ func (s *ProjectService) coordinatorInterval() time.Duration {
 func (s *ProjectService) advanceLifecycleProjects(ctx context.Context) {
 	projects, err := s.repo.ListByStatuses(ctx, []string{model.ProjectStatusStarting, model.ProjectStatusStopping, model.ProjectStatusDeleting}, 50)
 	if err != nil {
+		s.logger.WarnContext(ctx, "failed to list transitioning projects", "error", err)
 		return
 	}
 	for _, p := range projects {
@@ -432,9 +438,13 @@ func containerStatusBlocksProjectTick(status string) bool {
 	}
 }
 
+// failProject records a failed lifecycle transition. A failed write is logged;
+// the project stays in its transition and the next pass retries it.
 func (s *ProjectService) failProject(ctx context.Context, projectID uuid.UUID, cause error) {
 	msg := apperrors.SafeMessage(cause)
-	_ = s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg)
+	if err := s.repo.UpdateStatus(ctx, projectID, model.ProjectStatusFailed, &msg); err != nil {
+		s.logger.WarnContext(ctx, "failed to record project status", "project_id", projectID, "status", model.ProjectStatusFailed, "error", err)
+	}
 }
 
 func projectStatusBlocksAggregation(status string) bool {
@@ -459,5 +469,5 @@ func (s *ProjectService) cleanupUserNetwork(ctx context.Context, ownerID uuid.UU
 	if s.networkCleaner == nil {
 		return
 	}
-	_ = s.networkCleaner.CleanupUserNetworkIfUnused(ctx, ownerID)
+	_ = s.networkCleaner.CleanupUserNetworkIfUnused(ctx, ownerID) // best-effort cleanup; CleanupUserNetworkIfUnused logs its own failures
 }

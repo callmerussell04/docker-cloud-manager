@@ -1,7 +1,10 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
@@ -167,6 +170,17 @@ func TestProjectLifecycleCoordinatorFailsProjectWhenRequiredDependencyFails(t *t
 	f.containers.AssertNotCalled(t, "Start", mock.Anything, mock.Anything)
 }
 
+func TestProjectLifecycleCoordinatorLogsFailedProjectStatusWrite(t *testing.T) {
+	var logs bytes.Buffer
+	f := newProjectStartFixtureWithLogger(t, false, slog.New(slog.NewJSONHandler(&logs, nil)))
+	f.dependencyHealth("unhealthy")
+	f.repo.EXPECT().UpdateStatus(mock.Anything, f.projectID, model.ProjectStatusFailed, mock.AnythingOfType("*string")).Return(errors.New("database unavailable")).Once()
+
+	f.tick()
+	require.Contains(t, logs.String(), `"msg":"failed to record project status"`)
+	require.Contains(t, logs.String(), `"error":"database unavailable"`)
+}
+
 func TestProjectLifecycleCoordinatorContinuesWhenOptionalDependencyFails(t *testing.T) {
 	f := newProjectStartFixture(t, true)
 	f.dependencyHealth("unhealthy")
@@ -189,6 +203,11 @@ type projectStartFixture struct {
 // whose web service waits for db to become healthy.
 func newProjectStartFixture(t *testing.T, optional bool) *projectStartFixture {
 	t.Helper()
+	return newProjectStartFixtureWithLogger(t, optional, nil)
+}
+
+func newProjectStartFixtureWithLogger(t *testing.T, optional bool, logger *slog.Logger) *projectStartFixture {
+	t.Helper()
 	f := &projectStartFixture{
 		t:          t,
 		repo:       coremocks.NewProjectRepository(t),
@@ -199,7 +218,7 @@ func newProjectStartFixture(t *testing.T, optional bool) *projectStartFixture {
 	}
 	ownerID := uuid.New()
 	dbID := uuid.New()
-	f.svc = newTestProjectService(t, ProjectServiceDeps{Repository: f.repo, Containers: f.containers, Docker: f.docker})
+	f.svc = newTestProjectService(t, ProjectServiceDeps{Repository: f.repo, Containers: f.containers, Docker: f.docker, Logger: logger})
 
 	f.repo.EXPECT().ListByStatuses(mock.Anything, mock.Anything, mock.Anything).
 		Return([]model.Project{{ID: f.projectID, OwnerID: ownerID, Status: model.ProjectStatusStarting}}, nil).Once()

@@ -105,7 +105,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	useCases := newCoreUseCases(cfg, clients)
 	proxies, err := newProxyHandlers(cfg, useCases)
 	if err != nil {
-		_ = clients.close()
+		_ = clients.close() // startup already failed; the init error is returned
 		return nil, err
 	}
 
@@ -126,7 +126,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Logger:                      logger,
 	})
 	if err != nil {
-		_ = clients.close()
+		_ = clients.close() // startup already failed; the init error is returned
 		return nil, fmt.Errorf("initialize gateway router: %w", err)
 	}
 	server := &http.Server{
@@ -170,7 +170,7 @@ func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
 
 	coreConn, err := grpc.NewClient(cfg.CoreTarget, grpcOpts...)
 	if err != nil {
-		_ = ssoConn.Close()
+		_ = ssoConn.Close() // startup already failed; the client error is returned
 		return gatewayClients{}, fmt.Errorf("failed to create core grpc client: %w", err)
 	}
 
@@ -311,8 +311,7 @@ func (a *App) Run() error {
 
 	select {
 	case err := <-runErr:
-		_ = a.closeGRPC()
-		return err
+		return errors.Join(err, a.closeGRPC())
 	case <-ctx.Done():
 		a.logger.Info("gateway shutdown signal received")
 	}

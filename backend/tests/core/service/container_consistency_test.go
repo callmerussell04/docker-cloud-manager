@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -374,6 +376,64 @@ func TestContainerServiceQueuedStartClearsTTLDeadlineWhenDisabled(t *testing.T) 
 	require.Equal(t, model.OperationStatusDone, repo.completedStatus)
 }
 
+func TestContainerServiceQueuedLifecycleReturnsOperationStatusWriteFailure(t *testing.T) {
+	writeErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
+	tests := []struct {
+		name       string
+		startErr   error
+		wantErrors []error
+		wantStatus string
+	}{
+		{name: "done", wantErrors: []error{writeErr}, wantStatus: model.ContainerStatusRunning},
+		{name: "missing container", startErr: cerrdefs.ErrNotFound, wantErrors: []error{apperrors.ErrConflict, writeErr}, wantStatus: model.ContainerStatusMissing},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ownerID, containerID, operationID := uuid.New(), uuid.New(), uuid.New()
+			repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
+			repo.completeErr = writeErr
+			dockerAPI := coremocks.NewContainerDockerAPI(t)
+			cfg := coremocks.NewConfigManager(t)
+			svc := newTestContainerService(t, ContainerServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Config:     cfg,
+				Logger:     slog.Default(),
+			})
+			cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+			dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(tt.startErr)
+
+			err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+			for _, want := range tt.wantErrors {
+				require.ErrorIs(t, err, want)
+			}
+			require.Equal(t, tt.wantStatus, repo.updatedStatus)
+		})
+	}
+}
+
+func TestContainerServiceQueuedCreateReturnsRequeueFailure(t *testing.T) {
+	ownerID, containerID, operationID := uuid.New(), uuid.New(), uuid.New()
+	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
+	repo.runningOp.Operation = model.OperationCreate
+	statusErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
+	requeueErr := errors.New("requeue failed")
+	repo.requeueErr = requeueErr
+	repo.updateStatusErr = statusErr
+	cfg := coremocks.NewConfigManager(t)
+	svc := newTestContainerService(t, ContainerServiceDeps{
+		Repository: repo,
+		Docker:     coremocks.NewContainerDockerAPI(t),
+		Config:     cfg,
+		Logger:     slog.Default(),
+	})
+	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
+
+	err := svc.ExecuteQueuedCreate(context.Background(), operationID, containerID)
+	require.ErrorIs(t, err, statusErr)
+	require.ErrorIs(t, err, requeueErr)
+}
+
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
@@ -652,6 +712,9 @@ type startLifecycleRepoMock struct {
 	updatedStatus      string
 	updatedTTLDeadline *time.Time
 	completedStatus    string
+	completeErr        error
+	requeueErr         error
+	updateStatusErr    error
 }
 
 func newStartLifecycleRepoMock(t *testing.T, ownerID, containerID, operationID uuid.UUID) *startLifecycleRepoMock {
@@ -702,12 +765,15 @@ func (r *startLifecycleRepoMock) UpdateStatusAndTTLDeadline(ctx context.Context,
 }
 
 func (r *startLifecycleRepoMock) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
+	if r.completeErr != nil {
+		return r.completeErr
+	}
 	r.completedStatus = status
 	return nil
 }
 
 func (r *startLifecycleRepoMock) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
-	return nil
+	return r.requeueErr
 }
 
 func (r *startLifecycleRepoMock) Delete(ctx context.Context, id uuid.UUID) error {
@@ -715,6 +781,9 @@ func (r *startLifecycleRepoMock) Delete(ctx context.Context, id uuid.UUID) error
 }
 
 func (r *startLifecycleRepoMock) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
+	if r.updateStatusErr != nil {
+		return r.updateStatusErr
+	}
 	r.updatedStatus = status
 	return nil
 }

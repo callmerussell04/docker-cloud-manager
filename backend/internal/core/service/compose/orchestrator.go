@@ -664,7 +664,9 @@ func (o *Orchestrator) deleteComposeSourceObject(ctx context.Context, objectKey 
 		return
 	}
 	if o.objectStore != nil {
-		_ = o.objectStore.DeleteObject(ctx, objectKey)
+		if err := o.objectStore.DeleteObject(ctx, objectKey); err != nil {
+			o.logger.WarnContext(ctx, "failed to delete staged compose source", "error", err)
+		}
 	}
 	if o.stagedObjects != nil {
 		if err := o.stagedObjects.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
@@ -722,7 +724,7 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, so
 		return preparedDeploymentSource{}, nil, err
 	}
 	cleanup := func() {
-		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir) // best-effort removal of the clone's temporary directory
 	}
 
 	repoDir := filepath.Join(tmpDir, "repo")
@@ -770,7 +772,7 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, so
 			MaxArchiveBytes:    cfg.ComposeUploadMaxBytes,
 		})
 		if archiveErr != nil {
-			_ = pw.CloseWithError(archiveErr)
+			_ = pw.CloseWithError(archiveErr) // always nil; it unblocks the upload with the archive error
 			errCh <- archiveErr
 			return
 		}
@@ -782,7 +784,7 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, so
 	}()
 	uploadErr := o.objectStore.UploadStream(ctx, sourceObjectKey, pr, -1, "application/zip")
 	if uploadErr != nil {
-		_ = pr.CloseWithError(uploadErr)
+		_ = pr.CloseWithError(uploadErr) // always nil; it unblocks the archiver with the upload error
 	}
 	archiveErr := <-errCh
 	if uploadErr != nil {
@@ -855,13 +857,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		return err
 	}
 	if job.CancelRequested || job.Status == model.ComposeDeploymentStatusCanceling {
-		cancelMsg := "compose deployment canceled"
-		_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
-		_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
-		cancel()
-		return nil
+		return o.cancelQueuedDeploymentJob(ctx, job)
 	}
 	if job.Status != model.ComposeDeploymentStatusQueued {
 		return nil
@@ -872,12 +868,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 	}
 	if !started {
 		if job.CancelRequested || job.Status == model.ComposeDeploymentStatusCanceling {
-			cancelMsg := "compose deployment canceled"
-			_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg)
-			_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg)
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
-			cancel()
+			return o.cancelQueuedDeploymentJob(ctx, job)
 		}
 		return nil
 	}
@@ -960,11 +951,36 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 	return nil
 }
 
+// cancelQueuedDeploymentJob records a canceled deployment and releases its
+// source. A failed status write is returned, so the redelivered message retries
+// the cancellation.
+func (o *Orchestrator) cancelQueuedDeploymentJob(ctx context.Context, job model.ComposeDeploymentJob) error {
+	cancelMsg := "compose deployment canceled"
+	var jobErr, projectErr error
+	if err := o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusCanceled, &cancelMsg); err != nil {
+		jobErr = fmt.Errorf("record compose deployment %s status: %w", model.ComposeDeploymentStatusCanceled, err)
+	}
+	if err := o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusCanceled, &cancelMsg); err != nil {
+		projectErr = fmt.Errorf("record project %s status: %w", model.ProjectStatusCanceled, err)
+	}
+	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
+	cancel()
+	return errors.Join(jobErr, projectErr)
+}
+
+// failDeploymentJob records a failed deployment and releases its source. The
+// job is already running, so a redelivered message would not retry the status
+// writes; their failures are logged instead.
 func (o *Orchestrator) failDeploymentJob(ctx context.Context, job model.ComposeDeploymentJob, cause error) {
 	errMsg := apperrors.SafeMessage(cause)
 	o.logger.WarnContext(ctx, "compose deployment job failed", "project_id", job.ProjectID, "job_id", job.ID, "error", cause)
-	_ = o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg)
-	_ = o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusFailed, &errMsg)
+	if err := o.projectRepo.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg); err != nil {
+		o.logger.ErrorContext(ctx, "failed to record project status", "project_id", job.ProjectID, "job_id", job.ID, "status", model.ProjectStatusFailed, "error", err)
+	}
+	if err := o.projectRepo.CompleteComposeDeploymentJob(ctx, job.ID, model.ComposeDeploymentStatusFailed, &errMsg); err != nil {
+		o.logger.ErrorContext(ctx, "failed to record compose deployment status", "project_id", job.ProjectID, "job_id", job.ID, "status", model.ComposeDeploymentStatusFailed, "error", err)
+	}
 	cleanupCtx, cancel := detachedCleanupContext(ctx)
 	o.deleteComposeSourceObject(cleanupCtx, job.SourceObjectKey)
 	cancel()
@@ -1140,7 +1156,7 @@ func extractComposeFileFromZip(zr *zip.Reader, objectKey, requested string) (pre
 				return preparedDeploymentSource{}, err
 			}
 			composeYAML, err := readLimitedComposeYAML(rc)
-			_ = rc.Close()
+			_ = rc.Close() // read-only zip entry; the read result decides the outcome
 			if err != nil {
 				return preparedDeploymentSource{}, err
 			}

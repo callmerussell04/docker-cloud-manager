@@ -212,7 +212,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	if params.Domain != "" && params.InternalPort != 0 {
 		err = a.cli.NetworkConnect(ctx, params.ProxyNetworkName, resp.ID, nil)
 		if err != nil {
-			_ = a.cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true})
+			_ = a.cli.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true}) // best-effort removal of the unconnected container; the connect error is returned
 			return "", err
 		}
 	}

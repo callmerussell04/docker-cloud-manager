@@ -426,7 +426,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		if errors.Is(err, apperrors.ErrBadRequest) {
@@ -439,7 +439,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
@@ -551,7 +551,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
@@ -560,7 +560,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
 		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey)
+		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
 		return BuildInitResult{}, err
