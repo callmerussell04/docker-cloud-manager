@@ -267,6 +267,7 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 
 	svc, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
+		RegistryAuth:  repos.RegistryAuthorization(),
 		Images:        repos.Images,
 		Registry:      registry,
 		Users:         users,

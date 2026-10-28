@@ -140,40 +140,6 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	return nil
 }
 
-func (r *BuildRepository) StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error) {
-	query := `
-		UPDATE builds
-		SET status = $1, started_at = clock_timestamp(), finished_at = NULL
-		WHERE id = $2 AND status = $3
-		RETURNING id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
-	`
-	var b model.Build
-	var finishedAt sql.NullTime
-	var startedAt sql.NullTime
-	var projectID sql.NullString
-	var projectServiceName sql.NullString
-	err := r.db.QueryRowContext(ctx, query, model.BuildStatusRunning, id, model.BuildStatusPending).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt,
-	)
-	if err == nil {
-		if finishedAt.Valid {
-			b.FinishedAt = &finishedAt.Time
-		}
-		b.StartedAt = startedAt.Time
-		applyBuildProjectFields(&b, projectID, projectServiceName)
-		return b, true, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return model.Build{}, false, wrapOp("build start build", err)
-	}
-
-	b, err = r.GetByID(ctx, id)
-	if err != nil {
-		return model.Build{}, false, wrapOp("build start build", err)
-	}
-	return b, false, nil
-}
-
 func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
 		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at

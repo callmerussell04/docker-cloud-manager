@@ -121,6 +121,7 @@ func newHTTPRouter(t *testing.T, cfgValue config.SystemConfig, ownerID uuid.UUID
 
 	builds, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
+		RegistryAuth:  repos.RegistryAuthorization(),
 		Images:        repos.Images,
 		Registry:      registry,
 		Users:         users,

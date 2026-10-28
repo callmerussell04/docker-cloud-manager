@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"testing"
@@ -67,12 +68,14 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 	require.Equal(t, model.BuildStatusPending, build.Status)
 	require.Equal(t, "build-archives/demo.zip", build.ArchiveObjectKey)
 
-	started, didStart, err := repo.StartBuild(ctx, buildID)
+	grants := repository.NewRegistryGrantRepository(db, db)
+	hash := sha256.Sum256([]byte("build-secret"))
+	started, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute)
 	require.NoError(t, err)
 	require.True(t, didStart)
 	require.Equal(t, model.BuildStatusRunning, started.Status)
 
-	again, didStart, err := repo.StartBuild(ctx, buildID)
+	again, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute)
 	require.NoError(t, err)
 	require.False(t, didStart)
 	require.Equal(t, model.BuildStatusRunning, again.Status)

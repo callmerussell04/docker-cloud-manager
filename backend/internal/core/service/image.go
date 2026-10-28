@@ -38,6 +38,12 @@ type ImageRegistryAPI interface {
 	DeleteManifest(ctx context.Context, repo, digest string) error
 }
 
+// ImageRepositoryFencer excludes new builds of a Registry repository while a
+// tag is deleted from it.
+type ImageRepositoryFencer interface {
+	FenceAndLockRepository(ctx context.Context, repository string) (func(), error)
+}
+
 type ImageService struct {
 	repo         ImageRepository
 	dockerAPI    ImageDockerAPI
@@ -45,7 +51,7 @@ type ImageService struct {
 	contRepo     ImageContainerRepository
 	cfg          ConfigManager
 	lifecycle    ImageLifecycleRepository
-	registryAuth *RegistryAuthorization
+	registryAuth ImageRepositoryFencer
 }
 
 type ImageLifecycleRepository interface {
@@ -56,7 +62,8 @@ type ImageLifecycleRepository interface {
 	RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error
 }
 
-// ImageServiceDeps requires the durable deletion workflow dependencies.
+// ImageServiceDeps requires the durable deletion workflow dependencies,
+// including the Registry repository fence.
 type ImageServiceDeps struct {
 	Repository ImageRepository
 	// Docker is required for best-effort local cache cleanup after Registry deletion.
@@ -65,9 +72,8 @@ type ImageServiceDeps struct {
 	Containers ImageContainerRepository
 	Config     ConfigManager
 	Lifecycle  ImageLifecycleRepository
-	// RegistryAuth optionally fences repositories against concurrent build pushes.
-	// Production supplies it; isolated workflows without registry grants may omit it.
-	RegistryAuth *RegistryAuthorization
+	// RegistryAuth fences repositories against concurrent build pushes.
+	RegistryAuth ImageRepositoryFencer
 }
 
 func NewImageService(deps ImageServiceDeps) (*ImageService, error) {
@@ -78,6 +84,7 @@ func NewImageService(deps ImageServiceDeps) (*ImageService, error) {
 		{"repository", deps.Repository}, {"docker", deps.Docker},
 		{"registry", deps.Registry}, {"containers", deps.Containers},
 		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
+		{"registry authorization", deps.RegistryAuth},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -200,13 +207,11 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 // before Docker and database cleanup so it covers only the bounded Registry
 // attempt. ErrNotFound means the manifest is already absent.
 func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, version string) error {
-	if s.registryAuth != nil {
-		unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
-		if err != nil {
-			return err
-		}
-		defer unlock()
+	unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
+	if err != nil {
+		return err
 	}
+	defer unlock()
 	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		return err

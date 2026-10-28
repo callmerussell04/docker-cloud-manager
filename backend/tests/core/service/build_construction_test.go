@@ -21,6 +21,7 @@ func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
 		{"Users", "users"}, {"Config", "config"}, {"VolumeRepo", "volumes"},
 		{"StagedObjects", "staged objects"}, {"Containers", "containers"},
 		{"DiskMetrics", "disk metrics"}, {"HostMetrics", "host metrics"},
+		{"RegistryAuth", "registry authorization"},
 	}
 	for _, field := range fields {
 		for _, typedNil := range []bool{false, true} {
@@ -53,6 +54,7 @@ func TestBuildServiceAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *t
 var _ BuildRepository = (*repository.BuildRepository)(nil)
 var _ BuildContainerReservationRepository = (*repository.ContainerRepository)(nil)
 var _ BuildObjectStore = (*objectstorage.LazyStorage)(nil)
+var _ BuildRegistryAuthorizer = (*RegistryAuthorization)(nil)
 
 func newBuildRepository(t *testing.T) *coremocks.BuildRepository {
 	t.Helper()
@@ -88,7 +90,16 @@ func buildServiceDeps(t *testing.T) BuildServiceDeps {
 		Containers:    containers,
 		DiskMetrics:   coremocks.NewHostDiskMetricsProvider(t),
 		HostMetrics:   metrics,
+		RegistryAuth:  revokingRegistryAuthorizer(t),
 	}
+}
+
+// revokingRegistryAuthorizer accepts every credential revocation.
+func revokingRegistryAuthorizer(t *testing.T) *coremocks.BuildRegistryAuthorizer {
+	t.Helper()
+	auth := coremocks.NewBuildRegistryAuthorizer(t)
+	auth.EXPECT().RevokeBuild(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return auth
 }
 
 func newTestBuildService(t *testing.T, deps BuildServiceDeps) *BuildService {
@@ -111,6 +122,9 @@ func newTestBuildService(t *testing.T, deps BuildServiceDeps) *BuildService {
 	}
 	if deps.HostMetrics == nil {
 		deps.HostMetrics = defaults.HostMetrics
+	}
+	if deps.RegistryAuth == nil {
+		deps.RegistryAuth = defaults.RegistryAuth
 	}
 	svc, err := NewBuildService(deps)
 	require.NoError(t, err)

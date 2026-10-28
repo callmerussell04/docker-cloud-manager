@@ -17,6 +17,7 @@ import (
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/internal/core/grpc"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
@@ -69,6 +70,13 @@ type CoreRepositories struct {
 	Projects   *repository.ProjectRepository
 	Staged     *repository.StagedObjectRepository
 	Reports    *repository.ReportSnapshotRepository
+	Grants     *repository.RegistryGrantRepository
+}
+
+// RegistryAuthorization returns production Registry authorization over the
+// test database. It claims, revokes and fences builds; it does not issue tokens.
+func (r CoreRepositories) RegistryAuthorization() *service.RegistryAuthorization {
+	return service.NewRegistryAuthorization(r.Grants, nil, nil, "registry.test")
 }
 
 func OpenCoreRepositories(t *testing.T) CoreRepositories {
@@ -89,6 +97,7 @@ func OpenCoreRepositories(t *testing.T) CoreRepositories {
 		Projects:   repository.NewProjectRepository(db),
 		Staged:     repository.NewStagedObjectRepository(db),
 		Reports:    repository.NewReportSnapshotRepository(db, nil, DiscardLogger()),
+		Grants:     repository.NewRegistryGrantRepository(db, lockDB),
 	}
 }
 

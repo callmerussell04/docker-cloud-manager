@@ -26,12 +26,13 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     dockerAPI,
-		Registry:   registry,
-		Containers: containerRepo,
-		Config:     staticConfig{},
-		Lifecycle:  lifecycle,
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Registry:     registry,
+		Containers:   containerRepo,
+		Config:       staticConfig{},
+		Lifecycle:    lifecycle,
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 
@@ -69,12 +70,13 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 	repo := newImageRepoMock(t)
 	containerRepo := coremocks.NewImageContainerRepository(t)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     coremocks.NewImageDockerAPI(t),
-		Registry:   coremocks.NewImageRegistryAPI(t),
-		Containers: containerRepo,
-		Config:     staticConfig{},
-		Lifecycle:  &imageLifecycleFake{},
+		Repository:   repo,
+		Docker:       coremocks.NewImageDockerAPI(t),
+		Registry:     coremocks.NewImageRegistryAPI(t),
+		Containers:   containerRepo,
+		Config:       staticConfig{},
+		Lifecycle:    &imageLifecycleFake{},
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 
@@ -91,12 +93,13 @@ func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) 
 	registry := coremocks.NewImageRegistryAPI(t)
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     coremocks.NewImageDockerAPI(t),
-		Registry:   registry,
-		Containers: coremocks.NewImageContainerRepository(t),
-		Config:     staticConfig{},
-		Lifecycle:  lifecycle,
+		Repository:   repo,
+		Docker:       coremocks.NewImageDockerAPI(t),
+		Registry:     registry,
+		Containers:   coremocks.NewImageContainerRepository(t),
+		Config:       staticConfig{},
+		Lifecycle:    lifecycle,
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 	cause := apperrors.Wrap(apperrors.ErrUnavailable, "registry lookup failed", errors.New("connection refused"))
@@ -117,12 +120,13 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			dockerAPI := coremocks.NewImageDockerAPI(t)
 			lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
 			svc, err := NewImageService(ImageServiceDeps{
-				Repository: repo,
-				Docker:     dockerAPI,
-				Registry:   registry,
-				Containers: coremocks.NewImageContainerRepository(t),
-				Config:     staticConfig{},
-				Lifecycle:  lifecycle,
+				Repository:   repo,
+				Docker:       dockerAPI,
+				Registry:     registry,
+				Containers:   coremocks.NewImageContainerRepository(t),
+				Config:       staticConfig{},
+				Lifecycle:    lifecycle,
+				RegistryAuth: unlockedRepositoryFence(t),
 			})
 			require.NoError(t, err)
 			cause := apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", context.DeadlineExceeded)
@@ -161,12 +165,13 @@ func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     dockerAPI,
-		Registry:   registry,
-		Containers: containerRepo,
-		Config:     staticConfig{},
-		Lifecycle:  lifecycle,
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Registry:     registry,
+		Containers:   containerRepo,
+		Config:       staticConfig{},
+		Lifecycle:    lifecycle,
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 
@@ -193,12 +198,13 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 	dockerAPI := coremocks.NewImageDockerAPI(t)
 	lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     dockerAPI,
-		Registry:   registry,
-		Containers: containerRepo,
-		Config:     staticConfig{},
-		Lifecycle:  lifecycle,
+		Repository:   repo,
+		Docker:       dockerAPI,
+		Registry:     registry,
+		Containers:   containerRepo,
+		Config:       staticConfig{},
+		Lifecycle:    lifecycle,
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 
@@ -219,12 +225,13 @@ func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newImageRepoMock(t)
 	svc, err := NewImageService(ImageServiceDeps{
-		Repository: repo,
-		Docker:     coremocks.NewImageDockerAPI(t),
-		Registry:   coremocks.NewImageRegistryAPI(t),
-		Containers: coremocks.NewImageContainerRepository(t),
-		Config:     staticConfig{},
-		Lifecycle:  &imageLifecycleFake{},
+		Repository:   repo,
+		Docker:       coremocks.NewImageDockerAPI(t),
+		Registry:     coremocks.NewImageRegistryAPI(t),
+		Containers:   coremocks.NewImageContainerRepository(t),
+		Config:       staticConfig{},
+		Lifecycle:    &imageLifecycleFake{},
+		RegistryAuth: unlockedRepositoryFence(t),
 	})
 	require.NoError(t, err)
 	var userOpts model.ListOptions

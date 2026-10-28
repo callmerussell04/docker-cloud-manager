@@ -193,14 +193,16 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 	buildID := uuid.New()
 	repo := newBuildRepository(t)
+	auth := coremocks.NewBuildRegistryAuthorizer(t)
 	svc := newTestBuildService(t, BuildServiceDeps{
-		Repository: repo,
-		Images:     coremocks.NewBuildImageRepository(t),
-		Registry:   coremocks.NewImageRegistryAPI(t),
-		Users:      coremocks.NewUserInfoProvider(t),
+		Repository:   repo,
+		Images:       coremocks.NewBuildImageRepository(t),
+		Registry:     coremocks.NewImageRegistryAPI(t),
+		Users:        coremocks.NewUserInfoProvider(t),
+		RegistryAuth: auth,
 	})
 
-	repo.EXPECT().StartBuild(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}, false, nil)
+	auth.EXPECT().ClaimBuild(mock.Anything, buildID, mock.Anything).Return(model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}, false, nil)
 
 	_, started, err := svc.StartBuildRecord(context.Background(), buildID)
 	require.NoError(t, err)
@@ -227,6 +229,36 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	imageRepo.AssertNotCalled(t, "MarkBuildFailedAndDeleteImageTx", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessfulBuilds(t *testing.T) {
+	for _, tc := range []struct {
+		persisted string
+		cleanup   bool
+	}{
+		{model.BuildStatusCanceled, true},
+		{model.BuildStatusFailedQuotaExceeded, true},
+		{model.BuildStatusFailedInternal, true},
+		{model.BuildStatusSuccess, false},
+	} {
+		t.Run(tc.persisted, func(t *testing.T) {
+			buildID := uuid.New()
+			imageID := uuid.New()
+			repo := newBuildRepository(t)
+			auth := coremocks.NewBuildRegistryAuthorizer(t)
+			svc := newTestBuildService(t, BuildServiceDeps{
+				Repository:   repo,
+				Images:       coremocks.NewBuildImageRepository(t),
+				Registry:     coremocks.NewImageRegistryAPI(t),
+				Users:        coremocks.NewUserInfoProvider(t),
+				RegistryAuth: auth,
+			})
+			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: tc.persisted}, nil)
+			auth.EXPECT().RevokeBuild(mock.Anything, buildID, tc.cleanup).Return(nil).Once()
+
+			require.NoError(t, svc.CompleteBuildRecord(context.Background(), buildID, imageID, model.BuildStatusSuccess, 0))
+		})
+	}
+}
+
 func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(t *testing.T) {
 	buildID := uuid.New()
 	imageID := uuid.New()
@@ -236,12 +268,14 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	objects := coremocks.NewBuildObjectStore(t)
 	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
+	auth := coremocks.NewBuildRegistryAuthorizer(t)
 	svc := newTestBuildService(t, BuildServiceDeps{
-		Repository:  repo,
-		Images:      imageRepo,
-		Registry:    registry,
-		Users:       users,
-		ObjectStore: objects,
+		Repository:   repo,
+		Images:       imageRepo,
+		Registry:     registry,
+		Users:        users,
+		ObjectStore:  objects,
+		RegistryAuth: auth,
 	})
 	var failedStatus string
 	var deleted []string
@@ -264,7 +298,9 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 			failedStatus = status
 		}).
 		Return(nil)
-	registry.EXPECT().DeleteManifest(mock.Anything, ownerID.String()+"_demo-app", "digest").Return(nil)
+	revoke := auth.EXPECT().RevokeBuild(mock.Anything, buildID, false).Return(nil).Once()
+	// The rejected manifest is removed by the fenced Registry cleanup job.
+	auth.EXPECT().RevokeBuild(mock.Anything, buildID, true).Return(nil).Once().NotBefore(revoke)
 	objects.EXPECT().DeleteObject(mock.Anything, "build-archives/source.zip").Run(func(ctx context.Context, objectKey string) {
 		deleted = append(deleted, objectKey)
 	}).Return(nil)

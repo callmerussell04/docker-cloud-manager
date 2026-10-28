@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
@@ -19,7 +18,7 @@ import (
 )
 
 func TestBuildQueueResidenceDoesNotConsumeExecutionOrReservations(t *testing.T) {
-	for _, claimPath := range []string{"build repository", "registry grant"} {
+	for _, claimPath := range []string{"build service", "registry grant"} {
 		t.Run(claimPath, func(t *testing.T) {
 			ctx := context.Background()
 			repos := coretest.OpenCoreRepositories(t)
@@ -50,7 +49,7 @@ func TestBuildQueueResidenceDoesNotConsumeExecutionOrReservations(t *testing.T) 
 			var claimed bool
 			if claimPath == "registry grant" {
 				hash := sha256.Sum256([]byte("build-secret"))
-				started, claimed, err = repository.NewRegistryGrantRepository(repos.DB, repos.LockDB).ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute)
+				started, claimed, err = repos.Grants.ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute)
 			} else {
 				started, claimed, err = builds.StartBuildRecord(ctx, result.BuildID)
 			}
@@ -65,7 +64,7 @@ func TestBuildQueueResidenceDoesNotConsumeExecutionOrReservations(t *testing.T) 
 			stale, err = repos.Builds.GetStaleBuilds(ctx, cutoff)
 			require.NoError(t, err)
 			require.Empty(t, stale, "queue residence must not make fresh execution stale")
-			again, claimed, err := repos.Builds.StartBuild(ctx, result.BuildID)
+			again, claimed, err := builds.StartBuildRecord(ctx, result.BuildID)
 			require.NoError(t, err)
 			require.False(t, claimed)
 			require.True(t, again.StartedAt.Equal(started.StartedAt))

@@ -27,17 +27,25 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return model.Build{}, false, wrapOp("registry grant claim build", err)
 	}
 	defer tx.Rollback()
-	var b model.Build
+	// A build that is no longer pending returns its persisted state. Its image
+	// row may already be gone, as canceled and failed builds delete it.
+	b, err := scanBuild(tx.QueryRowContext(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Build{}, false, apperrors.ErrNotFound
+	}
+	if err != nil {
+		return model.Build{}, false, wrapOp("registry grant claim build", err)
+	}
+	if b.Status != model.BuildStatusPending {
+		return b, false, nil
+	}
 	var tag string
-	err = tx.QueryRowContext(ctx, `SELECT b.id, b.image_id, b.owner_id, b.status, i.tag FROM builds b JOIN images i ON i.id=b.image_id AND i.owner_id=b.owner_id WHERE b.id=$1 FOR UPDATE OF b`, id).Scan(&b.ID, &b.ImageID, &b.OwnerID, &b.Status, &tag)
+	err = tx.QueryRowContext(ctx, `SELECT tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag)
 	if errors.Is(err, sql.ErrNoRows) {
 		return b, false, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
-	}
-	if b.Status != model.BuildStatusPending {
-		return b, false, nil
 	}
 	base, version := imageref.ParseTag(tag)
 	repository := imageref.CustomRepositoryName(b.OwnerID, base)

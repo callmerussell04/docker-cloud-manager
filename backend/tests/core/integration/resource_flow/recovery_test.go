@@ -99,12 +99,13 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 					newWorker := func() (*service.VolumeService, *service.ImageService, *service.ResourceLifecycleWorker) {
 						volumes := newRecoveryVolumeService(t, repos, volumeDocker, cfg, repository.NewResourceLifecycleRepository(repos.DB))
 						images, err := service.NewImageService(service.ImageServiceDeps{
-							Repository: repos.Images,
-							Docker:     imageDocker,
-							Registry:   registry,
-							Containers: repos.Containers,
-							Config:     cfg,
-							Lifecycle:  repository.NewResourceLifecycleRepository(repos.DB),
+							Repository:   repos.Images,
+							Docker:       imageDocker,
+							Registry:     registry,
+							Containers:   repos.Containers,
+							Config:       cfg,
+							Lifecycle:    repository.NewResourceLifecycleRepository(repos.DB),
+							RegistryAuth: repos.RegistryAuthorization(),
 						})
 						require.NoError(t, err)
 						return volumes, images, service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
@@ -198,12 +199,13 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 				cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
 				volumes := newRecoveryVolumeService(t, repos, coremocks.NewVolumeDockerAPI(t), cfg, lifecycle)
 				images, err := service.NewImageService(service.ImageServiceDeps{
-					Repository: repos.Images,
-					Docker:     coremocks.NewImageDockerAPI(t),
-					Registry:   coremocks.NewImageRegistryAPI(t),
-					Containers: repos.Containers,
-					Config:     cfg,
-					Lifecycle:  lifecycle,
+					Repository:   repos.Images,
+					Docker:       coremocks.NewImageDockerAPI(t),
+					Registry:     coremocks.NewImageRegistryAPI(t),
+					Containers:   repos.Containers,
+					Config:       cfg,
+					Lifecycle:    lifecycle,
+					RegistryAuth: repos.RegistryAuthorization(),
 				})
 				require.NoError(t, err)
 				switch kind {
@@ -338,12 +340,13 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			}
 			volumes := newRecoveryVolumeService(t, repos, volumeDocker, cfg, lifecycle)
 			images, err := service.NewImageService(service.ImageServiceDeps{
-				Repository: repos.Images,
-				Docker:     imageDocker,
-				Registry:   registry,
-				Containers: repos.Containers,
-				Config:     cfg,
-				Lifecycle:  lifecycle,
+				Repository:   repos.Images,
+				Docker:       imageDocker,
+				Registry:     registry,
+				Containers:   repos.Containers,
+				Config:       cfg,
+				Lifecycle:    lifecycle,
+				RegistryAuth: repos.RegistryAuthorization(),
 			})
 			require.NoError(t, err)
 			switch kind {

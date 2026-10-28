@@ -82,12 +82,13 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
 			lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
 			images, err := service.NewImageService(service.ImageServiceDeps{
-				Repository: repos.Images,
-				Docker:     dockerAPI,
-				Registry:   adapter,
-				Containers: repos.Containers,
-				Config:     cfg,
-				Lifecycle:  lifecycle,
+				Repository:   repos.Images,
+				Docker:       dockerAPI,
+				Registry:     adapter,
+				Containers:   repos.Containers,
+				Config:       cfg,
+				Lifecycle:    lifecycle,
+				RegistryAuth: repos.RegistryAuthorization(),
 			})
 			require.NoError(t, err)
 			require.ErrorIs(t, images.Delete(coretest.UserContext(uuid.New()), imageID), apperrors.ErrNotFound)
@@ -118,12 +119,13 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 				dockerAPI.AssertNotCalled(t, "RemoveImage", mock.Anything, mock.Anything, mock.Anything)
 				// Reconstruct the service to prove retry uses durable state.
 				images, err = service.NewImageService(service.ImageServiceDeps{
-					Repository: repos.Images,
-					Docker:     dockerAPI,
-					Registry:   adapter,
-					Containers: repos.Containers,
-					Config:     cfg,
-					Lifecycle:  lifecycle,
+					Repository:   repos.Images,
+					Docker:       dockerAPI,
+					Registry:     adapter,
+					Containers:   repos.Containers,
+					Config:       cfg,
+					Lifecycle:    lifecycle,
+					RegistryAuth: repos.RegistryAuthorization(),
 				})
 				require.NoError(t, err)
 				worker = service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
@@ -298,7 +300,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 	t.Helper()
 	ctx := context.Background()
 	f := &fencedImageDeletion{repos: coretest.OpenCoreRepositories(t), ownerID: uuid.New(), imageID: uuid.New(), deletes: &atomic.Int32{}, onDelete: &atomic.Pointer[func(*http.Request)]{}}
-	f.grants = repository.NewRegistryGrantRepository(f.repos.DB, f.repos.LockDB)
+	f.grants = f.repos.Grants
 	f.lifecycle = repository.NewResourceLifecycleRepository(f.repos.DB)
 	require.NoError(t, f.repos.Images.Save(ctx, model.Image{ID: f.imageID, OwnerID: f.ownerID, Tag: "demo:latest"}))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -329,7 +331,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 		Containers:   f.repos.Containers,
 		Config:       coretest.StaticConfig{Config: coretest.IntegrationConfig()},
 		Lifecycle:    f.lifecycle,
-		RegistryAuth: service.NewRegistryAuthorization(f.grants, nil, nil, "registry.test"),
+		RegistryAuth: f.repos.RegistryAuthorization(),
 	})
 	require.NoError(t, err)
 	f.worker = service.NewResourceLifecycleWorker(nil, f.images, coretest.DiscardLogger())

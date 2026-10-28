@@ -31,7 +31,6 @@ type BuildRepository interface {
 	CountActive(ctx context.Context) (int, error)
 	Save(ctx context.Context, b model.Build) error
 	CreateQueuedBuild(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) error
-	StartBuild(ctx context.Context, id uuid.UUID) (model.Build, bool, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -68,6 +67,19 @@ type BuildObjectStore interface {
 	OpenObject(ctx context.Context, objectKey string) (io.ReadCloser, error)
 	DeleteObject(ctx context.Context, objectKey string) error
 	StatObject(ctx context.Context, objectKey string) (objectstorage.ObjectInfo, error)
+}
+
+// BuildImageMetadataAPI reads built image metadata. Builds never delete
+// manifests directly; revocation queues the fenced Registry cleanup.
+type BuildImageMetadataAPI interface {
+	GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error)
+}
+
+// BuildRegistryAuthorizer claims builds with a repository-scoped Registry
+// credential and revokes that credential when the build ends.
+type BuildRegistryAuthorizer interface {
+	ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error)
+	RevokeBuild(ctx context.Context, id uuid.UUID, cleanup bool) error
 }
 
 type BuildDeploymentCanceler interface {
@@ -107,7 +119,7 @@ type BuildService struct {
 	repo         BuildRepository
 	imageRepo    BuildImageRepository
 	volumeRepo   BuildVolumeDiskRepository
-	registryAPI  ImageRegistryAPI
+	registryAPI  BuildImageMetadataAPI
 	users        UserInfoProvider
 	cfg          BuildConfigProvider
 	objectStore  BuildObjectStore
@@ -117,17 +129,17 @@ type BuildService struct {
 	diskMetrics  HostDiskMetricsProvider
 	hostMetrics  HostMetricsProvider
 	hostDiskPath string
-	registryAuth *RegistryAuthorization
+	registryAuth BuildRegistryAuthorizer
 	logger       *slog.Logger
 }
 
-// BuildServiceDeps requires admission and persistence dependencies. ObjectStore,
-// Deployments and RegistryAuth are optional; deployments may be wired after construction
-// to resolve the BuildService/Compose orchestrator cycle.
+// BuildServiceDeps requires admission, persistence and Registry authorization
+// dependencies. ObjectStore and Deployments are optional; deployments may be
+// wired after construction to resolve the BuildService/Compose orchestrator cycle.
 type BuildServiceDeps struct {
 	Repository    BuildRepository
 	Images        BuildImageRepository
-	Registry      ImageRegistryAPI
+	Registry      BuildImageMetadataAPI
 	Users         UserInfoProvider
 	Logger        *slog.Logger
 	VolumeRepo    BuildVolumeDiskRepository
@@ -139,7 +151,7 @@ type BuildServiceDeps struct {
 	DiskMetrics   HostDiskMetricsProvider
 	HostMetrics   HostMetricsProvider
 	HostDiskPath  string
-	RegistryAuth  *RegistryAuthorization
+	RegistryAuth  BuildRegistryAuthorizer
 }
 
 type createBuildJobInput struct {
@@ -164,6 +176,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
 		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
 		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
+		{"registry authorization", deps.RegistryAuth},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -689,14 +702,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 }
 
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
-	var b model.Build
-	var started bool
-	var err error
-	if s.registryAuth != nil {
-		b, started, err = s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(s.buildConfig().MaxBuildTimeMinutes)*time.Minute)
-	} else {
-		b, started, err = s.repo.StartBuild(ctx, buildID)
-	}
+	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(s.buildConfig().MaxBuildTimeMinutes)*time.Minute)
 	if err != nil {
 		return model.Build{}, false, err
 	}
@@ -718,17 +724,8 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
-	if s.registryAuth != nil {
-		if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
-			return err
-		}
-	}
-	if s.registryAuth == nil && b.Status == model.BuildStatusRunning {
-		if img, err := s.imageRepo.GetByID(ctx, b.ImageID); err == nil {
-			s.cleanupBuiltImageManifestForImage(ctx, b.ID, img)
-		} else if !errors.Is(err, apperrors.ErrNotFound) {
-			s.logger.WarnContext(ctx, "failed to fetch running build image for cancel cleanup", "build_id", buildID, "image_id", b.ImageID, "error", err)
-		}
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+		return err
 	}
 	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled); err != nil {
@@ -771,15 +768,13 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if b.ImageID != imageID {
 		return apperrors.ErrForbidden
 	}
-	if s.registryAuth != nil {
-		if err := s.registryAuth.RevokeBuild(ctx, b.ID, status != model.BuildStatusSuccess || b.Status == model.BuildStatusCanceled); err != nil {
-			return err
-		}
+	// A redelivered success after cancellation or failure still queues cleanup
+	// of the manifest it may have pushed.
+	failedEarlier := model.IsBuildTerminalStatus(b.Status) && b.Status != model.BuildStatusSuccess
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, status != model.BuildStatusSuccess || failedEarlier); err != nil {
+		return err
 	}
 	if model.IsBuildTerminalStatus(b.Status) {
-		if s.registryAuth == nil && b.Status == model.BuildStatusCanceled && status == model.BuildStatusSuccess {
-			s.cleanupBuiltImageManifest(ctx, b)
-		}
 		s.cleanupBuildArchive(ctx, b)
 		return nil
 	}
@@ -803,13 +798,11 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	baseName, version := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	sizeBytes, _, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
-		if s.registryAuth != nil {
-			if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, true); revokeErr != nil {
-				return revokeErr
-			}
+		if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, true); revokeErr != nil {
+			return revokeErr
 		}
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
@@ -840,12 +833,8 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
 			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
 		}
-		if s.registryAuth != nil {
-			if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
-				return err
-			}
-		} else {
-			_ = s.registryAPI.DeleteManifest(ctx, repoName, digest)
+		if err := s.registryAuth.RevokeBuild(ctx, b.ID, true); err != nil {
+			return err
 		}
 		s.cleanupBuildArchive(ctx, b)
 		s.cancelDeploymentForBuild(ctx, b)
@@ -859,40 +848,6 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	s.cleanupBuildArchive(ctx, b)
 	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
 	return nil
-}
-
-func (s *BuildService) cleanupBuiltImageManifest(ctx context.Context, build model.Build) {
-	if s.registryAPI == nil {
-		return
-	}
-	img, err := s.imageRepo.GetByID(ctx, build.ImageID)
-	if err != nil {
-		s.logger.WarnContext(ctx, "failed to fetch canceled build image for registry cleanup", "build_id", build.ID, "image_id", build.ImageID, "error", err)
-		return
-	}
-	s.cleanupBuiltImageManifestForImage(ctx, build.ID, img)
-}
-
-func (s *BuildService) cleanupBuiltImageManifestForImage(ctx context.Context, buildID uuid.UUID, img model.Image) {
-	if s.registryAPI == nil {
-		return
-	}
-
-	baseName, version := parseImageTag(img.Tag)
-	repoName := customImageRepositoryName(img.OwnerID, baseName)
-	_, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
-	if err != nil {
-		s.logger.DebugContext(ctx, "canceled build manifest is not available for registry cleanup", "build_id", buildID, "image_id", img.ID, "error", err)
-		return
-	}
-	if digest == "" {
-		return
-	}
-	if err := s.registryAPI.DeleteManifest(ctx, repoName, digest); err != nil {
-		s.logger.WarnContext(ctx, "failed to delete canceled build manifest", "build_id", buildID, "image_id", img.ID, "error", err)
-		return
-	}
-	s.logger.InfoContext(ctx, "deleted canceled build manifest", "build_id", buildID, "image_id", img.ID)
 }
 
 func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
@@ -914,10 +869,8 @@ func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
 	}
-	if s.registryAuth != nil {
-		if err := s.registryAuth.RevokeBuild(ctx, b.ID, !model.IsBuildTerminalStatus(b.Status) || b.Status != model.BuildStatusSuccess); err != nil {
-			return err
-		}
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, !model.IsBuildTerminalStatus(b.Status) || b.Status != model.BuildStatusSuccess); err != nil {
+		return err
 	}
 	if err := s.repo.Delete(ctx, buildID); err != nil {
 		return err

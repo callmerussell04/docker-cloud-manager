@@ -81,12 +81,13 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	})
 	require.NoError(t, err)
 	images, err := service.NewImageService(service.ImageServiceDeps{
-		Repository: repos.Images,
-		Docker:     coremocks.NewImageDockerAPI(t),
-		Registry:   coremocks.NewImageRegistryAPI(t),
-		Containers: repos.Containers,
-		Config:     cfg,
-		Lifecycle:  lifecycle,
+		Repository:   repos.Images,
+		Docker:       coremocks.NewImageDockerAPI(t),
+		Registry:     coremocks.NewImageRegistryAPI(t),
+		Containers:   repos.Containers,
+		Config:       cfg,
+		Lifecycle:    lifecycle,
+		RegistryAuth: repos.RegistryAuthorization(),
 	})
 	require.NoError(t, err)
 	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)
