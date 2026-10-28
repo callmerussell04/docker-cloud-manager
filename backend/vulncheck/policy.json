@@ -7,7 +7,7 @@
       "rationale": "The Go vulnerability database entry is unreviewed and module-wide; upstream it concerns Docker daemon plugin-install privilege validation (fixed in Engine 29.3.1). DCM links only the Docker SDK client/types, makes no plugin-install calls and embeds no daemon. No docker/docker SDK release carries a fix; operators patch the host Engine independently.",
       "evidence": [
         "https://github.com/moby/moby/security/advisories/GHSA-pxq6-2prw-chj9",
-        "docs/deployment-single-vm.md#verification-snapshot-2026-10-17"
+        "docs/deployment-single-vm.md#accepted-and-residual-advisories"
       ]
     },
     {
@@ -17,7 +17,7 @@
       "rationale": "The Go vulnerability database entry is unreviewed and module-wide; upstream it concerns Docker daemon AuthZ plugins inspecting oversized bodies (fixed in Engine 29.3.1). DCM does not embed the daemon authorization-plugin server; only SDK client symbols are flagged. No docker/docker SDK release carries a fix; operators patch the host Engine independently.",
       "evidence": [
         "https://github.com/moby/moby/security/advisories/GHSA-x744-4wpc-v9h2",
-        "docs/deployment-single-vm.md#verification-snapshot-2026-10-17"
+        "docs/deployment-single-vm.md#accepted-and-residual-advisories"
       ]
     }
   ]

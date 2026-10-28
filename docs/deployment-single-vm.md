@@ -278,15 +278,10 @@ CORE_TEST_NETWORK_POLICY=1 GOCACHE=/tmp/go-build-cache \
 
 ## Go toolchain and build inputs
 
-Reviewed 2026-10-17: [Go release policy and patch notes](https://go.dev/doc/devel/release)
-and [official downloads](https://go.dev/dl/?mode=json) list Go 1.27.2 and 1.26.9 as
-supported patched releases. DCM selected 1.26.9, retaining the host's existing
-1.26 release line while replacing the unsupported module minimum 1.25.7 and the
-host baseline 1.26.1. No new language features or third-party dependency upgrades
-are part of this change.
-
-Updated 2026-10-27: DCM selects **1.26.10**, the current 1.26 patch release
-(alongside 1.27.3). It fixes [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809),
+DCM pins Go **1.26.10**, a supported patch release on the 1.26 line; check the
+[Go release policy and patch notes](https://go.dev/doc/devel/release) and
+[official downloads](https://go.dev/dl/?mode=json) when updating. It fixes
+[GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809),
 a `crypto/x509` denylist of compromised intermediate certificates. The production
 scan reaches `Certificate.Verify` through `crypto/tls` handshakes, and every service
 binary links that verifier for its HTTPS/TLS clients, so the advisory is patched
@@ -322,9 +317,8 @@ The Registry deployment images under `deployment/registry/` follow the same
 convention on the same runtime index. Each installs its complete package closure
 from its own lock: `edge-packages.lock` (`socat=1.8.1.3-r0`),
 `egress-packages.lock` (`squid=7.6-r0`) and `network-policy-packages.lock`
-(`iptables=1.8.13-r0`, nf_tables backend). Moving from the previous floating
-`alpine:3.22` raised Squid from 6.12 to 7.6; `squid -k parse` accepts
-`squid.conf` unchanged. Compose and the Registry isolation test run the upstream
+(`iptables=1.8.13-r0`, nf_tables backend); `squid -k parse` accepts `squid.conf`
+under the locked Squid 7.6. Compose and the Registry isolation test run the upstream
 Distribution image as
 `registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`.
 
@@ -363,50 +357,48 @@ matching govulncheck's own exit semantics. Add an entry only after reviewing the
 advisory against DCM's callers; prefer an upgrade when a fixed version exists.
 The vulnerability database is live; the target prints its modification time,
 and CI rescans weekly. Record the scan date, compiler, scanner version,
-GOOS/GOARCH, and build settings when comparing results. Binary symbol inclusion is conservative evidence,
+GOOS/GOARCH, and build settings when comparing results. The equivalent manual
+scans are `CGO_ENABLED=0 govulncheck ./cmd/...` and
+`govulncheck -mode=binary bin/<service>` after `make build`; compiler and settings
+are inspectable with `go version -m`. Binary symbol inclusion is conservative evidence,
 not proof that an untrusted request reaches a vulnerable operation. Third-party
 advisories require separate dependency and transport-specific assessment.
 
 ### Standard-library applicability
 
-The baseline assessment used local Go 1.26.1, while Docker used floating
-`golang:alpine3.22` and `alpine:latest`. A local scan therefore could not establish
-which Go standard library a Docker build contained.
-
 - [GO-2026-4869](https://pkg.go.dev/vuln/GO-2026-4869): untrusted tar uploads reach
   Builder's `archive/tar.Reader.Next` through its extractor and storage adapter.
-  The fix landed in Go 1.25.9 / 1.26.2 and is included in 1.26.9. This is a
-  relevant parser boundary, without claiming a demonstrated DCM exploit.
+  The fix landed in Go 1.25.9 / 1.26.2 and is included in the pinned toolchain.
+  This is a relevant parser boundary, without claiming a demonstrated DCM exploit.
 - [GO-2026-6608](https://pkg.go.dev/vuln/GO-2026-6608): Core accepts build and
   Compose multipart uploads through `Request.MultipartReader` and `Reader.NextPart`,
   which parses MIME headers. The advisory describes an arbitrarily long line
   allocation when the remaining parser memory limit is below 400 bytes; fixed
   in Go 1.26.9 / 1.27.2. Upload limits alone do not establish non-applicability.
-  This patch includes the fix; a reachable parser is not proof of a successful
-  attack against every HTTP service.
-- The selected patch also includes intervening TLS, X.509, HTTP, URL, MIME and
-  textproto fixes described in the release history. Platform-specific and unused
-  protocol reports must be assessed against Linux service builds and actual
-  callers, without blanket exclusions.
+  The pinned toolchain includes the fix; a reachable parser is not proof of a
+  successful attack against every HTTP service.
+- The pinned toolchain also includes the TLS, X.509, HTTP, URL, MIME and textproto
+  fixes listed in the Go release notes. Platform-specific and unused protocol
+  reports must be assessed against Linux service builds and actual callers,
+  without blanket exclusions.
 
 ### Network dependencies and compatibility
 
-The network remediation uses bounded, explicitly selected upgrades:
+Network modules are pinned at these versions:
 
-| Module | Previous | Selected | Reason |
-| --- | --- | --- | --- |
-| `google.golang.org/grpc` | 1.79.3 | 1.83.2 | HTTP/2 frame buffering/flood protections and missing-authority rejection |
-| `golang.org/x/net` | 0.51.0 | 0.60.0 | HTTP/2 trailer, window, flow-control and HPACK fixes; earlier IDNA fixes |
-| `github.com/rabbitmq/amqp091-go` | 1.11.0 | 1.15.0 | Frame/field bounds, SASL credential handling and reconnect corrections |
-| `github.com/quic-go/quic-go` | 0.59.0 | 0.59.1 | HTTP/3 trailer validation security backport |
+| Module | Version | Reason |
+| --- | --- | --- |
+| `google.golang.org/grpc` | 1.83.2 | HTTP/2 frame buffering/flood protections and missing-authority rejection |
+| `golang.org/x/net` | 0.60.0 | HTTP/2 trailer, window, flow-control and HPACK fixes; earlier IDNA fixes |
+| `github.com/rabbitmq/amqp091-go` | 1.15.0 | Frame/field bounds, SASL credential handling and reconnect corrections |
+| `github.com/quic-go/quic-go` | 0.59.1 | HTTP/3 trailer validation security backport |
 
-The gRPC and x/net module requirements also raise x/crypto, x/sys, x/text,
-x/sync, OpenTelemetry API/metric/trace and genproto RPC versions. These are
-required graph changes, not a general dependency refresh. Protobuf stays at
-1.36.11, including the pinned code generator; generated RPC definitions do not
-change. The selected modules support the pinned Go 1.26.9 toolchain.
+The gRPC and x/net module requirements also determine the x/crypto, x/sys, x/text,
+x/sync, OpenTelemetry API/metric/trace and genproto RPC versions. Protobuf is
+1.36.11, matching the pinned code generator. These modules support the pinned
+Go 1.26.10 toolchain.
 
-Review these upstream notes when updating again:
+Review these upstream notes when updating:
 [gRPC releases](https://github.com/grpc/grpc-go/releases),
 [AMQP 1.13](https://github.com/rabbitmq/amqp091-go/releases/tag/v1.13.0),
 [1.14](https://github.com/rabbitmq/amqp091-go/releases/tag/v1.14.0),
@@ -414,26 +406,26 @@ Review these upstream notes when updating again:
 [QUIC 0.59.1](https://github.com/quic-go/quic-go/releases/tag/v0.59.1).
 
 - DCM uses gRPC's native HTTP/2 client/server transport. Internal authentication
-  does not eliminate pre-authentication frame-parser exposure. The upgrade covers
+  does not eliminate pre-authentication frame-parser exposure. The pinned gRPC fixes
   [GO-2026-6061](https://pkg.go.dev/vuln/GO-2026-6061),
   [GO-2026-6348](https://pkg.go.dev/vuln/GO-2026-6348), and
   [GO-2026-6443](https://pkg.go.dev/vuln/GO-2026-6443). DCM does not configure xDS
   or its RBAC engine; those portions of the reports do not describe its typed
   scope/token authorization. Strict RPC paths remain enabled. Default write/read
-  buffer pooling changes are exercised by client/server and race checks. TLS
-  authority validation now uses the leaf certificate; configure service names
-  against that certificate. Unexpected upstream gRPC errors still pass through
-  DCM's safe transport error mapping.
-- Go's standard library and x/net are patched separately. The selected x/net
+  buffer pooling is exercised by client/server and race checks. TLS authority
+  validation uses the leaf certificate; configure service names against that
+  certificate. Unexpected upstream gRPC errors pass through DCM's safe transport
+  error mapping.
+- Go's standard library and x/net are patched separately. The pinned x/net
   fixes GO-2026-4918, GO-2026-5026, GO-2026-6603, GO-2026-6610,
   GO-2026-6611, GO-2026-6612 and GO-2026-6617. Assess HTTP/2 server and client
   exposure separately; an HTTP/1 deployment is not an exclusion for gRPC.
 - AMQP parsing fixes apply to a malicious or compromised broker, not a direct
   unauthenticated HTTP request. DCM retains persistent JSON publications,
   confirms, durable quorum queues/DLX, manual ACK/NACK and `prefetch=1`.
-  New short/long string bounds reject invalid encodings; current queue names,
-  routing keys and message fields remain compatible. URI-derived AMQPS now has
-  an explicit TLS 1.2 minimum; development Compose still uses AMQP. Version 1.15
+  Short/long string bounds reject invalid encodings; DCM's queue names, routing
+  keys and message fields are within them. URI-derived AMQPS has an explicit
+  TLS 1.2 minimum; development Compose still uses AMQP. Version 1.15
   preserves caller SASL credentials while redacting the connection's copy.
   AMQP connections leave `Config.Recovery` nil: automatic recovery is disabled
   and DCM continues to own reconnect/topology handling. Core shares one publisher
@@ -448,41 +440,17 @@ Review these upstream notes when updating again:
   ACK was lost.
 - Gin imports HTTP/3 support, but DCM starts ordinary HTTP servers, proxies
   HTTP/SSE/WebSocket and uses native gRPC; it does not start a QUIC listener or
-  use an HTTP/3 client transport. GO-2026-5676 is patched anyway by the small
-  quic-go backport. Gorilla WebSocket 1.5.3 already contains the reported masking
-  fix. No new protocol or authentication mode is enabled.
+  use an HTTP/3 client transport. The pinned quic-go backport patches
+  GO-2026-5676 regardless. Gorilla WebSocket 1.5.3 already contains the reported
+  masking fix.
 
-### Verification snapshot (2026-10-17)
+### Accepted and residual advisories
 
-Historical evidence for the accepted Docker SDK advisories. It predates the
-Go 1.26.10 update, which changes only the standard library.
-
-Environment: Linux/amd64, Go 1.26.9, `CGO_ENABLED=0`, govulncheck v1.9.0,
-`https://vuln.go.dev` database last modified `2026-10-08T22:31:09Z`.
-Source scan: `CGO_ENABLED=0 govulncheck ./cmd/...`; binary scans:
-`govulncheck -mode=binary bin/<service>` after `make build`.
-Compiler and settings are inspectable with `go version -m`.
-
-| Scan | Before: symbol-level IDs | After: symbol-level IDs | After: standard-library findings |
-| --- | ---: | ---: | ---: |
-| Production roots `./cmd/...` | 20 | 3 | 0 |
-| Builder binary | 19 | 3 | 0 |
-| Core binary | 19 | 2 | 0 |
-| Gateway binary | 8 | 0 | 0 |
-| SSO binary | 7 | 0 | 0 |
-| Telemetry binary | 10 | 2 | 0 |
-
-Counts are unique IDs per scan, not additive, and do not count demonstrated
-exploits. Gateway and SSO have no symbol-level findings; their module-only
-reports still require applicability review.
-
-Network dependency updates remove all 17 network-related symbol-level findings
-from the preceding 20-ID production-root baseline. Remaining Docker/archive
-findings are reviewed separately.
-At that snapshot `make vulncheck` exited nonzero. It now passes only because
-GO-2026-4883 and GO-2026-4887 are recorded as reviewed acceptances in
-`backend/vulncheck/policy.json`, scoped to the scans that report them; any
-other symbol-level finding still fails it.
+`make vulncheck` passes only because GO-2026-4883 and GO-2026-4887 are recorded as
+reviewed acceptances in `backend/vulncheck/policy.json`, scoped to the scans that
+report them: production roots and the Builder, Core and Telemetry binaries. Any
+other symbol-level finding fails it. Gateway and SSO have no symbol-level findings;
+their module-only reports still require applicability review.
 
 Residual applicability is deliberately narrower than a blanket module exclusion:
 
@@ -491,32 +459,22 @@ Residual applicability is deliberately narrower than a blanket module exclusion:
   Docker client/types, not the daemon plugin authorization handlers, and does
   not expose plugin installation. Module-wide unreviewed reports flag client
   symbols too. This excludes those server operations from DCM binaries, not the
-  independently installed host daemon from assessment. See the upstream
+  independently installed host daemon from assessment. No Docker SDK release
+  carries a fix; patch the host Engine separately. See the upstream
   [plugin privilege advisory](https://github.com/moby/moby/security/advisories/GHSA-pxq6-2prw-chj9)
   and [AuthZ advisory](https://github.com/moby/moby/security/advisories/GHSA-x744-4wpc-v9h2).
-- GO-2026-6253 concerns archive extraction. Builder directly calls
-  `go-archive.TarWithOptions` to create a workspace tar; uploads use DCM's
-  separate extractor, not `go-archive.Untar`. Builder also calls the Docker
-  daemon's archive-copy API, so host-daemon/archive risk still needs #16 review.
-  Symbol inclusion alone does not establish a host escape. See the
+- GO-2026-6253 concerns archive extraction and is fixed by `moby/go-archive`
+  0.3.3. Builder directly calls only `go-archive.TarWithOptions` to create an
+  uncompressed workspace tar; uploads use DCM's separate extractor, not
+  `go-archive.Untar`. See the
   [extraction advisory](https://github.com/moby/go-archive/security/advisories/GHSA-hfg8-hc9c-6c3h).
-- Module/package-only findings are not silently waived: Docker copy advisories
-  GO-2026-5617/5668/5746 and compress/s2 GO-2026-5841 remain part of #16's
-  archive/daemon assessment. GO-2026-5932 concerns x/crypto/openpgp, which is not
-  imported by DCM's production graph; local password authentication uses bcrypt.
-  These exclusions apply to the inspected Linux/amd64 service builds only;
-  other platforms or new protocol/copy/authentication callers require reassessment.
-
-Compatibility checks passed: all five service builds, focused HTTP/gRPC/OIDC and
-Telemetry tests (215 tests, 1 Docker opt-in skipped), canonical fast and race
-suites (700 tests each, 85 integration skips each), vet, protobuf drift checks,
-module verification/tidy consistency, and lint for new changes (zero issues).
-RabbitMQ smoke tests passed with race detection, including confirms, persistence,
-permanent/malformed dead-letter delivery, transient redelivery/ACK and cancellation.
-The full suite passed (712 tests, 2 Registry isolation/network-policy opt-ins
-skipped), including PostgreSQL, ClickHouse, RabbitMQ, MinIO and Docker flows.
-
-The preceding toolchain verification reproduced identical SHA-256 checksums for
-all five binaries on repeated builds and exactly the runtime lock's 29 package
-versions in the pinned Alpine image. Network remediation changes module inputs;
-it does not change those compiler, image or APK pins.
+  GO-2026-5841 (compress/s2 `NewDict`) is fixed by `klauspost/compress` 1.18.7.
+- Module/package-only findings are not silently waived. Docker daemon archive-copy
+  advisories GO-2026-5617/5668/5746 concern Engine code that is not in DCM's
+  production graph. Builder still sends tar streams through the daemon's
+  archive-copy API, so the host Engine must be 29.5.1 or newer (see the
+  requirements in section 1); absence from DCM's call graph does not patch an older
+  deployed Engine. GO-2026-5932 concerns x/crypto/openpgp, which is not imported
+  by DCM's production graph; local password authentication uses bcrypt.
+  These exclusions apply to Linux/amd64 service builds only; other platforms or
+  new protocol/copy/authentication callers require reassessment.
