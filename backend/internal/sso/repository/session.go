@@ -26,7 +26,7 @@ func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, oper
 	if err != nil {
 		return sessionStorageError(ctx, "begin session transaction", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() { _ = tx.Rollback() }() // no-op after commit; on failure the earlier error is returned
 	var user model.User
 	err = tx.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(userScanDest(&user)...)
 	if err != nil {
