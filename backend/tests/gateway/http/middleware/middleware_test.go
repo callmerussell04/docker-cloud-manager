@@ -77,6 +77,84 @@ func TestRequirePermissionInjectsAdminScopeAndRejectsInvalidUserID(t *testing.T)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
 }
 
+func TestAuthMiddlewaresPlaceTypedScopeInRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	userID := uuid.New()
+	user := model.AuthUser{UserID: userID.String(), Username: "alice", Role: "admin"}
+
+	for _, tt := range authMiddlewareCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
+			tt.expectUser(verifier, user)
+
+			var scope accessscope.Scope
+			var hasScope bool
+			router := gin.New()
+			router.GET("/", tt.middleware(verifier), func(c *gin.Context) {
+				scope, hasScope = accessscope.FromContext(c.Request.Context())
+				c.Status(http.StatusNoContent)
+			})
+
+			resp := request(router, http.MethodGet, "/", "", map[string]string{"Authorization": "Bearer token"})
+
+			require.Equal(t, http.StatusNoContent, resp.Code)
+			require.True(t, hasScope)
+			require.Equal(t, accessscope.Scope{Kind: tt.kind, UserID: userID, Username: "alice", Role: "admin"}, scope)
+		})
+	}
+}
+
+func TestAuthMiddlewaresRejectInvalidUserIDWithUnauthorized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tt := range authMiddlewareCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
+			tt.expectUser(verifier, model.AuthUser{UserID: "not-a-uuid"})
+
+			router := gin.New()
+			router.GET("/", tt.middleware(verifier), func(c *gin.Context) {
+				t.Error("handler must not be called")
+			})
+
+			resp := request(router, http.MethodGet, "/", "", map[string]string{"Authorization": "Bearer token"})
+
+			require.Equal(t, http.StatusUnauthorized, resp.Code)
+		})
+	}
+}
+
+type authMiddlewareCase struct {
+	name       string
+	kind       accessscope.Kind
+	middleware func(middleware.TokenVerifier) gin.HandlerFunc
+	expectUser func(*gatewaymiddlewaremocks.MockTokenVerifier, model.AuthUser)
+}
+
+func authMiddlewareCases() []authMiddlewareCase {
+	const permission = "system.config.read"
+	return []authMiddlewareCase{
+		{
+			name:       "auth",
+			kind:       accessscope.KindUser,
+			middleware: middleware.Auth,
+			expectUser: func(verifier *gatewaymiddlewaremocks.MockTokenVerifier, user model.AuthUser) {
+				verifier.EXPECT().VerifyAccessToken(mock.Anything, "Bearer token").Return(user, nil)
+			},
+		},
+		{
+			name: "require permission",
+			kind: accessscope.KindAdmin,
+			middleware: func(verifier middleware.TokenVerifier) gin.HandlerFunc {
+				return middleware.RequirePermission(verifier, permission)
+			},
+			expectUser: func(verifier *gatewaymiddlewaremocks.MockTokenVerifier, user model.AuthUser) {
+				verifier.EXPECT().CheckPermission(mock.Anything, "Bearer token", permission).Return(user, nil)
+			},
+		},
+	}
+}
+
 func TestBodySizeLimitAppliesOnlyJSONMutatingRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	ssoapi "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
-	gatewayclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	gatewayservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
@@ -49,8 +49,8 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	conn, err := grpc.NewClient("passthrough:///sso", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }), grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("internal-secret")))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	client := gatewayclient.NewSSOClient(conn)
-	auth := handler.NewAuthHandler(gatewayservice.NewAuth(client), handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
+	ssoClient := client.NewSSOClient(conn)
+	auth := handler.NewAuthHandler(gatewayservice.NewAuth(ssoClient), handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/login", auth.Login)
@@ -98,14 +98,14 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	response := request("/refresh", firstRefresh, "")
 	require.Equal(t, http.StatusUnauthorized, response.Code)
 	require.Equal(t, -1, response.Result().Cookies()[0].MaxAge)
-	userClient := ssoapi.NewUserAPIClient(conn)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: nextAccess})
+	userClient := sso.NewUserAPIClient(conn)
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: nextAccess})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	require.Equal(t, http.StatusUnauthorized, request("/refresh", nextRefresh, "").Code)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: otherAccess})
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: otherAccess})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, request("/logout", otherRefresh, "").Code)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: otherAccess})
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: otherAccess})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	require.Equal(t, http.StatusOK, request("/logout", otherRefresh, "").Code)
 	require.Equal(t, http.StatusOK, request("/logout", "", "").Code)
@@ -127,12 +127,12 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, successes)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: racedAccess})
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: racedAccess})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	// Exact idle expiry must reject through the RPC boundary as well.
 	idleAccess, idleRefresh := login()
 	now = now.Add(7 * 24 * time.Hour)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: idleAccess})
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: idleAccess})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	require.Equal(t, http.StatusUnauthorized, request("/refresh", idleRefresh, "").Code)
 	// Dependency failures preserve the cookie and expose only a safe availability error.
@@ -144,6 +144,6 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	require.Empty(t, response.Result().Cookies())
 	require.NotContains(t, response.Body.String(), liveRefresh)
 	require.Equal(t, http.StatusServiceUnavailable, request("/login", "", `{"username":"alice","password":"secret123"}`).Code)
-	_, err = userClient.VerifyAccessToken(ctx, &ssoapi.VerifyTokenRequest{AccessToken: idleAccess})
+	_, err = userClient.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{AccessToken: idleAccess})
 	require.Equal(t, codes.Unavailable, status.Code(err))
 }

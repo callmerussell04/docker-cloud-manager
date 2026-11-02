@@ -89,7 +89,7 @@ type CapacityChecker interface {
 	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error
 }
 
-type ComposeDockerAPI interface {
+type DockerAPI interface {
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 }
 
@@ -256,7 +256,7 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 			reserved = false
 		}
 	}
-	limitedArchive := &composeMaxBytesReader{r: archive, remaining: cfg.ComposeUploadMaxBytes}
+	limitedArchive := &maxBytesReader{r: archive, remaining: cfg.ComposeUploadMaxBytes}
 	if err := o.objectStore.UploadStream(ctx, sourceObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
 		releaseReservation()
 		if errors.Is(err, apperrors.ErrBadRequest) {
@@ -695,12 +695,12 @@ func bytesToMBRoundedUp(bytes int64) int64 {
 	return (bytes + mb - 1) / mb
 }
 
-type composeMaxBytesReader struct {
+type maxBytesReader struct {
 	r         io.Reader
 	remaining int64
 }
 
-func (r *composeMaxBytesReader) Read(p []byte) (int, error) {
+func (r *maxBytesReader) Read(p []byte) (int, error) {
 	if r.remaining <= 0 {
 		var one [1]byte
 		n, err := r.r.Read(one[:])
@@ -905,13 +905,13 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composeq
 		return nil
 	}
 
-	plan := composeDeploymentPlan{
+	plan := deploymentPlan{
 		ProjectName: project.Name,
 		SourceType:  job.SourceType,
 		Services:    parsedProject.Services,
 		Volumes:     parsedProject.Volumes,
 	}
-	resources := composeDeploymentResources{}
+	resources := deploymentResources{}
 	ensureComposeResourceMaps(&resources)
 	stage := model.ComposeDeploymentStageCreating
 	projectStatus := model.ProjectStatusDeploying
@@ -988,7 +988,7 @@ func (o *Orchestrator) failDeploymentJob(ctx context.Context, job model.ComposeD
 
 // ensureComposeBuilds adopts persisted project builds before triggering missing
 // ones, so plan ingestion and stage resume never start a service build twice.
-func ensureComposeBuilds(ctx context.Context, buildRepo BuildRepository, builder BuilderClient, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+func ensureComposeBuilds(ctx context.Context, buildRepo BuildRepository, builder BuilderClient, job model.ComposeDeploymentJob, plan deploymentPlan, resources *deploymentResources) error {
 	ensureComposeResourceMaps(resources)
 	if buildRepo != nil {
 		builds, err := buildRepo.GetByProjectID(ctx, job.ProjectID)

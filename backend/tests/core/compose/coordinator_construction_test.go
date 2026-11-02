@@ -8,11 +8,11 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
-	compose "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/stretchr/testify/require"
 )
 
-func TestComposeDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
+func TestDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
 	for _, field := range []struct{ field, message string }{
 		{"Deployments", "deployments"},
 		{"Builds", "builds"},
@@ -38,7 +38,7 @@ func TestComposeDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
 				} else {
 					value.SetZero()
 				}
-				coordinator, err := compose.NewComposeDeploymentCoordinator(deps)
+				coordinator, err := compose.NewDeploymentCoordinator(deps)
 				require.ErrorContains(t, err, field.message+" is required")
 				require.Nil(t, coordinator)
 			})
@@ -46,11 +46,11 @@ func TestComposeDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
 	}
 }
 
-func TestComposeDeploymentCoordinatorAcceptsWithoutOptionalAudit(t *testing.T) {
+func TestDeploymentCoordinatorAcceptsWithoutOptionalAudit(t *testing.T) {
 	deps := newCoordinatorEnv(model.ComposeDeploymentJob{}).deps()
 	deps.Auditor = nil
 	deps.Users = nil
-	coordinator, err := compose.NewComposeDeploymentCoordinator(deps)
+	coordinator, err := compose.NewDeploymentCoordinator(deps)
 	require.NoError(t, err)
 	require.NotNil(t, coordinator)
 }
@@ -60,4 +60,4 @@ var _ compose.DeploymentStore = (*repository.ProjectRepository)(nil)
 var _ compose.ProjectRepository = (*repository.ProjectRepository)(nil)
 var _ compose.VolumeService = (*service.VolumeService)(nil)
 var _ compose.ContainerService = (*service.ContainerService)(nil)
-var _ compose.ComposeSourceReleaser = (*compose.Orchestrator)(nil)
+var _ compose.SourceReleaser = (*compose.Orchestrator)(nil)

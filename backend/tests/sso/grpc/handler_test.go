@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	ssoapi "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
@@ -33,37 +33,37 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/dashboard").Return("https://keycloak/auth", "binding", nil)
 	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)}, "/dashboard", nil)
 	conn := newSSOGRPCConn(t, auth, false)
-	client := ssoapi.NewAuthClient(conn)
+	client := sso.NewAuthClient(conn)
 
-	_, err := client.Register(context.Background(), &ssoapi.RegisterRequest{})
+	_, err := client.Register(context.Background(), &sso.RegisterRequest{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	registerResp, err := client.Register(context.Background(), &ssoapi.RegisterRequest{Username: "alice", Email: "alice@example.com", Password: "secret123"})
+	registerResp, err := client.Register(context.Background(), &sso.RegisterRequest{Username: "alice", Email: "alice@example.com", Password: "secret123"})
 	require.NoError(t, err)
 	require.Equal(t, userID.String(), registerResp.UserId)
 
-	loginResp, err := client.Login(context.Background(), &ssoapi.LoginRequest{Username: "alice", Password: "secret123"})
+	loginResp, err := client.Login(context.Background(), &sso.LoginRequest{Username: "alice", Password: "secret123"})
 	require.NoError(t, err)
 	require.Equal(t, "access", loginResp.AccessToken)
 	require.Equal(t, "refresh", loginResp.RefreshToken)
 
-	refreshResp, err := client.Refresh(context.Background(), &ssoapi.RefreshRequest{RefreshToken: "refresh"})
+	refreshResp, err := client.Refresh(context.Background(), &sso.RefreshRequest{RefreshToken: "refresh"})
 	require.NoError(t, err)
 	require.Equal(t, "access2", refreshResp.AccessToken)
 
-	cfgResp, err := client.GetAuthConfig(context.Background(), &ssoapi.GetAuthConfigRequest{})
+	cfgResp, err := client.GetAuthConfig(context.Background(), &sso.GetAuthConfigRequest{})
 	require.NoError(t, err)
 	require.True(t, cfgResp.LocalLoginEnabled)
 	require.False(t, cfgResp.LocalRegisterEnabled)
 	require.Len(t, cfgResp.OidcProviders, 1)
 	require.Equal(t, "keycloak", cfgResp.OidcProviders[0].Name)
 
-	startResp, err := client.StartOIDCLogin(context.Background(), &ssoapi.StartOIDCLoginRequest{Provider: "keycloak", RedirectAfter: "/dashboard"})
+	startResp, err := client.StartOIDCLogin(context.Background(), &sso.StartOIDCLoginRequest{Provider: "keycloak", RedirectAfter: "/dashboard"})
 	require.NoError(t, err)
 	require.Equal(t, "https://keycloak/auth", startResp.AuthUrl)
 	require.Equal(t, "binding", startResp.StateBinding)
 
-	callbackResp, err := client.CompleteOIDCCallback(context.Background(), &ssoapi.CompleteOIDCCallbackRequest{Provider: "keycloak", Code: "code", State: "state", StateBinding: "binding"})
+	callbackResp, err := client.CompleteOIDCCallback(context.Background(), &sso.CompleteOIDCCallbackRequest{Provider: "keycloak", Code: "code", State: "state", StateBinding: "binding"})
 	require.NoError(t, err)
 	require.Equal(t, "access3", callbackResp.AccessToken)
 	require.Equal(t, "/dashboard", callbackResp.RedirectAfter)
@@ -79,33 +79,33 @@ func TestSSOUserGRPCMapsReadAndPermissionRPCs(t *testing.T) {
 	auth.EXPECT().GetUser(mock.Anything, userID).Return(user, nil)
 	auth.EXPECT().GetUsers(mock.Anything, []uuid.UUID{userID, otherID}).Return([]model.User{user, {ID: otherID, Username: "bob", Email: "bob@example.com", Role: model.RoleUser, Status: model.StatusActive}}, nil)
 	conn := newSSOGRPCConn(t, auth, false)
-	authClient := ssoapi.NewAuthClient(conn)
-	userClient := ssoapi.NewUserAPIClient(conn)
+	authClient := sso.NewAuthClient(conn)
+	userClient := sso.NewUserAPIClient(conn)
 
-	_, err := userClient.VerifyAccessToken(context.Background(), &ssoapi.VerifyTokenRequest{})
+	_, err := userClient.VerifyAccessToken(context.Background(), &sso.VerifyTokenRequest{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	verifyResp, err := userClient.VerifyAccessToken(context.Background(), &ssoapi.VerifyTokenRequest{AccessToken: "access"})
+	verifyResp, err := userClient.VerifyAccessToken(context.Background(), &sso.VerifyTokenRequest{AccessToken: "access"})
 	require.NoError(t, err)
 	requireUserData(t, verifyResp, user)
 
-	permResp, err := userClient.CheckPermission(context.Background(), &ssoapi.CheckPermissionRequest{AccessToken: "access", Permission: "users.admin.list"})
+	permResp, err := userClient.CheckPermission(context.Background(), &sso.CheckPermissionRequest{AccessToken: "access", Permission: "users.admin.list"})
 	require.NoError(t, err)
 	require.True(t, permResp.Allowed)
 	requireUserData(t, permResp.User, user)
 
-	getResp, err := userClient.GetUser(context.Background(), &ssoapi.GetUserRequest{UserId: userID.String()})
+	getResp, err := userClient.GetUser(context.Background(), &sso.GetUserRequest{UserId: userID.String()})
 	require.NoError(t, err)
 	requireUserData(t, getResp, user)
 
-	_, err = userClient.GetUser(context.Background(), &ssoapi.GetUserRequest{UserId: "bad"})
+	_, err = userClient.GetUser(context.Background(), &sso.GetUserRequest{UserId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	batchResp, err := userClient.BatchGetUsers(context.Background(), &ssoapi.BatchGetUsersRequest{UserIds: []string{userID.String(), userID.String(), otherID.String()}})
+	batchResp, err := userClient.BatchGetUsers(context.Background(), &sso.BatchGetUsersRequest{UserIds: []string{userID.String(), userID.String(), otherID.String()}})
 	require.NoError(t, err)
 	require.Len(t, batchResp.Users, 2)
 
-	_, err = authClient.StartOIDCLogin(context.Background(), &ssoapi.StartOIDCLoginRequest{})
+	_, err = authClient.StartOIDCLogin(context.Background(), &sso.StartOIDCLoginRequest{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
@@ -123,35 +123,35 @@ func TestSSOUserGRPCAdminRoutes(t *testing.T) {
 	auth.EXPECT().DeactivateUser(mock.Anything, userID).Return(user, nil)
 	auth.EXPECT().ReactivateUser(mock.Anything, userID).Return(user, nil)
 	conn := newSSOGRPCConn(t, auth, true)
-	client := ssoapi.NewUserAPIClient(conn)
+	client := sso.NewUserAPIClient(conn)
 
-	listResp, err := client.ListUsers(context.Background(), &ssoapi.ListUsersRequest{Page: 2})
+	listResp, err := client.ListUsers(context.Background(), &sso.ListUsersRequest{Page: 2})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), listResp.TotalCount)
 	require.Len(t, listResp.Users, 1)
 
-	createResp, err := client.CreateUser(context.Background(), &ssoapi.CreateUserRequest{Username: "bob", Email: "bob@example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048})
+	createResp, err := client.CreateUser(context.Background(), &sso.CreateUserRequest{Username: "bob", Email: "bob@example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048})
 	require.NoError(t, err)
 	requireUserData(t, createResp, user)
 
-	updateResp, err := client.UpdateUser(context.Background(), &ssoapi.UpdateUserRequest{UserId: userID.String(), Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 2, QuotaRamMb: 4096, QuotaDiskMb: 8192})
+	updateResp, err := client.UpdateUser(context.Background(), &sso.UpdateUserRequest{UserId: userID.String(), Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 2, QuotaRamMb: 4096, QuotaDiskMb: 8192})
 	require.NoError(t, err)
 	requireUserData(t, updateResp, user)
 
-	_, err = client.DeactivateUser(context.Background(), &ssoapi.UserIDRequest{UserId: userID.String()})
+	_, err = client.DeactivateUser(context.Background(), &sso.UserIDRequest{UserId: userID.String()})
 	require.NoError(t, err)
-	_, err = client.ReactivateUser(context.Background(), &ssoapi.UserIDRequest{UserId: userID.String()})
+	_, err = client.ReactivateUser(context.Background(), &sso.UserIDRequest{UserId: userID.String()})
 	require.NoError(t, err)
 
-	_, err = client.UpdateUser(context.Background(), &ssoapi.UpdateUserRequest{UserId: "bad"})
+	_, err = client.UpdateUser(context.Background(), &sso.UpdateUserRequest{UserId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
 func TestSSOUserGRPCRejectsAdminRoutesWithoutAdminScope(t *testing.T) {
 	conn := newSSOGRPCConn(t, ssogrpcmocks.NewMockAuthService(t), false)
-	client := ssoapi.NewUserAPIClient(conn)
+	client := sso.NewUserAPIClient(conn)
 
-	_, err := client.ListUsers(context.Background(), &ssoapi.ListUsersRequest{})
+	_, err := client.ListUsers(context.Background(), &sso.ListUsersRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 }
 
@@ -182,7 +182,7 @@ func newSSOGRPCConn(t *testing.T, auth ssogrpc.AuthService, injectAdmin bool) *g
 	return conn
 }
 
-func requireUserData(t *testing.T, got *ssoapi.UserData, want model.User) {
+func requireUserData(t *testing.T, got *sso.UserData, want model.User) {
 	t.Helper()
 	require.Equal(t, want.ID.String(), got.UserId)
 	require.Equal(t, want.Username, got.Username)

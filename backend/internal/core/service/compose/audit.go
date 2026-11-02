@@ -15,7 +15,7 @@ type AuditRecorder interface {
 	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
 }
 
-func (c *ComposeDeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ownerID, projectID uuid.UUID, projectName, sourceType string, srv model.ComposeService, containerID uuid.UUID, containerName string) {
+func (c *DeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ownerID, projectID uuid.UUID, projectName, sourceType string, srv model.ComposeService, containerID uuid.UUID, containerName string) {
 	if c.auditor == nil || srv.DomainPrefix == "" || srv.InternalPort <= 0 {
 		return
 	}

@@ -9,7 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
-	grpcclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	gatewaymodel "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
@@ -18,7 +18,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
-	gatewaymocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/gateway/http/middleware"
+	gatewaymiddlewaremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -32,8 +32,8 @@ func TestGatewayReportsAndAuditReachCoreWithAuthenticatedScope(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
 	svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
 	conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc}, grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("reports-token")))
-	coreHandler := handler.NewCoreHandler(gatewayservice.NewCore(grpcclient.NewCoreClient(conn)))
-	verifier := gatewaymocks.NewMockTokenVerifier(t)
+	coreHandler := handler.NewCoreHandler(gatewayservice.NewCore(client.NewCoreClient(conn)))
+	verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
 	actorID := uuid.New()
 	admin := gatewaymodel.AuthUser{UserID: actorID.String(), Username: "admin", Role: "admin"}
 	verifier.EXPECT().CheckPermission(mock.Anything, "Bearer admin", permissions.ReportsAdminRead).Return(admin, nil).Times(5)

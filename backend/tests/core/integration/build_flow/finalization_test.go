@@ -24,7 +24,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
-	buildermocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/builder/service"
+	builderservicemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/builder/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -84,13 +84,13 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			require.NoError(t, err)
 			logs, err := storage.NewLogManager(filepath.Join(dir, "logs"))
 			require.NoError(t, err)
-			docker := buildermocks.NewDockerAPI(t)
+			docker := builderservicemocks.NewDockerAPI(t)
 			docker.EXPECT().RunBuildContainer(mock.Anything, mock.Anything).Return("kaniko", io.NopCloser(bytes.NewBufferString("built\n")), nil).Once()
 			docker.EXPECT().WaitForBuild(mock.Anything, "kaniko").Return(nil).Once()
 			docker.EXPECT().CleanBuildContainer(mock.Anything, "kaniko").Return(nil).Once()
-			network := buildermocks.NewBuildNetworkAdmission(t)
+			network := builderservicemocks.NewBuildNetworkAdmission(t)
 			network.EXPECT().ValidateBuildNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
-			core := buildermocks.NewCoreClient(t)
+			core := builderservicemocks.NewCoreClient(t)
 			core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).RunAndReturn(func(ctx context.Context, _ string) (buildermodel.BuildClaim, bool, buildermodel.BuildStatus, error) {
 				b, started, err := builds.StartBuildRecord(ctx, created.BuildID)
 				return buildermodel.BuildClaim{ImageID: b.ImageID.String(), RegistryUsername: "scoped", RegistryPassword: "secret", Destination: "registry:5000/build:latest"}, started, buildermodel.BuildStatus(b.Status), err

@@ -3,7 +3,7 @@ package grpc
 import (
 	"context"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/dto"
 	"google.golang.org/grpc/codes"

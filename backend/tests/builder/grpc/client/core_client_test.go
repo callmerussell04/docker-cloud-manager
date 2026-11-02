@@ -7,7 +7,7 @@ import (
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
-	grpcclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -28,10 +28,10 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 		coreapi.RegisterImageAPIServer(server, images)
 		coreapi.RegisterSystemAPIServer(server, system)
 	})
-	client := grpcclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 	userCtx := accessscope.WithUserScope(context.Background(), uuid.New(), "alice", "user")
 
-	cfg, err := client.GetBuilderConfig(userCtx)
+	cfg, err := coreClient.GetBuilderConfig(userCtx)
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, system.lastScope.Kind)
 	require.Equal(t, int64(1024), cfg.BuildMemoryBytes)
@@ -47,7 +47,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.Equal(t, int64(800), cfg.MaxBuildLogSizeBytes)
 	require.Equal(t, 4*time.Second, cfg.BuildCancelPollInterval)
 
-	imageID, started, buildStatus, err := client.StartBuildRecord(userCtx, "build-id")
+	imageID, started, buildStatus, err := coreClient.StartBuildRecord(userCtx, "build-id")
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, images.startScope.Kind)
 	require.Equal(t, "build-id", images.startedBuildID)
@@ -55,7 +55,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.True(t, started)
 	require.Equal(t, model.BuildStatus("running"), buildStatus)
 
-	err = client.CompleteBuildRecord(userCtx, "build-id", "image-id", "success", 42)
+	err = coreClient.CompleteBuildRecord(userCtx, "build-id", "image-id", "success", 42)
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, images.completeScope.Kind)
 	require.Equal(t, "build-id", images.completed.BuildId)
@@ -63,7 +63,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.Equal(t, "success", images.completed.Status)
 	require.Equal(t, int32(42), images.completed.SizeMb)
 
-	gotStatus, err := client.GetBuildStatus(userCtx, "build-id")
+	gotStatus, err := coreClient.GetBuildStatus(userCtx, "build-id")
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, images.statusScope.Kind)
 	require.Equal(t, model.BuildStatus("canceled"), gotStatus)
@@ -75,12 +75,12 @@ func TestCoreClientMapsGRPCErrors(t *testing.T) {
 		coreapi.RegisterImageAPIServer(server, &imageServer{startErr: status.Error(codes.Unavailable, apperrors.ErrUnavailable.Error())})
 		coreapi.RegisterSystemAPIServer(server, &systemServer{err: status.Error(codes.InvalidArgument, apperrors.ErrBadRequest.Error())})
 	})
-	client := grpcclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 	userCtx := accessscope.WithUserScope(context.Background(), uuid.New(), "alice", "user")
 
-	_, err := client.GetBuilderConfig(userCtx)
+	_, err := coreClient.GetBuilderConfig(userCtx)
 	require.ErrorIs(t, err, apperrors.ErrBadRequest)
-	_, _, _, err = client.StartBuildRecord(userCtx, "build-id")
+	_, _, _, err = coreClient.StartBuildRecord(userCtx, "build-id")
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 }
 

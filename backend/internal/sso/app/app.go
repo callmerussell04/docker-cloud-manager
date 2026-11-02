@@ -15,9 +15,9 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"google.golang.org/grpc"
 
-	authgrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/oidc"
+	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/oidc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 )
@@ -114,7 +114,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logging.UnaryServerInterceptor(logger),
 		internalauth.UnaryServerInterceptor(cfg.InternalToken),
 	))
-	authgrpc.Register(gRPCServer, authService)
+	ssogrpc.Register(gRPCServer, authService)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	application := &App{

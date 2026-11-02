@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	ssooidc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/oidc"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/oidc"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )
@@ -72,7 +72,7 @@ func TestProviderDiscoveryValidation(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := ssooidc.NewProvider(context.Background(), ssooidc.Config{
+	_, err := oidc.NewProvider(context.Background(), oidc.Config{
 		IssuerURL:    server.URL,
 		ClientID:     "dcm-client",
 		ClientSecret: "secret",
@@ -80,7 +80,7 @@ func TestProviderDiscoveryValidation(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	_, err = ssooidc.NewProvider(context.Background(), ssooidc.Config{})
+	_, err = oidc.NewProvider(context.Background(), oidc.Config{})
 	require.Error(t, err)
 }
 
@@ -95,9 +95,9 @@ type oidcServerConfig struct {
 	jwksKID             string
 }
 
-func newProvider(t *testing.T, issuerURL string) *ssooidc.Provider {
+func newProvider(t *testing.T, issuerURL string) *oidc.Provider {
 	t.Helper()
-	provider, err := ssooidc.NewProvider(context.Background(), ssooidc.Config{
+	provider, err := oidc.NewProvider(context.Background(), oidc.Config{
 		IssuerURL:    issuerURL,
 		ClientID:     "dcm-client",
 		ClientSecret: "secret",

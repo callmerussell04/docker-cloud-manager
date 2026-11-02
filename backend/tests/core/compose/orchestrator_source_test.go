@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	compose "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service/compose"
 	"github.com/stretchr/testify/mock"

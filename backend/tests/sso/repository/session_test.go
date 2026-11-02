@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"

@@ -26,39 +26,39 @@ type DeploymentStore interface {
 	SaveServiceGraph(ctx context.Context, projectID uuid.UUID, services []model.ProjectServiceNode) error
 }
 
-// ComposeSourceReleaser deletes a staged Compose source object and releases its
+// SourceReleaser deletes a staged Compose source object and releases its
 // staged reservation. Source ingestion owns both.
-type ComposeSourceReleaser interface {
+type SourceReleaser interface {
 	ReleaseComposeSource(ctx context.Context, objectKey string)
 }
 
-// ComposeDeploymentCoordinatorDeps contains the capabilities needed to execute
+// DeploymentCoordinatorDeps contains the capabilities needed to execute
 // and recover persisted Compose deployments. Auditor and Users are optional:
 // expose audit is best effort.
-type ComposeDeploymentCoordinatorDeps struct {
+type DeploymentCoordinatorDeps struct {
 	Deployments       DeploymentStore
 	Builds            BuildRepository
 	Builder           BuilderClient
 	Containers        ContainerService
 	ProjectContainers ProjectContainerRepository
 	Volumes           VolumeService
-	Docker            ComposeDockerAPI
+	Docker            DockerAPI
 	Images            ImageCleaner
-	Sources           ComposeSourceReleaser
+	Sources           SourceReleaser
 	Config            ConfigProvider
 	Auditor           AuditRecorder
 	Users             UserInfoProvider
 	Logger            *slog.Logger
 }
 
-type composeDeploymentPlan struct {
+type deploymentPlan struct {
 	ProjectName string                 `json:"project_name"`
 	SourceType  string                 `json:"source_type"`
 	Services    []model.ComposeService `json:"services"`
 	Volumes     []model.ComposeVolume  `json:"volumes"`
 }
 
-type composeDeploymentResources struct {
+type deploymentResources struct {
 	BuildIDs             map[string]uuid.UUID `json:"build_ids,omitempty"`
 	VolumeIDs            map[string]uuid.UUID `json:"volume_ids,omitempty"`
 	ManagedVolumeAliases map[string]bool      `json:"managed_volume_aliases,omitempty"`
@@ -69,23 +69,23 @@ type composeDeploymentResources struct {
 	CleanupError         string               `json:"cleanup_error,omitempty"`
 }
 
-type ComposeDeploymentCoordinator struct {
+type DeploymentCoordinator struct {
 	store             DeploymentStore
 	builds            BuildRepository
 	builder           BuilderClient
 	containers        ContainerService
 	projectContainers ProjectContainerRepository
 	volumes           VolumeService
-	docker            ComposeDockerAPI
+	docker            DockerAPI
 	images            ImageCleaner
-	sources           ComposeSourceReleaser
+	sources           SourceReleaser
 	cfg               ConfigProvider
 	auditor           AuditRecorder
 	users             UserInfoProvider
 	logger            *slog.Logger
 }
 
-func NewComposeDeploymentCoordinator(deps ComposeDeploymentCoordinatorDeps) (*ComposeDeploymentCoordinator, error) {
+func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordinator, error) {
 	required := []struct {
 		name  string
 		value any
@@ -101,7 +101,7 @@ func NewComposeDeploymentCoordinator(deps ComposeDeploymentCoordinatorDeps) (*Co
 			return nil, fmt.Errorf("compose deployment coordinator: %s is required", dependency.name)
 		}
 	}
-	coordinator := &ComposeDeploymentCoordinator{
+	coordinator := &DeploymentCoordinator{
 		store:             deps.Deployments,
 		builds:            deps.Builds,
 		builder:           deps.Builder,
@@ -123,7 +123,7 @@ func NewComposeDeploymentCoordinator(deps ComposeDeploymentCoordinatorDeps) (*Co
 	return coordinator, nil
 }
 
-func (c *ComposeDeploymentCoordinator) Run(ctx context.Context) {
+func (c *DeploymentCoordinator) Run(ctx context.Context) {
 	c.logger.InfoContext(ctx, "compose deployment coordinator started")
 	ticker := time.NewTicker(c.interval())
 	defer ticker.Stop()
@@ -141,14 +141,14 @@ func (c *ComposeDeploymentCoordinator) Run(ctx context.Context) {
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) interval() time.Duration {
+func (c *DeploymentCoordinator) interval() time.Duration {
 	if configured := time.Duration(c.cfg.Get().ComposeCoordinatorIntervalSeconds) * time.Second; configured > 0 {
 		return configured
 	}
 	return 2 * time.Second
 }
 
-func (c *ComposeDeploymentCoordinator) tick(ctx context.Context) {
+func (c *DeploymentCoordinator) tick(ctx context.Context) {
 	jobs, err := c.store.ListActiveComposeDeploymentJobs(ctx, 50)
 	if err != nil {
 		c.logger.WarnContext(ctx, "failed to list active compose deployment jobs", "error", err)
@@ -161,11 +161,11 @@ func (c *ComposeDeploymentCoordinator) tick(ctx context.Context) {
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) advanceJob(ctx context.Context, job model.ComposeDeploymentJob) error {
+func (c *DeploymentCoordinator) advanceJob(ctx context.Context, job model.ComposeDeploymentJob) error {
 	runCtx := c.jobContext(ctx, job)
 	plan, resources, err := decodeComposeDeploymentState(job)
 	if err != nil {
-		return c.failJob(runCtx, job, composeDeploymentPlan{}, composeDeploymentResources{}, err)
+		return c.failJob(runCtx, job, deploymentPlan{}, deploymentResources{}, err)
 	}
 	if job.CancelRequested || job.Status == model.ComposeDeploymentStatusCanceling {
 		return c.cancelJob(runCtx, job, plan, resources)
@@ -185,7 +185,7 @@ func (c *ComposeDeploymentCoordinator) advanceJob(ctx context.Context, job model
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) advanceBuilding(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) advanceBuilding(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if err := ensureComposeBuilds(ctx, c.builds, c.builder, job, plan, &resources); err != nil {
 		return c.failJob(ctx, job, plan, resources, err)
 	}
@@ -216,7 +216,7 @@ func (c *ComposeDeploymentCoordinator) advanceBuilding(ctx context.Context, job 
 	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageCreating, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) advanceCreating(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if resources.VolumeIDs == nil {
 		resources.VolumeIDs = make(map[string]uuid.UUID)
 	}
@@ -306,7 +306,7 @@ func (c *ComposeDeploymentCoordinator) advanceCreating(ctx context.Context, job 
 	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) advanceStarting(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if err := c.saveServiceGraph(ctx, job, plan, &resources); err != nil {
 		return c.failJob(ctx, job, plan, resources, err)
 	}
@@ -367,7 +367,7 @@ func (c *ComposeDeploymentCoordinator) advanceStarting(ctx context.Context, job 
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) dependenciesReady(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (bool, error) {
+func (c *DeploymentCoordinator) dependenciesReady(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (bool, error) {
 	for _, dep := range srv.DependsOn {
 		depContainerID, ok := serviceToContainerID[dep.ServiceName]
 		if !ok {
@@ -444,7 +444,7 @@ func containerStatusBlocksComposeStart(status string) bool {
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) containersCreated(ctx context.Context, serviceToContainerID map[string]uuid.UUID) (bool, error) {
+func (c *DeploymentCoordinator) containersCreated(ctx context.Context, serviceToContainerID map[string]uuid.UUID) (bool, error) {
 	allCreated := true
 	for serviceName, containerID := range serviceToContainerID {
 		container, err := c.containers.GetByID(ctx, containerID)
@@ -465,7 +465,7 @@ func (c *ComposeDeploymentCoordinator) containersCreated(ctx context.Context, se
 	return allCreated, nil
 }
 
-func (c *ComposeDeploymentCoordinator) saveServiceGraph(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+func (c *DeploymentCoordinator) saveServiceGraph(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources *deploymentResources) error {
 	if resources.ServiceGraphSaved {
 		return nil
 	}
@@ -480,7 +480,7 @@ func (c *ComposeDeploymentCoordinator) saveServiceGraph(ctx context.Context, job
 	return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, *resources)
 }
 
-func (c *ComposeDeploymentCoordinator) populateExistingContainers(ctx context.Context, projectID uuid.UUID, plan composeDeploymentPlan, resources *composeDeploymentResources) error {
+func (c *DeploymentCoordinator) populateExistingContainers(ctx context.Context, projectID uuid.UUID, plan deploymentPlan, resources *deploymentResources) error {
 	containers, err := c.projectContainers.GetByProjectID(ctx, projectID)
 	if err != nil {
 		return err
@@ -498,7 +498,7 @@ func (c *ComposeDeploymentCoordinator) populateExistingContainers(ctx context.Co
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) containerCreateParams(projectID uuid.UUID, projectName string, srv model.ComposeService, volumeNameMap map[string]uuid.UUID) model.ContainerCreateParams {
+func (c *DeploymentCoordinator) containerCreateParams(projectID uuid.UUID, projectName string, srv model.ComposeService, volumeNameMap map[string]uuid.UUID) model.ContainerCreateParams {
 	var resolvedMounts []model.VolumeMountParams
 	for _, mount := range srv.VolumeMounts {
 		if volumeID, ok := volumeNameMap[mount.VolumeName]; ok {
@@ -525,7 +525,7 @@ func (c *ComposeDeploymentCoordinator) containerCreateParams(projectID uuid.UUID
 	}
 }
 
-func (c *ComposeDeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources, cause error) error {
+func (c *DeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources, cause error) error {
 	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	errMsg := apperrors.SafeMessage(cause)
 	resources.CleanupStatus = model.ComposeDeploymentStatusFailed
@@ -540,7 +540,7 @@ func (c *ComposeDeploymentCoordinator) failJob(ctx context.Context, job model.Co
 	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) cancelJob(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) cancelJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	resources.CleanupStatus = model.ComposeDeploymentStatusCanceled
 	resources.CleanupError = "compose deployment canceled"
 	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)
@@ -550,11 +550,11 @@ func (c *ComposeDeploymentCoordinator) cancelJob(ctx context.Context, job model.
 	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) advanceCleanup(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) advanceCleanup(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	return c.cleanupJob(ctx, job, plan, resources)
 }
 
-func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, job model.ComposeDeploymentJob, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) cleanupJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
 	if resources.CleanupStatus == "" {
 		resources.CleanupStatus = model.ComposeDeploymentStatusFailed
 	}
@@ -621,7 +621,7 @@ func (c *ComposeDeploymentCoordinator) cleanupJob(ctx context.Context, job model
 	return nil
 }
 
-func (c *ComposeDeploymentCoordinator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs []uuid.UUID, logger *slog.Logger) {
+func (c *DeploymentCoordinator) deleteSuccessfulBuildImages(ctx context.Context, buildIDs []uuid.UUID, logger *slog.Logger) {
 	for _, buildID := range buildIDs {
 		build, err := c.builds.GetByID(ctx, buildID)
 		if err != nil {
@@ -636,7 +636,7 @@ func (c *ComposeDeploymentCoordinator) deleteSuccessfulBuildImages(ctx context.C
 	}
 }
 
-func (r composeDeploymentResources) buildIDList() []uuid.UUID {
+func (r deploymentResources) buildIDList() []uuid.UUID {
 	buildIDs := make([]uuid.UUID, 0, len(r.BuildIDs))
 	for _, buildID := range r.BuildIDs {
 		buildIDs = append(buildIDs, buildID)
@@ -644,14 +644,14 @@ func (r composeDeploymentResources) buildIDList() []uuid.UUID {
 	return buildIDs
 }
 
-func (r composeDeploymentResources) volumeAliasCreated(alias string) bool {
+func (r deploymentResources) volumeAliasCreated(alias string) bool {
 	if len(r.ManagedVolumeAliases) == 0 {
 		return true
 	}
 	return r.ManagedVolumeAliases[alias]
 }
 
-func (c *ComposeDeploymentCoordinator) planVolumeManaged(plan composeDeploymentPlan, alias string) bool {
+func (c *DeploymentCoordinator) planVolumeManaged(plan deploymentPlan, alias string) bool {
 	for _, vol := range plan.Volumes {
 		if vol.Alias == alias {
 			return !vol.External
@@ -660,7 +660,7 @@ func (c *ComposeDeploymentCoordinator) planVolumeManaged(plan composeDeploymentP
 	return false
 }
 
-func (c *ComposeDeploymentCoordinator) saveProgress(ctx context.Context, job model.ComposeDeploymentJob, projectStatus string, stage string, plan composeDeploymentPlan, resources composeDeploymentResources) error {
+func (c *DeploymentCoordinator) saveProgress(ctx context.Context, job model.ComposeDeploymentJob, projectStatus string, stage string, plan deploymentPlan, resources deploymentResources) error {
 	planJSON, resourceJSON, err := encodeComposeDeploymentState(plan, resources)
 	if err != nil {
 		return err
@@ -668,14 +668,14 @@ func (c *ComposeDeploymentCoordinator) saveProgress(ctx context.Context, job mod
 	return c.store.UpdateComposeDeploymentProgress(ctx, job.ID, job.ProjectID, projectStatus, stage, planJSON, resourceJSON)
 }
 
-func (c *ComposeDeploymentCoordinator) jobContext(ctx context.Context, job model.ComposeDeploymentJob) context.Context {
+func (c *DeploymentCoordinator) jobContext(ctx context.Context, job model.ComposeDeploymentJob) context.Context {
 	ctx = logging.ContextWithRequestID(ctx, job.RequestID)
 	return accessscope.WithScope(ctx, accessscope.Scope{Kind: accessscope.KindUser, UserID: job.OwnerID})
 }
 
-func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (composeDeploymentPlan, composeDeploymentResources, error) {
-	var plan composeDeploymentPlan
-	var resources composeDeploymentResources
+func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (deploymentPlan, deploymentResources, error) {
+	var plan deploymentPlan
+	var resources deploymentResources
 	if len(job.PlanJSON) == 0 {
 		return plan, resources, apperrors.New(apperrors.ErrConflict, "compose deployment plan is missing")
 	}
@@ -691,7 +691,7 @@ func decodeComposeDeploymentState(job model.ComposeDeploymentJob) (composeDeploy
 	return plan, resources, nil
 }
 
-func encodeComposeDeploymentState(plan composeDeploymentPlan, resources composeDeploymentResources) ([]byte, []byte, error) {
+func encodeComposeDeploymentState(plan deploymentPlan, resources deploymentResources) ([]byte, []byte, error) {
 	ensureComposeResourceMaps(&resources)
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
@@ -704,7 +704,7 @@ func encodeComposeDeploymentState(plan composeDeploymentPlan, resources composeD
 	return planJSON, resourceJSON, nil
 }
 
-func ensureComposeResourceMaps(resources *composeDeploymentResources) {
+func ensureComposeResourceMaps(resources *deploymentResources) {
 	if resources.BuildIDs == nil {
 		resources.BuildIDs = make(map[string]uuid.UUID)
 	}

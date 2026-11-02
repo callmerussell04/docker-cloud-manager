@@ -10,7 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	compose "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
@@ -47,8 +47,8 @@ func newCoordinatorEnv(job model.ComposeDeploymentJob) *coordinatorEnv {
 	}
 }
 
-func (e *coordinatorEnv) deps() compose.ComposeDeploymentCoordinatorDeps {
-	return compose.ComposeDeploymentCoordinatorDeps{
+func (e *coordinatorEnv) deps() compose.DeploymentCoordinatorDeps {
+	return compose.DeploymentCoordinatorDeps{
 		Deployments:       e.repo,
 		Builds:            e.builds,
 		Builder:           e.builds,
@@ -68,7 +68,7 @@ func (e *coordinatorEnv) runOnce(t *testing.T) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	e.repo.cancel = cancel
-	coordinator, err := compose.NewComposeDeploymentCoordinator(e.deps())
+	coordinator, err := compose.NewDeploymentCoordinator(e.deps())
 	require.NoError(t, err)
 	done := make(chan struct{})
 	go func() {

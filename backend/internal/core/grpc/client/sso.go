@@ -1,9 +1,9 @@
-package grpcclient
+package client
 
 import (
 	"context"
 
-	ssoapi "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
@@ -12,15 +12,15 @@ import (
 )
 
 type SSOClient struct {
-	userAPI ssoapi.UserAPIClient
+	userAPI sso.UserAPIClient
 }
 
 func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
-	return &SSOClient{userAPI: ssoapi.NewUserAPIClient(cc)}
+	return &SSOClient{userAPI: sso.NewUserAPIClient(cc)}
 }
 
 func (c *SSOClient) GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error) {
-	resp, err := c.userAPI.GetUser(ctx, &ssoapi.GetUserRequest{UserId: userID.String()})
+	resp, err := c.userAPI.GetUser(ctx, &sso.GetUserRequest{UserId: userID.String()})
 	if err != nil {
 		return model.UserInfo{}, grpcerrors.FromGRPC(err)
 	}
@@ -33,7 +33,7 @@ func (c *SSOClient) GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 		rawIDs = append(rawIDs, id.String())
 	}
 
-	resp, err := c.userAPI.BatchGetUsers(ctx, &ssoapi.BatchGetUsersRequest{UserIds: rawIDs})
+	resp, err := c.userAPI.BatchGetUsers(ctx, &sso.BatchGetUsersRequest{UserIds: rawIDs})
 	if err != nil {
 		return nil, grpcerrors.FromGRPC(err)
 	}
@@ -49,7 +49,7 @@ func (c *SSOClient) GetUsers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 	return users, nil
 }
 
-func userFromProto(pbUser *ssoapi.UserData) (model.UserInfo, error) {
+func userFromProto(pbUser *sso.UserData) (model.UserInfo, error) {
 	userID, err := uuid.Parse(pbUser.GetUserId())
 	if err != nil {
 		return model.UserInfo{}, apperrors.ErrInternal

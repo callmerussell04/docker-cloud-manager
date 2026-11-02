@@ -3,12 +3,12 @@ package middleware
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/authscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type TokenVerifier interface {
@@ -52,10 +52,11 @@ func RequirePermission(verifier TokenVerifier, permission string) gin.HandlerFun
 }
 
 func setAuthUser(c *gin.Context, user model.AuthUser, kind accessscope.Kind) bool {
-	scope, err := authscope.FromAuthUser(user, kind)
+	userID, err := uuid.Parse(user.UserID)
 	if err != nil {
 		return false
 	}
+	scope := accessscope.Scope{Kind: kind, UserID: userID, Username: user.Username, Role: user.Role}
 	c.Set("user_id", user.UserID)
 	c.Set("username", user.Username)
 	c.Set("role", user.Role)

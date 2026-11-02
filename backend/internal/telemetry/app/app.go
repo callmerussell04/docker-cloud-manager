@@ -12,7 +12,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
-	telemetrygrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/grpc/client"
 	telemetryhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service"
@@ -66,7 +66,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}
 
-	coreClient := telemetrygrpc.NewCoreClient(coreConn)
+	coreClient := client.NewCoreClient(coreConn)
 	telemetryService := service.NewTelemetry(coreClient, dockerAdapter, cfg.MaxLogStreams, cfg.MaxTerminals, logger)
 	handler := telemetryhttp.NewHandler(telemetryService, logger)
 	router := telemetryhttp.NewRouter(handler, cfg.InternalToken, logger)

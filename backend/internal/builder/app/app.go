@@ -55,7 +55,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("core conn fail: %w", err)
 	}
 
-	coreClient := grpcclient.NewCoreClient(coreConn)
+	coreClient := client.NewCoreClient(coreConn)
 	runtimeConfig := config.NewRuntimeManager(cfg.Builder, coreClient, logging.WithComponent(logger, "builder_config"))
 
 	fileManager, err := storage.NewFileManager(cfg.StoragePath)

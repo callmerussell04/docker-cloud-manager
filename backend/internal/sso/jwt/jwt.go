@@ -4,7 +4,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/jwtutils"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -17,7 +16,7 @@ func NewProvider(secretKey string) *Provider {
 }
 
 func (p *Provider) GenerateAccessToken(user model.User, sessionID uuid.UUID, expiresAt time.Time) (string, error) {
-	claims := jwtutils.UserClaims{
+	claims := UserClaims{
 		UserID: user.ID, SessionID: sessionID, Username: user.Username, Role: user.Role, TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{ID: uuid.NewString(), ExpiresAt: jwt.NewNumericDate(expiresAt)},
 	}
@@ -25,7 +24,7 @@ func (p *Provider) GenerateAccessToken(user model.User, sessionID uuid.UUID, exp
 }
 
 func (p *Provider) ValidateAccessToken(value string) (model.AccessIdentity, error) {
-	claims := &jwtutils.UserClaims{}
+	claims := &UserClaims{}
 	token, err := jwt.ParseWithClaims(value, claims, func(_ *jwt.Token) (any, error) {
 		return p.secretKey, nil
 	}, jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())

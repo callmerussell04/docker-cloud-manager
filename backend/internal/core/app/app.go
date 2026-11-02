@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc"
-	grpcclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc/client"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/metrics"
@@ -100,7 +100,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
 	}
-	ssoClient := grpcclient.NewSSOClient(ssoConn)
+	ssoClient := client.NewSSOClient(ssoConn)
 	registry, err := newRegistryComponents(cfg.Registry, repository.NewRegistryGrantRepository(db, lockDB), ssoClient, cfg.ConfigManager, logger)
 	if err != nil {
 		return nil, err
@@ -267,7 +267,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
-	composeCoordinator, err := compose.NewComposeDeploymentCoordinator(compose.ComposeDeploymentCoordinatorDeps{
+	composeCoordinator, err := compose.NewDeploymentCoordinator(compose.DeploymentCoordinatorDeps{
 		Deployments:       projRepo,
 		Builds:            buildRepo,
 		Builder:           compose.NewLocalBuilderClient(objectStore, buildService),

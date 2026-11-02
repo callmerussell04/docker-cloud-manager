@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
-	httprouter "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
+	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
@@ -50,7 +50,7 @@ type Config struct {
 	InternalToken       string
 
 	HTTP      HTTPServerConfig
-	Router    httprouter.Config
+	Router    gatewayhttp.Config
 	Cookie    handler.CookieConfig
 	Proxy     ProxyConfig
 	GRPC      GRPCConfig
@@ -111,7 +111,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	cfg.Router.AuthRedirect.CookieAllowedOrigins = cfg.Router.CORSAllowedOrigins
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
-	router, err := httprouter.NewRouter(cfg.Router, httprouter.RouterDeps{
+	router, err := gatewayhttp.NewRouter(cfg.Router, gatewayhttp.RouterDeps{
 		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie, cfg.Router.AuthRedirect),
 		CoreHandler:                 handler.NewCoreHandler(useCases.core),
 		UserHandler:                 handler.NewUserManagementHandler(useCases.users),
@@ -153,8 +153,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 type gatewayClients struct {
 	ssoConn    *grpc.ClientConn
 	coreConn   *grpc.ClientConn
-	ssoClient  *grpcclient.SSOClient
-	coreClient *grpcclient.CoreClient
+	ssoClient  *client.SSOClient
+	coreClient *client.CoreClient
 }
 
 func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
@@ -177,8 +177,8 @@ func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
 	return gatewayClients{
 		ssoConn:    ssoConn,
 		coreConn:   coreConn,
-		ssoClient:  grpcclient.NewSSOClient(ssoConn),
-		coreClient: grpcclient.NewCoreClient(coreConn),
+		ssoClient:  client.NewSSOClient(ssoConn),
+		coreClient: client.NewCoreClient(coreConn),
 	}, nil
 }
 

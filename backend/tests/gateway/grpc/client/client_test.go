@@ -7,8 +7,8 @@ import (
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
-	ssoapi "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
-	grpcclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/stretchr/testify/require"
@@ -22,46 +22,46 @@ import (
 func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	servers := &ssoServers{auth: &ssoAuthServer{}, users: &ssoUserServer{}}
 	conn := newGRPCConn(t, func(server *grpc.Server) {
-		ssoapi.RegisterAuthServer(server, servers.auth)
-		ssoapi.RegisterUserAPIServer(server, servers.users)
+		sso.RegisterAuthServer(server, servers.auth)
+		sso.RegisterUserAPIServer(server, servers.users)
 	})
-	client := grpcclient.NewSSOClient(conn)
+	ssoClient := client.NewSSOClient(conn)
 
-	userID, err := client.Register(context.Background(), "alice", "alice@example.com", "secret")
+	userID, err := ssoClient.Register(context.Background(), "alice", "alice@example.com", "secret")
 	require.NoError(t, err)
 	require.Equal(t, "user-id", userID)
 	require.Equal(t, "alice@example.com", servers.auth.registerEmail)
 
-	tokens, err := client.Login(context.Background(), "alice", "secret")
+	tokens, err := ssoClient.Login(context.Background(), "alice", "secret")
 	require.NoError(t, err)
 	require.Equal(t, model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(0, 0)}, tokens)
 
-	config, err := client.GetAuthConfig(context.Background())
+	config, err := ssoClient.GetAuthConfig(context.Background())
 	require.NoError(t, err)
 	require.True(t, config.LocalLoginEnabled)
 	require.Equal(t, []model.OIDCProvider{{Name: "keycloak"}}, config.OIDCProviders)
 
-	start, err := client.StartOIDCLogin(context.Background(), "keycloak", "http://frontend/auth/callback")
+	start, err := ssoClient.StartOIDCLogin(context.Background(), "keycloak", "http://frontend/auth/callback")
 	require.NoError(t, err)
 	require.Equal(t, "https://idp/auth", start.AuthURL)
 	require.Equal(t, "binding", start.StateBinding)
 
-	callback, err := client.CompleteOIDCCallback(context.Background(), "keycloak", "code", "state", "binding")
+	callback, err := ssoClient.CompleteOIDCCallback(context.Background(), "keycloak", "code", "state", "binding")
 	require.NoError(t, err)
 	require.Equal(t, "http://frontend/auth/callback", callback.RedirectAfter)
 	require.Equal(t, "oidc-access", callback.Tokens.AccessToken)
 
-	user, err := client.VerifyAccessToken(context.Background(), "Bearer access")
+	user, err := ssoClient.VerifyAccessToken(context.Background(), "Bearer access")
 	require.NoError(t, err)
 	require.Equal(t, model.AuthUser{UserID: "user-id", Username: "alice", Role: "user"}, user)
 	require.Equal(t, "access", servers.users.verifiedToken)
 
-	admin, err := client.CreateUser(context.Background(), model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "admin", Status: "active", QuotaCPU: 2, QuotaRAMMB: 1024, QuotaDiskMB: 2048})
+	admin, err := ssoClient.CreateUser(context.Background(), model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "admin", Status: "active", QuotaCPU: 2, QuotaRAMMB: 1024, QuotaDiskMB: 2048})
 	require.NoError(t, err)
 	require.Equal(t, "bob", admin.Username)
 	require.Equal(t, float64(2), servers.users.createdQuotaCPU)
 
-	list, err := client.ListUsers(context.Background(), 2, 10)
+	list, err := ssoClient.ListUsers(context.Background(), 2, 10)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), list.TotalCount)
 	require.Equal(t, "alice", list.Users[0].Username)
@@ -70,26 +70,26 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 func TestSSOClientAuthHeaderPermissionAndGRPCErrorMapping(t *testing.T) {
 	servers := &ssoServers{auth: &ssoAuthServer{}, users: &ssoUserServer{}}
 	conn := newGRPCConn(t, func(server *grpc.Server) {
-		ssoapi.RegisterAuthServer(server, servers.auth)
-		ssoapi.RegisterUserAPIServer(server, servers.users)
+		sso.RegisterAuthServer(server, servers.auth)
+		sso.RegisterUserAPIServer(server, servers.users)
 	})
-	client := grpcclient.NewSSOClient(conn)
+	ssoClient := client.NewSSOClient(conn)
 
-	_, err := client.VerifyAccessToken(context.Background(), "Token access")
+	_, err := ssoClient.VerifyAccessToken(context.Background(), "Token access")
 	require.ErrorIs(t, err, apperrors.ErrUnauthorized)
 
 	servers.users.allowPermission = true
-	user, err := client.CheckPermission(context.Background(), "Bearer access", "system.config.read")
+	user, err := ssoClient.CheckPermission(context.Background(), "Bearer access", "system.config.read")
 	require.NoError(t, err)
 	require.Equal(t, "admin", user.Role)
 	require.Equal(t, "system.config.read", servers.users.permission)
 
 	servers.users.allowPermission = false
-	_, err = client.CheckPermission(context.Background(), "Bearer access", "system.config.read")
+	_, err = ssoClient.CheckPermission(context.Background(), "Bearer access", "system.config.read")
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
 
 	servers.auth.loginErr = status.Error(codes.NotFound, apperrors.ErrNotFound.Error())
-	_, err = client.Login(context.Background(), "missing", "secret")
+	_, err = ssoClient.Login(context.Background(), "missing", "secret")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
@@ -104,9 +104,9 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 		coreapi.RegisterStatsAPIServer(server, statsSrv)
 		coreapi.RegisterReportAPIServer(server, reportSrv)
 	})
-	client := grpcclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 
-	containerID, err := client.CreateContainer(context.Background(), model.CreateContainerInput{
+	containerID, err := coreClient.CreateContainer(context.Background(), model.CreateContainerInput{
 		Name:         "web",
 		ImageTag:     "nginx:latest",
 		InternalPort: 80,
@@ -119,11 +119,11 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "nginx:latest", containerSrv.create.ImageTag)
 	require.True(t, containerSrv.create.VolumeMounts[0].IsReadonly)
 
-	require.NoError(t, client.ActionContainer(context.Background(), "container-id", "start"))
+	require.NoError(t, coreClient.ActionContainer(context.Background(), "container-id", "start"))
 	require.Equal(t, "container-id", containerSrv.startedID)
-	require.ErrorIs(t, client.ActionContainer(context.Background(), "container-id", "restart"), apperrors.ErrBadRequest)
+	require.ErrorIs(t, coreClient.ActionContainer(context.Background(), "container-id", "restart"), apperrors.ErrBadRequest)
 
-	containers, err := client.ListContainers(context.Background(), 2, 10, "project-id")
+	containers, err := coreClient.ListContainers(context.Background(), 2, 10, "project-id")
 	require.NoError(t, err)
 	require.Equal(t, int32(1), containers.TotalCount)
 	require.Equal(t, "docker-id", containers.Containers[0].DockerID)
@@ -134,35 +134,35 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, int32(10), containerSrv.limit)
 	require.Equal(t, "project-id", containerSrv.projectID)
 
-	stats, err := client.GetContainerStats(context.Background(), "container-id")
+	stats, err := coreClient.GetContainerStats(context.Background(), "container-id")
 	require.NoError(t, err)
 	require.Equal(t, 12.5, stats.CPUPercentage)
 
-	config, err := client.GetSystemConfig(context.Background())
+	config, err := coreClient.GetSystemConfig(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "example.test", config.BaseDomain)
 	require.True(t, config.ImageBuildsEnabled)
 	require.EqualValues(t, 250, config.DefaultCPUReservationMillicores)
-	require.NoError(t, client.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500}))
+	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500}))
 	require.Equal(t, "updated.test", systemSrv.updated.BaseDomain)
 	require.Equal(t, int32(5), systemSrv.updated.MaxContainersPerUser)
 	require.EqualValues(t, 500, systemSrv.updated.DefaultCpuReservationMillicores)
 
-	userStats, err := client.GetUserStats(context.Background())
+	userStats, err := coreClient.GetUserStats(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int32(3), userStats.ContainersTotal)
-	monitoring, err := client.GetSystemMonitoring(context.Background())
+	monitoring, err := coreClient.GetSystemMonitoring(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 42.5, monitoring.CPUPercent)
 
-	overview, err := client.GetReportsOverview(context.Background(), 1, 2)
+	overview, err := coreClient.GetReportsOverview(context.Background(), 1, 2)
 	require.NoError(t, err)
 	require.Equal(t, int64(7), overview.AuditEventsTotal)
 	require.Equal(t, []model.ActionCount{{Action: "containers.create", Count: 2}}, overview.TopActions)
-	refresh, err := client.RefreshUsageSnapshots(context.Background())
+	refresh, err := coreClient.RefreshUsageSnapshots(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 3, refresh.SnapshotsCount)
-	require.NoError(t, client.RecordAuditEvent(context.Background(), model.AuditEvent{Action: "containers.create", ActorUserID: "user-id"}))
+	require.NoError(t, coreClient.RecordAuditEvent(context.Background(), model.AuditEvent{Action: "containers.create", ActorUserID: "user-id"}))
 	require.Equal(t, "containers.create", reportSrv.recorded.Action)
 }
 
@@ -170,9 +170,9 @@ func TestCoreClientMapsGRPCErrorsToAppErrors(t *testing.T) {
 	conn := newGRPCConn(t, func(server *grpc.Server) {
 		coreapi.RegisterContainerAPIServer(server, &coreContainerServer{createErr: status.Error(codes.Unavailable, apperrors.ErrUnavailable.Error())})
 	})
-	client := grpcclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 
-	_, err := client.CreateContainer(context.Background(), model.CreateContainerInput{Name: "web"})
+	_, err := coreClient.CreateContainer(context.Background(), model.CreateContainerInput{Name: "web"})
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 }
 
@@ -205,45 +205,45 @@ type ssoServers struct {
 }
 
 type ssoAuthServer struct {
-	ssoapi.UnimplementedAuthServer
+	sso.UnimplementedAuthServer
 	registerEmail string
 	loginErr      error
 }
 
-func (s *ssoAuthServer) Register(_ context.Context, req *ssoapi.RegisterRequest) (*ssoapi.RegisterResponse, error) {
+func (s *ssoAuthServer) Register(_ context.Context, req *sso.RegisterRequest) (*sso.RegisterResponse, error) {
 	s.registerEmail = req.Email
-	return &ssoapi.RegisterResponse{UserId: "user-id"}, nil
+	return &sso.RegisterResponse{UserId: "user-id"}, nil
 }
 
-func (s *ssoAuthServer) Login(context.Context, *ssoapi.LoginRequest) (*ssoapi.LoginResponse, error) {
+func (s *ssoAuthServer) Login(context.Context, *sso.LoginRequest) (*sso.LoginResponse, error) {
 	if s.loginErr != nil {
 		return nil, s.loginErr
 	}
-	return &ssoapi.LoginResponse{AccessToken: "access", RefreshToken: "refresh"}, nil
+	return &sso.LoginResponse{AccessToken: "access", RefreshToken: "refresh"}, nil
 }
 
-func (s *ssoAuthServer) Refresh(context.Context, *ssoapi.RefreshRequest) (*ssoapi.RefreshResponse, error) {
-	return &ssoapi.RefreshResponse{AccessToken: "access2", RefreshToken: "refresh2"}, nil
+func (s *ssoAuthServer) Refresh(context.Context, *sso.RefreshRequest) (*sso.RefreshResponse, error) {
+	return &sso.RefreshResponse{AccessToken: "access2", RefreshToken: "refresh2"}, nil
 }
 
-func (s *ssoAuthServer) GetAuthConfig(context.Context, *ssoapi.GetAuthConfigRequest) (*ssoapi.GetAuthConfigResponse, error) {
-	return &ssoapi.GetAuthConfigResponse{
+func (s *ssoAuthServer) GetAuthConfig(context.Context, *sso.GetAuthConfigRequest) (*sso.GetAuthConfigResponse, error) {
+	return &sso.GetAuthConfigResponse{
 		LocalLoginEnabled:    true,
 		LocalRegisterEnabled: false,
-		OidcProviders:        []*ssoapi.OIDCProviderData{{Name: "keycloak"}},
+		OidcProviders:        []*sso.OIDCProviderData{{Name: "keycloak"}},
 	}, nil
 }
 
-func (s *ssoAuthServer) StartOIDCLogin(context.Context, *ssoapi.StartOIDCLoginRequest) (*ssoapi.StartOIDCLoginResponse, error) {
-	return &ssoapi.StartOIDCLoginResponse{AuthUrl: "https://idp/auth", StateBinding: "binding"}, nil
+func (s *ssoAuthServer) StartOIDCLogin(context.Context, *sso.StartOIDCLoginRequest) (*sso.StartOIDCLoginResponse, error) {
+	return &sso.StartOIDCLoginResponse{AuthUrl: "https://idp/auth", StateBinding: "binding"}, nil
 }
 
-func (s *ssoAuthServer) CompleteOIDCCallback(context.Context, *ssoapi.CompleteOIDCCallbackRequest) (*ssoapi.CompleteOIDCCallbackResponse, error) {
-	return &ssoapi.CompleteOIDCCallbackResponse{AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback"}, nil
+func (s *ssoAuthServer) CompleteOIDCCallback(context.Context, *sso.CompleteOIDCCallbackRequest) (*sso.CompleteOIDCCallbackResponse, error) {
+	return &sso.CompleteOIDCCallbackResponse{AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback"}, nil
 }
 
 type ssoUserServer struct {
-	ssoapi.UnimplementedUserAPIServer
+	sso.UnimplementedUserAPIServer
 	verifiedToken     string
 	permission        string
 	allowPermission   bool
@@ -253,52 +253,52 @@ type ssoUserServer struct {
 	reactivatedUserID string
 }
 
-func (s *ssoUserServer) VerifyAccessToken(_ context.Context, req *ssoapi.VerifyTokenRequest) (*ssoapi.UserData, error) {
+func (s *ssoUserServer) VerifyAccessToken(_ context.Context, req *sso.VerifyTokenRequest) (*sso.UserData, error) {
 	s.verifiedToken = req.AccessToken
-	return &ssoapi.UserData{UserId: "user-id", Username: "alice", Role: "user"}, nil
+	return &sso.UserData{UserId: "user-id", Username: "alice", Role: "user"}, nil
 }
 
-func (s *ssoUserServer) CheckPermission(_ context.Context, req *ssoapi.CheckPermissionRequest) (*ssoapi.CheckPermissionResponse, error) {
+func (s *ssoUserServer) CheckPermission(_ context.Context, req *sso.CheckPermissionRequest) (*sso.CheckPermissionResponse, error) {
 	s.permission = req.Permission
-	return &ssoapi.CheckPermissionResponse{
+	return &sso.CheckPermissionResponse{
 		Allowed: s.allowPermission,
-		User:    &ssoapi.UserData{UserId: "admin-id", Username: "admin", Role: "admin"},
+		User:    &sso.UserData{UserId: "admin-id", Username: "admin", Role: "admin"},
 	}, nil
 }
 
-func (s *ssoUserServer) ListUsers(_ context.Context, req *ssoapi.ListUsersRequest) (*ssoapi.ListUsersResponse, error) {
-	return &ssoapi.ListUsersResponse{
-		Users:      []*ssoapi.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048}},
+func (s *ssoUserServer) ListUsers(_ context.Context, req *sso.ListUsersRequest) (*sso.ListUsersResponse, error) {
+	return &sso.ListUsersResponse{
+		Users:      []*sso.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048}},
 		TotalCount: 1,
 	}, nil
 }
 
-func (s *ssoUserServer) GetUser(context.Context, *ssoapi.GetUserRequest) (*ssoapi.UserData, error) {
-	return &ssoapi.UserData{UserId: "user-id", Username: "alice"}, nil
+func (s *ssoUserServer) GetUser(context.Context, *sso.GetUserRequest) (*sso.UserData, error) {
+	return &sso.UserData{UserId: "user-id", Username: "alice"}, nil
 }
 
-func (s *ssoUserServer) BatchGetUsers(context.Context, *ssoapi.BatchGetUsersRequest) (*ssoapi.BatchGetUsersResponse, error) {
-	return &ssoapi.BatchGetUsersResponse{}, nil
+func (s *ssoUserServer) BatchGetUsers(context.Context, *sso.BatchGetUsersRequest) (*sso.BatchGetUsersResponse, error) {
+	return &sso.BatchGetUsersResponse{}, nil
 }
 
-func (s *ssoUserServer) CreateUser(_ context.Context, req *ssoapi.CreateUserRequest) (*ssoapi.UserData, error) {
+func (s *ssoUserServer) CreateUser(_ context.Context, req *sso.CreateUserRequest) (*sso.UserData, error) {
 	s.createdQuotaCPU = req.QuotaCpu
-	return &ssoapi.UserData{UserId: "user-id", Username: req.Username, Email: req.Email, Role: req.Role, Status: req.Status, QuotaCpu: req.QuotaCpu, QuotaRamMb: req.QuotaRamMb, QuotaDiskMb: req.QuotaDiskMb}, nil
+	return &sso.UserData{UserId: "user-id", Username: req.Username, Email: req.Email, Role: req.Role, Status: req.Status, QuotaCpu: req.QuotaCpu, QuotaRamMb: req.QuotaRamMb, QuotaDiskMb: req.QuotaDiskMb}, nil
 }
 
-func (s *ssoUserServer) UpdateUser(_ context.Context, req *ssoapi.UpdateUserRequest) (*ssoapi.UserData, error) {
+func (s *ssoUserServer) UpdateUser(_ context.Context, req *sso.UpdateUserRequest) (*sso.UserData, error) {
 	s.updatedStatus = req.Status
-	return &ssoapi.UserData{UserId: req.UserId, Username: req.Username, Status: req.Status}, nil
+	return &sso.UserData{UserId: req.UserId, Username: req.Username, Status: req.Status}, nil
 }
 
-func (s *ssoUserServer) DeactivateUser(_ context.Context, req *ssoapi.UserIDRequest) (*ssoapi.UserData, error) {
+func (s *ssoUserServer) DeactivateUser(_ context.Context, req *sso.UserIDRequest) (*sso.UserData, error) {
 	s.deactivatedUserID = req.UserId
-	return &ssoapi.UserData{UserId: req.UserId, Status: "inactive"}, nil
+	return &sso.UserData{UserId: req.UserId, Status: "inactive"}, nil
 }
 
-func (s *ssoUserServer) ReactivateUser(_ context.Context, req *ssoapi.UserIDRequest) (*ssoapi.UserData, error) {
+func (s *ssoUserServer) ReactivateUser(_ context.Context, req *sso.UserIDRequest) (*sso.UserData, error) {
 	s.reactivatedUserID = req.UserId
-	return &ssoapi.UserData{UserId: req.UserId, Status: "active"}, nil
+	return &sso.UserData{UserId: req.UserId, Status: "active"}, nil
 }
 
 type coreContainerServer struct {

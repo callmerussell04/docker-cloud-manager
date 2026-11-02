@@ -4,8 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/jwtutils"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -28,7 +27,7 @@ func TestAccessTokensBindUniqueSessions(t *testing.T) {
 
 func TestProviderRejectsIncompleteOrWrongAccessClaims(t *testing.T) {
 	provider := jwt.NewProvider("secret")
-	valid := jwtutils.UserClaims{UserID: uuid.New(), SessionID: uuid.New(), TokenType: "access", RegisteredClaims: jwtlib.RegisteredClaims{ExpiresAt: jwtlib.NewNumericDate(time.Now().Add(time.Minute))}}
+	valid := jwt.UserClaims{UserID: uuid.New(), SessionID: uuid.New(), TokenType: "access", RegisteredClaims: jwtlib.RegisteredClaims{ExpiresAt: jwtlib.NewNumericDate(time.Now().Add(time.Minute))}}
 	for _, name := range []string{"missing-session", "missing-user", "missing-expiry", "expired", "wrong-type", "wrong-algorithm", "wrong-key"} {
 		t.Run(name, func(t *testing.T) {
 			claims := valid

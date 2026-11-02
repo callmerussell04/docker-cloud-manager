@@ -10,7 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
-	telemetryclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/grpc/client"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/grpc/client"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -27,11 +27,11 @@ func TestCoreClientMapsContainerTargetAndRuntimeConfig(t *testing.T) {
 		coreapi.RegisterContainerAPIServer(server, containers)
 		coreapi.RegisterSystemAPIServer(server, system)
 	})
-	client := telemetryclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 	userID := uuid.New()
 	userCtx := accessscope.WithUserScope(context.Background(), userID, "alice", "user")
 
-	target, err := client.GetContainerTarget(userCtx, "container-id")
+	target, err := coreClient.GetContainerTarget(userCtx, "container-id")
 	require.NoError(t, err)
 	require.Equal(t, "container-id", containers.targetRequestID)
 	require.Equal(t, accessscope.KindUser, containers.lastScope.Kind)
@@ -42,7 +42,7 @@ func TestCoreClientMapsContainerTargetAndRuntimeConfig(t *testing.T) {
 	require.Equal(t, "owner-id", target.OwnerID)
 	require.Equal(t, 3, target.DockerGeneration)
 
-	cfg, err := client.GetRuntimeConfig(userCtx)
+	cfg, err := coreClient.GetRuntimeConfig(userCtx)
 	require.NoError(t, err)
 	require.Equal(t, accessscope.KindSystem, system.lastScope.Kind)
 	require.Equal(t, 500, cfg.MaxLogTailLines)
@@ -61,12 +61,12 @@ func TestCoreClientMapsGRPCErrors(t *testing.T) {
 		coreapi.RegisterContainerAPIServer(server, &containerServer{err: status.Error(codes.NotFound, apperrors.ErrNotFound.Error())})
 		coreapi.RegisterSystemAPIServer(server, &systemServer{err: status.Error(codes.Unavailable, apperrors.ErrUnavailable.Error())})
 	})
-	client := telemetryclient.NewCoreClient(conn)
+	coreClient := client.NewCoreClient(conn)
 	userCtx := accessscope.WithUserScope(context.Background(), uuid.New(), "alice", "user")
 
-	_, err := client.GetContainerTarget(userCtx, "container-id")
+	_, err := coreClient.GetContainerTarget(userCtx, "container-id")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	_, err = client.GetRuntimeConfig(userCtx)
+	_, err = coreClient.GetRuntimeConfig(userCtx)
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 }
 
