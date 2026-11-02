@@ -4,27 +4,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const secret = "s3cret-value"
 
-func env(values map[string]string) envconfig.Lookup {
-	return func(key string) (string, bool) {
-		value, ok := values[key]
-		return value, ok
-	}
-}
-
 func requiredEnv() map[string]string {
 	return map[string]string{"CORE_GRPC_TARGET": "core:50052", "INTERNAL_SERVICE_TOKEN": secret}
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := config.Load(env(requiredEnv()))
+	cfg, err := config.Load(envtest.Lookup(requiredEnv()))
 
 	require.NoError(t, err)
 	assert.Equal(t, config.Bootstrap{
@@ -49,7 +42,7 @@ func TestLoadOverrides(t *testing.T) {
 	values["TELEMETRY_GRPC_REQUEST_TIMEOUT_SECONDS"] = "7"
 	values["TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS"] = "not-a-number"
 
-	cfg, err := config.Load(env(values))
+	cfg, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 9000, cfg.Port)
@@ -57,19 +50,9 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, 50, cfg.MaxTerminals, "an invalid optional value keeps its default")
 }
 
-func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
-	for key := range requiredEnv() {
-		t.Run(key, func(t *testing.T) {
-			values := requiredEnv()
-			delete(values, key)
-
-			_, err := config.Load(env(values))
-
-			var missing *envconfig.MissingError
-			require.ErrorAs(t, err, &missing)
-			assert.Equal(t, key, missing.Key)
-			assert.NotContains(t, err.Error(), secret)
-			assert.NotContains(t, err.Error(), "core:50052")
-		})
-	}
+func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
+	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
+		"CORE_GRPC_TARGET",
+		"INTERNAL_SERVICE_TOKEN",
+	})
 }

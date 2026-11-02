@@ -152,5 +152,5 @@ func LogEntry(err error) (string, []any) {
 	if errors.As(err, &missing) {
 		return "required environment variable is not set", []any{"env_var", missing.Key}
 	}
-	return "invalid bootstrap configuration", []any{"error", err}
+	return err.Error(), nil
 }

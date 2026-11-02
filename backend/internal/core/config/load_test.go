@@ -5,20 +5,13 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const secret = "s3cret-value"
-
-func env(values map[string]string) envconfig.Lookup {
-	return func(key string) (string, bool) {
-		value, ok := values[key]
-		return value, ok
-	}
-}
 
 func requiredEnv() map[string]string {
 	return map[string]string{
@@ -42,7 +35,7 @@ func requiredEnv() map[string]string {
 }
 
 func TestLoadBootstrapDefaults(t *testing.T) {
-	settings, err := config.Load(env(requiredEnv()))
+	settings, err := config.Load(envtest.Lookup(requiredEnv()))
 
 	require.NoError(t, err)
 	assert.Equal(t, config.Bootstrap{
@@ -69,7 +62,7 @@ func TestLoadBootstrapDefaults(t *testing.T) {
 }
 
 func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
-	settings, err := config.Load(env(requiredEnv()))
+	settings, err := config.Load(envtest.Lookup(requiredEnv()))
 	require.NoError(t, err)
 
 	runtime := settings.Runtime
@@ -95,7 +88,7 @@ func TestLoadOverrides(t *testing.T) {
 	values["OBJECT_STORAGE_USE_SSL"] = "true"
 	values["CLICKHOUSE_DB"] = ""
 
-	settings, err := config.Load(env(values))
+	settings, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 6000, settings.Bootstrap.Port)
@@ -107,20 +100,25 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, []string{"/bin/sh", "/bin/ash"}, settings.Runtime.TelemetryAllowedExecCommands)
 }
 
-func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
-	for key := range requiredEnv() {
-		t.Run(key, func(t *testing.T) {
-			values := requiredEnv()
-			delete(values, key)
-
-			_, err := config.Load(env(values))
-
-			var missing *envconfig.MissingError
-			require.ErrorAs(t, err, &missing)
-			assert.Equal(t, key, missing.Key)
-			assert.NotContains(t, err.Error(), secret)
-		})
-	}
+func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
+	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
+		"DATABASE_URL",
+		"BASE_DOMAIN",
+		"RABBITMQ_URL",
+		"SSO_GRPC_TARGET",
+		"INTERNAL_SERVICE_TOKEN",
+		"REGISTRY_URL",
+		"REGISTRY_BACKEND_URL",
+		"REGISTRY_CA_FILE",
+		"REGISTRY_TLS_CERT_FILE",
+		"REGISTRY_TLS_KEY_FILE",
+		"REGISTRY_SIGNING_CERT_FILE",
+		"REGISTRY_SIGNING_KEY_FILE",
+		"REGISTRY_TOKEN_ISSUER",
+		"OBJECT_STORAGE_ENDPOINT",
+		"OBJECT_STORAGE_ACCESS_KEY",
+		"OBJECT_STORAGE_SECRET_KEY",
+	})
 }
 
 func assertJSON(t *testing.T, value any) string {

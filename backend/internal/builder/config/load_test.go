@@ -5,19 +5,12 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const secret = "s3cret-value"
-
-func env(values map[string]string) envconfig.Lookup {
-	return func(key string) (string, bool) {
-		value, ok := values[key]
-		return value, ok
-	}
-}
 
 func requiredEnv() map[string]string {
 	return map[string]string{
@@ -31,7 +24,7 @@ func requiredEnv() map[string]string {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := config.Load(env(requiredEnv()))
+	cfg, err := config.Load(envtest.Lookup(requiredEnv()))
 
 	require.NoError(t, err)
 	assert.Equal(t, "/run/dcm-registry/ca.crt", cfg.RegistryCAFile)
@@ -65,31 +58,32 @@ func TestLoadOverrides(t *testing.T) {
 	values["OBJECT_STORAGE_BUCKET"] = ""
 	values["MAX_LOG_SIZE_BYTES"] = "100"
 
-	cfg, err := config.Load(env(values))
+	cfg, err := config.Load(envtest.Lookup(values))
 	require.NoError(t, err)
 	assert.Equal(t, "builder-7", cfg.InstanceID)
 	assert.Equal(t, 3*time.Minute, cfg.Builder.MaxBuildTime)
 	assert.Equal(t, "", cfg.ObjectStorage.Bucket, "a value set to empty replaces the default")
 	assert.Equal(t, int64(100), cfg.Builder.MaxBuildLogSizeBytes, "the legacy log size key is the fallback")
+}
 
+func TestLoadPrefersTheBuildLogSizeKey(t *testing.T) {
+	values := requiredEnv()
+	values["MAX_LOG_SIZE_BYTES"] = "100"
 	values["MAX_BUILD_LOG_SIZE_BYTES"] = "200"
-	cfg, err = config.Load(env(values))
+
+	cfg, err := config.Load(envtest.Lookup(values))
+
 	require.NoError(t, err)
 	assert.Equal(t, int64(200), cfg.Builder.MaxBuildLogSizeBytes)
 }
 
-func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
-	for key := range requiredEnv() {
-		t.Run(key, func(t *testing.T) {
-			values := requiredEnv()
-			delete(values, key)
-
-			_, err := config.Load(env(values))
-
-			var missing *envconfig.MissingError
-			require.ErrorAs(t, err, &missing)
-			assert.Equal(t, key, missing.Key)
-			assert.NotContains(t, err.Error(), secret)
-		})
-	}
+func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
+	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
+		"CORE_GRPC_TARGET",
+		"INTERNAL_SERVICE_TOKEN",
+		"RABBITMQ_URL",
+		"OBJECT_STORAGE_ENDPOINT",
+		"OBJECT_STORAGE_ACCESS_KEY",
+		"OBJECT_STORAGE_SECRET_KEY",
+	})
 }

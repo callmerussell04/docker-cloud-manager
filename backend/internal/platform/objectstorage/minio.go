@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -19,6 +20,17 @@ type Config struct {
 	AccessKey string
 	SecretKey string
 	UseSSL    bool
+}
+
+// LoadConfig reads the OBJECT_STORAGE_* settings Core and Builder share.
+func LoadConfig(lookup envconfig.Lookup, required *envconfig.Required) Config {
+	return Config{
+		Endpoint:  required.Get("OBJECT_STORAGE_ENDPOINT"),
+		Bucket:    envconfig.String(lookup, "OBJECT_STORAGE_BUCKET", "dcm-builds"),
+		AccessKey: required.Get("OBJECT_STORAGE_ACCESS_KEY"),
+		SecretKey: required.Get("OBJECT_STORAGE_SECRET_KEY"),
+		UseSSL:    envconfig.Bool(lookup, "OBJECT_STORAGE_USE_SSL", false),
+	}
 }
 
 type MinIOStorage struct {

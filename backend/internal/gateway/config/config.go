@@ -6,9 +6,6 @@ import (
 	"strings"
 	"time"
 
-	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 )
 
@@ -24,13 +21,65 @@ type Bootstrap struct {
 	AppEnv string
 
 	HTTP      HTTPServer
-	Router    gatewayhttp.Config
-	Cookie    handler.CookieConfig
+	Router    Router
+	Cookie    Cookie
 	Proxy     Proxy
 	GRPC      GRPC
 	Readiness Readiness
 
 	TelemetryTicketTTL time.Duration
+}
+
+// InsecureCookieInProduction reports a refresh cookie sent without Secure in production.
+func (b Bootstrap) InsecureCookieInProduction() bool {
+	return b.AppEnv == "production" && !b.Cookie.Secure
+}
+
+// Router configures Gateway's HTTP router.
+type Router struct {
+	CORSAllowedOrigins []string
+	TrustedProxies     []string
+	MaxJSONBodyBytes   int64
+	AuthRateLimit      RateLimit
+	UploadRateLimit    RateLimit
+	AuthRedirect       AuthRedirect
+}
+
+// RateLimit allows Requests per client within Window.
+type RateLimit struct {
+	Requests int
+	Window   time.Duration
+}
+
+// AuthRedirect configures where the browser may return after external login.
+type AuthRedirect struct {
+	AllowedOrigins       []string
+	CookieAllowedOrigins []string
+	CallbackPath         string
+}
+
+// Cookie configures the refresh token cookie.
+type Cookie struct {
+	Name     string
+	Path     string
+	Domain   string
+	Secure   bool
+	HTTPOnly bool
+	SameSite http.SameSite
+}
+
+// DefaultRouter returns the router settings used when no override is set.
+func DefaultRouter() Router {
+	return Router{
+		CORSAllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
+		MaxJSONBodyBytes:   1 << 20,
+		AuthRateLimit:      RateLimit{Requests: 20, Window: time.Minute},
+		UploadRateLimit:    RateLimit{Requests: 10, Window: time.Minute},
+		AuthRedirect: AuthRedirect{
+			AllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
+			CallbackPath:   "/auth/callback",
+		},
+	}
 }
 
 // HTTPServer configures Gateway's public HTTP server.
@@ -95,13 +144,13 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 			MaxHeaderBytes:    envconfig.Int(lookup, "GATEWAY_MAX_HEADER_BYTES", 1<<20),
 		},
 		Router: loadRouter(lookup),
-		Cookie: handler.CookieConfig{
+		Cookie: Cookie{
 			Name:     envconfig.NonEmpty(lookup, "COOKIE_NAME", "refresh_token"),
 			Path:     envconfig.NonEmpty(lookup, "COOKIE_PATH", "/"),
 			Domain:   envconfig.String(lookup, "COOKIE_DOMAIN", ""),
 			Secure:   envconfig.Bool(lookup, "COOKIE_SECURE", false),
 			HTTPOnly: envconfig.Bool(lookup, "COOKIE_HTTP_ONLY", true),
-			SameSite: loadSameSite(lookup, "COOKIE_SAMESITE", http.SameSiteLaxMode),
+			SameSite: loadSameSite(lookup),
 		},
 		Proxy: Proxy{
 			DialTimeout:           envconfig.DurationSeconds(lookup, "GATEWAY_PROXY_DIAL_TIMEOUT_SECONDS", 10*time.Second),
@@ -134,8 +183,8 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 	return cfg, nil
 }
 
-func loadRouter(lookup envconfig.Lookup) gatewayhttp.Config {
-	cfg := gatewayhttp.DefaultConfig()
+func loadRouter(lookup envconfig.Lookup) Router {
+	cfg := DefaultRouter()
 	cfg.CORSAllowedOrigins = envconfig.CSV(lookup, "CORS_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
 	cfg.AuthRedirect.AllowedOrigins = envconfig.CSV(lookup, "GATEWAY_AUTH_REDIRECT_ALLOWED_ORIGINS", cfg.CORSAllowedOrigins)
 	cfg.AuthRedirect.CallbackPath = envconfig.NonEmpty(lookup, "GATEWAY_AUTH_CALLBACK_PATH", cfg.AuthRedirect.CallbackPath)
@@ -147,25 +196,25 @@ func loadRouter(lookup envconfig.Lookup) gatewayhttp.Config {
 		}
 	}
 	cfg.MaxJSONBodyBytes = envconfig.Int64(lookup, "GATEWAY_MAX_JSON_BODY_BYTES", cfg.MaxJSONBodyBytes)
-	cfg.AuthRateLimit = middleware.RateLimitConfig{
+	cfg.AuthRateLimit = RateLimit{
 		Requests: envconfig.Int(lookup, "GATEWAY_AUTH_RATE_LIMIT_REQUESTS", cfg.AuthRateLimit.Requests),
 		Window:   envconfig.DurationSeconds(lookup, "GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS", cfg.AuthRateLimit.Window),
 	}
-	cfg.UploadRateLimit = middleware.RateLimitConfig{
+	cfg.UploadRateLimit = RateLimit{
 		Requests: envconfig.Int(lookup, "GATEWAY_UPLOAD_RATE_LIMIT_REQUESTS", cfg.UploadRateLimit.Requests),
 		Window:   envconfig.DurationSeconds(lookup, "GATEWAY_UPLOAD_RATE_LIMIT_WINDOW_SECONDS", cfg.UploadRateLimit.Window),
 	}
 	return cfg
 }
 
-func loadSameSite(lookup envconfig.Lookup, key string, fallback http.SameSite) http.SameSite {
-	raw, _ := lookup(key)
+func loadSameSite(lookup envconfig.Lookup) http.SameSite {
+	raw, _ := lookup("COOKIE_SAMESITE")
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "strict":
 		return http.SameSiteStrictMode
 	case "none":
 		return http.SameSiteNoneMode
 	default:
-		return fallback
+		return http.SameSiteLaxMode
 	}
 }

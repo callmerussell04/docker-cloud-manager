@@ -56,9 +56,7 @@ func (m *Manager) Update(newConfig SystemConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	newConfig.RegistryAPIURL = m.config.RegistryAPIURL
-	newConfig.RegistryPublicURL = m.config.RegistryPublicURL
-	newConfig.RegistryContainerName = m.config.RegistryContainerName
+	pinBootstrapFields(&newConfig, m.config)
 	if err := ValidateSystemConfig(newConfig); err != nil {
 		return err
 	}
@@ -105,9 +103,7 @@ func (m *Manager) loadFromFile(defaultConfig SystemConfig) error {
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	cfg.RegistryAPIURL = defaultConfig.RegistryAPIURL
-	cfg.RegistryPublicURL = defaultConfig.RegistryPublicURL
-	cfg.RegistryContainerName = defaultConfig.RegistryContainerName
+	pinBootstrapFields(&cfg, defaultConfig)
 	m.config = cfg
 	return nil
 }
@@ -148,4 +144,14 @@ func backfillConfigJSON(data []byte, defaultConfig SystemConfig) ([]byte, error)
 	}
 
 	return json.Marshal(raw)
+}
+
+// pinBootstrapFields keeps the bootstrap values SystemConfig still carries from
+// being replaced by a persisted file or a runtime update.
+func pinBootstrapFields(cfg *SystemConfig, bootstrap SystemConfig) {
+	cfg.RegistryAPIURL = bootstrap.RegistryAPIURL
+	cfg.RegistryPublicURL = bootstrap.RegistryPublicURL
+	cfg.RegistryContainerName = bootstrap.RegistryContainerName
+	cfg.ProxyNetworkName = bootstrap.ProxyNetworkName
+	cfg.BuildNetworkName = bootstrap.BuildNetworkName
 }

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 )
 
@@ -27,16 +28,10 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 	storagePath := envconfig.String(lookup, "BUILD_STORAGE_PATH", "/tmp/builds")
 
 	cfg := Bootstrap{
-		CoreTarget:    required.Get("CORE_GRPC_TARGET"),
-		InternalToken: required.Get("INTERNAL_SERVICE_TOKEN"),
-		RabbitMQURL:   required.Get("RABBITMQ_URL"),
-		ObjectStorage: objectstorage.Config{
-			Endpoint:  required.Get("OBJECT_STORAGE_ENDPOINT"),
-			AccessKey: required.Get("OBJECT_STORAGE_ACCESS_KEY"),
-			SecretKey: required.Get("OBJECT_STORAGE_SECRET_KEY"),
-			Bucket:    envconfig.String(lookup, "OBJECT_STORAGE_BUCKET", "dcm-builds"),
-			UseSSL:    envconfig.Bool(lookup, "OBJECT_STORAGE_USE_SSL", false),
-		},
+		CoreTarget:     required.Get("CORE_GRPC_TARGET"),
+		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
+		RabbitMQURL:    required.Get("RABBITMQ_URL"),
+		ObjectStorage:  objectstorage.LoadConfig(lookup, required),
 		RegistryCAFile: envconfig.String(lookup, "REGISTRY_CA_FILE", "/run/dcm-registry/ca.crt"),
 		StoragePath:    storagePath,
 		InstanceID:     envconfig.String(lookup, "BUILDER_INSTANCE_ID", ""),
@@ -50,7 +45,7 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 			StoragePath:               storagePath,
 			RegistryURL:               envconfig.String(lookup, "REGISTRY_URL", "registry:5000"),
 			BuildNetworkName:          envconfig.String(lookup, "BUILD_NETWORK_NAME", "build_net"),
-			KanikoImage:               envconfig.String(lookup, "KANIKO_IMAGE", "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"),
+			KanikoImage:               envconfig.String(lookup, "KANIKO_IMAGE", imageref.DefaultKaniko),
 			MaxBuildTime:              time.Duration(envconfig.Int(lookup, "MAX_BUILD_TIME_MINUTES", 10)) * time.Minute,
 			MaxConcurrentBuilds:       envconfig.Int(lookup, "MAX_CONCURRENT_BUILDS", 2),
 			MaxUnpackedSizeBytes:      envconfig.Int64(lookup, "MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),

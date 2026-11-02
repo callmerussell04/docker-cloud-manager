@@ -31,3 +31,6 @@ func CustomRepositoryNameString(ownerID, baseName string) string {
 func CustomFullTag(registryURL string, ownerID uuid.UUID, baseName, version string) string {
 	return fmt.Sprintf("%s/%s:%s", registryURL, CustomRepositoryName(ownerID, baseName), version)
 }
+
+// DefaultKaniko is the pinned Kaniko executor image used unless KANIKO_IMAGE overrides it.
+const DefaultKaniko = "gcr.io/kaniko-project/executor@sha256:4e7a52dd1f14872430652bb3b027405b8dfd17c4538751c620ac005741ef9698"

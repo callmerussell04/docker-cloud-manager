@@ -4,10 +4,10 @@ import (
 	"errors"
 	"log/slog"
 	"net/netip"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
@@ -15,14 +15,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 )
 
-type Config struct {
-	CORSAllowedOrigins []string
-	TrustedProxies     []string
-	MaxJSONBodyBytes   int64
-	AuthRateLimit      middleware.RateLimitConfig
-	UploadRateLimit    middleware.RateLimitConfig
-	AuthRedirect       handler.AuthRedirectConfig
-}
+// Config is the router configuration owned by the config package.
+type Config = config.Router
 
 type RouterDeps struct {
 	AuthHandler                 *handler.AuthHandler
@@ -183,22 +177,7 @@ func adminPermission(deps RouterDeps, permission string) gin.HandlerFunc {
 }
 
 func DefaultConfig() Config {
-	return Config{
-		CORSAllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
-		MaxJSONBodyBytes:   1 << 20,
-		AuthRateLimit: middleware.RateLimitConfig{
-			Requests: 20,
-			Window:   time.Minute,
-		},
-		UploadRateLimit: middleware.RateLimitConfig{
-			Requests: 10,
-			Window:   time.Minute,
-		},
-		AuthRedirect: handler.AuthRedirectConfig{
-			AllowedOrigins: []string{"http://localhost", "http://localhost:3000", "http://localhost:5173"},
-			CallbackPath:   "/auth/callback",
-		},
-	}
+	return config.DefaultRouter()
 }
 
 func validateTrustedProxies(proxies []string) error {

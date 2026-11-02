@@ -20,7 +20,7 @@ func main() {
 		fatal(logger, msg, args...)
 	}
 
-	if cfg.AppEnv == "production" && !cfg.Cookie.Secure {
+	if cfg.InsecureCookieInProduction() {
 		logger.Warn("refresh token cookie is not secure in production environment")
 	}
 

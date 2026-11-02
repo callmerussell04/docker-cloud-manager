@@ -257,3 +257,33 @@ func TestRegistryEndpointsRemainBootstrapSettings(t *testing.T) {
 		t.Fatal("runtime update changed Registry bootstrap endpoints")
 	}
 }
+
+func TestNetworkNamesRemainBootstrapSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	initial := validSystemConfig()
+	initial.ProxyNetworkName = "old_proxy"
+	initial.BuildNetworkName = "old_build"
+	if _, err := config.NewManager(path, initial); err != nil {
+		t.Fatal(err)
+	}
+	next := initial
+	next.ProxyNetworkName = "proxy_net"
+	next.BuildNetworkName = "build_net"
+	manager, err := config.NewManager(path, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := manager.Get()
+	if cfg.ProxyNetworkName != "proxy_net" || cfg.BuildNetworkName != "build_net" {
+		t.Fatal("persisted config overrode bootstrap network names")
+	}
+	cfg.ProxyNetworkName = "changed_proxy"
+	cfg.BuildNetworkName = "changed_build"
+	if err := manager.Update(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg = manager.Get()
+	if cfg.ProxyNetworkName != "proxy_net" || cfg.BuildNetworkName != "build_net" {
+		t.Fatal("runtime update changed bootstrap network names")
+	}
+}

@@ -6,20 +6,12 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
-	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const secret = "s3cret-value"
-
-func env(values map[string]string) envconfig.Lookup {
-	return func(key string) (string, bool) {
-		value, ok := values[key]
-		return value, ok
-	}
-}
 
 func requiredEnv() map[string]string {
 	return map[string]string{
@@ -32,7 +24,7 @@ func requiredEnv() map[string]string {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := config.Load(env(requiredEnv()))
+	cfg, err := config.Load(envtest.Lookup(requiredEnv()))
 
 	require.NoError(t, err)
 	assert.Equal(t, 8081, cfg.Port)
@@ -64,8 +56,8 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, config.GRPC{RequestTimeout: 300 * time.Second, MinConnectTimeout: 5 * time.Second}, cfg.GRPC)
 	assert.Equal(t, 3*time.Second, cfg.Readiness.Timeout)
 	assert.Equal(t, 60*time.Second, cfg.TelemetryTicketTTL)
-	assert.Equal(t, gatewayhttp.DefaultConfig().CORSAllowedOrigins, cfg.Router.CORSAllowedOrigins)
-	assert.Equal(t, gatewayhttp.DefaultConfig().AuthRateLimit, cfg.Router.AuthRateLimit)
+	assert.Equal(t, config.DefaultRouter().CORSAllowedOrigins, cfg.Router.CORSAllowedOrigins)
+	assert.Equal(t, config.DefaultRouter().AuthRateLimit, cfg.Router.AuthRateLimit)
 	assert.Empty(t, cfg.Router.TrustedProxies, "no proxy is trusted by default")
 }
 
@@ -80,14 +72,14 @@ func TestLoadOverrides(t *testing.T) {
 	values["GATEWAY_GRPC_TLS_CA_FILE"] = "/ca.pem"
 	values["APP_ENV"] = "production"
 
-	cfg, err := config.Load(env(values))
+	cfg, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"https://a.test", "https://b.test"}, cfg.Router.CORSAllowedOrigins)
 	assert.Equal(t, cfg.Router.CORSAllowedOrigins, cfg.Router.AuthRedirect.AllowedOrigins,
 		"redirect origins follow CORS origins unless set")
 	assert.Equal(t, 9, cfg.Router.AuthRateLimit.Requests)
-	assert.Equal(t, gatewayhttp.DefaultConfig().AuthRateLimit.Window, cfg.Router.AuthRateLimit.Window)
+	assert.Equal(t, config.DefaultRouter().AuthRateLimit.Window, cfg.Router.AuthRateLimit.Window)
 	assert.Equal(t, http.SameSiteStrictMode, cfg.Cookie.SameSite)
 	assert.Equal(t, "refresh_token", cfg.Cookie.Name, "an empty string keeps its default")
 	assert.Equal(t, config.GRPCTLS{Enabled: true, CAFile: "/ca.pem"}, cfg.GRPC.TLS)
@@ -104,7 +96,7 @@ func TestLoadCookieSameSite(t *testing.T) {
 	} {
 		values := requiredEnv()
 		values["COOKIE_SAMESITE"] = raw
-		cfg, err := config.Load(env(values))
+		cfg, err := config.Load(envtest.Lookup(values))
 		require.NoError(t, err)
 		assert.Equal(t, want, cfg.Cookie.SameSite, raw)
 	}
@@ -114,24 +106,35 @@ func TestLoadKeepsEmptyTrustedProxyEntriesForRouterValidation(t *testing.T) {
 	values := requiredEnv()
 	values["GATEWAY_TRUSTED_PROXIES"] = "10.0.0.1, ,10.0.0.2"
 
-	cfg, err := config.Load(env(values))
+	cfg, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"10.0.0.1", "", "10.0.0.2"}, cfg.Router.TrustedProxies)
 }
 
-func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
-	for key := range requiredEnv() {
-		t.Run(key, func(t *testing.T) {
-			values := requiredEnv()
-			values[key] = ""
+func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
+	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
+		"SSO_GRPC_TARGET",
+		"CORE_GRPC_TARGET",
+		"CORE_HTTP_TARGET",
+		"TELEMETRY_HTTP_TARGET",
+		"INTERNAL_SERVICE_TOKEN",
+	})
+}
 
-			_, err := config.Load(env(values))
-
-			var missing *envconfig.MissingError
-			require.ErrorAs(t, err, &missing)
-			assert.Equal(t, key, missing.Key)
-			assert.NotContains(t, err.Error(), secret)
-		})
+func TestInsecureCookieInProduction(t *testing.T) {
+	tests := []struct {
+		appEnv string
+		secure bool
+		want   bool
+	}{
+		{"production", false, true},
+		{"production", true, false},
+		{"", false, false},
+		{"dev", false, false},
+	}
+	for _, tt := range tests {
+		cfg := config.Bootstrap{AppEnv: tt.appEnv, Cookie: config.Cookie{Secure: tt.secure}}
+		assert.Equal(t, tt.want, cfg.InsecureCookieInProduction(), "%q secure=%v", tt.appEnv, tt.secure)
 	}
 }

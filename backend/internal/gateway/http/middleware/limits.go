@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
@@ -35,10 +36,8 @@ func requestHasJSONBody(req *http.Request) bool {
 	return strings.HasPrefix(strings.ToLower(contentType), "application/json")
 }
 
-type RateLimitConfig struct {
-	Requests int
-	Window   time.Duration
-}
+// RateLimitConfig is the rate limit configuration owned by the config package.
+type RateLimitConfig = config.RateLimit
 
 type RateLimiter struct {
 	mu      sync.Mutex

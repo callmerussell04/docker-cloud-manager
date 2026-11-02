@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 	"github.com/gin-gonic/gin"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
@@ -39,20 +40,11 @@ type AuthHandler struct {
 	redirectConfig AuthRedirectConfig
 }
 
-type CookieConfig struct {
-	Name     string
-	Path     string
-	Domain   string
-	Secure   bool
-	HTTPOnly bool
-	SameSite http.SameSite
-}
+// CookieConfig is the refresh cookie configuration owned by the config package.
+type CookieConfig = config.Cookie
 
-type AuthRedirectConfig struct {
-	AllowedOrigins       []string
-	CookieAllowedOrigins []string
-	CallbackPath         string
-}
+// AuthRedirectConfig is the redirect configuration owned by the config package.
+type AuthRedirectConfig = config.AuthRedirect
 
 func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConfig AuthRedirectConfig) *AuthHandler {
 	if cookieConfig.Name == "" {

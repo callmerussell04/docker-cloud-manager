@@ -31,23 +31,25 @@ func TestNonEmptyTreatsEmptyAsUnset(t *testing.T) {
 }
 
 func TestNumbersAndBoolsFallBackWhenUnsetOrInvalid(t *testing.T) {
-	bad := env(map[string]string{"K": "nope"})
-
-	assert.Equal(t, 7, envconfig.Int(env(nil), "K", 7))
-	assert.Equal(t, 7, envconfig.Int(bad, "K", 7))
-	assert.Equal(t, 3, envconfig.Int(env(map[string]string{"K": "3"}), "K", 7))
-
-	assert.Equal(t, int64(7), envconfig.Int64(env(nil), "K", 7))
-	assert.Equal(t, int64(7), envconfig.Int64(bad, "K", 7))
-	assert.Equal(t, int64(1<<40), envconfig.Int64(env(map[string]string{"K": "1099511627776"}), "K", 7))
-
-	assert.Equal(t, 1.5, envconfig.Float64(env(nil), "K", 1.5))
-	assert.Equal(t, 1.5, envconfig.Float64(bad, "K", 1.5))
-	assert.Equal(t, 2.25, envconfig.Float64(env(map[string]string{"K": "2.25"}), "K", 1.5))
-
-	assert.True(t, envconfig.Bool(env(nil), "K", true))
-	assert.True(t, envconfig.Bool(bad, "K", true))
-	assert.False(t, envconfig.Bool(env(map[string]string{"K": "false"}), "K", true))
+	tests := []struct {
+		name     string
+		read     func(envconfig.Lookup) any
+		valid    string
+		want     any
+		fallback any
+	}{
+		{"Int", func(l envconfig.Lookup) any { return envconfig.Int(l, "K", 7) }, "3", 3, 7},
+		{"Int64", func(l envconfig.Lookup) any { return envconfig.Int64(l, "K", 7) }, "1099511627776", int64(1 << 40), int64(7)},
+		{"Float64", func(l envconfig.Lookup) any { return envconfig.Float64(l, "K", 1.5) }, "2.25", 2.25, 1.5},
+		{"Bool", func(l envconfig.Lookup) any { return envconfig.Bool(l, "K", true) }, "false", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.fallback, tt.read(env(nil)))
+			assert.Equal(t, tt.fallback, tt.read(env(map[string]string{"K": "nope"})))
+			assert.Equal(t, tt.want, tt.read(env(map[string]string{"K": tt.valid})))
+		})
+	}
 }
 
 func TestDurationSecondsRejectsNegativeValues(t *testing.T) {
@@ -111,6 +113,6 @@ func TestLogEntryKeepsTheRequiredSettingLogShape(t *testing.T) {
 
 	other := errors.New("other")
 	msg, args = envconfig.LogEntry(other)
-	assert.Equal(t, "invalid bootstrap configuration", msg)
-	assert.Equal(t, []any{"error", other}, args)
+	assert.Equal(t, "other", msg)
+	assert.Empty(t, args)
 }

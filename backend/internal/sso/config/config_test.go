@@ -4,20 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 const secret = "s3cret-value"
-
-func env(values map[string]string) envconfig.Lookup {
-	return func(key string) (string, bool) {
-		value, ok := values[key]
-		return value, ok
-	}
-}
 
 func requiredEnv() map[string]string {
 	return map[string]string{
@@ -29,7 +22,7 @@ func requiredEnv() map[string]string {
 }
 
 func TestLoadDefaults(t *testing.T) {
-	cfg, err := config.Load(env(requiredEnv()))
+	cfg, err := config.Load(envtest.Lookup(requiredEnv()))
 
 	require.NoError(t, err)
 	assert.Equal(t, config.Bootstrap{
@@ -57,7 +50,7 @@ func TestLoadTrimsOptionalSettings(t *testing.T) {
 	values["SSO_OIDC_DEFAULT_ROLE"] = "   "
 	values["SSO_OIDC_CLIENT_SECRET"] = " kept as is "
 
-	cfg, err := config.Load(env(values))
+	cfg, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 6000, cfg.Port)
@@ -70,18 +63,11 @@ func TestLoadTrimsOptionalSettings(t *testing.T) {
 	assert.Equal(t, " kept as is ", cfg.OIDC.ClientSecret)
 }
 
-func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
-	for key := range requiredEnv() {
-		t.Run(key, func(t *testing.T) {
-			values := requiredEnv()
-			delete(values, key)
-
-			_, err := config.Load(env(values))
-
-			var missing *envconfig.MissingError
-			require.ErrorAs(t, err, &missing)
-			assert.Equal(t, key, missing.Key)
-			assert.NotContains(t, err.Error(), secret)
-		})
-	}
+func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
+	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
+		"DATABASE_URL",
+		"JWT_SECRET",
+		"INTERNAL_SERVICE_TOKEN",
+		"SSO_ADMIN_PASSWORD",
+	})
 }

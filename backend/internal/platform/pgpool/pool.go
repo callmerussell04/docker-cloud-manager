@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"strconv"
 	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 )
 
 type Config struct {
@@ -26,7 +28,7 @@ func DefaultConfig() Config {
 // Invalid values fail startup rather than silently selecting an unlimited pool.
 // Errors name the setting but never echo its raw value, so only value-free
 // causes are wrapped.
-func Parse(lookup func(string) (string, bool), prefix string) (Config, error) {
+func Parse(lookup envconfig.Lookup, prefix string) (Config, error) {
 	cfg := DefaultConfig()
 	for suffix, target := range map[string]*int{"MAX_OPEN": &cfg.MaxOpen, "MAX_IDLE": &cfg.MaxIdle} {
 		key := prefix + "_DB_" + suffix
