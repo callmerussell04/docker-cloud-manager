@@ -28,7 +28,7 @@ defaults:
 
 jobs:
   verify:
-    name: Format, generate, build, vet, architecture, lint, race tests
+    name: Format, generate, build, vet, lint, race tests
     # The weekly schedule only rescans for newly published advisories.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04

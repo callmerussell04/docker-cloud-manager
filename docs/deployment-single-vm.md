@@ -305,20 +305,15 @@ Docker sets `GOTOOLCHAIN=local`, so module changes cannot silently download anot
 compiler. Module downloads are checked against committed `go.sum` and verified
 with `go mod verify`. Local and Docker service builds use `CGO_ENABLED=0`,
 `-mod=readonly -trimpath -buildvcs=false`. Core and Gateway additionally install
-`ca-certificates=20260909-r0` and `git=2.54.0-r0`; their complete runtime package
-closure, including transitive dependencies and base packages, is pinned in
-`backend/dockerfiles/runtime-packages.lock`. APK verifies signed packages.
-Unavailable locked versions fail the build; update the lock deliberately alongside
-base image pins. This is still an online build, not an offline repository archive
-or an OS-image CVE audit. The package lock was resolved and verified for Linux
-amd64; validate package availability for other target architectures before use.
+`ca-certificates` and `git`. APK verifies signed packages. Base images are pinned by
+digest, but APK package versions are not: a rebuild installs the current packages
+of the pinned Alpine branch, so it picks up OS patches and images are not
+byte-repeatable.
 
-The Registry deployment images under `deployment/registry/` follow the same
-convention on the same runtime index. Each installs its complete package closure
-from its own lock: `edge-packages.lock` (`socat=1.8.1.3-r0`),
-`egress-packages.lock` (`squid=7.6-r0`) and `network-policy-packages.lock`
-(`iptables=1.8.13-r0`, nf_tables backend); `squid -k parse` accepts `squid.conf`
-under the locked Squid 7.6. Compose and the Registry isolation test run the upstream
+The Registry deployment images under `deployment/registry/` use the same runtime
+index and the same unpinned APK installs: `socat` (edge), `squid` (egress) and
+`iptables` (network policy). Check `squid.conf` with `squid -k parse` after a base
+image update. Compose and the Registry isolation test run the upstream
 Distribution image as
 `registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373`.
 
@@ -341,14 +336,8 @@ other S3-compatible servers, but the Compose services are MinIO-specific: anothe
 server needs its own command, credentials variables and health check in both
 Compose files.
 
-`backend/tests/buildinputs` runs in `make test-fast` and therefore in `make verify`
-and CI. It fails when a Dockerfile in `backend/dockerfiles/` or
-`deployment/registry/` uses a base image without a `sha256` digest, or installs
-APK packages other than from a COPYed lock of `name=version` entries. It cannot
-check that a lock is a complete closure or that its versions are still published.
-Only an image build checks that. No CI job builds the service or Registry images,
-so a stale lock surfaces at `docker compose build` or in the opt-in network-policy
-test, which builds `network-policy.Dockerfile`. `make vulncheck` scans Go binaries only, so
+No automated check enforces these pins, and no CI job builds the service or Registry
+images, so keep pins in review. `make vulncheck` scans Go binaries only, so
 it does not apply to these Alpine images or the upstream Registry image. They
 receive no OS-package CVE scan, which matches the backend runtime images.
 

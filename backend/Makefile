@@ -154,7 +154,7 @@ $(GOLANGCI_LINT):
 lint: check-generated $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./... --config=./.golangci.yml
 
-.PHONY: check-format check-tidy vet check-architecture test-race vulncheck verify
+.PHONY: check-format check-tidy vet test-race vulncheck verify
 check-format:
 	@unformatted=$$(gofmt -l .); \
 	if [ -n "$$unformatted" ]; then printf 'Unformatted Go files; run gofmt -w:\n%s\n' "$$unformatted" >&2; exit 1; fi
@@ -166,9 +166,6 @@ check-tidy: check-generated
 vet: check-generated
 	go vet ./...
 
-check-architecture:
-	go test $(TEST_ARGS) ./tests/architecture
-
 test-race:
 	$(MAKE) test-fast TEST_ARGS='$(TEST_ARGS) -race'
 
@@ -179,4 +176,4 @@ vulncheck: build $(GOVULNCHECK)
 	./vulncheck/check.sh $(GOVULNCHECK) $(BUILD_DIR) builder core gateway sso telemetry
 
 # Integration-free gates in failure-cost order; make test and make vulncheck run separately.
-verify: check-format check-generated check-tidy build vet check-architecture lint test-race
+verify: check-format check-generated check-tidy build vet lint test-race

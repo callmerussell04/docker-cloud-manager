@@ -175,7 +175,7 @@ make vulncheck
 make lint
 ```
 
-`make verify` runs `check-format` (gofmt over all backend Go files), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `check-architecture`, `lint` and `test-race` (the fast suite under the race detector), stopping at the first failing gate. `make test` (Docker-backed integration) and `make vulncheck` (live vulnerability database) run separately. golangci-lint v2.11.4 is installed under ignored `backend/bin/tools/`.
+`make verify` runs `check-format` (gofmt over all backend Go files), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `lint` and `test-race` (the fast suite under the race detector), stopping at the first failing gate. `make test` (Docker-backed integration) and `make vulncheck` (live vulnerability database) run separately. golangci-lint v2.11.4 is installed under ignored `backend/bin/tools/`.
 
 The `Backend` GitHub Actions workflow (`.github/workflows/backend.yml`) runs `make verify`, `make test` and `make vulncheck` as separate jobs on backend pushes and pull requests; a weekly schedule reruns only `make vulncheck`. It has read-only repository permissions, pins actions by commit and protoc 34.1 by checksum, sets job timeouts and prints test service state and logs when integration tests fail before removing the services.
 

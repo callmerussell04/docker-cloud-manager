@@ -175,7 +175,7 @@ make vulncheck
 make lint
 ```
 
-`make verify` последовательно запускает `check-format` (gofmt для всех Go-файлов backend), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `check-architecture`, `lint` и `test-race` (быстрый набор с race detector) и останавливается на первой ошибке. `make test` (интеграция с Docker) и `make vulncheck` (живая база уязвимостей) запускаются отдельно. golangci-lint v2.11.4 устанавливается в игнорируемый `backend/bin/tools/`.
+`make verify` последовательно запускает `check-format` (gofmt для всех Go-файлов backend), `check-generated`, `check-tidy` (`go mod tidy -diff`), `build`, `vet`, `lint` и `test-race` (быстрый набор с race detector) и останавливается на первой ошибке. `make test` (интеграция с Docker) и `make vulncheck` (живая база уязвимостей) запускаются отдельно. golangci-lint v2.11.4 устанавливается в игнорируемый `backend/bin/tools/`.
 
 GitHub Actions workflow `Backend` (`.github/workflows/backend.yml`) запускает `make verify`, `make test` и `make vulncheck` отдельными jobs при push и pull request с изменениями backend; еженедельное расписание повторяет только `make vulncheck`. У workflow только права чтения репозитория; actions закреплены по commit, protoc 34.1 — по checksum; у jobs есть таймауты, а при сбое интеграционных тестов выводятся состояние и логи тестовых сервисов, после чего они удаляются.
 
