@@ -234,9 +234,8 @@ docker compose --env-file backend/.env up -d --build
 ├── backend/
 │   ├── api/             # OpenAPI and protobuf contracts
 │   ├── cmd/             # Service entry points
-│   ├── internal/        # Bounded contexts and Clean Architecture layers
+│   ├── internal/        # Bounded contexts and shared packages (platform)
 │   ├── migrations/      # PostgreSQL and ClickHouse migrations
-│   ├── pkg/             # Shared backend packages
 │   └── tests/           # Backend tests
 ├── frontend/
 │   └── src/             # React SPA

@@ -242,9 +242,8 @@ docker compose --env-file backend/.env up -d --build
 ├── backend/
 │   ├── api/             # OpenAPI и protobuf-контракты
 │   ├── cmd/             # Точки входа служб
-│   ├── internal/        # Ограниченные контексты и слои чистой архитектуры
+│   ├── internal/        # Ограниченные контексты и общие пакеты (platform)
 │   ├── migrations/      # Миграции PostgreSQL и ClickHouse
-│   ├── pkg/             # Общие пакеты серверной части
 │   └── tests/           # Тесты серверной части
 ├── frontend/
 │   └── src/             # React SPA
