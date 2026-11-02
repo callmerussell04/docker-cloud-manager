@@ -20,6 +20,8 @@ linters:
             - "**/internal/*/service/**"
             - "**/internal/*/model/**"
             - "**/internal/*/config/**"
+            # Tests beside a service may wire real adapters; purity binds production code.
+            - "!$test"
           deny:
             - pkg: database/sql
               desc: services and models do not use SQL directly

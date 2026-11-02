@@ -8,87 +8,87 @@ packages:
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service:
     config:
       all: true
-      dir: tests/mocks/core/service
+      dir: internal/testutil/mocks/core/service
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose:
     config:
       all: true
-      dir: tests/mocks/core/service/compose
+      dir: internal/testutil/mocks/core/service/compose
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
       all: true
-      dir: tests/mocks/core/http
+      dir: internal/testutil/mocks/core/http
       outpkg: corehttpmocks
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc:
     config:
       all: true
-      dir: tests/mocks/core/grpc
+      dir: internal/testutil/mocks/core/grpc
       outpkg: coregrpcmocks
   github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service:
     config:
       all: true
-      dir: tests/mocks/sso/service
+      dir: internal/testutil/mocks/sso/service
       outpkg: ssomocks
       mockname: "{{.InterfaceName}}"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc:
     config:
       all: true
-      dir: tests/mocks/sso/grpc
+      dir: internal/testutil/mocks/sso/grpc
       outpkg: ssogrpcmocks
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
     config:
       all: true
-      dir: tests/mocks/gateway/service
+      dir: internal/testutil/mocks/gateway/service
       outpkg: gatewayservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler:
     config:
       all: true
-      dir: tests/mocks/gateway/http/handler
+      dir: internal/testutil/mocks/gateway/http/handler
       outpkg: gatewayhandlermocks
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware:
     config:
       all: true
-      dir: tests/mocks/gateway/http/middleware
+      dir: internal/testutil/mocks/gateway/http/middleware
       outpkg: gatewaymiddlewaremocks
   github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/service:
     config:
       all: true
-      dir: tests/mocks/builder/service
+      dir: internal/testutil/mocks/builder/service
       outpkg: builderservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config:
     config:
       all: true
-      dir: tests/mocks/builder/config
+      dir: internal/testutil/mocks/builder/config
       outpkg: builderconfigmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service:
     config:
       all: true
-      dir: tests/mocks/telemetry/service
+      dir: internal/testutil/mocks/telemetry/service
       outpkg: telemetryservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http:
     config:
       all: true
-      dir: tests/mocks/telemetry/http
+      dir: internal/testutil/mocks/telemetry/http
       outpkg: telemetryhttpmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model:
     config:
       all: true
-      dir: tests/mocks/telemetry/model
+      dir: internal/testutil/mocks/telemetry/model
       outpkg: telemetrymodelmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"

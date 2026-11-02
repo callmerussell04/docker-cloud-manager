@@ -263,7 +263,7 @@ docker compose --env-file backend/.env down
 ```bash
 cd backend
 GOTOOLCHAIN=go1.26.10 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
-  go test -count=1 -timeout=5m ./tests/core/integration/registry_isolation
+  go test -count=1 -timeout=5m ./tests/integration/registry_isolation
 ```
 
 Тест создаёт собственные Registry storage, bridge и execution containers, проверяет реальные Dockerfile RUN с прочитанным job credential и удаляет свои fixtures. Он не устанавливает host firewall и не проверяет policy container; перед эксплуатацией отдельно проверьте сетевую политику из execution network.
@@ -273,7 +273,7 @@ GOTOOLCHAIN=go1.26.10 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='pos
 ```bash
 cd backend
 GOTOOLCHAIN=go1.26.10 CORE_TEST_NETWORK_POLICY=1 \
-  go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/core/integration/registry_isolation
+  go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/integration/registry_isolation
 ```
 
 ## Go toolchain and build inputs

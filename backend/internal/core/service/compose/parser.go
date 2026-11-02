@@ -51,11 +51,7 @@ func NewParser() *Parser {
 	return &Parser{}
 }
 
-// ParseAndValidate принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
-func (p *Parser) ParseAndValidate(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string) (*model.ComposeProject, error) {
-	return p.ParseAndValidateWithBase(ctx, projectName, yamlContent, reservedDomainPrefixes, "")
-}
-
+// ParseAndValidateWithBase принимает сырой YAML, проверяет его на безопасность и конвертирует в доменную модель
 func (p *Parser) ParseAndValidateWithBase(ctx context.Context, projectName string, yamlContent []byte, reservedDomainPrefixes []string, baseDir string) (*model.ComposeProject, error) {
 	return p.ParseAndValidateWithBaseAndBlocked(ctx, projectName, yamlContent, reservedDomainPrefixes, nil, baseDir)
 }

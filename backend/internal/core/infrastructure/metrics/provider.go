@@ -25,14 +25,6 @@ func (m *SystemMetrics) GetTotalMemory() (int64, error) {
 	return int64(v.Total), nil
 }
 
-func (m *SystemMetrics) GetFreeMemory() (int64, error) {
-	v, err := mem.VirtualMemory()
-	if err != nil {
-		return 0, err
-	}
-	return int64(v.Available), nil
-}
-
 func (m *SystemMetrics) GetLogicalCPUs() (int64, error) {
 	return int64(runtime.NumCPU()), nil
 }

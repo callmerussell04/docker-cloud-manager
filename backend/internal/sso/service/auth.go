@@ -233,16 +233,6 @@ func (s *AuthService) ListUsers(ctx context.Context, limit, offset int) ([]model
 	return s.repo.ListUsers(ctx, model.ListUsersOptions{Limit: limit, Offset: offset})
 }
 
-func NewAuthService(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository) *AuthService {
-	return NewAuthServiceWithConfig(repo, tokenProvider, sessions, nil, Config{
-		LocalLoginEnabled:    true,
-		LocalRegisterEnabled: true,
-		OIDCDefaultRole:      model.RoleUser,
-		OIDCProviderName:     "keycloak",
-		OIDCStateTTL:         10 * time.Minute,
-	})
-}
-
 func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository, oidcProvider OIDCProvider, cfg Config) *AuthService {
 	if sessions == nil {
 		panic("session repository is required")

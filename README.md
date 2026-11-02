@@ -184,7 +184,7 @@ GitHub Actions workflow `Backend` (`.github/workflows/backend.yml`) запуск
 Для генерации нужны Go и `protoc` 34.1 из [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) в `PATH` (либо `make PROTOC=/path/to/protoc ...`). Make устанавливает Go-плагины фиксированных версий в игнорируемый `backend/bin/tools/`; глобальная установка mockery, плагинов и gotestsum не нужна. Первый запуск требует доступа к Go module proxy.
 
 ```bash
-make generate-mocks  # mockery v2.53.6; игнорируемые tests/mocks/
+make generate-mocks  # mockery v2.53.6; игнорируемые internal/testutil/mocks/
 make generate-proto  # protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2
 make generate        # оба генератора
 make check-generated # подготовка моков и проверка protobuf без перезаписи файлов
@@ -244,7 +244,7 @@ docker compose --env-file backend/.env up -d --build
 │   ├── cmd/             # Точки входа служб
 │   ├── internal/        # Ограниченные контексты и общие пакеты (platform)
 │   ├── migrations/      # Миграции PostgreSQL и ClickHouse
-│   └── tests/           # Тесты серверной части
+│   └── tests/integration/ # Межмодульные тесты; модульные лежат рядом с кодом
 ├── frontend/
 │   └── src/             # React SPA
 ├── docs/                # Документация проекта и развёртывания

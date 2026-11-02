@@ -94,7 +94,6 @@ type ContainerDockerAPI interface {
 
 type HostMetricsProvider interface {
 	GetTotalMemory() (int64, error)
-	GetFreeMemory() (int64, error)
 	GetLogicalCPUs() (int64, error)
 }
 

@@ -184,7 +184,7 @@ Canonical Make targets select Go **1.26.10** from `backend/go.mod` via `GOTOOLCH
 Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
 
 ```bash
-make generate-mocks  # mockery v2.53.6; ignored tests/mocks/
+make generate-mocks  # mockery v2.53.6; ignored internal/testutil/mocks/
 make generate-proto  # protoc-gen-go v1.36.11, protoc-gen-go-grpc v1.6.2
 make generate        # both
 make check-generated # prepare mocks and compare protobuf output without overwriting it
@@ -236,7 +236,7 @@ docker compose --env-file backend/.env up -d --build
 │   ├── cmd/             # Service entry points
 │   ├── internal/        # Bounded contexts and shared packages (platform)
 │   ├── migrations/      # PostgreSQL and ClickHouse migrations
-│   └── tests/           # Backend tests
+│   └── tests/integration/ # Multi-module tests; unit tests sit beside their code
 ├── frontend/
 │   └── src/             # React SPA
 ├── docs/                # Project and deployment documentation
