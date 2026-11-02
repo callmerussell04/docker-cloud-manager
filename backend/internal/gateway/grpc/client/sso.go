@@ -9,8 +9,8 @@ import (
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 )
 
 type SSOClient struct {

@@ -5,8 +5,8 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 )
 
 func (c *CoreClient) CreateContainer(ctx context.Context, createContainerDTO model.CreateContainerInput) (string, error) {

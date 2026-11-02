@@ -6,7 +6,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 )
 

@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
 	"github.com/gin-gonic/gin"
 )
 

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/dto"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

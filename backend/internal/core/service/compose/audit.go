@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/google/uuid"
 )
 

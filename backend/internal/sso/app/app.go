@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
 	"google.golang.org/grpc"
 
 	authgrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"

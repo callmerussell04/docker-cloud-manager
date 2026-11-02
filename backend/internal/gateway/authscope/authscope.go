@@ -4,7 +4,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 )
 
 func FromAuthUser(user model.AuthUser, kind accessscope.Kind) (accessscope.Scope, error) {

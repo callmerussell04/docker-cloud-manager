@@ -10,9 +10,9 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/imageref"
 )
 
 type ImageRepository interface {

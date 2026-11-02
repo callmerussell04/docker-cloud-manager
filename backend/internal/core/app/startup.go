@@ -12,7 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
 )
 
 // openPostgresPools opens the query pool and the single-connection lock pool

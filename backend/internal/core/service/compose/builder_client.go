@@ -5,9 +5,9 @@ import (
 	"io"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildobjects"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildobjects"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/google/uuid"
 )
 

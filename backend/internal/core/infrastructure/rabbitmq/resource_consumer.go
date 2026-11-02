@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/resourcequeue"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/resourcequeue"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

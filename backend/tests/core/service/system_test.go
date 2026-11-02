@@ -7,7 +7,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
 	"github.com/stretchr/testify/require"
 )

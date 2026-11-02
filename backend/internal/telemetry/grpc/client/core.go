@@ -5,9 +5,9 @@ import (
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
 	"google.golang.org/grpc"
 )
 

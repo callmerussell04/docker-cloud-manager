@@ -5,7 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 )
 
 func hostMemoryPool(totalMemoryBytes, reservedSystemMemoryBytes int64, overcommitFactor float64) int64 {

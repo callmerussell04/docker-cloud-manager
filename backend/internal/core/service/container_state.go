@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/containerqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )

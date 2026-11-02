@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
 	"github.com/stretchr/testify/mock"

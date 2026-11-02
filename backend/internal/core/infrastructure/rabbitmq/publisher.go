@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/rabbitmqtopology"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/rabbitmqtopology"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

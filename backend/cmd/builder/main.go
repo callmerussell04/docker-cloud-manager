@@ -11,8 +11,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
 )
 
 func getEnvInt(key string, fallback int) int {

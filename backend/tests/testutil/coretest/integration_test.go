@@ -6,8 +6,8 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
 	"github.com/google/uuid"

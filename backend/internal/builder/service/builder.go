@@ -12,11 +12,11 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/gitsource"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/imageref"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 type FileManager interface {

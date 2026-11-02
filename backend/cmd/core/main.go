@@ -10,9 +10,9 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/app"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/objectstorage"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
 	_ "github.com/lib/pq"
 )
 

@@ -9,8 +9,8 @@ import (
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 )
 
 type CoreClient struct {

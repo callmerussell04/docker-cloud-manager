@@ -10,7 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"

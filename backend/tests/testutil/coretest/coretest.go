@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 	"github.com/google/uuid"
 )
 

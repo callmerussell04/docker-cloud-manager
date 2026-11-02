@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/archive"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/stretchr/testify/require"
 )
 

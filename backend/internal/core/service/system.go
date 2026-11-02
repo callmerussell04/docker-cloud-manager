@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 )
 
 type SystemService struct {

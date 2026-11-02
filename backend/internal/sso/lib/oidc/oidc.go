@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/golang-jwt/jwt/v5"
 )
 

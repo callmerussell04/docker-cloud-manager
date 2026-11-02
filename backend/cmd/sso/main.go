@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/app"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/pgpool"
 	_ "github.com/lib/pq"
 )
 

@@ -11,8 +11,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	compose "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

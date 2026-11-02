@@ -10,7 +10,7 @@ import (
 	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
 	grpcclient "github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"

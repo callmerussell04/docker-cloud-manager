@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	compose "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service/compose"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"

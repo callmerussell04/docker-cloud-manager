@@ -7,10 +7,10 @@ import (
 	"time"
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
 	telemetryclient "github.com/callmerussell04/docker-cloud-manager/internal/telemetry/grpc/client"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"

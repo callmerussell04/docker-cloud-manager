@@ -15,7 +15,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 // RegistryConfig is bootstrap-only. The TLS edge has no Core control API routes.

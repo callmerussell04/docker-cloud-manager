@@ -7,8 +7,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
 	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"

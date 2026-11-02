@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 )
 
 const (

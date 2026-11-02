@@ -5,7 +5,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/authscope"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

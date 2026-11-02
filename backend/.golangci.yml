@@ -35,83 +35,91 @@ linters:
               desc: services and models do not use protobuf
             - pkg: github.com/callmerussell04/docker-cloud-manager/api
               desc: services and models do not use generated contracts
-            - pkg: github.com/callmerussell04/docker-cloud-manager/pkg/httpresponse
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/platform/httpresponse
               desc: transport mapping belongs to transports
-            - pkg: github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors
               desc: transport mapping belongs to transports
-            - pkg: github.com/callmerussell04/docker-cloud-manager/pkg/pgpool
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool
               desc: database pools belong to the composition root
-        shared-libraries:
+        platform:
           files:
-            - "**/pkg/**"
+            - "**/internal/platform/**"
           deny:
-            - pkg: github.com/callmerussell04/docker-cloud-manager/internal
-              desc: shared packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/builder
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/core
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/gateway
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/sso
+              desc: platform packages do not import bounded contexts
+            - pkg: github.com/callmerussell04/docker-cloud-manager/internal/telemetry
+              desc: platform packages do not import bounded contexts
         builder-context:
           files:
             - "**/internal/builder/**"
             - "**/cmd/builder/**"
           deny:
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/core
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/gateway
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/sso
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/telemetry
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
         core-context:
           files:
             - "**/internal/core/**"
             - "**/cmd/core/**"
           deny:
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/builder
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/gateway
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/sso
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/telemetry
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
         gateway-context:
           files:
             - "**/internal/gateway/**"
             - "**/cmd/gateway/**"
           deny:
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/builder
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/core
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/sso
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/telemetry
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
         sso-context:
           files:
             - "**/internal/sso/**"
             - "**/cmd/sso/**"
           deny:
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/builder
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/core
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/gateway
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/telemetry
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
         telemetry-context:
           files:
             - "**/internal/telemetry/**"
             - "**/cmd/telemetry/**"
           deny:
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/builder
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/core
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/gateway
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/internal/sso
-              desc: contexts share code only through pkg, internalauth and api
+              desc: contexts share code only through internal/platform and api
     errcheck:
       # Non-actionable database/sql cleanup: Rows.Close after iteration reports its
       # failure through Rows.Err, and Tx.Rollback after Commit returns ErrTxDone.

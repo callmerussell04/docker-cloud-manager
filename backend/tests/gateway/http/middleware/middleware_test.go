@@ -10,8 +10,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	gatewaymiddlewaremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/gateway/http/middleware"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

@@ -7,10 +7,10 @@ import (
 	"time"
 
 	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
 	ssoservice "github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
 	ssogrpcmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/sso/grpc"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"

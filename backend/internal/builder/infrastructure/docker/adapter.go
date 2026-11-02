@@ -24,7 +24,7 @@ import (
 	"github.com/moby/go-archive"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 )
 
 const buildNetworkPolicyUnavailableMessage = "build network policy is unavailable"

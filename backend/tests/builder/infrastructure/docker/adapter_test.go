@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	builderdocker "github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 )
 
 const (

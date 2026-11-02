@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	corehttpmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/http"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

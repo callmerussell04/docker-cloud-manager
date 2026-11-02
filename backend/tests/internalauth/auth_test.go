@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"

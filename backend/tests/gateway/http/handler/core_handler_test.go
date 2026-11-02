@@ -10,8 +10,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/gateway/http/handler"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"

@@ -6,8 +6,8 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"

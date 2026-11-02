@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/pkg/validation"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/validation"
 )
 
 func ValidateSystemConfig(cfg SystemConfig) error {

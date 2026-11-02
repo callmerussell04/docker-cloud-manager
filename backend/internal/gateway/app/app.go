@@ -27,8 +27,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
 )
 
 type App struct {

@@ -14,7 +14,7 @@ import (
 	gatewayclient "github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	gatewayservice "github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/jwt"
 	"github.com/callmerussell04/docker-cloud-manager/internal/sso/repository"

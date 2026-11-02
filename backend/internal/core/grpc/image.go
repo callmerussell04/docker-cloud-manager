@@ -10,7 +10,7 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
 )
 
 type ImageLogic interface {

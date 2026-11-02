@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"

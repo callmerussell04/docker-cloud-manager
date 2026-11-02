@@ -10,9 +10,9 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/logging"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/permissions"
 )
 
 type Config struct {

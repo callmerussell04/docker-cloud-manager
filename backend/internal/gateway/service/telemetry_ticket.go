@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/pkg/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
 )
 
 type TelemetryTicketStore struct {
