@@ -241,6 +241,8 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
     networks:
+      # Docker publishes no ports for a container on internal networks only.
+      registry_publish_net: {}
       registry_front_net: {}
       build_net:
         ipv4_address: 172.30.252.2
@@ -593,6 +595,7 @@ networks:
     name: proxy_net
   dcm_net:
     name: dcm_net
+  registry_publish_net: {}
   registry_front_net:
     internal: true
   registry_net:
