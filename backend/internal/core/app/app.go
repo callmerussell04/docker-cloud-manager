@@ -14,11 +14,13 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/clickhouse"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -41,9 +43,9 @@ type App struct {
 	dockerCli         *docker.Adapter
 	orchestrator      *compose.Orchestrator
 	outboxPublisher   service.OutboxPublisher
-	composeConsumer   *rabbitmq.ComposeConsumer
-	containerConsumer *rabbitmq.ContainerConsumer
-	resourceConsumer  *rabbitmq.ResourceConsumer
+	composeConsumer   *platformrabbitmq.Consumer[queue.DeploymentMessage]
+	containerConsumer *platformrabbitmq.Consumer[queue.ContainerLifecycleMessage]
+	resourceConsumer  *platformrabbitmq.Consumer[queue.ResourceLifecycleMessage]
 	ssoConn           *grpc.ClientConn
 	port              int
 	ctx               context.Context
@@ -204,9 +206,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
 	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
-	composeConsumer := rabbitmq.NewComposeConsumer(cfg.RabbitMQURL, "core", logger)
-	containerConsumer := rabbitmq.NewContainerConsumer(cfg.RabbitMQURL, "core", logger)
-	resourceConsumer := rabbitmq.NewResourceConsumer(cfg.RabbitMQURL, "core", logger)
+	composeConsumer := platformrabbitmq.NewConsumer(rabbitmq.ComposeConsumerConfig(cfg.RabbitMQURL, "core", logger))
+	containerConsumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", logger))
+	resourceConsumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", logger))
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),

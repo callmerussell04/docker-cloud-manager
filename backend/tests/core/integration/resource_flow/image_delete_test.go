@@ -13,10 +13,10 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/registry"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/google/uuid"
@@ -96,7 +96,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
 			require.NoError(t, err)
 			require.Len(t, outbox, 1)
-			var message resourcequeue.LifecycleMessage
+			var message queue.ResourceLifecycleMessage
 			require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
 			require.Equal(t, ownerID.String(), message.OwnerID)
 			require.NoError(t, lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
@@ -368,20 +368,20 @@ func (f *fencedImageDeletion) finishBuild(t *testing.T, buildID uuid.UUID) {
 	require.NoError(t, err)
 }
 
-func (f *fencedImageDeletion) queueDelete(t *testing.T) resourcequeue.LifecycleMessage {
+func (f *fencedImageDeletion) queueDelete(t *testing.T) queue.ResourceLifecycleMessage {
 	t.Helper()
 	ctx := context.Background()
 	require.NoError(t, f.images.Delete(coretest.UserContext(f.ownerID), f.imageID))
 	outbox, err := f.lifecycle.LeasePendingResourceOutbox(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, outbox, 1)
-	var message resourcequeue.LifecycleMessage
+	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
 	require.NoError(t, f.lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
 	return message
 }
 
-func (f *fencedImageDeletion) requireDeleted(t *testing.T, message resourcequeue.LifecycleMessage, attempts int) {
+func (f *fencedImageDeletion) requireDeleted(t *testing.T, message queue.ResourceLifecycleMessage, attempts int) {
 	t.Helper()
 	_, err := f.repos.Images.GetByID(context.Background(), f.imageID)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
@@ -440,7 +440,7 @@ func TestStalledRegistryReleasesAdmissionAfterLockBudget(t *testing.T) {
 	outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, outbox, 1)
-	var message resourcequeue.LifecycleMessage
+	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
 	worker := service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
 	deleted := make(chan error, 1)

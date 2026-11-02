@@ -11,11 +11,11 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	. "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -340,7 +340,7 @@ func TestContainerServiceQueuedStartSetsTTLDeadline(t *testing.T) {
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
 
-	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
 	require.NoError(t, err)
 	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
 	require.NotNil(t, repo.updatedTTLDeadline)
@@ -369,7 +369,7 @@ func TestContainerServiceQueuedStartClearsTTLDeadlineWhenDisabled(t *testing.T) 
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
 
-	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
 	require.NoError(t, err)
 	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
 	require.Nil(t, repo.updatedTTLDeadline)
@@ -403,7 +403,7 @@ func TestContainerServiceQueuedLifecycleReturnsOperationStatusWriteFailure(t *te
 			cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 			dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(tt.startErr)
 
-			err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerqueueMessage(operationID, containerID, ownerID, model.OperationStart))
+			err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
 			for _, want := range tt.wantErrors {
 				require.ErrorIs(t, err, want)
 			}
@@ -806,8 +806,8 @@ func (r *startLifecycleRepoMock) GetMountsByContainerID(ctx context.Context, con
 	return nil, nil
 }
 
-func containerqueueMessage(operationID, containerID, ownerID uuid.UUID, operation string) containerqueue.LifecycleMessage {
-	return containerqueue.LifecycleMessage{
+func containerLifecycleMessage(operationID, containerID, ownerID uuid.UUID, operation string) queue.ContainerLifecycleMessage {
+	return queue.ContainerLifecycleMessage{
 		OperationID:    operationID.String(),
 		ContainerID:    containerID.String(),
 		OwnerID:        ownerID.String(),

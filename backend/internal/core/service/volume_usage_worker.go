@@ -12,8 +12,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
 )
@@ -256,7 +256,7 @@ func (w *VolumeUsageWorker) queueStop(ctx context.Context, c model.Container) er
 		Operation:    model.OperationStop,
 		Status:       model.OperationStatusPending,
 	}
-	msg := containerqueue.LifecycleMessage{
+	msg := queue.ContainerLifecycleMessage{
 		OperationID:    op.ID.String(),
 		ContainerID:    c.ID.String(),
 		OwnerID:        c.OwnerID.String(),
@@ -273,8 +273,8 @@ func (w *VolumeUsageWorker) queueStop(ctx context.Context, c model.Container) er
 		ID:          uuid.New(),
 		OperationID: op.ID,
 		ContainerID: c.ID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
+		Exchange:    queue.ContainerExchangeName,
+		RoutingKey:  queue.ContainerRoutingKey,
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}

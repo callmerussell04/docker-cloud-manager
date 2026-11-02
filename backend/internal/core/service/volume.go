@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -411,7 +411,7 @@ func resourceOperationOutbox(ctx context.Context, resourceType string, resourceI
 		Operation:    operation,
 		Status:       model.OperationStatusPending,
 	}
-	msg := resourcequeue.LifecycleMessage{
+	msg := queue.ResourceLifecycleMessage{
 		OperationID:  op.ID.String(),
 		ResourceID:   resourceID.String(),
 		ResourceType: resourceType,
@@ -429,8 +429,8 @@ func resourceOperationOutbox(ctx context.Context, resourceType string, resourceI
 		OperationID:  op.ID,
 		ResourceType: resourceType,
 		ResourceID:   resourceID,
-		Exchange:     resourcequeue.ExchangeName,
-		RoutingKey:   resourcequeue.RoutingKey,
+		Exchange:     queue.ResourceExchangeName,
+		RoutingKey:   queue.ResourceRoutingKey,
 		Payload:      payload,
 		Status:       model.ResourceOutboxStatusPending,
 	}, nil

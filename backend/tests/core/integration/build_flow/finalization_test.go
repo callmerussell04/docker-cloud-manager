@@ -23,7 +23,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	builderservicemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/builder/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/google/uuid"
@@ -71,7 +71,7 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			ch, err := conn.Channel()
 			require.NoError(t, err)
 			defer func() { _ = ch.Close() }() // test teardown; closing the connection already releases it
-			require.NoError(t, rabbitmqtopology.DeclareBuild(ch))
+			require.NoError(t, platformrabbitmq.Declare(ch, buildqueue.Queue))
 			_, err = ch.QueuePurge(buildqueue.QueueName, false)
 			require.NoError(t, err)
 			_, err = ch.QueuePurge(buildqueue.DLQName, false)
@@ -112,7 +112,7 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			done := make(chan error, 1)
 			retry := make(chan struct{})
 			var deliveries atomic.Int32
-			consumer := builderrabbit.NewConsumer(url, uuid.NewString(), coretest.DiscardLogger())
+			consumer := platformrabbitmq.NewConsumer(builderrabbit.BuildConsumerConfig(url, uuid.NewString(), coretest.DiscardLogger()))
 			consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 				attempt := deliveries.Add(1)
 				if attempt > 1 {

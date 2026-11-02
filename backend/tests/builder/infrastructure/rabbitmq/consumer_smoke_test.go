@@ -11,7 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +26,7 @@ func TestConsumerAcksValidBuildMessageSmoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	handled := make(chan buildqueue.ImageBuildMessage, 1)
-	consumer := rabbitmq.NewConsumer(url, "test-ack", slog.Default())
+	consumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-ack", slog.Default()))
 	consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 		handled <- msg
 		return nil
@@ -60,7 +60,7 @@ func TestConsumerDoesNotRequeuePermanentErrorsSmoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	handled := make(chan struct{}, 1)
-	consumer := rabbitmq.NewConsumer(url, "test-nack", slog.Default())
+	consumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-nack", slog.Default()))
 	consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 		handled <- struct{}{}
 		return apperrors.ErrBadRequest
@@ -91,7 +91,7 @@ func openBuildQueueChannel(t *testing.T, url string) *amqp.Channel {
 	ch, err := conn.Channel()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ch.Close() })
-	require.NoError(t, rabbitmqtopology.DeclareBuild(ch))
+	require.NoError(t, platformrabbitmq.Declare(ch, buildqueue.Queue))
 	return ch
 }
 

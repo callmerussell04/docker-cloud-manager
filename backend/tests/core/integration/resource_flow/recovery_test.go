@@ -6,16 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"testing"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	cerrdefs "github.com/containerd/errdefs"
@@ -126,7 +126,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 					outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
 					require.NoError(t, err)
 					require.Len(t, outbox, 1)
-					var msg resourcequeue.LifecycleMessage
+					var msg queue.ResourceLifecycleMessage
 					require.NoError(t, json.Unmarshal(outbox[0].Payload, &msg))
 					require.NoError(t, lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
 					require.PanicsWithValue(t, "core stopped", func() { _ = worker.HandleMessage(ctx, msg) })
@@ -270,7 +270,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 					docker.EXPECT().CreateVolume(mock.Anything, mock.Anything).Return("stable-volume", nil).Once()
 					volumes = newRecoveryVolumeService(t, repos, docker, cfg, lifecycle)
 				}
-				var msg resourcequeue.LifecycleMessage
+				var msg queue.ResourceLifecycleMessage
 				require.NoError(t, json.Unmarshal(outbox[0].Payload, &msg))
 				worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
 				require.NoError(t, worker.HandleMessage(ctx, msg))
@@ -377,17 +377,17 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			ch, err := conn.Channel()
 			require.NoError(t, err)
 			defer func() { _ = ch.Close() }() // test teardown; closing the connection already releases it
-			require.NoError(t, rabbitmqtopology.DeclareResource(ch))
-			for _, queue := range []string{resourcequeue.QueueName, resourcequeue.DLQName} {
-				_, err := ch.QueuePurge(queue, false)
+			require.NoError(t, platformrabbitmq.Declare(ch, queue.Resource))
+			for _, name := range []string{queue.ResourceQueueName, queue.ResourceDLQName} {
+				_, err := ch.QueuePurge(name, false)
 				require.NoError(t, err)
 			}
 			publisher := rabbitmq.NewPublisher(url)
 			defer func() { _ = publisher.Close() }() // test teardown; the publisher is reconnect-safe and nothing is pending
 			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
-			consumer := rabbitmq.NewResourceConsumer(url, "recovery-test", coretest.DiscardLogger())
+			consumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(url, "recovery-test", coretest.DiscardLogger()))
 			results := make(chan error, 10)
-			consumer.Run(ctx, 1, func(ctx context.Context, msg resourcequeue.LifecycleMessage) error {
+			consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ResourceLifecycleMessage) error {
 				err := worker.HandleMessage(ctx, msg)
 				select {
 				case results <- err:
@@ -431,10 +431,10 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				t.Fatal("duplicate delivery did not finish")
 			}
 			stop()
-			for _, queue := range []string{resourcequeue.QueueName, resourcequeue.DLQName} {
+			for _, name := range []string{queue.ResourceQueueName, queue.ResourceDLQName} {
 				// Consumer shutdown closes the channel, returning any unacknowledged work.
 				require.Eventually(t, func() bool {
-					info, err := ch.QueueDeclarePassive(queue, true, false, false, false, nil)
+					info, err := ch.QueueDeclarePassive(name, true, false, false, false, nil)
 					return err == nil && info.Messages == 0 && info.Consumers == 0
 				}, 3*time.Second, 20*time.Millisecond, "no unacknowledged or dead-lettered work remains")
 			}

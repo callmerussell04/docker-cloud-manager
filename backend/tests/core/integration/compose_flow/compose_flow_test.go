@@ -14,10 +14,10 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
@@ -53,7 +53,7 @@ func TestComposeUploadPersistsDurableJobAndPlan(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, activeBytes)
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, composequeue.DeploymentMessage{
+	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{
 		JobID:     job.ID.String(),
 		ProjectID: projectID.String(),
 		OwnerID:   ownerID.String(),
@@ -144,7 +144,7 @@ func TestComposeUploadWithBuildCreatesProjectBuildJob(t *testing.T) {
 	job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
 	require.NoError(t, err)
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, composequeue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
+	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
 
 	builds, err := repos.Builds.GetByProjectID(ctx, projectID)
 	require.NoError(t, err)
@@ -175,7 +175,7 @@ func TestComposeCancelBeforeWorkerStartReleasesSource(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, repos.Projects.RequestComposeDeploymentCancel(ctx, projectID))
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, composequeue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
+	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
 
 	job, err = repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
 	require.NoError(t, err)
@@ -427,7 +427,7 @@ func mustComposeOutbox(t *testing.T, db *sql.DB) []composeOutboxRow {
 	for rows.Next() {
 		var row composeOutboxRow
 		require.NoError(t, rows.Scan(&row.Payload))
-		var msg composequeue.DeploymentMessage
+		var msg queue.DeploymentMessage
 		require.NoError(t, json.Unmarshal(row.Payload, &msg))
 		out = append(out, row)
 	}

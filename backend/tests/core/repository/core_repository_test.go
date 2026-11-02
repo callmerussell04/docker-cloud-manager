@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -166,8 +166,8 @@ func TestProjectRepositoryCreateComposeDeploymentAndCancel(t *testing.T) {
 		model.ComposeDeploymentOutbox{
 			ID:         uuid.New(),
 			JobID:      jobID,
-			Exchange:   composequeue.ExchangeName,
-			RoutingKey: composequeue.RoutingKey,
+			Exchange:   queue.ComposeExchangeName,
+			RoutingKey: queue.ComposeRoutingKey,
 			Payload:    []byte(`{"job_id":"` + jobID.String() + `"}`),
 		},
 	)
@@ -205,7 +205,7 @@ func TestProjectRepositoryRecoverLeavesDurableComposeStageRunning(t *testing.T) 
 			SourceObjectKey: "compose-sources/demo.zip",
 			Status:          model.ComposeDeploymentStatusQueued,
 		},
-		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: composequeue.ExchangeName, RoutingKey: composequeue.RoutingKey, Payload: []byte(`{}`)},
+		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)},
 	)
 	require.NoError(t, err)
 	_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
@@ -242,7 +242,7 @@ func TestProjectRepositoryRecoverStageEmptyKeepsOriginalError(t *testing.T) {
 			SourceType:      model.ComposeSourceTypeUpload,
 			SourceObjectKey: "compose-sources/demo.zip",
 		},
-		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: composequeue.ExchangeName, RoutingKey: composequeue.RoutingKey, Payload: []byte(`{}`)},
+		model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)},
 	)
 	require.NoError(t, err)
 	_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)

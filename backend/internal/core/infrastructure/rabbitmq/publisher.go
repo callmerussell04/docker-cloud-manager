@@ -6,7 +6,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -165,5 +167,5 @@ func (p *Publisher) resetLocked() error {
 }
 
 func declareTopology(ch *amqp.Channel) error {
-	return rabbitmqtopology.DeclareAll(ch)
+	return platformrabbitmq.Declare(ch, buildqueue.Queue, queue.Compose, queue.Container, queue.Resource)
 }

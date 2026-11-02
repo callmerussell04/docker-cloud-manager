@@ -3,18 +3,16 @@ package rabbitmq_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -42,97 +40,6 @@ func TestRabbitMQPublisherDeclaresTopologyAndPublishes(t *testing.T) {
 	require.JSONEq(t, string(payload), string(msg.Body))
 }
 
-func TestRabbitMQComposeConsumerAckAndPermanentNack(t *testing.T) {
-	url := coretest.RabbitMQURLFromEnv(t)
-	declareTopology(t, url)
-	ch := openChannel(t, url)
-	purgeQueues(t, ch)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	consumer := rabbitmq.NewComposeConsumer(url, "test-"+uuid.NewString()[:8], coretest.DiscardLogger())
-	handled := make(chan composequeue.DeploymentMessage, 2)
-	consumer.Run(ctx, 1, func(ctx context.Context, msg composequeue.DeploymentMessage) error {
-		handled <- msg
-		if msg.ProjectID == "permanent" {
-			return apperrors.ErrBadRequest
-		}
-		return nil
-	})
-	t.Cleanup(func() {
-		cancel()
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = consumer.Stop(stopCtx)
-		stopCancel()
-	})
-
-	publishRaw(t, ch, composequeue.ExchangeName, composequeue.RoutingKey, mustJSON(t, composequeue.DeploymentMessage{JobID: uuid.NewString(), ProjectID: uuid.NewString()}))
-	require.Eventually(t, func() bool {
-		return len(handled) == 1
-	}, 5*time.Second, 50*time.Millisecond)
-	requireQueueEmpty(t, ch, composequeue.QueueName)
-
-	publishRaw(t, ch, composequeue.ExchangeName, composequeue.RoutingKey, mustJSON(t, composequeue.DeploymentMessage{JobID: uuid.NewString(), ProjectID: "permanent"}))
-	require.Eventually(t, func() bool {
-		return len(handled) == 2
-	}, 5*time.Second, 50*time.Millisecond)
-	requireQueueEmpty(t, ch, composequeue.QueueName)
-	requireDeadLetter(t, ch, composequeue.DLQName, "permanent")
-
-	publishRaw(t, ch, composequeue.ExchangeName, composequeue.RoutingKey, []byte(`not-json`))
-	require.Never(t, func() bool {
-		return len(handled) > 2
-	}, 300*time.Millisecond, 50*time.Millisecond)
-	requireQueueEmpty(t, ch, composequeue.QueueName)
-	requireDeadLetter(t, ch, composequeue.DLQName, "not-json")
-}
-
-func TestRabbitMQComposeConsumerRequeuesTransientFailureAndStops(t *testing.T) {
-	url := coretest.RabbitMQURLFromEnv(t)
-	declareTopology(t, url)
-	ch := openChannel(t, url)
-	purgeQueues(t, ch)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	consumer := rabbitmq.NewComposeConsumer(url, "test-"+uuid.NewString()[:8], coretest.DiscardLogger())
-	t.Cleanup(func() {
-		cancel()
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer stopCancel()
-		require.NoError(t, consumer.Stop(stopCtx))
-	})
-
-	var attempts atomic.Int32
-	retried := make(chan composequeue.DeploymentMessage, 1)
-	consumer.Run(ctx, 1, func(ctx context.Context, msg composequeue.DeploymentMessage) error {
-		if attempts.Add(1) == 1 {
-			return errors.New("temporary downstream failure")
-		}
-		retried <- msg
-		return nil
-	})
-	msg := composequeue.DeploymentMessage{JobID: uuid.NewString(), ProjectID: uuid.NewString()}
-	publishRaw(t, ch, composequeue.ExchangeName, composequeue.RoutingKey, mustJSON(t, msg))
-	select {
-	case got := <-retried:
-		require.Equal(t, msg, got)
-	case <-time.After(5 * time.Second):
-		t.Fatal("transient failure was not redelivered")
-	}
-
-	// Closing the consumer connection waits for its preceding ACK to reach the broker.
-	cancel()
-	stopCtx, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer stopCancel()
-	require.NoError(t, consumer.Stop(stopCtx))
-	require.EqualValues(t, 2, attempts.Load())
-	_, ok, err := ch.Get(composequeue.QueueName, true)
-	require.NoError(t, err)
-	require.False(t, ok, "successful redelivery must be acknowledged")
-	_, ok, err = ch.Get(composequeue.DLQName, true)
-	require.NoError(t, err)
-	require.False(t, ok, "transient errors must not be dead-lettered")
-}
-
 func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	url := coretest.RabbitMQURLFromEnv(t)
 	declareTopology(t, url)
@@ -140,9 +47,9 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	purgeQueues(t, ch)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	consumer := rabbitmq.NewContainerConsumer(url, "test-"+uuid.NewString()[:8], coretest.DiscardLogger())
-	handled := make(chan containerqueue.LifecycleMessage, 1)
-	consumer.Run(ctx, 1, func(ctx context.Context, msg containerqueue.LifecycleMessage) error {
+	consumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(url, "test-"+uuid.NewString()[:8], coretest.DiscardLogger()))
+	handled := make(chan queue.ContainerLifecycleMessage, 1)
+	consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ContainerLifecycleMessage) error {
 		handled <- msg
 		return apperrors.ErrConflict
 	})
@@ -153,7 +60,7 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 		stopCancel()
 	})
 
-	publishRaw(t, ch, containerqueue.ExchangeName, containerqueue.RoutingKey, mustJSON(t, containerqueue.LifecycleMessage{
+	publishRaw(t, ch, queue.ContainerExchangeName, queue.ContainerRoutingKey, mustJSON(t, queue.ContainerLifecycleMessage{
 		OperationID: uuid.NewString(),
 		ContainerID: uuid.NewString(),
 		OwnerID:     uuid.NewString(),
@@ -162,7 +69,7 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(handled) == 1
 	}, 5*time.Second, 50*time.Millisecond)
-	requireQueueEmpty(t, ch, containerqueue.QueueName)
+	requireQueueEmpty(t, ch, queue.ContainerQueueName)
 }
 
 func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
@@ -227,29 +134,13 @@ func openChannel(t *testing.T, url string) *amqp.Channel {
 
 func purgeQueues(t *testing.T, ch *amqp.Channel) {
 	t.Helper()
-	for _, queue := range []string{
+	for _, name := range []string{
 		buildqueue.QueueName, buildqueue.DLQName,
-		composequeue.QueueName, composequeue.DLQName,
-		containerqueue.QueueName, containerqueue.DLQName,
+		queue.ComposeQueueName, queue.ComposeDLQName,
+		queue.ContainerQueueName, queue.ContainerDLQName,
 	} {
-		_, _ = ch.QueuePurge(queue, false)
+		_, _ = ch.QueuePurge(name, false)
 	}
-}
-
-func requireDeadLetter(t *testing.T, ch *amqp.Channel, queue, bodyFragment string) {
-	t.Helper()
-	var delivery amqp.Delivery
-	require.Eventually(t, func() bool {
-		msg, ok, err := ch.Get(queue, true)
-		if err != nil || !ok {
-			return false
-		}
-		delivery = msg
-		return true
-	}, 5*time.Second, 50*time.Millisecond)
-	require.Contains(t, string(delivery.Body), bodyFragment)
-	require.Equal(t, "application/json", delivery.ContentType)
-	require.Equal(t, uint8(amqp.Persistent), delivery.DeliveryMode)
 }
 
 func declareTopology(t *testing.T, url string) {
@@ -272,10 +163,10 @@ func publishRaw(t *testing.T, ch *amqp.Channel, exchange, routingKey string, bod
 	}))
 }
 
-func requireQueueEmpty(t *testing.T, ch *amqp.Channel, queue string) {
+func requireQueueEmpty(t *testing.T, ch *amqp.Channel, name string) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		msg, ok, err := ch.Get(queue, false)
+		msg, ok, err := ch.Get(name, false)
 		if err != nil {
 			return false
 		}

@@ -13,9 +13,11 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/storage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -24,7 +26,7 @@ type App struct {
 	coreConn       *grpc.ClientConn
 	dockerAdapter  *docker.Adapter
 	builderService *service.BuilderService
-	queueConsumer  *rabbitmq.Consumer
+	queueConsumer  *platformrabbitmq.Consumer[buildqueue.ImageBuildMessage]
 	ctx            context.Context
 	cancel         context.CancelFunc
 	workerCount    int
@@ -104,7 +106,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("failed to create builder service: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	queueConsumer := rabbitmq.NewConsumer(cfg.RabbitMQURL, cfg.InstanceID, logger)
+	queueConsumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(cfg.RabbitMQURL, cfg.InstanceID, logger))
 
 	return &App{
 		coreConn:       coreConn,

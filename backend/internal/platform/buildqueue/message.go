@@ -1,5 +1,7 @@
 package buildqueue
 
+import "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
+
 const (
 	ExchangeName = "dcm.builds"
 	QueueName    = "dcm.builds.image"
@@ -8,6 +10,17 @@ const (
 	DLQName      = "dcm.builds.image.dlq"
 	DLQKey       = "build.image.dead"
 )
+
+// Queue describes the build queue that Core publishes to and Builder consumes.
+var Queue = rabbitmq.Queue{
+	Label:      "build",
+	Exchange:   ExchangeName,
+	Name:       QueueName,
+	RoutingKey: RoutingKey,
+	DLX:        DLXName,
+	DLQ:        DLQName,
+	DLQKey:     DLQKey,
+}
 
 type ImageBuildMessage struct {
 	BuildID          string            `json:"build_id"`

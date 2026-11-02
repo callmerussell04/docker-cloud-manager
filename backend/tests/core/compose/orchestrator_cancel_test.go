@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service/compose"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -85,7 +85,7 @@ func TestHandleDeploymentMessageReturnsFailedCancellationWrites(t *testing.T) {
 			repo.EXPECT().CompleteComposeDeploymentJob(mock.Anything, job.ID, model.ComposeDeploymentStatusCanceled, mock.Anything).Return(tt.jobErr)
 			repo.EXPECT().UpdateStatus(mock.Anything, job.ProjectID, model.ProjectStatusCanceled, mock.Anything).Return(tt.projectErr)
 
-			err := o.HandleDeploymentMessage(context.Background(), composequeue.DeploymentMessage{JobID: job.ID.String()})
+			err := o.HandleDeploymentMessage(context.Background(), queue.DeploymentMessage{JobID: job.ID.String()})
 			if tt.jobErr == nil && tt.projectErr == nil {
 				require.NoError(t, err)
 				return

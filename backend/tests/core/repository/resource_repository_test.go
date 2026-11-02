@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
@@ -71,7 +71,7 @@ func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	operationID := uuid.New()
-	payload, err := json.Marshal(containerqueue.LifecycleMessage{
+	payload, err := json.Marshal(queue.ContainerLifecycleMessage{
 		OperationID: operationID.String(),
 		ContainerID: containerID.String(),
 		OwnerID:     ownerID.String(),
@@ -100,8 +100,8 @@ func TestContainerRepositoryQueuedCreateOutboxAndClaim(t *testing.T) {
 		ID:          uuid.New(),
 		OperationID: operationID,
 		ContainerID: containerID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
+		Exchange:    queue.ContainerExchangeName,
+		RoutingKey:  queue.ContainerRoutingKey,
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}, false, false))

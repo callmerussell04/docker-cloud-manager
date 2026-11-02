@@ -6,9 +6,9 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +34,7 @@ func NewResourceLifecycleWorker(volumes ResourceVolumeExecutor, images ResourceI
 	}
 }
 
-func (w *ResourceLifecycleWorker) HandleMessage(ctx context.Context, msg resourcequeue.LifecycleMessage) error {
+func (w *ResourceLifecycleWorker) HandleMessage(ctx context.Context, msg queue.ResourceLifecycleMessage) error {
 	operationID, err := uuid.Parse(msg.OperationID)
 	if err != nil {
 		return apperrors.New(apperrors.ErrBadRequest, "invalid resource operation id")

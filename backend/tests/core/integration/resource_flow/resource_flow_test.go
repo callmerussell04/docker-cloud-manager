@@ -8,12 +8,11 @@ import (
 
 	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
@@ -103,7 +102,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 
 	var payload []byte
 	require.NoError(t, repos.DB.QueryRowContext(ctx, `SELECT payload FROM resource_lifecycle_queue_outbox`).Scan(&payload))
-	var message resourcequeue.LifecycleMessage
+	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(payload, &message))
 	require.Equal(t, volumeID.String(), message.ResourceID)
 	require.Equal(t, ownerID.String(), message.OwnerID)
@@ -265,16 +264,16 @@ func mustResourceOperations(t *testing.T, db *sql.DB) []operationRow {
 	return out
 }
 
-func mustContainerOutbox(t *testing.T, db *sql.DB) []containerqueue.LifecycleMessage {
+func mustContainerOutbox(t *testing.T, db *sql.DB) []queue.ContainerLifecycleMessage {
 	t.Helper()
 	rows, err := db.Query(`SELECT payload FROM container_lifecycle_queue_outbox ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
-	var messages []containerqueue.LifecycleMessage
+	var messages []queue.ContainerLifecycleMessage
 	for rows.Next() {
 		var payload []byte
 		require.NoError(t, rows.Scan(&payload))
-		var msg containerqueue.LifecycleMessage
+		var msg queue.ContainerLifecycleMessage
 		require.NoError(t, json.Unmarshal(payload, &msg))
 		messages = append(messages, msg)
 	}

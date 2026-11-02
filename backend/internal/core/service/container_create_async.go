@@ -11,8 +11,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
@@ -34,7 +34,7 @@ type containerCreateWorkerRepository interface {
 }
 
 type ContainerLifecycleConsumer interface {
-	Run(ctx context.Context, workers int, handler func(context.Context, containerqueue.LifecycleMessage) error)
+	Run(ctx context.Context, workers int, handler func(context.Context, queue.ContainerLifecycleMessage) error)
 	Stop(ctx context.Context) error
 }
 
@@ -56,7 +56,7 @@ func NewContainerCreateWorker(service *ContainerService, cfg ContainerCreateConf
 	}
 }
 
-func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg containerqueue.LifecycleMessage) error {
+func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg queue.ContainerLifecycleMessage) error {
 	operationID, err := uuid.Parse(msg.OperationID)
 	if err != nil {
 		return apperrors.New(apperrors.ErrBadRequest, "invalid container operation id")
@@ -71,7 +71,7 @@ func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg container
 	return w.service.ExecuteQueuedContainerOperation(runCtx, operationID, containerID, msg)
 }
 
-func (s *ContainerService) ExecuteQueuedContainerOperation(ctx context.Context, operationID, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) ExecuteQueuedContainerOperation(ctx context.Context, operationID, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
 	repo := s.repo
 	op, err := repo.GetOperationByID(ctx, operationID)
 	if err != nil {
@@ -243,7 +243,7 @@ func (s *ContainerService) ExecuteQueuedCreate(ctx context.Context, operationID,
 	return nil
 }
 
-func (s *ContainerService) executeQueuedLifecycle(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) executeQueuedLifecycle(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
 	cfg := s.config.Get()
 	claimedOp, claimed, err := repo.ClaimPendingOperation(ctx, op.ID, cfg.ContainerCreateMaxAttempts)
 	if err != nil {
@@ -277,7 +277,7 @@ func (s *ContainerService) executeQueuedLifecycle(ctx context.Context, repo cont
 	}
 }
 
-func (s *ContainerService) executeQueuedStart(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) executeQueuedStart(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
 	c, err := repo.GetByID(ctx, containerID)
 	if err != nil {
 		return errors.Join(err, s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusFailed, err))
@@ -318,7 +318,7 @@ func (s *ContainerService) executeQueuedStart(ctx context.Context, repo containe
 	return completeErr
 }
 
-func (s *ContainerService) executeQueuedStop(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) executeQueuedStop(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
 	c, err := repo.GetByID(ctx, containerID)
 	if err != nil {
 		return errors.Join(err, s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusFailed, err))
@@ -354,7 +354,7 @@ func (s *ContainerService) executeQueuedStop(ctx context.Context, repo container
 	return completeErr
 }
 
-func (s *ContainerService) executeQueuedDelete(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) executeQueuedDelete(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
 	c, err := repo.GetByID(ctx, containerID)
 	if err != nil {
 		return errors.Join(err, s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusFailed, err))
@@ -384,7 +384,7 @@ func (s *ContainerService) executeQueuedDelete(ctx context.Context, repo contain
 	return completeErr
 }
 
-func (s *ContainerService) executeQueuedExpose(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg containerqueue.LifecycleMessage) (err error) {
+func (s *ContainerService) executeQueuedExpose(ctx context.Context, repo containerCreateWorkerRepository, op model.ResourceOperation, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) (err error) {
 	c, err := repo.GetByID(ctx, containerID)
 	if err != nil {
 		return errors.Join(err, s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusFailed, err))

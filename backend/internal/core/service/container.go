@@ -9,10 +9,10 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
@@ -360,7 +360,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		Operation:    model.OperationCreate,
 		Status:       model.OperationStatusPending,
 	}
-	msg := containerqueue.LifecycleMessage{
+	msg := queue.ContainerLifecycleMessage{
 		OperationID: op.ID.String(),
 		ContainerID: containerID.String(),
 		OwnerID:     ownerID.String(),
@@ -376,8 +376,8 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		ID:          uuid.New(),
 		OperationID: op.ID,
 		ContainerID: containerID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
+		Exchange:    queue.ContainerExchangeName,
+		RoutingKey:  queue.ContainerRoutingKey,
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}
@@ -441,7 +441,7 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	if desiredStatus == "" || desiredStatus == model.ContainerStatusExposing {
 		desiredStatus = c.Status
 	}
-	return s.queueContainerOperation(ctx, c, model.OperationExpose, model.ContainerStatusExposing, desiredStatus, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationExpose, model.ContainerStatusExposing, desiredStatus, queue.ContainerLifecycleMessage{
 		DomainPrefix:   domainPrefix,
 		InternalPort:   internalPort,
 		PreviousStatus: c.Status,
@@ -573,7 +573,7 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := s.checkHostDiskCapacity(); err != nil {
 		return err
 	}
-	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
 }
@@ -593,7 +593,7 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
 		return resourceUnavailableError("container")
 	}
-	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
 }
@@ -625,7 +625,7 @@ func (s *ContainerService) Delete(ctx context.Context, containerID uuid.UUID) er
 		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
 	}
 
-	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, containerqueue.LifecycleMessage{
+	return s.queueContainerOperation(ctx, c, model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
 }

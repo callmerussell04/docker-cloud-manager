@@ -17,9 +17,9 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
@@ -381,7 +381,7 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		Status:  model.ProjectStatusBuilding,
 	}
 	now := time.Now()
-	msg := composequeue.DeploymentMessage{
+	msg := queue.DeploymentMessage{
 		JobID:     jobID.String(),
 		ProjectID: projectID.String(),
 		OwnerID:   ownerID.String(),
@@ -408,8 +408,8 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	outbox := model.ComposeDeploymentOutbox{
 		ID:         uuid.New(),
 		JobID:      jobID,
-		Exchange:   composequeue.ExchangeName,
-		RoutingKey: composequeue.RoutingKey,
+		Exchange:   queue.ComposeExchangeName,
+		RoutingKey: queue.ComposeRoutingKey,
 		Payload:    payload,
 		Status:     model.ComposeOutboxStatusPending,
 	}
@@ -847,7 +847,7 @@ func selectComposeFile(repoDir, requested string) (string, error) {
 	return "", apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in git repository")
 }
 
-func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg composequeue.DeploymentMessage) error {
+func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg queue.DeploymentMessage) error {
 	jobID, err := uuid.Parse(msg.JobID)
 	if err != nil {
 		return apperrors.New(apperrors.ErrBadRequest, "invalid compose deployment job id")

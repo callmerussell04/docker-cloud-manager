@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -44,7 +44,7 @@ func (s *ContainerService) markImageMissing(ctx context.Context, imageID uuid.UU
 	}
 }
 
-func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.Container, operation, busyStatus, desiredStatus string, msg containerqueue.LifecycleMessage) error {
+func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.Container, operation, busyStatus, desiredStatus string, msg queue.ContainerLifecycleMessage) error {
 	queueRepo := s.repo
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
@@ -68,8 +68,8 @@ func (s *ContainerService) queueContainerOperation(ctx context.Context, c model.
 		ID:          uuid.New(),
 		OperationID: op.ID,
 		ContainerID: c.ID,
-		Exchange:    containerqueue.ExchangeName,
-		RoutingKey:  containerqueue.RoutingKey,
+		Exchange:    queue.ContainerExchangeName,
+		RoutingKey:  queue.ContainerRoutingKey,
 		Payload:     payload,
 		Status:      model.ContainerOutboxStatusPending,
 	}
