@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +29,10 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 )
 
-const buildNetworkPolicyUnavailableMessage = "build network policy is unavailable"
+const (
+	buildNetworkPolicyUnavailableMessage = "build network policy is unavailable"
+	buildEgressProxyURL                  = "http://build-egress:3128"
+)
 
 type Adapter struct {
 	cli                  *client.Client
@@ -112,8 +117,9 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	}
 
 	// Добавляем Build Args для Kaniko
-	for k, v := range params.BuildArgs {
-		cmd = append(cmd, fmt.Sprintf("--build-arg=%s=%s", k, v))
+	buildArgs := kanikoBuildArgs(params.BuildArgs, authority)
+	for _, k := range slices.Sorted(maps.Keys(buildArgs)) {
+		cmd = append(cmd, fmt.Sprintf("--build-arg=%s=%s", k, buildArgs[k]))
 	}
 
 	networkName := params.NetworkName
@@ -123,7 +129,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	memorySwap := int64(float64(params.MemoryBytes) * params.MemorySwapMultiplier)
 	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
 		Image: kanikoImage,
-		Env:   []string{"HTTP_PROXY=http://build-egress:3128", "HTTPS_PROXY=http://build-egress:3128", "NO_PROXY=" + authority},
+		Env:   []string{"HTTP_PROXY=" + buildEgressProxyURL, "HTTPS_PROXY=" + buildEgressProxyURL, "NO_PROXY=" + authority},
 		Cmd:   cmd,
 		Labels: map[string]string{
 			"managed_by":        "docker-cloud-manager",
@@ -334,4 +340,19 @@ func (a *Adapter) ValidateBuildNetwork(ctx context.Context, networkName string) 
 		return apperrors.Wrap(apperrors.ErrUnavailable, buildNetworkPolicyUnavailableMessage, errors.Join(inspectErrs...))
 	}
 	return apperrors.New(apperrors.ErrUnavailable, buildNetworkPolicyUnavailableMessage)
+}
+
+// kanikoBuildArgs adds the egress proxy to the user's build args. Kaniko's own
+// environment does not reach RUN steps, and the build network has no other
+// route out, so the proxy settings replace user values of the same name. Both
+// spellings are set because tools such as curl read only the lowercase one.
+func kanikoBuildArgs(userArgs map[string]string, registryAuthority string) map[string]string {
+	args := make(map[string]string, len(userArgs)+6)
+	maps.Copy(args, userArgs)
+	for _, name := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		args[name] = buildEgressProxyURL
+	}
+	args["NO_PROXY"] = registryAuthority
+	args["no_proxy"] = registryAuthority
+	return args
 }
