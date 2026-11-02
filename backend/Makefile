@@ -52,6 +52,13 @@ build:
 run:
 	docker compose -f ../docker-compose.yml --env-file .env up -d --build
 
+# Throwaway certificates for a personal machine; needs sudo. Must match REGISTRY_CERTS_DIR in the Compose env file.
+REGISTRY_CERTS_DIR ?= /etc/dcm/registry
+
+.PHONY: dev-certs
+dev-certs:
+	sudo sh ../deployment/registry/dev-certs.sh '$(REGISTRY_CERTS_DIR)'
+
 .PHONY: tidy
 tidy:
 	go fmt ./...
