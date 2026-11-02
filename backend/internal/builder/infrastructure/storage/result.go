@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 )
 
 // ResultStore retains outcomes on the persistent Builder volume across restarts.

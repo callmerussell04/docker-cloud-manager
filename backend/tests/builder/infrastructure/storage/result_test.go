@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/storage"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/storage"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 	"github.com/stretchr/testify/require"
 )
 

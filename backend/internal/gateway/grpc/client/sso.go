@@ -7,10 +7,10 @@ import (
 
 	"google.golang.org/grpc"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
+	sso "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
 
 type SSOClient struct {

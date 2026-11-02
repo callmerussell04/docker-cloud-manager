@@ -10,8 +10,8 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/require"
 
-	builderdocker "github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	builderdocker "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 )
 
 const (

@@ -8,11 +8,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 )
 
 // openPostgresPools opens the query pool and the single-connection lock pool

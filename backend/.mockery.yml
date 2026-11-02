@@ -5,87 +5,87 @@ keeptree: true
 outpkg: coremocks
 issue-845-fix: true
 packages:
-  github.com/callmerussell04/docker-cloud-manager/internal/core/service:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service:
     config:
       all: true
       dir: tests/mocks/core/service
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose:
     config:
       all: true
       dir: tests/mocks/core/service/compose
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/core/http:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
       all: true
       dir: tests/mocks/core/http
       outpkg: corehttpmocks
-  github.com/callmerussell04/docker-cloud-manager/internal/core/grpc:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc:
     config:
       all: true
       dir: tests/mocks/core/grpc
       outpkg: coregrpcmocks
-  github.com/callmerussell04/docker-cloud-manager/internal/sso/service:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service:
     config:
       all: true
       dir: tests/mocks/sso/service
       outpkg: ssomocks
       mockname: "{{.InterfaceName}}"
-  github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc:
     config:
       all: true
       dir: tests/mocks/sso/grpc
       outpkg: ssogrpcmocks
-  github.com/callmerussell04/docker-cloud-manager/internal/gateway/service:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
     config:
       all: true
       dir: tests/mocks/gateway/service
       outpkg: gatewayservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler:
     config:
       all: true
       dir: tests/mocks/gateway/http/handler
       outpkg: gatewayhandlermocks
-  github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware:
     config:
       all: true
       dir: tests/mocks/gateway/http/middleware
       outpkg: gatewaymiddlewaremocks
-  github.com/callmerussell04/docker-cloud-manager/internal/builder/service:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/service:
     config:
       all: true
       dir: tests/mocks/builder/service
       outpkg: builderservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/builder/config:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config:
     config:
       all: true
       dir: tests/mocks/builder/config
       outpkg: builderconfigmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/service:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service:
     config:
       all: true
       dir: tests/mocks/telemetry/service
       outpkg: telemetryservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/http:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http:
     config:
       all: true
       dir: tests/mocks/telemetry/http
       outpkg: telemetryhttpmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
-  github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model:
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model:
     config:
       all: true
       dir: tests/mocks/telemetry/model

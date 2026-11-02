@@ -9,8 +9,8 @@ import (
 	"io"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/google/uuid"
 )
 

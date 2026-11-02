@@ -3,10 +3,10 @@ package grpcclient
 import (
 	"context"
 
-	ssoapi "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
+	ssoapi "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )

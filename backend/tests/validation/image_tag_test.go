@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/stretchr/testify/require"
 )
 

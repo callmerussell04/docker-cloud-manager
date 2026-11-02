@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/composequeue"
-	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

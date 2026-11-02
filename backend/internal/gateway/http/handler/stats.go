@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/gin-gonic/gin"
 )
 

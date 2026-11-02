@@ -22,13 +22,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/grpc/client"
-	httprouter "github.com/callmerussell04/docker-cloud-manager/internal/gateway/http"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
+	httprouter "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 )
 
 type App struct {

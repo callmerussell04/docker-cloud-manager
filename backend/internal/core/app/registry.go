@@ -10,12 +10,12 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/registry"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/registry"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 )
 
 // RegistryConfig is bootstrap-only. The TLS edge has no Core control API routes.

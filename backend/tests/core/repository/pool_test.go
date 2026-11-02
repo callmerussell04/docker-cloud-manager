@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
-	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

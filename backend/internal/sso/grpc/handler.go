@@ -3,9 +3,9 @@ package grpc
 import (
 	"context"
 
-	sso "github.com/callmerussell04/docker-cloud-manager/api/sso"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
-	ssoservice "github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
+	sso "github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
+	ssoservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 )

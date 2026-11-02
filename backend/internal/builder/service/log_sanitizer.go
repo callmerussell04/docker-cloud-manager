@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 )
 
 const publishNoticeLine = "[SYSTEM] Publishing image to internal registry...\n"

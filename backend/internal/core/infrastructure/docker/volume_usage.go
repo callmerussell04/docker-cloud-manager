@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 )
 
 var errScanEntryBudgetSpent = errors.New("volume usage scan entry budget spent")

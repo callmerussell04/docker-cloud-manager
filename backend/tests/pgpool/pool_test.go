@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	builderdocker "github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/service"
+	builderdocker "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/service"
 	"github.com/stretchr/testify/require"
 )
 

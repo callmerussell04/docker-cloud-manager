@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/grpcerrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/model"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
 	"google.golang.org/grpc"
 )
 

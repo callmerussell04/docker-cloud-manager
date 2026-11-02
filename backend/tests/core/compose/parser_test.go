@@ -1,6 +1,6 @@
 package compose_test
 
-import . "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
+import . "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 
 import (
 	"context"
@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 )
 
 func TestDocumentedComposeExamplesRemainValid(t *testing.T) {

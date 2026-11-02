@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/jwtutils"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/jwtutils"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

@@ -3,9 +3,9 @@ package coretest
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
-	composemocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service/compose"
 )
 
 // StatObjectStorage lets one Compose object-store double also serve the build

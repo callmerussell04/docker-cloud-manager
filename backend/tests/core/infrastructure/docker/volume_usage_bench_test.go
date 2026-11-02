@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 )
 
 // Synthetic volume profiles for measuring usage scans. Set

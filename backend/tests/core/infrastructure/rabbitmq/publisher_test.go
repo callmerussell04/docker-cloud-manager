@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/rabbitmq"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
 	"github.com/stretchr/testify/require"
 )
 

@@ -9,10 +9,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/app"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/app"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 )
 
 func getEnvInt(key string, fallback int) int {

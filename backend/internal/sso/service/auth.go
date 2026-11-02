@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/permissions"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )

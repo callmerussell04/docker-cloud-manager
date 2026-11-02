@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildobjects"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildobjects"
 )
 
 type WorkspaceManager struct {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/repository"
-	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/dbtest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 

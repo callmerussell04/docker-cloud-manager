@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	. "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )

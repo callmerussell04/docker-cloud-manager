@@ -2,15 +2,15 @@ package service_test
 
 import (
 	"context"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 	"testing"
 
-	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
+	. "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )

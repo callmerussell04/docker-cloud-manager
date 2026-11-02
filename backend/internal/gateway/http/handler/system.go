@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/dto"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 

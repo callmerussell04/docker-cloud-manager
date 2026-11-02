@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/stretchr/testify/require"
 )
 

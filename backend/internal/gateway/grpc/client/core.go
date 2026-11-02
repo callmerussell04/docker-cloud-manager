@@ -3,7 +3,7 @@ package grpcclient
 import (
 	"google.golang.org/grpc"
 
-	coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+	coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
 )
 
 type CoreClient struct {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

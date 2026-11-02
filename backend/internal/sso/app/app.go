@@ -10,16 +10,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"google.golang.org/grpc"
 
-	authgrpc "github.com/callmerussell04/docker-cloud-manager/internal/sso/grpc"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/jwt"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/oidc"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/service"
+	authgrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/oidc"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 )
 
 type App struct {

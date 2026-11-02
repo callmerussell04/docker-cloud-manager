@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/rabbitmq"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/rabbitmqtopology"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/rabbitmq"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
 )

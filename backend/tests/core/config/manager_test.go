@@ -1,6 +1,6 @@
 package config_test
 
-import . "github.com/callmerussell04/docker-cloud-manager/internal/core/config"
+import . "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 
 import (
 	"encoding/json"

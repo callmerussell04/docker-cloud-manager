@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/resourcequeue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/validation"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )

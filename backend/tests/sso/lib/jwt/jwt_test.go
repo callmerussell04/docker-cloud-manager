@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/jwtutils"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/jwt"
-	"github.com/callmerussell04/docker-cloud-manager/internal/sso/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/jwtutils"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	jwtlib "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"

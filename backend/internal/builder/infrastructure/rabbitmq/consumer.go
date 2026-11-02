@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/rabbitmqtopology"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmqtopology"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"

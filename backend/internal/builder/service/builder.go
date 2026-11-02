@@ -10,13 +10,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/gitsource"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/imageref"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 )
 
 type FileManager interface {

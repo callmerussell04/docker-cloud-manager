@@ -5,10 +5,10 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	compose "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	compose "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/stretchr/testify/require"
 )
 

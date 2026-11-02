@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/telemetry/app"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/app"
 )
 
 func main() {

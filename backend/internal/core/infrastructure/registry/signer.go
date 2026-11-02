@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )

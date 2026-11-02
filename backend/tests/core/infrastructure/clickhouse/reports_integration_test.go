@@ -12,9 +12,9 @@ import (
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
-	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/internal/core/infrastructure/clickhouse"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
+	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/clickhouse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

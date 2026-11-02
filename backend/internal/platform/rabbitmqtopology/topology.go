@@ -3,10 +3,10 @@ package rabbitmqtopology
 import (
 	"fmt"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/buildqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/composequeue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/containerqueue"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/resourcequeue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/composequeue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/containerqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/resourcequeue"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 

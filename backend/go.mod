@@ -1,4 +1,4 @@
-module github.com/callmerussell04/docker-cloud-manager
+module github.com/callmerussell04/docker-cloud-manager/backend
 
 go 1.26.10
 

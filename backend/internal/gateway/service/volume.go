@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 )
 
 type VolumeProvider interface {

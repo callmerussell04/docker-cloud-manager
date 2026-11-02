@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/builder/config"
-	builderconfigmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/builder/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
+	builderconfigmocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/builder/config"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )

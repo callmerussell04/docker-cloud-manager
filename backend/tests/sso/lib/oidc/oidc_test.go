@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	ssooidc "github.com/callmerussell04/docker-cloud-manager/internal/sso/lib/oidc"
+	ssooidc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/lib/oidc"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
 )

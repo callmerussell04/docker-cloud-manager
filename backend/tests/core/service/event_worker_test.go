@@ -11,9 +11,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
-	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	coremocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	. "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"

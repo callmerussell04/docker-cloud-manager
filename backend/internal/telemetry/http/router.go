@@ -3,8 +3,8 @@ package http
 import (
 	"log/slog"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/internalauth"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/gin-gonic/gin"
 )
 

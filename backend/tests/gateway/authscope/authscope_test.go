@@ -3,9 +3,9 @@ package authscope_test
 import (
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/authscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/authscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )

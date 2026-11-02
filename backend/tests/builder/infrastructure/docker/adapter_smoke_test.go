@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	builderdocker "github.com/callmerussell04/docker-cloud-manager/internal/builder/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
+	builderdocker "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"

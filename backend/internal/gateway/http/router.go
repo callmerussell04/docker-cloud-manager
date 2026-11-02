@@ -8,11 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/handler"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/http/middleware"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/auditlog"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 )
 
 type Config struct {

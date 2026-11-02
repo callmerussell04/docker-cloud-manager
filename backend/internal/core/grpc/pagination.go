@@ -1,6 +1,6 @@
 package grpc
 
-import coreapi "github.com/callmerussell04/docker-cloud-manager/api/core"
+import coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
 
 func pagination(req *coreapi.PaginationRequest) (int, int) {
 	limit := int(req.GetLimit())

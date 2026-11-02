@@ -3,11 +3,11 @@ package middleware
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/authscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/gateway/model"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/accessscope"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/httpresponse"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/authscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/gin-gonic/gin"
 )
 

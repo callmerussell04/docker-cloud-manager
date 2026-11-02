@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	corehttp "github.com/callmerussell04/docker-cloud-manager/internal/core/http"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	corehttpmocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/http"
+	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	corehttpmocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/http"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )

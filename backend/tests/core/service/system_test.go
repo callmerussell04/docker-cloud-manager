@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/config"
-	. "github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/tests/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	. "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/tests/testutil/coretest"
 	"github.com/stretchr/testify/require"
 )
 

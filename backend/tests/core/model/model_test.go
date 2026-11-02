@@ -3,7 +3,7 @@ package model_test
 import (
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/stretchr/testify/require"
 )
 

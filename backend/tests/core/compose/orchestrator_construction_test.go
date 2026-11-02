@@ -5,11 +5,11 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/repository"
-	"github.com/callmerussell04/docker-cloud-manager/internal/core/service"
-	compose "github.com/callmerussell04/docker-cloud-manager/internal/core/service/compose"
-	"github.com/callmerussell04/docker-cloud-manager/internal/platform/objectstorage"
-	composemocks "github.com/callmerussell04/docker-cloud-manager/tests/mocks/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	compose "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/tests/mocks/core/service/compose"
 	"github.com/stretchr/testify/require"
 )
 
