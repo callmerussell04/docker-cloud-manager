@@ -18,18 +18,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 )
 
-// RegistryConfig is bootstrap-only. The TLS edge has no Core control API routes.
-type RegistryConfig struct {
-	Authority              string
-	BackendURL             string
-	CAFile                 string
-	CertificateFile        string
-	KeyFile                string
-	SigningCertificateFile string
-	SigningKeyFile         string
-	Issuer                 string
-}
-
 // registryComponents is Core's Registry trust boundary. The adapter signs its
 // requests with the authorization's trusted tokens, and the cleanup worker uses
 // the adapter, so they are built in that order.
@@ -40,7 +28,7 @@ type registryComponents struct {
 	edge    *http.Server
 }
 
-func newRegistryComponents(cfg RegistryConfig, grants *repository.RegistryGrantRepository, users service.UserInfoProvider, runtime *config.Manager, logger *slog.Logger) (registryComponents, error) {
+func newRegistryComponents(cfg config.Registry, grants *repository.RegistryGrantRepository, users service.UserInfoProvider, runtime *config.Manager, logger *slog.Logger) (registryComponents, error) {
 	client, err := registry.TLSClient(cfg.CAFile)
 	if err != nil {
 		return registryComponents{}, err
@@ -88,7 +76,7 @@ func pullAuthorization(auth *service.RegistryAuthorization, runtime *config.Mana
 	}
 }
 
-func registryServer(cfg RegistryConfig, client *http.Client, auth *service.RegistryAuthorization, logger *slog.Logger) (*http.Server, error) {
+func registryServer(cfg config.Registry, client *http.Client, auth *service.RegistryAuthorization, logger *slog.Logger) (*http.Server, error) {
 	// Parse errors are replaced, not wrapped: *url.Error and its causes quote the
 	// raw setting, which may carry userinfo, and bootstrap errors omit values.
 	endpoint, err := url.Parse("https://" + cfg.Authority)

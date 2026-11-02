@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
@@ -33,18 +34,13 @@ type App struct {
 	logger         *slog.Logger
 }
 
-type Config struct {
-	RegistryCAFile string
-	CoreTarget     string
-	InternalToken  string
-	Builder        config.BuilderConfig
-	StoragePath    string
-	RabbitMQURL    string
-	InstanceID     string
-	ObjectStorage  objectstorage.Config
-}
+func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
+	if cfg.InstanceID == "" {
+		if hostname, err := os.Hostname(); err == nil {
+			cfg.InstanceID = hostname
+		}
+	}
 
-func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coreConn, err := grpc.NewClient(
 		cfg.CoreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

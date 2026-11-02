@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -34,11 +35,12 @@ type Config struct {
 	Env    string
 }
 
-func ConfigFromEnv() Config {
+// ConfigFromEnv reads logging settings; empty values count as unset.
+func ConfigFromEnv(lookup envconfig.Lookup) Config {
 	return Config{
-		Level:  getenv("LOG_LEVEL", "info"),
-		Format: getenv("LOG_FORMAT", "json"),
-		Env:    getenv("APP_ENV", "production"),
+		Level:  envconfig.NonEmpty(lookup, "LOG_LEVEL", "info"),
+		Format: envconfig.NonEmpty(lookup, "LOG_FORMAT", "json"),
+		Env:    envconfig.NonEmpty(lookup, "APP_ENV", "production"),
 	}
 }
 
@@ -259,11 +261,4 @@ func parseLevel(raw string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
-}
-
-func getenv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }

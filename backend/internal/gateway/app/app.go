@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
@@ -41,62 +42,7 @@ type App struct {
 	coreConn        *grpc.ClientConn
 }
 
-type Config struct {
-	Port                int
-	SSOTarget           string
-	CoreTarget          string
-	CoreHTTPTarget      string
-	TelemetryHTTPTarget string
-	InternalToken       string
-
-	HTTP      HTTPServerConfig
-	Router    gatewayhttp.Config
-	Cookie    handler.CookieConfig
-	Proxy     ProxyConfig
-	GRPC      GRPCConfig
-	Readiness ReadinessConfig
-
-	TelemetryTicketTTL time.Duration
-}
-
-type HTTPServerConfig struct {
-	ReadHeaderTimeout time.Duration
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
-	MaxHeaderBytes    int
-}
-
-type ProxyConfig struct {
-	DialTimeout           time.Duration
-	TLSHandshakeTimeout   time.Duration
-	ResponseHeaderTimeout time.Duration
-	IdleConnTimeout       time.Duration
-	ExpectContinueTimeout time.Duration
-	MaxIdleConns          int
-	MaxIdleConnsPerHost   int
-}
-
-type GRPCConfig struct {
-	RequestTimeout    time.Duration
-	MinConnectTimeout time.Duration
-	TLS               GRPCTLSConfig
-}
-
-type GRPCTLSConfig struct {
-	Enabled    bool
-	CAFile     string
-	CertFile   string
-	KeyFile    string
-	ServerName string
-}
-
-type ReadinessConfig struct {
-	Timeout time.Duration
-}
-
-func New(cfg Config, logger *slog.Logger) (*App, error) {
+func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	clients, err := newGRPCClients(cfg, logger)
 	if err != nil {
 		return nil, err
@@ -157,7 +103,7 @@ type gatewayClients struct {
 	coreClient *client.CoreClient
 }
 
-func newGRPCClients(cfg Config, logger *slog.Logger) (gatewayClients, error) {
+func newGRPCClients(cfg config.Bootstrap, logger *slog.Logger) (gatewayClients, error) {
 	grpcOpts, err := grpcDialOptions(cfg, logger)
 	if err != nil {
 		return gatewayClients{}, err
@@ -200,7 +146,7 @@ type gatewayUseCases struct {
 	telemetryTickets *service.TelemetryTicketStore
 }
 
-func newCoreUseCases(cfg Config, clients gatewayClients) gatewayUseCases {
+func newCoreUseCases(cfg config.Bootstrap, clients gatewayClients) gatewayUseCases {
 	return gatewayUseCases{
 		auth:             service.NewAuth(clients.ssoClient),
 		users:            service.NewUserManagement(clients.ssoClient),
@@ -217,7 +163,7 @@ type proxyHandlers struct {
 	adminTelemetryTerminal gin.HandlerFunc
 }
 
-func newProxyHandlers(cfg Config, useCases gatewayUseCases) (proxyHandlers, error) {
+func newProxyHandlers(cfg config.Bootstrap, useCases gatewayUseCases) (proxyHandlers, error) {
 	proxyTransport := newProxyTransport(cfg.Proxy)
 	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
 		TargetURL:     cfg.CoreHTTPTarget,
@@ -276,7 +222,7 @@ func newTelemetryTerminalProxy(opts handler.ProxyOptions, useCases gatewayUseCas
 	})
 }
 
-func newReadiness(cfg Config, clients gatewayClients) *readinessChecker {
+func newReadiness(cfg config.Bootstrap, clients gatewayClients) *readinessChecker {
 	return &readinessChecker{
 		timeout: cfg.Readiness.Timeout,
 		grpcTargets: map[string]*grpc.ClientConn{
@@ -346,7 +292,7 @@ func (a *App) closeGRPC() error {
 	return err
 }
 
-func grpcDialOptions(cfg Config, logger *slog.Logger) ([]grpc.DialOption, error) {
+func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) ([]grpc.DialOption, error) {
 	creds, err := grpcCredentials(cfg.GRPC.TLS)
 	if err != nil {
 		return nil, err
@@ -384,7 +330,7 @@ func grpcDialOptions(cfg Config, logger *slog.Logger) ([]grpc.DialOption, error)
 	}, nil
 }
 
-func grpcCredentials(cfg GRPCTLSConfig) (credentials.TransportCredentials, error) {
+func grpcCredentials(cfg config.GRPCTLS) (credentials.TransportCredentials, error) {
 	if !cfg.Enabled {
 		return insecure.NewCredentials(), nil
 	}
@@ -427,7 +373,7 @@ func unaryTimeoutInterceptor(timeout time.Duration) grpc.UnaryClientInterceptor 
 	}
 }
 
-func newProxyTransport(cfg ProxyConfig) *http.Transport {
+func newProxyTransport(cfg config.Proxy) *http.Transport {
 	dialTimeout := cfg.DialTimeout
 	if dialTimeout <= 0 {
 		dialTimeout = 10 * time.Second

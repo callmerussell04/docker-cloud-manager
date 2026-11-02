@@ -54,26 +54,11 @@ type App struct {
 	logger            *slog.Logger
 }
 
+// Config adds what only the composition root builds to the loaded bootstrap settings.
 type Config struct {
-	Port          int
-	HTTPPort      int
-	DBURL         string
+	config.Bootstrap
 	DBPool        pgpool.Config
-	RabbitMQURL   string
-	SSOTarget     string
-	InternalToken string
-	HostDiskPath  string
 	ConfigManager *config.Manager
-	ObjectStorage objectstorage.Config
-	ClickHouse    ClickHouseConfig
-	Registry      RegistryConfig
-}
-
-type ClickHouseConfig struct {
-	Addr     string
-	Database string
-	Username string
-	Password string
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {

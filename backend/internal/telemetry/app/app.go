@@ -12,6 +12,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/grpc/client"
 	telemetryhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/infrastructure/docker"
@@ -23,28 +24,6 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-type Config struct {
-	Port          int
-	CoreTarget    string
-	InternalToken string
-	MaxLogStreams int
-	MaxTerminals  int
-	HTTP          HTTPServerConfig
-	GRPC          GRPCConfig
-}
-
-type HTTPServerConfig struct {
-	ReadHeaderTimeout time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
-	MaxHeaderBytes    int
-}
-
-type GRPCConfig struct {
-	RequestTimeout    time.Duration
-	MinConnectTimeout time.Duration
-}
-
 type App struct {
 	router          *gin.Engine
 	server          *http.Server
@@ -54,7 +33,7 @@ type App struct {
 	logger          *slog.Logger
 }
 
-func New(cfg Config, logger *slog.Logger) (*App, error) {
+func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	coreConn, err := grpc.NewClient(cfg.CoreTarget, grpcDialOptions(cfg, logger)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create core grpc client: %w", err)
@@ -142,7 +121,7 @@ func (a *App) close() error {
 	return err
 }
 
-func grpcDialOptions(cfg Config, logger *slog.Logger) []grpc.DialOption {
+func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) []grpc.DialOption {
 	timeoutInterceptor := unaryTimeoutInterceptor(cfg.GRPC.RequestTimeout)
 	minConnectTimeout := cfg.GRPC.MinConnectTimeout
 	if minConnectTimeout <= 0 {

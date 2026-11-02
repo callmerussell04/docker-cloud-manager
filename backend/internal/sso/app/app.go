@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/config"
 	"google.golang.org/grpc"
 
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
@@ -31,39 +32,10 @@ type App struct {
 	logger     *slog.Logger
 }
 
+// Config adds the database pool budget, which config cannot import, to the loaded settings.
 type Config struct {
-	Port           int
-	DBURL          string
-	DBPool         pgpool.Config
-	JWTSecret      string
-	InternalToken  string
-	AccessTTL      time.Duration
-	SessionTTL     time.Duration
-	SessionIdleTTL time.Duration
-	BootstrapAdmin BootstrapAdminConfig
-	Auth           AuthConfig
-	OIDC           OIDCConfig
-}
-
-type BootstrapAdminConfig struct {
-	Username string
-	Email    string
-	Password string
-}
-
-type AuthConfig struct {
-	LocalLoginEnabled    bool
-	LocalRegisterEnabled bool
-}
-
-type OIDCConfig struct {
-	Enabled      bool
-	IssuerURL    string
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
-	AdminGroups  []string
-	DefaultRole  string
+	config.Bootstrap
+	DBPool pgpool.Config
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
@@ -151,7 +123,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	return application, nil
 }
 
-func buildOIDCProvider(cfg OIDCConfig) (service.OIDCProvider, error) {
+func buildOIDCProvider(cfg config.OIDC) (service.OIDCProvider, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -171,7 +143,7 @@ func buildOIDCProvider(cfg OIDCConfig) (service.OIDCProvider, error) {
 	return provider, nil
 }
 
-func ensureBootstrapAdmin(authService *service.AuthService, cfg BootstrapAdminConfig, logger *slog.Logger) error {
+func ensureBootstrapAdmin(authService *service.AuthService, cfg config.BootstrapAdmin, logger *slog.Logger) error {
 	if strings.TrimSpace(cfg.Username) == "" {
 		return fmt.Errorf("bootstrap admin username is required")
 	}

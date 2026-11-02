@@ -1,0 +1,131 @@
+package config_test
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+const secret = "s3cret-value"
+
+func env(values map[string]string) envconfig.Lookup {
+	return func(key string) (string, bool) {
+		value, ok := values[key]
+		return value, ok
+	}
+}
+
+func requiredEnv() map[string]string {
+	return map[string]string{
+		"DATABASE_URL":               "postgres://u:" + secret + "@db/core",
+		"BASE_DOMAIN":                "example.test",
+		"RABBITMQ_URL":               "amqp://u:" + secret + "@mq",
+		"SSO_GRPC_TARGET":            "sso:50051",
+		"INTERNAL_SERVICE_TOKEN":     secret,
+		"REGISTRY_URL":               "registry:5000",
+		"REGISTRY_BACKEND_URL":       "https://registry-backend:5000",
+		"REGISTRY_CA_FILE":           "/ca",
+		"REGISTRY_TLS_CERT_FILE":     "/cert",
+		"REGISTRY_TLS_KEY_FILE":      "/key",
+		"REGISTRY_SIGNING_CERT_FILE": "/signing-cert",
+		"REGISTRY_SIGNING_KEY_FILE":  "/signing-key",
+		"REGISTRY_TOKEN_ISSUER":      "dcm",
+		"OBJECT_STORAGE_ENDPOINT":    "minio:9000",
+		"OBJECT_STORAGE_ACCESS_KEY":  secret,
+		"OBJECT_STORAGE_SECRET_KEY":  secret,
+	}
+}
+
+func TestLoadBootstrapDefaults(t *testing.T) {
+	settings, err := config.Load(env(requiredEnv()))
+
+	require.NoError(t, err)
+	assert.Equal(t, config.Bootstrap{
+		Port:          50052,
+		HTTPPort:      8083,
+		DBURL:         "postgres://u:" + secret + "@db/core",
+		RabbitMQURL:   "amqp://u:" + secret + "@mq",
+		SSOTarget:     "sso:50051",
+		InternalToken: secret,
+		HostDiskPath:  "/",
+		ObjectStorage: objectstorage.Config{Endpoint: "minio:9000", Bucket: "dcm-builds", AccessKey: secret, SecretKey: secret},
+		ClickHouse:    config.ClickHouse{Database: "dcm_reports"},
+		Registry: config.Registry{
+			Authority:              "registry:5000",
+			BackendURL:             "https://registry-backend:5000",
+			CAFile:                 "/ca",
+			CertificateFile:        "/cert",
+			KeyFile:                "/key",
+			SigningCertificateFile: "/signing-cert",
+			SigningKeyFile:         "/signing-key",
+			Issuer:                 "dcm",
+		},
+	}, settings.Bootstrap)
+}
+
+func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
+	settings, err := config.Load(env(requiredEnv()))
+	require.NoError(t, err)
+
+	runtime := settings.Runtime
+	require.NoError(t, config.ValidateSystemConfig(runtime))
+	assert.Equal(t, "example.test", runtime.BaseDomain)
+	assert.Equal(t, int64(256<<20), runtime.DefaultMemoryReservation)
+	assert.Equal(t, 1.5, runtime.OvercommitFactor)
+	assert.Equal(t, 10, runtime.MaxContainersPerUser)
+	assert.Equal(t, "https://registry-backend:5000", runtime.RegistryAPIURL)
+	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, runtime.GitAllowedHosts)
+	assert.Equal(t, []string{}, runtime.BlockedDomainPrefixPatterns)
+	assert.Equal(t, config.DefaultReportsUsageSnapshotIntervalSeconds, runtime.ReportsUsageSnapshotIntervalSeconds)
+	assert.NotContains(t, assertJSON(t, runtime), secret)
+}
+
+func TestLoadOverrides(t *testing.T) {
+	values := requiredEnv()
+	values["CORE_GRPC_PORT"] = "6000"
+	values["MAX_CONTAINERS_PER_USER"] = "not-a-number"
+	values["OVERCOMMIT_FACTOR"] = "2.5"
+	values["GIT_ALLOWED_HOSTS"] = " , "
+	values["TELEMETRY_ALLOWED_EXEC_COMMANDS"] = "/bin/sh, /bin/ash"
+	values["OBJECT_STORAGE_USE_SSL"] = "true"
+	values["CLICKHOUSE_DB"] = ""
+
+	settings, err := config.Load(env(values))
+
+	require.NoError(t, err)
+	assert.Equal(t, 6000, settings.Bootstrap.Port)
+	assert.True(t, settings.Bootstrap.ObjectStorage.UseSSL)
+	assert.Equal(t, "", settings.Bootstrap.ClickHouse.Database, "a value set to empty replaces the default")
+	assert.Equal(t, 10, settings.Runtime.MaxContainersPerUser, "an invalid optional value keeps its default")
+	assert.Equal(t, 2.5, settings.Runtime.OvercommitFactor)
+	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, settings.Runtime.GitAllowedHosts)
+	assert.Equal(t, []string{"/bin/sh", "/bin/ash"}, settings.Runtime.TelemetryAllowedExecCommands)
+}
+
+func TestLoadRequiresSettingsWithoutEchoingValues(t *testing.T) {
+	for key := range requiredEnv() {
+		t.Run(key, func(t *testing.T) {
+			values := requiredEnv()
+			delete(values, key)
+
+			_, err := config.Load(env(values))
+
+			var missing *envconfig.MissingError
+			require.ErrorAs(t, err, &missing)
+			assert.Equal(t, key, missing.Key)
+			assert.NotContains(t, err.Error(), secret)
+		})
+	}
+}
+
+func assertJSON(t *testing.T, value any) string {
+	t.Helper()
+	data, err := json.Marshal(value)
+	require.NoError(t, err)
+	return string(data)
+}
