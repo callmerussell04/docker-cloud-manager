@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"strings"
@@ -22,6 +21,7 @@ import (
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -418,9 +418,9 @@ type composeOutboxRow struct {
 	Payload []byte
 }
 
-func mustComposeOutbox(t *testing.T, db *sql.DB) []composeOutboxRow {
+func mustComposeOutbox(t *testing.T, db *pgxpool.Pool) []composeOutboxRow {
 	t.Helper()
-	rows, err := db.Query(`SELECT payload FROM compose_deployment_queue_outbox ORDER BY created_at, id`)
+	rows, err := db.Query(context.Background(), `SELECT payload FROM compose_deployment_queue_outbox ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var out []composeOutboxRow
@@ -435,10 +435,10 @@ func mustComposeOutbox(t *testing.T, db *sql.DB) []composeOutboxRow {
 	return out
 }
 
-func countTable(t *testing.T, db *sql.DB, table string) int {
+func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count))
+	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
 	return count
 }
 

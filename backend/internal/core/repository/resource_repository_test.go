@@ -3,6 +3,7 @@ package repository_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -243,4 +244,77 @@ func TestResourceLifecycleRepositoryNamesOperationAndKeepsCause(t *testing.T) {
 	require.Equal(t, "not_found", apperrors.Code(err))
 	require.Equal(t, codes.NotFound, grpcerrors.Code(err))
 	require.Equal(t, http.StatusNotFound, httpresponse.Status(err))
+}
+
+func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	volumes := repository.NewVolumeRepository(db)
+	projects := repository.NewProjectRepository(db)
+	ownerID := uuid.New()
+
+	plain := model.Volume{ID: uuid.New(), OwnerID: ownerID, Name: "plain", DockerName: "vol_plain"}
+	require.NoError(t, volumes.Save(ctx, plain))
+	got, err := volumes.GetByID(ctx, plain.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.ProjectID)
+	require.Nil(t, got.LastError)
+	require.Nil(t, got.LastObservedAt)
+	require.Equal(t, model.VolumeStatusAvailable, got.Status)
+	require.Equal(t, time.UTC, got.CreatedAt.Location(), "persisted instants must not pick up the host zone")
+
+	require.NoError(t, volumes.MarkStatusError(ctx, plain.ID, model.VolumeStatusError, errors.New("disk gone")))
+	got, err = volumes.GetByID(ctx, plain.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LastError)
+	require.Equal(t, "disk gone", *got.LastError)
+	require.NotNil(t, got.LastObservedAt)
+	require.NoError(t, volumes.MarkStatusError(ctx, plain.ID, model.VolumeStatusAvailable, nil))
+	got, err = volumes.GetByID(ctx, plain.ID)
+	require.NoError(t, err)
+	require.Nil(t, got.LastError)
+
+	projectID := uuid.New()
+	require.NoError(t, projects.Save(ctx, model.Project{ID: projectID, OwnerID: ownerID, Name: "linked", Status: model.ProjectStatusRunning}))
+	linked := model.Volume{ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, Name: "linked", DockerName: "vol_linked"}
+	require.NoError(t, volumes.Save(ctx, linked))
+	got, err = volumes.GetByID(ctx, linked.ID)
+	require.NoError(t, err)
+	require.Equal(t, &projectID, got.ProjectID)
+
+	duplicate := plain
+	duplicate.ID = uuid.New()
+	require.ErrorIs(t, volumes.Save(ctx, duplicate), apperrors.ErrAlreadyExists)
+	_, err = volumes.GetByID(ctx, uuid.New())
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+
+	require.NoError(t, projects.Save(ctx, model.Project{ID: uuid.New(), OwnerID: ownerID, Name: "pending", Status: model.ProjectStatusPending}))
+	listed, err := projects.ListByStatuses(ctx, []string{model.ProjectStatusRunning, model.ProjectStatusCanceled}, 10)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	require.Equal(t, projectID, listed[0].ID)
+
+	// A pending build has NULL started_at, finished_at and project columns; every
+	// read path maps them to zero values rather than dereferencing NULL.
+	builds := repository.NewBuildRepository(db, db)
+	imageID, buildID := uuid.New(), uuid.New()
+	require.NoError(t, builds.CreateQueuedBuild(ctx,
+		model.Image{ID: imageID, OwnerID: ownerID, Tag: "pending:latest"},
+		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending},
+		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
+	))
+	pending, err := builds.GetByID(ctx, buildID)
+	require.NoError(t, err)
+	require.True(t, pending.StartedAt.IsZero())
+	require.Nil(t, pending.FinishedAt)
+	require.Nil(t, pending.ProjectID)
+	require.Empty(t, pending.ProjectServiceName)
+	byImage, err := builds.GetByImageID(ctx, imageID)
+	require.NoError(t, err)
+	require.Len(t, byImage, 1)
+	require.True(t, byImage[0].StartedAt.IsZero())
+	listedBuilds, _, err := builds.List(ctx, model.ListOptions{OwnerID: &ownerID, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listedBuilds, 1)
+	require.True(t, listedBuilds[0].StartedAt.IsZero())
 }

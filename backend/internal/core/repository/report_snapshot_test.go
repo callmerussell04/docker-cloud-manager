@@ -25,7 +25,7 @@ func TestReportSnapshotRepositoryCollectsRuntimeUsage(t *testing.T) {
 	db := dbtest.OpenCorePostgres(t)
 
 	ownerID := uuid.New()
-	_, err := db.ExecContext(ctx, `
+	_, err := db.Exec(ctx, `
 INSERT INTO containers (
     id, owner_id, docker_id, name, image_tag, status, desired_status, base_memory_reservation
 ) VALUES (

@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const bytesPerMBForReports int64 = 1024 * 1024
@@ -19,12 +19,12 @@ type ReportContainerStatsProvider interface {
 }
 
 type ReportSnapshotRepository struct {
-	db           *sql.DB
+	db           *pgxpool.Pool
 	containerAPI ReportContainerStatsProvider
 	logger       *slog.Logger
 }
 
-func NewReportSnapshotRepository(db *sql.DB, containerAPI ReportContainerStatsProvider, logger *slog.Logger) *ReportSnapshotRepository {
+func NewReportSnapshotRepository(db *pgxpool.Pool, containerAPI ReportContainerStatsProvider, logger *slog.Logger) *ReportSnapshotRepository {
 	return &ReportSnapshotRepository{
 		db:           db,
 		containerAPI: containerAPI,
@@ -93,7 +93,7 @@ LEFT JOIN build_usage ON build_usage.owner_id = owners.owner_id
 LEFT JOIN project_usage ON project_usage.owner_id = owners.owner_id
 ORDER BY owners.owner_id`
 
-	rows, err := r.db.QueryContext(ctx, query, bytesPerMBForReports)
+	rows, err := r.db.Query(ctx, query, bytesPerMBForReports)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect report usage snapshots: %w", err)
 	}
@@ -139,7 +139,7 @@ func (r *ReportSnapshotRepository) applyRuntimeUsage(ctx context.Context, snapsh
 		byOwner[snapshots[i].OwnerID] = &snapshots[i]
 	}
 
-	rows, err := r.db.QueryContext(ctx, `
+	rows, err := r.db.Query(ctx, `
 SELECT owner_id, docker_id
 FROM containers
 WHERE status = 'running' AND docker_id <> ''

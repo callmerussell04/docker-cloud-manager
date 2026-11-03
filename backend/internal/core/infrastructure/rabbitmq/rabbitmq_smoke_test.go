@@ -101,7 +101,7 @@ func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool {
 		var status string
-		err := repos.DB.QueryRow(`SELECT status FROM build_queue_outbox WHERE id = $1`, outboxID).Scan(&status)
+		err := repos.DB.QueryRow(context.Background(), `SELECT status FROM build_queue_outbox WHERE id = $1`, outboxID).Scan(&status)
 		return err == nil && status == model.BuildOutboxStatusPublished
 	}, 5*time.Second, 50*time.Millisecond)
 	cancel()

@@ -2,7 +2,6 @@ package resource_flow_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -17,6 +16,7 @@ import (
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -101,7 +101,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	volumeDocker.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
 
 	var payload []byte
-	require.NoError(t, repos.DB.QueryRowContext(ctx, `SELECT payload FROM resource_lifecycle_queue_outbox`).Scan(&payload))
+	require.NoError(t, repos.DB.QueryRow(ctx, `SELECT payload FROM resource_lifecycle_queue_outbox`).Scan(&payload))
 	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(payload, &message))
 	require.Equal(t, volumeID.String(), message.ResourceID)
@@ -249,9 +249,9 @@ type operationRow struct {
 	Status    string
 }
 
-func mustResourceOperations(t *testing.T, db *sql.DB) []operationRow {
+func mustResourceOperations(t *testing.T, db *pgxpool.Pool) []operationRow {
 	t.Helper()
-	rows, err := db.Query(`SELECT operation, status FROM resource_operations WHERE resource_type = 'container' ORDER BY created_at, id`)
+	rows, err := db.Query(context.Background(), `SELECT operation, status FROM resource_operations WHERE resource_type = 'container' ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var out []operationRow
@@ -264,9 +264,9 @@ func mustResourceOperations(t *testing.T, db *sql.DB) []operationRow {
 	return out
 }
 
-func mustContainerOutbox(t *testing.T, db *sql.DB) []queue.ContainerLifecycleMessage {
+func mustContainerOutbox(t *testing.T, db *pgxpool.Pool) []queue.ContainerLifecycleMessage {
 	t.Helper()
-	rows, err := db.Query(`SELECT payload FROM container_lifecycle_queue_outbox ORDER BY created_at, id`)
+	rows, err := db.Query(context.Background(), `SELECT payload FROM container_lifecycle_queue_outbox ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var messages []queue.ContainerLifecycleMessage
@@ -281,9 +281,9 @@ func mustContainerOutbox(t *testing.T, db *sql.DB) []queue.ContainerLifecycleMes
 	return messages
 }
 
-func countTable(t *testing.T, db *sql.DB, table string) int {
+func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count))
+	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
 	return count
 }

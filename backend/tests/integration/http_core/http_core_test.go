@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"database/sql"
 	"io"
 	"net/http"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -61,7 +61,7 @@ func TestCoreHTTPBuildAndComposeUploadsPersistToDatabase(t *testing.T) {
 
 	var buildID uuid.UUID
 	var logObjectKey string
-	require.NoError(t, repos.DB.QueryRow(`SELECT id, log_file_path FROM builds LIMIT 1`).Scan(&buildID, &logObjectKey))
+	require.NoError(t, repos.DB.QueryRow(context.Background(), `SELECT id, log_file_path FROM builds LIMIT 1`).Scan(&buildID, &logObjectKey))
 	objects[logObjectKey] = []byte("build logs\n")
 	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/"+buildID.String()+"/logs", "core-token", scope, nil, "")
 	resp = coretest.PerformHTTP(router, req)
@@ -227,9 +227,9 @@ func (w zipWriter) write(t *testing.T, files map[string]string) {
 	require.NoError(t, archive.Close())
 }
 
-func countTable(t *testing.T, db *sql.DB, table string) int {
+func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count))
+	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
 	return count
 }

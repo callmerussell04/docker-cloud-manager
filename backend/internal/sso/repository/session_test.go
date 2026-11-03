@@ -3,14 +3,15 @@ package repository_test
 import (
 	"context"
 	"errors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
-	ssomocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/sso/service"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/mock"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
+	ssomocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/sso/service"
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
@@ -259,7 +260,7 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			case "commit-rollback":
 				// A deferred constraint simulates a failure at COMMIT after all writes.
 				// Fault injection only; observations below use the public auth service.
-				_, err = db.ExecContext(ctx, `ALTER TABLE refresh_tokens ADD CONSTRAINT injected_commit_failure UNIQUE(session_id) DEFERRABLE INITIALLY DEFERRED`)
+				_, err = db.Exec(ctx, `ALTER TABLE refresh_tokens ADD CONSTRAINT injected_commit_failure UNIQUE(session_id) DEFERRABLE INITIALLY DEFERRED`)
 				require.NoError(t, err)
 				failing = normal
 			case "commit-uncertain":
@@ -277,7 +278,7 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, model.Tokens{}, result)
 			if kind == "commit-rollback" {
-				_, err = db.ExecContext(ctx, `ALTER TABLE refresh_tokens DROP CONSTRAINT injected_commit_failure`)
+				_, err = db.Exec(ctx, `ALTER TABLE refresh_tokens DROP CONSTRAINT injected_commit_failure`)
 				require.NoError(t, err)
 			}
 			if kind == "commit-uncertain" {

@@ -25,8 +25,8 @@ linters:
           deny:
             - pkg: database/sql
               desc: services and models do not use SQL directly
-            - pkg: github.com/lib/pq
-              desc: services and models do not use SQL drivers
+            - pkg: github.com/jackc/pgx/v5
+              desc: services and models do not use the PostgreSQL driver
             - pkg: github.com/docker/docker
               desc: services and models do not use the Docker SDK
             - pkg: github.com/gin-gonic/gin
@@ -123,13 +123,16 @@ linters:
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
               desc: contexts share code only through internal/platform and api
     errcheck:
-      # Non-actionable database/sql cleanup: Rows.Close after iteration reports its
-      # failure through Rows.Err, and Tx.Rollback after Commit returns ErrTxDone.
-      # Stmt.Close only releases a prepared statement already executed or failed.
+      # Non-actionable cleanup. ClickHouse keeps database/sql: Rows.Close after
+      # iteration reports its failure through Rows.Err, Tx.Rollback after Commit
+      # returns ErrTxDone, and Stmt.Close only releases a prepared statement already
+      # executed or failed. A pgx Tx.Rollback after Commit returns ErrTxClosed, and a
+      # failed rollback closes the connection, ending the transaction anyway.
       exclude-functions:
         - (*database/sql.Rows).Close
         - (*database/sql.Tx).Rollback
         - (*database/sql.Stmt).Close
+        - (github.com/jackc/pgx/v5.Tx).Rollback
 
 issues:
   max-issues-per-linter: 0

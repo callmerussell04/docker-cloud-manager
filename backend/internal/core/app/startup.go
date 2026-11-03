@@ -2,49 +2,33 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // openPostgresPools opens the query pool and the single-connection lock pool
 // with Core's split budget. On success the caller owns and closes both.
-func openPostgresPools(dsn string, budget pgpool.Config) (*sql.DB, *sql.DB, error) {
+func openPostgresPools(ctx context.Context, dsn string, budget pgpool.Config) (*pgxpool.Pool, *pgxpool.Pool, error) {
 	queryCfg, lockCfg, err := budget.CoreBudgets()
 	if err != nil {
 		return nil, nil, err
 	}
-	db, err := sql.Open("postgres", dsn)
+	db, err := pgpool.Open(ctx, dsn, queryCfg, pgpool.PingTimeout)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open postgres pool: %w", err)
-	}
-	if err := queryCfg.Apply(db); err != nil {
-		_ = db.Close() // startup failed and its error is returned; the pool is never used
 		return nil, nil, err
 	}
-	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := db.PingContext(pingCtx); err != nil {
-		_ = db.Close() // startup failed and its error is returned; the pool is never used
-		return nil, nil, fmt.Errorf("ping postgres pool: %w", err)
-	}
-	lockDB, err := sql.Open("postgres", dsn)
+	lockDB, err := pgpool.Open(ctx, dsn, lockCfg, pgpool.PingTimeout)
 	if err != nil {
-		_ = db.Close() // startup failed and its error is returned; the pool is never used
-		return nil, nil, fmt.Errorf("open postgres lock pool: %w", err)
-	}
-	if err := lockCfg.Apply(lockDB); err != nil {
-		_ = db.Close()     // startup failed and its error is returned; the pool is never used
-		_ = lockDB.Close() // startup failed and its error is returned; the pool is never used
-		return nil, nil, err
+		db.Close() // startup failed and its error is returned; the pool is never used
+		return nil, nil, fmt.Errorf("lock pool: %w", err)
 	}
 	return db, lockDB, nil
 }

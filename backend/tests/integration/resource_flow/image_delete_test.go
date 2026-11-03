@@ -202,14 +202,14 @@ func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T
 	previous := f.claimSibling(t, "demo:v2")
 	f.finishBuild(t, previous)
 	// Leave three seconds of the token fence open.
-	_, err := f.repos.DB.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '178 seconds' WHERE build_id=$1`, previous)
+	_, err := f.repos.DB.Exec(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '178 seconds' WHERE build_id=$1`, previous)
 	require.NoError(t, err)
 	message := f.queueDelete(t)
 	result := make(chan error, 1)
 	go func() { result <- f.worker.HandleMessage(ctx, message) }()
 	require.Eventually(t, func() bool {
 		var revoked bool
-		err := f.repos.DB.QueryRowContext(ctx, `SELECT revoked_at IS NOT NULL FROM registry_build_credentials WHERE build_id=$1`, previous).Scan(&revoked)
+		err := f.repos.DB.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM registry_build_credentials WHERE build_id=$1`, previous).Scan(&revoked)
 		return err == nil && revoked
 	}, 5*time.Second, 10*time.Millisecond)
 	admitCtx, cancelAdmit := context.WithTimeout(ctx, time.Second)
@@ -362,9 +362,9 @@ func (f *fencedImageDeletion) claimSibling(t *testing.T, tag string) uuid.UUID {
 func (f *fencedImageDeletion) finishBuild(t *testing.T, buildID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	_, err := f.repos.DB.ExecContext(ctx, `UPDATE builds SET status=$2, finished_at=clock_timestamp() WHERE id=$1`, buildID, model.BuildStatusSuccess)
+	_, err := f.repos.DB.Exec(ctx, `UPDATE builds SET status=$2, finished_at=clock_timestamp() WHERE id=$1`, buildID, model.BuildStatusSuccess)
 	require.NoError(t, err)
-	_, err = f.repos.DB.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, buildID)
+	_, err = f.repos.DB.Exec(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, buildID)
 	require.NoError(t, err)
 }
 

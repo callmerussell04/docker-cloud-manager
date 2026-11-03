@@ -3,7 +3,6 @@ package repository_test
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
 
@@ -250,7 +250,7 @@ func TestProjectRepositoryRecoverStageEmptyKeepsOriginalError(t *testing.T) {
 	require.True(t, started)
 
 	originalErr := "container create for service migrate failed: network already exists"
-	_, err = db.ExecContext(ctx, `UPDATE compose_deployment_jobs SET error_message = $1 WHERE id = $2`, originalErr, jobID)
+	_, err = db.Exec(ctx, `UPDATE compose_deployment_jobs SET error_message = $1 WHERE id = $2`, originalErr, jobID)
 	require.NoError(t, err)
 
 	require.NoError(t, repo.RecoverInterruptedComposeDeployments(ctx, 1, "deployment interrupted by core service restart"))
@@ -303,7 +303,7 @@ func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
 	require.ErrorIs(t, repo.Release(ctx, "build-archives/demo.zip"), apperrors.ErrNotFound)
 }
 
-func leaseOneBuildOutbox(t *testing.T, db *sql.DB) model.BuildQueueOutbox {
+func leaseOneBuildOutbox(t *testing.T, db *pgxpool.Pool) model.BuildQueueOutbox {
 	t.Helper()
 	repo := repository.NewBuildRepository(db, db)
 	entries, err := repo.LeasePendingBuildOutbox(context.Background(), 10)
@@ -311,16 +311,16 @@ func leaseOneBuildOutbox(t *testing.T, db *sql.DB) model.BuildQueueOutbox {
 	require.Len(t, entries, 1)
 	if entries[0].Status != model.BuildOutboxStatusPublishing {
 		var status string
-		err := db.QueryRow(`SELECT status FROM build_queue_outbox WHERE id = $1`, entries[0].ID).Scan(&status)
+		err := db.QueryRow(context.Background(), `SELECT status FROM build_queue_outbox WHERE id = $1`, entries[0].ID).Scan(&status)
 		require.NoError(t, err)
 		entries[0].Status = status
 	}
 	return entries[0]
 }
 
-func countRowsWhere(t *testing.T, db *sql.DB, table, where string, args ...any) int {
+func countRowsWhere(t *testing.T, db *pgxpool.Pool, table, where string, args ...any) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE `+where, args...).Scan(&count))
+	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table+` WHERE `+where, args...).Scan(&count))
 	return count
 }

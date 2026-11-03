@@ -1,23 +1,31 @@
+// Package dbtest opens isolated PostgreSQL schemas for repository and
+// integration tests.
 package dbtest
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 )
 
-func OpenCorePostgres(t *testing.T) *sql.DB {
+// OpenCorePostgres opens a pool with the default budget in a fresh schema
+// holding the Core migrations.
+func OpenCorePostgres(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
 	dsn := os.Getenv("CORE_TEST_DATABASE_URL")
@@ -31,7 +39,9 @@ func OpenCorePostgres(t *testing.T) *sql.DB {
 	return db
 }
 
-func OpenSSOPostgres(t *testing.T) *sql.DB {
+// OpenSSOPostgres opens a pool with the default budget in a fresh schema
+// holding the SSO migrations.
+func OpenSSOPostgres(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
 	dsn := os.Getenv("SSO_TEST_DATABASE_URL")
@@ -45,34 +55,74 @@ func OpenSSOPostgres(t *testing.T) *sql.DB {
 	return db
 }
 
-func openPostgresSchema(t *testing.T, dsn, prefix string) *sql.DB {
+func openPostgresSchema(t *testing.T, dsn, prefix string) *pgxpool.Pool {
 	t.Helper()
 	schema := prefix + strings.ReplaceAll(uuid.NewString(), "-", "")
 
-	adminDB, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatalf("open admin db: %v", err)
-	}
-	t.Cleanup(func() { _ = adminDB.Close() })
-
+	adminDB := openPool(t, dsn, pgpool.DefaultConfig())
 	ctx := context.Background()
-	if _, err := adminDB.ExecContext(ctx, `CREATE SCHEMA `+quoteIdent(schema)); err != nil {
+	if _, err := adminDB.Exec(ctx, `CREATE SCHEMA `+quoteIdent(schema)); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = adminDB.ExecContext(context.Background(), `DROP SCHEMA IF EXISTS `+quoteIdent(schema)+` CASCADE`)
+		_, _ = adminDB.Exec(context.Background(), `DROP SCHEMA IF EXISTS `+quoteIdent(schema)+` CASCADE`)
 	})
 
-	db, err := sql.Open("postgres", withSearchPath(t, dsn, schema))
-	if err != nil {
-		t.Fatalf("open schema db: %v", err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-
-	return db
+	return openPool(t, withSearchPath(t, dsn, schema), pgpool.DefaultConfig())
 }
 
-func applyMigrations(t *testing.T, db *sql.DB, name string) {
+// pending counts acquisitions started but not finished, per pool, because
+// pgxpool statistics count an acquire only once it completes.
+var pending sync.Map // *pgxpool.Pool -> *atomic.Int64
+
+type acquireTracer struct{}
+
+func (acquireTracer) TraceAcquireStart(ctx context.Context, pool *pgxpool.Pool, _ pgxpool.TraceAcquireStartData) context.Context {
+	counter(pool).Add(1)
+	return ctx
+}
+
+func (acquireTracer) TraceAcquireEnd(_ context.Context, pool *pgxpool.Pool, _ pgxpool.TraceAcquireEndData) {
+	counter(pool).Add(-1)
+}
+
+// pgx accepts a tracer only through ConnConfig.Tracer, which must be a QueryTracer.
+func (acquireTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryStartData) context.Context {
+	return ctx
+}
+
+func (acquireTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func counter(pool *pgxpool.Pool) *atomic.Int64 {
+	value, _ := pending.LoadOrStore(pool, new(atomic.Int64))
+	return value.(*atomic.Int64)
+}
+
+// PendingAcquires reports how many callers are acquiring, or waiting to
+// acquire, a connection from pool. Only pools opened by dbtest are traced.
+func PendingAcquires(pool *pgxpool.Pool) int64 {
+	return counter(pool).Load()
+}
+
+func openPool(t *testing.T, dsn string, budget pgpool.Config) *pgxpool.Pool {
+	t.Helper()
+	poolCfg, err := pgpool.NewPoolConfig(dsn, budget)
+	if err != nil {
+		t.Fatalf("configure test pool: %v", err)
+	}
+	poolCfg.ConnConfig.Tracer = acquireTracer{}
+	pool, err := pgxpool.NewWithConfig(context.Background(), poolCfg)
+	if err != nil {
+		t.Fatalf("open test pool: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Close()
+		pending.Delete(pool)
+	})
+	return pool
+}
+
+func applyMigrations(t *testing.T, db *pgxpool.Pool, name string) {
 	t.Helper()
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -96,7 +146,7 @@ func applyMigrations(t *testing.T, db *sql.DB, name string) {
 			if stmt == "" {
 				continue
 			}
-			if _, err := db.Exec(stmt); err != nil {
+			if _, err := db.Exec(context.Background(), stmt); err != nil {
 				t.Fatalf("apply migration %s: %v\n%s", file, err, stmt)
 			}
 		}
@@ -134,62 +184,65 @@ func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-func CountRows(t *testing.T, db *sql.DB, table string) int {
+func CountRows(t *testing.T, db *pgxpool.Pool, table string) int {
 	t.Helper()
 	var count int
-	if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(table))).Scan(&count); err != nil {
+	if err := db.QueryRow(context.Background(), fmt.Sprintf("SELECT COUNT(*) FROM %s", quoteIdent(table))).Scan(&count); err != nil {
 		t.Fatalf("count rows in %s: %v", table, err)
 	}
 	return count
 }
 
-// OpenCoreAdmissionPool opens a distinct pool in the existing isolated schema.
-func OpenCoreAdmissionPool(t *testing.T, db *sql.DB) *sql.DB {
+// OpenCorePeerPool opens a distinct pool with budget in db's isolated Core schema.
+func OpenCorePeerPool(t *testing.T, db *pgxpool.Pool, budget pgpool.Config) *pgxpool.Pool {
 	t.Helper()
-	return openPeerPool(t, db, "CORE_TEST_DATABASE_URL")
+	return openPeerPool(t, db, "CORE_TEST_DATABASE_URL", budget)
 }
 
-func OpenSSOPeerPool(t *testing.T, db *sql.DB) *sql.DB {
+// OpenSSOPeerPool opens a distinct pool with budget in db's isolated SSO schema.
+func OpenSSOPeerPool(t *testing.T, db *pgxpool.Pool, budget pgpool.Config) *pgxpool.Pool {
 	t.Helper()
-	return openPeerPool(t, db, "SSO_TEST_DATABASE_URL")
+	return openPeerPool(t, db, "SSO_TEST_DATABASE_URL", budget)
 }
 
-func openPeerPool(t *testing.T, db *sql.DB, env string) *sql.DB {
+func openPeerPool(t *testing.T, db *pgxpool.Pool, env string, budget pgpool.Config) *pgxpool.Pool {
 	t.Helper()
 	var schema string
-	if err := db.QueryRow(`SELECT current_schema()`).Scan(&schema); err != nil {
+	if err := db.QueryRow(context.Background(), `SELECT current_schema()`).Scan(&schema); err != nil {
 		t.Fatal(err)
 	}
-	pool, err := sql.Open("postgres", withSearchPath(t, os.Getenv(env), schema))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pool.Close() })
-	return pool
+	return openPool(t, withSearchPath(t, os.Getenv(env), schema), budget)
+}
+
+// Budget returns the default budget capped at maxConns connections.
+func Budget(maxConns int) pgpool.Config {
+	cfg := pgpool.DefaultConfig()
+	cfg.MaxConns = maxConns
+	return cfg
 }
 
 // CheckPoolProgress exercises blocked SQL, canceled SQL and queued acquisition.
 // The peer is an external lock holder, outside the application's pool budget.
-func CheckPoolProgress(t *testing.T, db, peer *sql.DB, table string, query func(context.Context) error) {
+func CheckPoolProgress(t *testing.T, db, peer *pgxpool.Pool, table string, query func(context.Context) error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	tx, err := peer.BeginTx(ctx, nil)
+	tx, err := peer.Begin(ctx)
 	require.NoError(t, err)
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `LOCK TABLE `+quoteIdent(table)+` IN ACCESS EXCLUSIVE MODE`)
+	defer func() { _ = tx.Rollback(context.Background()) }() // no-op once the explicit rollback below ran
+	_, err = tx.Exec(ctx, `LOCK TABLE `+quoteIdent(table)+` IN ACCESS EXCLUSIVE MODE`)
 	require.NoError(t, err)
 	blockedCtx, cancelBlocked := context.WithCancel(ctx)
 	defer cancelBlocked()
 	canceled := make(chan error, 1)
 	go func() { canceled <- query(blockedCtx) }()
-	require.Eventually(t, func() bool { return db.Stats().InUse == 1 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return db.Stat().AcquiredConns() == db.Stat().MaxConns() }, time.Second, time.Millisecond)
 	results := make(chan error, 12)
 	for range 12 {
 		go func() { results <- query(ctx) }()
 	}
-	require.Eventually(t, func() bool { return db.Stats().WaitCount >= 12 }, time.Second, time.Millisecond)
-	require.LessOrEqual(t, db.Stats().OpenConnections, db.Stats().MaxOpenConnections)
+	require.Eventually(t, func() bool { return PendingAcquires(db) >= 12 }, time.Second, time.Millisecond)
+	require.LessOrEqual(t, db.Stat().TotalConns(), db.Stat().MaxConns())
 	cancelBlocked()
 	select {
 	case err := <-canceled:
@@ -201,7 +254,7 @@ func CheckPoolProgress(t *testing.T, db, peer *sql.DB, table string, query func(
 	queuedCtx, cancelQueued := context.WithCancel(ctx)
 	cancelQueued()
 	require.ErrorIs(t, query(queuedCtx), context.Canceled)
-	require.NoError(t, tx.Rollback())
+	require.NoError(t, tx.Rollback(ctx))
 	for range 12 {
 		select {
 		case err := <-results:
@@ -210,5 +263,5 @@ func CheckPoolProgress(t *testing.T, db, peer *sql.DB, table string, query func(
 			t.Fatal("queries did not progress")
 		}
 	}
-	require.LessOrEqual(t, db.Stats().OpenConnections, db.Stats().MaxOpenConnections)
+	require.LessOrEqual(t, db.Stat().TotalConns(), db.Stat().MaxConns())
 }

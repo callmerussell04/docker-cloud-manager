@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // registryRepositoryLockSalt seeds the advisory lock key of a Registry
@@ -17,11 +18,11 @@ import (
 const registryRepositoryLockSalt int64 = 84627
 
 type RegistryGrantRepository struct {
-	db     *sql.DB
-	lockDB *sql.DB
+	db     *pgxpool.Pool
+	lockDB *pgxpool.Pool
 }
 
-func NewRegistryGrantRepository(db, lockDB *sql.DB) *RegistryGrantRepository {
+func NewRegistryGrantRepository(db, lockDB *pgxpool.Pool) *RegistryGrantRepository {
 	return &RegistryGrantRepository{db: db, lockDB: lockDB}
 }
 
@@ -31,15 +32,15 @@ func NewRegistryGrantRepository(db, lockDB *sql.DB) *RegistryGrantRepository {
 // the transaction-scoped repository lock must still be held when the credential
 // becomes visible. The repository name comes from the shared imageref policy.
 func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return model.Build{}, false, wrapOp("registry grant claim build", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 	// A build that is no longer pending returns its persisted state. Its image
 	// row may already be gone, as canceled and failed builds delete it.
-	b, err := scanBuild(tx.QueryRowContext(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
-	if errors.Is(err, sql.ErrNoRows) {
+	b, err := scanBuild(tx.QueryRow(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Build{}, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build", err))
 	}
 	if err != nil {
@@ -49,8 +50,8 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return b, false, nil
 	}
 	var tag string
-	err = tx.QueryRowContext(ctx, `SELECT tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag)
-	if errors.Is(err, sql.ErrNoRows) {
+	err = tx.QueryRow(ctx, `SELECT tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return b, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build image", err))
 	}
 	if err != nil {
@@ -59,22 +60,22 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	base, version := imageref.ParseTag(tag)
 	repository := imageref.CustomRepositoryName(b.OwnerID, base)
 	var locked bool
-	if err := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt).Scan(&locked); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt).Scan(&locked); err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
 	if !locked {
 		return b, false, apperrors.ErrUnavailable
 	}
 
-	_, err = tx.ExecContext(ctx, `INSERT INTO registry_build_credentials(build_id,owner_id,repository,tag,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+$6*interval '1 second')`, b.ID, b.OwnerID, repository, version, hash, lifetime.Seconds())
+	_, err = tx.Exec(ctx, `INSERT INTO registry_build_credentials(build_id,owner_id,repository,tag,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+$6*interval '1 second')`, b.ID, b.OwnerID, repository, version, hash, lifetime.Seconds())
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
-	err = tx.QueryRowContext(ctx, `UPDATE builds SET status='running', started_at=clock_timestamp(), finished_at=NULL WHERE id=$1 RETURNING created_at, started_at`, id).Scan(&b.CreatedAt, &b.StartedAt)
+	err = tx.QueryRow(ctx, `UPDATE builds SET status='running', started_at=clock_timestamp(), finished_at=NULL WHERE id=$1 RETURNING created_at, started_at`, id).Scan(&b.CreatedAt, &b.StartedAt)
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
-	if err := commitTx(tx, "registry grant claim build"); err != nil {
+	if err := commitTx(ctx, tx, "registry grant claim build"); err != nil {
 		return b, false, err
 	}
 	b.Status = model.BuildStatusRunning
@@ -84,14 +85,14 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 
 func (r *RegistryGrantRepository) AuthorizeCredential(ctx context.Context, hash []byte, now time.Time) (model.RegistryPrincipal, error) {
 	var p model.RegistryPrincipal
-	err := r.db.QueryRowContext(ctx, `UPDATE registry_build_credentials c SET last_issued_at=GREATEST(c.last_issued_at,$2)
+	err := r.db.QueryRow(ctx, `UPDATE registry_build_credentials c SET last_issued_at=GREATEST(c.last_issued_at,$2)
  FROM builds b JOIN images i ON i.id=b.image_id AND i.owner_id=b.owner_id
  WHERE c.secret_hash=$1 AND c.build_id=b.id AND c.owner_id=b.owner_id AND b.status='running' AND i.status='building'
  AND c.revoked_at IS NULL AND c.expires_at>$2
  RETURNING c.build_id,c.owner_id,c.repository`, hash, now).Scan(&p.BuildID, &p.OwnerID, &p.Repository)
-	if errors.Is(err, sql.ErrNoRows) {
-		err = r.db.QueryRowContext(ctx, `SELECT c.id,c.owner_id,c.repository FROM registry_pull_credentials c WHERE c.secret_hash=$1 AND c.expires_at>$2 AND EXISTS(SELECT 1 FROM images i WHERE i.owner_id=c.owner_id AND i.status='available' AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=c.repository)`, hash, now).Scan(&p.BuildID, &p.OwnerID, &p.Repository)
-		if errors.Is(err, sql.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = r.db.QueryRow(ctx, `SELECT c.id,c.owner_id,c.repository FROM registry_pull_credentials c WHERE c.secret_hash=$1 AND c.expires_at>$2 AND EXISTS(SELECT 1 FROM images i WHERE i.owner_id=c.owner_id AND i.status='available' AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=c.repository)`, hash, now).Scan(&p.BuildID, &p.OwnerID, &p.Repository)
+		if errors.Is(err, pgx.ErrNoRows) {
 			return p, apperrors.Wrap(apperrors.ErrForbidden, apperrors.ErrForbidden.Error(), wrapOp("registry grant authorize credential", err))
 		}
 		p.ReadOnly = true
@@ -102,7 +103,7 @@ func (r *RegistryGrantRepository) AuthorizeCredential(ctx context.Context, hash 
 	if p.ReadOnly {
 		return p, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT lower(owner_id::text || '_' || split_part(tag,':',1)) FROM images WHERE owner_id=$1 AND status='available'`, p.OwnerID)
+	rows, err := r.db.Query(ctx, `SELECT DISTINCT lower(owner_id::text || '_' || split_part(tag,':',1)) FROM images WHERE owner_id=$1 AND status='available'`, p.OwnerID)
 	if err != nil {
 		return p, unavailableOp("registry grant list pull repositories", err)
 	}
@@ -122,7 +123,7 @@ func (r *RegistryGrantRepository) AuthorizeCredential(ctx context.Context, hash 
 
 func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, repository string) (bool, error) {
 	var exists bool
-	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE lower(owner_id::text || '_' || split_part(tag,':',1))=$1 UNION ALL SELECT 1 FROM registry_cleanup_jobs WHERE repository=$1)`, repository).Scan(&exists)
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM images WHERE lower(owner_id::text || '_' || split_part(tag,':',1))=$1 UNION ALL SELECT 1 FROM registry_cleanup_jobs WHERE repository=$1)`, repository).Scan(&exists)
 	if err != nil {
 		return false, unavailableOp("registry grant check repository", err)
 	}
@@ -130,24 +131,24 @@ func (r *RegistryGrantRepository) RepositoryExists(ctx context.Context, reposito
 }
 
 func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition, fence time.Duration) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return wrapOp("registry grant revoke build", err)
 	}
-	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `UPDATE registry_build_credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE build_id=$1`, id)
+	defer tx.Rollback(ctx)
+	_, err = tx.Exec(ctx, `UPDATE registry_build_credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE build_id=$1`, id)
 	if err != nil {
 		return wrapOp("registry grant revoke build", err)
 	}
 	if pushedTag == model.RegistryTagDelete {
-		_, err = tx.ExecContext(ctx, `INSERT INTO registry_cleanup_jobs(id,owner_id,repository,tag,not_before)
+		_, err = tx.Exec(ctx, `INSERT INTO registry_cleanup_jobs(id,owner_id,repository,tag,not_before)
    SELECT build_id,owner_id,repository,tag,last_issued_at+$2*interval '1 second' FROM registry_build_credentials WHERE build_id=$1
    ON CONFLICT(id) DO UPDATE SET not_before=GREATEST(registry_cleanup_jobs.not_before,EXCLUDED.not_before)`, id, fence.Seconds())
 		if err != nil {
 			return wrapOp("registry grant revoke build", err)
 		}
 	}
-	return commitTx(tx, "registry grant revoke build")
+	return commitTx(ctx, tx, "registry grant revoke build")
 }
 
 // FenceRepository revokes the repository's build credentials whose builds no
@@ -157,7 +158,7 @@ func (r *RegistryGrantRepository) RevokeBuild(ctx context.Context, id uuid.UUID,
 // skew cannot shorten it.
 func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repository string, fence time.Duration) (time.Duration, error) {
 	var seconds float64
-	err := r.db.QueryRowContext(ctx, `WITH revoked AS (
+	err := r.db.QueryRow(ctx, `WITH revoked AS (
  UPDATE registry_build_credentials c SET revoked_at=COALESCE(c.revoked_at,clock_timestamp())
  WHERE c.repository=$1 AND NOT EXISTS(SELECT 1 FROM builds b WHERE b.id=c.build_id AND b.status='running')
  RETURNING c.last_issued_at)
@@ -169,7 +170,7 @@ func (r *RegistryGrantRepository) FenceRepository(ctx context.Context, repositor
 }
 
 func (r *RegistryGrantRepository) PendingRegistryCleanup(ctx context.Context) ([]model.RegistryCleanup, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id,repository,tag FROM registry_cleanup_jobs WHERE not_before<clock_timestamp() ORDER BY not_before LIMIT 20`)
+	rows, err := r.db.Query(ctx, `SELECT id,repository,tag FROM registry_cleanup_jobs WHERE not_before<clock_timestamp() ORDER BY not_before LIMIT 20`)
 	if err != nil {
 		return nil, wrapOp("registry grant list pending cleanup", err)
 	}
@@ -186,25 +187,22 @@ func (r *RegistryGrantRepository) PendingRegistryCleanup(ctx context.Context) ([
 }
 
 func (r *RegistryGrantRepository) CompleteRegistryCleanup(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM registry_cleanup_jobs WHERE id=$1`, id)
+	_, err := r.db.Exec(ctx, `DELETE FROM registry_cleanup_jobs WHERE id=$1`, id)
 	return wrapOp("registry grant complete cleanup", err)
 }
 
 func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM registry_pull_credentials WHERE expires_at<clock_timestamp()`)
+	_, err := r.db.Exec(ctx, `DELETE FROM registry_pull_credentials WHERE expires_at<clock_timestamp()`)
 	if err != nil {
 		return unavailableOp("registry grant prune pull credentials", err)
 	}
-	result, err := r.db.ExecContext(ctx, `INSERT INTO registry_pull_credentials(id,owner_id,repository,secret_hash,expires_at)
+	result, err := r.db.Exec(ctx, `INSERT INTO registry_pull_credentials(id,owner_id,repository,secret_hash,expires_at)
  SELECT $1,owner_id,$2,$3,clock_timestamp()+$4*interval '1 second' FROM images
  WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$2 LIMIT 1`, id, repository, hash, lifetime.Seconds())
 	if err != nil {
 		return unavailableOp("registry grant save pull credential", err)
 	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return unavailableOp("registry grant save pull credential", err)
-	}
+	count := result.RowsAffected()
 	if count != 1 {
 		return apperrors.ErrForbidden
 	}
@@ -213,24 +211,25 @@ func (r *RegistryGrantRepository) SavePullCredential(ctx context.Context, id uui
 
 // Claims take the same transaction lock without waiting. Cleanup holds it until
 // the Registry operation finishes, so a new publisher cannot race deletion.
+// Ending ctx also releases it.
 func (r *RegistryGrantRepository) LockRegistryRepository(ctx context.Context, repository string) (func(), error) {
-	tx, err := r.lockDB.BeginTx(ctx, nil)
+	tx, err := r.lockDB.Begin(ctx)
 	if err != nil {
 		return nil, wrapOp("registry grant lock repository", err)
 	}
 	release := lockRelease(tx)
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt); err != nil {
 		release()
 		return nil, wrapOp("registry grant lock repository", err)
 	}
-	return release, nil
+	return releaseOnDone(ctx, release), nil
 }
 
 // RegistryCleanupFacts reads the facts the cleanup worker decides on in one
 // statement, so they describe a single snapshot.
 func (r *RegistryGrantRepository) RegistryCleanupFacts(ctx context.Context, job model.RegistryCleanup, fence time.Duration) (model.RegistryCleanupFacts, error) {
 	var facts model.RegistryCleanupFacts
-	err := r.db.QueryRowContext(ctx, `SELECT
+	err := r.db.QueryRow(ctx, `SELECT
  EXISTS(SELECT 1 FROM builds b JOIN images i ON i.id=b.image_id
    WHERE b.status IN ('pending','running') AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=$1),
  EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+$3*interval '1 second'>clock_timestamp()),
@@ -241,7 +240,7 @@ func (r *RegistryGrantRepository) RegistryCleanupFacts(ctx context.Context, job 
 
 func (r *RegistryGrantRepository) HasActiveRegistryBuilds(ctx context.Context, repository string) (bool, error) {
 	var active bool
-	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM registry_build_credentials c JOIN builds b ON b.id=c.build_id WHERE c.repository=$1 AND b.status='running')`, repository).Scan(&active)
+	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM registry_build_credentials c JOIN builds b ON b.id=c.build_id WHERE c.repository=$1 AND b.status='running')`, repository).Scan(&active)
 	return active, wrapOp("registry grant check active builds", err)
 }
 

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"net"
@@ -14,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/config"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
@@ -27,7 +27,7 @@ type App struct {
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
 	gRPCServer *grpc.Server
-	db         *sql.DB
+	db         *pgxpool.Pool
 	port       int
 	logger     *slog.Logger
 }
@@ -39,29 +39,16 @@ type Config struct {
 }
 
 func New(cfg Config, logger *slog.Logger) (*App, error) {
-	poolCfg := cfg.DBPool
-	if err := poolCfg.Validate(1); err != nil {
-		return nil, err
-	}
-	queryCfg := poolCfg
-	db, err := sql.Open("postgres", cfg.DBURL)
+	db, err := pgpool.Open(context.Background(), cfg.DBURL, cfg.DBPool, pgpool.PingTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres pool: %w", err)
+		return nil, err
 	}
 	initialized := false
 	defer func() {
 		if !initialized {
-			_ = db.Close() // startup failed and its error is returned; the process exits without reusing the pool
+			db.Close()
 		}
 	}()
-	if err := queryCfg.Apply(db); err != nil {
-		return nil, err
-	}
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer pingCancel()
-	if err := db.PingContext(pingCtx); err != nil {
-		return nil, fmt.Errorf("ping postgres pool: %w", err)
-	}
 
 	repo := repository.NewUserRepository(db)
 	tokenProvider := jwt.NewProvider(cfg.JWTSecret)
@@ -99,7 +86,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	application.wg.Add(1)
 	go func() {
 		defer application.wg.Done()
-		pgpool.LogStats(ctx, application.logger, map[string]*sql.DB{"queries": db})
+		pgpool.LogStats(ctx, application.logger, map[string]*pgxpool.Pool{"queries": db})
 	}()
 	application.wg.Add(1)
 	go func() {
@@ -186,8 +173,6 @@ func (a *App) Stop() {
 	a.cancel()
 	a.wg.Wait()
 	if a.db != nil {
-		if err := a.db.Close(); err != nil {
-			a.logger.Warn("postgres connection close failed", "error", err)
-		}
+		a.db.Close()
 	}
 }

@@ -138,7 +138,7 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	// Dependency failures preserve the cookie and expose only a safe availability error.
 	now = time.Now().UTC().Truncate(time.Microsecond)
 	_, liveRefresh := login()
-	require.NoError(t, db.Close())
+	db.Close()
 	response = request("/refresh", liveRefresh, "")
 	require.Equal(t, http.StatusServiceUnavailable, response.Code)
 	require.Empty(t, response.Result().Cookies())

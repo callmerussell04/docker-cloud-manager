@@ -3,7 +3,6 @@ package build_flow_test
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
@@ -181,9 +181,9 @@ type buildOutboxRow struct {
 	Payload    []byte
 }
 
-func mustBuildOutbox(t *testing.T, db *sql.DB) []buildOutboxRow {
+func mustBuildOutbox(t *testing.T, db *pgxpool.Pool) []buildOutboxRow {
 	t.Helper()
-	rows, err := db.Query(`SELECT exchange, routing_key, payload FROM build_queue_outbox ORDER BY created_at, id`)
+	rows, err := db.Query(context.Background(), `SELECT exchange, routing_key, payload FROM build_queue_outbox ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var out []buildOutboxRow
@@ -285,9 +285,9 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 	return svc
 }
 
-func countTable(t *testing.T, db *sql.DB, table string) int {
+func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM `+table).Scan(&count))
+	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
 	return count
 }

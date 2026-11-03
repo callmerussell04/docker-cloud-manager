@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -10,14 +9,16 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type ImageRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewImageRepository(db *sql.DB) *ImageRepository {
+func NewImageRepository(db *pgxpool.Pool) *ImageRepository {
 	return &ImageRepository{db: db}
 }
 
@@ -30,9 +31,9 @@ func (r *ImageRepository) Save(ctx context.Context, img model.Image) error {
 	if status == "" {
 		status = model.ImageStatusAvailable
 	}
-	_, err := r.db.ExecContext(ctx, query, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.Metadata, status)
+	_, err := r.db.Exec(ctx, query, img.ID, img.OwnerID, img.Tag, img.SizeMB, img.Metadata, status)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
@@ -48,24 +49,20 @@ func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Imag
 	`
 
 	var img model.Image
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
-	err := r.db.QueryRowContext(ctx, query, id).Scan(
+	var lastObservedAt *time.Time
+	var lastError *string
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt,
 	)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Image{}, apperrors.ErrNotFound
 		}
 		return model.Image{}, err
 	}
 
-	if lastObservedAt.Valid {
-		img.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		img.LastError = &lastError.String
-	}
+	img.LastObservedAt = lastObservedAt
+	img.LastError = lastError
 
 	return img, nil
 }
@@ -79,7 +76,7 @@ func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	}
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM images`+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM images`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -91,7 +88,7 @@ func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -111,24 +108,21 @@ func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 func (r *ImageRepository) CountAll(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM images`
 	var count int
-	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	err := r.db.QueryRow(ctx, query).Scan(&count)
 	return count, err
 }
 
 func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM images WHERE id = $1`
-	res, err := r.db.ExecContext(ctx, query, id)
+	res, err := r.db.Exec(ctx, query, id)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return apperrors.New(apperrors.ErrResourceInUse, "image is currently used by a container")
 		}
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -137,14 +131,11 @@ func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error {
 	query := `UPDATE images SET size_mb = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.ExecContext(ctx, query, sizeMB, id)
+	res, err := r.db.Exec(ctx, query, sizeMB, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -153,14 +144,11 @@ func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeMB i
 
 func (r *ImageRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	query := `UPDATE images SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.ExecContext(ctx, query, status, id)
+	res, err := r.db.Exec(ctx, query, status, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -168,20 +156,16 @@ func (r *ImageRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 }
 
 func (r *ImageRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
-	var msg sql.NullString
+	var msg *string
 	if cause != nil {
-		msg.String = cause.Error()
-		msg.Valid = true
+		msg = ptr(cause.Error())
 	}
 	query := `UPDATE images SET status = $1, last_observed_at = NOW(), last_error = $2 WHERE id = $3`
-	res, err := r.db.ExecContext(ctx, query, status, msg, id)
+	res, err := r.db.Exec(ctx, query, status, msg, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -191,7 +175,7 @@ func (r *ImageRepository) MarkStatusError(ctx context.Context, id uuid.UUID, sta
 func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE owner_id = $1 AND status != $2`
 	var usedMB int64
-	err := r.db.QueryRowContext(ctx, query, ownerID, model.ImageStatusDeleting).Scan(&usedMB)
+	err := r.db.QueryRow(ctx, query, ownerID, model.ImageStatusDeleting).Scan(&usedMB)
 	return usedMB, err
 }
 
@@ -206,31 +190,30 @@ func (r *ImageRepository) GetReplacementImageSizeMB(ctx context.Context, ownerID
 			AND status != $5
 	`
 	var sizeMB int64
-	err := r.db.QueryRowContext(ctx, query, ownerID, tag, replacementImageID, model.ImageStatusBuilding, model.ImageStatusDeleting).Scan(&sizeMB)
+	err := r.db.QueryRow(ctx, query, ownerID, tag, replacementImageID, model.ImageStatusBuilding, model.ImageStatusDeleting).Scan(&sizeMB)
 	return sizeMB, err
 }
 
 func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, error) {
 	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE status != $1`
 	var usedMB int64
-	err := r.db.QueryRowContext(ctx, query, model.ImageStatusDeleting).Scan(&usedMB)
+	err := r.db.QueryRow(ctx, query, model.ImageStatusDeleting).Scan(&usedMB)
 	return usedMB, err
 }
 
 func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return wrapOp("image update build and image size", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	var finishedAt sql.NullTime
+	var finishedAt *time.Time
 	if model.IsBuildTerminalStatus(status) {
-		finishedAt.Time = time.Now()
-		finishedAt.Valid = true
+		finishedAt = ptr(time.Now())
 	}
 
-	res, err := tx.ExecContext(ctx, `
+	res, err := tx.Exec(ctx, `
 		UPDATE builds
 		SET status = $1, finished_at = $2
 		WHERE id = $3
@@ -247,15 +230,12 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 	if err != nil {
 		return wrapOp("image update build and image size", err)
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return wrapOp("image update build and image size", err)
-	}
+	affected := res.RowsAffected()
 	if affected == 0 {
-		return commitTx(tx, "update build and image size")
+		return commitTx(ctx, tx, "update build and image size")
 	}
 
-	if _, err = tx.ExecContext(ctx, `
+	if _, err = tx.Exec(ctx, `
 		DELETE FROM images
 		WHERE id != $1
 			AND owner_id = (SELECT owner_id FROM images WHERE id = $1)
@@ -264,27 +244,26 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		return wrapOp("image update build and image size", err)
 	}
 
-	if _, err = tx.ExecContext(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE images SET size_mb = $1, status = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3", sizeMB, model.ImageStatusAvailable, imageID); err != nil {
 		return wrapOp("image update build and image size", err)
 	}
 
-	return commitTx(tx, "update build and image size")
+	return commitTx(ctx, tx, "update build and image size")
 }
 
 func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return wrapOp("image mark build failed and delete image", err)
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	var finishedAt sql.NullTime
+	var finishedAt *time.Time
 	if model.IsBuildTerminalStatus(status) {
-		finishedAt.Time = time.Now()
-		finishedAt.Valid = true
+		finishedAt = ptr(time.Now())
 	}
 
-	res, err := tx.ExecContext(ctx, `
+	res, err := tx.Exec(ctx, `
 		UPDATE builds
 		SET status = $1, finished_at = $2
 		WHERE id = $3
@@ -301,34 +280,27 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 	if err != nil {
 		return wrapOp("image mark build failed and delete image", err)
 	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return wrapOp("image mark build failed and delete image", err)
-	}
+	affected := res.RowsAffected()
 	if affected == 0 {
-		return commitTx(tx, "mark build failed and delete image")
+		return commitTx(ctx, tx, "mark build failed and delete image")
 	}
 
-	_, err = tx.ExecContext(ctx, "DELETE FROM images WHERE id = $1", imageID)
+	_, err = tx.Exec(ctx, "DELETE FROM images WHERE id = $1", imageID)
 	if err != nil {
 		return wrapOp("image mark build failed and delete image", err)
 	}
 
-	return commitTx(tx, "mark build failed and delete image")
+	return commitTx(ctx, tx, "mark build failed and delete image")
 }
 
 func scanImage(s scanner) (model.Image, error) {
 	var img model.Image
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
+	var lastObservedAt *time.Time
+	var lastError *string
 	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
 		return model.Image{}, err
 	}
-	if lastObservedAt.Valid {
-		img.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		img.LastError = &lastError.String
-	}
+	img.LastObservedAt = lastObservedAt
+	img.LastError = lastError
 	return img, nil
 }

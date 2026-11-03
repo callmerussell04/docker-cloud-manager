@@ -2,7 +2,6 @@ package grpc_core_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"testing"
 
@@ -15,6 +14,7 @@ import (
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -121,9 +121,9 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	require.Len(t, mustContainerOutbox(t, repos.DB), 2)
 }
 
-func mustContainerOutbox(t *testing.T, db *sql.DB) []map[string]any {
+func mustContainerOutbox(t *testing.T, db *pgxpool.Pool) []map[string]any {
 	t.Helper()
-	rows, err := db.Query(`SELECT payload FROM container_lifecycle_queue_outbox ORDER BY created_at, id`)
+	rows, err := db.Query(context.Background(), `SELECT payload FROM container_lifecycle_queue_outbox ORDER BY created_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
 	var out []map[string]any

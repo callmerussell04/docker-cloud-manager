@@ -2,18 +2,20 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type VolumeRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
 const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
@@ -23,7 +25,7 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func NewVolumeRepository(db *sql.DB) *VolumeRepository {
+func NewVolumeRepository(db *pgxpool.Pool) *VolumeRepository {
 	return &VolumeRepository{db: db}
 }
 
@@ -31,26 +33,18 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 	return insertVolume(ctx, r.db, vol)
 }
 
-func insertVolume(ctx context.Context, db interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, vol model.Volume) error {
-	var projectID sql.NullString
-	if vol.ProjectID != nil {
-		projectID.String = vol.ProjectID.String()
-		projectID.Valid = true
-	}
-
+func insertVolume(ctx context.Context, db executor, vol model.Volume) error {
 	status := vol.Status
 	if status == "" {
 		status = model.VolumeStatusAvailable
 	}
 
-	_, err := db.ExecContext(ctx, `
+	_, err := db.Exec(ctx, `
 		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, vol.ID, vol.OwnerID, projectID, vol.Name, vol.DockerName, status)
+	`, vol.ID, vol.OwnerID, vol.ProjectID, vol.Name, vol.DockerName, status)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
@@ -59,12 +53,12 @@ func insertVolume(ctx context.Context, db interface {
 	return nil
 }
 
-func insertVolumeTx(ctx context.Context, tx *sql.Tx, vol model.Volume) error {
+func insertVolumeTx(ctx context.Context, tx pgx.Tx, vol model.Volume) error {
 	return insertVolume(ctx, tx, vol)
 }
 
-func insertProjectVolumeLinkTx(ctx context.Context, tx *sql.Tx, projectID, volumeID uuid.UUID) error {
-	_, err := tx.ExecContext(ctx, `
+func insertProjectVolumeLinkTx(ctx context.Context, tx pgx.Tx, projectID, volumeID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
 		INSERT INTO project_volumes (project_id, volume_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
@@ -75,9 +69,9 @@ func insertProjectVolumeLinkTx(ctx context.Context, tx *sql.Tx, projectID, volum
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE id = $1`
 
-	v, err := scanVolume(r.db.QueryRowContext(ctx, query, id))
+	v, err := scanVolume(r.db.QueryRow(ctx, query, id))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Volume{}, apperrors.ErrNotFound
 		}
 		return model.Volume{}, err
@@ -88,9 +82,9 @@ func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Vol
 func (r *VolumeRepository) GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error) {
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE owner_id = $1 AND name = $2`
 
-	v, err := scanVolume(r.db.QueryRowContext(ctx, query, ownerID, name))
+	v, err := scanVolume(r.db.QueryRow(ctx, query, ownerID, name))
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.Volume{}, apperrors.ErrNotFound
 		}
 		return model.Volume{}, err
@@ -99,7 +93,7 @@ func (r *VolumeRepository) GetByName(ctx context.Context, ownerID uuid.UUID, nam
 }
 
 func (r *VolumeRepository) LinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `
+	_, err := r.db.Exec(ctx, `
 		INSERT INTO project_volumes (project_id, volume_id)
 		VALUES ($1, $2)
 		ON CONFLICT DO NOTHING
@@ -108,13 +102,13 @@ func (r *VolumeRepository) LinkProjectVolume(ctx context.Context, projectID, vol
 }
 
 func (r *VolumeRepository) UnlinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM project_volumes WHERE project_id = $1 AND volume_id = $2`, projectID, volumeID)
+	_, err := r.db.Exec(ctx, `DELETE FROM project_volumes WHERE project_id = $1 AND volume_id = $2`, projectID, volumeID)
 	return err
 }
 
 func (r *VolumeRepository) IsLinkedToProject(ctx context.Context, projectID, volumeID uuid.UUID) (bool, error) {
 	var exists bool
-	err := r.db.QueryRowContext(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM project_volumes
 			WHERE project_id = $1 AND volume_id = $2
@@ -125,7 +119,7 @@ func (r *VolumeRepository) IsLinkedToProject(ctx context.Context, projectID, vol
 
 func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.Volume, error) {
 	query := `SELECT ` + volumeColumns + ` FROM volumes WHERE status IN ($1, $2)`
-	rows, err := r.db.QueryContext(ctx, query, model.VolumeStatusCreating, model.VolumeStatusAvailable)
+	rows, err := r.db.Query(ctx, query, model.VolumeStatusCreating, model.VolumeStatusAvailable)
 	if err != nil {
 		return nil, err
 	}
@@ -144,18 +138,15 @@ func (r *VolumeRepository) GetReconcileCandidates(ctx context.Context) ([]model.
 
 func (r *VolumeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM volumes WHERE id = $1`
-	res, err := r.db.ExecContext(ctx, query, id)
+	res, err := r.db.Exec(ctx, query, id)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 			return apperrors.New(apperrors.ErrResourceInUse, "volume is currently used by a container")
 		}
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -164,14 +155,11 @@ func (r *VolumeRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *VolumeRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
 	query := `UPDATE volumes SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.ExecContext(ctx, query, status, id)
+	res, err := r.db.Exec(ctx, query, status, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -179,20 +167,16 @@ func (r *VolumeRepository) UpdateStatus(ctx context.Context, id uuid.UUID, statu
 }
 
 func (r *VolumeRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
-	var msg sql.NullString
+	var msg *string
 	if cause != nil {
-		msg.String = cause.Error()
-		msg.Valid = true
+		msg = ptr(cause.Error())
 	}
 	query := `UPDATE volumes SET status = $1, last_observed_at = NOW(), last_error = $2 WHERE id = $3`
-	res, err := r.db.ExecContext(ctx, query, status, msg, id)
+	res, err := r.db.Exec(ctx, query, status, msg, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -204,25 +188,21 @@ func (r *VolumeRepository) SaveMounts(ctx context.Context, mounts []model.Volume
 		return nil
 	}
 
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer tx.Rollback(ctx)
 
-	stmt, err := tx.PrepareContext(ctx, `
+	insertMountSQL := `
 		INSERT INTO volume_mounts (container_id, volume_id, mount_path, is_readonly)
 		VALUES ($1, $2, $3, $4)
-	`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
+	`
 
 	for _, m := range mounts {
-		_, err = stmt.ExecContext(ctx, m.ContainerID, m.VolumeID, m.MountPath, m.IsReadOnly)
+		_, err = tx.Exec(ctx, insertMountSQL, m.ContainerID, m.VolumeID, m.MountPath, m.IsReadOnly)
 		if err != nil {
-			var pgErr *pq.Error
+			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 				continue
 			}
@@ -230,20 +210,20 @@ func (r *VolumeRepository) SaveMounts(ctx context.Context, mounts []model.Volume
 		}
 	}
 
-	return commitTx(tx, "save mounts")
+	return commitTx(ctx, tx, "save mounts")
 }
 
 func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM volumes WHERE owner_id = $1`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, ownerID).Scan(&count)
+	err := r.db.QueryRow(ctx, query, ownerID).Scan(&count)
 	return count, err
 }
 
 func (r *VolumeRepository) CountAll(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM volumes`
 	var count int
-	err := r.db.QueryRowContext(ctx, query).Scan(&count)
+	err := r.db.QueryRow(ctx, query).Scan(&count)
 	return count, err
 }
 
@@ -255,7 +235,7 @@ func (r *VolumeRepository) IsVolumeInUse(ctx context.Context, volumeID uuid.UUID
 		)
 	`
 	var exists bool
-	err := r.db.QueryRowContext(ctx, query, volumeID).Scan(&exists)
+	err := r.db.QueryRow(ctx, query, volumeID).Scan(&exists)
 	if err != nil {
 		return false, err
 	}
@@ -270,7 +250,7 @@ func (r *VolumeRepository) GetByProjectID(ctx context.Context, projectID uuid.UU
 		WHERE pv.project_id = $1
 		ORDER BY volumes.created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query, projectID)
+	rows, err := r.db.Query(ctx, query, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +276,7 @@ func (r *VolumeRepository) List(ctx context.Context, opts model.ListOptions) ([]
 	}
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM volumes`+where, args...).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM volumes`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -306,7 +286,7 @@ func (r *VolumeRepository) List(ctx context.Context, opts model.ListOptions) ([]
 		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -325,14 +305,11 @@ func (r *VolumeRepository) List(ctx context.Context, opts model.ListOptions) ([]
 
 func (r *VolumeRepository) UpdateUsage(ctx context.Context, id uuid.UUID, usedBytes int64) error {
 	query := `UPDATE volumes SET used_bytes = $1, usage_observed_at = NOW(), last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.ExecContext(ctx, query, usedBytes, id)
+	res, err := r.db.Exec(ctx, query, usedBytes, id)
 	if err != nil {
 		return err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
+	rowsAffected := res.RowsAffected()
 	if rowsAffected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -342,19 +319,19 @@ func (r *VolumeRepository) UpdateUsage(ctx context.Context, id uuid.UUID, usedBy
 func (r *VolumeRepository) GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE owner_id = $1 AND status != $2`
 	var usedBytes int64
-	err := r.db.QueryRowContext(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&usedBytes)
+	err := r.db.QueryRow(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&usedBytes)
 	return usedBytes, err
 }
 
 func (r *VolumeRepository) GetTotalUsedVolumeBytes(ctx context.Context) (int64, error) {
 	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE status != $1`
 	var usedBytes int64
-	err := r.db.QueryRowContext(ctx, query, model.VolumeStatusDeleting).Scan(&usedBytes)
+	err := r.db.QueryRow(ctx, query, model.VolumeStatusDeleting).Scan(&usedBytes)
 	return usedBytes, err
 }
 
 func (r *VolumeRepository) GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUID, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT owner_id FROM volumes`)
+	rows, err := r.db.Query(ctx, `SELECT DISTINCT owner_id FROM volumes`)
 	if err != nil {
 		return nil, err
 	}
@@ -372,10 +349,10 @@ func (r *VolumeRepository) GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUI
 
 func scanVolume(s scanner) (model.Volume, error) {
 	var v model.Volume
-	var projectID sql.NullString
-	var lastObservedAt sql.NullTime
-	var lastError sql.NullString
-	var usageObservedAt sql.NullTime
+	var projectID *string
+	var lastObservedAt *time.Time
+	var lastError *string
+	var usageObservedAt *time.Time
 
 	if err := s.Scan(
 		&v.ID, &v.OwnerID, &projectID, &v.Name, &v.DockerName, &v.Status,
@@ -383,18 +360,12 @@ func scanVolume(s scanner) (model.Volume, error) {
 	); err != nil {
 		return model.Volume{}, err
 	}
-	if projectID.Valid {
-		parsed, _ := uuid.Parse(projectID.String)
+	if projectID != nil {
+		parsed, _ := uuid.Parse(*projectID)
 		v.ProjectID = &parsed
 	}
-	if lastObservedAt.Valid {
-		v.LastObservedAt = &lastObservedAt.Time
-	}
-	if lastError.Valid {
-		v.LastError = &lastError.String
-	}
-	if usageObservedAt.Valid {
-		v.UsageObservedAt = &usageObservedAt.Time
-	}
+	v.LastObservedAt = lastObservedAt
+	v.LastError = lastError
+	v.UsageObservedAt = usageObservedAt
 	return v, nil
 }

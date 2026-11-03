@@ -283,7 +283,6 @@ services:
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@sso_db:5432/${SSO_POSTGRES_DB:-dcm_sso_db}?sslmode=disable"
       SSO_DB_MAX_OPEN: "${SSO_DB_MAX_OPEN:-20}"
-      SSO_DB_MAX_IDLE: "${SSO_DB_MAX_IDLE:-5}"
       SSO_DB_MAX_LIFETIME: "${SSO_DB_MAX_LIFETIME:-30m}"
       SSO_DB_MAX_IDLE_TIME: "${SSO_DB_MAX_IDLE_TIME:-5m}"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
@@ -319,7 +318,6 @@ services:
       <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@core_db:5432/${CORE_POSTGRES_DB:-dcm_core_db}?sslmode=disable"
       CORE_DB_MAX_OPEN: "${CORE_DB_MAX_OPEN:-20}"
-      CORE_DB_MAX_IDLE: "${CORE_DB_MAX_IDLE:-5}"
       CORE_DB_MAX_LIFETIME: "${CORE_DB_MAX_LIFETIME:-30m}"
       CORE_DB_MAX_IDLE_TIME: "${CORE_DB_MAX_IDLE_TIME:-5m}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"

@@ -11,7 +11,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
-	_ "github.com/lib/pq"
 )
 
 func main() {

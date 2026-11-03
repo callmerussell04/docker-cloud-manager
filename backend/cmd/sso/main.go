@@ -11,7 +11,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/app"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/config"
-	_ "github.com/lib/pq"
 )
 
 func main() {

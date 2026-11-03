@@ -3,7 +3,6 @@ package coretest
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"io"
 	"mime/multipart"
 	"net"
@@ -25,6 +24,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -62,8 +62,8 @@ func IntegrationConfig() config.SystemConfig {
 }
 
 type CoreRepositories struct {
-	DB         *sql.DB
-	LockDB     *sql.DB
+	DB         *pgxpool.Pool
+	LockDB     *pgxpool.Pool
 	Builds     *repository.BuildRepository
 	Images     *repository.ImageRepository
 	Volumes    *repository.VolumeRepository
@@ -88,12 +88,11 @@ func (r CoreRepositories) RegistryAuthorization(t *testing.T) *service.RegistryA
 
 func OpenCoreRepositories(t *testing.T) CoreRepositories {
 	t.Helper()
-	db := dbtest.OpenCorePostgres(t)
-	lockDB := dbtest.OpenCoreAdmissionPool(t, db)
+	base := dbtest.OpenCorePostgres(t)
 	queryCfg, lockCfg, err := pgpool.DefaultConfig().CoreBudgets()
 	require.NoError(t, err)
-	require.NoError(t, queryCfg.Apply(db))
-	require.NoError(t, lockCfg.Apply(lockDB))
+	db := dbtest.OpenCorePeerPool(t, base, queryCfg)
+	lockDB := dbtest.OpenCorePeerPool(t, base, lockCfg)
 	return CoreRepositories{
 		LockDB:     lockDB,
 		DB:         db,

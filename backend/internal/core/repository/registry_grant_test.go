@@ -63,7 +63,7 @@ func TestRegistryGrantClaimIsExclusiveAndRevocationSurvivesRestart(t *testing.T)
 	_, err = restarted.AuthorizeCredential(ctx, hashes[winner][:], time.Now())
 	require.ErrorIs(t, err, apperrors.ErrForbidden)
 	// Deletion fences only after the repository's builds stop running.
-	_, err = db.ExecContext(ctx, `UPDATE builds SET status=$2 WHERE id=$1`, buildID, model.BuildStatusCanceled)
+	_, err = db.Exec(ctx, `UPDATE builds SET status=$2 WHERE id=$1`, buildID, model.BuildStatusCanceled)
 	require.NoError(t, err)
 	remaining, err := restarted.FenceRepository(ctx, principal.Repository, service.RegistryCleanupDelay)
 	require.NoError(t, err)
@@ -96,7 +96,7 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	require.True(t, started)
 	require.NoError(t, grants.RevokeBuild(ctx, oldID, model.RegistryTagDelete, service.RegistryCleanupDelay))
 	require.NoError(t, repository.NewImageRepository(db).MarkBuildFailedAndDeleteImageTx(ctx, oldID, old.ImageID, model.BuildStatusCanceled))
-	_, err = db.ExecContext(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, oldID)
+	_, err = db.Exec(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '5 minutes' WHERE build_id=$1`, oldID)
 	require.NoError(t, err)
 	repo := owner.String() + "_replacement"
 	job := model.RegistryCleanup{ID: oldID, Repository: repo, Tag: "latest"}

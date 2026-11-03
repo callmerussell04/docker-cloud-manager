@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +20,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -37,8 +37,8 @@ type App struct {
 	gRPCServer        *grpc.Server
 	httpServer        *http.Server
 	registryServer    *http.Server
-	db                *sql.DB
-	lockDB            *sql.DB
+	db                *pgxpool.Pool
+	lockDB            *pgxpool.Pool
 	reportsRepo       *clickhouserepo.ReportsRepository
 	dockerCli         *docker.Adapter
 	orchestrator      *compose.Orchestrator
@@ -64,15 +64,15 @@ type Config struct {
 func New(cfg Config, logger *slog.Logger) (*App, error) {
 	appLogger := logging.WithComponent(logger, "app")
 
-	db, lockDB, err := openPostgresPools(cfg.DBURL, cfg.DBPool)
+	db, lockDB, err := openPostgresPools(context.Background(), cfg.DBURL, cfg.DBPool)
 	if err != nil {
 		return nil, err
 	}
 	initialized := false
 	defer func() {
 		if !initialized {
-			_ = db.Close()     // startup failed and its error is returned; the process exits without reusing the pool
-			_ = lockDB.Close() // startup failed and its error is returned; the process exits without reusing the pool
+			db.Close()
+			lockDB.Close()
 		}
 	}()
 
@@ -277,7 +277,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	startWorkers(ctx, wg,
 		func(ctx context.Context) {
-			pgpool.LogStats(ctx, appLogger, map[string]*sql.DB{"queries": db, "locks": lockDB})
+			pgpool.LogStats(ctx, appLogger, map[string]*pgxpool.Pool{"queries": db, "locks": lockDB})
 		},
 		registry.cleanup.Run,
 		ttlWorker.Run,
@@ -406,14 +406,10 @@ func (a *App) Stop() {
 	}
 	a.wg.Wait()
 	if a.lockDB != nil {
-		if err := a.lockDB.Close(); err != nil {
-			a.logger.Warn("postgres lock connection close failed", "error", err)
-		}
+		a.lockDB.Close()
 	}
 	if a.db != nil {
-		if err := a.db.Close(); err != nil {
-			a.logger.Warn("postgres connection close failed", "error", err)
-		}
+		a.db.Close()
 	}
 	if a.reportsRepo != nil {
 		if err := a.reportsRepo.Close(); err != nil {

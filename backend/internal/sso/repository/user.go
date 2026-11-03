@@ -2,21 +2,23 @@ package repository
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/google/uuid"
-	"github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db *pgxpool.Pool
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *pgxpool.Pool) *UserRepository {
 	return &UserRepository{db: db}
 }
 
@@ -29,7 +31,7 @@ func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.db.Exec(ctx, query,
 		user.ID,
 		user.Username,
 		user.Email,
@@ -46,7 +48,7 @@ func (r *UserRepository) SaveUser(ctx context.Context, user model.User) error {
 		nullTime(user.LastLoginAt),
 	)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
@@ -65,10 +67,10 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, username).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, username).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -86,10 +88,10 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (mode
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, email).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, email).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -107,9 +109,9 @@ func (r *UserRepository) GetUserByExternalIdentity(ctx context.Context, provider
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, provider, subject).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, provider, subject).Scan(userScanDest(&user)...)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -127,10 +129,10 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id uuid.UUID) (model.U
 	`
 
 	var user model.User
-	err := r.db.QueryRowContext(ctx, query, id).Scan(userScanDest(&user)...)
+	err := r.db.QueryRow(ctx, query, id).Scan(userScanDest(&user)...)
 
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return model.User{}, apperrors.ErrNotFound
 		}
 		return model.User{}, err
@@ -151,7 +153,7 @@ func (r *UserRepository) GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]
 		WHERE id = ANY($1)
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, pq.Array(ids))
+	rows, err := r.db.Query(ctx, query, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +174,7 @@ func (r *UserRepository) ListUsers(ctx context.Context, opts model.ListUsersOpti
 	countQuery := `SELECT COUNT(*) FROM users`
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, countQuery).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
@@ -184,7 +186,7 @@ func (r *UserRepository) ListUsers(ctx context.Context, opts model.ListUsersOpti
 		LIMIT $1 OFFSET $2
 	`
 
-	rows, err := r.db.QueryContext(ctx, query, opts.Limit, opts.Offset)
+	rows, err := r.db.Query(ctx, query, opts.Limit, opts.Offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -206,7 +208,7 @@ func (r *UserRepository) UpdateUser(ctx context.Context, user model.User) error 
 }
 
 type userExecutor interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
 }
 
 func updateUser(ctx context.Context, executor userExecutor, user model.User) error {
@@ -228,7 +230,7 @@ func updateUser(ctx context.Context, executor userExecutor, user model.User) err
 		WHERE id = $1
 	`
 
-	result, err := executor.ExecContext(ctx, query,
+	result, err := executor.Exec(ctx, query,
 		user.ID,
 		user.Username,
 		user.Email,
@@ -245,17 +247,14 @@ func updateUser(ctx context.Context, executor userExecutor, user model.User) err
 		nullTime(user.LastLoginAt),
 	)
 	if err != nil {
-		var pgErr *pq.Error
+		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists
 		}
 		return err
 	}
 
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
+	affected := result.RowsAffected()
 	if affected == 0 {
 		return apperrors.ErrNotFound
 	}
@@ -266,7 +265,7 @@ func (r *UserRepository) CountActiveAdmins(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM users WHERE role = $1 AND status = $2`
 
 	var total int
-	if err := r.db.QueryRowContext(ctx, query, model.RoleAdmin, model.StatusActive).Scan(&total); err != nil {
+	if err := r.db.QueryRow(ctx, query, model.RoleAdmin, model.StatusActive).Scan(&total); err != nil {
 		return 0, err
 	}
 	return total, nil
@@ -287,7 +286,7 @@ func userScanDest(user *model.User) []any {
 		nullableStringDest{value: &user.ExternalProvider},
 		nullableStringDest{value: &user.ExternalSubject},
 		nullableStringDest{value: &user.ExternalUsername},
-		nullableTimeDest{value: &user.LastLoginAt},
+		&user.LastLoginAt,
 	}
 }
 
@@ -298,51 +297,27 @@ func nullString(value string) any {
 	return value
 }
 
+// nullableStringDest scans a nullable text column into a string, NULL as "".
 type nullableStringDest struct {
 	value *string
 }
 
-func (d nullableStringDest) Scan(src any) error {
-	var value sql.NullString
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	*d.value = value.String
+func (d nullableStringDest) ScanText(v pgtype.Text) error {
+	*d.value = v.String
 	return nil
 }
 
+// authSourceDest scans the auth source, treating NULL or "" as local.
 type authSourceDest struct {
 	value *string
 }
 
-func (d authSourceDest) Scan(src any) error {
-	var value sql.NullString
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	if value.String == "" {
+func (d authSourceDest) ScanText(v pgtype.Text) error {
+	if v.String == "" {
 		*d.value = model.AuthSourceLocal
 		return nil
 	}
-	*d.value = value.String
-	return nil
-}
-
-type nullableTimeDest struct {
-	value **time.Time
-}
-
-func (d nullableTimeDest) Scan(src any) error {
-	var value sql.NullTime
-	if err := value.Scan(src); err != nil {
-		return err
-	}
-	if !value.Valid {
-		*d.value = nil
-		return nil
-	}
-	t := value.Time
-	*d.value = &t
+	*d.value = v.String
 	return nil
 }
 

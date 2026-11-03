@@ -1,27 +1,32 @@
-// Package pgpool owns bootstrap PostgreSQL connection budgets and diagnostics.
+// Package pgpool owns bootstrap PostgreSQL connection budgets, pool
+// construction and diagnostics.
 package pgpool
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 )
 
+// Config is a pgxpool connection budget.
 type Config struct {
-	MaxOpen     int
-	MaxIdle     int
-	MaxLifetime time.Duration
-	MaxIdleTime time.Duration
+	MaxConns        int
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
 }
 
 func DefaultConfig() Config {
-	return Config{MaxOpen: 20, MaxIdle: 5, MaxLifetime: 30 * time.Minute, MaxIdleTime: 5 * time.Minute}
+	return Config{MaxConns: 20, MaxConnLifetime: 30 * time.Minute, MaxConnIdleTime: 5 * time.Minute}
 }
 
 // Parse reads service-prefixed bootstrap settings through the entrypoint's lookup.
@@ -30,18 +35,16 @@ func DefaultConfig() Config {
 // causes are wrapped.
 func Parse(lookup envconfig.Lookup, prefix string) (Config, error) {
 	cfg := DefaultConfig()
-	for suffix, target := range map[string]*int{"MAX_OPEN": &cfg.MaxOpen, "MAX_IDLE": &cfg.MaxIdle} {
-		key := prefix + "_DB_" + suffix
-		if raw, ok := lookup(key); ok {
-			value, err := strconv.Atoi(raw)
-			if err != nil {
-				// *strconv.NumError quotes the raw value; its unwrapped ErrSyntax or ErrRange does not.
-				return Config{}, fmt.Errorf("invalid %s: %w", key, errors.Unwrap(err))
-			}
-			*target = value
+	maxOpenKey := prefix + "_DB_MAX_OPEN"
+	if raw, ok := lookup(maxOpenKey); ok {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			// *strconv.NumError quotes the raw value; its unwrapped ErrSyntax or ErrRange does not.
+			return Config{}, fmt.Errorf("invalid %s: %w", maxOpenKey, errors.Unwrap(err))
 		}
+		cfg.MaxConns = value
 	}
-	for suffix, target := range map[string]*time.Duration{"MAX_LIFETIME": &cfg.MaxLifetime, "MAX_IDLE_TIME": &cfg.MaxIdleTime} {
+	for suffix, target := range map[string]*time.Duration{"MAX_LIFETIME": &cfg.MaxConnLifetime, "MAX_IDLE_TIME": &cfg.MaxConnIdleTime} {
 		key := prefix + "_DB_" + suffix
 		if raw, ok := lookup(key); ok {
 			value, err := time.ParseDuration(raw)
@@ -55,22 +58,70 @@ func Parse(lookup envconfig.Lookup, prefix string) (Config, error) {
 	return cfg, nil
 }
 
-func (c Config) Validate(minOpen int) error {
-	if c.MaxOpen < minOpen || c.MaxIdle < 0 || c.MaxIdle > c.MaxOpen || c.MaxLifetime <= 0 || c.MaxIdleTime <= 0 {
-		return fmt.Errorf("invalid postgres pool budget: require max open >= %d, idle between zero and max open, and positive lifetimes", minOpen)
+func (c Config) Validate(minMaxConns int) error {
+	if c.MaxConns < minMaxConns || c.MaxConns > math.MaxInt32 || c.MaxConnLifetime <= 0 || c.MaxConnIdleTime <= 0 {
+		return fmt.Errorf("invalid postgres pool budget: require max conns >= %d and positive lifetimes", minMaxConns)
 	}
 	return nil
 }
 
-func (c Config) Apply(db *sql.DB) error {
+// Apply writes the budget onto a pool config. pgxpool cannot be resized after
+// construction, so the budget is applied before NewWithConfig.
+func (c Config) Apply(poolCfg *pgxpool.Config) error {
 	if err := c.Validate(1); err != nil {
 		return err
 	}
-	db.SetMaxOpenConns(c.MaxOpen)
-	db.SetMaxIdleConns(c.MaxIdle)
-	db.SetConnMaxLifetime(c.MaxLifetime)
-	db.SetConnMaxIdleTime(c.MaxIdleTime)
+	poolCfg.MaxConns = int32(c.MaxConns) // bounded by Validate
+	poolCfg.MaxConnLifetime = c.MaxConnLifetime
+	poolCfg.MaxConnIdleTime = c.MaxConnIdleTime
 	return nil
+}
+
+// NewPoolConfig parses dsn and applies the budget. Every connection scans
+// timestamptz values in UTC, as the previous driver did with the servers'
+// UTC session time zone, so persisted instants never pick up the host's zone.
+// Errors never include the DSN.
+func NewPoolConfig(dsn string, budget Config) (*pgxpool.Config, error) {
+	poolCfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		// pgconn's parse error quotes the connection string.
+		return nil, errors.New("parse postgres connection settings")
+	}
+	if err := budget.Apply(poolCfg); err != nil {
+		return nil, err
+	}
+	poolCfg.AfterConnect = func(_ context.Context, conn *pgx.Conn) error {
+		conn.TypeMap().RegisterType(&pgtype.Type{
+			Name:  "timestamptz",
+			OID:   pgtype.TimestamptzOID,
+			Codec: &pgtype.TimestamptzCodec{ScanLocation: time.UTC},
+		})
+		return nil
+	}
+	return poolCfg, nil
+}
+
+// PingTimeout bounds the startup ping of a pool.
+const PingTimeout = 10 * time.Second
+
+// Open builds a pool from dsn with the budget applied and pings it within
+// pingTimeout. Errors never include the DSN. On success the caller closes the pool.
+func Open(ctx context.Context, dsn string, budget Config, pingTimeout time.Duration) (*pgxpool.Pool, error) {
+	poolCfg, err := NewPoolConfig(dsn, budget)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres pool: %w", err)
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+	if err := pool.Ping(pingCtx); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("ping postgres pool: %w", err)
+	}
+	return pool, nil
 }
 
 // Core reserves one connection for pinned advisory-lock transactions and waiters.
@@ -80,22 +131,22 @@ func (c Config) CoreBudgets() (Config, Config, error) {
 		return Config{}, Config{}, err
 	}
 	query, locks := c, c
-	locks.MaxOpen = 1
-	locks.MaxIdle = min(1, c.MaxIdle)
-	query.MaxOpen--
-	query.MaxIdle -= locks.MaxIdle
+	locks.MaxConns = 1
+	query.MaxConns--
 	return query, locks, nil
 }
 
 // LogStats uses the existing structured logging seam and never includes a DSN.
-func LogStats(ctx context.Context, logger *slog.Logger, pools map[string]*sql.DB) {
+func LogStats(ctx context.Context, logger *slog.Logger, pools map[string]*pgxpool.Pool) {
 	log := func() {
-		for name, db := range pools {
-			s := db.Stats()
-			logger.Info("postgres pool statistics", "pool", name, "max_open", s.MaxOpenConnections,
-				"open", s.OpenConnections, "in_use", s.InUse, "idle", s.Idle,
-				"wait_count", s.WaitCount, "wait_duration_ms", s.WaitDuration.Milliseconds(),
-				"max_idle_closed", s.MaxIdleClosed, "max_idle_time_closed", s.MaxIdleTimeClosed, "max_lifetime_closed", s.MaxLifetimeClosed)
+		for name, pool := range pools {
+			s := pool.Stat()
+			logger.Info("postgres pool statistics", "pool", name, "max_conns", s.MaxConns(),
+				"total", s.TotalConns(), "acquired", s.AcquiredConns(), "idle", s.IdleConns(),
+				"constructing", s.ConstructingConns(), "acquire_count", s.AcquireCount(),
+				"empty_acquire_count", s.EmptyAcquireCount(), "canceled_acquire_count", s.CanceledAcquireCount(),
+				"acquire_duration_ms", s.AcquireDuration().Milliseconds(),
+				"max_idle_destroy_count", s.MaxIdleDestroyCount(), "max_lifetime_destroy_count", s.MaxLifetimeDestroyCount())
 		}
 	}
 	log()

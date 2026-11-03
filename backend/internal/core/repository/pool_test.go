@@ -8,21 +8,14 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAdmissionPoolPreservesQueryProgress(t *testing.T) {
-	db := dbtest.OpenCorePostgres(t)
-	locks := dbtest.OpenCoreAdmissionPool(t, db)
-	cfg := pgpool.DefaultConfig()
-	cfg.MaxOpen, cfg.MaxIdle = 2, 0
-	query, admission, err := cfg.CoreBudgets()
-	require.NoError(t, err)
-	require.NoError(t, query.Apply(db))
-	require.NoError(t, admission.Apply(locks))
+	db, locks := openCoreBudgetPools(t, 2)
 	builds := repository.NewBuildRepository(db, locks)
 	containers := repository.NewContainerRepository(db, locks)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -45,11 +38,11 @@ func TestAdmissionPoolPreservesQueryProgress(t *testing.T) {
 	go func() {
 		results <- containers.SaveWithMountsAndOperation(waiterCtx, model.Container{OwnerID: uuid.New()}, nil, model.ResourceOperation{}, true, true)
 	}()
-	require.Eventually(t, func() bool { return locks.Stats().WaitCount >= 9 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return dbtest.PendingAcquires(locks) >= 9 }, time.Second, time.Millisecond)
 	count, err := builds.CountActive(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
-	require.LessOrEqual(t, db.Stats().OpenConnections+locks.Stats().OpenConnections, 2)
+	require.LessOrEqual(t, int(db.Stat().TotalConns())+int(locks.Stat().TotalConns()), 2)
 	cancelWaiters()
 	for range 9 {
 		require.ErrorIs(t, <-results, context.Canceled)
@@ -62,10 +55,8 @@ func TestAdmissionPoolPreservesQueryProgress(t *testing.T) {
 
 func TestAdmissionLockCancellationAndContention(t *testing.T) {
 	db := dbtest.OpenCorePostgres(t)
-	locks := dbtest.OpenCoreAdmissionPool(t, db)
-	locks.SetMaxOpenConns(1)
-	peer := dbtest.OpenCoreAdmissionPool(t, db)
-	peer.SetMaxOpenConns(1)
+	locks := dbtest.OpenCorePeerPool(t, db, dbtest.Budget(1))
+	peer := dbtest.OpenCorePeerPool(t, db, dbtest.Budget(1))
 	holder := repository.NewBuildRepository(db, peer)
 	waiter := repository.NewContainerRepository(db, locks)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -85,7 +76,7 @@ func TestAdmissionLockCancellationAndContention(t *testing.T) {
 	}()
 	require.Eventually(t, func() bool {
 		var waiting int
-		err := db.QueryRowContext(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).Scan(&waiting)
+		err := db.QueryRow(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).Scan(&waiting)
 		return err == nil && waiting > 0
 	}, time.Second, time.Millisecond)
 	cancelWait()
@@ -106,27 +97,13 @@ func TestAdmissionLockCancellationAndContention(t *testing.T) {
 }
 
 func TestCoreQueriesStayBoundedAndCancel(t *testing.T) {
-	db := dbtest.OpenCorePostgres(t)
-	peer := dbtest.OpenCoreAdmissionPool(t, db)
-	cfg := pgpool.DefaultConfig()
-	cfg.MaxOpen, cfg.MaxIdle = 2, 0
-	query, admission, err := cfg.CoreBudgets()
-	require.NoError(t, err)
-	require.NoError(t, query.Apply(db))
-	require.NoError(t, admission.Apply(peer))
+	db, peer := openCoreBudgetPools(t, 2)
 	repo := repository.NewBuildRepository(db, peer)
 	dbtest.CheckPoolProgress(t, db, peer, "builds", func(ctx context.Context) error { _, err := repo.CountActive(ctx); return err })
 }
 
 func TestRegistryLockPreservesQueryProgress(t *testing.T) {
-	db := dbtest.OpenCorePostgres(t)
-	locks := dbtest.OpenCoreAdmissionPool(t, db)
-	cfg := pgpool.DefaultConfig()
-	cfg.MaxOpen, cfg.MaxIdle = 2, 0
-	query, lockCfg, err := cfg.CoreBudgets()
-	require.NoError(t, err)
-	require.NoError(t, query.Apply(db))
-	require.NoError(t, lockCfg.Apply(locks))
+	db, locks := openCoreBudgetPools(t, 2)
 	grants := repository.NewRegistryGrantRepository(db, locks)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -144,7 +121,7 @@ func TestRegistryLockPreservesQueryProgress(t *testing.T) {
 			results <- err
 		}()
 	}
-	require.Eventually(t, func() bool { return locks.Stats().WaitCount >= 8 }, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool { return dbtest.PendingAcquires(locks) >= 8 }, time.Second, time.Millisecond)
 	facts, err := grants.RegistryCleanupFacts(ctx, model.RegistryCleanup{Repository: "pool-test-repository", Tag: "latest"}, service.RegistryCleanupDelay)
 	require.NoError(t, err)
 	require.Equal(t, model.RegistryCleanupFacts{}, facts)
@@ -152,5 +129,15 @@ func TestRegistryLockPreservesQueryProgress(t *testing.T) {
 	for range 8 {
 		require.NoError(t, <-results)
 	}
-	require.LessOrEqual(t, db.Stats().OpenConnections+locks.Stats().OpenConnections, 2)
+	require.LessOrEqual(t, int(db.Stat().TotalConns())+int(locks.Stat().TotalConns()), 2)
+}
+
+// openCoreBudgetPools opens Core's query and lock pools with the split budget
+// production derives from maxConns, in one isolated schema.
+func openCoreBudgetPools(t *testing.T, maxConns int) (*pgxpool.Pool, *pgxpool.Pool) {
+	t.Helper()
+	base := dbtest.OpenCorePostgres(t)
+	query, locks, err := dbtest.Budget(maxConns).CoreBudgets()
+	require.NoError(t, err)
+	return dbtest.OpenCorePeerPool(t, base, query), dbtest.OpenCorePeerPool(t, base, locks)
 }
