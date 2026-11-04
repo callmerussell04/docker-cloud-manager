@@ -6,9 +6,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
-	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -18,6 +15,7 @@ const publishAttemptTimeout = 10 * time.Second
 
 type Publisher struct {
 	url      string
+	topology Topology
 	gate     chan struct{}
 	lifetime context.Context
 	cancel   context.CancelFunc
@@ -27,9 +25,11 @@ type Publisher struct {
 	confirms <-chan amqp.Confirmation
 }
 
-func NewPublisher(url string) *Publisher {
+// NewPublisher returns a publisher that declares topology before its first
+// publish on each connection.
+func NewPublisher(url string, topology Topology) *Publisher {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Publisher{url: url, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel}
+	return &Publisher{url: url, topology: topology.withDefaults(), gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel}
 }
 
 func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) (err error) {
@@ -139,7 +139,7 @@ func (p *Publisher) ensureConnected(ctx context.Context, stopIO *func()) error {
 		return fmt.Errorf("failed to open rabbitmq channel: %w", err)
 	}
 	p.ch = ch
-	if err := declareTopology(ch); err != nil {
+	if err := p.topology.declare(ch); err != nil {
 		return err
 	}
 	if err := ch.Confirm(false); err != nil {
@@ -164,8 +164,4 @@ func (p *Publisher) resetLocked() error {
 	p.ch = nil
 	p.confirms = nil
 	return err
-}
-
-func declareTopology(ch *amqp.Channel) error {
-	return platformrabbitmq.Declare(ch, buildqueue.Queue, queue.Compose, queue.Container, queue.Resource)
 }

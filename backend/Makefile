@@ -22,11 +22,10 @@ GOVULNCHECK_VERSION = v1.9.0
 GOVULNCHECK = $(abspath $(BUILD_DIR)/tools/govulncheck-$(GOVULNCHECK_VERSION)/govulncheck)
 TEST_PKGS ?= ./...
 TEST_ARGS ?= -count=1 -timeout=5m
-TEST_ALL_ARGS ?= -count=1 -p=1 -timeout=5m
+TEST_ALL_ARGS ?= -count=1 -race -timeout=5m
 TEST_COMPOSE_FILE ?= docker-compose.test.yml
 TEST_COMPOSE_PROJECT ?= dcm-test
 TEST_KEEP_ENV ?= 0
-TEST_DOCKER_SMOKE ?= 1
 
 CORE_TEST_DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:15432/dcm_core_test?sslmode=disable
 SSO_TEST_DATABASE_URL ?= postgres://postgres:postgres@127.0.0.1:15433/dcm_sso_test?sslmode=disable
@@ -67,7 +66,9 @@ tidy:
 .PHONY: generate generate-mocks generate-proto check-generated check-proto
 generate: generate-mocks generate-proto
 
+# Mocks are ignored generated output; clearing them first drops mocks of interfaces no longer listed.
 generate-mocks:
+	rm -rf internal/testutil/mocks
 	GOCACHE=$(GOCACHE) go run github.com/vektra/mockery/v2@$(MOCKERY_VERSION) --config .mockery.yml --quiet
 
 $(PROTOC_GEN_GO):
@@ -95,7 +96,8 @@ check-proto:
 
 .PHONY: test-fast
 test-fast: check-generated
-	env -u CORE_TEST_DATABASE_URL \
+	env -u DCM_TEST_REQUIRE_INTEGRATION \
+		-u CORE_TEST_DATABASE_URL \
 		-u SSO_TEST_DATABASE_URL \
 		-u CORE_TEST_OBJECT_STORAGE_ENDPOINT \
 		-u CORE_TEST_OBJECT_STORAGE_BUCKET \
@@ -130,12 +132,14 @@ test-env-logs:
 test-env-down:
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) down -v --remove-orphans
 
+# Every integration gate is required: a missing service fails instead of skipping.
 .PHONY: test test-all
 test test-all: check-generated
 	set -e; \
 	export DCM_CLICKHOUSE_TEST_DB='$(DCM_CLICKHOUSE_TEST_DB)' DCM_CLICKHOUSE_TEST_USER='$(DCM_CLICKHOUSE_TEST_USER)' DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)'; \
 	if [ "$(TEST_KEEP_ENV)" != "1" ]; then trap 'docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) down -v --remove-orphans' EXIT; fi; \
 	docker compose -f $(TEST_COMPOSE_FILE) -p $(TEST_COMPOSE_PROJECT) up -d --wait --wait-timeout 120; \
+	DCM_TEST_REQUIRE_INTEGRATION=1 \
 	CORE_TEST_DATABASE_URL='$(CORE_TEST_DATABASE_URL)' \
 	SSO_TEST_DATABASE_URL='$(SSO_TEST_DATABASE_URL)' \
 	CORE_TEST_OBJECT_STORAGE_ENDPOINT='$(CORE_TEST_OBJECT_STORAGE_ENDPOINT)' \
@@ -148,10 +152,10 @@ test test-all: check-generated
 	DCM_CLICKHOUSE_TEST_DB='$(DCM_CLICKHOUSE_TEST_DB)' \
 	DCM_CLICKHOUSE_TEST_USER='$(DCM_CLICKHOUSE_TEST_USER)' \
 	DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)' \
-	CORE_TEST_DOCKER='$(TEST_DOCKER_SMOKE)' \
-	BUILDER_TEST_DOCKER='$(TEST_DOCKER_SMOKE)' \
-	TELEMETRY_TEST_DOCKER='$(TEST_DOCKER_SMOKE)' \
-	CORE_TEST_REGISTRY_ISOLATION='$(TEST_DOCKER_SMOKE)' \
+	CORE_TEST_DOCKER=1 \
+	BUILDER_TEST_DOCKER=1 \
+	TELEMETRY_TEST_DOCKER=1 \
+	CORE_TEST_REGISTRY_ISOLATION=1 \
 	GOCACHE=$(GOCACHE) $(GOTESTSUM) --format pkgname -- $(TEST_ALL_ARGS) $(TEST_PKGS)
 
 $(GOLANGCI_LINT):

@@ -36,6 +36,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -52,9 +53,7 @@ import (
 const registryImage = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
 
 func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
-	if os.Getenv("CORE_TEST_REGISTRY_ISOLATION") != "1" {
-		t.Skip("make test runs this; set CORE_TEST_REGISTRY_ISOLATION=1 and CORE_TEST_DATABASE_URL to run it directly")
-	}
+	testenv.Enabled(t, "CORE_TEST_REGISTRY_ISOLATION")
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	db := dbtest.OpenCorePostgres(t)

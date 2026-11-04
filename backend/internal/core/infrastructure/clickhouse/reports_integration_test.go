@@ -15,15 +15,13 @@ import (
 	clickhouserepo "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/clickhouse"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testing.T) {
-	cfg, ok := clickHouseTestConfig()
-	if !ok {
-		t.Skip("set DCM_CLICKHOUSE_TEST_ADDR to run ClickHouse reports integration test")
-	}
+	cfg := clickHouseTestConfig(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -119,17 +117,14 @@ func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testin
 	require.False(t, latest.IsZero())
 }
 
-func clickHouseTestConfig() (clickhouserepo.Config, bool) {
-	addr := strings.TrimSpace(os.Getenv("DCM_CLICKHOUSE_TEST_ADDR"))
-	if addr == "" {
-		return clickhouserepo.Config{}, false
-	}
+func clickHouseTestConfig(t *testing.T) clickhouserepo.Config {
+	t.Helper()
 	return clickhouserepo.Config{
-		Addr:     addr,
+		Addr:     testenv.Lookup(t, "DCM_CLICKHOUSE_TEST_ADDR"),
 		Database: envOrDefault("DCM_CLICKHOUSE_TEST_DB", "dcm_reports_test"),
 		Username: envOrDefault("DCM_CLICKHOUSE_TEST_USER", "default"),
 		Password: os.Getenv("DCM_CLICKHOUSE_TEST_PASSWORD"),
-	}, true
+	}
 }
 
 func openClickHouseTestDB(t *testing.T, cfg clickhouserepo.Config) *sql.DB {

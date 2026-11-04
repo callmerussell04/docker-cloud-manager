@@ -190,10 +190,10 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
-	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL)
-	composeConsumer := platformrabbitmq.NewConsumer(rabbitmq.ComposeConsumerConfig(cfg.RabbitMQURL, "core", logger))
-	containerConsumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", logger))
-	resourceConsumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", logger))
+	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL, rabbitmq.Topology{})
+	composeConsumer := platformrabbitmq.NewConsumer(rabbitmq.ComposeConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	containerConsumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	resourceConsumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),

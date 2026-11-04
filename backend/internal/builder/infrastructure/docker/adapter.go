@@ -32,17 +32,22 @@ import (
 const (
 	buildNetworkPolicyUnavailableMessage = "build network policy is unavailable"
 	buildEgressProxyURL                  = "http://build-egress:3128"
+	defaultManagedBy                     = "docker-cloud-manager"
 )
 
 type Adapter struct {
 	cli                  *client.Client
 	registryCA           []byte
 	requireNetworkPolicy bool
+	managedBy            string
 }
 
 type Config struct {
 	RegistryCAFile       string
 	RequireNetworkPolicy bool
+	// ManagedBy is the managed_by label value the adapter gives build
+	// containers and cleans up orphans by. Empty selects docker-cloud-manager.
+	ManagedBy string
 }
 
 func NewAdapter(cfg Config) (*Adapter, error) {
@@ -61,7 +66,11 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create docker client: %w", err)
 	}
-	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy}, nil
+	managedBy := cfg.ManagedBy
+	if managedBy == "" {
+		managedBy = defaultManagedBy
+	}
+	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy, managedBy: managedBy}, nil
 }
 
 func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
@@ -132,7 +141,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		Env:   []string{"HTTP_PROXY=" + buildEgressProxyURL, "HTTPS_PROXY=" + buildEgressProxyURL, "NO_PROXY=" + authority},
 		Cmd:   cmd,
 		Labels: map[string]string{
-			"managed_by":        "docker-cloud-manager",
+			"managed_by":        a.managedBy,
 			"dcm.resource_type": "build",
 			"dcm.build_id":      params.BuildID,
 			"dcm.owner_id":      params.OwnerID,
@@ -286,7 +295,7 @@ func (a *Adapter) CleanupOrphanBuildContainers(ctx context.Context) error {
 	containers, err := a.cli.ContainerList(ctx, container.ListOptions{
 		All: true,
 		Filters: filters.NewArgs(
-			filters.Arg("label", "managed_by=docker-cloud-manager"),
+			filters.Arg("label", "managed_by="+a.managedBy),
 			filters.Arg("label", "dcm.resource_type=build"),
 		),
 	})

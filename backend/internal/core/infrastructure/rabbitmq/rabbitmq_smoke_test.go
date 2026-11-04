@@ -23,16 +23,15 @@ func TestRabbitMQPublisherDeclaresTopologyAndPublishes(t *testing.T) {
 	url := coretest.RabbitMQURLFromEnv(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	declareTopology(t, url)
+	topology := coretest.RabbitMQTopology(t, url)
 	ch := openChannel(t, url)
-	purgeQueues(t, ch)
 
-	publisher := rabbitmq.NewPublisher(url)
+	publisher := rabbitmq.NewPublisher(url, topology)
 	t.Cleanup(func() { _ = publisher.Close() })
 	payload := []byte(`{"build_id":"` + uuid.NewString() + `"}`)
-	require.NoError(t, publisher.Publish(ctx, buildqueue.ExchangeName, buildqueue.RoutingKey, payload))
+	require.NoError(t, publisher.Publish(ctx, topology.Build.Exchange, topology.Build.RoutingKey, payload))
 
-	msg, ok, err := ch.Get(buildqueue.QueueName, true)
+	msg, ok, err := ch.Get(topology.Build.Name, true)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, "application/json", msg.ContentType)
@@ -42,12 +41,12 @@ func TestRabbitMQPublisherDeclaresTopologyAndPublishes(t *testing.T) {
 
 func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	url := coretest.RabbitMQURLFromEnv(t)
-	declareTopology(t, url)
+	topology := coretest.RabbitMQTopology(t, url)
+	declareTopology(t, url, topology)
 	ch := openChannel(t, url)
-	purgeQueues(t, ch)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	consumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(url, "test-"+uuid.NewString()[:8], coretest.DiscardLogger()))
+	consumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(url, "test-"+uuid.NewString()[:8], topology, coretest.DiscardLogger()))
 	handled := make(chan queue.ContainerLifecycleMessage, 1)
 	consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ContainerLifecycleMessage) error {
 		handled <- msg
@@ -60,7 +59,7 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 		stopCancel()
 	})
 
-	publishRaw(t, ch, queue.ContainerExchangeName, queue.ContainerRoutingKey, mustJSON(t, queue.ContainerLifecycleMessage{
+	publishRaw(t, ch, topology.Container.Exchange, topology.Container.RoutingKey, mustJSON(t, queue.ContainerLifecycleMessage{
 		OperationID: uuid.NewString(),
 		ContainerID: uuid.NewString(),
 		OwnerID:     uuid.NewString(),
@@ -69,16 +68,16 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(handled) == 1
 	}, 5*time.Second, 50*time.Millisecond)
-	requireQueueEmpty(t, ch, queue.ContainerQueueName)
+	requireQueueEmpty(t, ch, topology.Container.Name)
 }
 
 func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
 	url := coretest.RabbitMQURLFromEnv(t)
 	ctx := context.Background()
 	repos := coretest.OpenCoreRepositories(t)
-	declareTopology(t, url)
+	topology := coretest.RabbitMQTopology(t, url)
+	declareTopology(t, url, topology)
 	ch := openChannel(t, url)
-	purgeQueues(t, ch)
 
 	ownerID := uuid.New()
 	imageID := uuid.New()
@@ -88,10 +87,10 @@ func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
 	require.NoError(t, repos.Builds.CreateQueuedBuild(ctx,
 		model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusBuilding},
 		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, LogFilePath: "logs", ArchiveObjectKey: "archive"},
-		model.BuildQueueOutbox{ID: outboxID, BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: payload},
+		model.BuildQueueOutbox{ID: outboxID, BuildID: buildID, Exchange: topology.Build.Exchange, RoutingKey: topology.Build.RoutingKey, Payload: payload},
 	))
 
-	publisher := rabbitmq.NewPublisher(url)
+	publisher := rabbitmq.NewPublisher(url, topology)
 	workerCtx, cancel := context.WithCancel(context.Background())
 	worker := service.NewBuildOutboxWorker(repos.Builds, publisher, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 	done := make(chan struct{})
@@ -115,7 +114,7 @@ func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 	require.NoError(t, publisher.Close())
 
-	msg, ok, err := ch.Get(buildqueue.QueueName, true)
+	msg, ok, err := ch.Get(topology.Build.Name, true)
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.JSONEq(t, string(payload), string(msg.Body))
@@ -132,24 +131,10 @@ func openChannel(t *testing.T, url string) *amqp.Channel {
 	return ch
 }
 
-func purgeQueues(t *testing.T, ch *amqp.Channel) {
+// declareTopology declares topology before a test publishes to it directly.
+func declareTopology(t *testing.T, url string, topology rabbitmq.Topology) {
 	t.Helper()
-	for _, name := range []string{
-		buildqueue.QueueName, buildqueue.DLQName,
-		queue.ComposeQueueName, queue.ComposeDLQName,
-		queue.ContainerQueueName, queue.ContainerDLQName,
-	} {
-		_, _ = ch.QueuePurge(name, false)
-	}
-}
-
-func declareTopology(t *testing.T, url string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	publisher := rabbitmq.NewPublisher(url)
-	require.NoError(t, publisher.Publish(ctx, buildqueue.ExchangeName, buildqueue.RoutingKey, []byte(`{"declare":true}`)))
-	require.NoError(t, publisher.Close())
+	require.NoError(t, platformrabbitmq.Declare(openChannel(t, url), topology.Build, topology.Compose, topology.Container, topology.Resource))
 }
 
 func publishRaw(t *testing.T, ch *amqp.Channel, exchange, routingKey string, body []byte) {

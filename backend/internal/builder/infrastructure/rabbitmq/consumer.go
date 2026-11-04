@@ -12,18 +12,21 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// BuildConsumerConfig describes the image build workload. Builder declares only
-// the build queue.
-func BuildConsumerConfig(url, instanceID string, logger *slog.Logger) platformrabbitmq.ConsumerConfig[buildqueue.ImageBuildMessage] {
+// BuildConsumerConfig describes the image build workload. Builder declares and
+// consumes only queue; a zero queue selects buildqueue.Queue.
+func BuildConsumerConfig(url, instanceID string, queue platformrabbitmq.Queue, logger *slog.Logger) platformrabbitmq.ConsumerConfig[buildqueue.ImageBuildMessage] {
 	if instanceID == "" {
 		instanceID = "default"
 	}
+	if queue == (platformrabbitmq.Queue{}) {
+		queue = buildqueue.Queue
+	}
 	return platformrabbitmq.ConsumerConfig[buildqueue.ImageBuildMessage]{
 		URL:         url,
-		Queue:       buildqueue.QueueName,
+		Queue:       queue.Name,
 		ConsumerTag: func(workerID int) string { return fmt.Sprintf("builder-%s-%d", instanceID, workerID) },
 		Declare: func(ch *amqp.Channel) error {
-			return platformrabbitmq.Declare(ch, buildqueue.Queue)
+			return platformrabbitmq.Declare(ch, queue)
 		},
 		IsPermanent: isPermanentBuildError,
 		RequestID:   func(msg buildqueue.ImageBuildMessage) string { return msg.RequestID },

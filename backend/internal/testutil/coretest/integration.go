@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc"
@@ -23,8 +24,11 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/pgpool"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -237,30 +241,39 @@ func MultipartBody(t *testing.T, parts []FormPart) (io.Reader, string) {
 	return &buf, writer.FormDataContentType()
 }
 
+// ObjectStorageConfigFromEnv returns the test object store with a bucket
+// unique to t, named from CORE_TEST_OBJECT_STORAGE_BUCKET. The bucket and its
+// objects are removed when t ends.
 func ObjectStorageConfigFromEnv(t *testing.T) objectstorage.Config {
 	t.Helper()
 	cfg := objectstorage.Config{
-		Endpoint:  getenv("CORE_TEST_OBJECT_STORAGE_ENDPOINT"),
-		Bucket:    getenv("CORE_TEST_OBJECT_STORAGE_BUCKET"),
-		AccessKey: getenv("CORE_TEST_OBJECT_STORAGE_ACCESS_KEY"),
-		SecretKey: getenv("CORE_TEST_OBJECT_STORAGE_SECRET_KEY"),
-		UseSSL:    getenv("CORE_TEST_OBJECT_STORAGE_USE_SSL") == "1",
+		Endpoint:  testenv.Lookup(t, "CORE_TEST_OBJECT_STORAGE_ENDPOINT"),
+		Bucket:    testenv.Lookup(t, "CORE_TEST_OBJECT_STORAGE_BUCKET") + "-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16],
+		AccessKey: testenv.Lookup(t, "CORE_TEST_OBJECT_STORAGE_ACCESS_KEY"),
+		SecretKey: testenv.Lookup(t, "CORE_TEST_OBJECT_STORAGE_SECRET_KEY"),
+		UseSSL:    strings.TrimSpace(os.Getenv("CORE_TEST_OBJECT_STORAGE_USE_SSL")) == "1",
 	}
-	if cfg.Endpoint == "" || cfg.Bucket == "" || cfg.AccessKey == "" || cfg.SecretKey == "" {
-		t.Skip("set CORE_TEST_OBJECT_STORAGE_ENDPOINT, CORE_TEST_OBJECT_STORAGE_BUCKET, CORE_TEST_OBJECT_STORAGE_ACCESS_KEY and CORE_TEST_OBJECT_STORAGE_SECRET_KEY")
-	}
+	t.Cleanup(func() { removeBucket(cfg) })
 	return cfg
 }
 
-func RabbitMQURLFromEnv(t *testing.T) string {
-	t.Helper()
-	url := getenv("CORE_TEST_RABBITMQ_URL")
-	if url == "" {
-		t.Skip("set CORE_TEST_RABBITMQ_URL to run Core RabbitMQ integration tests")
+// removeBucket is best effort: the bucket is unique to one test, the store is
+// disposable, and the bucket may never have been created.
+func removeBucket(cfg objectstorage.Config) {
+	client, err := minio.New(cfg.Endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Secure: cfg.UseSSL,
+	})
+	if err != nil {
+		return
 	}
-	return url
-}
-
-func getenv(key string) string {
-	return strings.TrimSpace(os.Getenv(key))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for object := range client.ListObjects(ctx, cfg.Bucket, minio.ListObjectsOptions{Recursive: true}) {
+		if object.Err != nil {
+			return
+		}
+		_ = client.RemoveObject(ctx, cfg.Bucket, object.Key, minio.RemoveObjectOptions{})
+	}
+	_ = client.RemoveBucket(ctx, cfg.Bucket)
 }

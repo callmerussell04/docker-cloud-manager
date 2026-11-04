@@ -10,6 +10,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 )
 
 // Synthetic volume profiles for measuring usage scans. Set
@@ -78,10 +79,7 @@ func benchFile(b *testing.B, path string, size int64) {
 
 func volumeBenchProfile(b *testing.B, name string, build func(*testing.B, string)) string {
 	b.Helper()
-	root := os.Getenv("DCM_VOLUME_BENCH_DIR")
-	if root == "" {
-		b.Skip("set DCM_VOLUME_BENCH_DIR to measure volume usage scans")
-	}
+	root := testenv.Lookup(b, "DCM_VOLUME_BENCH_DIR")
 	dir := filepath.Join(root, name)
 	done := filepath.Join(root, name+".ready")
 	if _, err := os.Stat(done); err != nil {

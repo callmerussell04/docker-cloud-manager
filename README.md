@@ -199,7 +199,7 @@ cd backend
 make test
 ```
 
-Нужны Docker Engine и плагин Compose. Команда поднимает PostgreSQL, ClickHouse, RabbitMQ и MinIO на loopback-портах из `backend/docker-compose.test.yml`, включает Docker smoke-тесты и удаляет тестовые контейнеры, сети и тома после успеха или ошибки, включая сбой запуска. `TEST_KEEP_ENV=1` сохраняет окружение для диагностики; затем выполните `make test-env-down`. `TEST_DOCKER_SMOKE=0` явно отключает Docker smoke-тесты. Ожидание запуска ограничено 120 секундами, тесты пакета — пятью минутами, RPC общей Core-фикстуры — пятью секундами. Полный набор запускается с `-p=1`, поскольку установка расширений PostgreSQL общая для схем.
+Нужны Docker Engine и плагин Compose. Команда поднимает PostgreSQL, ClickHouse, RabbitMQ и MinIO на loopback-портах из `backend/docker-compose.test.yml`, включает Docker smoke-тесты и удаляет тестовые контейнеры, сети и тома после успеха или ошибки, включая сбой запуска. `TEST_KEEP_ENV=1` сохраняет окружение для диагностики; затем выполните `make test-env-down`. `make test` задаёт `DCM_TEST_REQUIRE_INTEGRATION=1`, поэтому интеграционный тест без нужного окружения падает, а не пропускается; исключение — только ручная проверка host firewall. Пакеты выполняются параллельно с race detector. Ожидание запуска ограничено 120 секундами, тесты пакета — пятью минутами, RPC общей Core-фикстуры — пятью секундами.
 
 `DCM_CLICKHOUSE_TEST_DB`, `DCM_CLICKHOUSE_TEST_USER` и `DCM_CLICKHOUSE_TEST_PASSWORD` задают параметры и сервера, и тестового клиента (по умолчанию: `dcm_reports_test`, `dcm_reports_test`, `clickhouse`). `TEST_COMPOSE_PROJECT` изолирует имена ресурсов Compose, но порты хоста должны быть свободны. `TEST_PKGS` выбирает пакеты, `TEST_ARGS` / `TEST_ALL_ARGS` переопределяют флаги Go-тестов.
 

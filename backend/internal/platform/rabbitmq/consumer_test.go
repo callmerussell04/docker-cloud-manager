@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/stretchr/testify/require"
@@ -34,10 +34,7 @@ type harness struct {
 // workload's queue.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	url := os.Getenv("CORE_TEST_RABBITMQ_URL")
-	if url == "" {
-		t.Skip("set CORE_TEST_RABBITMQ_URL to run RabbitMQ consumer tests")
-	}
+	url := testenv.Lookup(t, "CORE_TEST_RABBITMQ_URL")
 	id := "dcm.test." + uuid.NewString()
 	h := &harness{url: url, queue: rabbitmq.Queue{
 		Label:      "test",

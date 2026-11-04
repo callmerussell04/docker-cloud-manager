@@ -9,14 +9,13 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDockerAdapterNetworkContainerAndVolumeSmoke(t *testing.T) {
-	if os.Getenv("CORE_TEST_DOCKER") != "1" {
-		t.Skip("set CORE_TEST_DOCKER=1 to run Core Docker smoke test")
-	}
+	testenv.Enabled(t, "CORE_TEST_DOCKER")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 

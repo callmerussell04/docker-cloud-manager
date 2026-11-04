@@ -7,88 +7,207 @@ issue-845-fix: true
 packages:
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service:
     config:
-      all: true
       dir: internal/testutil/mocks/core/service
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      activeSystemBuildCounter: {}
+      BuildContainerReservationRepository: {}
+      BuildDeploymentCanceler: {}
+      BuildImageRepository: {}
+      BuildObjectStore: {}
+      BuildOutboxConfigProvider: {}
+      BuildOutboxRepository: {}
+      BuildRegistryAuthorizer: {}
+      BuildRepository: {}
+      BuildVolumeDiskRepository: {}
+      CapacityChecker: {}
+      ComposeOutboxConfigProvider: {}
+      ComposeOutboxRepository: {}
+      ConfigManager: {}
+      ContainerDockerAPI: {}
+      ContainerImageRepository: {}
+      ContainerOutboxConfigProvider: {}
+      ContainerOutboxRepository: {}
+      ContainerRebalancer: {}
+      ContainerRepository: {}
+      ContainerVolumeRepository: {}
+      EventConfigProvider: {}
+      EventContainerRepo: {}
+      EventDockerAPI: {}
+      EventVolumeRepo: {}
+      GCConfigProvider: {}
+      GCDockerAPI: {}
+      HostDiskMetricsProvider: {}
+      HostMetricsProvider: {}
+      ImageContainerRepository: {}
+      ImageDockerAPI: {}
+      ImageLifecycleRepository: {}
+      ImageRegistryAPI: {}
+      ImageRepository: {}
+      ImageRepositoryFencer: {}
+      OutboxPublisher: {}
+      ProjectContainerLifecycle: {}
+      ProjectDeploymentCanceler: {}
+      ProjectDockerAPI: {}
+      ProjectRepository: {}
+      ProjectResourceRepository: {}
+      ProjectVolumeLifecycle: {}
+      RegistryCleanupRepository: {}
+      RegistryGrantRepository: {}
+      RegistryTokenSigner: {}
+      ReportsRepository: {}
+      ReportUserDirectory: {}
+      ResourceOutboxConfigProvider: {}
+      ResourceOutboxRepository: {}
+      StagedObjectRepository: {}
+      StatsBuildRepository: {}
+      StatsContainerRepository: {}
+      StatsImageRepository: {}
+      StatsMetricsProvider: {}
+      StatsProjectRepository: {}
+      StatsVolumeRepository: {}
+      UsageSnapshotSource: {}
+      UserInfoProvider: {}
+      VolumeDockerAPI: {}
+      volumeImageDiskRepository: {}
+      VolumeLifecycleRepository: {}
+      VolumeRepository: {}
+      VolumeUsageConfigProvider: {}
+      VolumeUsageContainerRepo: {}
+      VolumeUsageDockerAPI: {}
+      VolumeUsageImageRepo: {}
+      VolumeUsageRepo: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose:
     config:
-      all: true
       dir: internal/testutil/mocks/core/service/compose
       outpkg: coremocks
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      ActiveComposeDeploymentCounter: {}
+      CapacityChecker: {}
+      ConfigProvider: {}
+      ContainerService: {}
+      ImageCleaner: {}
+      ObjectStorage: {}
+      ProjectRepository: {}
+      StagedObjectRepository: {}
+      VolumeService: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
-      all: true
       dir: internal/testutil/mocks/core/http
       outpkg: corehttpmocks
+    interfaces:
+      BuildUseCases: {}
+      ComposeUseCases: {}
+      ConfigProvider: {}
+      RegistryTokenLogic: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc:
     config:
-      all: true
       dir: internal/testutil/mocks/core/grpc
       outpkg: coregrpcmocks
+    interfaces:
+      BuildLogic: {}
+      ContainerLogic: {}
+      ImageLogic: {}
+      ProjectLogic: {}
+      ReportLogic: {}
+      StatsLogic: {}
+      SystemLogic: {}
+      UserDirectory: {}
+      VolumeLogic: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service:
     config:
-      all: true
       dir: internal/testutil/mocks/sso/service
       outpkg: ssomocks
       mockname: "{{.InterfaceName}}"
+    interfaces:
+      OIDCProvider: {}
+      SessionRepository: {}
+      SessionTransaction: {}
+      TokenProvider: {}
+      UserRepository: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc:
     config:
-      all: true
       dir: internal/testutil/mocks/sso/grpc
       outpkg: ssogrpcmocks
+    interfaces:
+      AuthService: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
     config:
-      all: true
       dir: internal/testutil/mocks/gateway/service
       outpkg: gatewayservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      CoreProvider: {}
+      SSOProvider: {}
+      UserProvider: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler:
     config:
-      all: true
       dir: internal/testutil/mocks/gateway/http/handler
       outpkg: gatewayhandlermocks
+    interfaces:
+      AuthService: {}
+      CoreService: {}
+      ReadinessService: {}
+      TelemetryTicketConsumer: {}
+      TelemetryTicketIssuer: {}
+      UserManagementService: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware:
     config:
-      all: true
       dir: internal/testutil/mocks/gateway/http/middleware
       outpkg: gatewaymiddlewaremocks
+    interfaces:
+      TokenVerifier: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/service:
     config:
-      all: true
       dir: internal/testutil/mocks/builder/service
       outpkg: builderservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      ArchiveExtractor: {}
+      BuildNetworkAdmission: {}
+      BuildResultStore: {}
+      CoreClient: {}
+      DockerAPI: {}
+      FileManager: {}
+      LogManager: {}
+      ObjectStorage: {}
+      WorkspaceManager: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config:
     config:
-      all: true
       dir: internal/testutil/mocks/builder/config
       outpkg: builderconfigmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      RuntimeSource: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service:
     config:
-      all: true
       dir: internal/testutil/mocks/telemetry/service
       outpkg: telemetryservicemocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      CoreClient: {}
+      DockerClient: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http:
     config:
-      all: true
       dir: internal/testutil/mocks/telemetry/http
       outpkg: telemetryhttpmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      TelemetryService: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model:
     config:
-      all: true
       dir: internal/testutil/mocks/telemetry/model
       outpkg: telemetrymodelmocks
       mockname: "{{.InterfaceName}}"
       filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      TerminalSession: {}

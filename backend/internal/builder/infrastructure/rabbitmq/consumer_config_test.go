@@ -21,14 +21,22 @@ func TestBuildQueueDescription(t *testing.T) {
 }
 
 func TestBuildConsumerConfig(t *testing.T) {
-	cfg := rabbitmq.BuildConsumerConfig("amqp://test", "", nil)
+	cfg := rabbitmq.BuildConsumerConfig("amqp://test", "", platformrabbitmq.Queue{}, nil)
 	msg := buildqueue.ImageBuildMessage{BuildID: "build", RequestID: "request"}
 
 	require.Equal(t, "dcm.builds.image", cfg.Queue)
 	require.Equal(t, "builder-default-2", cfg.ConsumerTag(2))
-	require.Equal(t, "builder-a-1", rabbitmq.BuildConsumerConfig("", "a", nil).ConsumerTag(1))
+	require.Equal(t, "builder-a-1", rabbitmq.BuildConsumerConfig("", "a", platformrabbitmq.Queue{}, nil).ConsumerTag(1))
 	require.Equal(t, "request", cfg.RequestID(msg))
 	require.Equal(t, []any{"build_id", "build"}, cfg.LogFields(msg))
+}
+
+func TestBuildConsumerConfigConsumesConfiguredQueue(t *testing.T) {
+	configured := platformrabbitmq.Queue{Label: "build", Exchange: "x", Name: "q", RoutingKey: "k", DLX: "dx", DLQ: "dq", DLQKey: "dk"}
+
+	cfg := rabbitmq.BuildConsumerConfig("amqp://test", "", configured, nil)
+
+	require.Equal(t, "q", cfg.Queue)
 }
 
 func TestBuildConsumerPermanentRule(t *testing.T) {
@@ -50,7 +58,7 @@ func TestBuildConsumerPermanentRule(t *testing.T) {
 		{"finalization wrapping not found", fmt.Errorf("finalize: %w: %w", apperrors.ErrUnavailable, apperrors.ErrNotFound), false},
 		{"unknown failure", errors.New("temporary downstream failure"), false},
 	}
-	isPermanent := rabbitmq.BuildConsumerConfig("", "", nil).IsPermanent
+	isPermanent := rabbitmq.BuildConsumerConfig("", "", platformrabbitmq.Queue{}, nil).IsPermanent
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, isPermanent(tt.err))

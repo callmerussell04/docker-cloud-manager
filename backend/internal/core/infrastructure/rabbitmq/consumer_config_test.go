@@ -40,7 +40,7 @@ func TestCoreQueueDescriptions(t *testing.T) {
 }
 
 func TestComposeConsumerConfig(t *testing.T) {
-	cfg := rabbitmq.ComposeConsumerConfig("amqp://test", "", nil)
+	cfg := rabbitmq.ComposeConsumerConfig("amqp://test", "", rabbitmq.Topology{}, nil)
 	msg := queue.DeploymentMessage{JobID: "job", ProjectID: "project", RequestID: "request"}
 
 	require.Equal(t, "dcm.compose.deploy", cfg.Queue)
@@ -51,7 +51,7 @@ func TestComposeConsumerConfig(t *testing.T) {
 }
 
 func TestContainerConsumerConfig(t *testing.T) {
-	cfg := rabbitmq.ContainerConsumerConfig("amqp://test", "", nil)
+	cfg := rabbitmq.ContainerConsumerConfig("amqp://test", "", rabbitmq.Topology{}, nil)
 	msg := queue.ContainerLifecycleMessage{ContainerID: "container", OperationID: "operation", RequestID: "request"}
 
 	require.Equal(t, "dcm.containers.lifecycle", cfg.Queue)
@@ -62,7 +62,7 @@ func TestContainerConsumerConfig(t *testing.T) {
 }
 
 func TestResourceConsumerConfig(t *testing.T) {
-	cfg := rabbitmq.ResourceConsumerConfig("amqp://test", "", nil)
+	cfg := rabbitmq.ResourceConsumerConfig("amqp://test", "", rabbitmq.Topology{}, nil)
 	msg := queue.ResourceLifecycleMessage{ResourceType: "volume", ResourceID: "resource", OperationID: "operation", RequestID: "request"}
 
 	require.Equal(t, "dcm.resources.lifecycle", cfg.Queue)
@@ -73,9 +73,21 @@ func TestResourceConsumerConfig(t *testing.T) {
 }
 
 func TestCoreConsumerConfigsUseGivenInstanceID(t *testing.T) {
-	require.Equal(t, "core-a-1", rabbitmq.ComposeConsumerConfig("", "a", nil).ConsumerTag(1))
-	require.Equal(t, "core-a-container-1", rabbitmq.ContainerConsumerConfig("", "a", nil).ConsumerTag(1))
-	require.Equal(t, "core-a-resource-1", rabbitmq.ResourceConsumerConfig("", "a", nil).ConsumerTag(1))
+	require.Equal(t, "core-a-1", rabbitmq.ComposeConsumerConfig("", "a", rabbitmq.Topology{}, nil).ConsumerTag(1))
+	require.Equal(t, "core-a-container-1", rabbitmq.ContainerConsumerConfig("", "a", rabbitmq.Topology{}, nil).ConsumerTag(1))
+	require.Equal(t, "core-a-resource-1", rabbitmq.ResourceConsumerConfig("", "a", rabbitmq.Topology{}, nil).ConsumerTag(1))
+}
+
+func TestCoreConsumerConfigsConsumeConfiguredTopology(t *testing.T) {
+	topology := rabbitmq.Topology{
+		Compose:   platformrabbitmq.Queue{Label: "compose", Exchange: "cx", Name: "cq", RoutingKey: "ck", DLX: "cdx", DLQ: "cdq", DLQKey: "cdk"},
+		Container: platformrabbitmq.Queue{Label: "container", Exchange: "tx", Name: "tq", RoutingKey: "tk", DLX: "tdx", DLQ: "tdq", DLQKey: "tdk"},
+		Resource:  platformrabbitmq.Queue{Label: "resource", Exchange: "rx", Name: "rq", RoutingKey: "rk", DLX: "rdx", DLQ: "rdq", DLQKey: "rdk"},
+	}
+
+	require.Equal(t, "cq", rabbitmq.ComposeConsumerConfig("", "", topology, nil).Queue)
+	require.Equal(t, "tq", rabbitmq.ContainerConsumerConfig("", "", topology, nil).Queue)
+	require.Equal(t, "rq", rabbitmq.ResourceConsumerConfig("", "", topology, nil).Queue)
 }
 
 func requireCorePermanentRule(t *testing.T, isPermanent func(error) bool) {

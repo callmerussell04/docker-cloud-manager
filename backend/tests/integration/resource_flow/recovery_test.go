@@ -320,6 +320,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			repos := coretest.OpenCoreRepositories(t)
+			topology := coretest.RabbitMQTopology(t, url)
 			lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
 			cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
 			ownerID, resourceID := uuid.New(), uuid.New()
@@ -378,15 +379,12 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			ch, err := conn.Channel()
 			require.NoError(t, err)
 			defer func() { _ = ch.Close() }() // test teardown; closing the connection already releases it
-			require.NoError(t, platformrabbitmq.Declare(ch, queue.Resource))
-			for _, name := range []string{queue.ResourceQueueName, queue.ResourceDLQName} {
-				_, err := ch.QueuePurge(name, false)
-				require.NoError(t, err)
-			}
-			publisher := rabbitmq.NewPublisher(url)
+			require.NoError(t, platformrabbitmq.Declare(ch, topology.Resource))
+			// Services write the production exchange into outbox rows; route it to this test's queue.
+			publisher := coretest.RoutedPublisher{Publisher: rabbitmq.NewPublisher(url, topology), Topology: topology}
 			defer func() { _ = publisher.Close() }() // test teardown; the publisher is reconnect-safe and nothing is pending
 			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
-			consumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(url, "recovery-test", coretest.DiscardLogger()))
+			consumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(url, "recovery-test", topology, coretest.DiscardLogger()))
 			results := make(chan error, 10)
 			consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ResourceLifecycleMessage) error {
 				err := worker.HandleMessage(ctx, msg)
@@ -432,7 +430,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				t.Fatal("duplicate delivery did not finish")
 			}
 			stop()
-			for _, name := range []string{queue.ResourceQueueName, queue.ResourceDLQName} {
+			for _, name := range []string{topology.Resource.Name, topology.Resource.DLQ} {
 				// Consumer shutdown closes the channel, returning any unacknowledged work.
 				require.Eventually(t, func() bool {
 					info, err := ch.QueueDeclarePassive(name, true, false, false, false, nil)

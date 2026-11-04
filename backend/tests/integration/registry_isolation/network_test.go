@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -26,9 +27,8 @@ import (
 // Rules touch only unique disposable bridge/chain names, with explicit cleanup.
 // No production network or firewall chain owned by DCM is modified.
 func TestBuildNetworkPolicyDeniesControlPlaneAndHost(t *testing.T) {
-	if os.Getenv("CORE_TEST_NETWORK_POLICY") != "1" {
-		t.Skip("manual deployment check (docs/deployment-single-vm.md): set CORE_TEST_NETWORK_POLICY=1 for isolated host firewall verification")
-	}
+	// Manual deployment check (docs/deployment-single-vm.md); testenv exempts it.
+	testenv.Enabled(t, "CORE_TEST_NETWORK_POLICY")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

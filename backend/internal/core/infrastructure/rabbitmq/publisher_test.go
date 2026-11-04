@@ -17,7 +17,7 @@ func TestPublisherCancelsStalledIO(t *testing.T) {
 	for _, stage := range []string{"handshake", "topology", "write", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
 			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url)
+			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 			t.Cleanup(func() { _ = publisher.Close() })
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
@@ -46,7 +46,7 @@ func TestPublisherBoundsAttemptsWithoutCallerDeadline(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			t.Parallel()
 			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url)
+			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 			t.Cleanup(func() { _ = publisher.Close() })
 			var body []byte
 			if stage == "write" {
@@ -69,7 +69,7 @@ func TestPublisherBoundsAttemptsWithoutCallerDeadline(t *testing.T) {
 
 func TestPublisherQueuedCallerCanCancelAndCloseInterruptsActiveAttempt(t *testing.T) {
 	broker := newPublisherBroker(t, "handshake")
-	publisher := rabbitmq.NewPublisher(broker.url)
+	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 	t.Cleanup(func() { _ = publisher.Close() })
 	active := publishAsync(publisher, t.Context(), nil)
 	receive(t, broker.ready)
@@ -89,7 +89,7 @@ func TestPublisherCloseInterruptsStalledIO(t *testing.T) {
 	for _, stage := range []string{"topology", "write", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
 			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url)
+			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 			t.Cleanup(func() { _ = publisher.Close() })
 			body := []byte("message")
 			if stage == "write" {
@@ -107,7 +107,7 @@ func TestPublisherCloseInterruptsStalledIO(t *testing.T) {
 
 func TestPublisherLateAckCannotConfirmNextMessage(t *testing.T) {
 	broker := newPublisherBroker(t, "confirmation")
-	publisher := rabbitmq.NewPublisher(broker.url)
+	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 	t.Cleanup(func() { _ = publisher.Close() })
 	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
@@ -137,7 +137,7 @@ func TestPublisherLateAckCannotConfirmNextMessage(t *testing.T) {
 
 func TestPublisherRejectsNackAndReconnects(t *testing.T) {
 	broker := newPublisherBroker(t, "confirmation")
-	publisher := rabbitmq.NewPublisher(broker.url)
+	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
 	t.Cleanup(func() { _ = publisher.Close() })
 	first := publishAsync(publisher, t.Context(), nil)
 	msg := receive(t, broker.publications)

@@ -9,6 +9,7 @@ import (
 
 	builderdocker "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -18,12 +19,13 @@ import (
 )
 
 func TestAdapterCleanupOrphanBuildContainersSmoke(t *testing.T) {
-	if os.Getenv("BUILDER_TEST_DOCKER") != "1" {
-		t.Skip("set BUILDER_TEST_DOCKER=1 to run Docker smoke test")
-	}
+	testenv.Enabled(t, "BUILDER_TEST_DOCKER")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	imageName := getenv("BUILDER_TEST_DOCKER_IMAGE", "busybox:latest")
+	// A unique owner label keeps the cleanup away from build containers of
+	// tests running in parallel, such as the Registry isolation probe.
+	managedBy := "dcm-smoke-test-" + uuid.NewString()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
@@ -36,7 +38,7 @@ func TestAdapterCleanupOrphanBuildContainersSmoke(t *testing.T) {
 		Image: imageName,
 		Cmd:   []string{"sh", "-c", "sleep 300"},
 		Labels: map[string]string{
-			"managed_by":        "docker-cloud-manager",
+			"managed_by":        managedBy,
 			"dcm.resource_type": "build",
 			"dcm.build_id":      "builder-smoke-test",
 		},
@@ -46,7 +48,7 @@ func TestAdapterCleanupOrphanBuildContainersSmoke(t *testing.T) {
 		_ = cli.ContainerRemove(context.Background(), created.ID, container.RemoveOptions{Force: true})
 	})
 
-	adapter, err := builderdocker.NewAdapter(builderdocker.Config{})
+	adapter, err := builderdocker.NewAdapter(builderdocker.Config{ManagedBy: managedBy})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapter.Close() })
 	require.NoError(t, adapter.CleanupOrphanBuildContainers(ctx))
@@ -62,9 +64,7 @@ func getenv(key, fallback string) string {
 }
 
 func TestAdapterRejectsUnprotectedBuildNetworkSmoke(t *testing.T) {
-	if os.Getenv("BUILDER_TEST_DOCKER") != "1" {
-		t.Skip("set BUILDER_TEST_DOCKER=1 for Docker admission check")
-	}
+	testenv.Enabled(t, "BUILDER_TEST_DOCKER")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())

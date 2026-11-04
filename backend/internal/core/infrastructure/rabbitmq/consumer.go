@@ -9,14 +9,16 @@ import (
 	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 )
 
-// ComposeConsumerConfig describes the Compose deployment workload.
-func ComposeConsumerConfig(url, instanceID string, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.DeploymentMessage] {
+// ComposeConsumerConfig describes the Compose deployment workload. Every Core
+// consumer declares the whole topology.
+func ComposeConsumerConfig(url, instanceID string, topology Topology, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.DeploymentMessage] {
 	instanceID = coreInstanceID(instanceID)
+	topology = topology.withDefaults()
 	return platformrabbitmq.ConsumerConfig[queue.DeploymentMessage]{
 		URL:         url,
-		Queue:       queue.ComposeQueueName,
+		Queue:       topology.Compose.Name,
 		ConsumerTag: func(workerID int) string { return fmt.Sprintf("core-%s-%d", instanceID, workerID) },
-		Declare:     declareTopology,
+		Declare:     topology.declare,
 		IsPermanent: platformrabbitmq.IsPermanentAppError,
 		RequestID:   func(msg queue.DeploymentMessage) string { return msg.RequestID },
 		LogFields: func(msg queue.DeploymentMessage) []any {
@@ -27,13 +29,14 @@ func ComposeConsumerConfig(url, instanceID string, logger *slog.Logger) platform
 }
 
 // ContainerConsumerConfig describes the container lifecycle workload.
-func ContainerConsumerConfig(url, instanceID string, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.ContainerLifecycleMessage] {
+func ContainerConsumerConfig(url, instanceID string, topology Topology, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.ContainerLifecycleMessage] {
 	instanceID = coreInstanceID(instanceID)
+	topology = topology.withDefaults()
 	return platformrabbitmq.ConsumerConfig[queue.ContainerLifecycleMessage]{
 		URL:         url,
-		Queue:       queue.ContainerQueueName,
+		Queue:       topology.Container.Name,
 		ConsumerTag: func(workerID int) string { return fmt.Sprintf("core-%s-container-%d", instanceID, workerID) },
-		Declare:     declareTopology,
+		Declare:     topology.declare,
 		IsPermanent: platformrabbitmq.IsPermanentAppError,
 		RequestID:   func(msg queue.ContainerLifecycleMessage) string { return msg.RequestID },
 		LogFields: func(msg queue.ContainerLifecycleMessage) []any {
@@ -44,13 +47,14 @@ func ContainerConsumerConfig(url, instanceID string, logger *slog.Logger) platfo
 }
 
 // ResourceConsumerConfig describes the volume and image lifecycle workload.
-func ResourceConsumerConfig(url, instanceID string, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.ResourceLifecycleMessage] {
+func ResourceConsumerConfig(url, instanceID string, topology Topology, logger *slog.Logger) platformrabbitmq.ConsumerConfig[queue.ResourceLifecycleMessage] {
 	instanceID = coreInstanceID(instanceID)
+	topology = topology.withDefaults()
 	return platformrabbitmq.ConsumerConfig[queue.ResourceLifecycleMessage]{
 		URL:         url,
-		Queue:       queue.ResourceQueueName,
+		Queue:       topology.Resource.Name,
 		ConsumerTag: func(workerID int) string { return fmt.Sprintf("core-%s-resource-%d", instanceID, workerID) },
-		Declare:     declareTopology,
+		Declare:     topology.declare,
 		IsPermanent: platformrabbitmq.IsPermanentAppError,
 		RequestID:   func(msg queue.ResourceLifecycleMessage) string { return msg.RequestID },
 		LogFields: func(msg queue.ResourceLifecycleMessage) []any {

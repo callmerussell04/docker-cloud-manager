@@ -260,7 +260,7 @@ docker compose --env-file backend/.env down
 
 `build-network-policy` требует `CAP_NET_ADMIN` и host network для установки host firewall. `build-egress` обеспечивает доступ Dockerfile к внешним пакетам по HTTP(S) через `HTTP_PROXY`/`HTTPS_PROXY`; клиенты, игнорирующие proxy, не получают прямой интернет-доступ. Builder ждёт готовности policy. Для обновления существующего стенда остановите новые сборки, дождитесь завершения текущих, затем пересоздайте `build_net` как internal network. Согласуйте действующий host firewall с этими правилами; не снимайте ограничения при остановке worker.
 
-Двухвладельческая проверка изоляции Registry входит в `make test` (и в CI) вместе с Docker smoke-тестами: `make test` задаёт `CORE_TEST_REGISTRY_ISOLATION` из `TEST_DOCKER_SMOKE` (по умолчанию `1`) и использует свою disposable test database. Ей нужны Docker и доступ к pinned-образам Registry и Kaniko. Отдельный запуск (только disposable test database):
+Двухвладельческая проверка изоляции Registry входит в `make test` (и в CI) вместе с Docker smoke-тестами: `make test` задаёт `CORE_TEST_REGISTRY_ISOLATION=1` и использует свою disposable test database. Ей нужны Docker и доступ к pinned-образам Registry и Kaniko. Отдельный запуск (только disposable test database):
 
 ```bash
 cd backend

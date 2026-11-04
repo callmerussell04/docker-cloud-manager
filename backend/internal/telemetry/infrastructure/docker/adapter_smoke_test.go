@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
@@ -18,9 +19,7 @@ import (
 )
 
 func TestAdapterDockerSmoke(t *testing.T) {
-	if os.Getenv("TELEMETRY_TEST_DOCKER") != "1" {
-		t.Skip("set TELEMETRY_TEST_DOCKER=1 to run Docker smoke test")
-	}
+	testenv.Enabled(t, "TELEMETRY_TEST_DOCKER")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
