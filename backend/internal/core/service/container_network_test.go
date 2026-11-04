@@ -90,21 +90,17 @@ func TestContainerServiceCleanupUserNetworkIfUnusedKeepsNetwork(t *testing.T) {
 func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
+		Repository:   store,
+		Docker:       coremocks.NewContainerDockerAPI(t),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
-
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id"}, nil)
+	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id"})
 
 	require.NoError(t, svc.Delete(accessscope.WithAdminScope(context.Background(), uuid.New(), "", "admin"), containerID))
-	require.Len(t, repo.queued, 1)
-	require.Equal(t, model.OperationDelete, repo.queued[0].op.Operation)
-	dockerAPI.AssertNotCalled(t, "RemoveContainer", mock.Anything, mock.Anything, mock.Anything)
+	require.Equal(t, model.OperationDelete, requireQueued(t, store).op.Operation)
 }
 
 func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {

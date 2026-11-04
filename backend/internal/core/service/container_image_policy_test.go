@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -101,7 +103,7 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 				workerRepo.EXPECT().UpdateDockerIDAndStatus(mock.Anything, id, "docker-id", model.ContainerStatusCreated).Return(nil)
 				workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusDone, nil).Return(nil)
 			}
-			err := svc.ExecuteQueuedCreate(context.Background(), opID, id)
+			err := handleQueuedCreate(svc, opID, id)
 			if tc.rejected || tc.lookupError {
 				if tc.rejected {
 					require.ErrorIs(t, err, apperrors.ErrBadRequest)
@@ -149,6 +151,22 @@ func TestQueuedContainerCreateRemovesPulledPublicImageAfterFailure(t *testing.T)
 	docker.EXPECT().CreateContainer(mock.Anything, mock.Anything).Return("", createErr)
 	docker.EXPECT().RemoveImage(mock.Anything, "nginx:latest", false).Return(nil).Once()
 
-	err := svc.ExecuteQueuedCreate(context.Background(), opID, id)
+	err := handleQueuedCreate(svc, opID, id)
 	require.ErrorIs(t, err, apperrors.ErrBadRequest)
 }
+
+// handleQueuedCreate delivers the create message for operationID to the
+// container lifecycle queue's handler.
+func handleQueuedCreate(svc *service.ContainerService, operationID, containerID uuid.UUID) error {
+	cfg := containerCreateConfig()
+	worker := service.NewContainerCreateWorker(svc, staticCreateConfig{cfg}, slog.New(slog.DiscardHandler))
+	return worker.HandleMessage(context.Background(), queue.ContainerLifecycleMessage{
+		OperationID: operationID.String(),
+		ContainerID: containerID.String(),
+		Operation:   model.OperationCreate,
+	})
+}
+
+type staticCreateConfig struct{ cfg config.SystemConfig }
+
+func (c staticCreateConfig) Get() config.SystemConfig { return c.cfg }

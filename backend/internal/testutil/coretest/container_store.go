@@ -77,12 +77,15 @@ type ContainerStoreFaults struct {
 	SaveWithMountsOperationAndOutbox               Fault
 	GetByID                                        Fault
 	CountByOwnerID                                 Fault
+	CheckDomainPrefixExists                        Fault
+	GetMountsByContainerID                         Fault
 	Delete                                         Fault
 	UpdateStatus                                   Fault
 	UpdateStatusAndTTLDeadline                     Fault
 	MarkStatusError                                Fault
 	UpdateStatusByContainerIDAndGeneration         Fault
 	UpdateObservedStatusByContainerIDAndGeneration Fault
+	UpdateDockerIDAndStatus                        Fault
 	UpdateDockerIDRoutingAndGeneration             Fault
 	QueueContainerOperation                        Fault
 	HasActiveOperation                             Fault
@@ -174,6 +177,36 @@ func (f *ContainerStoreFake) CountByOwnerID(_ context.Context, ownerID uuid.UUID
 		}
 	}
 	return count, nil
+}
+
+// CheckDomainPrefixExists reports whether a container is routed under prefix.
+// An empty prefix routes nothing.
+func (f *ContainerStoreFake) CheckDomainPrefixExists(_ context.Context, prefix string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.CheckDomainPrefixExists.take(); err != nil {
+		return false, err
+	}
+	if prefix == "" {
+		return false, nil
+	}
+	for _, c := range f.containers {
+		if c.DomainPrefix == prefix {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// GetMountsByContainerID returns no mounts: the fake stores none, because
+// SaveWithMountsOperationAndOutbox rejects them.
+func (f *ContainerStoreFake) GetMountsByContainerID(_ context.Context, _ uuid.UUID) ([]model.VolumeMountParams, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.GetMountsByContainerID.take(); err != nil {
+		return nil, err
+	}
+	return []model.VolumeMountParams{}, nil
 }
 
 // Delete removes the container and its outbox records. Its operations stay.
@@ -268,6 +301,23 @@ func (f *ContainerStoreFake) UpdateObservedStatusByContainerIDAndGeneration(_ co
 		c.LastExitCode = clonePtr(exitCode)
 		c.LastObservedAt = ptr(time.Now())
 		c.LastError = errorText(cause)
+	})
+}
+
+// UpdateDockerIDAndStatus records the container's Docker container and sets
+// both its status and desired status, keeping its generation.
+func (f *ContainerStoreFake) UpdateDockerIDAndStatus(_ context.Context, id uuid.UUID, dockerID string, status string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.UpdateDockerIDAndStatus.take(); err != nil {
+		return err
+	}
+	return f.updateContainer(id, func(c *model.Container) {
+		c.DockerID = dockerID
+		c.Status = status
+		c.DesiredStatus = status
+		c.LastObservedAt = ptr(time.Now())
+		c.LastError = nil
 	})
 }
 

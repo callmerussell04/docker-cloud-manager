@@ -16,6 +16,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -25,33 +26,28 @@ import (
 func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
+	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
+		Repository:   store,
+		Docker:       coremocks.NewContainerDockerAPI(t),
+		Config:       staticConfig{},
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
-
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+	saveContainer(t, store, model.Container{
 		ID:               containerID,
 		OwnerID:          ownerID,
 		DockerID:         "old-docker",
 		Status:           model.ContainerStatusRunning,
 		DockerGeneration: 1,
-	}, nil)
-	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(false, nil)
+	})
 
 	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID, "app", 8080)
 	require.NoError(t, err)
-	require.Len(t, repo.queued, 1)
-	require.Equal(t, model.OperationExpose, repo.queued[0].op.Operation)
-	require.Equal(t, model.ContainerStatusExposing, repo.queued[0].status)
-	require.Contains(t, string(repo.queued[0].outbox.Payload), `"domain_prefix":"app"`)
+	queued := requireQueued(t, store)
+	require.Equal(t, model.OperationExpose, queued.op.Operation)
+	require.Equal(t, model.ContainerStatusExposing, queued.container.Status)
+	require.Contains(t, string(queued.outbox.Payload), `"domain_prefix":"app"`)
 }
 
 func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
@@ -84,41 +80,42 @@ func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
 func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
+	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
+		Repository:   store,
+		Docker:       coremocks.NewContainerDockerAPI(t),
+		Config:       staticConfig{},
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
-
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+	saveContainer(t, store, model.Container{
 		ID:       containerID,
 		OwnerID:  ownerID,
 		DockerID: "docker-id",
 		Status:   model.ContainerStatusRunning,
-	}, nil)
-	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(true, nil)
+	})
+	saveContainer(t, store, model.Container{
+		ID:           uuid.New(),
+		OwnerID:      uuid.New(),
+		DockerID:     "other-docker",
+		DomainPrefix: "app",
+		Status:       model.ContainerStatusRunning,
+	})
 
 	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID, "app", 8080)
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 	require.Equal(t, "subdomain app.example.test is already in use", apperrors.SafeMessage(err))
-	require.Empty(t, repo.queued)
+	requireNothingQueued(t, store)
 }
 
 func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
+	store := newContainerStore()
 	cfg := coremocks.NewConfigManager(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
+		Repository:   store,
+		Docker:       coremocks.NewContainerDockerAPI(t),
 		Config:       cfg,
 		HostDiskPath: "",
 		Logger:       slog.Default(),
@@ -129,7 +126,7 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	cfgValue := staticConfig{}.Get()
 	cfgValue.BlockedDomainPrefixPatterns = []string{"preview-[0-9]+"}
 	cfg.EXPECT().Get().Return(cfgValue).Maybe()
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+	saveContainer(t, store, model.Container{
 		ID:           containerID,
 		OwnerID:      ownerID,
 		DockerID:     "docker-id",
@@ -137,12 +134,12 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 		DomainPrefix: "old",
 		InternalPort: 80,
 		Status:       model.ContainerStatusRunning,
-	}, nil)
+	})
 
 	err := svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "alice", ""), containerID, "preview-42", 8080)
 	require.ErrorIs(t, err, apperrors.ErrBadRequest)
 	require.Equal(t, `domain prefix "preview-42" is forbidden`, apperrors.SafeMessage(err))
-	require.Empty(t, repo.queued)
+	requireNothingQueued(t, store)
 
 	require.Len(t, auditor.events, 1)
 	event := auditor.events[0]
@@ -157,32 +154,28 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
-
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"}, nil)
+	store := newContainerStore()
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
+	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"})
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID))
-	require.Len(t, repo.queued, 1)
-	require.Equal(t, model.OperationDelete, repo.queued[0].op.Operation)
-	require.Equal(t, model.ContainerStatusDeleting, repo.queued[0].status)
+	queued := requireQueued(t, store)
+	require.Equal(t, model.OperationDelete, queued.op.Operation)
+	require.Equal(t, model.ContainerStatusDeleting, queued.container.Status)
 }
 
 func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
-
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning}, nil)
+	store := newContainerStore()
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
+	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning})
 
 	err := svc.Stop(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
 	require.NoError(t, err)
-	require.Len(t, repo.queued, 1)
-	require.Equal(t, model.OperationStop, repo.queued[0].op.Operation)
-	require.Equal(t, model.ContainerStatusStopping, repo.queued[0].status)
+	queued := requireQueued(t, store)
+	require.Equal(t, model.OperationStop, queued.op.Operation)
+	require.Equal(t, model.ContainerStatusStopping, queued.container.Status)
 }
 
 func TestTTLWorkerQueuesStopOperation(t *testing.T) {
@@ -311,23 +304,29 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 }
 
 func TestContainerServiceQueuedCreateReturnsRequeueFailure(t *testing.T) {
+	ctx := context.Background()
 	ownerID, containerID, operationID := uuid.New(), uuid.New(), uuid.New()
-	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
-	repo.runningOp.Operation = model.OperationCreate
+	store := newContainerStore()
+	require.NoError(t, store.SaveWithMountsOperationAndOutbox(ctx,
+		model.Container{ID: containerID, OwnerID: ownerID, Name: "web", ImageTag: "nginx:latest", Status: model.ContainerStatusPending, DesiredStatus: model.ContainerStatusCreated},
+		nil,
+		model.ResourceOperation{ID: operationID, ResourceType: model.ResourceTypeContainer, ResourceID: containerID, OwnerID: ownerID, Operation: model.OperationCreate, Status: model.OperationStatusPending},
+		model.ContainerLifecycleOutbox{ID: uuid.New(), OperationID: operationID, ContainerID: containerID, Status: model.ContainerOutboxStatusPending},
+		false, false))
 	statusErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
 	requeueErr := errors.New("requeue failed")
-	repo.requeueErr = requeueErr
-	repo.updateStatusErr = statusErr
-	cfg := coremocks.NewConfigManager(t)
+	store.SetFaults(coretest.ContainerStoreFaults{
+		UpdateStatus:     coretest.FailAlways(statusErr),
+		RequeueOperation: coretest.FailAlways(requeueErr),
+	})
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository: repo,
+		Repository: store,
 		Docker:     coremocks.NewContainerDockerAPI(t),
-		Config:     cfg,
+		Config:     staticConfig{},
 		Logger:     slog.Default(),
 	})
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 
-	err := svc.ExecuteQueuedCreate(context.Background(), operationID, containerID)
+	err := handleQueuedCreate(svc, operationID, containerID)
 	require.ErrorIs(t, err, statusErr)
 	require.ErrorIs(t, err, requeueErr)
 }
@@ -335,13 +334,11 @@ func TestContainerServiceQueuedCreateReturnsRequeueFailure(t *testing.T) {
 func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
-	repo := newContainerLifecycleRepoMock(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
+	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
+		Repository:   store,
+		Docker:       coremocks.NewContainerDockerAPI(t),
+		Config:       staticConfig{},
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -349,8 +346,7 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	svc.SetAuditRecorder(auditor)
 	projectID := uuid.New()
 
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
+	saveContainer(t, store, model.Container{
 		ID:               containerID,
 		OwnerID:          ownerID,
 		DockerID:         "old-docker",
@@ -361,12 +357,10 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 		InternalPort:     80,
 		Status:           model.ContainerStatusCreated,
 		DockerGeneration: 1,
-	}, nil)
-	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(false, nil)
+	})
 
 	require.NoError(t, svc.Expose(accessscope.WithUserScope(context.Background(), ownerID, "alice", ""), containerID, "app", 8080))
-	require.Len(t, repo.queued, 1)
-	require.Contains(t, string(repo.queued[0].outbox.Payload), `"previous_status":"created"`)
+	require.Contains(t, string(requireQueued(t, store).outbox.Payload), `"previous_status":"created"`)
 	require.Len(t, auditor.events, 1)
 	event := auditor.events[0]
 	require.Equal(t, auditlog.ActionContainerExpose, event.Action)
@@ -547,26 +541,6 @@ type queuedContainerOperation struct {
 	outbox        model.ContainerLifecycleOutbox
 }
 
-type containerLifecycleRepoMock struct {
-	*coremocks.ContainerRepository
-	queued []queuedContainerOperation
-}
-
-func newContainerLifecycleRepoMock(t *testing.T) *containerLifecycleRepoMock {
-	t.Helper()
-	return &containerLifecycleRepoMock{ContainerRepository: newContainerRepository(t)}
-}
-
-func (r *containerLifecycleRepoMock) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {
-	r.queued = append(r.queued, queuedContainerOperation{
-		status:        status,
-		desiredStatus: desiredStatus,
-		op:            op,
-		outbox:        outbox,
-	})
-	return nil
-}
-
 type ttlWorkerRepoFake struct {
 	mu              sync.Mutex
 	expired         []model.Container
@@ -599,106 +573,6 @@ func (r *ttlWorkerRepoFake) QueueContainerOperation(ctx context.Context, id uuid
 		}
 	}
 	return nil
-}
-
-type startLifecycleRepoMock struct {
-	*coremocks.ContainerRepository
-	container          model.Container
-	pendingOp          model.ResourceOperation
-	runningOp          model.ResourceOperation
-	opReads            int
-	updatedStatus      string
-	completedStatus    string
-	completeErr        error
-	requeueErr         error
-	updateStatusErr    error
-	recordedDockerID   string
-	recordedGeneration int
-}
-
-func newStartLifecycleRepoMock(t *testing.T, ownerID, containerID, operationID uuid.UUID) *startLifecycleRepoMock {
-	t.Helper()
-	pendingOp := model.ResourceOperation{
-		ID:           operationID,
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    model.OperationStart,
-		Status:       model.OperationStatusPending,
-	}
-	runningOp := pendingOp
-	runningOp.Status = model.OperationStatusRunning
-	return &startLifecycleRepoMock{
-		ContainerRepository: newContainerRepository(t),
-		container: model.Container{
-			ID:       containerID,
-			OwnerID:  ownerID,
-			DockerID: "docker-id",
-			Status:   model.ContainerStatusStarting,
-		},
-		pendingOp: pendingOp,
-		runningOp: runningOp,
-	}
-}
-
-func (r *startLifecycleRepoMock) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
-	r.opReads++
-	if r.opReads == 1 {
-		return r.pendingOp, nil
-	}
-	return r.runningOp, nil
-}
-
-func (r *startLifecycleRepoMock) ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error) {
-	return r.runningOp, true, nil
-}
-
-func (r *startLifecycleRepoMock) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
-	return r.container, nil
-}
-
-func (r *startLifecycleRepoMock) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {
-	if r.completeErr != nil {
-		return r.completeErr
-	}
-	r.completedStatus = status
-	return nil
-}
-
-func (r *startLifecycleRepoMock) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
-	return r.requeueErr
-}
-
-func (r *startLifecycleRepoMock) Delete(ctx context.Context, id uuid.UUID) error {
-	return nil
-}
-
-func (r *startLifecycleRepoMock) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	if r.updateStatusErr != nil {
-		return r.updateStatusErr
-	}
-	r.updatedStatus = status
-	return nil
-}
-
-func (r *startLifecycleRepoMock) UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error {
-	r.updatedStatus = status
-	return nil
-}
-
-func (r *startLifecycleRepoMock) UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error {
-	r.recordedDockerID = dockerID
-	r.recordedGeneration = generation
-	return nil
-}
-
-func (r *startLifecycleRepoMock) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
-	r.updatedStatus = status
-	return nil
-}
-
-func (r *startLifecycleRepoMock) GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error) {
-	return nil, nil
 }
 
 func containerLifecycleMessage(operationID, containerID, ownerID uuid.UUID, operation string) queue.ContainerLifecycleMessage {

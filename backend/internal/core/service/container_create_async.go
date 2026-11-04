@@ -70,176 +70,122 @@ func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg queue.Con
 	return w.service.ExecuteQueuedContainerOperation(runCtx, operationID, containerID, msg)
 }
 
+// ExecuteQueuedContainerOperation runs one queued container operation through
+// the lifecycle executor.
 func (s *ContainerService) ExecuteQueuedContainerOperation(ctx context.Context, operationID, containerID uuid.UUID, msg queue.ContainerLifecycleMessage) error {
-	repo := s.repo
-	op, err := repo.GetOperationByID(ctx, operationID)
+	op, err := s.repo.GetOperationByID(ctx, operationID)
 	if err != nil {
 		return err
-	}
-	if op.Operation == model.OperationCreate {
-		return s.ExecuteQueuedCreate(ctx, operationID, containerID)
 	}
 	return s.executeQueuedLifecycle(ctx, op, containerID, msg)
 }
 
-func (s *ContainerService) ExecuteQueuedCreate(ctx context.Context, operationID, containerID uuid.UUID) (err error) {
-	repo := s.repo
-	cfg := s.config.Get()
-	op, claimed, err := repo.ClaimPendingOperation(ctx, operationID, cfg.ContainerCreateMaxAttempts)
-	if err != nil {
-		return err
-	}
-	if !claimed {
-		if op.Status == model.OperationStatusPending && cfg.ContainerCreateMaxAttempts > 0 && op.Attempts >= cfg.ContainerCreateMaxAttempts {
-			cause := apperrors.New(apperrors.ErrTimeout, "container create attempts exhausted")
-			s.failQueuedCreate(ctx, repo, operationID, containerID, cause, false)
-		}
-		return nil
-	}
-	if op.ResourceType != model.ResourceTypeContainer || op.Operation != model.OperationCreate || op.ResourceID != containerID {
-		cause := apperrors.New(apperrors.ErrBadRequest, "container create message does not match operation")
-		return errors.Join(cause, s.completeQueuedOperation(ctx, repo, operationID, model.OperationStatusFailed, cause))
-	}
-
-	if err := repo.UpdateStatus(ctx, containerID, model.ContainerStatusCreating); err != nil {
-		if requeueErr := repo.RequeueOperation(context.WithoutCancel(ctx), operationID, err); requeueErr != nil {
-			return errors.Join(err, fmt.Errorf("requeue container create operation: %w", requeueErr))
-		}
-		return err
-	}
-
-	c, err := repo.GetByID(ctx, containerID)
-	if err != nil {
-		return errors.Join(err, s.completeQueuedOperation(ctx, repo, operationID, model.OperationStatusFailed, err))
-	}
+// runQueuedCreate is create's lifecycle step: it checks the volumes, ensures
+// the user network, resolves and pulls the image and creates the Docker
+// container. A container already recorded, as when a restart interrupted the
+// create after its record write, needs no Docker work. Volume and image
+// resolution failures are terminal; Docker timeouts and unavailability are
+// retried.
+func (s *ContainerService) runQueuedCreate(ctx context.Context, operationID uuid.UUID, c model.Container) (lifecycleChange, error) {
+	var change lifecycleChange
 	if c.DockerID != "" {
-		return s.completeQueuedOperation(ctx, repo, operationID, model.OperationStatusDone, nil)
+		return change, nil
 	}
-
-	mounts, err := repo.GetMountsByContainerID(ctx, containerID)
+	mounts, err := s.repo.GetMountsByContainerID(ctx, c.ID)
 	if err != nil {
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+		return change, terminal(err)
 	}
-	if err := s.ensureCreateOperationRunning(ctx, repo, operationID); err != nil {
-		return err
+	if err := s.ensureOperationRunning(ctx, operationID); err != nil {
+		return change, err
 	}
 	if err := s.inspectQueuedCreateVolumes(ctx, mounts); err != nil {
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+		return change, terminal(err)
 	}
 
 	networkName := userNetworkName(c.OwnerID)
-	if _, err = s.dockerAPI.EnsureUserNetwork(ctx, networkName); err != nil {
-		err = normalizeContainerRuntimeError(err)
-		if s.requeueQueuedCreateIfRetryable(ctx, repo, operationID, err) {
-			return err
-		}
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+	if _, err := s.dockerAPI.EnsureUserNetwork(ctx, networkName); err != nil {
+		return change, normalizeContainerRuntimeError(err)
 	}
-	defer func() {
-		if err != nil {
-			s.cleanupUserNetworkIfUnused(ctx, c.OwnerID)
-		}
-	}()
+	change.discard = func(ctx context.Context) { s.cleanupUserNetworkIfUnused(ctx, c.OwnerID) }
 
-	actualImageTag, customImage, isCustom, err := s.resolveContainerCreateImage(ctx, c)
+	imageTag, customImage, isCustom, err := s.resolveContainerCreateImage(ctx, c)
 	if err != nil {
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+		return change, terminal(err)
 	}
-	if err := s.ensureCreateOperationRunning(ctx, repo, operationID); err != nil {
-		return err
+	if err := s.ensureOperationRunning(ctx, operationID); err != nil {
+		return change, err
+	}
+	pulled, err := s.ensureQueuedCreateImage(ctx, imageTag, customImage, isCustom)
+	if err != nil {
+		return change, err
+	}
+	if pulled {
+		releaseNetwork := change.discard
+		change.discard = func(ctx context.Context) {
+			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			_ = s.dockerAPI.RemoveImage(cleanupCtx, imageTag, false) // best-effort removal of an image pulled for a failed create; create's outcome stands
+			cancel()
+			releaseNetwork(ctx)
+		}
 	}
 
-	pulledPublicImage := false
+	if err := s.ensureOperationRunning(ctx, operationID); err != nil {
+		return change, err
+	}
+	spec, err := s.queuedCreateRuntimeSpec(c, mounts, imageTag, networkName)
+	if err != nil {
+		return change, terminal(err)
+	}
+	dockerID, err := s.dockerAPI.CreateContainer(ctx, spec)
+	if err != nil {
+		return change, normalizeContainerRuntimeError(err)
+	}
+	change.created = dockerID
+	change.record = func(ctx context.Context) error {
+		return s.repo.UpdateDockerIDAndStatus(ctx, c.ID, dockerID, model.ContainerStatusCreated)
+	}
+	change.settled = func(ctx context.Context) {
+		s.logger.InfoContext(ctx, "container created", "container_id", c.ID, "owner_id", c.OwnerID, "image_tag", c.ImageTag)
+	}
+	return change, nil
+}
+
+// ensureQueuedCreateImage makes imageTag available to Docker: a custom image
+// is always pulled from the Registry, a public one only when Docker lacks it.
+// It reports whether it pulled a public image, which a failed create removes.
+func (s *ContainerService) ensureQueuedCreateImage(ctx context.Context, imageTag string, customImage *model.Image, isCustom bool) (bool, error) {
 	if isCustom {
-		err = s.dockerAPI.PullImage(ctx, actualImageTag)
-		if err != nil {
+		if err := s.dockerAPI.PullImage(ctx, imageTag); err != nil {
 			if customImage != nil && isDockerNotFound(err) {
 				s.markImageMissing(ctx, customImage.ID)
 			}
-			err = normalizeContainerRuntimeError(err)
-			if !errors.Is(err, apperrors.ErrTimeout) {
-				err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-			}
-			if s.requeueQueuedCreateIfRetryable(ctx, repo, operationID, err) {
-				return err
-			}
-			s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-			return err
+			return false, pullImageError(err)
 		}
-	} else {
-		imageExists, imageErr := s.dockerAPI.ImageExists(ctx, actualImageTag)
-		if imageErr != nil {
-			err = normalizeContainerRuntimeError(imageErr)
-			if s.requeueQueuedCreateIfRetryable(ctx, repo, operationID, err) {
-				return err
-			}
-			s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-			return err
-		}
-		if !imageExists {
-			if err = s.checkHostDiskCapacity(); err != nil {
-				s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-				return err
-			}
-			err = s.dockerAPI.PullImage(ctx, actualImageTag)
-			if err != nil {
-				err = normalizeContainerRuntimeError(err)
-				if !errors.Is(err, apperrors.ErrTimeout) {
-					err = apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
-				}
-				if s.requeueQueuedCreateIfRetryable(ctx, repo, operationID, err) {
-					return err
-				}
-				s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-				return err
-			}
-			pulledPublicImage = true
-		}
+		return false, nil
 	}
-	defer func() {
-		if err != nil && pulledPublicImage {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
-			_ = s.dockerAPI.RemoveImage(cleanupCtx, actualImageTag, false) // best-effort removal of an image pulled for a failed create; create's error is returned
-			cancel()
-		}
-	}()
-
-	if err := s.ensureCreateOperationRunning(ctx, repo, operationID); err != nil {
-		return err
-	}
-	dockerParams, err := s.queuedCreateRuntimeSpec(c, mounts, actualImageTag, networkName)
+	exists, err := s.dockerAPI.ImageExists(ctx, imageTag)
 	if err != nil {
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+		return false, normalizeContainerRuntimeError(err)
 	}
-	dockerID, err := s.dockerAPI.CreateContainer(ctx, dockerParams)
-	if err != nil {
-		err = normalizeContainerRuntimeError(err)
-		if s.requeueQueuedCreateIfRetryable(ctx, repo, operationID, err) {
-			return err
-		}
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, false)
-		return err
+	if exists {
+		return false, nil
 	}
+	if err := s.checkHostDiskCapacity(); err != nil {
+		return false, terminal(err)
+	}
+	if err := s.dockerAPI.PullImage(ctx, imageTag); err != nil {
+		return false, pullImageError(err)
+	}
+	return true, nil
+}
 
-	if err = repo.UpdateDockerIDAndStatus(ctx, containerID, dockerID, model.ContainerStatusCreated); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		_ = s.dockerAPI.RemoveContainer(cleanupCtx, dockerID, true) // best-effort removal of a container DCM failed to record; the record error is returned
-		cancel()
-		s.failQueuedCreate(ctx, repo, operationID, containerID, err, true)
+// pullImageError reports a failed pull as a bad request unless it timed out.
+func pullImageError(err error) error {
+	err = normalizeContainerRuntimeError(err)
+	if errors.Is(err, apperrors.ErrTimeout) {
 		return err
 	}
-	// Returning here would fire the deferred cleanups of the recorded
-	// container's network and image, so a failed completion write is logged.
-	if err := repo.CompleteOperation(ctx, operationID, model.OperationStatusDone, nil); err != nil {
-		s.logger.WarnContext(ctx, "failed to complete container create operation", "container_id", containerID, "operation_id", operationID, "error", err)
-	}
-	s.logger.InfoContext(ctx, "container created", "container_id", containerID, "owner_id", c.OwnerID, "image_tag", c.ImageTag)
-	return nil
+	return apperrors.Wrap(apperrors.ErrBadRequest, "image could not be pulled", err)
 }
 
 func (s *ContainerService) inspectQueuedCreateVolumes(ctx context.Context, mounts []model.VolumeMountParams) error {
@@ -340,26 +286,19 @@ func (s *ContainerService) queuedCreateRuntimeSpec(c model.Container, mounts []m
 	return spec, nil
 }
 
-func (s *ContainerService) ensureCreateOperationRunning(ctx context.Context, repo containerCreateWorkerRepository, operationID uuid.UUID) error {
-	op, err := repo.GetOperationByID(ctx, operationID)
+// ensureOperationRunning reports errLifecycleOperationInactive once the
+// operation is no longer running, as when a delete canceled the create. Both
+// that and a failed status read are fence errors, which the executor does not
+// settle.
+func (s *ContainerService) ensureOperationRunning(ctx context.Context, operationID uuid.UUID) error {
+	op, err := s.repo.GetOperationByID(ctx, operationID)
 	if err != nil {
-		return err
+		return fenceError{err: err}
 	}
 	if op.Status != model.OperationStatusRunning {
-		return apperrors.New(apperrors.ErrConflict, "container create operation is no longer active")
+		return fenceError{err: errLifecycleOperationInactive}
 	}
 	return nil
-}
-
-func (s *ContainerService) requeueQueuedCreateIfRetryable(ctx context.Context, repo containerCreateWorkerRepository, operationID uuid.UUID, cause error) bool {
-	if !errors.Is(cause, apperrors.ErrTimeout) && !errors.Is(cause, apperrors.ErrUnavailable) {
-		return false
-	}
-	if err := repo.RequeueOperation(context.WithoutCancel(ctx), operationID, cause); err != nil {
-		s.logger.WarnContext(ctx, "failed to requeue container create operation", "operation_id", operationID, "error", err)
-		return false
-	}
-	return true
 }
 
 // completeQueuedOperation records the operation's terminal status. A failed
@@ -371,19 +310,4 @@ func (s *ContainerService) completeQueuedOperation(ctx context.Context, repo con
 		return fmt.Errorf("record container operation %s status: %w", status, err)
 	}
 	return nil
-}
-
-func (s *ContainerService) failQueuedCreate(ctx context.Context, repo containerCreateWorkerRepository, operationID, containerID uuid.UUID, cause error, detached bool) {
-	writeCtx := ctx
-	var cancel context.CancelFunc
-	if detached || ctx.Err() != nil {
-		writeCtx, cancel = detachedContainerStateContext(ctx)
-		defer cancel()
-	}
-	if err := repo.MarkStatusError(writeCtx, containerID, model.ContainerStatusError, normalizeContainerRuntimeError(cause)); err != nil {
-		s.logger.WarnContext(writeCtx, "failed to mark queued container create error", "container_id", containerID, "error", err)
-	}
-	if err := repo.CompleteOperation(writeCtx, operationID, model.OperationStatusFailed, normalizeContainerRuntimeError(cause)); err != nil {
-		s.logger.WarnContext(writeCtx, "failed to fail queued container create operation", "container_id", containerID, "operation_id", operationID, "error", err)
-	}
 }

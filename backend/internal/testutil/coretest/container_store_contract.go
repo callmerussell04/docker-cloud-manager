@@ -18,12 +18,15 @@ type ContainerStore interface {
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
+	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
+	GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
 	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
+	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
 	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
@@ -50,6 +53,12 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	})
 	t.Run("delete and count by owner", func(t *testing.T) {
 		testDeleteAndCountByOwner(t, newStore(t))
+	})
+	t.Run("created docker container record", func(t *testing.T) {
+		testCreatedDockerContainerRecord(t, newStore(t))
+	})
+	t.Run("domain prefix lookup", func(t *testing.T) {
+		testDomainPrefixLookup(t, newStore(t))
 	})
 	t.Run("generation-fenced status writes", func(t *testing.T) {
 		testGenerationFencedStatusWrites(t, newStore(t))
@@ -153,6 +162,53 @@ func testDeleteAndCountByOwner(t *testing.T, store ContainerStore) {
 	count, err = store.CountByOwnerID(ctx, uuid.New())
 	require.NoError(t, err)
 	require.Zero(t, count)
+}
+
+func testCreatedDockerContainerRecord(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	c := contractContainer(uuid.New(), model.ContainerStatusCreating)
+	c.DockerID = ""
+	c.DesiredStatus = model.ContainerStatusRunning
+	c.DockerGeneration = 3
+	require.NoError(t, store.Save(ctx, c))
+	require.NoError(t, store.MarkStatusError(ctx, c.ID, model.ContainerStatusCreating, errContractCause))
+
+	// A container saved without mounts has none.
+	mounts, err := store.GetMountsByContainerID(ctx, c.ID)
+	require.NoError(t, err)
+	require.Empty(t, mounts)
+
+	// Recording the Docker container sets status and desired status, clears
+	// the last error and keeps the generation.
+	require.NoError(t, store.UpdateDockerIDAndStatus(ctx, c.ID, "docker-created", model.ContainerStatusCreated))
+	got := getContainer(t, store, c.ID)
+	require.Equal(t, "docker-created", got.DockerID)
+	require.Equal(t, model.ContainerStatusCreated, got.Status)
+	require.Equal(t, model.ContainerStatusCreated, got.DesiredStatus)
+	require.Nil(t, got.LastError)
+	require.NotNil(t, got.LastObservedAt)
+	require.Equal(t, 3, got.DockerGeneration)
+
+	require.ErrorIs(t, store.UpdateDockerIDAndStatus(ctx, uuid.New(), "docker-other", model.ContainerStatusCreated), apperrors.ErrNotFound)
+}
+
+func testDomainPrefixLookup(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	routed := contractContainer(uuid.New(), model.ContainerStatusRunning)
+	routed.DomainPrefix = "app-" + routed.ID.String()[:8]
+	unrouted := contractContainer(uuid.New(), model.ContainerStatusRunning)
+	require.NoError(t, store.Save(ctx, routed))
+	require.NoError(t, store.Save(ctx, unrouted))
+
+	exists, err := store.CheckDomainPrefixExists(ctx, routed.DomainPrefix)
+	require.NoError(t, err)
+	require.True(t, exists)
+	exists, err = store.CheckDomainPrefixExists(ctx, "free-"+routed.ID.String()[:8])
+	require.NoError(t, err)
+	require.False(t, exists)
+	exists, err = store.CheckDomainPrefixExists(ctx, "")
+	require.NoError(t, err)
+	require.False(t, exists, "an empty prefix routes nothing")
 }
 
 func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
