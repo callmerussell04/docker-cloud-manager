@@ -154,7 +154,10 @@ func (r *rangeReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	if off >= r.size {
 		return 0, io.EOF
 	}
-	if int64(len(p)) > r.size-off {
+	// io.ReaderAt requires a non-nil error whenever n < len(p), so a read cut
+	// short by the end of the object reports io.EOF.
+	truncated := int64(len(p)) > r.size-off
+	if truncated {
 		p = p[:r.size-off]
 	}
 	if len(p) == 0 {
@@ -170,7 +173,7 @@ func (r *rangeReaderAt) ReadAt(p []byte, off int64) (int, error) {
 	}
 	defer func() { _ = obj.Close() }() // read-only stream; close failure is not actionable
 	n, err := io.ReadFull(obj, p)
-	if errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, io.ErrUnexpectedEOF) || (err == nil && truncated) {
 		err = io.EOF
 	}
 	return n, err

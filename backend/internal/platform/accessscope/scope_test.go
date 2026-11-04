@@ -42,3 +42,23 @@ func TestRequireOwnerAccess(t *testing.T) {
 	err = accessscope.RequireOwnerAccess(accessscope.WithSystemScope(context.Background()), ownerID)
 	require.True(t, errors.Is(err, apperrors.ErrNotFound))
 }
+
+func TestScopeOwnerFilter(t *testing.T) {
+	ownerID := uuid.New()
+
+	filter := accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID}.OwnerFilter()
+	require.NotNil(t, filter)
+	require.Equal(t, ownerID, *filter)
+
+	require.Nil(t, accessscope.Scope{Kind: accessscope.KindAdmin, UserID: ownerID}.OwnerFilter(), "admin scope lists every owner")
+}
+
+func TestScopeOwnerFilterFailsClosedForUserScopeWithoutUserID(t *testing.T) {
+	filter := accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.Nil}.OwnerFilter()
+
+	// A nil filter would list every owner's rows; the filter must restrict to
+	// the all-zero owner, which owns nothing.
+	require.NotNil(t, filter)
+	require.Equal(t, uuid.Nil, *filter)
+	require.False(t, accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.Nil}.AllowsOwner(uuid.Nil))
+}

@@ -135,16 +135,6 @@ packages:
       outpkg: ssogrpcmocks
     interfaces:
       AuthService: {}
-  github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
-    config:
-      dir: internal/testutil/mocks/gateway/service
-      outpkg: gatewayservicemocks
-      mockname: "{{.InterfaceName}}"
-      filename: "{{.InterfaceName | snakecase}}.go"
-    interfaces:
-      CoreProvider: {}
-      SSOProvider: {}
-      UserProvider: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler:
     config:
       dir: internal/testutil/mocks/gateway/http/handler

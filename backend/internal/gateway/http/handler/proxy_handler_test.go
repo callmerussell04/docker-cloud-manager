@@ -59,6 +59,51 @@ func TestCoreProxyStripsSpoofableIdentityHeadersAndForwardsInternalScope(t *test
 	require.Empty(t, upstream.Header.Get("X-Forwarded-User"))
 }
 
+// The router never proxies a request without a scope, so only this test can
+// observe stripping of the headers a scoped request would overwrite.
+func TestCoreProxyStripsSpoofedIdentityHeadersWithoutScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	spoofed := map[string]string{
+		"Authorization":             "Bearer spoofed-authorization",
+		"Cookie":                    "refresh_token=spoofed-cookie",
+		internalauth.HeaderScope:    "admin",
+		internalauth.HeaderUserID:   uuid.NewString(),
+		internalauth.HeaderUsername: "spoofed-username",
+		internalauth.HeaderRole:     "spoofed-role",
+		internalauth.HeaderName:     "spoofed-internal-token",
+		"X-Forwarded-User":          "spoofed-forwarded-user",
+		"X-Forwarded-Email":         "spoofed@example.test",
+		"X-Forwarded-Groups":        "spoofed-admins",
+		"X-Remote-User":             "spoofed-remote-user",
+	}
+	var upstream *http.Request
+	proxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
+		TargetURL:     "http://core.internal",
+		InternalToken: "internal-token",
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			upstream = req.Clone(req.Context())
+			return proxyResponse(http.StatusOK, `{}`), nil
+		}),
+	})
+	require.NoError(t, err)
+	router := gin.New()
+	router.GET("/builds/:id/logs", proxy)
+
+	req := httptestRequest(http.MethodGet, "/builds/"+uuid.NewString()+"/logs", "")
+	for key, value := range spoofed {
+		req.Header.Set(key, value)
+	}
+	rec := performRequest(router, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, upstream)
+	for key, value := range spoofed {
+		require.NotContains(t, upstream.Header.Values(key), value, "spoofed %s reached Core", key)
+	}
+	require.Empty(t, upstream.Header.Values(internalauth.HeaderScope), "no scope must reach Core as no scope header")
+	require.Equal(t, "internal-token", upstream.Header.Get(internalauth.HeaderName))
+}
+
 func TestTelemetryLogsProxyConsumesTicketOnceAndRemovesTicketFromUpstreamQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	userID := uuid.New()
@@ -83,7 +128,8 @@ func TestTelemetryLogsProxyConsumesTicketOnceAndRemovesTicketFromUpstreamQuery(t
 			ContainerID: containerID,
 			StreamType:  model.TelemetryStreamLogs,
 			Scope:       accessscope.Scope{Kind: accessscope.KindUser, UserID: userID, Username: "alice", Role: "user"},
-		}, nil)
+		}, nil).
+		Once()
 	resp := performProxy(router, http.MethodGet, "/containers/"+containerID+"/logs/stream?ticket=ticket-value&tail=10&follow=true", "")
 
 	require.Equal(t, http.StatusOK, resp.Code)

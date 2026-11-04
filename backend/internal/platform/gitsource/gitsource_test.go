@@ -95,3 +95,33 @@ func mustWriteFile(t *testing.T, path string, data []byte) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 	require.NoError(t, os.WriteFile(path, data, 0644))
 }
+
+func TestValidationErrorsNeverEchoTheirInput(t *testing.T) {
+	const marker = "echomarker"
+	validateURL := func(raw string) func() error {
+		return func() error {
+			_, err := gitsource.ValidateRepoURL(raw, []string{"github.com"})
+			return err
+		}
+	}
+	for _, tc := range []struct {
+		name     string
+		validate func() error
+	}{
+		{name: "non-https URL", validate: validateURL("http://github.com/" + marker + "/repo")},
+		{name: "URL with credentials", validate: validateURL("https://user:" + marker + "@github.com/acme/repo")},
+		{name: "URL with query", validate: validateURL("https://github.com/acme/repo?" + marker)},
+		{name: "URL with disallowed host", validate: validateURL("https://" + marker + ".example/acme/repo")},
+		{name: "URL with invalid path", validate: validateURL("https://github.com/acme/../" + marker)},
+		{name: "ref", validate: func() error { return gitsource.ValidateRef(marker + "..main") }},
+		{name: "absolute path", validate: func() error { return gitsource.ValidateRelativePath("/" + marker) }},
+		{name: "parent traversal", validate: func() error { return gitsource.ValidateRelativePath("../" + marker) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.validate()
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			require.NotContains(t, err.Error(), marker)
+			require.NotContains(t, apperrors.SafeMessage(err), marker)
+		})
+	}
+}

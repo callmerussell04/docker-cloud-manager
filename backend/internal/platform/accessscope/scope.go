@@ -88,8 +88,12 @@ func (s Scope) AllowsOwner(ownerID uuid.UUID) bool {
 	}
 }
 
+// OwnerFilter returns the owner a list query is restricted to, or nil for no
+// restriction. Only non-user scopes are unrestricted: a user scope always
+// filters, and one without a user ID filters to the all-zero owner, which
+// matches no rows, so it fails closed.
 func (s Scope) OwnerFilter() *uuid.UUID {
-	if s.Kind != KindUser || s.UserID == uuid.Nil {
+	if s.Kind != KindUser {
 		return nil
 	}
 	ownerID := s.UserID

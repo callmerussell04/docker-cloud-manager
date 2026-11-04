@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -87,6 +88,38 @@ func TestValidateSystemConfigRejectsInvalidBlockedDomainPrefixPattern(t *testing
 
 	if err := config.ValidateSystemConfig(cfg); err == nil {
 		t.Fatal("ValidateSystemConfig() returned nil error for invalid blocked domain prefix pattern")
+	}
+}
+
+// UpdateConfig wraps these errors as bad requests, whose messages reach the
+// admin client verbatim, so they must not echo the rejected value.
+func TestValidateSystemConfigErrorsNeverEchoTheirInput(t *testing.T) {
+	const marker = "echomarker"
+	for _, tc := range []struct {
+		name   string
+		mutate func(*config.SystemConfig)
+	}{
+		{name: "base domain", mutate: func(cfg *config.SystemConfig) { cfg.BaseDomain = marker + " domain" }},
+		{name: "max log size", mutate: func(cfg *config.SystemConfig) { cfg.MaxLogSize = marker }},
+		{name: "max log files", mutate: func(cfg *config.SystemConfig) { cfg.MaxLogFiles = marker }},
+		{name: "container disk quota", mutate: func(cfg *config.SystemConfig) { cfg.ContainerDiskQuota = marker }},
+		{name: "reserved domain prefix", mutate: func(cfg *config.SystemConfig) { cfg.ReservedDomainPrefixes = []string{"Bad_" + marker} }},
+		{name: "blocked domain prefix pattern", mutate: func(cfg *config.SystemConfig) { cfg.BlockedDomainPrefixPatterns = []string{marker + "-["} }},
+		{name: "git allowed host", mutate: func(cfg *config.SystemConfig) { cfg.GitAllowedHosts = []string{marker + ":22"} }},
+		{name: "telemetry exec command", mutate: func(cfg *config.SystemConfig) { cfg.TelemetryAllowedExecCommands = []string{marker + "\n"} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.mutate(&cfg)
+
+			err := config.ValidateSystemConfig(cfg)
+			if err == nil {
+				t.Fatal("ValidateSystemConfig() returned nil error")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Fatalf("ValidateSystemConfig() error %q echoes the rejected value", err)
+			}
+		})
 	}
 }
 

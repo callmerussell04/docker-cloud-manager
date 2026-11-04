@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -54,7 +55,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 			return fmt.Errorf("reserved domain prefixes must not contain empty values")
 		}
 		if err := validation.DomainPrefix(prefix); err != nil {
-			return fmt.Errorf("invalid reserved domain prefix %q: %w", prefix, err)
+			return fmt.Errorf("invalid reserved domain prefix: %w", err)
 		}
 		normalized := strings.ToLower(prefix)
 		if _, ok := seenPrefixes[normalized]; ok {
@@ -68,8 +69,10 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		if trimmed == "" {
 			return fmt.Errorf("blocked domain prefix patterns must not contain empty values")
 		}
+		// The regexp error quotes the pattern, and this message reaches the
+		// client, so the cause is replaced rather than wrapped.
 		if _, err := regexp.Compile("^(?:" + trimmed + ")$"); err != nil {
-			return fmt.Errorf("invalid blocked domain prefix pattern %q: %w", pattern, err)
+			return errors.New("invalid blocked domain prefix pattern: expected a valid regular expression")
 		}
 		if _, ok := seenBlockedPatterns[trimmed]; ok {
 			return fmt.Errorf("blocked domain prefix patterns must be unique")

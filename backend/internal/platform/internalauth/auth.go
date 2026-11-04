@@ -127,8 +127,9 @@ func scopeContext(ctx context.Context, kindValue, userIDValue, username, role st
 	kind := accessscope.Kind(kindValue)
 	switch kind {
 	case accessscope.KindUser:
+		// The all-zero UUID would name no owner, so a user scope must carry a real one.
 		userID, err := uuid.Parse(userIDValue)
-		if err != nil {
+		if err != nil || userID == uuid.Nil {
 			return nil, apperrors.ErrUnauthorized
 		}
 		return accessscope.WithUserScope(ctx, userID, username, role), nil
