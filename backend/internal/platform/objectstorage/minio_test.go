@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -99,5 +101,28 @@ func serveObject(w http.ResponseWriter, r *http.Request, content string) {
 	w.WriteHeader(status)
 	if r.Method != http.MethodHead {
 		_, _ = io.WriteString(w, body) // test server; a failed write fails the client side
+	}
+}
+
+// Callers log upload failures, and logs exclude object keys, so the error
+// must not name the key.
+func TestUploadErrorsOmitObjectKey(t *testing.T) {
+	const key = "build-logs/owner/build-object-key.log"
+	storage := newFakeS3Storage(t, "bucket", "object", "")
+	path := filepath.Join(t.TempDir(), "upload.log")
+	require.NoError(t, os.WriteFile(path, []byte("log"), 0o600))
+
+	for name, upload := range map[string]func() error{
+		"file": func() error { return storage.UploadFile(t.Context(), key, path, "text/plain") },
+		"stream": func() error {
+			return storage.UploadStream(t.Context(), key, strings.NewReader("log"), 3, "text/plain")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := upload()
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), key)
+			require.NotContains(t, err.Error(), "build-object-key")
+		})
 	}
 }

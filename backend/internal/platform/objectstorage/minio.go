@@ -66,7 +66,7 @@ func (s *MinIOStorage) UploadFile(ctx context.Context, objectKey, filePath, cont
 	}
 	_, err := s.client.FPutObject(ctx, s.bucket, objectKey, filePath, minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		return fmt.Errorf("failed to upload object %s: %w", objectKey, err)
+		return fmt.Errorf("upload object: %w", err) // the key stays out: callers log this error
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func (s *MinIOStorage) UploadStream(ctx context.Context, objectKey string, reade
 	}
 	_, err := s.client.PutObject(ctx, s.bucket, objectKey, reader, size, minio.PutObjectOptions{ContentType: contentType})
 	if err != nil {
-		return fmt.Errorf("failed to upload object %s: %w", objectKey, err)
+		return fmt.Errorf("upload object: %w", err) // the key stays out: callers log this error
 	}
 	return nil
 }

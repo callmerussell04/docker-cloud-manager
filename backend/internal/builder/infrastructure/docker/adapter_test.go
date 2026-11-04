@@ -1,23 +1,20 @@
 package docker_test
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
+	"errors"
 	"io"
-	"math/big"
+	"maps"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/stretchr/testify/require"
@@ -25,6 +22,7 @@ import (
 	builderdocker "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dockertest"
 )
 
 const (
@@ -32,11 +30,6 @@ const (
 	policyContainers     = `[{"Id":"policy"}]`
 	healthyPolicy        = `{"Id":"policy","State":{"Running":true,"Health":{"Status":"healthy"}}}`
 )
-
-type daemonResponse struct {
-	status int
-	body   string
-}
 
 // A RUN step inherits nothing from the Kaniko process environment, so only
 // build args give it the route out of the internal build network.
@@ -76,26 +69,15 @@ func TestAdapterRunBuildContainerPassesProxyToRunSteps(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			created := make(chan []byte, 1)
-			serveRecordingFakeDaemon(t, map[string]daemonResponse{
-				"/networks/build_net": {http.StatusOK, isolatedBuildNetwork},
-				"/images/kaniko/json": {http.StatusOK, `{"Id":"kaniko"}`},
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/networks/build_net": dockertest.OK(isolatedBuildNetwork),
+				"/images/kaniko/json": dockertest.OK(`{"Id":"kaniko"}`),
 				// Failing here ends the run once the container request is recorded.
-				"/containers/create": {http.StatusInternalServerError, `{"message":"stop after create"}`},
-			}, func(r *http.Request) {
-				if strings.HasSuffix(r.URL.Path, "/containers/create") {
-					body, err := io.ReadAll(r.Body)
-					if err != nil {
-						t.Errorf("read create request: %v", err)
-					}
-					created <- body
-				}
+				"/containers/create": dockertest.Error(http.StatusInternalServerError, "stop after create"),
 			})
-			adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: writeTestCA(t)})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+			adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
 
-			_, _, err = adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
+			_, _, err := adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
 				RegistryUsername: "builder",
 				RegistryPassword: "password",
 				DestinationTag:   "registry:5000/owner_image:latest",
@@ -107,7 +89,9 @@ func TestAdapterRunBuildContainerPassesProxyToRunSteps(t *testing.T) {
 			require.Error(t, err)
 
 			var request struct{ Cmd []string }
-			require.NoError(t, json.Unmarshal(<-created, &request))
+			created := daemon.Requests("/containers/create")
+			require.Len(t, created, 1)
+			require.NoError(t, json.Unmarshal(created[0].Body, &request))
 			var got []string
 			for _, arg := range request.Cmd {
 				if strings.HasPrefix(arg, "--build-arg=") {
@@ -120,20 +104,19 @@ func TestAdapterRunBuildContainerPassesProxyToRunSteps(t *testing.T) {
 }
 
 func TestAdapterValidateBuildNetwork(t *testing.T) {
-	notFound := daemonResponse{http.StatusNotFound, `{"message":"network build_net not found"}`}
-	daemonFailure := daemonResponse{http.StatusInternalServerError, `{"message":"daemon failure"}`}
-	ok := func(body string) daemonResponse { return daemonResponse{http.StatusOK, body} }
+	notFound := dockertest.Error(http.StatusNotFound, "network build_net not found")
+	daemonFailure := dockertest.Error(http.StatusInternalServerError, "daemon failure")
 	for _, tt := range []struct {
 		name      string
-		network   daemonResponse
-		list      daemonResponse
-		policy    daemonResponse
+		network   dockertest.Response
+		list      dockertest.Response
+		policy    dockertest.Response
 		wantErr   string
 		wantCause func(error) bool
 	}{
 		{
 			name:    "isolated network with healthy policy",
-			network: ok(isolatedBuildNetwork), list: ok(policyContainers), policy: ok(healthyPolicy),
+			network: dockertest.OK(isolatedBuildNetwork), list: dockertest.OK(policyContainers), policy: dockertest.OK(healthyPolicy),
 		},
 		{
 			name:      "missing network keeps inspection cause",
@@ -143,42 +126,40 @@ func TestAdapterValidateBuildNetwork(t *testing.T) {
 		},
 		{
 			name:    "unisolated network",
-			network: ok(`{"Name":"build_net","Internal":false,"Options":{"com.docker.network.bridge.name":"br-dcm-build"}}`),
+			network: dockertest.OK(`{"Name":"build_net","Internal":false,"Options":{"com.docker.network.bridge.name":"br-dcm-build"}}`),
 			wantErr: "build network is not isolated",
 		},
 		{
 			name:      "policy listing failure keeps cause",
-			network:   ok(isolatedBuildNetwork),
+			network:   dockertest.OK(isolatedBuildNetwork),
 			list:      daemonFailure,
 			wantErr:   "build network policy is unavailable",
 			wantCause: cerrdefs.IsInternal,
 		},
 		{
 			name:      "policy inspection failure keeps cause",
-			network:   ok(isolatedBuildNetwork),
-			list:      ok(policyContainers),
+			network:   dockertest.OK(isolatedBuildNetwork),
+			list:      dockertest.OK(policyContainers),
 			policy:    daemonFailure,
 			wantErr:   "build network policy is unavailable",
 			wantCause: cerrdefs.IsInternal,
 		},
 		{
 			name:    "unhealthy policy",
-			network: ok(isolatedBuildNetwork), list: ok(policyContainers),
-			policy:  ok(`{"Id":"policy","State":{"Running":true,"Health":{"Status":"starting"}}}`),
+			network: dockertest.OK(isolatedBuildNetwork), list: dockertest.OK(policyContainers),
+			policy:  dockertest.OK(`{"Id":"policy","State":{"Running":true,"Health":{"Status":"starting"}}}`),
 			wantErr: "build network policy is unavailable",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			serveFakeDaemon(t, map[string]daemonResponse{
+			dockertest.Serve(t, map[string]dockertest.Response{
 				"/networks/build_net":     tt.network,
 				"/containers/json":        tt.list,
 				"/containers/policy/json": tt.policy,
 			})
-			adapter, err := builderdocker.NewAdapter(builderdocker.Config{RequireNetworkPolicy: true})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+			adapter := newAdapter(t, builderdocker.Config{RequireNetworkPolicy: true})
 
-			err = adapter.ValidateBuildNetwork(context.Background(), "build_net")
+			err := adapter.ValidateBuildNetwork(context.Background(), "build_net")
 
 			if tt.wantErr == "" {
 				require.NoError(t, err)
@@ -193,54 +174,100 @@ func TestAdapterValidateBuildNetwork(t *testing.T) {
 	}
 }
 
-// serveFakeDaemon points the Docker client environment at a daemon that
-// answers versioned API paths from routes.
-func serveFakeDaemon(t *testing.T, routes map[string]daemonResponse) {
-	t.Helper()
-	serveRecordingFakeDaemon(t, routes, func(*http.Request) {})
-}
+// Scoped Registry credentials reach Kaniko only through the 0600 archive
+// copied to the container root, never through its environment or command,
+// which `docker inspect` shows to anyone with daemon access.
+func TestAdapterRunBuildContainerKeepsCredentialsInRestrictedArchive(t *testing.T) {
+	const (
+		username = "build-user"
+		password = "scoped-registry-password"
+	)
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"/images/kaniko/json":                 dockertest.OK(`{"Id":"kaniko"}`),
+		"/containers/create":                  dockertest.Created(`{"Id":"build-container"}`),
+		"/containers/build-container/archive": dockertest.OK(""),
+		"/containers/build-container/start":   dockertest.NoContent(),
+		"/containers/build-container/logs":    dockertest.OK(""),
+	})
+	adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "Dockerfile"), []byte("FROM scratch\n"), 0o600))
 
-// serveRecordingFakeDaemon also passes each API request to record before
-// answering it.
-func serveRecordingFakeDaemon(t *testing.T, routes map[string]daemonResponse, record func(*http.Request)) {
-	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Api-Version", "1.47")
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/_ping" {
-			_, _ = w.Write([]byte("OK")) // test fake; the client reports write failures
-			return
-		}
-		record(r)
-		_, path, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
-		response, found := routes["/"+path]
-		if !found || response.status == 0 {
-			t.Errorf("unexpected Docker API call %s %s", r.Method, r.URL.Path)
-			w.WriteHeader(http.StatusTeapot)
-			return
-		}
-		w.WriteHeader(response.status)
-		_, _ = w.Write([]byte(response.body)) // test fake; the client reports write failures
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("DOCKER_HOST", "tcp://"+server.Listener.Addr().String())
-	t.Setenv("DOCKER_API_VERSION", "")
-	t.Setenv("DOCKER_CERT_PATH", "")
-	t.Setenv("DOCKER_TLS_VERIFY", "")
-}
-
-func writeTestCA(t *testing.T) string {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	containerID, logs, err := adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
+		RegistryUsername: username,
+		RegistryPassword: password,
+		WorkspaceDir:     workspace,
+		DestinationTag:   "registry:5000/owner_image:latest",
+		KanikoImage:      "kaniko",
+		Dockerfile:       "Dockerfile",
+		NetworkName:      "build_net",
+	})
 	require.NoError(t, err)
-	template := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "test registry CA"},
-		NotAfter:     time.Now().Add(time.Hour),
+	require.Equal(t, "build-container", containerID)
+	_, err = io.ReadAll(logs)
+	require.NoError(t, err)
+	require.NoError(t, logs.Close())
+
+	encodedAuth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
+	created := daemon.Requests("/containers/create")
+	require.Len(t, created, 1)
+	var spec struct {
+		Env []string
+		Cmd []string
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	require.NoError(t, json.Unmarshal(created[0].Body, &spec))
+	require.NotEmpty(t, spec.Cmd)
+	for _, field := range [][]string{spec.Env, spec.Cmd} {
+		for _, value := range field {
+			require.NotContains(t, value, password)
+			require.NotContains(t, value, encodedAuth)
+		}
+	}
+
+	copies := daemon.Requests("/containers/build-container/archive")
+	require.Len(t, copies, 2)
+	require.Equal(t, "/workspace", copies[0].Query.Get("path"))
+	require.NotContains(t, string(copies[0].Body), password)
+	require.NotContains(t, string(copies[0].Body), encodedAuth)
+	require.Equal(t, "/", copies[1].Query.Get("path"))
+	files := readTar(t, copies[1].Body)
+	require.ElementsMatch(t, []string{"kaniko/.docker/config.json", "kaniko/ssl/certs/dcm-registry.crt"}, slices.Collect(maps.Keys(files)))
+	for name, file := range files {
+		require.Equal(t, int64(0o600), file.mode, name)
+	}
+	var config struct {
+		Auths map[string]struct{ Auth string }
+	}
+	require.NoError(t, json.Unmarshal(files["kaniko/.docker/config.json"].data, &config))
+	require.Equal(t, encodedAuth, config.Auths["registry:5000"].Auth)
+	require.Len(t, config.Auths, 1)
+}
+
+type tarFile struct {
+	mode int64
+	data []byte
+}
+
+func readTar(t *testing.T, archive []byte) map[string]tarFile {
+	t.Helper()
+	files := make(map[string]tarFile)
+	reader := tar.NewReader(bytes.NewReader(archive))
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return files
+		}
+		require.NoError(t, err)
+		data, err := io.ReadAll(reader)
+		require.NoError(t, err)
+		files[header.Name] = tarFile{mode: header.Mode, data: data}
+	}
+}
+
+func newAdapter(t *testing.T, cfg builderdocker.Config) *builderdocker.Adapter {
+	t.Helper()
+	adapter, err := builderdocker.NewAdapter(cfg)
 	require.NoError(t, err)
-	path := filepath.Join(t.TempDir(), "ca.crt")
-	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
-	return path
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+	return adapter
 }
