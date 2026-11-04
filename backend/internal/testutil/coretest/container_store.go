@@ -76,6 +76,11 @@ type ContainerStoreFaults struct {
 	Save                                           Fault
 	SaveWithMountsOperationAndOutbox               Fault
 	GetByID                                        Fault
+	CountByOwnerID                                 Fault
+	Delete                                         Fault
+	UpdateStatus                                   Fault
+	UpdateStatusAndTTLDeadline                     Fault
+	MarkStatusError                                Fault
 	UpdateStatusByContainerIDAndGeneration         Fault
 	UpdateObservedStatusByContainerIDAndGeneration Fault
 	UpdateDockerIDRoutingAndGeneration             Fault
@@ -154,6 +159,81 @@ func (f *ContainerStoreFake) GetByID(_ context.Context, id uuid.UUID) (model.Con
 		return model.Container{}, apperrors.ErrNotFound
 	}
 	return cloneContainer(c), nil
+}
+
+func (f *ContainerStoreFake) CountByOwnerID(_ context.Context, ownerID uuid.UUID) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.CountByOwnerID.take(); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, c := range f.containers {
+		if c.OwnerID == ownerID {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// Delete removes the container and its outbox records. Its operations stay.
+func (f *ContainerStoreFake) Delete(_ context.Context, id uuid.UUID) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.Delete.take(); err != nil {
+		return err
+	}
+	if _, ok := f.containers[id]; !ok {
+		return apperrors.ErrNotFound
+	}
+	f.deleteContainer(id)
+	return nil
+}
+
+// UpdateStatus writes status whatever generation the container records, and
+// clears the last error.
+func (f *ContainerStoreFake) UpdateStatus(_ context.Context, id uuid.UUID, status string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.UpdateStatus.take(); err != nil {
+		return err
+	}
+	return f.updateContainer(id, func(c *model.Container) {
+		c.Status = status
+		c.LastObservedAt = ptr(time.Now())
+		c.LastError = nil
+	})
+}
+
+// UpdateStatusAndTTLDeadline writes status and the TTL deadline, which a nil
+// deadline clears, and clears the last error.
+func (f *ContainerStoreFake) UpdateStatusAndTTLDeadline(_ context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.UpdateStatusAndTTLDeadline.take(); err != nil {
+		return err
+	}
+	return f.updateContainer(id, func(c *model.Container) {
+		c.Status = status
+		c.TTLDeadline = clonePtr(ttlDeadline)
+		c.LastObservedAt = ptr(time.Now())
+		c.LastError = nil
+	})
+}
+
+// MarkStatusError writes status and the cause as last error, which a nil cause
+// clears.
+func (f *ContainerStoreFake) MarkStatusError(_ context.Context, id uuid.UUID, status string, cause error) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.MarkStatusError.take(); err != nil {
+		return err
+	}
+	return f.updateContainer(id, func(c *model.Container) {
+		c.Status = status
+		c.LastObservedAt = ptr(time.Now())
+		c.LastError = errorText(cause)
+	})
 }
 
 // UpdateStatusByContainerIDAndGeneration writes status only while the

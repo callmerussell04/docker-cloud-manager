@@ -17,7 +17,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
-	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -53,8 +52,6 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	require.Equal(t, model.OperationExpose, repo.queued[0].op.Operation)
 	require.Equal(t, model.ContainerStatusExposing, repo.queued[0].status)
 	require.Contains(t, string(repo.queued[0].outbox.Payload), `"domain_prefix":"app"`)
-	dockerAPI.AssertNotCalled(t, "InspectContainer", mock.Anything, mock.Anything)
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
@@ -82,7 +79,6 @@ func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
 	})
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 	require.Equal(t, "subdomain app.example.test is already in use", apperrors.SafeMessage(err))
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
@@ -112,7 +108,6 @@ func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 	require.Equal(t, "subdomain app.example.test is already in use", apperrors.SafeMessage(err))
 	require.Empty(t, repo.queued)
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *testing.T) {
@@ -148,7 +143,6 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	require.ErrorIs(t, err, apperrors.ErrBadRequest)
 	require.Equal(t, `domain prefix "preview-42" is forbidden`, apperrors.SafeMessage(err))
 	require.Empty(t, repo.queued)
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 
 	require.Len(t, auditor.events, 1)
 	event := auditor.events[0]
@@ -173,7 +167,6 @@ func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	require.Len(t, repo.queued, 1)
 	require.Equal(t, model.OperationDelete, repo.queued[0].op.Operation)
 	require.Equal(t, model.ContainerStatusDeleting, repo.queued[0].status)
-	dockerAPI.AssertNotCalled(t, "RemoveContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
@@ -190,7 +183,6 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	require.Len(t, repo.queued, 1)
 	require.Equal(t, model.OperationStop, repo.queued[0].op.Operation)
 	require.Equal(t, model.ContainerStatusStopping, repo.queued[0].status)
-	dockerAPI.AssertNotCalled(t, "StopContainer", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestTTLWorkerQueuesStopOperation(t *testing.T) {
@@ -252,7 +244,6 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 
 	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
 	require.Error(t, err)
-	dockerAPI.AssertNotCalled(t, "StartContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCreateQueuesOperation(t *testing.T) {
@@ -317,99 +308,6 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, containerID)
 	require.False(t, lockHeld)
-	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
-}
-
-func TestContainerServiceQueuedStartSetsTTLDeadline(t *testing.T) {
-	ownerID := uuid.New()
-	containerID := uuid.New()
-	operationID := uuid.New()
-	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
-	})
-	cfgValue := staticConfig{}.Get()
-	cfgValue.ContainerTTLHours = 24
-
-	cfg.EXPECT().Get().Return(cfgValue).Maybe()
-	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
-
-	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
-	require.NoError(t, err)
-	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
-	require.NotNil(t, repo.updatedTTLDeadline)
-	require.Greater(t, time.Until(*repo.updatedTTLDeadline), 23*time.Hour)
-	require.LessOrEqual(t, time.Until(*repo.updatedTTLDeadline), 24*time.Hour)
-	require.Equal(t, model.OperationStatusDone, repo.completedStatus)
-}
-
-func TestContainerServiceQueuedStartClearsTTLDeadlineWhenDisabled(t *testing.T) {
-	ownerID := uuid.New()
-	containerID := uuid.New()
-	operationID := uuid.New()
-	repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
-	})
-	cfgValue := staticConfig{}.Get()
-	cfgValue.ContainerTTLHours = 0
-
-	cfg.EXPECT().Get().Return(cfgValue).Maybe()
-	dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(nil)
-
-	err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
-	require.NoError(t, err)
-	require.Equal(t, model.ContainerStatusRunning, repo.updatedStatus)
-	require.Nil(t, repo.updatedTTLDeadline)
-	require.Equal(t, model.OperationStatusDone, repo.completedStatus)
-}
-
-func TestContainerServiceQueuedLifecycleReturnsOperationStatusWriteFailure(t *testing.T) {
-	writeErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
-	tests := []struct {
-		name       string
-		startErr   error
-		wantErrors []error
-		wantStatus string
-	}{
-		{name: "done", wantErrors: []error{writeErr}, wantStatus: model.ContainerStatusRunning},
-		{name: "missing container", startErr: cerrdefs.ErrNotFound, wantErrors: []error{apperrors.ErrConflict, writeErr}, wantStatus: model.ContainerStatusMissing},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ownerID, containerID, operationID := uuid.New(), uuid.New(), uuid.New()
-			repo := newStartLifecycleRepoMock(t, ownerID, containerID, operationID)
-			repo.completeErr = writeErr
-			dockerAPI := coremocks.NewContainerDockerAPI(t)
-			cfg := coremocks.NewConfigManager(t)
-			svc := newTestContainerService(t, service.ContainerServiceDeps{
-				Repository: repo,
-				Docker:     dockerAPI,
-				Config:     cfg,
-				Logger:     slog.Default(),
-			})
-			cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-			dockerAPI.EXPECT().StartContainer(mock.Anything, "docker-id").Return(tt.startErr)
-
-			err := svc.ExecuteQueuedContainerOperation(context.Background(), operationID, containerID, containerLifecycleMessage(operationID, containerID, ownerID, model.OperationStart))
-			for _, want := range tt.wantErrors {
-				require.ErrorIs(t, err, want)
-			}
-			require.Equal(t, tt.wantStatus, repo.updatedStatus)
-		})
-	}
 }
 
 func TestContainerServiceQueuedCreateReturnsRequeueFailure(t *testing.T) {
@@ -710,7 +608,6 @@ type startLifecycleRepoMock struct {
 	runningOp          model.ResourceOperation
 	opReads            int
 	updatedStatus      string
-	updatedTTLDeadline *time.Time
 	completedStatus    string
 	completeErr        error
 	requeueErr         error
@@ -758,12 +655,6 @@ func (r *startLifecycleRepoMock) ClaimPendingOperation(ctx context.Context, id u
 
 func (r *startLifecycleRepoMock) GetByID(ctx context.Context, id uuid.UUID) (model.Container, error) {
 	return r.container, nil
-}
-
-func (r *startLifecycleRepoMock) UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error {
-	r.updatedStatus = status
-	r.updatedTTLDeadline = ttlDeadline
-	return nil
 }
 
 func (r *startLifecycleRepoMock) CompleteOperation(ctx context.Context, id uuid.UUID, status string, cause error) error {

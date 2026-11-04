@@ -17,6 +17,11 @@ import (
 type ContainerStore interface {
 	Save(ctx context.Context, c model.Container) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
+	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
+	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
+	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
 	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
@@ -40,6 +45,12 @@ type ContainerStore interface {
 // the stores newStore returns. Each subtest gets a fresh, empty store.
 func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) ContainerStore) {
 	t.Helper()
+	t.Run("unfenced status writes", func(t *testing.T) {
+		testUnfencedStatusWrites(t, newStore(t))
+	})
+	t.Run("delete and count by owner", func(t *testing.T) {
+		testDeleteAndCountByOwner(t, newStore(t))
+	})
 	t.Run("generation-fenced status writes", func(t *testing.T) {
 		testGenerationFencedStatusWrites(t, newStore(t))
 	})
@@ -61,6 +72,87 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	t.Run("owner capacity lock", func(t *testing.T) {
 		testOwnerCapacityLock(t, newStore(t))
 	})
+}
+
+func testUnfencedStatusWrites(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	c := contractContainer(uuid.New(), model.ContainerStatusStarting)
+	c.DesiredStatus = model.ContainerStatusRunning
+	c.DockerGeneration = 2
+	require.NoError(t, store.Save(ctx, c))
+
+	// An error mark sets status and last error, whatever the generation.
+	require.NoError(t, store.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, errContractCause))
+	got := getContainer(t, store, c.ID)
+	require.Equal(t, model.ContainerStatusMissing, got.Status)
+	require.Equal(t, model.ContainerStatusRunning, got.DesiredStatus)
+	require.Equal(t, errContractCause.Error(), deref(got.LastError))
+	require.NotNil(t, got.LastObservedAt)
+
+	// A status write clears the last error and keeps the desired status and TTL.
+	deadline := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	require.NoError(t, store.UpdateStatusAndTTLDeadline(ctx, c.ID, model.ContainerStatusRunning, &deadline))
+	got = getContainer(t, store, c.ID)
+	require.Equal(t, model.ContainerStatusRunning, got.Status)
+	require.Nil(t, got.LastError)
+	require.NotNil(t, got.TTLDeadline)
+	require.WithinDuration(t, deadline, *got.TTLDeadline, time.Second)
+
+	require.NoError(t, store.MarkStatusError(ctx, c.ID, model.ContainerStatusError, errContractCause))
+	require.NoError(t, store.UpdateStatus(ctx, c.ID, model.ContainerStatusExited))
+	got = getContainer(t, store, c.ID)
+	require.Equal(t, model.ContainerStatusExited, got.Status)
+	require.Equal(t, model.ContainerStatusRunning, got.DesiredStatus)
+	require.Nil(t, got.LastError)
+	require.NotNil(t, got.TTLDeadline, "a plain status write keeps the TTL deadline")
+	require.Equal(t, 2, got.DockerGeneration)
+
+	// A nil deadline clears the TTL; a nil cause clears the last error.
+	require.NoError(t, store.UpdateStatusAndTTLDeadline(ctx, c.ID, model.ContainerStatusRunning, nil))
+	require.Nil(t, getContainer(t, store, c.ID).TTLDeadline)
+	require.NoError(t, store.MarkStatusError(ctx, c.ID, model.ContainerStatusError, nil))
+	got = getContainer(t, store, c.ID)
+	require.Equal(t, model.ContainerStatusError, got.Status)
+	require.Nil(t, got.LastError)
+
+	// Writes to an unknown container report not found.
+	unknown := uuid.New()
+	require.ErrorIs(t, store.UpdateStatus(ctx, unknown, model.ContainerStatusExited), apperrors.ErrNotFound)
+	require.ErrorIs(t, store.UpdateStatusAndTTLDeadline(ctx, unknown, model.ContainerStatusRunning, nil), apperrors.ErrNotFound)
+	require.ErrorIs(t, store.MarkStatusError(ctx, unknown, model.ContainerStatusError, errContractCause), apperrors.ErrNotFound)
+}
+
+func testDeleteAndCountByOwner(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	first := contractContainer(ownerID, model.ContainerStatusExited)
+	second := contractContainer(ownerID, model.ContainerStatusRunning)
+	other := contractContainer(uuid.New(), model.ContainerStatusRunning)
+	for _, c := range []model.Container{first, second, other} {
+		require.NoError(t, store.Save(ctx, c))
+	}
+	count, err := store.CountByOwnerID(ctx, ownerID)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// Deleting a container takes its outbox records with it and keeps its operations.
+	deleteOp := contractOperation(first, model.OperationDelete)
+	require.NoError(t, store.QueueContainerOperation(ctx, first.ID, model.ContainerStatusDeleting, model.ContainerStatusDeleting, deleteOp, contractOutbox(deleteOp)))
+	require.NoError(t, store.Delete(ctx, first.ID))
+	_, err = store.GetByID(ctx, first.ID)
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	require.Equal(t, model.OperationStatusPending, getOperation(t, store, deleteOp.ID).Status)
+	require.Empty(t, leaseOutbox(t, store, 10))
+	count, err = store.CountByOwnerID(ctx, ownerID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	// A second delete, or one for an unknown container, reports not found.
+	require.ErrorIs(t, store.Delete(ctx, first.ID), apperrors.ErrNotFound)
+	require.Equal(t, other.ID, getContainer(t, store, other.ID).ID)
+	count, err = store.CountByOwnerID(ctx, uuid.New())
+	require.NoError(t, err)
+	require.Zero(t, count)
 }
 
 func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
