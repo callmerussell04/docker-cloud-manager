@@ -715,6 +715,8 @@ type startLifecycleRepoMock struct {
 	completeErr        error
 	requeueErr         error
 	updateStatusErr    error
+	recordedDockerID   string
+	recordedGeneration int
 }
 
 func newStartLifecycleRepoMock(t *testing.T, ownerID, containerID, operationID uuid.UUID) *startLifecycleRepoMock {
@@ -794,6 +796,8 @@ func (r *startLifecycleRepoMock) UpdateDockerIDAndStatus(ctx context.Context, id
 }
 
 func (r *startLifecycleRepoMock) UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error {
+	r.recordedDockerID = dockerID
+	r.recordedGeneration = generation
 	return nil
 }
 

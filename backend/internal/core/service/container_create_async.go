@@ -465,8 +465,9 @@ func (s *ContainerService) executeQueuedExpose(ctx context.Context, repo contain
 		return err
 	}
 	newStarted := false
+	newRecorded := false
 	defer func() {
-		if err != nil {
+		if err != nil && !newRecorded {
 			cleanupCtx, cancel := detachedCleanupContext(ctx)
 			_ = s.dockerAPI.RemoveContainer(cleanupCtx, newDockerID, true) // best-effort removal of the unrecorded new generation; the expose error is returned
 			cancel()
@@ -492,30 +493,35 @@ func (s *ContainerService) executeQueuedExpose(ctx context.Context, repo contain
 		s.failQueuedLifecycle(ctx, repo, op.ID, containerID, msg.PreviousStatus, err)
 		return err
 	}
+	// The record now points at the new generation: it must never be removed,
+	// and the previous generation is the unrecorded one. Later write failures
+	// are returned to the queue consumer and leave the operation running until
+	// restart recovery settles it.
+	newRecorded = true
+	s.removePreviousExposeGeneration(ctx, containerID, c.DockerID)
 	targetStatus := msg.PreviousStatus
 	if targetStatus == "" || targetStatus == model.ContainerStatusExposing {
 		targetStatus = model.ContainerStatusCreated
 	}
 	if err = repo.UpdateStatus(ctx, containerID, targetStatus); err != nil {
-		s.failQueuedLifecycle(ctx, repo, op.ID, containerID, msg.PreviousStatus, err)
+		return fmt.Errorf("record exposed container status: %w", err)
+	}
+	if err = s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusDone, nil); err != nil {
 		return err
-	}
-	if c.DockerID != "" {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
-		if removeErr := s.dockerAPI.RemoveContainer(cleanupCtx, c.DockerID, true); removeErr != nil && !isDockerNotFound(removeErr) {
-			s.logger.WarnContext(cleanupCtx, "failed to remove old exposed container generation", "container_id", containerID, "docker_id", c.DockerID, "error", normalizeContainerRuntimeError(removeErr))
-		}
-		cancel()
-	}
-	// Returning here would fire the deferred removal of the generation just
-	// recorded, so a failed completion write is logged instead.
-	if completeErr := s.completeQueuedOperation(ctx, repo, op.ID, model.OperationStatusDone, nil); completeErr != nil {
-		s.logger.WarnContext(ctx, "failed to complete container expose operation", "container_id", containerID, "operation_id", op.ID, "error", completeErr)
 	}
 	s.refreshProjectStatus(ctx, c.ProjectID)
 	s.logger.InfoContext(ctx, "container exposed", "container_id", containerID, "owner_id", c.OwnerID, "domain_prefix", msg.DomainPrefix, "internal_port", msg.InternalPort)
-	err = nil
 	return nil
+}
+
+// removePreviousExposeGeneration removes the Docker container that Expose
+// replaced. Removal is best effort: the new generation is already recorded.
+func (s *ContainerService) removePreviousExposeGeneration(ctx context.Context, containerID uuid.UUID, dockerID string) {
+	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	defer cancel()
+	if err := s.dockerAPI.RemoveContainer(cleanupCtx, dockerID, true); err != nil && !isDockerNotFound(err) {
+		s.logger.WarnContext(cleanupCtx, "failed to remove old exposed container generation", "container_id", containerID, "docker_id", dockerID, "error", normalizeContainerRuntimeError(err))
+	}
 }
 
 func (s *ContainerService) inspectQueuedCreateVolumes(ctx context.Context, mounts []model.VolumeMountParams) error {

@@ -187,6 +187,43 @@ func TestProjectRepositoryCreateComposeDeploymentAndCancel(t *testing.T) {
 	require.Equal(t, model.ComposeDeploymentStatusCanceling, job.Status)
 }
 
+func TestProjectRepositoryRequeueComposeDeploymentJobOnlyResetsRunningJob(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewProjectRepository(db)
+
+	createJob := func(t *testing.T) (uuid.UUID, uuid.UUID) {
+		t.Helper()
+		ownerID, projectID, jobID := uuid.New(), uuid.New(), uuid.New()
+		require.NoError(t, repo.CreateWithComposeDeploymentJob(ctx,
+			model.Project{ID: projectID, OwnerID: ownerID, Name: "demo-" + jobID.String()[:8], Status: model.ProjectStatusBuilding},
+			model.ComposeDeploymentJob{ID: jobID, ProjectID: projectID, OwnerID: ownerID, SourceType: model.ComposeSourceTypeUpload, SourceObjectKey: "compose-sources/demo.zip"},
+			model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)},
+		))
+		_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
+		require.NoError(t, err)
+		require.True(t, started)
+		return projectID, jobID
+	}
+
+	_, runningID := createJob(t)
+	require.NoError(t, repo.RequeueComposeDeploymentJob(ctx, runningID))
+	job, err := repo.GetComposeDeploymentJob(ctx, runningID)
+	require.NoError(t, err)
+	require.Equal(t, model.ComposeDeploymentStatusQueued, job.Status)
+	job, started, err := repo.StartComposeDeploymentJob(ctx, runningID)
+	require.NoError(t, err)
+	require.True(t, started, "a requeued job can be started again")
+	require.Equal(t, 2, job.Attempts)
+
+	cancelingProjectID, cancelingID := createJob(t)
+	require.NoError(t, repo.RequestComposeDeploymentCancel(ctx, cancelingProjectID))
+	require.NoError(t, repo.RequeueComposeDeploymentJob(ctx, cancelingID))
+	job, err = repo.GetComposeDeploymentJob(ctx, cancelingID)
+	require.NoError(t, err)
+	require.Equal(t, model.ComposeDeploymentStatusCanceling, job.Status)
+}
+
 func TestProjectRepositoryRecoverLeavesDurableComposeStageRunning(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)

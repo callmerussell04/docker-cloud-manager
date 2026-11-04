@@ -220,6 +220,17 @@ func (r *ProjectRepository) StartComposeDeploymentJob(ctx context.Context, id uu
 	return job, true, nil
 }
 
+func (r *ProjectRepository) RequeueComposeDeploymentJob(ctx context.Context, id uuid.UUID) error {
+	if _, err := r.db.Exec(ctx, `
+		UPDATE compose_deployment_jobs
+		SET status = $1, updated_at = NOW()
+		WHERE id = $2 AND status = $3
+	`, model.ComposeDeploymentStatusQueued, id, model.ComposeDeploymentStatusRunning); err != nil {
+		return wrapOp("project requeue compose deployment job", err)
+	}
+	return nil
+}
+
 func (r *ProjectRepository) CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	res, err := r.db.Exec(ctx, `
 		UPDATE compose_deployment_jobs

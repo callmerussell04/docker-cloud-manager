@@ -81,7 +81,13 @@ func (s *ContainerService) checkHostCapacity(ctx context.Context, requestedRam i
 		s.logger.ErrorContext(ctx, "failed to calculate total system reserved memory", "error", err)
 		return apperrors.ErrInternal
 	}
-	return ensureHostMemoryCapacity(ctx, s.metrics, s.config.Get(), totalRunningReserved, requestedRam, s.logger, "container")
+	cfg := s.config.Get()
+	activeBuilds, err := s.builds.CountActive(ctx)
+	if err != nil {
+		return err
+	}
+	totalRunningReserved += int64(activeBuilds) * cfg.BuildMemoryBytes
+	return ensureHostMemoryCapacity(ctx, s.metrics, cfg, totalRunningReserved, requestedRam, s.logger, "container")
 }
 
 func (s *ContainerService) checkHostCPUCapacity(ctx context.Context, requestedCPU int64) error {

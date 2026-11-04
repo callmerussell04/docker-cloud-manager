@@ -33,6 +33,9 @@ type ProjectRepository interface {
 	GetActiveComposeDeploymentJobByProjectID(ctx context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error)
 	ListInterruptedComposeDeploymentJobs(ctx context.Context) ([]model.ComposeDeploymentJob, error)
 	StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error)
+	// RequeueComposeDeploymentJob moves a running job back to queued and leaves
+	// a job in any other status unchanged.
+	RequeueComposeDeploymentJob(ctx context.Context, id uuid.UUID) error
 	CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error
 	RequestComposeDeploymentCancel(ctx context.Context, projectID uuid.UUID) error
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
@@ -883,12 +886,15 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg queue.De
 
 	project, err := o.projectRepo.GetByID(jobCtx, job.ProjectID)
 	if err != nil {
-		return err
+		return o.requeueDeploymentJob(jobCtx, job, err)
 	}
 	prepared, err := o.prepareObjectSource(jobCtx, job.SourceObjectKey, job.ComposeFile)
 	if err != nil {
-		o.failDeploymentJob(jobCtx, job, err)
-		return nil
+		if isPermanentSourceError(err) {
+			o.failDeploymentJob(jobCtx, job, err)
+			return nil
+		}
+		return o.requeueDeploymentJob(jobCtx, job, err)
 	}
 	cfg := o.cfg.Get()
 	parsedProject, err := o.parseComposeProject(jobCtx, project.Name, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns)
@@ -925,7 +931,7 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg queue.De
 		return nil
 	}
 	if err := o.projectRepo.SaveComposeDeploymentPlan(jobCtx, job.ID, stage, planJSON, resourceJSON); err != nil {
-		return err
+		return o.requeueDeploymentJob(jobCtx, job, err)
 	}
 	if err := o.projectRepo.UpdateStatus(jobCtx, job.ProjectID, projectStatus, nil); err != nil {
 		return err
@@ -949,6 +955,31 @@ func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg queue.De
 	}
 	o.logger.InfoContext(jobCtx, "compose deployment plan persisted", "project_id", job.ProjectID, "job_id", job.ID, "stage", stage)
 	return nil
+}
+
+// isPermanentSourceError reports whether a Compose source cannot succeed on
+// retry: it is invalid or missing. Other errors, such as object-storage
+// outages, are transient.
+func isPermanentSourceError(err error) bool {
+	for _, kind := range []error{apperrors.ErrBadRequest, apperrors.ErrInvalidFileFormat, apperrors.ErrNotFound, apperrors.ErrForbidden} {
+		if errors.Is(err, kind) {
+			return true
+		}
+	}
+	return false
+}
+
+// requeueDeploymentJob returns a job whose ingestion failed before its plan
+// was durable from running to queued and returns the cause, so the redelivered
+// message runs ingestion again. If the reset fails, the job stays running for
+// restart recovery.
+func (o *Orchestrator) requeueDeploymentJob(ctx context.Context, job model.ComposeDeploymentJob, cause error) error {
+	writeCtx, cancel := detachedCleanupContext(ctx)
+	defer cancel()
+	if err := o.projectRepo.RequeueComposeDeploymentJob(writeCtx, job.ID); err != nil {
+		return errors.Join(cause, fmt.Errorf("requeue compose deployment job: %w", err))
+	}
+	return cause
 }
 
 // cancelQueuedDeploymentJob records a canceled deployment and releases its
