@@ -83,7 +83,9 @@ type lifecycleCase struct {
 	// wantErr lists the errors the queue consumer must receive; none means success.
 	wantErr []error
 	// wantRow is the container row afterwards; nil means it was deleted.
-	wantRow       *containerRow
+	wantRow *containerRow
+	// wantDesired, when set, is the container's desired status afterwards.
+	wantDesired   string
 	wantOperation string
 	wantDocker    []string
 }
@@ -138,6 +140,9 @@ func TestQueuedContainerLifecycleOutcomes(t *testing.T) {
 			} else {
 				require.NoError(t, getErr)
 				require.Equal(t, *tc.wantRow, rowOf(got))
+				if tc.wantDesired != "" {
+					require.Equal(t, tc.wantDesired, got.DesiredStatus)
+				}
 				if tc.wantRow.TTL == ttlRenewed {
 					require.WithinDuration(t, time.Now().Add(24*time.Hour), *got.TTLDeadline, time.Minute)
 				}
@@ -189,13 +194,13 @@ func createCases() []lifecycleCase {
 	failed := busy
 	failed.Status = model.ContainerStatusError
 	failed.HasLastError = true
-	alreadyRecorded := busy
+	alreadyRecorded := recorded
 	alreadyRecorded.DockerID = recordedDocker
 	op := model.OperationCreate
 	return []lifecycleCase{
 		{name: "success records the container", operation: op, docker: created, wantRow: &recorded, wantOperation: model.OperationStatusDone, wantDocker: held(createdDocker)},
 		{name: "success after pulling the image", operation: op, docker: create(true, nil, nil), wantRow: &recorded, wantOperation: model.OperationStatusDone, wantDocker: held(createdDocker)},
-		{name: "recorded container completes without docker work", operation: op, recorded: true, docker: noDockerCalls, wantRow: &alreadyRecorded, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
+		{name: "recorded container completes without docker work", operation: op, recorded: true, docker: noDockerCalls, wantRow: &alreadyRecorded, wantDesired: model.ContainerStatusCreated, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
 		{name: "image not found", operation: op, docker: create(true, cerrdefs.ErrNotFound, nil), wantErr: []error{apperrors.ErrBadRequest}, wantRow: &failed, wantOperation: model.OperationStatusFailed},
 		{name: "retryable docker error", operation: op, docker: create(false, nil, errDockerDown), wantErr: []error{apperrors.ErrUnavailable}, wantRow: &busy, wantOperation: model.OperationStatusPending},
 		{name: "terminal docker error removes the pulled image", operation: op, docker: create(true, nil, errDockerRejected), wantErr: []error{errDockerRejected}, wantRow: &failed, wantOperation: model.OperationStatusFailed},
@@ -406,7 +411,8 @@ var lifecycleTTL = time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // queueLifecycleOperation records a container and queues operation for it, as
 // the request path does. A create's container has no Docker container unless
-// recorded is set.
+// recorded is set; a recorded one is already created, as restart recovery
+// leaves it.
 func queueLifecycleOperation(t *testing.T, store *containerStore, operation string, recorded bool) (model.Container, model.ResourceOperation) {
 	t.Helper()
 	ctx := context.Background()
@@ -433,7 +439,9 @@ func queueLifecycleOperation(t *testing.T, store *containerStore, operation stri
 	outbox := model.ContainerLifecycleOutbox{ID: uuid.New(), OperationID: op.ID, ContainerID: c.ID}
 	if operation == model.OperationCreate {
 		c.Status, c.DesiredStatus = fixture.busy, fixture.desired
-		if !recorded {
+		if recorded {
+			c.Status = model.ContainerStatusCreated
+		} else {
 			c.DockerID = ""
 		}
 		op.Status = model.OperationStatusPending

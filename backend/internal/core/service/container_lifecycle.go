@@ -19,9 +19,11 @@ import (
 // the result, completing the operation and removing unrecorded Docker
 // containers.
 type lifecycleStep struct {
-	// busyStatus, when set, is written once the operation is claimed. Its
-	// failure requeues the operation. Create sets it; the other operations
-	// wrote theirs when the request queued them.
+	// busyStatus, when set, is written once the operation is claimed, unless
+	// the container already has a recorded Docker container: a recovered
+	// create whose result is recorded keeps its status. Its failure requeues
+	// the operation. Create sets it; the other operations wrote theirs when
+	// the request queued them.
 	busyStatus string
 	// requiresRuntime rejects a container that has no recorded Docker container.
 	requiresRuntime bool
@@ -145,15 +147,15 @@ func (s *ContainerService) executeQueuedLifecycle(ctx context.Context, op model.
 		cause := apperrors.New(apperrors.ErrBadRequest, "unsupported container lifecycle operation")
 		return s.failAndRestoreLifecycle(ctx, op.ID, containerID, msg, cause)
 	}
-	if step.busyStatus != "" {
-		if err := s.repo.UpdateStatus(ctx, containerID, step.busyStatus); err != nil {
-			return s.requeueLifecycle(ctx, op.ID, containerID, msg, err)
-		}
-	}
-
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
 		return errors.Join(err, s.completeQueuedOperation(ctx, s.repo, op.ID, model.OperationStatusFailed, err))
+	}
+	if step.busyStatus != "" && c.DockerID == "" {
+		if err := s.repo.UpdateStatus(ctx, containerID, step.busyStatus); err != nil {
+			return s.requeueLifecycle(ctx, op.ID, containerID, msg, err)
+		}
+		c.Status = step.busyStatus
 	}
 	if step.requiresRuntime && c.DockerID == "" {
 		return s.failAndRestoreLifecycle(ctx, op.ID, containerID, msg, resourceUnavailableError("container"))
