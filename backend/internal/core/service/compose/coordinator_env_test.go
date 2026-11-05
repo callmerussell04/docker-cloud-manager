@@ -624,9 +624,8 @@ func (b *coordinatorBuilds) TriggerBuild(_ context.Context, _ uuid.UUID, srv mod
 	b.triggered = append(b.triggered, srv.Name)
 	return uuid.New(), nil
 }
-func (b *coordinatorBuilds) CancelBuild(_ context.Context, id uuid.UUID) error {
-	b.canceled = append(b.canceled, id)
-	return nil
+func (b *coordinatorBuilds) CancelBuild(ctx context.Context, id uuid.UUID) error {
+	return b.CancelBuildRecord(ctx, id)
 }
 
 // coordinatorResources lists the containers and volumes already persisted for

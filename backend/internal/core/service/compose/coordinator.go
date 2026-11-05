@@ -541,6 +541,7 @@ func (c *DeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDe
 }
 
 func (c *DeploymentCoordinator) cancelJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
+	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	resources.CleanupStatus = model.ComposeDeploymentStatusCanceled
 	resources.CleanupError = "compose deployment canceled"
 	c.sources.ReleaseComposeSource(ctx, job.SourceObjectKey)

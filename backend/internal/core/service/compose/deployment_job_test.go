@@ -152,11 +152,14 @@ func TestComposeDeploymentJobCancellation(t *testing.T) {
 		w := newDeploymentWorld(t)
 		projectID := w.deploy(t, stackCompose)
 		require.NoError(t, w.deliver(t))
+		require.Equal(t, model.BuildStatusPending, w.onlyBuild(t).Status)
 		require.NoError(t, w.orchestrator.CancelDeployment(w.ownerCtx(), projectID))
 
 		w.tick(t)
 
 		w.requireJob(t, model.ComposeDeploymentStatusCanceled, model.ComposeDeploymentStageRollingBack, model.ProjectStatusCanceled)
+		require.Equal(t, model.BuildStatusCanceled, w.onlyBuild(t).Status, "the unfinished build is canceled with the deployment")
+		require.Empty(t, w.images.deleted, "a canceled build pushed no image to delete")
 		require.Zero(t, w.containers.count())
 		w.requireSourceReleased(t)
 	})

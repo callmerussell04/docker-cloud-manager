@@ -115,7 +115,7 @@ func TestComposeCoordinatorBuildingCanceledBuildCancelsDeployment(t *testing.T) 
 
 	env.runOnce(t)
 
-	require.Empty(t, env.builds.canceled)
+	require.Equal(t, model.BuildStatusCanceled, env.builds.builds[buildID].Status)
 	require.Equal(t, model.ComposeDeploymentStatusCanceled, env.repo.completedStatus)
 	require.Equal(t, "compose deployment canceled", env.repo.completedMessage)
 	require.Equal(t, model.ProjectStatusCanceled, env.repo.projectStatuses[len(env.repo.projectStatuses)-1])
@@ -298,17 +298,24 @@ func TestComposeCoordinatorRollbackWaitsOnConflictingDelete(t *testing.T) {
 	require.Equal(t, model.ProjectStatusFailed, progress.projectStatus)
 }
 
-func TestComposeCoordinatorCancelDuringBuildingLeavesBuildRecordsAlone(t *testing.T) {
+func TestComposeCoordinatorCancelDuringBuildingCancelsUnfinishedBuilds(t *testing.T) {
 	buildID := uuid.New()
+	finishedBuildID := uuid.New()
+	finishedImageID := uuid.New()
 	job := persistedComposeJob(t, uuid.New(), uuid.New(), model.ComposeDeploymentStageBuilding, buildingPlan(),
-		map[string]any{"build_ids": map[string]uuid.UUID{"api": buildID}})
+		map[string]any{"build_ids": map[string]uuid.UUID{"api": buildID, "worker": finishedBuildID}})
 	job.Status = model.ComposeDeploymentStatusCanceling
 	env := newCoordinatorEnv(job)
-	env.builds.builds = map[uuid.UUID]model.Build{buildID: {ID: buildID, Status: model.BuildStatusRunning}}
+	env.builds.builds = map[uuid.UUID]model.Build{
+		buildID:         {ID: buildID, Status: model.BuildStatusRunning},
+		finishedBuildID: {ID: finishedBuildID, ImageID: finishedImageID, Status: model.BuildStatusSuccess},
+	}
 
 	env.runOnce(t)
 
-	require.Empty(t, env.builds.canceled)
+	require.Equal(t, model.BuildStatusCanceled, env.builds.builds[buildID].Status)
+	require.Equal(t, model.BuildStatusSuccess, env.builds.builds[finishedBuildID].Status, "a finished build keeps its status")
+	require.Equal(t, []uuid.UUID{finishedImageID}, env.images.deleted, "rollback still deletes the successful build's image")
 	require.Equal(t, model.ComposeDeploymentStatusCanceled, env.repo.completedStatus)
 	require.Equal(t, "compose deployment canceled", env.repo.completedMessage)
 	require.Equal(t, []string{model.ProjectStatusCanceled}, env.repo.projectStatuses)
