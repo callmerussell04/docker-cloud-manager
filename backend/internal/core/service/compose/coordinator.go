@@ -526,13 +526,15 @@ func (c *DeploymentCoordinator) containerCreateParams(projectID uuid.UUID, proje
 }
 
 func (c *DeploymentCoordinator) failJob(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources, cause error) error {
-	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	errMsg := apperrors.SafeMessage(cause)
 	resources.CleanupStatus = model.ComposeDeploymentStatusFailed
 	resources.CleanupError = errMsg
 	if err := c.store.UpdateStatus(ctx, job.ProjectID, model.ProjectStatusFailed, &errMsg); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return err
 	}
+	// Cancel builds only once the project is failed: each canceled build
+	// cascades to the deployment, which would otherwise record a cancel.
+	cancelComposeBuilds(ctx, c.builder, c.logger, resources.buildIDList())
 	c.logger.WarnContext(ctx, "compose deployment failed", "project_id", job.ProjectID, "job_id", job.ID, "project_name", plan.ProjectName, "error", cause)
 	if err := c.saveProgress(ctx, job, model.ProjectStatusFailed, model.ComposeDeploymentStageRollingBack, plan, resources); err != nil {
 		return err

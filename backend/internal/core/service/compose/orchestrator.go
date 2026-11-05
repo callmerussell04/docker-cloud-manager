@@ -521,13 +521,6 @@ func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job mod
 		}
 	}
 
-	buildIDs := make([]uuid.UUID, 0, len(builds))
-	for _, build := range builds {
-		buildIDs = append(buildIDs, build.ID)
-	}
-	cancelComposeBuilds(cleanupCtx, o.builderClient, o.logger, buildIDs)
-	o.deleteBuildImages(cleanupCtx, builds, o.logger.With("project_id", job.ProjectID, "job_id", job.ID))
-
 	cleanupMsg := errorMessage
 	if len(cleanupErrors) > 0 {
 		cleanupMsg = fmt.Sprintf("%s; cleanup errors: %v", errorMessage, cleanupErrors)
@@ -535,6 +528,16 @@ func (o *Orchestrator) cleanupInterruptedDeployment(ctx context.Context, job mod
 	if err := o.projectRepo.UpdateStatus(cleanupCtx, job.ProjectID, model.ProjectStatusFailed, &cleanupMsg); err != nil {
 		return err
 	}
+
+	// Cancel builds only once the project is failed: each canceled build
+	// cascades to the deployment, which would otherwise record a cancel.
+	buildIDs := make([]uuid.UUID, 0, len(builds))
+	for _, build := range builds {
+		buildIDs = append(buildIDs, build.ID)
+	}
+	cancelComposeBuilds(cleanupCtx, o.builderClient, o.logger, buildIDs)
+	o.deleteBuildImages(cleanupCtx, builds, o.logger.With("project_id", job.ProjectID, "job_id", job.ID))
+
 	if err := o.projectRepo.CompleteComposeDeploymentJob(cleanupCtx, job.ID, model.ComposeDeploymentStatusFailed, &cleanupMsg); err != nil {
 		return err
 	}

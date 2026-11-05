@@ -565,6 +565,13 @@ type coordinatorBuilds struct {
 	project   []model.Build
 	triggered []string
 	canceled  []uuid.UUID
+	// deployments, when set, receives the cascade BuildService sends when it
+	// cancels a project build.
+	deployments buildDeploymentCanceler
+}
+
+type buildDeploymentCanceler interface {
+	CancelDeploymentForBuild(ctx context.Context, projectID, buildID uuid.UUID) error
 }
 
 func (b *coordinatorBuilds) CreateBuildJob(context.Context, string, string, string, string, string, map[string]string, string) (uuid.UUID, uuid.UUID, error) {
@@ -586,16 +593,21 @@ func (b *coordinatorBuilds) ReserveBuildArchive(context.Context, string) error {
 
 func (b *coordinatorBuilds) ReleaseBuildArchive(context.Context, string) {}
 
-// CancelBuildRecord cancels a build that has not finished.
-func (b *coordinatorBuilds) CancelBuildRecord(_ context.Context, id uuid.UUID) error {
+// CancelBuildRecord cancels a build that has not finished and, like
+// BuildService, cascades the cancellation to the build's deployment.
+func (b *coordinatorBuilds) CancelBuildRecord(ctx context.Context, id uuid.UUID) error {
 	b.canceled = append(b.canceled, id)
 	build, ok := b.builds[id]
 	if !ok {
 		return apperrors.ErrNotFound
 	}
-	if buildUnfinished(build) {
-		build.Status = model.BuildStatusCanceled
-		b.builds[id] = build
+	if !buildUnfinished(build) {
+		return nil
+	}
+	build.Status = model.BuildStatusCanceled
+	b.builds[id] = build
+	if b.deployments != nil && build.ProjectID != nil {
+		_ = b.deployments.CancelDeploymentForBuild(ctx, *build.ProjectID, build.ID) // BuildService logs and ignores cascade failures
 	}
 	return nil
 }

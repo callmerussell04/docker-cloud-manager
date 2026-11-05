@@ -45,6 +45,16 @@ volumes:
   data: {}
 `
 
+const twoBuildCompose = `
+services:
+  api:
+    build:
+      context: .
+  worker:
+    build:
+      context: .
+`
+
 const restartRecoveryMessage = "deployment interrupted by core service restart"
 
 var errTransientDatabase = apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
@@ -184,6 +194,27 @@ func TestComposeDeploymentJobCancellation(t *testing.T) {
 	})
 }
 
+// Failing a deployment cancels its unfinished builds, and BuildService
+// cascades each build cancellation back to the deployment. The failure must
+// stay a failure even when rollback needs another tick.
+func TestComposeDeploymentJobBuildFailureStaysFailedWhenRollbackRetries(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, twoBuildCompose)
+	require.NoError(t, w.deliver(t))
+	w.setBuildStatus(t, "api", model.BuildStatusFailed)
+	w.store.faults.CompleteJob = []error{errTransientDatabase}
+
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Equal(t, "build for service api failed with status: failed", *w.store.job.ErrorMessage)
+	require.False(t, w.store.job.CancelRequested, "the deployment was never canceled")
+	require.Equal(t, model.BuildStatusCanceled, w.build(t, "worker").Status)
+	w.requireSourceReleased(t)
+}
+
 // A errTransientDatabase failure after the job starts but before its plan is durable
 // returns the job to queued, so the redelivered message runs ingestion again
 // and the job then runs to done.
@@ -258,6 +289,7 @@ func TestComposeDeploymentJobInterruptedCleanup(t *testing.T) {
 		w.volumes.finishDeletes()
 		require.True(t, w.volumes.removed[volumeID])
 		require.Equal(t, model.BuildStatusCanceled, w.builds.builds[buildID].Status)
+		require.False(t, w.store.job.CancelRequested, "the deployment was never canceled")
 		w.requireSourceReleased(t)
 	})
 
@@ -350,6 +382,7 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 	require.NoError(t, err)
 	w.orchestrator = orchestrator
 	w.coordinator = coordinator
+	w.builds.deployments = orchestrator
 	return w
 }
 
@@ -416,6 +449,26 @@ func (w *deploymentWorld) persistedResources(t *testing.T) persistedResources {
 func (w *deploymentWorld) service(t *testing.T, name string) model.Container {
 	t.Helper()
 	return w.containers.byName(t, "wh_"+name)
+}
+
+// build returns the build of a Compose service.
+func (w *deploymentWorld) build(t *testing.T, service string) model.Build {
+	t.Helper()
+	for _, build := range w.builds.builds {
+		if build.ProjectServiceName == service {
+			return build
+		}
+	}
+	t.Fatalf("no build for service %s", service)
+	return model.Build{}
+}
+
+// setBuildStatus plays Builder finishing the build of one Compose service.
+func (w *deploymentWorld) setBuildStatus(t *testing.T, service, status string) {
+	t.Helper()
+	build := w.build(t, service)
+	build.Status = status
+	w.builds.builds[build.ID] = build
 }
 
 func (w *deploymentWorld) onlyBuild(t *testing.T) model.Build {
