@@ -76,6 +76,7 @@ type CoreRepositories struct {
 	Staged     *repository.StagedObjectRepository
 	Reports    *repository.ReportSnapshotRepository
 	Grants     *repository.RegistryGrantRepository
+	Lifecycle  *repository.ResourceLifecycleRepository
 }
 
 // RegistryAuthorization returns production Registry authorization over the
@@ -108,6 +109,7 @@ func OpenCoreRepositories(t *testing.T) CoreRepositories {
 		Staged:     repository.NewStagedObjectRepository(db),
 		Reports:    repository.NewReportSnapshotRepository(db, nil, DiscardLogger()),
 		Grants:     repository.NewRegistryGrantRepository(db, lockDB),
+		Lifecycle:  repository.NewResourceLifecycleRepository(db),
 	}
 }
 

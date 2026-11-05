@@ -1,66 +1,232 @@
 package compose_flow_test
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
-	"io"
+	"maps"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
-	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
-	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+const webCompose = "services:\n  web:\n    image: nginx:latest\n"
+
+// stackCompose is a database with a healthcheck and a managed volume, and a
+// web service that waits for the database to be healthy.
+const stackCompose = `
+services:
+  db:
+    image: postgres:17-alpine
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+    volumes:
+      - data:/var/lib/postgresql/data
+  web:
+    image: nginx:latest
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  data: {}
+`
+
+func TestComposeDeploymentRunsToDone(t *testing.T) {
+	ctx := context.Background()
+	f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
+	docker := expectStackDocker(t, f)
+
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": stackCompose,
+	})))
+	require.NoError(t, err)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	require.NoError(t, err)
+
+	// Plan: an image-only deployment goes straight to creating.
+	require.NoError(t, f.Deliver(t))
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+
+	// Create: the managed volume is queued first, and containers wait for it.
+	f.Tick(t)
+	volumes, err := f.Repos.Volumes.GetByProjectID(ctx, projectID)
+	require.NoError(t, err)
+	require.Len(t, volumes, 1)
+	require.Equal(t, model.VolumeStatusCreating, volumes[0].Status)
+	require.Empty(t, stackContainers(t, f, projectID))
+	require.Equal(t, 1, f.RunResourceOperations(t))
+
+	f.Tick(t)
+	containers := stackContainers(t, f, projectID)
+	require.Len(t, containers, 2)
+	require.Equal(t, model.ContainerStatusPending, containers["db"].Status)
+	require.Equal(t, model.ContainerStatusPending, containers["web"].Status)
+	require.Equal(t, 2, f.RunContainerOperations(t))
+
+	f.Tick(t)
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageStarting, model.ProjectStatusDeploying)
+	graph, err := f.Repos.Projects.GetServiceGraph(ctx, projectID)
+	require.NoError(t, err)
+	require.Len(t, graph, 2)
+	require.Equal(t, "db", graph[0].ServiceName)
+	require.Equal(t, "web", graph[1].ServiceName)
+	require.Equal(t, []model.ProjectServiceDependency{{
+		ProjectID:            projectID,
+		ContainerID:          containers["web"].ID,
+		DependsOnContainerID: containers["db"].ID,
+		DependsOnServiceName: "db",
+		Condition:            model.ComposeDependencyConditionHealthy,
+	}}, graph[1].Dependencies)
+
+	// Wait for dependencies: the database starts; web waits for its health.
+	f.Tick(t)
+	containers = stackContainers(t, f, projectID)
+	require.Equal(t, model.ContainerStatusStarting, containers["db"].Status)
+	require.Equal(t, model.ContainerStatusCreated, containers["web"].Status)
+	require.Equal(t, 1, f.RunContainerOperations(t))
+
+	// Start: web starts once the database is healthy.
+	f.Tick(t)
+	containers = stackContainers(t, f, projectID)
+	require.Equal(t, model.ContainerStatusRunning, containers["db"].Status)
+	require.Equal(t, model.ContainerStatusStarting, containers["web"].Status)
+	require.Equal(t, 1, f.RunContainerOperations(t))
+
+	f.Tick(t)
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStageStarting, model.ProjectStatusRunning)
+	job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
+	require.NoError(t, err)
+	require.NotNil(t, job.FinishedAt)
+	require.Nil(t, job.ErrorMessage)
+	containers = stackContainers(t, f, projectID)
+	require.Equal(t, model.ContainerStatusRunning, containers["db"].Status)
+	require.Equal(t, model.ContainerStatusRunning, containers["web"].Status)
+	volume, err := f.Repos.Volumes.GetByID(ctx, volumes[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, model.VolumeStatusAvailable, volume.Status)
+	require.False(t, f.Objects.Has(job.SourceObjectKey))
+	activeBytes, err := f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
+	require.NoError(t, err)
+	require.Zero(t, activeBytes)
+	active, err := f.Repos.Projects.ListActiveComposeDeploymentJobs(ctx, 10)
+	require.NoError(t, err)
+	require.Empty(t, active, "a finished deployment leaves the coordinator")
+
+	// Docker received the project's runtime specs.
+	specs := docker.specs()
+	require.Len(t, specs, 2)
+	require.Equal(t, "postgres:17-alpine", specs["db"].ImageName)
+	require.Equal(t, []model.ContainerMountSpec{{VolumeName: volume.DockerName, Target: "/var/lib/postgresql/data"}}, specs["db"].VolumeMounts)
+	require.Equal(t, "nginx:latest", specs["web"].ImageName)
+	for _, spec := range specs {
+		require.Equal(t, projectID.String(), spec.ProjectID)
+		require.Equal(t, f.OwnerID.String(), spec.OwnerID)
+	}
+}
+
+// stackDocker records the runtime specs Docker is asked to create.
+type stackDocker struct {
+	mu      sync.Mutex
+	created map[string]model.ContainerRuntimeSpec
+}
+
+func (d *stackDocker) specs() map[string]model.ContainerRuntimeSpec {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return maps.Clone(d.created)
+}
+
+// expectStackDocker allows exactly the Docker calls that deploying
+// stackCompose makes: one volume, two containers each created and started
+// once, and two health checks of the database, the first still starting.
+func expectStackDocker(t *testing.T, f *coretest.ComposeFixture) *stackDocker {
+	t.Helper()
+	docker := &stackDocker{created: make(map[string]model.ContainerRuntimeSpec)}
+	f.VolumeDocker.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("docker-volume", nil).Once()
+	f.ContainerDocker.EXPECT().InspectVolume(mock.Anything, mock.Anything).Return(model.VolumeInspection{}, nil).Once()
+	f.ContainerDocker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil).Times(2)
+	f.ContainerDocker.EXPECT().ImageExists(mock.Anything, mock.Anything).Return(true, nil).Times(2)
+	f.ContainerDocker.EXPECT().CreateContainer(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, spec model.ContainerRuntimeSpec) (string, error) {
+			docker.mu.Lock()
+			defer docker.mu.Unlock()
+			docker.created[spec.NetworkAlias] = spec
+			return "docker-" + spec.NetworkAlias, nil
+		}).Times(2)
+	f.ContainerDocker.EXPECT().StartContainer(mock.Anything, "docker-db").Return(nil).Once()
+	f.ContainerDocker.EXPECT().StartContainer(mock.Anything, "docker-web").Return(nil).Once()
+	f.ContainerDocker.EXPECT().InspectContainer(mock.Anything, "docker-db").Return(dbInspection("starting"), nil).Once()
+	f.ContainerDocker.EXPECT().InspectContainer(mock.Anything, "docker-db").Return(dbInspection("healthy"), nil).Once()
+	return docker
+}
+
+func dbInspection(health string) model.ContainerInspection {
+	return model.ContainerInspection{
+		Healthcheck: &model.Healthcheck{Test: []string{"CMD-SHELL", "pg_isready -U postgres"}},
+		State:       model.ContainerState{Status: "running", Running: true, HealthStatus: &health},
+	}
+}
+
+func requireDeployment(t *testing.T, f *coretest.ComposeFixture, jobID uuid.UUID, status, stage, projectStatus string) {
+	t.Helper()
+	job, err := f.Repos.Projects.GetComposeDeploymentJob(context.Background(), jobID)
+	require.NoError(t, err)
+	require.Equal(t, status, job.Status, "job status")
+	require.Equal(t, stage, job.Stage, "job stage")
+	project, err := f.Repos.Projects.GetByID(context.Background(), job.ProjectID)
+	require.NoError(t, err)
+	require.Equal(t, projectStatus, project.Status, "project status")
+}
+
+// stackContainers returns the containers of a project named "stack" by
+// Compose service.
+func stackContainers(t *testing.T, f *coretest.ComposeFixture, projectID uuid.UUID) map[string]model.Container {
+	t.Helper()
+	containers, err := f.Repos.Containers.GetByProjectID(context.Background(), projectID)
+	require.NoError(t, err)
+	byService := make(map[string]model.Container, len(containers))
+	for _, c := range containers {
+		byService[strings.TrimPrefix(c.Name, "stack_")] = c
+	}
+	return byService
+}
+
 func TestComposeUploadPersistsDurableJobAndPlan(t *testing.T) {
 	ctx := context.Background()
-	repos := coretest.OpenCoreRepositories(t)
-	ownerID := uuid.New()
-	objects := map[string][]byte{}
-	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
+	f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
-		"docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "demo", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": webCompose,
 	})))
 	require.NoError(t, err)
 
-	project, err := repos.Projects.GetByID(ctx, projectID)
+	project, err := f.Repos.Projects.GetByID(ctx, projectID)
 	require.NoError(t, err)
-	require.Equal(t, ownerID, project.OwnerID)
+	require.Equal(t, f.OwnerID, project.OwnerID)
 	require.Equal(t, model.ProjectStatusBuilding, project.Status)
 
-	job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
 	require.NoError(t, err)
 	require.Equal(t, model.ComposeDeploymentStatusQueued, job.Status)
 	require.NotEmpty(t, job.SourceObjectKey)
-	require.Contains(t, objects, job.SourceObjectKey)
-	require.Len(t, mustComposeOutbox(t, repos.DB), 1)
-	activeBytes, err := repos.Staged.ActiveBytesByOwner(ctx, ownerID)
+	require.True(t, f.Objects.Has(job.SourceObjectKey))
+	require.Equal(t, 1, dbtest.CountRows(t, f.Repos.DB, "compose_deployment_queue_outbox"))
+	activeBytes, err := f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
 	require.NoError(t, err)
 	require.NotZero(t, activeBytes)
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{
-		JobID:     job.ID.String(),
-		ProjectID: projectID.String(),
-		OwnerID:   ownerID.String(),
-		RequestID: "req-1",
-	}))
+	require.NoError(t, f.Deliver(t))
 
-	job, err = repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
+	job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.ComposeDeploymentStatusRunning, job.Status)
 	require.Equal(t, model.ComposeDeploymentStageCreating, job.Stage)
@@ -77,114 +243,92 @@ func TestComposeUploadPersistsDurableJobAndPlan(t *testing.T) {
 	require.Equal(t, "web", plan.Services[0].Name)
 	require.Equal(t, "nginx:latest", plan.Services[0].ImageTag)
 	require.NotEmpty(t, job.ResourceMapJSON)
-	require.NotContains(t, objects, job.SourceObjectKey)
-	activeBytes, err = repos.Staged.ActiveBytesByOwner(ctx, ownerID)
+	require.False(t, f.Objects.Has(job.SourceObjectKey))
+	activeBytes, err = f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
 	require.NoError(t, err)
 	require.Zero(t, activeBytes)
 }
 
 func TestComposeUploadAcceptsRequestedComposeFileFromArchive(t *testing.T) {
+	files := map[string]string{"deploy/docker-compose.yml": webCompose}
 	tests := []struct {
 		name        string
 		archiveName string
 		archive     []byte
 		wantSuffix  string
 	}{
-		{
-			name:        "zip",
-			archiveName: "compose.zip",
-			archive: composeZip(t, map[string]string{
-				"deploy/docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
-			}),
-			wantSuffix: ".zip",
-		},
-		{
-			name:        "tar.gz",
-			archiveName: "compose.tar.gz",
-			archive: composeTarGz(t, map[string]string{
-				"deploy/docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
-			}),
-			wantSuffix: ".tar.gz",
-		},
+		{name: "zip", archiveName: "compose.zip", archive: coretest.ComposeZip(t, files), wantSuffix: ".zip"},
+		{name: "tar.gz", archiveName: "compose.tar.gz", archive: coretest.ComposeTarGz(t, files), wantSuffix: ".tar.gz"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			repos := coretest.OpenCoreRepositories(t)
-			ownerID := uuid.New()
-			objects := map[string][]byte{}
-			orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
+			f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
 
-			projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "nested-demo", tt.archiveName, "deploy/docker-compose.yml", bytes.NewReader(tt.archive))
+			projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "nested-demo", tt.archiveName, "deploy/docker-compose.yml", bytes.NewReader(tt.archive))
 			require.NoError(t, err)
 
-			job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+			job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
 			require.NoError(t, err)
 			require.Equal(t, "deploy/docker-compose.yml", job.ComposeFile)
 			require.Equal(t, model.ComposeSourceTypeUpload, job.SourceType)
 			require.True(t, strings.HasSuffix(job.SourceObjectKey, tt.wantSuffix), job.SourceObjectKey)
-			require.Contains(t, objects, job.SourceObjectKey)
+			require.True(t, f.Objects.Has(job.SourceObjectKey))
 		})
 	}
 }
 
 func TestComposeUploadWithBuildCreatesProjectBuildJob(t *testing.T) {
 	ctx := context.Background()
-	repos := coretest.OpenCoreRepositories(t)
-	ownerID := uuid.New()
-	objects := map[string][]byte{}
-	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
+	f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "build-demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "build-demo", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
 		"docker-compose.yml": "services:\n  web:\n    build:\n      context: .\n      dockerfile: Dockerfile\n",
 		"Dockerfile":         "FROM scratch\n",
 	})))
 	require.NoError(t, err)
-	job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
 	require.NoError(t, err)
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
+	require.NoError(t, f.Deliver(t))
 
-	builds, err := repos.Builds.GetByProjectID(ctx, projectID)
+	builds, err := f.Repos.Builds.GetByProjectID(ctx, projectID)
 	require.NoError(t, err)
 	require.Len(t, builds, 1)
 	require.Equal(t, projectID, *builds[0].ProjectID)
 	require.Equal(t, "web", builds[0].ProjectServiceName)
 	require.Equal(t, model.BuildStatusPending, builds[0].Status)
 
-	job, err = repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
+	job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.ComposeDeploymentStageBuilding, job.Stage)
 	require.Contains(t, string(job.ResourceMapJSON), builds[0].ID.String())
-	require.NotContains(t, objects, job.SourceObjectKey)
+	require.False(t, f.Objects.Has(job.SourceObjectKey))
 }
 
 func TestComposeCancelBeforeWorkerStartReleasesSource(t *testing.T) {
 	ctx := context.Background()
-	repos := coretest.OpenCoreRepositories(t)
-	ownerID := uuid.New()
-	objects := map[string][]byte{}
-	orchestrator := newOrchestrator(t, repos, ownerID, objects, coretest.IntegrationConfig())
+	f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
 
-	projectID, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "cancel-demo", "compose.zip", "", bytes.NewReader(composeZip(t, map[string]string{
-		"docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n",
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "cancel-demo", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": webCompose,
 	})))
 	require.NoError(t, err)
-	job, err := repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
 	require.NoError(t, err)
-	require.NoError(t, repos.Projects.RequestComposeDeploymentCancel(ctx, projectID))
+	require.NoError(t, f.Repos.Projects.RequestComposeDeploymentCancel(ctx, projectID))
 
-	require.NoError(t, orchestrator.HandleDeploymentMessage(ctx, queue.DeploymentMessage{JobID: job.ID.String(), ProjectID: projectID.String(), OwnerID: ownerID.String()}))
+	require.NoError(t, f.Deliver(t))
 
-	job, err = repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
+	job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.ComposeDeploymentStatusCanceled, job.Status)
-	project, err := repos.Projects.GetByID(ctx, projectID)
+	project, err := f.Repos.Projects.GetByID(ctx, projectID)
 	require.NoError(t, err)
 	require.Equal(t, model.ProjectStatusCanceled, project.Status)
-	require.NotContains(t, objects, job.SourceObjectKey)
-	activeBytes, err := repos.Staged.ActiveBytesByOwner(ctx, ownerID)
+	require.False(t, f.Objects.Has(job.SourceObjectKey))
+	activeBytes, err := f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
 	require.NoError(t, err)
 	require.Zero(t, activeBytes)
 }
@@ -193,44 +337,47 @@ func TestComposeUploadValidationFailuresDoNotCreateDurableJob(t *testing.T) {
 	tests := []struct {
 		name        string
 		cfgEdit     func(*config.SystemConfig)
+		archiveName string
 		archive     []byte
 		composeFile string
 		wantErr     error
 	}{
 		{
 			name:    "invalid compose",
-			archive: composeZipForTable(t, map[string]string{"docker-compose.yml": "name: empty\n"}),
+			archive: coretest.ComposeZip(t, map[string]string{"docker-compose.yml": "name: empty\n"}),
 			wantErr: apperrors.ErrBadRequest,
 		},
 		{
 			name:        "requested compose missing",
-			archive:     composeZipForTable(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
+			archive:     coretest.ComposeZip(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
 			composeFile: "deploy/docker-compose.yml",
 			wantErr:     apperrors.ErrBadRequest,
 		},
 		{
 			name:        "invalid requested compose path",
-			archive:     composeZipForTable(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
+			archive:     coretest.ComposeZip(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx\n"}),
 			composeFile: "../docker-compose.yml",
 			wantErr:     apperrors.ErrBadRequest,
 		},
 		{
 			name:        "raw compose with compose_file",
+			archiveName: "docker-compose.yml",
 			archive:     []byte("services:\n  web:\n    image: nginx\n"),
 			composeFile: "deploy/docker-compose.yml",
 			wantErr:     apperrors.ErrBadRequest,
 		},
 		{
-			name:    "corrupt tar",
-			archive: []byte("not a tar"),
-			wantErr: apperrors.ErrBadRequest,
+			name:        "corrupt tar",
+			archiveName: "compose.tar",
+			archive:     []byte("not a tar"),
+			wantErr:     apperrors.ErrBadRequest,
 		},
 		{
 			name: "disabled image builds with build service",
 			cfgEdit: func(c *config.SystemConfig) {
 				c.ImageBuildsEnabled = false
 			},
-			archive: composeZipForTable(t, map[string]string{
+			archive: coretest.ComposeZip(t, map[string]string{
 				"docker-compose.yml": "services:\n  web:\n    build: .\n",
 				"Dockerfile":         "FROM scratch\n",
 			}),
@@ -240,221 +387,22 @@ func TestComposeUploadValidationFailuresDoNotCreateDurableJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repos := coretest.OpenCoreRepositories(t)
-			ownerID := uuid.New()
-			objects := map[string][]byte{}
 			cfg := coretest.IntegrationConfig()
 			if tt.cfgEdit != nil {
 				tt.cfgEdit(&cfg)
 			}
-			orchestrator := newOrchestrator(t, repos, ownerID, objects, cfg)
-			archiveName := "compose.zip"
-			if tt.name == "raw compose with compose_file" {
-				archiveName = "docker-compose.yml"
+			f := coretest.NewComposeFixture(t, cfg)
+			archiveName := tt.archiveName
+			if archiveName == "" {
+				archiveName = "compose.zip"
 			}
-			if tt.name == "corrupt tar" {
-				archiveName = "compose.tar"
-			}
-			_, err := orchestrator.StartDeployment(coretest.UserContext(ownerID), "bad-demo", archiveName, tt.composeFile, bytes.NewReader(tt.archive))
+			_, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "bad-demo", archiveName, tt.composeFile, bytes.NewReader(tt.archive))
 			require.ErrorIs(t, err, tt.wantErr)
-			require.Zero(t, countTable(t, repos.DB, "projects"))
-			require.Zero(t, countTable(t, repos.DB, "compose_deployment_jobs"))
-			activeBytes, err := repos.Staged.ActiveBytesByOwner(context.Background(), ownerID)
+			require.Zero(t, dbtest.CountRows(t, f.Repos.DB, "projects"))
+			require.Zero(t, dbtest.CountRows(t, f.Repos.DB, "compose_deployment_jobs"))
+			activeBytes, err := f.Repos.Staged.ActiveBytesByOwner(context.Background(), f.OwnerID)
 			require.NoError(t, err)
 			require.Zero(t, activeBytes)
 		})
 	}
-}
-
-func composeZipForTable(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	return composeZip(t, files)
-}
-
-func composeTarGz(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	gzw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gzw)
-	for name, body := range files {
-		data := []byte(body)
-		require.NoError(t, tw.WriteHeader(&tar.Header{
-			Name: name,
-			Mode: 0600,
-			Size: int64(len(data)),
-		}))
-		_, err := tw.Write(data)
-		require.NoError(t, err)
-	}
-	require.NoError(t, tw.Close())
-	require.NoError(t, gzw.Close())
-	return buf.Bytes()
-}
-
-func newOrchestrator(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, objects map[string][]byte, cfgValue config.SystemConfig) *compose.Orchestrator {
-	t.Helper()
-	cfg := coretest.StaticConfig{Config: cfgValue}
-	store := composemocks.NewObjectStorage(t)
-	store.EXPECT().
-		UploadStream(mock.Anything, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("string")).
-		RunAndReturn(func(ctx context.Context, key string, r io.Reader, size int64, contentType string) error {
-			var buf bytes.Buffer
-			_, err := io.Copy(&buf, r)
-			if err != nil {
-				return err
-			}
-			objects[key] = buf.Bytes()
-			return nil
-		}).
-		Maybe()
-	store.EXPECT().
-		NewReaderAt(mock.Anything, mock.AnythingOfType("string")).
-		RunAndReturn(func(ctx context.Context, key string) (io.ReaderAt, int64, error) {
-			data, ok := objects[key]
-			if !ok {
-				return nil, 0, apperrors.ErrNotFound
-			}
-			return bytes.NewReader(data), int64(len(data)), nil
-		}).
-		Maybe()
-	store.EXPECT().
-		OpenObject(mock.Anything, mock.AnythingOfType("string")).
-		RunAndReturn(func(ctx context.Context, key string) (io.ReadCloser, error) {
-			data, ok := objects[key]
-			if !ok {
-				return nil, apperrors.ErrNotFound
-			}
-			return io.NopCloser(bytes.NewReader(data)), nil
-		}).
-		Maybe()
-	store.EXPECT().
-		CopyObject(mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.AnythingOfType("string")).
-		RunAndReturn(func(ctx context.Context, sourceKey, destKey, contentType string) error {
-			data, ok := objects[sourceKey]
-			if !ok {
-				return apperrors.ErrNotFound
-			}
-			objects[destKey] = append([]byte(nil), data...)
-			return nil
-		}).
-		Maybe()
-	store.EXPECT().
-		DeleteObject(mock.Anything, mock.AnythingOfType("string")).
-		RunAndReturn(func(ctx context.Context, key string) error {
-			delete(objects, key)
-			return nil
-		}).
-		Maybe()
-
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().
-		GetUser(mock.Anything, ownerID).
-		Return(model.UserInfo{ID: ownerID, Username: "composer", QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil).
-		Maybe()
-	hostMetrics := coremocks.NewHostMetricsProvider(t)
-	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
-	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
-
-	metrics := coremocks.NewHostDiskMetricsProvider(t)
-	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
-	registry := coremocks.NewImageRegistryAPI(t)
-	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, mock.Anything, mock.Anything).Return(int64(1<<20), "sha256:digest", nil).Maybe()
-	capacity := composemocks.NewCapacityChecker(t)
-	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, mock.Anything, mock.Anything, int64(0)).Return(nil).Maybe()
-	buildService, err := service.NewBuildService(service.BuildServiceDeps{
-		Repository:    repos.Builds,
-		RegistryAuth:  repos.RegistryAuthorization(t),
-		Images:        repos.Images,
-		Registry:      registry,
-		Users:         users,
-		Logger:        coretest.DiscardLogger(),
-		Containers:    repos.Containers,
-		HostMetrics:   hostMetrics,
-		VolumeRepo:    repos.Volumes,
-		Config:        cfg,
-		ObjectStore:   coretest.StatObjectStorage{ObjectStorage: store, Objects: objects},
-		StagedObjects: repos.Staged,
-		DiskMetrics:   metrics,
-		HostDiskPath:  "/",
-	})
-	require.NoError(t, err)
-	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:          repos.Projects,
-		DeploymentCounter: repos.Projects,
-		Capacity:          capacity,
-		Config:            cfg,
-		Builds:            repos.Builds,
-		Resources:         resourceRepository{containers: repos.Containers, volumes: repos.Volumes},
-		Volumes:           composemocks.NewVolumeService(t),
-		Containers:        composemocks.NewContainerService(t),
-		ObjectStore:       store,
-		BuildJobs:         buildService,
-		Images:            composemocks.NewImageCleaner(t),
-		StagedObjects:     repos.Staged,
-		DiskMetrics:       metrics,
-		HostDiskPath:      "/",
-		Users:             users,
-		Logger:            coretest.DiscardLogger(),
-	})
-	require.NoError(t, err)
-	return orchestrator
-}
-
-func composeZip(t *testing.T, files map[string]string) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
-	for name, contents := range files {
-		w, err := zw.Create(name)
-		require.NoError(t, err)
-		_, err = io.Copy(w, bytes.NewBufferString(contents))
-		require.NoError(t, err)
-	}
-	require.NoError(t, zw.Close())
-	return buf.Bytes()
-}
-
-type composeOutboxRow struct {
-	Payload []byte
-}
-
-func mustComposeOutbox(t *testing.T, db *pgxpool.Pool) []composeOutboxRow {
-	t.Helper()
-	rows, err := db.Query(context.Background(), `SELECT payload FROM compose_deployment_queue_outbox ORDER BY created_at, id`)
-	require.NoError(t, err)
-	defer rows.Close()
-	var out []composeOutboxRow
-	for rows.Next() {
-		var row composeOutboxRow
-		require.NoError(t, rows.Scan(&row.Payload))
-		var msg queue.DeploymentMessage
-		require.NoError(t, json.Unmarshal(row.Payload, &msg))
-		out = append(out, row)
-	}
-	require.NoError(t, rows.Err())
-	return out
-}
-
-func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
-	t.Helper()
-	var count int
-	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
-	return count
-}
-
-type resourceRepository struct {
-	containers interface {
-		GetByProjectID(context.Context, uuid.UUID) ([]model.Container, error)
-	}
-	volumes interface {
-		GetByProjectID(context.Context, uuid.UUID) ([]model.Volume, error)
-	}
-}
-
-func (r resourceRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {
-	return r.containers.GetByProjectID(ctx, projectID)
-}
-
-func (r resourceRepository) GetVolumesByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Volume, error) {
-	return r.volumes.GetByProjectID(ctx, projectID)
 }
