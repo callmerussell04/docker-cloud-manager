@@ -79,7 +79,6 @@ type SystemConfig struct {
 	MaxQueuedComposeDeploysPerUser       int   `json:"max_queued_compose_deploys_per_user"`
 	ComposeBuildPollIntervalSeconds      int64 `json:"compose_build_poll_interval_seconds"`
 	ComposeDependencyWaitTimeoutMinutes  int64 `json:"compose_dependency_wait_timeout_minutes"`
-	ComposeDependencyPollIntervalSeconds int64 `json:"compose_dependency_poll_interval_seconds"`
 	ComposeCoordinatorIntervalSeconds    int64 `json:"compose_coordinator_interval_seconds"`
 	VolumeUsageIntervalSeconds           int64 `json:"volume_usage_interval_seconds"`
 	VolumeUsageCycleBudgetSeconds        int64 `json:"volume_usage_cycle_budget_seconds"`

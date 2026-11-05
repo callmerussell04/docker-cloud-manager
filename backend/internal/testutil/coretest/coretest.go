@@ -87,7 +87,6 @@ func SystemConfig() config.SystemConfig {
 		ComposeDeployMaxAttempts:             3,
 		ComposeBuildPollIntervalSeconds:      3,
 		ComposeDependencyWaitTimeoutMinutes:  5,
-		ComposeDependencyPollIntervalSeconds: 2,
 		ComposeCoordinatorIntervalSeconds:    2,
 		VolumeUsageIntervalSeconds:           60,
 		VolumeUsageCycleBudgetSeconds:        15,

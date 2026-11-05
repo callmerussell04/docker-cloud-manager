@@ -92,7 +92,6 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		MaxQueuedComposeDeploysPerUser:       int32(cfg.MaxQueuedComposeDeploysPerUser),
 		ComposeBuildPollIntervalSeconds:      cfg.ComposeBuildPollIntervalSeconds,
 		ComposeDependencyWaitTimeoutMinutes:  cfg.ComposeDependencyWaitTimeoutMinutes,
-		ComposeDependencyPollIntervalSeconds: cfg.ComposeDependencyPollIntervalSeconds,
 		ComposeCoordinatorIntervalSeconds:    cfg.ComposeCoordinatorIntervalSeconds,
 		VolumeUsageIntervalSeconds:           cfg.VolumeUsageIntervalSeconds,
 		VolumeUsageCycleBudgetSeconds:        cfg.VolumeUsageCycleBudgetSeconds,
@@ -184,7 +183,6 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.MaxQueuedComposeDeploysPerUser = int(req.GetMaxQueuedComposeDeploysPerUser())
 	newCfg.ComposeBuildPollIntervalSeconds = req.GetComposeBuildPollIntervalSeconds()
 	newCfg.ComposeDependencyWaitTimeoutMinutes = req.GetComposeDependencyWaitTimeoutMinutes()
-	newCfg.ComposeDependencyPollIntervalSeconds = req.GetComposeDependencyPollIntervalSeconds()
 	newCfg.ComposeCoordinatorIntervalSeconds = req.GetComposeCoordinatorIntervalSeconds()
 	newCfg.VolumeUsageIntervalSeconds = req.GetVolumeUsageIntervalSeconds()
 	newCfg.VolumeUsageCycleBudgetSeconds = req.GetVolumeUsageCycleBudgetSeconds()

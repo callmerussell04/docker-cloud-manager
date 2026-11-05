@@ -510,7 +510,7 @@ message SystemConfigData {
   int32 compose_deploy_worker_count = 44;
   int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
-  int64 compose_dependency_poll_interval_seconds = 47;
+  reserved 47;
   repeated string reserved_domain_prefixes = 48;
   int32 telemetry_max_log_tail_lines = 49;
   int32 telemetry_max_log_streams_per_user = 50;

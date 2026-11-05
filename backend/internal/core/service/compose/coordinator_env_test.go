@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
@@ -147,6 +148,9 @@ type deploymentRepoFaults struct {
 // and mirrors the status guards of the Postgres repository. It also records
 // the progress and status writes that stage tests assert on.
 type deploymentRepo struct {
+	// now stamps the job's first start, as the database clock does; nil
+	// means time.Now.
+	now               func() time.Time
 	job               model.ComposeDeploymentJob
 	project           model.Project
 	outbox            []model.ComposeDeploymentOutbox
@@ -243,6 +247,13 @@ func (r *deploymentRepo) StartComposeDeploymentJob(_ context.Context, id uuid.UU
 	}
 	r.job.Status = model.ComposeDeploymentStatusRunning
 	r.job.Attempts++
+	if r.job.StartedAt == nil {
+		startedAt := time.Now()
+		if r.now != nil {
+			startedAt = r.now()
+		}
+		r.job.StartedAt = &startedAt
+	}
 	return r.job, true, nil
 }
 
@@ -437,6 +448,16 @@ func (c *coordinatorContainers) runQueuedStarts() {
 	}
 }
 
+// exit plays the event sync: the container stopped with code.
+func (c *coordinatorContainers) exit(id uuid.UUID, code int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item := c.containers[id]
+	item.Status = model.ContainerStatusExited
+	item.LastExitCode = &code
+	c.containers[id] = item
+}
+
 // finishDeletes plays the lifecycle worker: every deleting container is gone.
 func (c *coordinatorContainers) finishDeletes() {
 	c.mu.Lock()
@@ -473,10 +494,13 @@ func (c *coordinatorContainers) count() int {
 }
 
 type coordinatorVolumes struct {
-	createIDs       map[string]uuid.UUID
-	managedIDs      map[string]uuid.UUID
-	resolveIDs      map[string]uuid.UUID
-	statuses        map[uuid.UUID]string
+	createIDs  map[string]uuid.UUID
+	managedIDs map[string]uuid.UUID
+	resolveIDs map[string]uuid.UUID
+	statuses   map[uuid.UUID]string
+	// unlistedStatus is reported for volumes without an arranged status;
+	// empty means available.
+	unlistedStatus  string
 	deleteErrs      map[uuid.UUID]error
 	created         []model.VolumeCreateParams
 	resolved        []string
@@ -517,6 +541,9 @@ func (v *coordinatorVolumes) ResolveByName(_ context.Context, name string) (uuid
 func (v *coordinatorVolumes) GetByID(_ context.Context, id uuid.UUID) (model.Volume, error) {
 	status, ok := v.statuses[id]
 	if !ok {
+		status = v.unlistedStatus
+	}
+	if status == "" {
 		status = model.VolumeStatusAvailable
 	}
 	return model.Volume{ID: id, Status: status}, nil

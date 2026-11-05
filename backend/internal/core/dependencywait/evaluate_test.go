@@ -51,36 +51,41 @@ func TestEvaluateInspection(t *testing.T) {
 		// created, running, exited 0, exited 1, dead 137, paused.
 		want [6]outcome
 	}{
-		// service_started ignores health.
-		{started, false, "", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, false, "starting", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, false, "healthy", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, false, "unhealthy", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, true, "", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, true, "starting", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, true, "healthy", [6]outcome{wait, done, wait, conflict, conflict, done}},
-		{started, true, "unhealthy", [6]outcome{wait, done, wait, conflict, conflict, done}},
+		// Every outcome is final or waits for a state that can still change:
+		// a container that stopped (exited or dead) never changes on its own.
 
-		// service_completed_successfully ignores health.
-		{completed, false, "", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, false, "starting", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, false, "healthy", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, false, "unhealthy", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, true, "", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, true, "starting", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, true, "healthy", [6]outcome{wait, wait, done, conflict, wait, wait}},
-		{completed, true, "unhealthy", [6]outcome{wait, wait, done, conflict, wait, wait}},
+		// service_started ignores health; a dependency that already ran to a
+		// clean exit has started.
+		{started, false, "", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, false, "starting", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, false, "healthy", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, false, "unhealthy", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, true, "", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, true, "starting", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, true, "healthy", [6]outcome{wait, done, done, conflict, conflict, done}},
+		{started, true, "unhealthy", [6]outcome{wait, done, done, conflict, conflict, done}},
+
+		// service_completed_successfully ignores health; a dead dependency
+		// never completes.
+		{completed, false, "", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, false, "starting", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, false, "healthy", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, false, "unhealthy", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, true, "", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, true, "starting", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, true, "healthy", [6]outcome{wait, wait, done, conflict, conflict, wait}},
+		{completed, true, "unhealthy", [6]outcome{wait, wait, done, conflict, conflict, wait}},
 
 		// service_healthy: without a healthcheck or health status it cannot
 		// apply; with a healthcheck it waits for Docker's first health status;
-		// a reported health status decides, except that a starting dependency
-		// that exits non-zero has failed.
+		// a reported health status decides, except that a dependency that
+		// stops before reporting healthy has failed, whatever its exit code.
 		{healthy, false, "", [6]outcome{badRequest, badRequest, badRequest, badRequest, badRequest, badRequest}},
-		{healthy, false, "starting", [6]outcome{wait, wait, wait, conflict, conflict, wait}},
+		{healthy, false, "starting", [6]outcome{wait, wait, conflict, conflict, conflict, wait}},
 		{healthy, false, "healthy", [6]outcome{done, done, done, done, done, done}},
 		{healthy, false, "unhealthy", [6]outcome{conflict, conflict, conflict, conflict, conflict, conflict}},
-		{healthy, true, "", [6]outcome{wait, wait, wait, wait, wait, wait}},
-		{healthy, true, "starting", [6]outcome{wait, wait, wait, conflict, conflict, wait}},
+		{healthy, true, "", [6]outcome{wait, wait, conflict, conflict, conflict, wait}},
+		{healthy, true, "starting", [6]outcome{wait, wait, conflict, conflict, conflict, wait}},
 		{healthy, true, "healthy", [6]outcome{done, done, done, done, done, done}},
 		{healthy, true, "unhealthy", [6]outcome{conflict, conflict, conflict, conflict, conflict, conflict}},
 

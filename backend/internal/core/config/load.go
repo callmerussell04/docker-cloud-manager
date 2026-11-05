@@ -159,7 +159,6 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		MaxQueuedComposeDeploysPerUser:       envconfig.Int(lookup, "MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER", 5),
 		ComposeBuildPollIntervalSeconds:      envconfig.Int64(lookup, "COMPOSE_BUILD_POLL_INTERVAL_SECONDS", 3),
 		ComposeDependencyWaitTimeoutMinutes:  envconfig.Int64(lookup, "COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES", 5),
-		ComposeDependencyPollIntervalSeconds: envconfig.Int64(lookup, "COMPOSE_DEPENDENCY_POLL_INTERVAL_SECONDS", 2),
 		ComposeCoordinatorIntervalSeconds:    envconfig.Int64(lookup, "COMPOSE_COORDINATOR_INTERVAL_SECONDS", 2),
 		VolumeUsageIntervalSeconds:           envconfig.Int64(lookup, "VOLUME_USAGE_INTERVAL_SECONDS", 60),
 		VolumeUsageCycleBudgetSeconds:        envconfig.Int64(lookup, "VOLUME_USAGE_CYCLE_BUDGET_SECONDS", 15),

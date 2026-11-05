@@ -3716,7 +3716,6 @@ type SystemConfigData struct {
 	ComposeDeployWorkerCount             int32                  `protobuf:"varint,44,opt,name=compose_deploy_worker_count,json=composeDeployWorkerCount,proto3" json:"compose_deploy_worker_count,omitempty"`
 	ComposeBuildPollIntervalSeconds      int64                  `protobuf:"varint,45,opt,name=compose_build_poll_interval_seconds,json=composeBuildPollIntervalSeconds,proto3" json:"compose_build_poll_interval_seconds,omitempty"`
 	ComposeDependencyWaitTimeoutMinutes  int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
-	ComposeDependencyPollIntervalSeconds int64                  `protobuf:"varint,47,opt,name=compose_dependency_poll_interval_seconds,json=composeDependencyPollIntervalSeconds,proto3" json:"compose_dependency_poll_interval_seconds,omitempty"`
 	ReservedDomainPrefixes               []string               `protobuf:"bytes,48,rep,name=reserved_domain_prefixes,json=reservedDomainPrefixes,proto3" json:"reserved_domain_prefixes,omitempty"`
 	TelemetryMaxLogTailLines             int32                  `protobuf:"varint,49,opt,name=telemetry_max_log_tail_lines,json=telemetryMaxLogTailLines,proto3" json:"telemetry_max_log_tail_lines,omitempty"`
 	TelemetryMaxLogStreamsPerUser        int32                  `protobuf:"varint,50,opt,name=telemetry_max_log_streams_per_user,json=telemetryMaxLogStreamsPerUser,proto3" json:"telemetry_max_log_streams_per_user,omitempty"`
@@ -4076,13 +4075,6 @@ func (x *SystemConfigData) GetComposeBuildPollIntervalSeconds() int64 {
 func (x *SystemConfigData) GetComposeDependencyWaitTimeoutMinutes() int64 {
 	if x != nil {
 		return x.ComposeDependencyWaitTimeoutMinutes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeDependencyPollIntervalSeconds() int64 {
-	if x != nil {
-		return x.ComposeDependencyPollIntervalSeconds
 	}
 	return 0
 }
@@ -5043,7 +5035,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xf7)\n" +
+	"totalCount\"\xa5)\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5088,8 +5080,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12=\n" +
 	"\x1bcompose_deploy_worker_count\x18, \x01(\x05R\x18composeDeployWorkerCount\x12L\n" +
 	"#compose_build_poll_interval_seconds\x18- \x01(\x03R\x1fcomposeBuildPollIntervalSeconds\x12T\n" +
-	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x12V\n" +
-	"(compose_dependency_poll_interval_seconds\x18/ \x01(\x03R$composeDependencyPollIntervalSeconds\x128\n" +
+	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x128\n" +
 	"\x18reserved_domain_prefixes\x180 \x03(\tR\x16reservedDomainPrefixes\x12>\n" +
 	"\x1ctelemetry_max_log_tail_lines\x181 \x01(\x05R\x18telemetryMaxLogTailLines\x12I\n" +
 	"\"telemetry_max_log_streams_per_user\x182 \x01(\x05R\x1dtelemetryMaxLogStreamsPerUser\x12U\n" +
@@ -5131,7 +5122,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"!volume_usage_cycle_budget_seconds\x18V \x01(\x03R\x1dvolumeUsageCycleBudgetSeconds\x12B\n" +
 	"\x1evolume_usage_scan_entry_budget\x18W \x01(\x05R\x1avolumeUsageScanEntryBudget\x12I\n" +
 	"!registry_cleanup_interval_seconds\x18X \x01(\x03R\x1eregistryCleanupIntervalSeconds\x12N\n" +
-	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSecondsJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSecondsJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

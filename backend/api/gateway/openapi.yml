@@ -2651,9 +2651,6 @@ components:
         compose_dependency_wait_timeout_minutes:
           type: integer
           format: int64
-        compose_dependency_poll_interval_seconds:
-          type: integer
-          format: int64
         compose_coordinator_interval_seconds:
           type: integer
           format: int64

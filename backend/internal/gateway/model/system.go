@@ -64,7 +64,6 @@ type SystemConfig struct {
 	MaxQueuedComposeDeploysPerUser       int
 	ComposeBuildPollIntervalSeconds      int64
 	ComposeDependencyWaitTimeoutMinutes  int64
-	ComposeDependencyPollIntervalSeconds int64
 	ComposeCoordinatorIntervalSeconds    int64
 	VolumeUsageIntervalSeconds           int64
 	VolumeUsageCycleBudgetSeconds        int64

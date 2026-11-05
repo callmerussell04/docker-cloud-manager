@@ -34,7 +34,8 @@ type SourceReleaser interface {
 
 // DeploymentCoordinatorDeps contains the capabilities needed to execute
 // and recover persisted Compose deployments. Auditor and Users are optional:
-// expose audit is best effort.
+// expose audit is best effort. Now is the clock the deployment deadlines
+// read; nil means time.Now.
 type DeploymentCoordinatorDeps struct {
 	Deployments       DeploymentStore
 	Builds            BuildRepository
@@ -49,6 +50,7 @@ type DeploymentCoordinatorDeps struct {
 	Auditor           AuditRecorder
 	Users             UserInfoProvider
 	Logger            *slog.Logger
+	Now               func() time.Time
 }
 
 type deploymentPlan struct {
@@ -65,8 +67,11 @@ type deploymentResources struct {
 	ContainerIDs         map[string]uuid.UUID `json:"container_ids,omitempty"`
 	StartedServices      map[string]bool      `json:"started_services,omitempty"`
 	ServiceGraphSaved    bool                 `json:"service_graph_saved,omitempty"`
-	CleanupStatus        string               `json:"cleanup_status,omitempty"`
-	CleanupError         string               `json:"cleanup_error,omitempty"`
+	// DependencyWaitStartedAt records, per service, when the service first
+	// waited on its dependencies.
+	DependencyWaitStartedAt map[string]time.Time `json:"dependency_wait_started_at,omitempty"`
+	CleanupStatus           string               `json:"cleanup_status,omitempty"`
+	CleanupError            string               `json:"cleanup_error,omitempty"`
 }
 
 type DeploymentCoordinator struct {
@@ -83,6 +88,7 @@ type DeploymentCoordinator struct {
 	auditor           AuditRecorder
 	users             UserInfoProvider
 	logger            *slog.Logger
+	now               func() time.Time
 }
 
 func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordinator, error) {
@@ -113,6 +119,10 @@ func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordi
 		sources:           deps.Sources,
 		cfg:               deps.Config,
 		logger:            logging.WithComponent(deps.Logger, "compose_deployment_coordinator"),
+		now:               deps.Now,
+	}
+	if coordinator.now == nil {
+		coordinator.now = time.Now
 	}
 	if deps.Auditor != nil && !isNilDependency(deps.Auditor) {
 		coordinator.auditor = deps.Auditor
@@ -170,6 +180,11 @@ func (c *DeploymentCoordinator) advanceJob(ctx context.Context, job model.Compos
 	if job.CancelRequested || job.Status == model.ComposeDeploymentStatusCanceling {
 		return c.cancelJob(runCtx, job, plan, resources)
 	}
+	if job.Stage != model.ComposeDeploymentStageRollingBack {
+		if err := c.checkPipelineDeadline(job); err != nil {
+			return c.failJob(runCtx, job, plan, resources, err)
+		}
+	}
 
 	switch job.Stage {
 	case model.ComposeDeploymentStageBuilding:
@@ -183,6 +198,19 @@ func (c *DeploymentCoordinator) advanceJob(ctx context.Context, job model.Compos
 	default:
 		return c.failJob(runCtx, job, plan, resources, fmt.Errorf("%w: unsupported compose deployment stage %q", apperrors.ErrConflict, job.Stage))
 	}
+}
+
+// checkPipelineDeadline fails a deployment still unfinished
+// compose_pipeline_timeout_minutes after its job started.
+func (c *DeploymentCoordinator) checkPipelineDeadline(job model.ComposeDeploymentJob) error {
+	minutes := c.cfg.Get().ComposePipelineTimeoutMinutes
+	if minutes <= 0 || job.StartedAt == nil {
+		return nil
+	}
+	if c.now().Sub(*job.StartedAt) <= time.Duration(minutes)*time.Minute {
+		return nil
+	}
+	return apperrors.New(apperrors.ErrTimeout, fmt.Sprintf("compose deployment timed out after %d minutes", minutes))
 }
 
 func (c *DeploymentCoordinator) advanceBuilding(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources) error {
@@ -340,12 +368,12 @@ func (c *DeploymentCoordinator) advanceStarting(ctx context.Context, job model.C
 		if containerStatusBlocksComposeStart(container.Status) {
 			return nil
 		}
-		ready, err := c.dependenciesReady(ctx, srv, resources.ContainerIDs)
+		unmet, err := c.unmetDependency(ctx, srv, resources.ContainerIDs)
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, err)
 		}
-		if !ready {
-			return nil
+		if unmet != nil {
+			return c.waitForDependency(ctx, job, plan, resources, srv.Name, *unmet)
 		}
 		if err := c.containers.Start(ctx, containerID); err != nil {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to start service %s: %w", srv.Name, err))
@@ -367,44 +395,66 @@ func (c *DeploymentCoordinator) advanceStarting(ctx context.Context, job model.C
 	return nil
 }
 
-func (c *DeploymentCoordinator) dependenciesReady(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (bool, error) {
+// waitForDependency keeps a service waiting on unmet and fails the deployment
+// once the service has waited longer than
+// compose_dependency_wait_timeout_minutes. The clock starts when the service
+// first waits and is saved with the job, so a Core restart does not reset it.
+func (c *DeploymentCoordinator) waitForDependency(ctx context.Context, job model.ComposeDeploymentJob, plan deploymentPlan, resources deploymentResources, serviceName string, unmet model.ComposeDependency) error {
+	now := c.now()
+	since, ok := resources.DependencyWaitStartedAt[serviceName]
+	if !ok {
+		resources.DependencyWaitStartedAt[serviceName] = now
+		return c.saveProgress(ctx, job, model.ProjectStatusDeploying, model.ComposeDeploymentStageStarting, plan, resources)
+	}
+	minutes := c.cfg.Get().ComposeDependencyWaitTimeoutMinutes
+	if minutes <= 0 || now.Sub(since) <= time.Duration(minutes)*time.Minute {
+		return nil
+	}
+	return c.failJob(ctx, job, plan, resources, apperrors.New(apperrors.ErrTimeout,
+		fmt.Sprintf("service %s timed out waiting for dependency %s (%s)", serviceName, unmet.ServiceName, unmet.Condition)))
+}
+
+// unmetDependency returns the first dependency of srv that has not yet met
+// its condition, or nil when all have. It fails once a required dependency
+// can no longer meet its condition.
+func (c *DeploymentCoordinator) unmetDependency(ctx context.Context, srv model.ComposeService, serviceToContainerID map[string]uuid.UUID) (*model.ComposeDependency, error) {
 	for _, dep := range srv.DependsOn {
 		depContainerID, ok := serviceToContainerID[dep.ServiceName]
 		if !ok {
 			if dep.Optional {
 				continue
 			}
-			return false, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
+			return nil, fmt.Errorf("dependency %s not found for service %s", dep.ServiceName, srv.Name)
 		}
 		depContainer, err := c.containers.GetByID(ctx, depContainerID)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, err
+			return nil, err
 		}
 		if depContainer.DockerID == "" {
-			return false, nil
+			return &dep, nil
 		}
 		inspect, err := c.docker.InspectContainer(ctx, depContainer.DockerID)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, err
+			return nil, err
 		}
 		done, err := dependencywait.EvaluateInspection(inspect, dep.Condition)
 		if err != nil {
 			if dep.Optional {
 				continue
 			}
-			return false, fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err)
+			return nil, fmt.Errorf("dependency %s failed condition %s: %w", dep.ServiceName, dep.Condition, err)
 		}
 		if !done {
-			return false, nil
+			return &dep, nil
 		}
 	}
-	return true, nil
+	return nil, nil
 }
 
 func composeServiceStartCompleted(serviceName string, container model.Container) (bool, error) {
@@ -722,5 +772,8 @@ func ensureComposeResourceMaps(resources *deploymentResources) {
 	}
 	if resources.StartedServices == nil {
 		resources.StartedServices = make(map[string]bool)
+	}
+	if resources.DependencyWaitStartedAt == nil {
+		resources.DependencyWaitStartedAt = make(map[string]time.Time)
 	}
 }

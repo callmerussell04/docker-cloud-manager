@@ -76,7 +76,6 @@ export interface SystemConfig {
   compose_pipeline_timeout_minutes: number;
   compose_build_poll_interval_seconds: number;
   compose_dependency_wait_timeout_minutes: number;
-  compose_dependency_poll_interval_seconds: number;
   compose_deploy_worker_count: number;
   compose_outbox_interval_seconds: number;
   compose_outbox_batch_size: number;
@@ -194,7 +193,6 @@ export const systemConfigSchema = z.object({
   compose_pipeline_timeout_minutes: z.number().min(1),
   compose_build_poll_interval_seconds: z.number().min(1),
   compose_dependency_wait_timeout_minutes: z.number().min(1),
-  compose_dependency_poll_interval_seconds: z.number().min(1),
   compose_deploy_worker_count: z.number().min(1),
   compose_outbox_interval_seconds: z.number().min(1),
   compose_outbox_batch_size: z.number().min(1),

@@ -576,8 +576,6 @@ export const ru = {
   'admin.settings.field.compose_build_poll_interval_seconds.hint': 'Как часто развертывание Compose проверяет статус сборок образов, которые оно запустило.',
   'admin.settings.field.compose_dependency_wait_timeout_minutes.label': 'Максимальное ожидание зависимостей Compose',
   'admin.settings.field.compose_dependency_wait_timeout_minutes.hint': 'Максимальное ожидание зависимых сервисов в Compose-проекте перед ошибкой развертывания.',
-  'admin.settings.field.compose_dependency_poll_interval_seconds.label': 'Интервал проверки зависимостей Compose',
-  'admin.settings.field.compose_dependency_poll_interval_seconds.hint': 'Как часто развертывание Compose проверяет, готовы ли зависимые сервисы.',
   'admin.settings.field.compose_deploy_worker_count.label': 'Параллельные развертывания Compose',
   'admin.settings.field.compose_deploy_worker_count.hint': 'Сколько задач развертывания Compose можно обрабатывать параллельно.',
   'admin.settings.field.compose_outbox_interval_seconds.label': 'Интервал отправки Compose-задач',

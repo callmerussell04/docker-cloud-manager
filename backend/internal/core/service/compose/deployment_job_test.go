@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
@@ -53,6 +54,29 @@ services:
   worker:
     build:
       context: .
+`
+
+// oneShotCompose is a migration step that runs once and exits, and an app
+// that only needs it to have started.
+const oneShotCompose = `
+services:
+  migrate:
+    image: busybox:latest
+  app:
+    image: nginx:latest
+    depends_on:
+      migrate:
+        condition: service_started
+`
+
+const volumeCompose = `
+services:
+  web:
+    image: nginx:latest
+    volumes:
+      - data:/data
+volumes:
+  data: {}
 `
 
 const restartRecoveryMessage = "deployment interrupted by core service restart"
@@ -108,6 +132,182 @@ func TestComposeDeploymentJobRunsToDone(t *testing.T) {
 	require.Empty(t, w.volumes.deleted)
 	require.Empty(t, w.images.deleted)
 	w.requireSourceReleased(t)
+}
+
+// A quick one-shot dependency starts and exits 0 between ticks; its
+// service_started dependent still starts.
+func TestComposeDeploymentJobStartsAfterOneShotDependencyExits(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, oneShotCompose)
+	require.NoError(t, w.deliver(t))
+	w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+
+	w.tick(t)
+	require.Equal(t, model.ContainerStatusStarting, w.service(t, "migrate").Status)
+	w.containers.runQueuedStarts()
+	w.exitService(t, "migrate", 0)
+
+	w.tick(t)
+	require.Equal(t, model.ContainerStatusStarting, w.service(t, "app").Status)
+	w.containers.runQueuedStarts()
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStageStarting, model.ProjectStatusRunning)
+	require.Equal(t, model.ContainerStatusRunning, w.service(t, "app").Status)
+}
+
+// A dependency that never becomes healthy fails its dependent once it has
+// waited longer than compose_dependency_wait_timeout_minutes.
+func TestComposeDeploymentJobFailsAfterDependencyWaitTimeout(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, stackCompose)
+	require.NoError(t, w.deliver(t))
+	w.builds.finish(model.BuildStatusSuccess)
+	w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+	w.tick(t) // the API starts waiting for the database
+	w.containers.runQueuedStarts()
+	w.setHealth(t, "db", "starting")
+
+	w.clock.advance(dependencyWaitTimeout)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageStarting, model.ProjectStatusDeploying)
+
+	w.clock.advance(time.Second)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	w.containers.finishDeletes()
+	w.volumes.finishDeletes()
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	const want = "service api timed out waiting for dependency db (service_healthy)"
+	require.Equal(t, want, *w.store.job.ErrorMessage)
+	require.Equal(t, want, *w.store.project.ErrorMessage)
+	require.Zero(t, w.containers.count())
+	w.requireSourceReleased(t)
+}
+
+// A dependency whose queued start never produces a Docker container blocks
+// the starting stage itself, so the overall deadline ends the deployment.
+func TestComposeDeploymentJobFailsWhenDependencyNeverGetsContainer(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, stackCompose)
+	require.NoError(t, w.deliver(t))
+	w.builds.finish(model.BuildStatusSuccess)
+	w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+	w.tick(t) // the database start is queued but never runs
+	require.Empty(t, w.service(t, "db").DockerID)
+
+	w.clock.advance(pipelineTimeout + time.Second)
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	w.containers.finishDeletes()
+	w.volumes.finishDeletes()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Equal(t, "compose deployment timed out after 30 minutes", *w.store.job.ErrorMessage)
+}
+
+// The dependency wait clock is saved with the job: a coordinator restart
+// neither resets it nor loses it.
+func TestComposeDeploymentJobDependencyWaitSurvivesRestart(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, stackCompose)
+	require.NoError(t, w.deliver(t))
+	w.builds.finish(model.BuildStatusSuccess)
+	w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+	w.tick(t) // the API starts waiting for the database
+	w.containers.runQueuedStarts()
+	w.setHealth(t, "db", "starting")
+	w.clock.advance(dependencyWaitTimeout - time.Minute)
+	w.tick(t)
+
+	w.restartCoordinator(t)
+	w.clock.advance(2 * time.Minute)
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	w.containers.finishDeletes()
+	w.volumes.finishDeletes()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Contains(t, *w.store.job.ErrorMessage, "dependency db")
+}
+
+// A deployment stuck outside a dependency wait fails and rolls back once it
+// has run longer than compose_pipeline_timeout_minutes.
+func TestComposeDeploymentJobFailsAfterPipelineTimeout(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.volumes.unlistedStatus = model.VolumeStatusCreating
+	w.deploy(t, volumeCompose)
+	require.NoError(t, w.deliver(t))
+	w.tick(t)
+	volumeID := w.persistedResources(t).VolumeIDs["data"]
+	require.NotEqual(t, uuid.Nil, volumeID)
+
+	w.clock.advance(pipelineTimeout)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+
+	w.clock.advance(time.Second)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Contains(t, w.volumes.deleted, volumeID)
+	w.volumes.finishDeletes()
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Equal(t, "compose deployment timed out after 30 minutes", *w.store.job.ErrorMessage)
+	require.Zero(t, w.containers.count())
+	w.requireSourceReleased(t)
+}
+
+// Neither deadline fails a deployment that is being canceled or rolled back.
+func TestComposeDeploymentJobDeadlinesSpareCancelAndRollback(t *testing.T) {
+	pastBothDeadlines := pipelineTimeout + dependencyWaitTimeout + time.Minute
+
+	t.Run("canceled", func(t *testing.T) {
+		w := newDeploymentWorld(t)
+		projectID := w.deploy(t, stackCompose)
+		require.NoError(t, w.deliver(t))
+		w.builds.finish(model.BuildStatusSuccess)
+		w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+		w.tick(t) // the API starts waiting for the database
+		require.NoError(t, w.orchestrator.CancelDeployment(w.ownerCtx(), projectID))
+
+		w.clock.advance(pastBothDeadlines)
+		w.tick(t)
+		w.requireJob(t, model.ComposeDeploymentStatusCanceling, model.ComposeDeploymentStageRollingBack, model.ProjectStatusCanceled)
+		w.containers.finishDeletes()
+		w.volumes.finishDeletes()
+		w.tick(t)
+
+		w.requireJob(t, model.ComposeDeploymentStatusCanceled, model.ComposeDeploymentStageRollingBack, model.ProjectStatusCanceled)
+		require.Equal(t, "compose deployment canceled", *w.store.job.ErrorMessage)
+	})
+
+	t.Run("rolling back", func(t *testing.T) {
+		w := newDeploymentWorld(t)
+		w.deploy(t, stackCompose)
+		require.NoError(t, w.deliver(t))
+		w.builds.finish(model.BuildStatusSuccess)
+		w.tickUntilStage(t, model.ComposeDeploymentStageStarting)
+		w.tick(t)
+		w.containers.runQueuedStarts()
+		w.setHealth(t, "db", "unhealthy")
+		w.tick(t)
+		w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+
+		w.clock.advance(pastBothDeadlines)
+		w.tick(t)
+		w.containers.finishDeletes()
+		w.volumes.finishDeletes()
+		w.tick(t)
+
+		w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+		require.Contains(t, *w.store.job.ErrorMessage, "unhealthy", "the rollback keeps its original failure")
+	})
 }
 
 func TestComposeDeploymentJobRollsBackFailure(t *testing.T) {
@@ -316,10 +516,26 @@ func TestComposeDeploymentJobInterruptedCleanup(t *testing.T) {
 	})
 }
 
+const (
+	dependencyWaitTimeout = 5 * time.Minute
+	pipelineTimeout       = 30 * time.Minute
+)
+
+// testClock is the time the coordinator and the store read. Tests move it.
+type testClock struct {
+	now time.Time
+}
+
+func (c *testClock) Now() time.Time { return c.now }
+
+func (c *testClock) advance(d time.Duration) { c.now = c.now.Add(d) }
+
 // deploymentWorld wires the orchestrator and the coordinator the way Core's
 // app does, over the stateful Compose fakes.
 type deploymentWorld struct {
 	ownerID      uuid.UUID
+	clock        *testClock
+	coordDeps    compose.DeploymentCoordinatorDeps
 	store        *deploymentRepo
 	objects      *composeObjects
 	builds       *coordinatorBuilds
@@ -334,9 +550,11 @@ type deploymentWorld struct {
 
 func newDeploymentWorld(t *testing.T) *deploymentWorld {
 	t.Helper()
+	clock := &testClock{now: time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC)}
 	w := &deploymentWorld{
 		ownerID:    uuid.New(),
-		store:      &deploymentRepo{},
+		clock:      clock,
+		store:      &deploymentRepo{now: clock.Now},
 		objects:    &composeObjects{objects: make(map[string][]byte)},
 		builds:     &coordinatorBuilds{},
 		containers: newCoordinatorContainers(nil),
@@ -347,9 +565,11 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := staticConfig{cfg: config.SystemConfig{
-		ImageBuildsEnabled:                true,
-		ComposeUploadMaxBytes:             1024 * 1024,
-		ComposeCoordinatorIntervalSeconds: 1,
+		ImageBuildsEnabled:                  true,
+		ComposeUploadMaxBytes:               1024 * 1024,
+		ComposeCoordinatorIntervalSeconds:   1,
+		ComposeDependencyWaitTimeoutMinutes: int64(dependencyWaitTimeout / time.Minute),
+		ComposePipelineTimeoutMinutes:       int64(pipelineTimeout / time.Minute),
 	}}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
 		Projects:          w.store,
@@ -366,7 +586,7 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 		Logger:            logger,
 	})
 	require.NoError(t, err)
-	coordinator, err := compose.NewDeploymentCoordinator(compose.DeploymentCoordinatorDeps{
+	w.coordDeps = compose.DeploymentCoordinatorDeps{
 		Deployments:       w.store,
 		Builds:            w.builds,
 		Builder:           compose.NewLocalBuilderClient(w.objects, w.builds),
@@ -378,12 +598,21 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 		Sources:           orchestrator,
 		Config:            cfg,
 		Logger:            logger,
-	})
-	require.NoError(t, err)
+		Now:               clock.Now,
+	}
 	w.orchestrator = orchestrator
-	w.coordinator = coordinator
+	w.restartCoordinator(t)
 	w.builds.deployments = orchestrator
 	return w
+}
+
+// restartCoordinator replaces the coordinator with a fresh one over the same
+// durable state, as a Core restart does.
+func (w *deploymentWorld) restartCoordinator(t *testing.T) {
+	t.Helper()
+	coordinator, err := compose.NewDeploymentCoordinator(w.coordDeps)
+	require.NoError(t, err)
+	w.coordinator = coordinator
 }
 
 func (w *deploymentWorld) ownerCtx() context.Context {
@@ -488,6 +717,18 @@ func (w *deploymentWorld) setHealth(t *testing.T, service, health string) {
 	w.docker.inspections[container.DockerID] = model.ContainerInspection{
 		Healthcheck: &model.Healthcheck{Test: []string{"CMD-SHELL", "true"}},
 		State:       model.ContainerState{Status: "running", Running: true, HealthStatus: &health},
+	}
+}
+
+// exitService plays Docker and the event sync for a running service that
+// exits with code.
+func (w *deploymentWorld) exitService(t *testing.T, service string, code int) {
+	t.Helper()
+	container := w.service(t, service)
+	require.NotEmpty(t, container.DockerID, "service %s has not started", service)
+	w.containers.exit(container.ID, code)
+	w.docker.inspections[container.DockerID] = model.ContainerInspection{
+		State: model.ContainerState{Status: "exited", ExitCode: code},
 	}
 }
 

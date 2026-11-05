@@ -576,7 +576,6 @@ func (staticConfig) Get() config.SystemConfig {
 		ImageBuildsEnabled:                   true,
 		GitSourcesEnabled:                    true,
 		ComposeDependencyWaitTimeoutMinutes:  1,
-		ComposeDependencyPollIntervalSeconds: 1,
 		ComposeCoordinatorIntervalSeconds:    2,
 	}
 }

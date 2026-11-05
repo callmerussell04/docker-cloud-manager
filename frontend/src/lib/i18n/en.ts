@@ -578,8 +578,6 @@ export const en: Record<keyof typeof ru, string> = {
   'admin.settings.field.compose_build_poll_interval_seconds.hint': 'How often a Compose deployment checks the status of image builds it started.',
   'admin.settings.field.compose_dependency_wait_timeout_minutes.label': 'Compose dependency wait timeout',
   'admin.settings.field.compose_dependency_wait_timeout_minutes.hint': 'Maximum time to wait for dependent services in a Compose project before the deployment fails.',
-  'admin.settings.field.compose_dependency_poll_interval_seconds.label': 'Compose dependency poll interval',
-  'admin.settings.field.compose_dependency_poll_interval_seconds.hint': 'How often a Compose deployment checks whether dependent services are ready.',
   'admin.settings.field.compose_deploy_worker_count.label': 'Parallel Compose deployments',
   'admin.settings.field.compose_deploy_worker_count.hint': 'How many Compose deployment tasks can be processed in parallel.',
   'admin.settings.field.compose_outbox_interval_seconds.label': 'Compose queue send interval',
