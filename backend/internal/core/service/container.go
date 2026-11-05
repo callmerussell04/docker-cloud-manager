@@ -263,25 +263,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	}
 	reqCPU := cfg.DefaultCPUReservation
 
-	// 2. Admission Control: Проверка квоты пользователя
-	if err := s.checkUserQuota(ctx, ownerID, reqMem); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkUserCPUQuota(ctx, ownerID, reqCPU); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
-		return uuid.Nil, err
-	}
-
-	// 3. Admission Control: Проверка свободных ресурсов хоста (Защита сервера)
-	if err := s.checkHostCapacity(ctx, reqMem); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkHostCPUCapacity(ctx, reqCPU); err != nil {
-		return uuid.Nil, err
-	}
-	if err := s.checkHostDiskCapacity(); err != nil {
+	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: reqMem, cpuMillicores: reqCPU, chargesUser: true}); err != nil {
 		return uuid.Nil, err
 	}
 
@@ -554,22 +536,7 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	cfg := s.config.Get()
 	requestedMemory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
 	requestedCPU := normalizeCPUReservation(c.BaseCPUReservation, cfg)
-	if err := s.checkUserQuota(ctx, ownerID, requestedMemory); err != nil {
-		return err
-	}
-	if err := s.checkUserCPUQuota(ctx, ownerID, requestedCPU); err != nil {
-		return err
-	}
-	if err := s.checkHostCapacity(ctx, requestedMemory); err != nil {
-		return err
-	}
-	if err := s.checkHostCPUCapacity(ctx, requestedCPU); err != nil {
-		return err
-	}
-	if err := s.checkUserDiskQuota(ctx, ownerID); err != nil {
-		return err
-	}
-	if err := s.checkHostDiskCapacity(); err != nil {
+	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: requestedMemory, cpuMillicores: requestedCPU, chargesUser: true}); err != nil {
 		return err
 	}
 	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, queue.ContainerLifecycleMessage{

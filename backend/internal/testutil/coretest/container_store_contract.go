@@ -2,6 +2,7 @@ package coretest
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -42,6 +43,10 @@ type ContainerStore interface {
 	RecoverInterruptedContainerCreates(ctx context.Context, cause error) (int64, error)
 	CancelActiveCreateAndDeleteContainer(ctx context.Context, containerID uuid.UUID, cause error) error
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
+	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
 
 // RunContainerStoreContract runs the container store behaviour tests against
@@ -80,6 +85,9 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	})
 	t.Run("owner capacity lock", func(t *testing.T) {
 		testOwnerCapacityLock(t, newStore(t))
+	})
+	t.Run("reservation rule", func(t *testing.T) {
+		testReservationRule(t, newStore(t))
 	})
 }
 
@@ -538,6 +546,81 @@ func testOwnerCapacityLock(t *testing.T, store ContainerStore) {
 	release, err = store.AcquireOwnerCapacityLock(ctx, other)
 	require.NoError(t, err)
 	release()
+}
+
+// containerStatuses is every status a container row can hold.
+var containerStatuses = []string{
+	model.ContainerStatusPending,
+	model.ContainerStatusCreating,
+	model.ContainerStatusCreated,
+	model.ContainerStatusStarting,
+	model.ContainerStatusRunning,
+	model.ContainerStatusStopping,
+	model.ContainerStatusExited,
+	model.ContainerStatusExposing,
+	model.ContainerStatusError,
+	model.ContainerStatusMissing,
+	model.ContainerStatusDeleting,
+	model.ContainerStatusReconciling,
+}
+
+// reservingDesiredStatuses pins the reservation rule: for each status, the
+// desired statuses under which the container counts as reserved. A row counts
+// when it is not missing and its status or desired status is running.
+var reservingDesiredStatuses = map[string][]string{
+	model.ContainerStatusPending:     {model.ContainerStatusRunning},
+	model.ContainerStatusCreating:    {model.ContainerStatusRunning},
+	model.ContainerStatusCreated:     {model.ContainerStatusRunning},
+	model.ContainerStatusStarting:    {model.ContainerStatusRunning},
+	model.ContainerStatusRunning:     containerStatuses,
+	model.ContainerStatusStopping:    {model.ContainerStatusRunning},
+	model.ContainerStatusExited:      {model.ContainerStatusRunning},
+	model.ContainerStatusExposing:    {model.ContainerStatusRunning},
+	model.ContainerStatusError:       {model.ContainerStatusRunning},
+	model.ContainerStatusMissing:     nil,
+	model.ContainerStatusDeleting:    {model.ContainerStatusRunning},
+	model.ContainerStatusReconciling: {model.ContainerStatusRunning},
+}
+
+// testReservationRule tables every status against every desired status, one
+// owner per row, and reads which rows the reservation sums count.
+func testReservationRule(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	const memory, cpu = int64(64 << 20), int64(125)
+	reservedRows := 0
+	for _, status := range containerStatuses {
+		for _, desired := range containerStatuses {
+			c := contractContainer(uuid.New(), status)
+			c.DesiredStatus = desired
+			c.BaseMemoryReservation, c.BaseCPUReservation = memory, cpu
+			require.NoError(t, store.Save(ctx, c))
+
+			wantMemory, wantCPU := int64(0), int64(0)
+			if slices.Contains(reservingDesiredStatuses[status], desired) {
+				wantMemory, wantCPU = memory, cpu
+				reservedRows++
+			}
+			gotMemory, err := store.GetUserReservedMemory(ctx, c.OwnerID)
+			require.NoError(t, err)
+			require.Equal(t, wantMemory, gotMemory, "memory reserved by status %q desired %q", status, desired)
+			gotCPU, err := store.GetUserReservedCPU(ctx, c.OwnerID)
+			require.NoError(t, err)
+			require.Equal(t, wantCPU, gotCPU, "cpu reserved by status %q desired %q", status, desired)
+		}
+	}
+	require.Equal(t, 22, reservedRows, "running rows plus non-missing rows desired running")
+
+	totalMemory, err := store.GetTotalSystemReservedMemory(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(reservedRows)*memory, totalMemory)
+	totalCPU, err := store.GetTotalSystemReservedCPU(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(reservedRows)*cpu, totalCPU)
+
+	// An owner with no rows reserves nothing.
+	none, err := store.GetUserReservedMemory(ctx, uuid.New())
+	require.NoError(t, err)
+	require.Zero(t, none)
 }
 
 // publishOutbox leases and publishes every pending outbox record.

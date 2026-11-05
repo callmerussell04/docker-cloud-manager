@@ -221,32 +221,26 @@ func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) er
 	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
 }
 
-func (s *BuildService) ensureBuildHostCapacity(ctx context.Context) error {
+// admitBuild checks one build's host memory and CPU reservation and the
+// owner's disk quota. Builds do not count against the owner's memory and CPU
+// quotas. The caller holds the capacity lock.
+func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
-	reserved := int64(0)
-	reservedCPU := int64(0)
-	containerReserved, err := s.containers.GetTotalSystemReservedMemory(ctx)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "failed to calculate container reserved memory", "error", err)
-		return apperrors.ErrInternal
+	sources := admissionSources{
+		users:        s.users,
+		system:       s.containers,
+		builds:       s.repo,
+		images:       s.imageRepo,
+		volumes:      s.volumeRepo,
+		hostMetrics:  s.hostMetrics,
+		diskMetrics:  s.diskMetrics,
+		hostDiskPath: s.hostDiskPath,
+		logger:       s.logger,
 	}
-	reserved += containerReserved
-	containerReservedCPU, err := s.containers.GetTotalSystemReservedCPU(ctx)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "failed to calculate container reserved cpu", "error", err)
-		return apperrors.ErrInternal
-	}
-	reservedCPU += containerReservedCPU
-	activeBuilds, err := s.repo.CountActive(ctx)
-	if err != nil {
-		return err
-	}
-	reserved += int64(activeBuilds) * cfg.BuildMemoryBytes
-	reservedCPU += int64(activeBuilds) * buildCPUMillicores(cfg)
-	if err := ensureHostMemoryCapacity(ctx, s.hostMetrics, cfg, reserved, cfg.BuildMemoryBytes, s.logger, "build"); err != nil {
-		return err
-	}
-	return ensureHostCPUCapacity(ctx, s.hostMetrics, cfg, reservedCPU, buildCPUMillicores(cfg), s.logger, "build")
+	return sources.admit(ctx, ownerID, admissionRequest{
+		memoryBytes:   cfg.BuildMemoryBytes,
+		cpuMillicores: buildCPUMillicores(cfg),
+	}, cfg, "build")
 }
 
 func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
@@ -617,10 +611,6 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "build archive and log object keys are required")
 	}
 
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
 	unlock, err := s.repo.AcquireCapacityLock(ctx)
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
@@ -631,16 +621,8 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	if err := s.ensureBuildQueueLimit(ctx, ownerID); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	if err := s.ensureBuildHostCapacity(ctx); err != nil {
+	if err := s.admitBuild(ctx, ownerID); err != nil {
 		return uuid.Nil, uuid.Nil, err
-	}
-
-	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
-	if err != nil {
-		return uuid.Nil, uuid.Nil, err
-	}
-	if usedMB >= user.QuotaDiskMB {
-		return uuid.Nil, uuid.Nil, apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 
 	normalizedTag := imageref.NormalizeTag(input.Tag)

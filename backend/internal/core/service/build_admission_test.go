@@ -17,12 +17,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Build creation holds the capacity lock until its queued build is durable,
+// and rejects work over the per-owner build queue limit. Host and quota
+// admission is tested with the other entry points in admission_test.go.
 func TestBuildServiceAdmission(t *testing.T) {
 	failure := errors.New("admission storage unavailable")
 	scenarios := []struct {
 		name                                              string
-		queued, active                                    int
-		memory, cpu                                       int64
+		queued                                            int
 		lockErr, countErr, activeErr, reserveErr, wantErr error
 		queueDisabled                                     bool
 	}{
@@ -32,8 +34,6 @@ func TestBuildServiceAdmission(t *testing.T) {
 		{name: "queue full", queued: 2, wantErr: apperrors.ErrLimitExceeded},
 		{name: "queue counter fails", countErr: failure, wantErr: failure},
 		{name: "active counter fails", activeErr: failure, wantErr: failure},
-		{name: "active builds reserve memory", active: 1, memory: 3 << 30, wantErr: apperrors.ErrHostExhausted},
-		{name: "active builds reserve cpu", active: 1, cpu: 1000, wantErr: apperrors.ErrHostExhausted},
 		{name: "queue limit disabled", queued: 100, queueDisabled: true},
 	}
 	for _, project := range []bool{false, true} {
@@ -50,51 +50,30 @@ func TestBuildServiceAdmission(t *testing.T) {
 					if scenario.queueDisabled {
 						cfg.MaxQueuedBuildsPerUser = 0
 					}
-					cfg.BuildMemoryBytes = 1 << 30
-					cfg.BuildCPUQuota, cfg.BuildCPUPeriod = 100000, 100000
-					cfg.OvercommitFactor, cfg.CPUOvercommitFactor = 1, 1
-					cfg.ReservedSystemMemory, cfg.ReservedSystemCPU = 0, 0
 					deps.Config = coretest.StaticConfig{Config: cfg}
 					owner := uuid.New()
 					users := coremocks.NewUserInfoProvider(t)
-					users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaDiskMB: 1024}, nil)
+					users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaDiskMB: 1024}, nil).Maybe()
 					deps.Users = users
+					images := coremocks.NewBuildImageRepository(t)
+					images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Maybe()
+					deps.Images = images
 					repo := coremocks.NewBuildRepository(t)
 					deps.Repository = repo
 					locked := false
 					repo.EXPECT().AcquireCapacityLock(mock.Anything).Return(func() { locked = false }, scenario.lockErr).
 						Run(func(context.Context) { locked = scenario.lockErr == nil }).Once()
-					if scenario.lockErr == nil && !scenario.queueDisabled {
-						repo.EXPECT().CountActiveByOwner(mock.Anything, owner).Return(scenario.queued, scenario.countErr).Once()
-					}
-					queueAdmitted := scenario.queueDisabled || (scenario.queued < 2 && scenario.countErr == nil)
-					if scenario.lockErr == nil && queueAdmitted {
-						containers := coremocks.NewBuildContainerReservationRepository(t)
-						containers.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(scenario.memory, nil).Once()
-						containers.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(scenario.cpu, nil).Once()
-						deps.Containers = containers
-						repo.EXPECT().CountActive(mock.Anything).Return(scenario.active, scenario.activeErr).Once()
-						metrics := coremocks.NewHostMetricsProvider(t)
-						deps.HostMetrics = metrics
-						if scenario.activeErr == nil {
-							metrics.EXPECT().GetTotalMemory().Return(int64(4<<30), nil).Once()
-							if scenario.memory == 0 {
-								metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil).Once()
-							}
-						}
-					}
-					if scenario.wantErr == nil || scenario.reserveErr != nil {
-						images := coremocks.NewBuildImageRepository(t)
-						images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Once()
-						deps.Images = images
-						repo.EXPECT().CreateQueuedBuild(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-							Run(func(_ context.Context, _ model.Image, build model.Build, _ model.BuildQueueOutbox) {
-								require.True(t, locked, "reservation must be durable before releasing capacity")
-								require.Equal(t, owner, build.OwnerID)
-								require.Equal(t, project, build.ProjectID != nil)
-								require.Equal(t, model.BuildStatusPending, build.Status)
-							}).Return(scenario.reserveErr).Once()
-					}
+					repo.EXPECT().CountActiveByOwner(mock.Anything, owner).Return(scenario.queued, scenario.countErr).Maybe()
+					repo.EXPECT().CountActive(mock.Anything).Return(0, scenario.activeErr).Maybe()
+					reserved := false
+					repo.EXPECT().CreateQueuedBuild(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+						Run(func(_ context.Context, _ model.Image, build model.Build, _ model.BuildQueueOutbox) {
+							reserved = true
+							require.True(t, locked, "reservation must be durable before releasing capacity")
+							require.Equal(t, owner, build.OwnerID)
+							require.Equal(t, project, build.ProjectID != nil)
+							require.Equal(t, model.BuildStatusPending, build.Status)
+						}).Return(scenario.reserveErr).Maybe()
 					svc, err := service.NewBuildService(deps)
 					require.NoError(t, err)
 					ctx := accessscope.WithUserScope(context.Background(), owner, "", "")
@@ -115,6 +94,7 @@ func TestBuildServiceAdmission(t *testing.T) {
 					} else {
 						require.Equal(t, uuid.Nil, buildID)
 					}
+					require.Equal(t, scenario.wantErr == nil || scenario.reserveErr != nil, reserved, "only admitted builds are reserved")
 					require.False(t, locked, "capacity lock must be released on every return")
 				})
 			}

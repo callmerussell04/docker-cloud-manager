@@ -15,10 +15,10 @@ import (
 )
 
 // ContainerStoreFake is an in-memory stand-in for Core's container repository:
-// containers, their resource operations, the container lifecycle outbox and
-// the owner capacity lock. RunContainerStoreContract holds it to the Postgres
-// repository's behaviour, so add a method here only together with the
-// contract test that pins it.
+// containers, their resource operations, the container lifecycle outbox, the
+// owner capacity lock and the reservation sums admission reads.
+// RunContainerStoreContract holds it to the Postgres repository's behaviour,
+// so add a method here only together with the contract test that pins it.
 type ContainerStoreFake struct {
 	mu         sync.Mutex
 	faults     ContainerStoreFaults
@@ -33,8 +33,9 @@ type ContainerStoreFake struct {
 }
 
 var (
-	_ ContainerStore                    = (*ContainerStoreFake)(nil)
-	_ service.ContainerOutboxRepository = (*ContainerStoreFake)(nil)
+	_ ContainerStore                              = (*ContainerStoreFake)(nil)
+	_ service.ContainerOutboxRepository           = (*ContainerStoreFake)(nil)
+	_ service.BuildContainerReservationRepository = (*ContainerStoreFake)(nil)
 )
 
 // NewContainerStoreFake returns an empty store with no faults.
@@ -100,6 +101,10 @@ type ContainerStoreFaults struct {
 	RecoverInterruptedContainerCreates             Fault
 	CancelActiveCreateAndDeleteContainer           Fault
 	AcquireOwnerCapacityLock                       Fault
+	GetUserReservedMemory                          Fault
+	GetUserReservedCPU                             Fault
+	GetTotalSystemReservedMemory                   Fault
+	GetTotalSystemReservedCPU                      Fault
 }
 
 // SetFaults replaces every fault; the zero value clears them.
@@ -562,6 +567,50 @@ func (f *ContainerStoreFake) AcquireOwnerCapacityLock(ctx context.Context, _ uui
 		stop()
 		release()
 	}, nil
+}
+
+// GetUserReservedMemory sums the memory reserved by ownerID's containers.
+func (f *ContainerStoreFake) GetUserReservedMemory(_ context.Context, ownerID uuid.UUID) (int64, error) {
+	return f.sumReserved(&f.faults.GetUserReservedMemory, &ownerID, func(c model.Container) int64 { return c.BaseMemoryReservation })
+}
+
+// GetUserReservedCPU sums the CPU millicores reserved by ownerID's containers.
+func (f *ContainerStoreFake) GetUserReservedCPU(_ context.Context, ownerID uuid.UUID) (int64, error) {
+	return f.sumReserved(&f.faults.GetUserReservedCPU, &ownerID, func(c model.Container) int64 { return c.BaseCPUReservation })
+}
+
+// GetTotalSystemReservedMemory sums the memory reserved by every container.
+func (f *ContainerStoreFake) GetTotalSystemReservedMemory(_ context.Context) (int64, error) {
+	return f.sumReserved(&f.faults.GetTotalSystemReservedMemory, nil, func(c model.Container) int64 { return c.BaseMemoryReservation })
+}
+
+// GetTotalSystemReservedCPU sums the CPU millicores reserved by every container.
+func (f *ContainerStoreFake) GetTotalSystemReservedCPU(_ context.Context) (int64, error) {
+	return f.sumReserved(&f.faults.GetTotalSystemReservedCPU, nil, func(c model.Container) int64 { return c.BaseCPUReservation })
+}
+
+// sumReserved sums amount over the reserved containers, of ownerID when set.
+// A container is reserved when it is not missing and its status or desired
+// status is running, as in the repository's reservation queries.
+func (f *ContainerStoreFake) sumReserved(fault *Fault, ownerID *uuid.UUID, amount func(model.Container) int64) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := fault.take(); err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, c := range f.containers {
+		if ownerID != nil && c.OwnerID != *ownerID {
+			continue
+		}
+		if c.Status == model.ContainerStatusMissing {
+			continue
+		}
+		if c.Status == model.ContainerStatusRunning || c.DesiredStatus == model.ContainerStatusRunning {
+			total += amount(c)
+		}
+	}
+	return total, nil
 }
 
 // outboxLeaseTimeout is how long a publishing lease holds before the record
