@@ -15,7 +15,7 @@ func TestComposeCoordinatorDoesNotTreatQueuedStartAsStarted(t *testing.T) {
 	dbID := uuid.New()
 	migrateID := uuid.New()
 	job := startingComposeJob(t, ownerID, projectID, dbID, migrateID, map[string]bool{})
-	repo := newCoordinatorRepo(job)
+	repo := newDeploymentRepo(job)
 	containers := newCoordinatorContainers(map[uuid.UUID]model.Container{
 		dbID:      {ID: dbID, OwnerID: ownerID, DockerID: "db-docker", Status: model.ContainerStatusCreated},
 		migrateID: {ID: migrateID, OwnerID: ownerID, DockerID: "migrate-docker", Status: model.ContainerStatusCreated},
@@ -47,7 +47,7 @@ func TestComposeCoordinatorStartsDependentServiceAfterHealthyDependency(t *testi
 	dbID := uuid.New()
 	migrateID := uuid.New()
 	job := startingComposeJob(t, ownerID, projectID, dbID, migrateID, map[string]bool{"db": true})
-	repo := newCoordinatorRepo(job)
+	repo := newDeploymentRepo(job)
 	containers := newCoordinatorContainers(map[uuid.UUID]model.Container{
 		dbID:      {ID: dbID, OwnerID: ownerID, DockerID: "db-docker", Status: model.ContainerStatusRunning},
 		migrateID: {ID: migrateID, OwnerID: ownerID, DockerID: "migrate-docker", Status: model.ContainerStatusCreated},
@@ -74,7 +74,7 @@ func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *te
 	externalID := uuid.New()
 	webID := uuid.New()
 	job := creatingComposeJob(t, ownerID, projectID)
-	repo := newCoordinatorRepo(job)
+	repo := newDeploymentRepo(job)
 	containers := newCoordinatorContainers(nil)
 	containers.nextCreateIDs = []uuid.UUID{webID}
 	volumes := &coordinatorVolumes{
@@ -114,7 +114,7 @@ func TestComposeCoordinatorReusesExistingManagedVolume(t *testing.T) {
 	managedID := uuid.New()
 	webID := uuid.New()
 	job := creatingComposeJob(t, ownerID, projectID)
-	repo := newCoordinatorRepo(job)
+	repo := newDeploymentRepo(job)
 	containers := newCoordinatorContainers(nil)
 	containers.nextCreateIDs = []uuid.UUID{webID}
 	volumes := &coordinatorVolumes{
@@ -143,7 +143,7 @@ func TestComposeCoordinatorRollbackUnlinksReusedManagedVolume(t *testing.T) {
 	managedID := uuid.New()
 	externalID := uuid.New()
 	job := rollingBackComposeJob(t, ownerID, projectID, managedID, externalID)
-	repo := newCoordinatorRepo(job)
+	repo := newDeploymentRepo(job)
 	volumes := &coordinatorVolumes{}
 
 	runCoordinatorOnceWithVolumes(t, repo, volumes, newCoordinatorContainers(nil), &coordinatorDocker{})
