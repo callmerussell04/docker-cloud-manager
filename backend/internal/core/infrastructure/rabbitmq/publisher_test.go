@@ -50,13 +50,17 @@ func TestPublisherCancelsStalledIO(t *testing.T) {
 }
 
 func TestPublisherBoundsAttemptsWithoutCallerDeadline(t *testing.T) {
-	for _, stage := range []string{"handshake", "topology", "confirmation"} {
+	for _, stage := range []string{"handshake", "topology", "write", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				broker := newPublisherBroker(t, stage)
 				publisher := broker.publisher(t)
+				var body []byte
+				if stage == "write" {
+					body = make([]byte, 16<<20)
+				}
 				start := time.Now()
-				result := publishAsync(publisher, t.Context(), nil)
+				result := publishAsync(publisher, t.Context(), body)
 				receive(t, broker.ready)
 				time.Sleep(10*time.Second - time.Since(start) - time.Nanosecond)
 				synctest.Wait()
@@ -73,25 +77,12 @@ func TestPublisherBoundsAttemptsWithoutCallerDeadline(t *testing.T) {
 				default:
 					t.Fatal("application publication budget was not enforced")
 				}
-				receive(t, broker.disconnected)
+				if stage != "write" {
+					receive(t, broker.disconnected)
+				}
 			})
 		})
 	}
-	// A stalled body write holds the AMQP client's send mutex, and its
-	// five-second heartbeater then waits on that mutex. synctest cannot advance
-	// its clock past a mutex wait, so this one stage waits out the real budget.
-	t.Run("write", func(t *testing.T) {
-		t.Parallel()
-		broker := newPublisherBroker(t, "write")
-		result := publishAsync(broker.publisher(t), t.Context(), make([]byte, 16<<20))
-		receive(t, broker.ready)
-		select {
-		case err := <-result:
-			require.ErrorIs(t, err, context.DeadlineExceeded)
-		case <-time.After(12 * time.Second):
-			t.Fatal("application publication budget was not enforced")
-		}
-	})
 }
 
 func TestPublisherQueuedCallerCanCancelAndCloseInterruptsActiveAttempt(t *testing.T) {
@@ -229,7 +220,9 @@ func (p brokerPublication) ack(ack bool) error {
 func newPublisherBroker(t *testing.T, stall string) *publisherBroker {
 	t.Helper()
 	broker := &publisherBroker{
-		url:   "amqp://guest:guest@broker.test:5672/",
+		// No heartbeats: during a stalled body write the heartbeater would wait
+		// on the client's send mutex, which synctest cannot advance past.
+		url:   "amqp://guest:guest@broker.test:5672/?heartbeat=0",
 		ready: make(chan struct{}, 10), disconnected: make(chan struct{}, 10),
 		publications: make(chan brokerPublication, 10),
 		stopWrite:    make(chan struct{}),
