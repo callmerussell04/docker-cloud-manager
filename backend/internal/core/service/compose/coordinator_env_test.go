@@ -17,6 +17,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -62,7 +63,7 @@ func (e *coordinatorEnv) deps() compose.DeploymentCoordinatorDeps {
 		Docker:            e.docker,
 		Images:            e.images,
 		Sources:           e.sources,
-		Config:            staticConfig{cfg: config.SystemConfig{ComposeCoordinatorIntervalSeconds: 1}},
+		Config:            coretest.StaticConfig{Config: config.SystemConfig{ComposeCoordinatorIntervalSeconds: 1}},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }
@@ -698,12 +699,4 @@ type coordinatorImages struct {
 func (i *coordinatorImages) Delete(_ context.Context, imageID uuid.UUID) error {
 	i.deleted = append(i.deleted, imageID)
 	return nil
-}
-
-type staticConfig struct {
-	cfg config.SystemConfig
-}
-
-func (c staticConfig) Get() config.SystemConfig {
-	return c.cfg
 }

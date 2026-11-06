@@ -1,0 +1,2 @@
+go test fuzz v1
+string("https://GitHub.com:443/acme/app.git")

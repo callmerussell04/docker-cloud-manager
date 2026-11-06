@@ -17,6 +17,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -161,14 +162,8 @@ func TestReportServiceGetUserUsageTimelineUsesConfiguredBucketInterval(t *testin
 	require.Equal(t, 5*time.Minute, gotInterval)
 }
 
-type staticReportConfig struct{}
-
-func (staticReportConfig) Get() coreconfig.SystemConfig {
-	return coreconfig.SystemConfig{ReportsUsageSnapshotIntervalSeconds: 300}
-}
-
-func testReportConfig() staticReportConfig {
-	return staticReportConfig{}
+func testReportConfig() coretest.StaticConfig {
+	return coretest.StaticConfig{Config: coreconfig.SystemConfig{ReportsUsageSnapshotIntervalSeconds: 300}}
 }
 
 func discardLogger() *slog.Logger {

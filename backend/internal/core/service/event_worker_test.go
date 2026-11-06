@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -21,153 +21,80 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEventWorkerClosedStreamBacksOff(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	repo := coremocks.NewEventContainerRepo(t)
-	dockerAPI := coremocks.NewEventDockerAPI(t)
-	rebalancer := coremocks.NewContainerRebalancer(t)
-	cfg := coremocks.NewEventConfigProvider(t)
-	var calls atomic.Int32
-
-	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container(nil), nil).Maybe()
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(func(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
-		calls.Add(1)
-		eventCh := make(chan model.ContainerEvent)
-		errCh := make(chan error)
-		close(eventCh)
-		close(errCh)
-		return eventCh, errCh
-	}).Maybe()
-	worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		worker.Run(ctx)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("event worker did not stop")
-	}
-	require.LessOrEqual(t, calls.Load(), int32(2))
-}
-
 func TestEventWorkerMarksMissingContainerOnSync(t *testing.T) {
-	containerID := uuid.New()
-	repo := coremocks.NewEventContainerRepo(t)
-	dockerAPI := coremocks.NewEventDockerAPI(t)
-	rebalancer := coremocks.NewContainerRebalancer(t)
-	cfg := coremocks.NewEventConfigProvider(t)
-	statusCh := make(chan string, 1)
+	synctest.Test(t, func(t *testing.T) {
+		containerID := uuid.New()
+		repo := coremocks.NewEventContainerRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		rebalancer := coremocks.NewContainerRebalancer(t)
+		repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
+			ID:       containerID,
+			DockerID: "missing-docker",
+			Status:   model.ContainerStatusRunning,
+		}}, nil).Once()
+		dockerAPI.EXPECT().InspectContainer(mock.Anything, "missing-docker").Return(model.ContainerInspection{}, cerrdefs.ErrNotFound).Once()
+		repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Return(nil).Once()
+		rebalancer.EXPECT().RequestRebalance().Return().Maybe()
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
 
-	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
-		ID:       containerID,
-		DockerID: "missing-docker",
-		Status:   model.ContainerStatusRunning,
-	}}, nil)
-	dockerAPI.EXPECT().InspectContainer(mock.Anything, "missing-docker").Return(model.ContainerInspection{}, cerrdefs.ErrNotFound)
-	repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
-		statusCh <- status
-	}).Return(nil)
-	rebalancer.EXPECT().RequestRebalance().Return().Maybe()
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
-	worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go worker.Run(ctx)
-
-	require.Equal(t, model.ContainerStatusMissing, waitForEventWorkerStatus(t, statusCh))
+		runUntilSettled(t, service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, testConfig(), slog.Default()).Run)
+	})
 }
 
 func TestEventWorkerSkipsCreatingContainerWithActiveOperation(t *testing.T) {
-	containerID := uuid.New()
-	repo := coremocks.NewEventContainerRepo(t)
-	dockerAPI := coremocks.NewEventDockerAPI(t)
-	rebalancer := coremocks.NewContainerRebalancer(t)
-	cfg := coremocks.NewEventConfigProvider(t)
+	synctest.Test(t, func(t *testing.T) {
+		containerID := uuid.New()
+		repo := coremocks.NewEventContainerRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
+			ID:     containerID,
+			Status: model.ContainerStatusCreating,
+		}}, nil).Once()
+		repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(true, nil)
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
 
-	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
-		ID:     containerID,
-		Status: model.ContainerStatusCreating,
-	}}, nil)
-	repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(true, nil)
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
-	worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	go worker.Run(ctx)
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	repo.AssertNotCalled(t, "MarkStatusError", mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything)
-	dockerAPI.AssertNotCalled(t, "InspectContainer", mock.Anything, mock.Anything)
+		// The strict mocks fail the test if the sync inspects or marks the container.
+		runUntilSettled(t, service.NewEventWorker(repo, nil, dockerAPI, coremocks.NewContainerRebalancer(t), nil, testConfig(), slog.Default()).Run)
+	})
 }
 
 func TestEventWorkerMarksCreatingContainerWithoutActiveOperationMissing(t *testing.T) {
-	containerID := uuid.New()
-	repo := coremocks.NewEventContainerRepo(t)
-	dockerAPI := coremocks.NewEventDockerAPI(t)
-	rebalancer := coremocks.NewContainerRebalancer(t)
-	cfg := coremocks.NewEventConfigProvider(t)
-	statusCh := make(chan string, 1)
+	synctest.Test(t, func(t *testing.T) {
+		containerID := uuid.New()
+		repo := coremocks.NewEventContainerRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		rebalancer := coremocks.NewContainerRebalancer(t)
+		repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
+			ID:     containerID,
+			Status: model.ContainerStatusCreating,
+		}}, nil).Once()
+		repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(false, nil)
+		repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Return(nil).Once()
+		rebalancer.EXPECT().RequestRebalance().Return().Maybe()
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
 
-	repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{
-		ID:     containerID,
-		Status: model.ContainerStatusCreating,
-	}}, nil)
-	repo.EXPECT().HasActiveOperation(mock.Anything, model.ResourceTypeContainer, containerID).Return(false, nil)
-	repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
-		statusCh <- status
-	}).Return(nil)
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
-	worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go worker.Run(ctx)
-
-	require.Equal(t, model.ContainerStatusMissing, waitForEventWorkerStatus(t, statusCh))
+		runUntilSettled(t, service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, testConfig(), slog.Default()).Run)
+	})
 }
 
 func TestEventWorkerMarksMissingVolumeOnSync(t *testing.T) {
-	volumeID := uuid.New()
-	containerRepo := coremocks.NewEventContainerRepo(t)
-	volumeRepo := coremocks.NewEventVolumeRepo(t)
-	dockerAPI := coremocks.NewEventDockerAPI(t)
-	rebalancer := coremocks.NewContainerRebalancer(t)
-	cfg := coremocks.NewEventConfigProvider(t)
-	statusCh := make(chan string, 1)
+	synctest.Test(t, func(t *testing.T) {
+		volumeID := uuid.New()
+		containerRepo := coremocks.NewEventContainerRepo(t)
+		volumeRepo := coremocks.NewEventVolumeRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		containerRepo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container(nil), nil).Once()
+		volumeRepo.EXPECT().GetReconcileCandidates(mock.Anything).Return([]model.Volume{{
+			ID:         volumeID,
+			DockerName: "missing-volume",
+			Status:     model.VolumeStatusAvailable,
+		}}, nil).Once()
+		dockerAPI.EXPECT().InspectVolume(mock.Anything, "missing-volume").Return(model.VolumeInspection{}, cerrdefs.ErrNotFound).Once()
+		volumeRepo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusMissing, mock.Anything).Return(nil).Once()
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
 
-	containerRepo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container(nil), nil)
-	volumeRepo.EXPECT().GetReconcileCandidates(mock.Anything).Return([]model.Volume{{
-		ID:         volumeID,
-		DockerName: "missing-volume",
-		Status:     model.VolumeStatusAvailable,
-	}}, nil)
-	dockerAPI.EXPECT().InspectVolume(mock.Anything, "missing-volume").Return(model.VolumeInspection{}, cerrdefs.ErrNotFound)
-	volumeRepo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusMissing, mock.Anything).Run(func(ctx context.Context, id uuid.UUID, status string, cause error) {
-		statusCh <- status
-	}).Return(nil)
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(closedEventStreams).Maybe()
-	worker := service.NewEventWorker(containerRepo, volumeRepo, dockerAPI, rebalancer, nil, cfg, slog.Default())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go worker.Run(ctx)
-
-	require.Equal(t, model.VolumeStatusMissing, waitForEventWorkerStatus(t, statusCh))
+		runUntilSettled(t, service.NewEventWorker(containerRepo, volumeRepo, dockerAPI, coremocks.NewContainerRebalancer(t), nil, testConfig(), slog.Default()).Run)
+	})
 }
 
 func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
@@ -178,10 +105,8 @@ func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
 		volumeRepo := coremocks.NewEventVolumeRepo(t)
 		dockerAPI := coremocks.NewEventDockerAPI(t)
 		rebalancer := coremocks.NewContainerRebalancer(t)
-		cfg := coremocks.NewEventConfigProvider(t)
-		settings := staticConfig{}.Get()
+		settings := testSystemConfig()
 		settings.EventSyncIntervalSeconds = 3600
-		cfg.EXPECT().Get().Return(settings).Maybe()
 		repo.EXPECT().GetNonExited(mock.Anything).Return([]model.Container{{ID: containerID, DockerID: "missing-docker", Status: model.ContainerStatusRunning}}, nil).Once()
 		dockerAPI.EXPECT().InspectContainer(mock.Anything, "missing-docker").Return(model.ContainerInspection{}, cerrdefs.ErrNotFound)
 		repo.EXPECT().MarkStatusError(mock.Anything, containerID, model.ContainerStatusMissing, mock.Anything).Return(writeErr)
@@ -195,7 +120,7 @@ func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
 		repo.EXPECT().UpdateObservedStatusByDockerID(mock.Anything, "docker-id", model.ContainerStatusRunning, mock.Anything, mock.Anything, mock.Anything).Return(writeErr)
 		rebalancer.EXPECT().RequestRebalance().Return().Once()
 		var logs bytes.Buffer
-		worker := service.NewEventWorker(repo, volumeRepo, dockerAPI, rebalancer, nil, cfg, slog.New(slog.NewJSONHandler(&logs, nil)))
+		worker := service.NewEventWorker(repo, volumeRepo, dockerAPI, rebalancer, nil, coretest.StaticConfig{Config: settings}, slog.New(slog.NewJSONHandler(&logs, nil)))
 		ctx, cancel := context.WithCancel(context.Background())
 		done := make(chan struct{})
 		go func() {
@@ -225,14 +150,29 @@ func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
 	})
 }
 
-func waitForEventWorkerStatus(t *testing.T, statusCh <-chan string) string {
+// runUntilSettled runs a worker loop inside the caller's synctest bubble until
+// every goroutine blocks, then stops it and waits for it to return. Time does
+// not advance, so only work due at startup runs.
+func runUntilSettled(t *testing.T, run func(context.Context)) {
 	t.Helper()
-	select {
-	case status := <-statusCh:
-		return status
-	case <-time.After(time.Second):
-		t.Fatal("status was not updated")
-		return ""
+	stop := startInBubble(t, run)
+	synctest.Wait()
+	stop()
+}
+
+// startInBubble starts a worker loop and returns a function that cancels it
+// and waits for it to return.
+func startInBubble(t *testing.T, run func(context.Context)) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
 	}
 }
 
@@ -251,11 +191,9 @@ func TestEventWorkerReleasesSubscriptions(t *testing.T) {
 				repo := coremocks.NewEventContainerRepo(t)
 				dockerAPI := coremocks.NewEventDockerAPI(t)
 				rebalancer := coremocks.NewContainerRebalancer(t)
-				cfg := coremocks.NewEventConfigProvider(t)
-				settings := staticConfig{}.Get()
+				settings := testSystemConfig()
 				settings.EventSyncIntervalSeconds = 1
 				settings.EventReconnectDelaySeconds = 2
-				cfg.EXPECT().Get().Return(settings)
 				var syncs int
 				repo.EXPECT().GetNonExited(mock.Anything).RunAndReturn(func(ctx context.Context) ([]model.Container, error) {
 					assert.NoError(t, ctx.Err(), "reconciliation must retain the application context")
@@ -288,7 +226,7 @@ func TestEventWorkerReleasesSubscriptions(t *testing.T) {
 					}()
 					return sub.messages, sub.errors
 				})
-				worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, cfg, slog.Default())
+				worker := service.NewEventWorker(repo, nil, dockerAPI, rebalancer, nil, coretest.StaticConfig{Config: settings}, slog.Default())
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				done := make(chan struct{})

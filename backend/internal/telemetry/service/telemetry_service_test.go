@@ -77,8 +77,6 @@ func TestStreamLogsRejectsUnavailableStatuses(t *testing.T) {
 			stream, err := svc.StreamLogs(userCtx(), containerID, model.LogOptions{})
 			require.Nil(t, stream)
 			require.ErrorIs(t, err, apperrors.ErrConflict)
-			docker.AssertNotCalled(t, "EnsureContainerTarget", mock.Anything, mock.Anything)
-			docker.AssertNotCalled(t, "StreamLogs", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -95,7 +93,6 @@ func TestStreamLogsErrorsAndLimiterRelease(t *testing.T) {
 		stream, err := svc.StreamLogs(context.Background(), containerID, model.LogOptions{})
 		require.Nil(t, stream)
 		require.ErrorIs(t, err, apperrors.ErrUnauthorized)
-		docker.AssertNotCalled(t, "EnsureContainerTarget", mock.Anything, mock.Anything)
 	})
 
 	t.Run("core and docker errors are propagated", func(t *testing.T) {
@@ -241,7 +238,6 @@ func TestOpenTerminalRejectsInvalidOrUnavailableRequests(t *testing.T) {
 			require.Nil(t, session)
 			require.Empty(t, cfg)
 			require.ErrorIs(t, err, tt.wantErr)
-			docker.AssertNotCalled(t, "OpenTerminal", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/require"
 )
@@ -21,13 +22,12 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	buildRepo := coremocks.NewStatsBuildRepository(t)
 	projRepo := coremocks.NewStatsProjectRepository(t)
 	metrics := coremocks.NewStatsMetricsProvider(t)
-	cfgData := staticConfig{}.Get()
+	cfgData := testSystemConfig()
 	cfgData.DefaultMemoryReservation = 1
 	cfgData.OvercommitFactor = 1
 	cfgData.BuildMemoryBytes = 100
 	cfgData.HostMinFreeDiskBytes = 100
-	cfg := coremocks.NewConfigManager(t)
-	cfg.EXPECT().Get().Return(cfgData).Maybe()
+	cfg := coretest.StaticConfig{Config: cfgData}
 
 	contRepo.EXPECT().GetTotalSystemReservedMemory(ctx).Return(int64(3*bytesPerMBForTest), nil)
 	contRepo.EXPECT().GetSystemStatusCounts(ctx).Return(model.ContainerStatusCounts{

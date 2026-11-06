@@ -9,6 +9,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -17,7 +18,7 @@ import (
 
 func TestContainerServiceCreateUsesNameAsDefaultNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
-	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
+	repo, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
 
 	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.Anything, mock.Anything, false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {
@@ -27,12 +28,11 @@ func TestContainerServiceCreateUsesNameAsDefaultNetworkAlias(t *testing.T) {
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.ContainerCreateParams{Name: "api", ImageTag: "nginx:latest"})
 	require.NoError(t, err)
 	require.Equal(t, "api", saved.NetworkAlias)
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 	ownerID := uuid.New()
-	repo, dockerAPI, svc := newContainerCreateService(t, ownerID)
+	repo, svc := newContainerCreateService(t, ownerID)
 	var saved model.Container
 
 	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.AnythingOfType("model.Container"), mock.Anything, mock.Anything, mock.Anything, false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {
@@ -46,7 +46,6 @@ func TestContainerServiceCreatePreservesExplicitNetworkAlias(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "api", saved.NetworkAlias)
-	dockerAPI.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) {
@@ -84,7 +83,6 @@ func TestContainerServiceCleanupUserNetworkIfUnusedKeepsNetwork(t *testing.T) {
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil)
 
 	require.NoError(t, svc.CleanupUserNetworkIfUnused(context.Background(), ownerID))
-	dockerAPI.AssertNotCalled(t, "RemoveNetwork", mock.Anything, mock.Anything)
 }
 
 func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
@@ -112,7 +110,7 @@ func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 		Images:       newContainerImageRepository(t),
 		Docker:       coremocks.NewContainerDockerAPI(t),
 		Metrics:      coremocks.NewHostMetricsProvider(t),
-		Config:       coremocks.NewConfigManager(t),
+		Config:       testConfig(),
 		Users:        coremocks.NewUserInfoProvider(t),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
@@ -135,15 +133,15 @@ func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 	require.Len(t, containers, 1)
 }
 
-func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.ContainerRepository, *coremocks.ContainerDockerAPI, *service.ContainerService) {
+// newContainerCreateService builds a service whose create path is admitted.
+// Its strict Docker mock fails the test if a create request reaches Docker.
+func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.ContainerRepository, *service.ContainerService) {
 	t.Helper()
 	repo := newContainerRepository(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	imageRepo := newContainerImageRepository(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
-	cfg := coremocks.NewConfigManager(t)
 	users := coremocks.NewUserInfoProvider(t)
-	cfg.EXPECT().Get().Return(containerCreateConfig()).Maybe()
+	cfg := coretest.StaticConfig{Config: containerCreateConfig()}
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
 	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
@@ -153,10 +151,10 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	metrics.EXPECT().GetTotalMemory().Return(int64(1024*1024*1024), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
 	imageRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 0, nil)
-	return repo, dockerAPI, newTestContainerService(t, service.ContainerServiceDeps{
+	return repo, newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
 		Images:       imageRepo,
-		Docker:       dockerAPI,
+		Docker:       coremocks.NewContainerDockerAPI(t),
 		Metrics:      metrics,
 		Config:       cfg,
 		Users:        users,
@@ -166,7 +164,7 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 }
 
 func containerCreateConfig() config.SystemConfig {
-	cfg := staticConfig{}.Get()
+	cfg := testSystemConfig()
 	cfg.MaxContainersPerUser = 10
 	cfg.DefaultMemoryReservation = 128 * 1024 * 1024
 	cfg.OvercommitFactor = 1

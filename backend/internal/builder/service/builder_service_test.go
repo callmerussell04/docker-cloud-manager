@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/storage"
 	"io"
 	"log/slog"
 	"os"
@@ -13,6 +12,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/storage"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
@@ -100,7 +101,6 @@ func TestBuilderServiceResumesFinalizationAfterRestart(t *testing.T) {
 	expectLogUpload(h, msg, 1)
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(apperrors.ErrUnavailable).Once()
 	require.ErrorIs(t, h.service.HandleBuildMessage(context.Background(), msg), apperrors.ErrUnavailable)
-	h.objects.AssertNotCalled(t, "DeleteObject", mock.Anything, msg.ArchiveObjectKey)
 	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
 	var err error
 	h.results, err = storage.NewResultStore(h.resultDir)
@@ -168,9 +168,6 @@ func TestBuilderServiceRefusesBuildWhenNetworkAdmissionFails(t *testing.T) {
 			// rather than claiming it or recording a platform failure.
 			require.ErrorIs(t, err, apperrors.ErrUnavailable)
 			require.ErrorIs(t, err, tt.admission)
-			h.core.AssertNotCalled(t, "StartBuildRecord", mock.Anything, mock.Anything)
-			h.docker.AssertNotCalled(t, "RunBuildContainer", mock.Anything, mock.Anything)
-			h.core.AssertNotCalled(t, "CompleteBuildRecord", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 			_, journaled, loadErr := h.results.Load(context.Background(), msg.BuildID)
 			require.NoError(t, loadErr)
 			require.False(t, journaled)
@@ -812,7 +809,6 @@ func TestBuilderServiceRetainsFinalizationUntilCoreAccepts(t *testing.T) {
 			_, found, err := h.results.Load(context.Background(), msg.BuildID)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantRetry, found)
-			h.docker.AssertNotCalled(t, "RunBuildContainer", mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -835,7 +831,6 @@ func TestBuilderServiceRetainsOutcomeWhenJournalWriteFails(t *testing.T) {
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
 	expectLogUpload(h, msg, 1)
 	require.ErrorContains(t, h.service.HandleBuildMessage(context.Background(), msg), "persist build finalization")
-	h.core.AssertNotCalled(t, "CompleteBuildRecord", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	h.logs.AssertNotCalled(t, "CleanUp", msg.BuildID)
 	results.EXPECT().Save(mock.Anything, msg.BuildID, result).Return(nil).Once()
 	results.EXPECT().Delete(mock.Anything, msg.BuildID).Return(nil).Once()

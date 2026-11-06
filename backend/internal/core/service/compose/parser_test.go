@@ -1,7 +1,5 @@
 package compose_test
 
-import "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
-
 import (
 	"context"
 	"errors"
@@ -12,7 +10,9 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
 
 func TestDocumentedComposeExamplesRemainValid(t *testing.T) {
@@ -513,4 +513,68 @@ func findComposeService(t *testing.T, services []model.ComposeService, name stri
 	}
 	t.Fatalf("service %q not found", name)
 	return model.ComposeService{}
+}
+
+// FuzzParser checks that untrusted Compose YAML never panics the parser, fails
+// only as a client error, and that an accepted project keeps every build path
+// inside the repository and every image tag valid.
+func FuzzParser(f *testing.F) {
+	for _, seed := range []struct{ yaml, baseDir string }{
+		{"services:\n  web:\n    image: nginx:alpine\n", ""},
+		{"services:\n  web:\n    build:\n      context: ./app\n      dockerfile: Dockerfile\n    image: web:latest\n", "deploy"},
+		{"services:\n  web:\n    build: ../outside\n", ""},
+		{"services:\n  web:\n    build:\n      context: app\n      dockerfile: ../../Dockerfile\n", "deploy"},
+		{"services:\n  web:\n    build: /abs\n", "../up"},
+		{"services:\n  web:\n    image: registry:5000/app\n    privileged: true\n", ""},
+		{"services:\n  a:\n    image: nginx\n    depends_on:\n      b:\n        condition: service_healthy\n  b:\n    image: redis\n", ""},
+		{"volumes:\n  data:\n    external: true\nservices:\n  db:\n    image: postgres\n    volumes:\n      - data:/var/lib/postgresql/data\n", ""},
+		{"x: &a [1, *a]\n", ""},
+		{"", "."},
+	} {
+		f.Add([]byte(seed.yaml), seed.baseDir)
+	}
+	f.Fuzz(func(t *testing.T, yaml []byte, baseDir string) {
+		project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, baseDir)
+		if err != nil {
+			if !errors.Is(err, apperrors.ErrBadRequest) && !errors.Is(err, apperrors.ErrAlreadyExists) {
+				t.Fatalf("parser error is not a client error: %v", err)
+			}
+			return
+		}
+		for _, service := range project.Services {
+			if err := validation.ImageTag(service.ImageTag); err != nil {
+				t.Fatalf("service %q accepted with invalid image tag %q", service.Name, service.ImageTag)
+			}
+			for _, path := range []string{service.BuildContext, service.Dockerfile} {
+				if path == "" {
+					continue
+				}
+				clean := filepath.ToSlash(filepath.Clean(path))
+				if filepath.IsAbs(path) || clean == ".." || strings.HasPrefix(clean, "../") {
+					t.Fatalf("service %q accepted with build path %q outside the repository", service.Name, path)
+				}
+			}
+		}
+	})
+}
+
+// compose-go assumes some top-level sections are maps; malformed sections must
+// fail as client errors instead of panicking the Core process.
+func TestParserRejectsMalformedTopLevelSections(t *testing.T) {
+	t.Parallel()
+	for _, yaml := range []string{
+		"services:\n",
+		"services: web\n",
+		"networks: 1\nservices:\n  web:\n    image: nginx\n",
+		"services:\n  web:\n",
+		"volumes: [data]\nservices:\n  web:\n    image: nginx\n",
+	} {
+		t.Run(yaml, func(t *testing.T) {
+			t.Parallel()
+			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", []byte(yaml), nil, "")
+			if !errors.Is(err, apperrors.ErrBadRequest) {
+				t.Fatalf("ParseAndValidateWithBase() error = %v, want bad request", err)
+			}
+		})
+	}
 }

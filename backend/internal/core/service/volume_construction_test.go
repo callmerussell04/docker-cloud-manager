@@ -1,45 +1,25 @@
 package service_test
 
 import (
-	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/require"
 )
 
 func TestVolumeServiceRejectsMissingDependencies(t *testing.T) {
-	for _, field := range []struct{ field, message string }{
-		{"Repository", "repository"},
-		{"Docker", "docker"},
-		{"Config", "config"},
-		{"Lifecycle", "lifecycle"},
-		{"Users", "users"},
-		{"ImageRepo", "images"},
-		{"DiskMetrics", "disk metrics"},
-	} {
-		for _, typedNil := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/typed_nil=%t", field.field, typedNil), func(t *testing.T) {
-				deps := volumeServiceDeps(t)
-				value := reflect.ValueOf(&deps).Elem().FieldByName(field.field)
-				if typedNil {
-					concrete := reflect.TypeOf(value.Interface())
-					if concrete.Kind() != reflect.Pointer {
-						concrete = reflect.PointerTo(concrete)
-					}
-					value.Set(reflect.Zero(concrete))
-				} else {
-					value.SetZero()
-				}
-				svc, err := service.NewVolumeService(deps)
-				require.ErrorContains(t, err, field.message+" is required")
-				require.Nil(t, svc)
-			})
-		}
-	}
+	depstest.RequireRejectsMissing(t, volumeServiceDeps, service.NewVolumeService, map[string]string{
+		"Repository":  "repository",
+		"Docker":      "docker",
+		"Config":      "config",
+		"Lifecycle":   "lifecycle",
+		"Users":       "users",
+		"ImageRepo":   "images",
+		"DiskMetrics": "disk metrics",
+	})
 }
 
 func TestVolumeServiceAcceptsRequiredDependencies(t *testing.T) {
@@ -53,7 +33,7 @@ func volumeServiceDeps(t *testing.T) service.VolumeServiceDeps {
 	return service.VolumeServiceDeps{
 		Repository:  coremocks.NewVolumeRepository(t),
 		Docker:      coremocks.NewVolumeDockerAPI(t),
-		Config:      staticConfig{},
+		Config:      testConfig(),
 		Lifecycle:   coremocks.NewVolumeLifecycleRepository(t),
 		Users:       coremocks.NewUserInfoProvider(t),
 		ImageRepo:   coremocks.NewVolumeImageDiskRepository(t),

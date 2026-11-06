@@ -15,6 +15,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -212,27 +213,16 @@ func TestRegistryCleanupDecidesJobsFromLockedFacts(t *testing.T) {
 }
 
 func TestRegistryCleanupWorkerRejectsMissingDependencies(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		mutate  func(*service.RegistryCleanupWorkerDeps)
-		message string
-	}{
-		{"repository", func(d *service.RegistryCleanupWorkerDeps) { d.Repository = nil }, "repository is required"},
-		{"typed nil repository", func(d *service.RegistryCleanupWorkerDeps) { d.Repository = (*coremocks.RegistryCleanupRepository)(nil) }, "repository is required"},
-		{"registry", func(d *service.RegistryCleanupWorkerDeps) { d.Registry = nil }, "registry is required"},
-		{"typed nil registry", func(d *service.RegistryCleanupWorkerDeps) { d.Registry = (*coremocks.ImageRegistryAPI)(nil) }, "registry is required"},
-		{"config", func(d *service.RegistryCleanupWorkerDeps) { d.Config = nil }, "config is required"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			deps := service.RegistryCleanupWorkerDeps{
-				Repository: coremocks.NewRegistryCleanupRepository(t),
-				Registry:   coremocks.NewImageRegistryAPI(t),
-				Config:     cleanupConfig,
-			}
-			tc.mutate(&deps)
-			worker, err := service.NewRegistryCleanupWorker(deps)
-			require.ErrorContains(t, err, tc.message)
-			require.Nil(t, worker)
-		})
+	valid := func(t *testing.T) service.RegistryCleanupWorkerDeps {
+		return service.RegistryCleanupWorkerDeps{
+			Repository: coremocks.NewRegistryCleanupRepository(t),
+			Registry:   coremocks.NewImageRegistryAPI(t),
+			Config:     cleanupConfig,
+		}
 	}
+	depstest.RequireRejectsMissing(t, valid, service.NewRegistryCleanupWorker, map[string]string{
+		"Repository": "repository",
+		"Registry":   "registry",
+		"Config":     "config",
+	})
 }

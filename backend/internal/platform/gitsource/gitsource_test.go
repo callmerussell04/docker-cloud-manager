@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -39,6 +42,44 @@ func TestValidateRepoURL(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+// FuzzValidateRepoURL checks that an accepted URL is an allowed https host
+// with a clean path and no credentials, query or fragment, and that its
+// normalized form validates to the same repository.
+func FuzzValidateRepoURL(f *testing.F) {
+	allowed := []string{"github.com", "gitlab.com"}
+	for _, seed := range []string{
+		"https://github.com/acme/app.git", "https://GitHub.com:443/acme/app", "https://github.com:22/acme/app",
+		"https://user:pass@github.com/acme/app", "http://github.com/acme/app", "https://evil.example/acme/app",
+		"https://github.com/acme/../app", "https://github.com/acme/%2e%2e/app", "https://github.com/acme//app",
+		"https://github.com/acme/app?x=1", "https://github.com/acme/app#frag", "https://github.com/a%2Fb",
+		"https://github.com/acme/a%20b", "https://github.com", " https://github.com/acme/app ", "",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		info, err := gitsource.ValidateRepoURL(raw, allowed)
+		if err != nil {
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			return
+		}
+		require.Contains(t, allowed, info.Host)
+		parsed, err := url.Parse(info.URL)
+		require.NoError(t, err)
+		require.Equal(t, "https", parsed.Scheme)
+		require.Equal(t, info.Host, parsed.Hostname())
+		require.Nil(t, parsed.User)
+		require.Empty(t, parsed.RawQuery)
+		require.Empty(t, parsed.Fragment)
+		require.False(t, slices.ContainsFunc(strings.Split(info.Path, "/"), func(segment string) bool {
+			return segment == "" || segment == "." || segment == ".."
+		}), "path %q must not contain empty, current or parent segments", info.Path)
+
+		again, err := gitsource.ValidateRepoURL(info.URL, allowed)
+		require.NoError(t, err)
+		require.Equal(t, info, again)
+	})
 }
 
 func TestValidateRefAndRelativePath(t *testing.T) {

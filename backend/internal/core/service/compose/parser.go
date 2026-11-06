@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -102,17 +103,31 @@ func (p *Parser) loadComposeProject(ctx context.Context, projectName string, yam
 		},
 	}
 
-	composeModel, err := loader.LoadModelWithContext(ctx, config, options...)
+	composeModel, err := recoverComposeGo(func() (map[string]any, error) {
+		return loader.LoadModelWithContext(ctx, config, options...)
+	})
 	if err != nil {
 		return nil, err
 	}
 	sanitizeComposeModel(composeModel)
 
-	project, err := loader.ModelToProject(composeModel, loader.ToOptions(&config, options), config)
-	if err != nil {
-		return nil, err
-	}
-	return project, nil
+	return recoverComposeGo(func() (*types.Project, error) {
+		return loader.ModelToProject(composeModel, loader.ToOptions(&config, options), config)
+	})
+}
+
+// recoverComposeGo runs one compose-go call. compose-go type-asserts sections
+// it expects to be maps and panics on untrusted input such as `services:` with
+// no value; that is reported as a malformed file instead of crashing the
+// request or deployment worker. Panics in DCM's own code are not recovered.
+func recoverComposeGo[T any](call func() (T, error)) (result T, err error) {
+	defer func() {
+		if recover() != nil {
+			var zero T
+			result, err = zero, errors.New("compose file is malformed")
+		}
+	}()
+	return call()
 }
 
 func sanitizeComposeModel(composeModel map[string]any) {

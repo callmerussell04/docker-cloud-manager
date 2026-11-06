@@ -152,7 +152,6 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 
 	_, err := svc.OpenBuildLogs(ctx, buildID)
 	require.Error(t, err)
-	objects.AssertNotCalled(t, "OpenObject", mock.Anything, mock.Anything)
 }
 
 func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
@@ -172,7 +171,6 @@ func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 	_, started, err := svc.StartBuildRecord(context.Background(), buildID)
 	require.NoError(t, err)
 	require.False(t, started)
-	repo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
@@ -190,8 +188,6 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 	repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusFailed}, nil)
 
 	require.NoError(t, svc.CompleteBuildRecord(context.Background(), buildID, imageID, model.BuildStatusSuccess, 0))
-	imageRepo.AssertNotCalled(t, "UpdateBuildAndImageSizeTx", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	imageRepo.AssertNotCalled(t, "MarkBuildFailedAndDeleteImageTx", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessfulBuilds(t *testing.T) {
@@ -315,7 +311,6 @@ func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) 
 	require.NoError(t, svc.CancelBuildRecord(ctx, buildID))
 	require.Equal(t, model.BuildStatusCanceled, failedStatus)
 	require.Equal(t, []string{"build-archives/source.zip"}, deleted)
-	deployments.AssertNotCalled(t, "CancelDeploymentForBuild", mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {

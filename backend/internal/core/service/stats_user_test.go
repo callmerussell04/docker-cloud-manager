@@ -7,6 +7,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -21,10 +22,9 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	buildRepo := coremocks.NewStatsBuildRepository(t)
 	projRepo := coremocks.NewStatsProjectRepository(t)
 	users := coremocks.NewUserInfoProvider(t)
-	cfg := coremocks.NewConfigManager(t)
 	var containerListOpts model.ListOptions
 
-	cfg.EXPECT().Get().Return(staticConfig{}.Get())
+	cfg := coretest.StaticConfig{Config: testSystemConfig()}
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 512, QuotaDiskMB: 100}, nil)
 	contRepo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(256), nil)
 	contRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(3, nil)
@@ -49,13 +49,13 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, stats.ContainersTotal)
 	require.Equal(t, 2, stats.ContainersRunning)
-	require.Equal(t, staticConfig{}.Get().MaxContainersPerUser, stats.ContainersQuota)
+	require.Equal(t, testSystemConfig().MaxContainersPerUser, stats.ContainersQuota)
 	require.EqualValues(t, 256, stats.RamUsedBytes)
 	require.EqualValues(t, 512*1024*1024, stats.RamQuotaBytes)
 	require.Equal(t, 12, stats.DiskUsedMB)
 	require.Equal(t, 100, stats.DiskQuotaMB)
 	require.Equal(t, 2, stats.VolumesTotal)
-	require.Equal(t, staticConfig{}.Get().MaxVolumesPerUser, stats.VolumesQuota)
+	require.Equal(t, testSystemConfig().MaxVolumesPerUser, stats.VolumesQuota)
 	require.Equal(t, 4, stats.ImagesTotal)
 	require.Equal(t, 5, stats.ProjectsTotal)
 	require.NotNil(t, containerListOpts.OwnerID)

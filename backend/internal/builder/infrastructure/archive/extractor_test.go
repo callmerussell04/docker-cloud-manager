@@ -6,8 +6,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/archive"
@@ -89,6 +92,140 @@ func TestExtractorRejectsUnsupportedTraversalOversizeAndCorruptArchives(t *testi
 	err = extractor.Extract(corruptZip, filepath.Join(dir, "corrupt-out"), 1024)
 	require.Error(t, err)
 	require.False(t, errors.Is(err, apperrors.ErrInvalidFileFormat))
+}
+
+// FuzzExtractEntryNames builds well-formed archives from fuzzed entry names,
+// so the fuzzer explores path handling rather than archive framing.
+func FuzzExtractEntryNames(f *testing.F) {
+	for _, seed := range []struct {
+		format uint8
+		names  string
+	}{
+		{0, "Dockerfile\nsrc/main.go"}, {1, "../escape"}, {2, "a/../../escape"}, {0, "/abs/path"},
+		{1, "dir/\ndir/file"}, {2, "./x\n."}, {0, "a/b/../../../c"}, {1, ".."}, {2, "a\\..\\..\\b"},
+	} {
+		f.Add(seed.format, seed.names)
+	}
+	f.Fuzz(func(t *testing.T, format uint8, names string) {
+		kind := fuzzArchiveKinds[int(format)%len(fuzzArchiveKinds)]
+		entries := strings.Split(names, "\n")
+		data, err := kind.build(entries)
+		if err != nil {
+			t.Skip("the archive writer rejects these names")
+		}
+		extractErr := requireExtractionContained(t, kind.file, data)
+		// The walk only sees escapes that stay inside the test's temporary
+		// tree; the names show an escape of any depth.
+		if slices.ContainsFunc(entries, escapesRoot) {
+			require.Error(t, extractErr, "an archive with an escaping entry must be rejected")
+		}
+	})
+}
+
+// FuzzExtractRawArchive feeds arbitrary bytes to the archive readers.
+func FuzzExtractRawArchive(f *testing.F) {
+	for i, kind := range fuzzArchiveKinds {
+		for _, names := range [][]string{{"Dockerfile"}, {"../escape"}, {"dir/", "dir/file"}} {
+			data, err := kind.build(names)
+			require.NoError(f, err)
+			f.Add(uint8(i), data)
+		}
+	}
+	f.Fuzz(func(t *testing.T, format uint8, data []byte) {
+		_ = requireExtractionContained(t, fuzzArchiveKinds[int(format)%len(fuzzArchiveKinds)].file, data)
+	})
+}
+
+var fuzzArchiveKinds = []struct {
+	file  string
+	build func(names []string) ([]byte, error)
+}{
+	{"source.zip", buildZip},
+	{"source.tar", func(names []string) ([]byte, error) { return buildTar(names, false) }},
+	{"source.tar.gz", func(names []string) ([]byte, error) { return buildTar(names, true) }},
+}
+
+func buildZip(names []string) ([]byte, error) {
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+	for _, name := range names {
+		entry, err := w.Create(name)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasSuffix(name, "/") {
+			if _, err := entry.Write([]byte("x")); err != nil {
+				return nil, err
+			}
+		}
+	}
+	err := w.Close()
+	return buf.Bytes(), err
+}
+
+func buildTar(names []string, gzipped bool) ([]byte, error) {
+	var buf bytes.Buffer
+	var gz *gzip.Writer
+	w := tar.NewWriter(&buf)
+	if gzipped {
+		gz = gzip.NewWriter(&buf)
+		w = tar.NewWriter(gz)
+	}
+	for _, name := range names {
+		header := &tar.Header{Name: name, Mode: 0o644, Typeflag: tar.TypeReg, Size: 1}
+		if strings.HasSuffix(name, "/") {
+			header = &tar.Header{Name: name, Mode: 0o755, Typeflag: tar.TypeDir}
+		}
+		if err := w.WriteHeader(header); err != nil {
+			return nil, err
+		}
+		if header.Size > 0 {
+			if _, err := w.Write([]byte("x")); err != nil {
+				return nil, err
+			}
+		}
+	}
+	err := w.Close()
+	if gz != nil {
+		err = errors.Join(err, gz.Close())
+	}
+	return buf.Bytes(), err
+}
+
+// escapesRoot reports whether an entry name resolves outside the extraction root.
+func escapesRoot(name string) bool {
+	rel := filepath.Clean(filepath.Join("root", name))
+	return rel != "root" && !strings.HasPrefix(rel, "root"+string(filepath.Separator))
+}
+
+// requireExtractionContained extracts below a deeply nested root and fails if
+// anything appears beside it or a symlink appears inside it, whether or not
+// extraction succeeded. It returns the extraction error.
+func requireExtractionContained(t *testing.T, archiveName string, data []byte) error {
+	t.Helper()
+	base := t.TempDir()
+	archivePath := filepath.Join(base, archiveName)
+	require.NoError(t, os.WriteFile(archivePath, data, 0o600))
+	root := filepath.Join(append([]string{base}, slices.Repeat([]string{"outer"}, 8)...)...)
+	root = filepath.Join(root, "root")
+	require.NoError(t, os.MkdirAll(root, 0o755))
+
+	extractErr := archive.NewExtractor().Extract(archivePath, root, 1<<20)
+
+	require.NoError(t, filepath.WalkDir(base, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == archivePath || (path != root && strings.HasPrefix(root, path+string(filepath.Separator))) {
+			return nil // the archive itself and the directories above the root
+		}
+		rel, err := filepath.Rel(root, path)
+		require.NoError(t, err)
+		require.False(t, rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)), "%s escaped the extraction root", path)
+		require.Zero(t, entry.Type()&fs.ModeSymlink, "%s is a symlink", path)
+		return nil
+	}))
+	return extractErr
 }
 
 func writeZipArchive(path string, files map[string]string) (err error) {

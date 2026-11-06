@@ -32,7 +32,6 @@ func TestContainerCreateImageSourcePolicy(t *testing.T) {
 				require.Equal(t, http.StatusAccepted, resp.Code)
 			} else {
 				require.Equal(t, http.StatusBadRequest, resp.Code)
-				svc.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 			}
 		})
 	}

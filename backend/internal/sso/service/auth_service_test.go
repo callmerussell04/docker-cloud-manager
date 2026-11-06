@@ -317,19 +317,22 @@ func TestAuthServiceOIDCRejectsInvalidStateExpiredStateAndLastAdminDowngrade(t *
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
 	provider := ssomocks.NewOIDCProvider(t)
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, service.Config{
 		OIDCEnabled:      true,
 		OIDCProviderName: "keycloak",
 		OIDCDefaultRole:  model.RoleUser,
-		OIDCStateTTL:     time.Nanosecond,
+		OIDCStateTTL:     time.Minute,
+		Now:              func() time.Time { return now },
 	})
 	expectAuthCodeURL(provider)
 
-	state, binding := startOIDCTestLogin(t, svc)
+	state, _ := startOIDCTestLogin(t, svc)
 	_, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, "bad-binding")
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 
-	time.Sleep(time.Millisecond)
+	state, binding := startOIDCTestLogin(t, svc)
+	now = now.Add(time.Minute + time.Nanosecond)
 	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 

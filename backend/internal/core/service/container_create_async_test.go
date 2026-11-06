@@ -65,14 +65,14 @@ func TestContainerServiceQueuedExposeKeepsRecordedGenerationWhenLaterWriteFails(
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
 				Repository: store,
 				Docker:     dockerAPI,
-				Config:     staticConfig{},
+				Config:     testConfig(),
 				Logger:     slog.Default(),
 			})
 			msg := containerLifecycleMessage(operationID, containerID, ownerID, model.OperationExpose)
 			msg.PreviousStatus = model.ContainerStatusRunning
 			msg.DomainPrefix = "app"
 			msg.InternalPort = 8080
-			worker := service.NewContainerCreateWorker(svc, staticConfig{}, slog.New(slog.DiscardHandler))
+			worker := service.NewContainerCreateWorker(svc, testConfig(), slog.New(slog.DiscardHandler))
 
 			err := worker.HandleMessage(ctx, msg)
 

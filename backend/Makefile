@@ -165,6 +165,24 @@ $(GOLANGCI_LINT):
 lint: check-generated $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./... --config=./.golangci.yml
 
+# Real fuzzing, one target at a time, FUZZ_TIME each. Saved inputs under each
+# package's testdata/fuzz replay in every go test run; new crashers land there.
+FUZZ_TIME ?= 30s
+FUZZ_TARGETS = \
+	./internal/core/service/compose:FuzzParser \
+	./internal/builder/infrastructure/archive:FuzzExtractEntryNames \
+	./internal/builder/infrastructure/archive:FuzzExtractRawArchive \
+	./internal/platform/gitsource:FuzzValidateRepoURL \
+	./internal/platform/imageref:FuzzParseTag
+
+.PHONY: fuzz
+fuzz:
+	@set -e; for target in $(FUZZ_TARGETS); do \
+		pkg=$${target%%:*}; name=$${target##*:}; \
+		printf 'fuzzing %s %s for %s\n' "$$pkg" "$$name" '$(FUZZ_TIME)'; \
+		go test -run='^$$' -fuzz="^$$name\$$" -fuzztime='$(FUZZ_TIME)' "$$pkg"; \
+	done
+
 .PHONY: check-format check-tidy vet test-race vulncheck verify
 check-format:
 	@unformatted=$$(gofmt -l .); \

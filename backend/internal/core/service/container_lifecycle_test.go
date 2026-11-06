@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
@@ -110,9 +109,9 @@ func TestQueuedContainerLifecycleOutcomes(t *testing.T) {
 			store.SetFaults(tc.faults)
 			docker := coremocks.NewContainerDockerAPI(t)
 			held := tc.docker(docker)
-			cfg := lifecycleConfig{ttlHours: 24}
+			cfg := lifecycleConfig(24)
 			if tc.ttlDisabled {
-				cfg.ttlHours = 0
+				cfg = lifecycleConfig(0)
 			}
 			images := newContainerImageRepository(t)
 			images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
@@ -528,11 +527,10 @@ func noCreateDockerCalls(*coremocks.ContainerDockerAPI) []string { return nil }
 
 func held(ids ...string) []string { return ids }
 
-type lifecycleConfig struct{ ttlHours int64 }
-
-func (c lifecycleConfig) Get() config.SystemConfig {
-	cfg := staticConfig{}.Get()
-	cfg.ContainerTTLHours = c.ttlHours
+// lifecycleConfig is testConfig with the given container TTL.
+func lifecycleConfig(ttlHours int64) coretest.StaticConfig {
+	cfg := testConfig()
+	cfg.Config.ContainerTTLHours = ttlHours
 	return cfg
 }
 
@@ -552,7 +550,7 @@ func TestQueuedCreateCanceledByDeleteKeepsTheCancellation(t *testing.T) {
 	docker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Once()
 	images := newContainerImageRepository(t)
 	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
-	cfg := lifecycleConfig{ttlHours: 24}
+	cfg := lifecycleConfig(24)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: store,
 		Images:     images,
@@ -587,7 +585,7 @@ func TestQueuedCreateLeavesOperationRunningWhenItsFenceCannotBeRead(t *testing.T
 	}).Once()
 	images := newContainerImageRepository(t)
 	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
-	cfg := lifecycleConfig{ttlHours: 24}
+	cfg := lifecycleConfig(24)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: store,
 		Images:     images,

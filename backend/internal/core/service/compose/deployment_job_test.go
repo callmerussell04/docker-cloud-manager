@@ -16,6 +16,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -564,7 +565,7 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 		images:     &coordinatorImages{},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := staticConfig{cfg: config.SystemConfig{
+	cfg := coretest.StaticConfig{Config: config.SystemConfig{
 		ImageBuildsEnabled:                  true,
 		ComposeUploadMaxBytes:               1024 * 1024,
 		ComposeCoordinatorIntervalSeconds:   1,

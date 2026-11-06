@@ -1,13 +1,13 @@
 package service_test
 
 import (
-	"fmt"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
-	"reflect"
 	"testing"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/mock"
 
@@ -16,33 +16,19 @@ import (
 )
 
 func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
-	fields := []struct{ field, message string }{
-		{"Repository", "repository"}, {"Images", "images"}, {"Registry", "registry"},
-		{"Users", "users"}, {"Config", "config"}, {"VolumeRepo", "volumes"},
-		{"StagedObjects", "staged objects"}, {"Containers", "containers"},
-		{"DiskMetrics", "disk metrics"}, {"HostMetrics", "host metrics"},
-		{"RegistryAuth", "registry authorization"},
-	}
-	for _, field := range fields {
-		for _, typedNil := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/typed_nil=%t", field.field, typedNil), func(t *testing.T) {
-				deps := buildServiceDeps(t)
-				value := reflect.ValueOf(&deps).Elem().FieldByName(field.field)
-				if typedNil {
-					concrete := reflect.TypeOf(value.Interface())
-					if concrete.Kind() != reflect.Pointer {
-						concrete = reflect.PointerTo(concrete)
-					}
-					value.Set(reflect.Zero(concrete))
-				} else {
-					value.SetZero()
-				}
-				svc, err := service.NewBuildService(deps)
-				require.ErrorContains(t, err, field.message+" is required")
-				require.Nil(t, svc)
-			})
-		}
-	}
+	depstest.RequireRejectsMissing(t, buildServiceDeps, service.NewBuildService, map[string]string{
+		"Repository":    "repository",
+		"Images":        "images",
+		"Registry":      "registry",
+		"Users":         "users",
+		"Config":        "config",
+		"VolumeRepo":    "volumes",
+		"StagedObjects": "staged objects",
+		"Containers":    "containers",
+		"DiskMetrics":   "disk metrics",
+		"HostMetrics":   "host metrics",
+		"RegistryAuth":  "registry authorization",
+	})
 }
 
 func TestBuildServiceAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -49,7 +50,6 @@ func TestStartDeploymentRejectsArchiveBuildWhenImageBuildsDisabled(t *testing.T)
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
 	_, err := o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, gitComposeWithBuild)))
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
-	repo.AssertNotCalled(t, "CreateWithComposeDeploymentJob", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func newComposeOrchestratorForTest(t *testing.T, repo *composemocks.ProjectRepository) *compose.Orchestrator {
@@ -92,8 +92,7 @@ func composeOrchestratorDeps(t *testing.T, repo *composemocks.ProjectRepository,
 		}).
 		Return(nil).
 		Maybe()
-	configProvider := composemocks.NewConfigProvider(t)
-	configProvider.EXPECT().Get().Return(cfg).Maybe()
+	configProvider := coretest.StaticConfig{Config: cfg}
 	counter := composemocks.NewActiveComposeDeploymentCounter(t)
 	counter.EXPECT().CountActiveComposeDeploymentsByOwner(mock.Anything, mock.Anything).Return(0, nil).Maybe()
 	capacity := composemocks.NewCapacityChecker(t)

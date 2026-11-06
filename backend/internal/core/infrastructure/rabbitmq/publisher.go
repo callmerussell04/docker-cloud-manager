@@ -16,6 +16,7 @@ const publishAttemptTimeout = 10 * time.Second
 type Publisher struct {
 	url      string
 	topology Topology
+	dial     func(ctx context.Context, network, addr string) (net.Conn, error)
 	gate     chan struct{}
 	lifetime context.Context
 	cancel   context.CancelFunc
@@ -25,11 +26,24 @@ type Publisher struct {
 	confirms <-chan amqp.Confirmation
 }
 
+// PublisherOption adjusts how a Publisher reaches the broker.
+type PublisherOption func(*Publisher)
+
+// WithDialer replaces the TCP dialer used for each broker connection, for
+// example with an in-memory pipe whose blocking a fake clock can observe.
+func WithDialer(dial func(ctx context.Context, network, addr string) (net.Conn, error)) PublisherOption {
+	return func(p *Publisher) { p.dial = dial }
+}
+
 // NewPublisher returns a publisher that declares topology before its first
 // publish on each connection.
-func NewPublisher(url string, topology Topology) *Publisher {
+func NewPublisher(url string, topology Topology, opts ...PublisherOption) *Publisher {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Publisher{url: url, topology: topology.withDefaults(), gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel}
+	p := &Publisher{url: url, topology: topology.withDefaults(), dial: (&net.Dialer{}).DialContext, gate: make(chan struct{}, 1), lifetime: lifetime, cancel: cancel}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 func (p *Publisher) Publish(ctx context.Context, exchange, routingKey string, body []byte) (err error) {
@@ -121,7 +135,7 @@ func (p *Publisher) ensureConnected(ctx context.Context, stopIO *func()) error {
 	_ = p.resetLocked() // discards a dead connection before redialing; the dial reports any failure
 	conn, err := amqp.DialConfig(p.url, amqp.Config{
 		Dial: func(network, addr string) (net.Conn, error) {
-			socket, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			socket, err := p.dial(ctx, network, addr)
 			if err != nil {
 				return nil, err
 			}

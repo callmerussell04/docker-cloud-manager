@@ -7,146 +7,178 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
 	"github.com/stretchr/testify/require"
 )
 
+// Every test runs in a synctest bubble over in-memory pipes, so "nothing
+// happened yet" checks and the ten-second publication budget use the fake
+// clock instead of real waits.
+
 func TestPublisherCancelsStalledIO(t *testing.T) {
 	for _, stage := range []string{"handshake", "topology", "write", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
-			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-			t.Cleanup(func() { _ = publisher.Close() })
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			var body []byte
-			if stage == "write" {
-				body = make([]byte, 16<<20)
-			}
-			result := publishAsync(publisher, ctx, body)
-			receive(t, broker.ready)
-			select {
-			case err := <-result:
-				t.Fatalf("stalled publication returned before cancellation: %v", err)
-			case <-time.After(30 * time.Millisecond):
-			}
-			cancel()
-			require.ErrorIs(t, receive(t, result), context.Canceled)
-			if stage != "write" {
-				receive(t, broker.disconnected)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				broker := newPublisherBroker(t, stage)
+				publisher := broker.publisher(t)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				var body []byte
+				if stage == "write" {
+					body = make([]byte, 16<<20)
+				}
+				result := publishAsync(publisher, ctx, body)
+				receive(t, broker.ready)
+				time.Sleep(time.Second)
+				synctest.Wait()
+				select {
+				case err := <-result:
+					t.Fatalf("stalled publication returned before cancellation: %v", err)
+				default:
+				}
+				cancel()
+				require.ErrorIs(t, receive(t, result), context.Canceled)
+				if stage != "write" {
+					receive(t, broker.disconnected)
+				}
+			})
 		})
 	}
 }
 
 func TestPublisherBoundsAttemptsWithoutCallerDeadline(t *testing.T) {
-	for _, stage := range []string{"handshake", "topology", "write", "confirmation"} {
+	for _, stage := range []string{"handshake", "topology", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
-			t.Parallel()
-			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-			t.Cleanup(func() { _ = publisher.Close() })
-			var body []byte
-			if stage == "write" {
-				body = make([]byte, 16<<20)
-			}
-			result := publishAsync(publisher, t.Context(), body)
-			receive(t, broker.ready)
-			select {
-			case err := <-result:
-				require.ErrorIs(t, err, context.DeadlineExceeded)
-			case <-time.After(12 * time.Second):
-				t.Fatal("application publication budget was not enforced")
-			}
-			if stage != "write" {
+			synctest.Test(t, func(t *testing.T) {
+				broker := newPublisherBroker(t, stage)
+				publisher := broker.publisher(t)
+				start := time.Now()
+				result := publishAsync(publisher, t.Context(), nil)
+				receive(t, broker.ready)
+				time.Sleep(10*time.Second - time.Since(start) - time.Nanosecond)
+				synctest.Wait()
+				select {
+				case err := <-result:
+					t.Fatalf("publication gave up before its budget: %v", err)
+				default:
+				}
+				time.Sleep(time.Nanosecond)
+				synctest.Wait()
+				select {
+				case err := <-result:
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				default:
+					t.Fatal("application publication budget was not enforced")
+				}
 				receive(t, broker.disconnected)
-			}
+			})
 		})
 	}
+	// A stalled body write holds the AMQP client's send mutex, and its
+	// five-second heartbeater then waits on that mutex. synctest cannot advance
+	// its clock past a mutex wait, so this one stage waits out the real budget.
+	t.Run("write", func(t *testing.T) {
+		t.Parallel()
+		broker := newPublisherBroker(t, "write")
+		result := publishAsync(broker.publisher(t), t.Context(), make([]byte, 16<<20))
+		receive(t, broker.ready)
+		select {
+		case err := <-result:
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+		case <-time.After(12 * time.Second):
+			t.Fatal("application publication budget was not enforced")
+		}
+	})
 }
 
 func TestPublisherQueuedCallerCanCancelAndCloseInterruptsActiveAttempt(t *testing.T) {
-	broker := newPublisherBroker(t, "handshake")
-	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-	t.Cleanup(func() { _ = publisher.Close() })
-	active := publishAsync(publisher, t.Context(), nil)
-	receive(t, broker.ready)
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, receive(t, publishAsync(publisher, ctx, nil)), context.DeadlineExceeded)
-	closed := make(chan error, 1)
-	go func() { closed <- publisher.Close() }()
-	require.Error(t, receive(t, active))
-	require.NoError(t, receive(t, closed))
-	require.Error(t, publisher.Publish(t.Context(), "test", "test", nil))
-	require.NoError(t, publisher.Close())
-	receive(t, broker.disconnected)
+	synctest.Test(t, func(t *testing.T) {
+		broker := newPublisherBroker(t, "handshake")
+		publisher := broker.publisher(t)
+		active := publishAsync(publisher, t.Context(), nil)
+		receive(t, broker.ready)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+		defer cancel()
+		require.ErrorIs(t, receive(t, publishAsync(publisher, ctx, nil)), context.DeadlineExceeded)
+		closed := make(chan error, 1)
+		go func() { closed <- publisher.Close() }()
+		require.Error(t, receive(t, active))
+		require.NoError(t, receive(t, closed))
+		require.Error(t, publisher.Publish(t.Context(), "test", "test", nil))
+		require.NoError(t, publisher.Close())
+		receive(t, broker.disconnected)
+	})
 }
 
 func TestPublisherCloseInterruptsStalledIO(t *testing.T) {
 	for _, stage := range []string{"topology", "write", "confirmation"} {
 		t.Run(stage, func(t *testing.T) {
-			broker := newPublisherBroker(t, stage)
-			publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-			t.Cleanup(func() { _ = publisher.Close() })
-			body := []byte("message")
-			if stage == "write" {
-				body = make([]byte, 16<<20)
-			}
-			result := publishAsync(publisher, t.Context(), body)
-			receive(t, broker.ready)
-			closed := make(chan error, 1)
-			go func() { closed <- publisher.Close() }()
-			require.Error(t, receive(t, result))
-			require.NoError(t, receive(t, closed))
+			synctest.Test(t, func(t *testing.T) {
+				broker := newPublisherBroker(t, stage)
+				publisher := broker.publisher(t)
+				body := []byte("message")
+				if stage == "write" {
+					body = make([]byte, 16<<20)
+				}
+				result := publishAsync(publisher, t.Context(), body)
+				receive(t, broker.ready)
+				closed := make(chan error, 1)
+				go func() { closed <- publisher.Close() }()
+				require.Error(t, receive(t, result))
+				require.NoError(t, receive(t, closed))
+			})
 		})
 	}
 }
 
 func TestPublisherLateAckCannotConfirmNextMessage(t *testing.T) {
-	broker := newPublisherBroker(t, "confirmation")
-	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-	t.Cleanup(func() { _ = publisher.Close() })
-	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	first := publishAsync(publisher, ctx, []byte("first"))
-	old := receive(t, broker.publications)
-	require.ErrorIs(t, receive(t, first), context.DeadlineExceeded)
-	receive(t, broker.disconnected)
-	second := publishAsync(publisher, t.Context(), []byte("second"))
-	current := receive(t, broker.publications)
-	require.True(t, old.conn != current.conn, "interrupted confirm stream must be isolated")
-	// Deliver the old confirmation only once the new message is awaiting its ACK.
-	_ = old.ack(true)
-	select {
-	case err := <-second:
-		t.Fatalf("publication completed before its own confirmation: %v", err)
-	case <-time.After(30 * time.Millisecond):
-	}
-	require.NoError(t, current.ack(true))
-	require.NoError(t, receive(t, second))
-	// The healthy connection remains reusable and delivery tags advance.
-	third := publishAsync(publisher, t.Context(), []byte("third"))
-	next := receive(t, broker.publications)
-	require.True(t, current.conn == next.conn, "healthy connection should be reused")
-	require.NoError(t, next.ack(true))
-	require.NoError(t, receive(t, third))
+	synctest.Test(t, func(t *testing.T) {
+		broker := newPublisherBroker(t, "confirmation")
+		publisher := broker.publisher(t)
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		first := publishAsync(publisher, ctx, []byte("first"))
+		old := receive(t, broker.publications)
+		require.ErrorIs(t, receive(t, first), context.DeadlineExceeded)
+		receive(t, broker.disconnected)
+		second := publishAsync(publisher, t.Context(), []byte("second"))
+		current := receive(t, broker.publications)
+		require.True(t, old.conn != current.conn, "interrupted confirm stream must be isolated")
+		// Deliver the old confirmation only once the new message is awaiting its ACK.
+		_ = old.ack(true)
+		synctest.Wait()
+		select {
+		case err := <-second:
+			t.Fatalf("publication completed before its own confirmation: %v", err)
+		default:
+		}
+		require.NoError(t, current.ack(true))
+		require.NoError(t, receive(t, second))
+		// The healthy connection remains reusable and delivery tags advance.
+		third := publishAsync(publisher, t.Context(), []byte("third"))
+		next := receive(t, broker.publications)
+		require.True(t, current.conn == next.conn, "healthy connection should be reused")
+		require.NoError(t, next.ack(true))
+		require.NoError(t, receive(t, third))
+	})
 }
 
 func TestPublisherRejectsNackAndReconnects(t *testing.T) {
-	broker := newPublisherBroker(t, "confirmation")
-	publisher := rabbitmq.NewPublisher(broker.url, rabbitmq.Topology{})
-	t.Cleanup(func() { _ = publisher.Close() })
-	first := publishAsync(publisher, t.Context(), nil)
-	msg := receive(t, broker.publications)
-	require.NoError(t, msg.ack(false))
-	require.ErrorContains(t, receive(t, first), "rejected")
-	second := publishAsync(publisher, t.Context(), nil)
-	msg = receive(t, broker.publications)
-	require.NoError(t, msg.ack(true))
-	require.NoError(t, receive(t, second))
+	synctest.Test(t, func(t *testing.T) {
+		broker := newPublisherBroker(t, "confirmation")
+		publisher := broker.publisher(t)
+		first := publishAsync(publisher, t.Context(), nil)
+		msg := receive(t, broker.publications)
+		require.NoError(t, msg.ack(false))
+		require.ErrorContains(t, receive(t, first), "rejected")
+		second := publishAsync(publisher, t.Context(), nil)
+		msg = receive(t, broker.publications)
+		require.NoError(t, msg.ack(true))
+		require.NoError(t, receive(t, second))
+	})
 }
 
 func publishAsync(p *rabbitmq.Publisher, ctx context.Context, body []byte) <-chan error {
@@ -171,6 +203,7 @@ func receive[T any](t *testing.T, values <-chan T) T {
 // and handshakes. Mocking Channel.Publish would hide these cancellation failures.
 type publisherBroker struct {
 	url          string
+	dial         func(ctx context.Context, network, addr string) (net.Conn, error)
 	ready        chan struct{}
 	disconnected chan struct{}
 	publications chan brokerPublication
@@ -195,41 +228,43 @@ func (p brokerPublication) ack(ack bool) error {
 
 func newPublisherBroker(t *testing.T, stall string) *publisherBroker {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
 	broker := &publisherBroker{
-		url:   "amqp://guest:guest@" + listener.Addr().String() + "/",
+		url:   "amqp://guest:guest@broker.test:5672/",
 		ready: make(chan struct{}, 10), disconnected: make(chan struct{}, 10),
 		publications: make(chan brokerPublication, 10),
 		stopWrite:    make(chan struct{}),
 	}
 	var workers sync.WaitGroup
 	var sockets sync.Map
-	acceptedDone := make(chan struct{})
-	workers.Go(func() {
-		defer close(acceptedDone)
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			sockets.Store(conn, struct{}{})
-			workers.Go(func() {
-				defer func() { _ = conn.Close() }() // fake broker teardown; the peer may already have closed
-				defer sockets.Delete(conn)
-				defer func() { broker.disconnected <- struct{}{} }()
-				broker.serve(conn, stall)
-			})
+	broker.dial = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-	})
+		client, server := net.Pipe()
+		sockets.Store(server, struct{}{})
+		workers.Go(func() {
+			defer func() { _ = server.Close() }() // fake broker teardown; the peer may already have closed
+			defer sockets.Delete(server)
+			defer func() { broker.disconnected <- struct{}{} }()
+			broker.serve(server, stall)
+		})
+		return client, nil
+	}
 	t.Cleanup(func() {
-		_ = listener.Close()
-		<-acceptedDone
 		close(broker.stopWrite)
 		sockets.Range(func(key, _ any) bool { _ = key.(net.Conn).Close(); return true })
 		workers.Wait()
 	})
 	return broker
+}
+
+// publisher returns a publisher that reaches this broker over pipes and is
+// closed before the broker shuts down.
+func (b *publisherBroker) publisher(t *testing.T) *rabbitmq.Publisher {
+	t.Helper()
+	publisher := rabbitmq.NewPublisher(b.url, rabbitmq.Topology{}, rabbitmq.WithDialer(b.dial))
+	t.Cleanup(func() { _ = publisher.Close() })
+	return publisher
 }
 
 func (b *publisherBroker) serve(conn net.Conn, stall string) {

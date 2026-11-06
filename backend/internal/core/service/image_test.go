@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -32,7 +33,7 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 		Docker:       dockerAPI,
 		Registry:     registry,
 		Containers:   containerRepo,
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    lifecycle,
 		RegistryAuth: unlockedRepositoryFence(t),
 	})
@@ -76,7 +77,7 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 		Docker:       coremocks.NewImageDockerAPI(t),
 		Registry:     coremocks.NewImageRegistryAPI(t),
 		Containers:   containerRepo,
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    &imageLifecycleFake{},
 		RegistryAuth: unlockedRepositoryFence(t),
 	})
@@ -99,7 +100,7 @@ func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) 
 		Docker:       coremocks.NewImageDockerAPI(t),
 		Registry:     registry,
 		Containers:   coremocks.NewImageContainerRepository(t),
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    lifecycle,
 		RegistryAuth: unlockedRepositoryFence(t),
 	})
@@ -126,7 +127,7 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 				Docker:       dockerAPI,
 				Registry:     registry,
 				Containers:   coremocks.NewImageContainerRepository(t),
-				Config:       staticConfig{},
+				Config:       testConfig(),
 				Lifecycle:    lifecycle,
 				RegistryAuth: unlockedRepositoryFence(t),
 			})
@@ -145,7 +146,6 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			require.ErrorIs(t, err, apperrors.ErrTimeout)
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
-			repo.AssertNotCalled(t, "Delete", mock.Anything, imageID)
 
 			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "sha256:digest", nil).Once()
 			registry.EXPECT().DeleteManifest(mock.Anything, repoName, "sha256:digest").Return(nil).Once()
@@ -169,10 +169,9 @@ func TestImageServiceDeleteBoundsRegistryWorkUnderRepositoryLock(t *testing.T) {
 		started := time.Now()
 		var heldFor time.Duration
 		fence.EXPECT().FenceAndLockRepository(mock.Anything, ownerID.String()+"_demo").Return(func() { heldFor = time.Since(started) }, nil)
-		cfg := staticConfig{}.Get()
+		cfg := testSystemConfig()
 		cfg.RegistryCleanupJobTimeoutSeconds = 20
-		configManager := coremocks.NewConfigManager(t)
-		configManager.EXPECT().Get().Return(cfg)
+		configManager := coretest.StaticConfig{Config: cfg}
 		svc, err := service.NewImageService(service.ImageServiceDeps{
 			Repository:   repo,
 			Docker:       coremocks.NewImageDockerAPI(t),
@@ -211,7 +210,7 @@ func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 		Docker:       dockerAPI,
 		Registry:     registry,
 		Containers:   containerRepo,
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    lifecycle,
 		RegistryAuth: unlockedRepositoryFence(t),
 	})
@@ -244,7 +243,7 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 		Docker:       dockerAPI,
 		Registry:     registry,
 		Containers:   containerRepo,
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    lifecycle,
 		RegistryAuth: unlockedRepositoryFence(t),
 	})
@@ -290,7 +289,7 @@ func TestImageServiceDeleteReturnsTerminalStatusWriteFailure(t *testing.T) {
 				Docker:       dockerAPI,
 				Registry:     registry,
 				Containers:   coremocks.NewImageContainerRepository(t),
-				Config:       staticConfig{},
+				Config:       testConfig(),
 				Lifecycle:    lifecycle,
 				RegistryAuth: unlockedRepositoryFence(t),
 			})
@@ -320,7 +319,7 @@ func TestImageServiceListUsesScopeOwnerFilter(t *testing.T) {
 		Docker:       coremocks.NewImageDockerAPI(t),
 		Registry:     coremocks.NewImageRegistryAPI(t),
 		Containers:   coremocks.NewImageContainerRepository(t),
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		Lifecycle:    &imageLifecycleFake{},
 		RegistryAuth: unlockedRepositoryFence(t),
 	})

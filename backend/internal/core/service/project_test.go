@@ -87,7 +87,6 @@ func TestProjectServiceStartRejectsInsufficientCapacity(t *testing.T) {
 
 	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
 	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
-	repo.AssertNotCalled(t, "UpdateStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 func TestProjectServiceStartAllowsAdminAndChecksOwnerCapacity(t *testing.T) {
@@ -158,7 +157,6 @@ func TestProjectLifecycleCoordinatorWaitsForDependencyHealth(t *testing.T) {
 	f.dependencyHealth("starting")
 
 	f.tick()
-	f.containers.AssertNotCalled(t, "Start", mock.Anything, mock.Anything)
 }
 
 func TestProjectLifecycleCoordinatorFailsProjectWhenRequiredDependencyFails(t *testing.T) {
@@ -167,7 +165,6 @@ func TestProjectLifecycleCoordinatorFailsProjectWhenRequiredDependencyFails(t *t
 	f.repo.EXPECT().UpdateStatus(mock.Anything, f.projectID, model.ProjectStatusFailed, mock.AnythingOfType("*string")).Return(nil).Once()
 
 	f.tick()
-	f.containers.AssertNotCalled(t, "Start", mock.Anything, mock.Anything)
 }
 
 func TestProjectLifecycleCoordinatorLogsFailedProjectStatusWrite(t *testing.T) {

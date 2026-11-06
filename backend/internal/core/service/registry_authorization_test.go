@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -67,8 +68,6 @@ func TestImageDeletionDoesNotRevokeAnActiveSiblingBuild(t *testing.T) {
 	unlock, err := auth.FenceAndLockRepository(ctx, "owner_repository")
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, unlock)
-	repo.AssertNotCalled(t, "FenceRepository", mock.Anything, mock.Anything)
-	repo.AssertNotCalled(t, "LockRegistryRepository", mock.Anything, mock.Anything)
 }
 
 func TestTrustedTokenGrantsOnlyTheActionsOfItsAccess(t *testing.T) {
@@ -141,7 +140,7 @@ func newRegistryAuthorization(t *testing.T, repo service.RegistryGrantRepository
 }
 
 func TestRegistryAuthorizationRejectsMissingDependencies(t *testing.T) {
-	valid := func() service.RegistryAuthorizationDeps {
+	valid := func(t *testing.T) service.RegistryAuthorizationDeps {
 		return service.RegistryAuthorizationDeps{
 			Repository: coremocks.NewRegistryGrantRepository(t),
 			Users:      coremocks.NewUserInfoProvider(t),
@@ -149,25 +148,10 @@ func TestRegistryAuthorizationRejectsMissingDependencies(t *testing.T) {
 			Authority:  "registry:5000",
 		}
 	}
-	for _, tc := range []struct {
-		name    string
-		mutate  func(*service.RegistryAuthorizationDeps)
-		message string
-	}{
-		{"repository", func(d *service.RegistryAuthorizationDeps) { d.Repository = nil }, "repository is required"},
-		{"typed nil repository", func(d *service.RegistryAuthorizationDeps) { d.Repository = (*coremocks.RegistryGrantRepository)(nil) }, "repository is required"},
-		{"users", func(d *service.RegistryAuthorizationDeps) { d.Users = nil }, "users is required"},
-		{"typed nil users", func(d *service.RegistryAuthorizationDeps) { d.Users = (*coremocks.UserInfoProvider)(nil) }, "users is required"},
-		{"signer", func(d *service.RegistryAuthorizationDeps) { d.Signer = nil }, "signer is required"},
-		{"typed nil signer", func(d *service.RegistryAuthorizationDeps) { d.Signer = (*coremocks.RegistryTokenSigner)(nil) }, "signer is required"},
-		{"authority", func(d *service.RegistryAuthorizationDeps) { d.Authority = "" }, "authority is required"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			deps := valid()
-			tc.mutate(&deps)
-			auth, err := service.NewRegistryAuthorization(deps)
-			require.ErrorContains(t, err, tc.message)
-			require.Nil(t, auth)
-		})
-	}
+	depstest.RequireRejectsMissing(t, valid, service.NewRegistryAuthorization, map[string]string{
+		"Repository": "repository",
+		"Users":      "users",
+		"Signer":     "signer",
+		"Authority":  "authority",
+	})
 }

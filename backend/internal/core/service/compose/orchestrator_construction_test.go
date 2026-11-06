@@ -1,44 +1,28 @@
 package compose_test
 
 import (
-	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	composemocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service/compose"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOrchestratorRejectsMissingAdmissionDependencies(t *testing.T) {
-	for _, field := range []struct{ field, message string }{
-		{"Projects", "projects"},
-		{"DeploymentCounter", "deployment counter"},
-		{"Capacity", "capacity"},
-		{"Config", "config"},
-	} {
-		for _, typedNil := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/typed_nil=%t", field.field, typedNil), func(t *testing.T) {
-				deps, _ := composeOrchestratorDeps(t, composemocks.NewProjectRepository(t), composeTestConfig())
-				value := reflect.ValueOf(&deps).Elem().FieldByName(field.field)
-				if typedNil {
-					concrete := reflect.TypeOf(value.Interface())
-					if concrete.Kind() != reflect.Pointer {
-						concrete = reflect.PointerTo(concrete)
-					}
-					value.Set(reflect.Zero(concrete))
-				} else {
-					value.SetZero()
-				}
-				orchestrator, err := compose.NewOrchestrator(deps)
-				require.ErrorContains(t, err, field.message+" is required")
-				require.Nil(t, orchestrator)
-			})
-		}
+	valid := func(t *testing.T) compose.OrchestratorDeps {
+		deps, _ := composeOrchestratorDeps(t, composemocks.NewProjectRepository(t), composeTestConfig())
+		return deps
 	}
+	depstest.RequireRejectsMissing(t, valid, compose.NewOrchestrator, map[string]string{
+		"Projects":          "projects",
+		"DeploymentCounter": "deployment counter",
+		"Capacity":          "capacity",
+		"Config":            "config",
+	})
 }
 
 func TestOrchestratorAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	dockerAPI := coremocks.NewVolumeDockerAPI(t)
 	users := coremocks.NewUserInfoProvider(t)
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
-	cfg := newVolumeConfigMock(t)
+	cfg := volumeTestConfig()
 	lifecycle := &volumeLifecycleFake{}
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository: repo,
@@ -47,7 +48,6 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	require.Equal(t, ownerID, saved.OwnerID)
 	require.Equal(t, "data", saved.Name)
 	require.Equal(t, model.VolumeStatusCreating, saved.Status)
-	dockerAPI.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
 }
 
 func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
@@ -107,7 +107,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     coremocks.NewVolumeDockerAPI(t),
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  &volumeLifecycleFake{},
 				Users:      users,
 				ImageRepo:  imageRepo})
@@ -150,7 +150,7 @@ func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *test
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     coremocks.NewVolumeDockerAPI(t),
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  &volumeLifecycleFake{},
 			})
 
@@ -235,7 +235,7 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     coremocks.NewVolumeDockerAPI(t),
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  &volumeLifecycleFake{},
 			})
 
@@ -258,10 +258,9 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 	users := coremocks.NewUserInfoProvider(t)
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	metrics := coremocks.NewHostDiskMetricsProvider(t)
-	cfgData := staticConfig{}.Get()
+	cfgData := testSystemConfig()
 	cfgData.HostMinFreeDiskBytes = 1024
-	cfg := coremocks.NewConfigManager(t)
-	cfg.EXPECT().Get().Return(cfgData).Maybe()
+	cfg := coretest.StaticConfig{Config: cfgData}
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository:   repo,
 		Docker:       dockerAPI,
@@ -279,8 +278,6 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
 	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
-	repo.AssertNotCalled(t, "Save", mock.Anything, mock.Anything)
-	dockerAPI.AssertNotCalled(t, "CreateVolume", mock.Anything, mock.Anything)
 }
 
 func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
@@ -294,7 +291,7 @@ func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository: repo,
 		Docker:     dockerAPI,
-		Config:     newVolumeConfigMock(t),
+		Config:     volumeTestConfig(),
 		Lifecycle:  lifecycle,
 	})
 
@@ -343,7 +340,7 @@ func TestVolumeServiceDeleteHandlesInUseAndDockerNotFound(t *testing.T) {
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     dockerAPI,
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  lifecycle,
 			})
 			err := svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), volumeID)
@@ -411,7 +408,7 @@ func TestVolumeServiceExecuteQueuedDeleteHandlesDockerResults(t *testing.T) {
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     dockerAPI,
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  lifecycle,
 			})
 			err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
@@ -461,7 +458,7 @@ func TestVolumeServiceExecuteQueuedReturnsStatusWriteFailure(t *testing.T) {
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     dockerAPI,
-				Config:     newVolumeConfigMock(t),
+				Config:     volumeTestConfig(),
 				Lifecycle:  lifecycle,
 			})
 			repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
@@ -488,7 +485,7 @@ func TestVolumeServiceListUsesScopeOwnerFilter(t *testing.T) {
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository: repo,
 		Docker:     coremocks.NewVolumeDockerAPI(t),
-		Config:     newVolumeConfigMock(t),
+		Config:     volumeTestConfig(),
 		Lifecycle:  &volumeLifecycleFake{},
 	})
 	var userOpts model.ListOptions
@@ -601,11 +598,8 @@ func (f *volumeLifecycleFake) RequeueOperation(ctx context.Context, id uuid.UUID
 	return nil
 }
 
-func newVolumeConfigMock(t *testing.T) *coremocks.ConfigManager {
-	t.Helper()
-	cfg := staticConfig{}.Get()
-	cfg.MaxVolumesPerUser = 5
-	manager := coremocks.NewConfigManager(t)
-	manager.EXPECT().Get().Return(cfg).Maybe()
-	return manager
+func volumeTestConfig() coretest.StaticConfig {
+	cfg := testConfig()
+	cfg.Config.MaxVolumesPerUser = 5
+	return cfg
 }

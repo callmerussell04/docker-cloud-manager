@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -29,7 +29,6 @@ func TestContainerCreateRejectsRegistryHostsBeforeAdmission(t *testing.T) {
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.ContainerCreateParams{Name: "web", ImageTag: image})
 			require.ErrorIs(t, err, apperrors.ErrBadRequest)
 			require.Equal(t, uuid.Nil, id)
-			docker.AssertNotCalled(t, "PullImage", mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -55,10 +54,9 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 			repo := workerRepo
 			images := newContainerImageRepository(t)
 			docker := coremocks.NewContainerDockerAPI(t)
-			cfg := coremocks.NewConfigManager(t)
 			config := containerCreateConfig()
 			config.RegistryPublicURL = "registry.internal:5000"
-			cfg.EXPECT().Get().Return(config).Maybe()
+			cfg := coretest.StaticConfig{Config: config}
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
 				Repository:   repo,
 				Images:       images,
@@ -110,8 +108,6 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 				} else {
 					require.ErrorIs(t, err, apperrors.ErrUnavailable)
 				}
-				docker.AssertNotCalled(t, "PullImage", mock.Anything, mock.Anything)
-				docker.AssertNotCalled(t, "CreateContainer", mock.Anything, mock.Anything)
 			} else {
 				require.NoError(t, err)
 			}
@@ -123,8 +119,7 @@ func TestQueuedContainerCreateRemovesPulledPublicImageAfterFailure(t *testing.T)
 	owner := uuid.New()
 	workerRepo := newContainerRepository(t)
 	docker := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
-	cfg.EXPECT().Get().Return(containerCreateConfig()).Maybe()
+	cfg := coretest.StaticConfig{Config: containerCreateConfig()}
 	images := newContainerImageRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: workerRepo,
@@ -159,14 +154,10 @@ func TestQueuedContainerCreateRemovesPulledPublicImageAfterFailure(t *testing.T)
 // container lifecycle queue's handler.
 func handleQueuedCreate(svc *service.ContainerService, operationID, containerID uuid.UUID) error {
 	cfg := containerCreateConfig()
-	worker := service.NewContainerCreateWorker(svc, staticCreateConfig{cfg}, slog.New(slog.DiscardHandler))
+	worker := service.NewContainerCreateWorker(svc, coretest.StaticConfig{Config: cfg}, slog.New(slog.DiscardHandler))
 	return worker.HandleMessage(context.Background(), queue.ContainerLifecycleMessage{
 		OperationID: operationID.String(),
 		ContainerID: containerID.String(),
 		Operation:   model.OperationCreate,
 	})
 }
-
-type staticCreateConfig struct{ cfg config.SystemConfig }
-
-func (c staticCreateConfig) Get() config.SystemConfig { return c.cfg }

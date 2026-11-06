@@ -169,7 +169,6 @@ func TestStreamLogsValidatesQueryAndWritesSSE(t *testing.T) {
 			router := newRouter(service)
 			resp := httpRequest(router, http.MethodGet, path, scopeHeaders())
 			require.Equal(t, http.StatusBadRequest, resp.Code)
-			service.AssertNotCalled(t, "StreamLogs", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 }
@@ -194,7 +193,6 @@ func TestOpenTerminalValidatesBoundaryAndWritesServiceError(t *testing.T) {
 			router := newRouter(service)
 			resp := httpRequest(router, http.MethodGet, path, scopeHeaders())
 			require.Equal(t, http.StatusBadRequest, resp.Code)
-			service.AssertNotCalled(t, "OpenTerminal", mock.Anything, mock.Anything, mock.Anything)
 		})
 	}
 

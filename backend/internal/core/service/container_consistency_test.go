@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
@@ -30,7 +31,7 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   store,
 		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -54,16 +55,14 @@ func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	cfg := coremocks.NewConfigManager(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
 		Docker:       dockerAPI,
-		Config:       cfg,
+		Config:       testConfig(),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
 
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 	repo.EXPECT().CheckDomainPrefixExists(mock.Anything, "app").Return(true, nil)
 
@@ -84,7 +83,7 @@ func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   store,
 		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -112,7 +111,9 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	store := newContainerStore()
-	cfg := coremocks.NewConfigManager(t)
+	cfgValue := testSystemConfig()
+	cfgValue.BlockedDomainPrefixPatterns = []string{"preview-[0-9]+"}
+	cfg := coretest.StaticConfig{Config: cfgValue}
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   store,
 		Docker:       coremocks.NewContainerDockerAPI(t),
@@ -123,9 +124,6 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)
 
-	cfgValue := staticConfig{}.Get()
-	cfgValue.BlockedDomainPrefixPatterns = []string{"preview-[0-9]+"}
-	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	saveContainer(t, store, model.Container{
 		ID:           containerID,
 		OwnerID:      ownerID,
@@ -155,7 +153,7 @@ func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	store := newContainerStore()
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
 	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"})
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID))
@@ -168,7 +166,7 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	store := newContainerStore()
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
 	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning})
 
 	err := svc.Stop(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
@@ -179,51 +177,50 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 }
 
 func TestTTLWorkerQueuesStopOperation(t *testing.T) {
-	ownerID := uuid.New()
-	containerID := uuid.New()
-	repo := &ttlWorkerRepoFake{
-		expired: []model.Container{{
-			ID:      containerID,
-			OwnerID: ownerID,
-			Status:  model.ContainerStatusRunning,
-		}},
-		queuedCh: make(chan queuedContainerOperation, 1),
-	}
-	cfg := ttlWorkerConfig{ttlHours: 24, intervalSeconds: 1}
-	worker := service.NewTTLWorker(repo, cfg, slog.Default())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		ownerID := uuid.New()
+		containerID := uuid.New()
+		repo := &ttlWorkerRepoFake{
+			expired: []model.Container{{
+				ID:      containerID,
+				OwnerID: ownerID,
+				Status:  model.ContainerStatusRunning,
+			}},
+			queuedCh: make(chan queuedContainerOperation, 1),
+		}
+		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 24, TTLWorkerIntervalSeconds: 1}}
+		stop := startInBubble(t, service.NewTTLWorker(repo, cfg, slog.Default()).Run)
+		defer stop()
 
-	go worker.Run(ctx)
-
-	select {
-	case queued := <-repo.queuedCh:
-		require.Equal(t, model.OperationStop, queued.op.Operation)
-		require.Equal(t, model.ContainerStatusStopping, queued.status)
-		require.Equal(t, model.ContainerStatusExited, queued.desiredStatus)
-		require.Equal(t, containerID, queued.op.ResourceID)
-		require.Equal(t, ownerID, queued.op.OwnerID)
-		require.Contains(t, string(queued.outbox.Payload), `"operation":"stop"`)
-	case <-time.After(1500 * time.Millisecond):
-		t.Fatal("ttl worker did not queue stop operation")
-	}
+		time.Sleep(time.Second)
+		synctest.Wait()
+		select {
+		case queued := <-repo.queuedCh:
+			require.Equal(t, model.OperationStop, queued.op.Operation)
+			require.Equal(t, model.ContainerStatusStopping, queued.status)
+			require.Equal(t, model.ContainerStatusExited, queued.desiredStatus)
+			require.Equal(t, containerID, queued.op.ResourceID)
+			require.Equal(t, ownerID, queued.op.OwnerID)
+			require.Contains(t, string(queued.outbox.Payload), `"operation":"stop"`)
+		default:
+			t.Fatal("ttl worker did not queue a stop operation within one interval")
+		}
+	})
 }
 
 func TestTTLWorkerSkipsExpirationWhenTTLDisabled(t *testing.T) {
-	repo := &ttlWorkerRepoFake{queuedCh: make(chan queuedContainerOperation, 1)}
-	cfg := ttlWorkerConfig{ttlHours: 0, intervalSeconds: 1}
-	worker := service.NewTTLWorker(repo, cfg, slog.Default())
-	ctx, cancel := context.WithCancel(context.Background())
+	synctest.Test(t, func(t *testing.T) {
+		repo := &ttlWorkerRepoFake{queuedCh: make(chan queuedContainerOperation, 1)}
+		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 0, TTLWorkerIntervalSeconds: 1}}
+		stop := startInBubble(t, service.NewTTLWorker(repo, cfg, slog.Default()).Run)
 
-	go worker.Run(ctx)
-	time.Sleep(1100 * time.Millisecond)
-	cancel()
+		time.Sleep(10 * time.Second)
+		synctest.Wait()
+		stop()
 
-	repo.mu.Lock()
-	getExpiredCalls := repo.getExpiredCalls
-	repo.mu.Unlock()
-	require.Zero(t, getExpiredCalls)
-	require.Empty(t, repo.queued)
+		require.Zero(t, repo.getExpiredCalls)
+		require.Empty(t, repo.queued)
+	})
 }
 
 func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testing.T) {
@@ -231,7 +228,7 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: staticConfig{}, HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker", Status: model.ContainerStatusMissing}, nil)
 
@@ -251,7 +248,10 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	imageRepo := newContainerImageRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
-	cfg := coremocks.NewConfigManager(t)
+	cfgValue := testSystemConfig()
+	cfgValue.OvercommitFactor = 1.5
+	cfgValue.ContainerTTLHours = 24
+	cfg := coretest.StaticConfig{Config: cfgValue}
 	users := coremocks.NewUserInfoProvider(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
@@ -265,11 +265,7 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(accessscope.WithUserScope(context.Background(), ownerID, "", ""))
 	defer cancel()
-	cfgValue := staticConfig{}.Get()
-	cfgValue.OvercommitFactor = 1.5
-	cfgValue.ContainerTTLHours = 24
 
-	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
 	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
@@ -322,7 +318,7 @@ func TestContainerServiceQueuedCreateReturnsRequeueFailure(t *testing.T) {
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: store,
 		Docker:     coremocks.NewContainerDockerAPI(t),
-		Config:     staticConfig{},
+		Config:     testConfig(),
 		Logger:     slog.Default(),
 	})
 
@@ -338,7 +334,7 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   store,
 		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       staticConfig{},
+		Config:       testConfig(),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -381,58 +377,48 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 }
 
 func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	repo := newContainerRepository(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	metrics := coremocks.NewHostMetricsProvider(t)
-	cfg := coremocks.NewConfigManager(t)
-	done := make(chan struct{})
-	var updates int
-	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Metrics:      metrics,
-		Config:       cfg,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+	synctest.Test(t, func(t *testing.T) {
+		repo := newContainerRepository(t)
+		dockerAPI := coremocks.NewContainerDockerAPI(t)
+		metrics := coremocks.NewHostMetricsProvider(t)
+		svc := newTestContainerService(t, service.ContainerServiceDeps{
+			Repository:   repo,
+			Docker:       dockerAPI,
+			Metrics:      metrics,
+			Config:       testConfig(),
+			HostDiskPath: "",
+			Logger:       slog.Default(),
+		})
+		repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128, BaseCPUReservation: 250}}, nil).Once()
+		metrics.EXPECT().GetTotalMemory().Return(int64(1024), nil)
+		metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
+		// One pass for a hundred queued signals: a second pass would be an unexpected call.
+		dockerAPI.EXPECT().UpdateContainerResources(mock.Anything, "docker-id", mock.Anything).Return(nil).Once()
+
+		for i := 0; i < 100; i++ {
+			svc.RequestRebalance()
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			svc.RunRebalancer(ctx)
+		}()
+		synctest.Wait()
+		cancel()
+		<-done
 	})
-
-	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128, BaseCPUReservation: 250}}, nil)
-	metrics.EXPECT().GetTotalMemory().Return(int64(1024), nil)
-	metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
-	cfg.EXPECT().Get().Return(staticConfig{}.Get()).Maybe()
-	dockerAPI.EXPECT().
-		UpdateContainerResources(mock.Anything, "docker-id", mock.Anything).
-		Run(func(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) {
-			updates++
-			select {
-			case <-done:
-			default:
-				close(done)
-			}
-		}).
-		Return(nil)
-
-	for i := 0; i < 100; i++ {
-		svc.RequestRebalance()
-	}
-	go svc.RunRebalancer(ctx)
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("rebalancer did not process queued signal")
-	}
-	cancel()
-	require.Equal(t, 1, updates)
 }
 
 func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
-	cfg := coremocks.NewConfigManager(t)
+	cfgValue := testSystemConfig()
+	cfgValue.MaxBurstMultiplier = 3
+	cfgValue.MaxCPUBurstMultiplier = 4
+	cfgValue.ContainerCPUPeriod = 100000
+	cfg := coretest.StaticConfig{Config: cfgValue}
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
 		Docker:       dockerAPI,
@@ -441,10 +427,6 @@ func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
-	cfgValue := staticConfig{}.Get()
-	cfgValue.MaxBurstMultiplier = 3
-	cfgValue.MaxCPUBurstMultiplier = 4
-	cfgValue.ContainerCPUPeriod = 100000
 
 	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{
 		{ID: uuid.New(), DockerID: "docker-a", BaseMemoryReservation: 100, BaseCPUReservation: 250},
@@ -452,7 +434,6 @@ func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
 	}, nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(1000), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
-	cfg.EXPECT().Get().Return(cfgValue).Maybe()
 
 	dockerAPI.EXPECT().
 		UpdateContainerResources(mock.Anything, mock.AnythingOfType("string"), mock.MatchedBy(func(resources model.ContainerResourceUpdate) bool {
@@ -529,21 +510,8 @@ func (r *recordingAuditRecorder) RecordAuditEvent(ctx context.Context, event mod
 	return nil
 }
 
-type staticConfig struct{}
-
-type ttlWorkerConfig struct {
-	ttlHours        int64
-	intervalSeconds int64
-}
-
-func (c ttlWorkerConfig) Get() config.SystemConfig {
-	return config.SystemConfig{
-		ContainerTTLHours:        c.ttlHours,
-		TTLWorkerIntervalSeconds: c.intervalSeconds,
-	}
-}
-
-func (staticConfig) Get() config.SystemConfig {
+// testSystemConfig is the runtime config Core service tests start from.
+func testSystemConfig() config.SystemConfig {
 	return config.SystemConfig{
 		ReservedSystemMemory:                 0,
 		OvercommitFactor:                     1.5,
@@ -578,4 +546,9 @@ func (staticConfig) Get() config.SystemConfig {
 		ComposeDependencyWaitTimeoutMinutes:  1,
 		ComposeCoordinatorIntervalSeconds:    2,
 	}
+}
+
+// testConfig serves testSystemConfig through the shared static config double.
+func testConfig() coretest.StaticConfig {
+	return coretest.StaticConfig{Config: testSystemConfig()}
 }

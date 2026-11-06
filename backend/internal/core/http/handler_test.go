@@ -14,6 +14,7 @@ import (
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	corehttpmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/http"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func TestBuildHandlerBuildImageAcceptsMultipartArchive(t *testing.T) {
 		}).
 		Return(service.BuildInitResult{BuildID: buildID}, nil)
 	router := gin.New()
-	router.POST("/images/build", corehttp.NewBuildHandler(builds, newHTTPConfigMock(t)).BuildImage)
+	router.POST("/images/build", corehttp.NewBuildHandler(builds, httpTestConfig()).BuildImage)
 	body, contentType := multipartBody(t, []formPart{
 		{name: "tag", value: "demo"},
 		{name: "context", value: "app"},
@@ -80,7 +81,7 @@ func TestBuildHandlerBuildImageRejectsArchiveBeforeMetadataAndInvalidArgs(t *tes
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			router := gin.New()
-			router.POST("/images/build", corehttp.NewBuildHandler(corehttpmocks.NewMockBuildUseCases(t), newHTTPConfigMock(t)).BuildImage)
+			router.POST("/images/build", corehttp.NewBuildHandler(corehttpmocks.NewMockBuildUseCases(t), httpTestConfig()).BuildImage)
 			body, contentType := multipartBody(t, tt.parts)
 			resp := perform(router, http.MethodPost, "/images/build", contentType, body)
 			require.Equal(t, http.StatusBadRequest, resp.Code)
@@ -103,7 +104,7 @@ func TestBuildHandlerGitLogsAndAvailability(t *testing.T) {
 		OpenBuildLogs(mock.Anything, buildID).
 		Return(io.NopCloser(strings.NewReader("line1\nline2\n")), nil)
 	router := gin.New()
-	handler := corehttp.NewBuildHandler(builds, newHTTPConfigMock(t))
+	handler := corehttp.NewBuildHandler(builds, httpTestConfig())
 	router.POST("/images/build/git", handler.BuildImageFromGit)
 	router.GET("/images/build/availability", handler.BuildAvailability)
 	router.GET("/builds/:id/logs", handler.BuildLogs)
@@ -155,7 +156,7 @@ func TestComposeHandlerDeployComposeAndGit(t *testing.T) {
 		}).
 		Return(projectID, nil)
 	router := gin.New()
-	handler := corehttp.NewComposeHandler(composeSvc, newHTTPConfigMock(t))
+	handler := corehttp.NewComposeHandler(composeSvc, httpTestConfig())
 	router.POST("/projects/compose", handler.DeployCompose)
 	router.POST("/projects/compose/git", handler.DeployComposeFromGit)
 
@@ -181,7 +182,7 @@ func TestComposeHandlerDeployComposeAndGit(t *testing.T) {
 func TestComposeHandlerRejectsInvalidUploadAndGitPayload(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	handler := corehttp.NewComposeHandler(corehttpmocks.NewMockComposeUseCases(t), newHTTPConfigMock(t))
+	handler := corehttp.NewComposeHandler(corehttpmocks.NewMockComposeUseCases(t), httpTestConfig())
 	router.POST("/projects/compose", handler.DeployCompose)
 	router.POST("/projects/compose/git", handler.DeployComposeFromGit)
 
@@ -193,16 +194,13 @@ func TestComposeHandlerRejectsInvalidUploadAndGitPayload(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
 
-func newHTTPConfigMock(t *testing.T) *corehttpmocks.MockConfigProvider {
-	t.Helper()
-	cfg := corehttpmocks.NewMockConfigProvider(t)
-	cfg.EXPECT().Get().Return(config.SystemConfig{
+func httpTestConfig() coretest.StaticConfig {
+	return coretest.StaticConfig{Config: config.SystemConfig{
 		MaxUploadSizeBytes:    10 << 20,
 		ComposeUploadMaxBytes: 10 << 20,
 		ImageBuildsEnabled:    true,
 		GitSourcesEnabled:     true,
-	}).Maybe()
-	return cfg
+	}}
 }
 
 type formPart struct {

@@ -2,14 +2,17 @@ package service_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
-	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -54,7 +57,7 @@ func newTestContainerService(t *testing.T, deps service.ContainerServiceDeps) *s
 		deps.DiskMetrics = coremocks.NewHostDiskMetricsProvider(t)
 	}
 	if deps.Config == nil {
-		deps.Config = staticConfig{}
+		deps.Config = testConfig()
 	}
 	if deps.Users == nil {
 		deps.Users = coremocks.NewUserInfoProvider(t)
@@ -78,86 +81,24 @@ func validContainerServiceDeps(t *testing.T) service.ContainerServiceDeps {
 		Docker:      coremocks.NewContainerDockerAPI(t),
 		Metrics:     coremocks.NewHostMetricsProvider(t),
 		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
-		Config:      coremocks.NewConfigManager(t),
+		Config:      testConfig(),
 		Users:       coremocks.NewUserInfoProvider(t),
 		Builds:      coremocks.NewActiveSystemBuildCounter(t),
 	}
 }
 
 func TestNewContainerServiceRequiresDependencies(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		omit func(*service.ContainerServiceDeps, bool)
-	}{
-		{"repository", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Repository = (*coremocks.ContainerRepository)(nil)
-			if !typed {
-				d.Repository = nil
-			}
-		}},
-		{"volumes", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Volumes = (*coremocks.ContainerVolumeRepository)(nil)
-			if !typed {
-				d.Volumes = nil
-			}
-		}},
-		{"images", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Images = (*coremocks.ContainerImageRepository)(nil)
-			if !typed {
-				d.Images = nil
-			}
-		}},
-		{"docker", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Docker = (*coremocks.ContainerDockerAPI)(nil)
-			if !typed {
-				d.Docker = nil
-			}
-		}},
-		{"metrics", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Metrics = (*coremocks.HostMetricsProvider)(nil)
-			if !typed {
-				d.Metrics = nil
-			}
-		}},
-		{"disk metrics", func(d *service.ContainerServiceDeps, typed bool) {
-			d.DiskMetrics = (*coremocks.HostDiskMetricsProvider)(nil)
-			if !typed {
-				d.DiskMetrics = nil
-			}
-		}},
-		{"config", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Config = (*coremocks.ConfigManager)(nil)
-			if !typed {
-				d.Config = nil
-			}
-		}},
-		{"users", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Users = (*coremocks.UserInfoProvider)(nil)
-			if !typed {
-				d.Users = nil
-			}
-		}},
-		{"builds", func(d *service.ContainerServiceDeps, typed bool) {
-			d.Builds = (*coremocks.ActiveSystemBuildCounter)(nil)
-			if !typed {
-				d.Builds = nil
-			}
-		}},
-	} {
-		for _, typed := range []bool{false, true} {
-			name := "nil"
-			if typed {
-				name = "typed nil"
-			}
-			t.Run(tc.name+"/"+name, func(t *testing.T) {
-				deps := validContainerServiceDeps(t)
-				tc.omit(&deps, typed)
-				svc, err := service.NewContainerService(deps)
-				require.Nil(t, svc)
-				require.EqualError(t, err, "container service: "+tc.name+" is required")
-			})
-		}
-	}
+	depstest.RequireRejectsMissing(t, validContainerServiceDeps, service.NewContainerService, map[string]string{
+		"Repository":  "repository",
+		"Volumes":     "volumes",
+		"Images":      "images",
+		"Docker":      "docker",
+		"Metrics":     "metrics",
+		"DiskMetrics": "disk metrics",
+		"Config":      "config",
+		"Users":       "users",
+		"Builds":      "builds",
+	})
 }
 
 func TestNewContainerServiceAcceptsCompleteDependenciesWithoutOptionalObservers(t *testing.T) {
@@ -176,7 +117,7 @@ func TestContainerServiceAdmissionPropagatesLockFailure(t *testing.T) {
 			if operation == "start" {
 				repo.EXPECT().GetByID(mock.Anything, id).Return(model.Container{ID: id, OwnerID: owner, DockerID: "runtime"}, nil)
 			}
-			deps.Config = staticConfig{}
+			deps.Config = testConfig()
 			svc, err := service.NewContainerService(deps)
 			require.NoError(t, err)
 			ctx := accessscope.WithUserScope(context.Background(), owner, "", "")
@@ -203,8 +144,7 @@ func TestContainerServiceCreateEnforcesQueuedCreateLimit(t *testing.T) {
 	repo.EXPECT().CountActiveCreateOperationsByOwner(mock.Anything, owner).Return(2, nil).Once()
 	cfg := containerCreateConfig()
 	cfg.MaxQueuedContainerCreatesPerUser = 2
-	configProvider := coremocks.NewConfigManager(t)
-	configProvider.EXPECT().Get().Return(cfg)
+	configProvider := coretest.StaticConfig{Config: cfg}
 	deps.Config = configProvider
 	svc, err := service.NewContainerService(deps)
 	require.NoError(t, err)

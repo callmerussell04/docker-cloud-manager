@@ -48,7 +48,6 @@ func TestCancelDeploymentForBuildIgnoresInactiveProject(t *testing.T) {
 	repo.EXPECT().GetByID(mock.Anything, projectID).Return(model.Project{ID: projectID, OwnerID: ownerID, Status: model.ProjectStatusRunning}, nil)
 
 	require.NoError(t, o.CancelDeploymentForBuild(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID, uuid.New()))
-	repo.AssertNotCalled(t, "RequestComposeDeploymentCancel", mock.Anything, mock.Anything)
 }
 
 func TestCancelDeploymentRejectsInactiveProject(t *testing.T) {
