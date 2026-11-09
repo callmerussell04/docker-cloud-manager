@@ -277,16 +277,14 @@ func TestParserDependsOnDisabledRequiredServiceRejected(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		depConfig  string
-		wantErrMsg string
+		name      string
+		depConfig string
 	}{
 		{
 			name: "default required",
 			depConfig: `
       db:
         condition: service_started`,
-			wantErrMsg: `service "web" depends on undefined service "db"`,
 		},
 		{
 			name: "explicit required",
@@ -294,7 +292,6 @@ func TestParserDependsOnDisabledRequiredServiceRejected(t *testing.T) {
       db:
         condition: service_started
         required: true`,
-			wantErrMsg: `service "web" depends on undefined service "db"`,
 		},
 	}
 
@@ -315,12 +312,7 @@ services:
 `)
 
 			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
-			if err == nil {
-				t.Fatalf("ParseAndValidateWithBase() error = nil, want disabled required dependency error")
-			}
-			if !strings.Contains(err.Error(), tt.wantErrMsg) {
-				t.Fatalf("ParseAndValidateWithBase() error = %q, want containing %q", err.Error(), tt.wantErrMsg)
-			}
+			requireRejection(t, err, apperrors.ErrBadRequest, invalidComposeProjectMessage)
 		})
 	}
 }
@@ -360,14 +352,23 @@ services:
 `)
 
 			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
-			if err == nil {
-				t.Fatalf("ParseAndValidateWithBase() error = nil, want unknown required dependency error")
-			}
-			wantErrMsg := `service "web" depends on undefined service "db"`
-			if !strings.Contains(err.Error(), wantErrMsg) {
-				t.Fatalf("ParseAndValidateWithBase() error = %q, want containing %q", err.Error(), wantErrMsg)
-			}
+			requireRejection(t, err, apperrors.ErrBadRequest, invalidComposeProjectMessage)
 		})
+	}
+}
+
+// invalidComposeProjectMessage is the fixed message for a file compose-go
+// rejects. compose-go's own message names the undefined dependency, which is
+// rejected input, so it is not passed on.
+const invalidComposeProjectMessage = "bad request: compose file is not a valid Compose project"
+
+func requireRejection(t *testing.T, err, kind error, want string) {
+	t.Helper()
+	if !errors.Is(err, kind) {
+		t.Fatalf("ParseAndValidateWithBase() error = %v, want %v", err, kind)
+	}
+	if got := apperrors.SafeMessage(err); got != want {
+		t.Fatalf("SafeMessage() = %q, want %q", got, want)
 	}
 }
 
@@ -575,6 +576,206 @@ func TestParserRejectsMalformedTopLevelSections(t *testing.T) {
 			if !errors.Is(err, apperrors.ErrBadRequest) {
 				t.Fatalf("ParseAndValidateWithBase() error = %v, want bad request", err)
 			}
+		})
+	}
+}
+
+// echoMarker stands for user input a bad-request message must not repeat.
+const echoMarker = "zzmarker"
+
+const resourceNameRule = "name must start with a letter or digit and contain only letters, digits, underscore, dot or hyphen"
+
+// Bad-request messages reach the uploader and the stored deployment error, and
+// failed jobs log them. Each reachable rejecting branch gets a row whose input
+// carries echoMarker. Messages name only identifiers that passed validation
+// (echoAllowed marks the rows where that identifier is the marker) and never
+// repeat a rejected value or a raw compose-go error.
+//
+// Not listed: the custom volume driver checks, which sanitizeComposeModel makes
+// unreachable, and the parser's own undefined-volume and image-or-build checks,
+// which compose-go pre-empts (see their compose-go rows).
+func TestParserRejectionsNeverEchoRejectedInput(t *testing.T) {
+	t.Parallel()
+
+	const web = "services:\n  web:\n    image: nginx\n"
+	tests := []struct {
+		name        string
+		project     string
+		baseDir     string
+		reserved    []string
+		yaml        string
+		want        string
+		echoAllowed bool
+	}{
+		// Request arguments.
+		{
+			name:    "invalid project name",
+			project: "-" + echoMarker,
+			yaml:    web,
+			want:    "bad request: " + resourceNameRule,
+		},
+		{
+			name:    "compose file path outside the repository",
+			baseDir: "../" + echoMarker,
+			yaml:    web,
+			want:    "bad request: invalid compose file path: parent directory traversal is not allowed",
+		},
+		// compose-go load failures.
+		{
+			name: "compose-go interpolation error",
+			yaml: web + "    environment:\n      TOKEN: \"${MISSING:?" + echoMarker + "}\"\n",
+			want: invalidComposeProjectMessage,
+		},
+		{
+			name: "undefined volume is rejected by compose-go",
+			yaml: web + "    volumes:\n      - type: volume\n        source: " + echoMarker + "\n        target: /data\n",
+			want: invalidComposeProjectMessage,
+		},
+		{
+			name: "neither image nor build is rejected by compose-go",
+			yaml: "services:\n  web:\n    environment:\n      TOKEN: " + echoMarker + "\n",
+			want: invalidComposeProjectMessage,
+		},
+		{
+			name: "compose-go panic on a malformed section",
+			yaml: "services: " + echoMarker + "\n",
+			want: invalidComposeProjectMessage,
+		},
+		{
+			name: "YAML syntax error keeps only its position",
+			yaml: web + "    environment:\n      TOKEN: " + echoMarker + ": bad\n",
+			want: "bad request: compose file is not valid YAML (line 5, column 22)",
+		},
+		{
+			name: "YAML scanner error at a line start",
+			yaml: "services:\n\t" + echoMarker + ": nginx\n",
+			want: "bad request: compose file is not valid YAML (line 2)",
+		},
+		{
+			name: "YAML error reports the problem, not its enclosing scalar",
+			yaml: web + "    environment:\n      TOKEN: \"" + echoMarker + "\n",
+			want: "bad request: compose file is not valid YAML (line 6)",
+		},
+		{
+			name: "YAML construct error keeps only the offending line",
+			yaml: "services:\n  " + echoMarker + ":\n    image: nginx\n  " + echoMarker + ":\n    image: nginx\n",
+			want: "bad request: compose file is not valid YAML (line 4)",
+		},
+		{
+			name: "YAML construct error with only the document line has no position",
+			yaml: web + "    healthcheck:\n      retries: !!int " + echoMarker + "\n",
+			want: "bad request: compose file is not valid YAML",
+		},
+		// Security checks, which run before names are validated.
+		{
+			name: "host network",
+			yaml: "services:\n  " + echoMarker + ":\n    image: nginx\n    network_mode: host\n",
+			want: "bad request: network_mode: host is not allowed",
+		},
+		{
+			name: "privileged",
+			yaml: "services:\n  " + echoMarker + ":\n    image: nginx\n    privileged: true\n",
+			want: "bad request: privileged mode is not allowed",
+		},
+		{
+			name: "host pid",
+			yaml: "services:\n  " + echoMarker + ":\n    image: nginx\n    pid: host\n",
+			want: "bad request: pid: host is not allowed",
+		},
+		{
+			name: "absolute bind mount host path",
+			yaml: web + "    volumes:\n      - /" + echoMarker + ":/data\n",
+			want: "bad request: absolute bind mounts are not allowed",
+		},
+		// Volumes.
+		{
+			name: "invalid volume name",
+			yaml: "volumes:\n  -" + echoMarker + ": {}\n" + web,
+			want: "bad request: volume has invalid name: " + resourceNameRule,
+		},
+		{
+			name: "invalid external volume name names only the validated alias",
+			yaml: "volumes:\n  data:\n    external: true\n    name: -" + echoMarker + "\n" + web,
+			want: "bad request: external volume data has invalid name: " + resourceNameRule,
+		},
+		// Services, whose name is validated first.
+		{
+			name: "invalid service name",
+			yaml: "services:\n  -" + echoMarker + ":\n    image: nginx\n",
+			want: "bad request: service has invalid name: " + resourceNameRule,
+		},
+		{
+			name: "build context outside the repository",
+			yaml: "services:\n  web:\n    build: ../" + echoMarker + "\n",
+			want: "bad request: invalid build context for service web: parent directory traversal is not allowed",
+		},
+		{
+			name: "dockerfile outside the repository",
+			yaml: "services:\n  web:\n    build:\n      context: .\n      dockerfile: ../" + echoMarker + "\n",
+			want: "bad request: invalid dockerfile path for service web: parent directory traversal is not allowed",
+		},
+		{
+			name: "invalid image tag",
+			yaml: "services:\n  web:\n    image: registry.example:5000/" + echoMarker + "\n",
+			want: "bad request: invalid image tag for service web: image must be a Docker Hub name (optionally prefixed with docker.io/) or an owned DCM image tag",
+		},
+		{
+			name: "healthcheck interval",
+			yaml: web + "    healthcheck:\n      test: [CMD, " + echoMarker + "]\n      interval: 1s\n",
+			want: "bad request: healthcheck interval must be at least 5s",
+		},
+		{
+			name: "healthcheck timeout",
+			yaml: web + "    healthcheck:\n      test: [CMD, " + echoMarker + "]\n      timeout: 1s\n",
+			want: "bad request: healthcheck timeout must be at least 2s",
+		},
+		{
+			name: "invalid mount path",
+			yaml: "volumes:\n  data: {}\n" + web + "    volumes:\n      - data:/proc/" + echoMarker + "\n",
+			want: "bad request: invalid mount path for service web: mounting a volume to /proc is not allowed",
+		},
+		{
+			name: "relative bind mount host path",
+			yaml: web + "    volumes:\n      - ./" + echoMarker + ":/data\n",
+			want: "bad request: bind mounts are temporarily disabled in this PaaS",
+		},
+		// Exposure labels.
+		{
+			name: "domain prefix without internal port",
+			yaml: web + "    labels:\n      dcm.domain_prefix: " + echoMarker + "\n",
+			want: "bad request: service web must have BOTH dcm.domain_prefix and dcm.internal_port labels to be exposed",
+		},
+		{
+			name: "invalid domain prefix",
+			yaml: web + "    labels:\n      dcm.domain_prefix: " + echoMarker + "_x\n      dcm.internal_port: \"8080\"\n",
+			want: "bad request: invalid domain prefix for service web: domain prefix must be a DNS label: lowercase letters, digits and hyphen only",
+		},
+		{
+			name: "invalid internal port",
+			yaml: web + "    labels:\n      dcm.domain_prefix: app\n      dcm.internal_port: " + echoMarker + "\n",
+			want: "bad request: invalid dcm.internal_port for service web",
+		},
+		{
+			name:        "forbidden domain prefix names the validated prefix",
+			reserved:    []string{echoMarker},
+			yaml:        web + "    labels:\n      dcm.domain_prefix: " + echoMarker + "\n      dcm.internal_port: \"8080\"\n",
+			want:        `domain prefix "` + echoMarker + `" is forbidden`,
+			echoAllowed: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			project := tt.project
+			if project == "" {
+				project = "proj"
+			}
+			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), project, []byte(tt.yaml), tt.reserved, tt.baseDir)
+			if got := apperrors.SafeMessage(err); !tt.echoAllowed && strings.Contains(got, echoMarker) {
+				t.Fatalf("SafeMessage() = %q echoes rejected input %q", got, echoMarker)
+			}
+			requireRejection(t, err, apperrors.ErrBadRequest, tt.want)
 		})
 	}
 }

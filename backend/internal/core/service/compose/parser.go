@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,8 +69,7 @@ func (p *Parser) ParseAndValidateWithBaseAndBlocked(ctx context.Context, project
 
 	project, err := p.loadComposeProject(ctx, projectName, yamlContent)
 	if err != nil {
-		// Ошибка может возникнуть как на этапе парсинга YAML, так и на этапе проверки ссылок Compose
-		return nil, fmt.Errorf("%w: failed to parse compose file: %v", apperrors.ErrBadRequest, err)
+		return nil, composeLoadError(err)
 	}
 
 	// Строгая проверка безопасности
@@ -116,10 +116,70 @@ func (p *Parser) loadComposeProject(ctx context.Context, projectName string, yam
 	})
 }
 
+// composeLoadError replaces a compose-go load failure with a fixed bad-request
+// message. compose-go errors quote the uploaded file, including interpolated
+// environment values, and the message reaches the uploader, the stored
+// deployment error and the job log, so the cause is dropped, not wrapped.
+//
+// A YAML decoding failure (an error in the chain whose message starts with
+// "yaml: ") keeps its position when the message carries a reliable one. The
+// YAML library does not export its syntax error types, and its exported
+// LoadError holds only the document's line for a nested construct error, so
+// the position is read from the library's own message. The patterns are
+// anchored to the library's fixed wording and capture digits only, so they
+// cannot carry file content.
+func composeLoadError(err error) error {
+	for ; err != nil; err = errors.Unwrap(err) {
+		message := err.Error()
+		if !strings.HasPrefix(message, "yaml: ") {
+			continue
+		}
+		if position, ok := yamlErrorPosition(message); ok {
+			return fmt.Errorf("%w: compose file is not valid YAML (%s)", apperrors.ErrBadRequest, position)
+		}
+		return fmt.Errorf("%w: compose file is not valid YAML", apperrors.ErrBadRequest)
+	}
+	return fmt.Errorf("%w: compose file is not a valid Compose project", apperrors.ErrBadRequest)
+}
+
+var (
+	// yamlSyntaxPosition matches a go.yaml.in/yaml parser or scanner error.
+	// An optional lowercase context names the enclosing construct, and a
+	// second mark, when present, is the problem itself:
+	//   "yaml: line 5, column 22: ..."
+	//   "yaml: while scanning for the next token at line 5, column 22: ..."
+	//   "yaml: while scanning a quoted scalar at line 5, column 14: line 6: ..."
+	yamlSyntaxPosition = regexp.MustCompile(`^yaml: (?:[a-z ]+ at )?line (\d+)(?:, column (\d+))?: (?:line (\d+)(?:, column (\d+))?: )?`)
+	// yamlConstructPosition matches a go.yaml.in/yaml construct error with
+	// nested line prefixes: "yaml: construct errors:\n  line 1: line 4: ...".
+	// The outermost is the document and the innermost the offending node. A
+	// single prefix is only the document's line, so it gives no position.
+	yamlConstructPosition = regexp.MustCompile(`^yaml: construct errors:\n  line \d+: (?:line \d+: )*line (\d+): `)
+)
+
+func yamlErrorPosition(message string) (string, bool) {
+	if match := yamlConstructPosition.FindStringSubmatch(message); match != nil {
+		return "line " + match[1], true
+	}
+	match := yamlSyntaxPosition.FindStringSubmatch(message)
+	if match == nil {
+		return "", false
+	}
+	line, column := match[1], match[2]
+	if match[3] != "" {
+		line, column = match[3], match[4]
+	}
+	if column == "" {
+		return "line " + line, true
+	}
+	return "line " + line + ", column " + column, true
+}
+
 // recoverComposeGo runs one compose-go call. compose-go type-asserts sections
 // it expects to be maps and panics on untrusted input such as `services:` with
-// no value; that is reported as a malformed file instead of crashing the
-// request or deployment worker. Panics in DCM's own code are not recovered.
+// no value; that is reported as an invalid Compose project (see
+// composeLoadError) instead of crashing the request or deployment worker.
+// Panics in DCM's own code are not recovered.
 func recoverComposeGo[T any](call func() (T, error)) (result T, err error) {
 	defer func() {
 		if recover() != nil {
@@ -239,7 +299,7 @@ func (p *Parser) validateSecurity(project *types.Project) error {
 			if vol.Type == types.VolumeTypeBind {
 				// Категорически запрещаем абсолютные пути (например, /var/run/docker.sock или /etc)
 				if strings.HasPrefix(vol.Source, "/") {
-					return fmt.Errorf("%w: absolute bind mounts are not allowed: %s", apperrors.ErrBadRequest, vol.Source)
+					return fmt.Errorf("%w: absolute bind mounts are not allowed", apperrors.ErrBadRequest)
 				}
 			}
 		}
@@ -258,7 +318,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	volumeMap := make(map[string]string)
 	for volName, volConfig := range project.Volumes {
 		if err := validation.ResourceName(volName); err != nil {
-			return nil, fmt.Errorf("%w: volume %s has invalid name: %v", apperrors.ErrBadRequest, volName, err)
+			return nil, fmt.Errorf("%w: volume has invalid name: %v", apperrors.ErrBadRequest, err)
 		}
 		displayName := volName
 		if bool(volConfig.External) {
@@ -302,7 +362,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	// ForEachService гарантирует вызов колбэка в правильном порядке (с учетом depends_on)
 	err := project.ForEachService(allServiceNames, func(serviceName string, srv *types.ServiceConfig) error {
 		if err := validation.ResourceName(srv.Name); err != nil {
-			return fmt.Errorf("%w: service %s has invalid name: %v", apperrors.ErrBadRequest, srv.Name, err)
+			return fmt.Errorf("%w: service has invalid name: %v", apperrors.ErrBadRequest, err)
 		}
 
 		domainSrv := model.ComposeService{
@@ -402,7 +462,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			switch vol.Type {
 			case types.VolumeTypeVolume:
 				if _, exists := volumeMap[vol.Source]; !exists {
-					return fmt.Errorf("%w: service %s references undefined volume %s", apperrors.ErrBadRequest, srv.Name, vol.Source)
+					return fmt.Errorf("%w: service %s references an undefined volume", apperrors.ErrBadRequest, srv.Name)
 				}
 				if err := validation.MountPath(vol.Target); err != nil {
 					return fmt.Errorf("%w: invalid mount path for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
@@ -413,7 +473,7 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 					IsReadOnly: vol.ReadOnly,
 				})
 			case types.VolumeTypeBind:
-				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS for path: %s", apperrors.ErrBadRequest, vol.Source)
+				return fmt.Errorf("%w: bind mounts are temporarily disabled in this PaaS", apperrors.ErrBadRequest)
 			}
 		}
 
