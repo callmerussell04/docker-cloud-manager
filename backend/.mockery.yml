@@ -87,11 +87,9 @@ packages:
       ActiveComposeDeploymentCounter: {}
       CapacityChecker: {}
       ContainerService: {}
-      ImageCleaner: {}
       ObjectStorage: {}
       ProjectRepository: {}
       StagedObjectRepository: {}
-      VolumeService: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
       dir: internal/testutil/mocks/core/http
