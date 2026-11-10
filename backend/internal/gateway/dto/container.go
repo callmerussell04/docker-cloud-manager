@@ -48,11 +48,12 @@ type ExposeContainerDTO struct {
 }
 
 type ContainerStatsDTO struct {
-	CPUPercentage    float64 `json:"cpu_percentage"`
-	MemoryUsageBytes int64   `json:"memory_usage_bytes"`
-	MemoryLimitBytes int64   `json:"memory_limit_bytes"`
-	NetworkRxBytes   int64   `json:"network_rx_bytes"`
-	NetworkTxBytes   int64   `json:"network_tx_bytes"`
+	CPUPercentage            float64 `json:"cpu_percentage"`
+	MemoryUsageBytes         int64   `json:"memory_usage_bytes"`
+	MemoryLimitBytes         int64   `json:"memory_limit_bytes"`
+	MemoryStandardLimitBytes int64   `json:"memory_standard_limit_bytes"`
+	NetworkRxBytes           int64   `json:"network_rx_bytes"`
+	NetworkTxBytes           int64   `json:"network_tx_bytes"`
 }
 
 type PaginatedContainers struct {

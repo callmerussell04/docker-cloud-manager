@@ -68,10 +68,12 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	resp = perform(router, http.MethodPost, "/containers/"+containerID+"/expose", `{"domain_prefix":"web","internal_port":8080}`, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().GetContainerStats(mock.Anything, containerID).Return(model.ContainerStats{CPUPercentage: 12.5}, nil)
+	svc.EXPECT().GetContainerStats(mock.Anything, containerID).Return(model.ContainerStats{CPUPercentage: 12.5, MemoryLimitBytes: 3072, MemoryStandardLimitBytes: 2048}, nil)
 	resp = perform(router, http.MethodGet, "/containers/"+containerID+"/stats", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"cpu_percentage":12.5`)
+	require.Contains(t, resp.Body.String(), `"memory_limit_bytes":3072`)
+	require.Contains(t, resp.Body.String(), `"memory_standard_limit_bytes":2048`)
 
 	svc.EXPECT().CreateVolume(mock.Anything, model.CreateVolumeInput{Name: "data"}).Return(volumeID, nil)
 	resp = perform(router, http.MethodPost, "/volumes", `{"name":"data"}`, nil)
@@ -152,9 +154,10 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
 	resp = perform(router, http.MethodGet, "/stats", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3}, nil)
+	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512}, nil)
 	resp = perform(router, http.MethodGet, "/admin/monitoring", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), `"dcm_borrowed_memory_bytes":512`)
 
 	svc.EXPECT().GetReportsOverview(mock.Anything, int64(1), int64(2)).Return(model.ReportsOverview{From: 1, To: 2}, nil)
 	resp = perform(router, http.MethodGet, "/admin/reports/overview?from=1&to=2", ``, nil)

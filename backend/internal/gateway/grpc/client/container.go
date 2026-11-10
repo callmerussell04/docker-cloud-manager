@@ -126,10 +126,11 @@ func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 
 func containerStatsFromProto(data *coreapi.ContainerStatsResponse) model.ContainerStats {
 	return model.ContainerStats{
-		CPUPercentage:    data.GetCpuPercentage(),
-		MemoryUsageBytes: data.GetMemoryUsageBytes(),
-		MemoryLimitBytes: data.GetMemoryLimitBytes(),
-		NetworkRxBytes:   data.GetNetworkRxBytes(),
-		NetworkTxBytes:   data.GetNetworkTxBytes(),
+		CPUPercentage:            data.GetCpuPercentage(),
+		MemoryUsageBytes:         data.GetMemoryUsageBytes(),
+		MemoryLimitBytes:         data.GetMemoryLimitBytes(),
+		MemoryStandardLimitBytes: data.GetMemoryStandardLimitBytes(),
+		NetworkRxBytes:           data.GetNetworkRxBytes(),
+		NetworkTxBytes:           data.GetNetworkTxBytes(),
 	}
 }

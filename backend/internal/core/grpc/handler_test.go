@@ -146,6 +146,31 @@ func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
 	require.Equal(t, "subdomain app.example.test is already in use", status.Convert(err).Message())
 }
 
+// The owner sees the current limit beside the standard one, so a borrowed
+// limit is visible.
+func TestContainerGRPCHandlerMapsStats(t *testing.T) {
+	containerID := uuid.New()
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().GetStats(mock.Anything, containerID).Return(model.ContainerStats{
+		CPUPercentage: 12.5, MemoryUsageBytes: 900, MemoryLimitBytes: 1536, MemoryStandardLimitBytes: 1024,
+		NetworkRxBytes: 7, NetworkTxBytes: 8,
+	}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, nil)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	stats, err := client.GetContainerStats(userScopeContext(uuid.New()), &coreapi.ContainerActionRequest{ContainerId: containerID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, 12.5, stats.GetCpuPercentage())
+	require.EqualValues(t, 900, stats.GetMemoryUsageBytes())
+	require.EqualValues(t, 1536, stats.GetMemoryLimitBytes())
+	require.EqualValues(t, 1024, stats.GetMemoryStandardLimitBytes())
+	require.EqualValues(t, 7, stats.GetNetworkRxBytes())
+	require.EqualValues(t, 8, stats.GetNetworkTxBytes())
+}
+
 func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	ownerID := uuid.New()
 	volumeID := uuid.New()
@@ -320,7 +345,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	projectLogic.EXPECT().Cancel(mock.Anything, projectID).Return(nil)
 	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
-	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMDiskUsedBytes: 20, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
+	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, DCMDiskUsedBytes: 20, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterProjectAPI(s, projectLogic, users)
 		coregrpc.RegisterStatsAPI(s, statsLogic)
@@ -347,6 +372,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	systemStats, err := statsClient.GetSystemMonitoring(adminCtx, &coreapi.Empty{})
 	require.NoError(t, err)
 	require.Equal(t, 12.5, systemStats.CpuPercent)
+	require.EqualValues(t, 30, systemStats.GetDcmBorrowedMemoryBytes())
 	require.Equal(t, int64(999), systemStats.ObservedAt)
 }
 

@@ -75,11 +75,12 @@ func containersToUserDTO(items []model.Container) []dto.UserContainerDTO {
 
 func containerStatsToDTO(data model.ContainerStats) dto.ContainerStatsDTO {
 	return dto.ContainerStatsDTO{
-		CPUPercentage:    data.CPUPercentage,
-		MemoryUsageBytes: data.MemoryUsageBytes,
-		MemoryLimitBytes: data.MemoryLimitBytes,
-		NetworkRxBytes:   data.NetworkRxBytes,
-		NetworkTxBytes:   data.NetworkTxBytes,
+		CPUPercentage:            data.CPUPercentage,
+		MemoryUsageBytes:         data.MemoryUsageBytes,
+		MemoryLimitBytes:         data.MemoryLimitBytes,
+		MemoryStandardLimitBytes: data.MemoryStandardLimitBytes,
+		NetworkRxBytes:           data.NetworkRxBytes,
+		NetworkTxBytes:           data.NetworkTxBytes,
 	}
 }
 
@@ -428,6 +429,7 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		DiskFreeBytes:               data.DiskFreeBytes,
 		DCMReservedMemoryBytes:      data.DCMReservedMemoryBytes,
 		DCMReservedBuildMemoryBytes: data.DCMReservedBuildMemoryBytes,
+		DCMBorrowedMemoryBytes:      data.DCMBorrowedMemoryBytes,
 		DCMDiskUsedBytes:            data.DCMDiskUsedBytes,
 		HostMinFreeDiskBytes:        data.HostMinFreeDiskBytes,
 		AdmissionStatus:             data.AdmissionStatus,

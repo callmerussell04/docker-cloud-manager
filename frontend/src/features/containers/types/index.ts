@@ -26,6 +26,8 @@ export interface ContainerStats {
   cpu_percentage: number;
   memory_usage_bytes: number;
   memory_limit_bytes: number;
+  // The limit create and start apply; a current limit above it is borrowed.
+  memory_standard_limit_bytes: number;
   network_rx_bytes: number;
   network_tx_bytes: number;
 }

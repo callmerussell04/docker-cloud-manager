@@ -54,11 +54,15 @@ func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) 
 		return model.ContainerStats{}, nil
 	}
 	stats, err := s.dockerAPI.GetContainerStats(ctx, c.DockerID)
-	if err != nil && isDockerNotFound(err) {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return model.ContainerStats{}, resourceUnavailableError("container")
+	if err != nil {
+		if isDockerNotFound(err) {
+			s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
+			return model.ContainerStats{}, resourceUnavailableError("container")
+		}
+		return model.ContainerStats{}, err
 	}
-	return stats, err
+	stats.MemoryStandardLimitBytes = containerResources(c, s.config.Get()).MemoryLimitBytes
+	return stats, nil
 }
 
 func (s *ContainerService) GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error) {

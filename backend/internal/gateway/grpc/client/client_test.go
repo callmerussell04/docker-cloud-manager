@@ -137,6 +137,8 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	stats, err := coreClient.GetContainerStats(context.Background(), "container-id")
 	require.NoError(t, err)
 	require.Equal(t, 12.5, stats.CPUPercentage)
+	require.EqualValues(t, 3072, stats.MemoryLimitBytes)
+	require.EqualValues(t, 2048, stats.MemoryStandardLimitBytes)
 
 	config, err := coreClient.GetSystemConfig(context.Background())
 	require.NoError(t, err)
@@ -154,6 +156,7 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	monitoring, err := coreClient.GetSystemMonitoring(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 42.5, monitoring.CPUPercent)
+	require.EqualValues(t, 512, monitoring.DCMBorrowedMemoryBytes)
 
 	overview, err := coreClient.GetReportsOverview(context.Background(), 1, 2)
 	require.NoError(t, err)
@@ -348,7 +351,7 @@ func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.Pag
 }
 
 func (s *coreContainerServer) GetContainerStats(context.Context, *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
-	return &coreapi.ContainerStatsResponse{CpuPercentage: 12.5, MemoryUsageBytes: 1024}, nil
+	return &coreapi.ContainerStatsResponse{CpuPercentage: 12.5, MemoryUsageBytes: 1024, MemoryLimitBytes: 3072, MemoryStandardLimitBytes: 2048}, nil
 }
 
 type coreSystemServer struct {
@@ -374,7 +377,7 @@ func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreap
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
-	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5}, nil
+	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512}, nil
 }
 
 type coreReportServer struct {

@@ -485,6 +485,30 @@ func TestMemoryPressureWorkerDoesNotRaiseALoweredLimitWithinTheCooldown(t *testi
 		"lowered to usage plus 10%, held for six passes, then raised one step")
 }
 
+// Monitoring shows how much memory runs on boost: the sum, over the running
+// workloads the last pass measured, of their limits above standard after it
+// applied its changes. It is 0 before the first pass and while memory boost
+// is off.
+func TestMemoryPressureWorkerReportsTheMemoryBorrowedAtItsLastPass(t *testing.T) {
+	ctx := context.Background()
+	cfg := boostTestConfig()
+	pass := newBoostPass(t, cfg, nil)
+	pass.add(boostContainer{name: "boosted", usedMiB: 600, limitMiB: 1536})
+	pass.add(boostContainer{name: "standard", usedMiB: 500})
+	pass.add(boostContainer{name: "near", usedMiB: 900})
+	pass.addBuild(boostBuild{name: "build", usedMiB: 900, limitMiB: 1280})
+	require.Zero(t, pass.worker.BorrowedMemoryBytes(), "nothing measured yet")
+
+	pass.worker.RelievePressure(ctx)
+	require.Equal(t, map[string]int64{"near": 1536}, pass.updatedMiB())
+	require.Equal(t, (512+256+512)*pressureMiB, pass.worker.BorrowedMemoryBytes(), "including the raise this pass made")
+
+	off := newBoostPass(t, func() config.SystemConfig { c := cfg; c.MemoryBoostMultiplier = boostBurstMultiplier; return c }(), nil)
+	off.add(boostContainer{name: "boosted", usedMiB: 600, limitMiB: 1536})
+	off.worker.RelievePressure(ctx)
+	require.Zero(t, off.worker.BorrowedMemoryBytes(), "with memory boost off nothing counts as borrowed")
+}
+
 // cpuWorkload is a running container, or a build, in a CPU boost test. It
 // uses 100 MiB of memory, far from its memory limit.
 type cpuWorkload struct {

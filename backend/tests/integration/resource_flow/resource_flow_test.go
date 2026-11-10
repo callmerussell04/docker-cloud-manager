@@ -89,7 +89,12 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		RegistryAuth: repos.RegistryAuthorization(t),
 	})
 	require.NoError(t, err)
-	stats := service.NewStatsService(repos.Containers, repos.Volumes, repos.Images, repos.Builds, repos.Projects, statsMetrics, "", cfg, users)
+	borrowed := coremocks.NewStatsBorrowedMemory(t)
+	borrowed.EXPECT().BorrowedMemoryBytes().Return(0).Maybe()
+	stats := service.NewStatsService(service.StatsServiceDeps{
+		Containers: repos.Containers, Volumes: repos.Volumes, Images: repos.Images, Builds: repos.Builds, Projects: repos.Projects,
+		Metrics: statsMetrics, Config: cfg, Users: users, Borrowed: borrowed,
+	})
 
 	ownerCtx := coretest.UserContext(ownerID)
 	volumeID, err := volumes.Create(ownerCtx, model.VolumeCreateParams{Name: "data"})

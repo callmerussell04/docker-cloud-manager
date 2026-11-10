@@ -170,6 +170,7 @@ type SystemMonitoringResponse struct {
 	AdmissionReasons            []string               `protobuf:"bytes,21,rep,name=admission_reasons,json=admissionReasons,proto3" json:"admission_reasons,omitempty"`
 	HostMinFreeDiskBytes        int64                  `protobuf:"varint,22,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
 	DcmReservedBuildMemoryBytes int64                  `protobuf:"varint,23,opt,name=dcm_reserved_build_memory_bytes,json=dcmReservedBuildMemoryBytes,proto3" json:"dcm_reserved_build_memory_bytes,omitempty"`
+	DcmBorrowedMemoryBytes      int64                  `protobuf:"varint,24,opt,name=dcm_borrowed_memory_bytes,json=dcmBorrowedMemoryBytes,proto3" json:"dcm_borrowed_memory_bytes,omitempty"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -361,6 +362,13 @@ func (x *SystemMonitoringResponse) GetHostMinFreeDiskBytes() int64 {
 func (x *SystemMonitoringResponse) GetDcmReservedBuildMemoryBytes() int64 {
 	if x != nil {
 		return x.DcmReservedBuildMemoryBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetDcmBorrowedMemoryBytes() int64 {
+	if x != nil {
+		return x.DcmBorrowedMemoryBytes
 	}
 	return 0
 }
@@ -4644,8 +4652,10 @@ type ContainerStatsResponse struct {
 	MemoryLimitBytes int64                  `protobuf:"varint,3,opt,name=memory_limit_bytes,json=memoryLimitBytes,proto3" json:"memory_limit_bytes,omitempty"`
 	NetworkRxBytes   int64                  `protobuf:"varint,4,opt,name=network_rx_bytes,json=networkRxBytes,proto3" json:"network_rx_bytes,omitempty"`
 	NetworkTxBytes   int64                  `protobuf:"varint,5,opt,name=network_tx_bytes,json=networkTxBytes,proto3" json:"network_tx_bytes,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The limit create and start apply; memory_limit_bytes above it is borrowed.
+	MemoryStandardLimitBytes int64 `protobuf:"varint,6,opt,name=memory_standard_limit_bytes,json=memoryStandardLimitBytes,proto3" json:"memory_standard_limit_bytes,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ContainerStatsResponse) Reset() {
@@ -4713,6 +4723,13 @@ func (x *ContainerStatsResponse) GetNetworkTxBytes() int64 {
 	return 0
 }
 
+func (x *ContainerStatsResponse) GetMemoryStandardLimitBytes() int64 {
+	if x != nil {
+		return x.MemoryStandardLimitBytes
+	}
+	return 0
+}
+
 var File_api_core_core_proto protoreflect.FileDescriptor
 
 const file_api_core_core_proto_rawDesc = "" +
@@ -4731,7 +4748,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\x9b\b\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xd6\b\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4758,7 +4775,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x10admission_status\x18\x14 \x01(\tR\x0fadmissionStatus\x12+\n" +
 	"\x11admission_reasons\x18\x15 \x03(\tR\x10admissionReasons\x126\n" +
 	"\x18host_min_free_disk_bytes\x18\x16 \x01(\x03R\x14hostMinFreeDiskBytes\x12D\n" +
-	"\x1fdcm_reserved_build_memory_bytes\x18\x17 \x01(\x03R\x1bdcmReservedBuildMemoryBytes\"\a\n" +
+	"\x1fdcm_reserved_build_memory_bytes\x18\x17 \x01(\x03R\x1bdcmReservedBuildMemoryBytes\x129\n" +
+	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +
@@ -5173,13 +5191,14 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1ftelemetry_allowed_exec_commands\x18\x06 \x03(\tR\x1ctelemetryAllowedExecCommands\x12;\n" +
 	"\x1atelemetry_max_command_args\x18\a \x01(\x05R\x17telemetryMaxCommandArgs\x12D\n" +
 	"\x1ftelemetry_max_command_arg_bytes\x18\b \x01(\x05R\x1btelemetryMaxCommandArgBytes\x12@\n" +
-	"\x1dtelemetry_ws_read_limit_bytes\x18\t \x01(\x03R\x19telemetryWsReadLimitBytes\"\xef\x01\n" +
+	"\x1dtelemetry_ws_read_limit_bytes\x18\t \x01(\x03R\x19telemetryWsReadLimitBytes\"\xae\x02\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +
 	"\x12memory_limit_bytes\x18\x03 \x01(\x03R\x10memoryLimitBytes\x12(\n" +
 	"\x10network_rx_bytes\x18\x04 \x01(\x03R\x0enetworkRxBytes\x12(\n" +
-	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes2\xc8\x04\n" +
+	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes\x12=\n" +
+	"\x1bmemory_standard_limit_bytes\x18\x06 \x01(\x03R\x18memoryStandardLimitBytes2\xc8\x04\n" +
 	"\fContainerAPI\x12N\n" +
 	"\x0fCreateContainer\x12\x1c.core.CreateContainerRequest\x1a\x1d.core.CreateContainerResponse\x12;\n" +
 	"\x0eStartContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12:\n" +

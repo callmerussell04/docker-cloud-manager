@@ -32,18 +32,21 @@ type SystemMonitoring struct {
 	DiskFreeBytes               int64
 	DCMReservedMemoryBytes      int64
 	DCMReservedBuildMemoryBytes int64
-	DCMDiskUsedBytes            int64
-	HostMinFreeDiskBytes        int64
-	AdmissionStatus             string
-	AdmissionReasons            []string
-	ContainersTotal             int
-	ContainersRunning           int
-	ContainersStopped           int
-	ContainersError             int
-	ContainersMissing           int
-	VolumesTotal                int
-	ImagesTotal                 int
-	BuildsTotal                 int
-	ProjectsTotal               int
-	ObservedAt                  time.Time
+	// DCMBorrowedMemoryBytes is the memory running workloads borrow above
+	// their standard limits.
+	DCMBorrowedMemoryBytes int64
+	DCMDiskUsedBytes       int64
+	HostMinFreeDiskBytes   int64
+	AdmissionStatus        string
+	AdmissionReasons       []string
+	ContainersTotal        int
+	ContainersRunning      int
+	ContainersStopped      int
+	ContainersError        int
+	ContainersMissing      int
+	VolumesTotal           int
+	ImagesTotal            int
+	BuildsTotal            int
+	ProjectsTotal          int
+	ObservedAt             time.Time
 }

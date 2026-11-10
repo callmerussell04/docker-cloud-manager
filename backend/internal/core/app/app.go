@@ -186,7 +186,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
-	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
 	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL, rabbitmq.Topology{})
@@ -244,7 +243,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterImageAPI(gRPCServer, imgService, buildService, ssoClient)
 	coregrpc.RegisterProjectAPI(gRPCServer, projService, ssoClient)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
-	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 	coregrpc.RegisterReportAPI(gRPCServer, reportService)
 
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
@@ -264,6 +262,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		cancel()
 		return nil, err
 	}
+	statsService := service.NewStatsService(service.StatsServiceDeps{
+		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
+		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Users: ssoClient,
+		Borrowed: memoryPressureWorker,
+	})
+	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
 	composeCoordinator, err := compose.NewDeploymentCoordinator(compose.DeploymentCoordinatorDeps{

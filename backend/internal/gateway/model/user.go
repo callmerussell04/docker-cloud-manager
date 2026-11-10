@@ -24,6 +24,7 @@ type SystemMonitoring struct {
 	DiskFreeBytes               int64
 	DCMReservedMemoryBytes      int64
 	DCMReservedBuildMemoryBytes int64
+	DCMBorrowedMemoryBytes      int64
 	DCMDiskUsedBytes            int64
 	HostMinFreeDiskBytes        int64
 	AdmissionStatus             string

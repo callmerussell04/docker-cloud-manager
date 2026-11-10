@@ -274,11 +274,12 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 	}
 
 	return &coreapi.ContainerStatsResponse{
-		CpuPercentage:    stats.CPUPercentage,
-		MemoryUsageBytes: stats.MemoryUsageBytes,
-		MemoryLimitBytes: stats.MemoryLimitBytes,
-		NetworkRxBytes:   stats.NetworkRxBytes,
-		NetworkTxBytes:   stats.NetworkTxBytes,
+		CpuPercentage:            stats.CPUPercentage,
+		MemoryUsageBytes:         stats.MemoryUsageBytes,
+		MemoryLimitBytes:         stats.MemoryLimitBytes,
+		MemoryStandardLimitBytes: stats.MemoryStandardLimitBytes,
+		NetworkRxBytes:           stats.NetworkRxBytes,
+		NetworkTxBytes:           stats.NetworkTxBytes,
 	}, nil
 }
 

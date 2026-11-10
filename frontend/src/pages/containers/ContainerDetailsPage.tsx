@@ -14,6 +14,7 @@ import { ExposeContainerModal } from '@/features/containers/components/ExposeCon
 import { statusLabel, useT } from '@/lib/i18n';
 import { useContainerAction, useContainerDetailsStats } from '@/features/containers/hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { borrowedMemoryBytes } from '@/features/containers/memory';
 
 export function ContainerDetailsPage() {
   const t = useT();
@@ -64,6 +65,8 @@ export function ContainerDetailsPage() {
   const memPercent = stats?.memory_limit_bytes 
     ? (stats.memory_usage_bytes / stats.memory_limit_bytes) * 100 
     : 0;
+  const standardLimit = stats?.memory_standard_limit_bytes || 0;
+  const borrowedMemory = borrowedMemoryBytes(stats);
   const status = container?.status || streamContainer?.status || 'unknown';
   const isBusy = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
   const isDeleting = ['exposing', 'deleting'].includes(status);
@@ -228,6 +231,17 @@ export function ContainerDetailsPage() {
                     style={{ width: `${Math.min(memPercent, 100)}%` }} 
                   />
                 </div>
+                {standardLimit > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500 dark:text-slate-400">
+                    <span>{t('containers.standardLimit')}: {formatBytes(standardLimit)}</span>
+                    {borrowedMemory > 0 && (
+                      <Badge variant="warning">{t('containers.borrowedMemory')}: {formatBytes(borrowedMemory)}</Badge>
+                    )}
+                  </div>
+                )}
+                {borrowedMemory > 0 && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{t('containers.borrowedMemoryNote')}</p>
+                )}
               </div>
             )}
           </CardContent>

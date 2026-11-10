@@ -31,8 +31,11 @@ type ContainerStats struct {
 	CPUPercentage    float64
 	MemoryUsageBytes int64
 	MemoryLimitBytes int64
-	NetworkRxBytes   int64
-	NetworkTxBytes   int64
+	// MemoryStandardLimitBytes is the limit create and start apply; a
+	// current limit above it is borrowed.
+	MemoryStandardLimitBytes int64
+	NetworkRxBytes           int64
+	NetworkTxBytes           int64
 }
 
 type PaginatedContainers struct {

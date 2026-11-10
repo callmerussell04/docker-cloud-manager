@@ -2025,6 +2025,11 @@ components:
         memory_limit_bytes:
           type: integer
           format: int64
+          description: The memory limit the container runs with now.
+        memory_standard_limit_bytes:
+          type: integer
+          format: int64
+          description: The limit create and start apply. A current limit above it is borrowed and may be reclaimed.
         network_rx_bytes:
           type: integer
           format: int64
@@ -2340,6 +2345,10 @@ components:
         disk_free_bytes: { type: integer, format: int64 }
         dcm_reserved_memory_bytes: { type: integer, format: int64 }
         dcm_reserved_build_memory_bytes: { type: integer, format: int64 }
+        dcm_borrowed_memory_bytes:
+          type: integer
+          format: int64
+          description: Memory running containers and builds borrow above their standard limits, as the memory pressure worker last measured it. 0 before its first pass and while memory boost is off.
         dcm_disk_used_bytes: { type: integer, format: int64 }
         host_min_free_disk_bytes: { type: integer, format: int64 }
         admission_status: { type: string }

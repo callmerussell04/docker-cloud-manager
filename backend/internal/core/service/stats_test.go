@@ -58,7 +58,12 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 		FreeBytes:  500,
 	}, nil)
 
-	svc := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metrics, "/host", cfg, nil)
+	borrowed := coremocks.NewStatsBorrowedMemory(t)
+	borrowed.EXPECT().BorrowedMemoryBytes().Return(1234)
+	svc := service.NewStatsService(service.StatsServiceDeps{
+		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
+		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Borrowed: borrowed,
+	})
 
 	stats, err := svc.GetSystemMonitoring(ctx)
 	require.NoError(t, err)
@@ -71,6 +76,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.EqualValues(t, 500, stats.DiskFreeBytes)
 	require.EqualValues(t, 3*bytesPerMBForTest, stats.DCMReservedMemoryBytes)
 	require.EqualValues(t, 200, stats.DCMReservedBuildMemoryBytes)
+	require.EqualValues(t, 1234, stats.DCMBorrowedMemoryBytes, "borrowed memory as the memory pressure worker last measured it")
 	require.EqualValues(t, 2*bytesPerMBForTest+512, stats.DCMDiskUsedBytes)
 	require.EqualValues(t, 100, stats.HostMinFreeDiskBytes)
 	require.Equal(t, "open", stats.AdmissionStatus)
@@ -87,4 +93,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.False(t, stats.ObservedAt.IsZero())
 }
 
-var _ service.StatsBuildRepository = (*repository.BuildRepository)(nil)
+var (
+	_ service.StatsBuildRepository = (*repository.BuildRepository)(nil)
+	_ service.StatsBorrowedMemory  = (*service.MemoryPressureWorker)(nil)
+)

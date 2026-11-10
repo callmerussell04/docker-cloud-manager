@@ -69,9 +69,12 @@ type ContainerCreateParams struct {
 type ContainerStats struct {
 	CPUPercentage    float64
 	MemoryUsageBytes int64
-	MemoryLimitBytes int64
-	NetworkRxBytes   int64
-	NetworkTxBytes   int64
+	// MemoryLimitBytes is the limit the container runs with now; above
+	// MemoryStandardLimitBytes the difference is borrowed.
+	MemoryLimitBytes         int64
+	MemoryStandardLimitBytes int64
+	NetworkRxBytes           int64
+	NetworkTxBytes           int64
 }
 
 type ContainerRuntimeTarget struct {

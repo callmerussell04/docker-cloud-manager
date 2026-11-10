@@ -39,6 +39,12 @@ type StatsBuildRepository interface {
 	CountActive(ctx context.Context) (int, error)
 }
 
+// StatsBorrowedMemory reports the memory running workloads borrow above
+// their standard limits, as the memory pressure worker last measured it.
+type StatsBorrowedMemory interface {
+	BorrowedMemoryBytes() int64
+}
+
 type StatsProjectRepository interface {
 	List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error)
 	CountAll(ctx context.Context) (int, error)
@@ -60,32 +66,40 @@ type StatsService struct {
 	hostDiskPath string
 	cfg          ConfigManager
 	users        UserInfoProvider
+	borrowed     StatsBorrowedMemory
 }
 
-func NewStatsService(
-	contRepo StatsContainerRepository,
-	volRepo StatsVolumeRepository,
-	imgRepo StatsImageRepository,
-	buildRepo StatsBuildRepository,
-	projRepo StatsProjectRepository,
-	metrics StatsMetricsProvider,
-	hostDiskPath string,
-	cfg ConfigManager,
-	users UserInfoProvider,
-) *StatsService {
+// StatsServiceDeps are what the stats service reads. An empty HostDiskPath
+// measures "/".
+type StatsServiceDeps struct {
+	Containers   StatsContainerRepository
+	Volumes      StatsVolumeRepository
+	Images       StatsImageRepository
+	Builds       StatsBuildRepository
+	Projects     StatsProjectRepository
+	Metrics      StatsMetricsProvider
+	HostDiskPath string
+	Config       ConfigManager
+	Users        UserInfoProvider
+	Borrowed     StatsBorrowedMemory
+}
+
+func NewStatsService(deps StatsServiceDeps) *StatsService {
+	hostDiskPath := deps.HostDiskPath
 	if hostDiskPath == "" {
 		hostDiskPath = "/"
 	}
 	return &StatsService{
-		contRepo:     contRepo,
-		volRepo:      volRepo,
-		imgRepo:      imgRepo,
-		buildRepo:    buildRepo,
-		projRepo:     projRepo,
-		metrics:      metrics,
+		contRepo:     deps.Containers,
+		volRepo:      deps.Volumes,
+		imgRepo:      deps.Images,
+		buildRepo:    deps.Builds,
+		projRepo:     deps.Projects,
+		metrics:      deps.Metrics,
 		hostDiskPath: hostDiskPath,
-		cfg:          cfg,
-		users:        users,
+		cfg:          deps.Config,
+		users:        deps.Users,
+		borrowed:     deps.Borrowed,
 	}
 }
 
@@ -226,6 +240,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DiskFreeBytes:               disk.FreeBytes,
 		DCMReservedMemoryBytes:      reservedMemory,
 		DCMReservedBuildMemoryBytes: reservedBuildMemory,
+		DCMBorrowedMemoryBytes:      s.borrowed.BorrowedMemoryBytes(),
 		DCMDiskUsedBytes:            imageUsedMB*bytesPerMB + volumeUsedBytes,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
 		AdmissionStatus:             admissionStatus,

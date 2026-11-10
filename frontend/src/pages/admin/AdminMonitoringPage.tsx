@@ -88,6 +88,7 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
     disk_free_bytes: stats?.disk_free_bytes ?? 0,
     dcm_reserved_memory_bytes: stats?.dcm_reserved_memory_bytes ?? 0,
     dcm_reserved_build_memory_bytes: stats?.dcm_reserved_build_memory_bytes ?? 0,
+    dcm_borrowed_memory_bytes: stats?.dcm_borrowed_memory_bytes ?? 0,
     dcm_disk_used_bytes: stats?.dcm_disk_used_bytes ?? 0,
     host_min_free_disk_bytes: stats?.host_min_free_disk_bytes ?? 0,
     admission_status: stats?.admission_status ?? 'open',
@@ -197,6 +198,13 @@ export function AdminMonitoringPage() {
               used={stats.dcm_reserved_build_memory_bytes}
               total={stats.memory_total_bytes}
               detail={t('admin.monitoring.ofHostMemory')}
+            />
+            <MetricCard
+              title={t('admin.monitoring.borrowedMemory')}
+              icon={Server}
+              used={stats.dcm_borrowed_memory_bytes}
+              total={stats.memory_total_bytes}
+              detail={t('admin.monitoring.borrowedMemoryDetail')}
             />
           </div>
 

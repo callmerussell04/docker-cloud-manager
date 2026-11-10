@@ -100,6 +100,7 @@ message SystemMonitoringResponse {
   repeated string admission_reasons = 21;
   int64 host_min_free_disk_bytes = 22;
   int64 dcm_reserved_build_memory_bytes = 23;
+  int64 dcm_borrowed_memory_bytes = 24;
 }
 
 message Empty {}
@@ -591,4 +592,6 @@ message ContainerStatsResponse {
   int64 memory_limit_bytes = 3;
   int64 network_rx_bytes = 4;
   int64 network_tx_bytes = 5;
+  // The limit create and start apply; memory_limit_bytes above it is borrowed.
+  int64 memory_standard_limit_bytes = 6;
 }

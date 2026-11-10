@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
@@ -85,6 +86,8 @@ type MemoryPressureWorker struct {
 	mu         sync.Mutex
 	cooldown   map[string]int
 	cpuSamples map[string]cpuSample
+	// borrowed is the memory the last pass measured above standard limits.
+	borrowed atomic.Int64
 }
 
 // cpuSample is a workload's cumulative CPU time and when it was read.
@@ -147,6 +150,7 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	defer w.mu.Unlock()
 	cfg := w.cfg.Get()
 	if cfg.MemoryPressureMinFreeBytes <= 0 {
+		w.borrowed.Store(0)
 		return
 	}
 	pool, err := w.userMemoryPool(ctx, cfg)
@@ -247,8 +251,39 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		if change, ok := quotas[id]; ok {
 			workload = change.workload
 		}
-		w.changeResources(ctx, workload, limits[id], quotas[id], cfg)
+		if !w.changeResources(ctx, workload, limits[id], quotas[id], cfg) {
+			delete(limits, id)
+		}
 	}
+	w.borrowed.Store(borrowedAfter(in, stopped, limits))
+}
+
+// borrowedAfter is what the running workloads borrow once the pass's
+// stops and applied limits take effect. Without boost nothing counts as
+// borrowed.
+func borrowedAfter(in memoryBoostInput, stopped map[string]bool, applied map[string]int64) int64 {
+	if !in.boostEnabled {
+		return 0
+	}
+	var total int64
+	for _, workload := range in.workloads {
+		id := workload.dockerID()
+		if stopped[id] {
+			continue
+		}
+		if limit, ok := applied[id]; ok && limit != 0 {
+			workload.limit = limit
+		}
+		total += workload.borrowed()
+	}
+	return total
+}
+
+// BorrowedMemoryBytes is the memory running workloads had borrowed above
+// their standard limits when the last pass measured them: 0 before the first
+// pass and while memory boost or the worker is off.
+func (w *MemoryPressureWorker) BorrowedMemoryBytes() int64 {
+	return w.borrowed.Load()
 }
 
 // passState is what the worker carries from one pass to the next.
@@ -420,8 +455,9 @@ func (w *MemoryPressureWorker) stop(ctx context.Context, stop memoryStop) bool {
 // own. A zero limit or quota leaves that resource as it is; the CPU period
 // is sent only with a quota that changes it. Swap follows the
 // limit; CPU shares and period, and a build's memory reservation, are left
-// as they are. A lowered memory limit starts the cooldown.
-func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boostWorkload, limit int64, cpu cpuQuotaChange, cfg config.SystemConfig) {
+// as they are. A lowered memory limit starts the cooldown. It reports whether
+// the update was sent.
+func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boostWorkload, limit int64, cpu cpuQuotaChange, cfg config.SystemConfig) bool {
 	quota := cpu.quota
 	update := model.ContainerResourceUpdate{MemoryLimitBytes: limit, CPUQuota: quota, CPUPeriod: cpu.period}
 	kind := "build"
@@ -431,11 +467,11 @@ func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boo
 		active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
 		if err != nil {
 			w.logger.WarnContext(ctx, "failed to check container operations before a resource change", workloadLogAttrs(workload, "error", err)...)
-			return
+			return false
 		}
 		if active {
 			w.logger.DebugContext(ctx, "container with an active operation keeps its resources", workloadLogAttrs(workload)...)
-			return
+			return false
 		}
 	}
 	if limit != 0 {
@@ -447,7 +483,7 @@ func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boo
 	}
 	if err := w.docker.UpdateContainerResources(ctx, workload.dockerID(), update); err != nil {
 		w.logger.WarnContext(ctx, "failed to change workload resources", workloadLogAttrs(workload, "error", err)...)
-		return
+		return false
 	}
 	if limit != 0 {
 		direction := "raised"
@@ -470,6 +506,7 @@ func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boo
 			"old_cpu_quota", workload.cpuQuota, "old_cpu_period", workload.cpuQuotaPeriod,
 			"new_cpu_quota", quota, "standard_cpu_quota", workload.cpuStandardQuota, "cpu_period", workload.cpuPeriod)...)
 	}
+	return true
 }
 
 // userMemoryPool is the host memory user containers may use together.
