@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -293,6 +294,23 @@ func TestBuilderServiceHandleBuildMessageFailureScenarios(t *testing.T) {
 			wantStatus: "failed",
 		},
 		{
+			name: "a killed build container completes failed for resource exhaustion",
+			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
+				expectStarted(h, msg, msg.ImageID)
+				expectBuildPrepared(h, msg)
+				expectDockerRunWithLogs(h, "log\n")
+				h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).Return("/tmp/build.log", nil)
+				h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(errBuildContainerKilled)
+				h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
+				h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because server resources were exhausted.", int64(5<<20)).Return(nil).Once()
+				expectLogUpload(h, msg, 2)
+				h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_resource_exhausted"), 0).Return(nil)
+				h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+				return msg
+			},
+			wantStatus: "failed_resource_exhausted",
+		},
+		{
 			name: "log limit completes failed and stops container",
 			configure: func(h *builderHarness, msg buildqueue.ImageBuildMessage) buildqueue.ImageBuildMessage {
 				expectStarted(h, msg, msg.ImageID)
@@ -359,7 +377,23 @@ func TestBuilderServiceReportsInvalidArchiveSystemLogWriteFailure(t *testing.T) 
 	require.Equal(t, writeErr.Error(), entries[0]["error"])
 }
 
+// A canceled or timed-out build's container is killed too; the build context
+// decides the outcome whatever the wait then reports.
+var waitResultsAfterTheBuildContextEnds = map[string]func(ctx context.Context) error{
+	"the wait reports the context":              func(ctx context.Context) error { return ctx.Err() },
+	"the wait reports a killed build container": func(context.Context) error { return errBuildContainerKilled },
+}
+
+// errBuildContainerKilled is what the Docker adapter reports for exit 137.
+var errBuildContainerKilled = fmt.Errorf("killed: %w", apperrors.ErrResourceExhausted)
+
 func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTerminal(t *testing.T) {
+	for name, waitResult := range waitResultsAfterTheBuildContextEnds {
+		t.Run(name, func(t *testing.T) { testCompletesCanceled(t, waitResult) })
+	}
+}
+
+func testCompletesCanceled(t *testing.T, waitResult func(context.Context) error) {
 	cfg := testBuilderRuntimeConfig()
 	cfg.BuildCancelPollInterval = time.Millisecond
 	h := newBuilderHarness(t, cfg)
@@ -374,7 +408,7 @@ func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTer
 		WaitForBuild(mock.Anything, "container-id").
 		RunAndReturn(func(ctx context.Context, containerID string) error {
 			<-ctx.Done()
-			return ctx.Err()
+			return waitResult(ctx)
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build was canceled before it completed.", int64(5<<20)).Return(nil)
@@ -387,6 +421,12 @@ func TestBuilderServiceHandleBuildMessageCompletesCanceledWhenCoreStatusTurnsTer
 }
 
 func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
+	for name, waitResult := range waitResultsAfterTheBuildContextEnds {
+		t.Run(name, func(t *testing.T) { testCompletesTimeout(t, waitResult) })
+	}
+}
+
+func testCompletesTimeout(t *testing.T, waitResult func(context.Context) error) {
 	cfg := testBuilderRuntimeConfig()
 	cfg.MaxBuildTime = time.Millisecond
 	cfg.BuildCancelPollInterval = time.Hour
@@ -401,7 +441,7 @@ func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
 		WaitForBuild(mock.Anything, "container-id").
 		RunAndReturn(func(ctx context.Context, containerID string) error {
 			<-ctx.Done()
-			return ctx.Err()
+			return waitResult(ctx)
 		})
 	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil)
 	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because it exceeded the maximum build time.", int64(5<<20)).Return(nil)

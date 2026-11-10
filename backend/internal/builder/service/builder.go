@@ -608,6 +608,11 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	case waitErr == nil && ctx.Err() == nil:
 		return buildStatusSuccess
 	case isResourceExhaustedError(waitErr):
+		// A canceled or timed-out build is killed too; its caller records
+		// that outcome and its log line instead.
+		if ctx.Err() == nil {
+			s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
+		}
 		return buildStatusFailedResourceExhausted
 	case waitErr != nil:
 		return buildStatusFailed

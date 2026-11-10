@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -309,4 +310,36 @@ func newAdapter(t *testing.T, cfg builderdocker.Config) *builderdocker.Adapter {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
 	return adapter
+}
+
+// Exit code 137 is SIGKILL: the kernel's OOM killer or the platform stopped
+// the build container, so the build ran out of the resources it was given.
+func TestAdapterWaitForBuildReportsAKilledContainerAsResourceExhaustion(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		exitCode          int
+		wantErr           bool
+		wantResourceError bool
+	}{
+		{name: "exit 0 is success", exitCode: 0},
+		{name: "exit 137 is resource exhaustion", exitCode: 137, wantErr: true, wantResourceError: true},
+		{name: "another exit code is a plain failure", exitCode: 1, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/containers/container-id/wait": dockertest.OK(`{"StatusCode":` + strconv.Itoa(tt.exitCode) + `}`),
+			})
+			adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
+
+			err := adapter.WaitForBuild(context.Background(), "container-id")
+
+			require.Len(t, daemon.Requests("/containers/container-id/wait"), 1)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.Equal(t, tt.wantResourceError, errors.Is(err, apperrors.ErrResourceExhausted))
+		})
+	}
 }

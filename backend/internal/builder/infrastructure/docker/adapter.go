@@ -256,6 +256,10 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	return resp.ID, pr, nil
 }
 
+// killedExitCode is a container's exit code after SIGKILL: the kernel's OOM
+// killer or the platform stopped it.
+const killedExitCode = 137
+
 func (a *Adapter) WaitForBuild(ctx context.Context, containerID string) error {
 	statusCh, errCh := a.cli.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
 	select {
@@ -268,6 +272,9 @@ func (a *Adapter) WaitForBuild(ctx context.Context, containerID string) error {
 			return errors.New(resp.Error.Message)
 		}
 		// Код 0 означает, что Kaniko успешно завершил сборку
+		if resp.StatusCode == killedExitCode {
+			return fmt.Errorf("build container was killed: %w", apperrors.ErrResourceExhausted)
+		}
 		if resp.StatusCode != 0 {
 			return errors.New("build container exited with non-zero status")
 		}
