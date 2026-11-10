@@ -94,6 +94,7 @@ func SystemConfig() config.SystemConfig {
 		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
 		MemoryPressureIntervalSeconds:        10,
 		MemoryBoostMultiplier:                8,
+		CPUBoostMultiplier:                   8,
 		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},

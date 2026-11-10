@@ -38,6 +38,12 @@ func memoryBoostCeiling(c model.Container, cfg config.SystemConfig) int64 {
 	return normalizeMemoryReservation(c.BaseMemoryReservation, cfg) * cfg.MemoryBoostMultiplier
 }
 
+// cpuBoostCeiling is the highest CPU quota CPU boost may give a running
+// container: its reservation times CPUBoostMultiplier.
+func cpuBoostCeiling(c model.Container, cfg config.SystemConfig) int64 {
+	return cpuQuotaFromMillicores(normalizeCPUReservation(c.BaseCPUReservation, cfg)*cfg.CPUBoostMultiplier, cfg.ContainerCPUPeriod)
+}
+
 func normalizeMemoryReservation(value int64, cfg config.SystemConfig) int64 {
 	if value > 0 {
 		return value

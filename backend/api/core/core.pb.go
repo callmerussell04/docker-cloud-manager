@@ -3759,10 +3759,10 @@ type SystemConfigData struct {
 	MemoryPressureMinFreeBytes           int64                  `protobuf:"varint,90,opt,name=memory_pressure_min_free_bytes,json=memoryPressureMinFreeBytes,proto3" json:"memory_pressure_min_free_bytes,omitempty"`
 	MemoryPressureIntervalSeconds        int64                  `protobuf:"varint,91,opt,name=memory_pressure_interval_seconds,json=memoryPressureIntervalSeconds,proto3" json:"memory_pressure_interval_seconds,omitempty"`
 	MemoryBoostMultiplier                int64                  `protobuf:"varint,92,opt,name=memory_boost_multiplier,json=memoryBoostMultiplier,proto3" json:"memory_boost_multiplier,omitempty"`
-	// 93 is kept for the CPU boost multiplier.
-	BoostMinFreeMemoryBytes int64 `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	CpuBoostMultiplier                   int64                  `protobuf:"varint,93,opt,name=cpu_boost_multiplier,json=cpuBoostMultiplier,proto3" json:"cpu_boost_multiplier,omitempty"`
+	BoostMinFreeMemoryBytes              int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
+	unknownFields                        protoimpl.UnknownFields
+	sizeCache                            protoimpl.SizeCache
 }
 
 func (x *SystemConfigData) Reset() {
@@ -4379,6 +4379,13 @@ func (x *SystemConfigData) GetMemoryPressureIntervalSeconds() int64 {
 func (x *SystemConfigData) GetMemoryBoostMultiplier() int64 {
 	if x != nil {
 		return x.MemoryBoostMultiplier
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetCpuBoostMultiplier() int64 {
+	if x != nil {
+		return x.CpuBoostMultiplier
 	}
 	return 0
 }
@@ -5052,7 +5059,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xf9*\n" +
+	"totalCount\"\xab+\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5140,7 +5147,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSeconds\x12B\n" +
 	"\x1ememory_pressure_min_free_bytes\x18Z \x01(\x03R\x1amemoryPressureMinFreeBytes\x12G\n" +
 	" memory_pressure_interval_seconds\x18[ \x01(\x03R\x1dmemoryPressureIntervalSeconds\x126\n" +
-	"\x17memory_boost_multiplier\x18\\ \x01(\x03R\x15memoryBoostMultiplier\x12<\n" +
+	"\x17memory_boost_multiplier\x18\\ \x01(\x03R\x15memoryBoostMultiplier\x120\n" +
+	"\x14cpu_boost_multiplier\x18] \x01(\x03R\x12cpuBoostMultiplier\x12<\n" +
 	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +

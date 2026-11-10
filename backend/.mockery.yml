@@ -39,6 +39,7 @@ packages:
       HostDiskMetricsProvider: {}
       HostMetricsProvider: {}
       MemoryPressureDockerAPI: {}
+      MemoryPressureHostMetrics: {}
       ImageContainerRepository: {}
       ImageDockerAPI: {}
       ImageLifecycleRepository: {}

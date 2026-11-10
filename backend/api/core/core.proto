@@ -554,7 +554,7 @@ message SystemConfigData {
   int64 memory_pressure_min_free_bytes = 90;
   int64 memory_pressure_interval_seconds = 91;
   int64 memory_boost_multiplier = 92;
-  // 93 is kept for the CPU boost multiplier.
+  int64 cpu_boost_multiplier = 93;
   int64 boost_min_free_memory_bytes = 94;
 }
 

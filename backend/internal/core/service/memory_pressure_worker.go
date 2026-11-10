@@ -34,6 +34,7 @@ type containerStopQueue interface {
 
 type MemoryPressureDockerAPI interface {
 	GetContainerUsage(ctx context.Context, dockerID string) (model.ContainerUsage, error)
+	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
 	ListRunningBuildContainers(ctx context.Context) ([]model.BuildContainer, error)
 	KillContainer(ctx context.Context, dockerID string) error
@@ -41,6 +42,9 @@ type MemoryPressureDockerAPI interface {
 
 type MemoryPressureHostMetrics interface {
 	GetTotalMemory() (int64, error)
+	// GetCPULoad is the host's CPU use in percent. It blocks for about a
+	// second while it measures.
+	GetCPULoad() (float64, error)
 }
 
 type MemoryPressureConfigProvider interface {
@@ -61,6 +65,11 @@ type MemoryPressureConfigProvider interface {
 // reserved, largest first. It never stops a container within its
 // reservation or a build within its build memory. This worker is the only
 // thing that lowers a running workload's memory limit.
+//
+// With CPU boost on, the same pass raises the CPU quota of a workload using
+// nearly all of it while host CPU is idle, up to its CPU boost ceiling, and
+// returns raised quotas to standard when the host is busy. Taking CPU back
+// only throttles, so it needs no usage check.
 type MemoryPressureWorker struct {
 	repo    MemoryPressureContainerRepo
 	docker  MemoryPressureDockerAPI
@@ -71,9 +80,17 @@ type MemoryPressureWorker struct {
 	logger  *slog.Logger
 
 	// mu serializes passes; cooldown is the passes left, by Docker ID,
-	// before a lowered limit may be raised again.
-	mu       sync.Mutex
-	cooldown map[string]int
+	// before a lowered limit may be raised again, and cpuSamples the last
+	// CPU time read of each workload.
+	mu         sync.Mutex
+	cooldown   map[string]int
+	cpuSamples map[string]cpuSample
+}
+
+// cpuSample is a workload's cumulative CPU time and when it was read.
+type cpuSample struct {
+	nanoseconds int64
+	at          time.Time
 }
 
 type MemoryPressureWorkerDeps struct {
@@ -100,14 +117,15 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		}
 	}
 	return &MemoryPressureWorker{
-		repo:     deps.Repository,
-		docker:   deps.Docker,
-		metrics:  deps.Metrics,
-		builds:   deps.Builds,
-		users:    deps.Users,
-		cfg:      deps.Config,
-		logger:   logging.WithComponent(deps.Logger, "memory_pressure_worker"),
-		cooldown: map[string]int{},
+		repo:       deps.Repository,
+		docker:     deps.Docker,
+		metrics:    deps.Metrics,
+		builds:     deps.Builds,
+		users:      deps.Users,
+		cfg:        deps.Config,
+		logger:     logging.WithComponent(deps.Logger, "memory_pressure_worker"),
+		cooldown:   map[string]int{},
+		cpuSamples: map[string]cpuSample{},
 	}, nil
 }
 
@@ -120,7 +138,8 @@ func (w *MemoryPressureWorker) Run(ctx context.Context) {
 }
 
 // RelievePressure runs one pass: it measures the running workloads once,
-// decides with planMemoryBoost, and applies the stops and limit changes. A
+// decides with planMemoryBoost and planCPUBoost, and applies the stops and
+// the limit and quota changes, at most one update per workload. A
 // zero MemoryPressureMinFreeBytes turns the worker off. A workload whose
 // usage cannot be read counts as using nothing and is left alone.
 func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
@@ -147,19 +166,23 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		boostMinFree: cfg.BoostMinFreeMemoryBytes,
 		boostEnabled: cfg.MemoryBoostMultiplier > cfg.MaxBurstMultiplier,
 	}
-	nextCooldown := map[string]int{}
+	next := passState{cooldown: map[string]int{}, cpuSamples: map[string]cpuSample{}}
 	for _, c := range running {
 		if c.DockerID == "" {
 			continue
 		}
 		standard := containerResources(c, cfg)
-		workload := memoryWorkload{
+		workload := boostWorkload{
 			container:     c,
 			reservation:   standard.MemoryReservation,
 			standardLimit: standard.MemoryLimitBytes,
 			ceiling:       memoryBoostCeiling(c, cfg),
+
+			cpuStandardQuota: standard.CPUQuota,
+			cpuCeiling:       cpuBoostCeiling(c, cfg),
+			cpuPeriod:        cfg.ContainerCPUPeriod,
 		}
-		if !w.measure(ctx, &workload, nextCooldown) {
+		if !w.measure(ctx, &workload, next) {
 			if ctx.Err() != nil {
 				return
 			}
@@ -176,13 +199,17 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		w.logger.WarnContext(ctx, "failed to list running build containers", "error", err)
 	}
 	for _, b := range builds {
-		workload := memoryWorkload{
+		workload := boostWorkload{
 			build:         &b,
 			reservation:   cfg.BuildMemoryBytes,
 			standardLimit: cfg.BuildMemoryBytes,
 			ceiling:       cfg.BuildMemoryBytes * cfg.MemoryBoostMultiplier,
+
+			cpuStandardQuota: cfg.BuildCPUQuota,
+			cpuCeiling:       cfg.BuildCPUQuota * cfg.CPUBoostMultiplier,
+			cpuPeriod:        cfg.BuildCPUPeriod,
 		}
-		if !w.measure(ctx, &workload, nextCooldown) {
+		if !w.measure(ctx, &workload, next) {
 			if ctx.Err() != nil {
 				return
 			}
@@ -190,27 +217,96 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		}
 		in.workloads = append(in.workloads, workload)
 	}
-	w.cooldown = nextCooldown
+	w.cooldown, w.cpuSamples = next.cooldown, next.cpuSamples
 	if in.quotas, err = w.memoryQuotas(ctx, in.growCandidateOwners()); err != nil {
 		return
 	}
 
 	plan := planMemoryBoost(in)
+	// Stops come first: the CPU decision may wait a second on host load.
 	stopped := w.applyStops(ctx, plan)
+	cpuChanges := w.planCPU(ctx, cfg, in.workloads, stopped)
+	if ctx.Err() != nil {
+		return
+	}
+	limits := map[string]int64{}
 	for _, change := range plan.changes {
-		if !stopped[change.workload.dockerID()] {
-			w.changeLimit(ctx, change, cfg)
+		limits[change.workload.dockerID()] = change.limit
+	}
+	quotas := map[string]cpuQuotaChange{}
+	for _, change := range cpuChanges {
+		quotas[change.workload.dockerID()] = change
+	}
+	for _, workload := range in.workloads {
+		id := workload.dockerID()
+		if stopped[id] || (limits[id] == 0 && quotas[id].quota == 0) {
+			continue
 		}
+		// The CPU change carries what inspection read; the memory change
+		// does not.
+		if change, ok := quotas[id]; ok {
+			workload = change.workload
+		}
+		w.changeResources(ctx, workload, limits[id], quotas[id], cfg)
 	}
 }
 
-// measure reads a workload's working set and current limit and carries its
-// cooldown into nextCooldown. It reports false when the usage cannot be read.
-func (w *MemoryPressureWorker) measure(ctx context.Context, workload *memoryWorkload, nextCooldown map[string]int) bool {
+// passState is what the worker carries from one pass to the next.
+type passState struct {
+	cooldown   map[string]int
+	cpuSamples map[string]cpuSample
+}
+
+// planCPU decides CPU boost when it is on. Only workloads close to their
+// standard CPU quota can change, so host CPU load, which takes about a
+// second to read, is read only when there is one, and their quotas are
+// inspected only when the load is low or high enough to act on. Stopped
+// workloads are left out.
+func (w *MemoryPressureWorker) planCPU(ctx context.Context, cfg config.SystemConfig, workloads []boostWorkload, stopped map[string]bool) []cpuQuotaChange {
+	if cfg.CPUBoostMultiplier <= cfg.MaxCPUBurstMultiplier {
+		return nil
+	}
+	var near []boostWorkload
+	for _, workload := range workloads {
+		if !stopped[workload.dockerID()] && workload.nearCPUQuota(workload.cpuStandardQuota) {
+			near = append(near, workload)
+		}
+	}
+	if len(near) == 0 {
+		return nil
+	}
+	load, err := w.metrics.GetCPULoad()
+	if err != nil {
+		w.logger.WarnContext(ctx, "failed to read host CPU load", "error", err)
+		return nil
+	}
+	if !cpuBoostActs(load) {
+		return nil
+	}
+	inspected := make([]boostWorkload, 0, len(near))
+	for _, workload := range near {
+		info, err := w.docker.InspectContainer(ctx, workload.dockerID())
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			w.logger.WarnContext(ctx, "failed to read workload CPU quota", workloadLogAttrs(workload, "error", err)...)
+			continue
+		}
+		workload.cpuQuota, workload.cpuQuotaPeriod = info.CPUQuota, info.CPUPeriod
+		inspected = append(inspected, workload)
+	}
+	return planCPUBoost(load, inspected)
+}
+
+// measure reads a workload's working set, current limit and CPU use since
+// the previous pass, and carries its cooldown and CPU sample into next. It
+// reports false when the usage cannot be read.
+func (w *MemoryPressureWorker) measure(ctx context.Context, workload *boostWorkload, next passState) bool {
 	dockerID := workload.dockerID()
 	passesLeft := w.cooldown[dockerID]
 	if passesLeft > 1 {
-		nextCooldown[dockerID] = passesLeft - 1
+		next.cooldown[dockerID] = passesLeft - 1
 	}
 	usage, err := w.docker.GetContainerUsage(ctx, dockerID)
 	if err != nil {
@@ -222,11 +318,18 @@ func (w *MemoryPressureWorker) measure(ctx context.Context, workload *memoryWork
 	workload.workingSet = usage.WorkingSetBytes
 	workload.limit = usage.MemoryLimitBytes
 	workload.coolingDown = passesLeft > 0
+	sample := cpuSample{nanoseconds: usage.CPUUsageNanoseconds, at: time.Now()}
+	next.cpuSamples[dockerID] = sample
+	// A restarted container's CPU time starts again from zero.
+	if previous, ok := w.cpuSamples[dockerID]; ok && sample.at.After(previous.at) && sample.nanoseconds >= previous.nanoseconds {
+		workload.cpuUsed = float64(sample.nanoseconds-previous.nanoseconds) / float64(sample.at.Sub(previous.at).Nanoseconds())
+		workload.cpuMeasured = true
+	}
 	return true
 }
 
 // workloadLogAttrs names a workload in a log line, followed by attrs.
-func workloadLogAttrs(workload memoryWorkload, attrs ...any) []any {
+func workloadLogAttrs(workload boostWorkload, attrs ...any) []any {
 	if workload.build != nil {
 		return append([]any{"build_id", workload.build.BuildID, "user_id", workload.build.OwnerID}, attrs...)
 	}
@@ -312,52 +415,61 @@ func (w *MemoryPressureWorker) stop(ctx context.Context, stop memoryStop) bool {
 	return true
 }
 
-// changeLimit sets a workload's memory limit, unless it is a container with
-// an active operation of its own. Swap follows the limit; CPU is left as it
-// is, and so is a build's memory reservation. A lowered limit starts the
-// cooldown.
-func (w *MemoryPressureWorker) changeLimit(ctx context.Context, change memoryLimitChange, cfg config.SystemConfig) {
-	workload := change.workload
-	update := model.ContainerResourceUpdate{MemoryLimitBytes: change.limit}
-	if workload.build != nil {
-		update.MemorySwapMultiplier = cfg.BuildMemorySwapMultiplier
-	} else {
+// changeResources sends a workload's new memory limit, CPU quota or both
+// in one update, unless it is a container with an active operation of its
+// own. A zero limit or quota leaves that resource as it is; the CPU period
+// is sent only with a quota that changes it. Swap follows the
+// limit; CPU shares and period, and a build's memory reservation, are left
+// as they are. A lowered memory limit starts the cooldown.
+func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boostWorkload, limit int64, cpu cpuQuotaChange, cfg config.SystemConfig) {
+	quota := cpu.quota
+	update := model.ContainerResourceUpdate{MemoryLimitBytes: limit, CPUQuota: quota, CPUPeriod: cpu.period}
+	kind := "build"
+	if workload.build == nil {
+		kind = "container"
 		c := workload.container
 		active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
 		if err != nil {
-			w.logger.WarnContext(ctx, "failed to check container operations before a limit change", workloadLogAttrs(workload, "error", err)...)
+			w.logger.WarnContext(ctx, "failed to check container operations before a resource change", workloadLogAttrs(workload, "error", err)...)
 			return
 		}
 		if active {
-			w.logger.DebugContext(ctx, "container with an active operation keeps its memory limit", workloadLogAttrs(workload)...)
+			w.logger.DebugContext(ctx, "container with an active operation keeps its resources", workloadLogAttrs(workload)...)
 			return
 		}
-		update.MemoryReservation = workload.reservation
-		update.MemorySwapMultiplier = cfg.ContainerMemorySwapMultiplier
+	}
+	if limit != 0 {
+		update.MemorySwapMultiplier = cfg.BuildMemorySwapMultiplier
+		if workload.build == nil {
+			update.MemoryReservation = workload.reservation
+			update.MemorySwapMultiplier = cfg.ContainerMemorySwapMultiplier
+		}
 	}
 	if err := w.docker.UpdateContainerResources(ctx, workload.dockerID(), update); err != nil {
-		w.logger.WarnContext(ctx, "failed to change workload memory limit", workloadLogAttrs(workload, "error", err)...)
+		w.logger.WarnContext(ctx, "failed to change workload resources", workloadLogAttrs(workload, "error", err)...)
 		return
 	}
-	lowered := change.limit < workload.limit
-	if lowered {
-		w.cooldown[workload.dockerID()] = boostCooldownPasses
+	if limit != 0 {
+		direction := "raised"
+		if limit < workload.limit {
+			direction = "lowered"
+			w.cooldown[workload.dockerID()] = boostCooldownPasses
+		}
+		w.logger.InfoContext(ctx, kind+" memory limit "+direction, workloadLogAttrs(workload,
+			"working_set_bytes", workload.workingSet,
+			"old_limit_bytes", workload.limit, "new_limit_bytes", limit,
+			"standard_limit_bytes", workload.standardLimit)...)
 	}
-	var message string
-	switch {
-	case workload.build != nil && lowered:
-		message = "build memory limit lowered"
-	case workload.build != nil:
-		message = "build memory limit raised"
-	case lowered:
-		message = "container memory limit lowered"
-	default:
-		message = "container memory limit raised"
+	if quota != 0 {
+		direction := "raised"
+		if quota*workload.cpuQuotaPeriod < workload.cpuQuota*workload.cpuPeriod {
+			direction = "lowered"
+		}
+		w.logger.InfoContext(ctx, kind+" cpu quota "+direction, workloadLogAttrs(workload,
+			"cpu_used_cores", workload.cpuUsed,
+			"old_cpu_quota", workload.cpuQuota, "old_cpu_period", workload.cpuQuotaPeriod,
+			"new_cpu_quota", quota, "standard_cpu_quota", workload.cpuStandardQuota, "cpu_period", workload.cpuPeriod)...)
 	}
-	w.logger.InfoContext(ctx, message, workloadLogAttrs(workload,
-		"working_set_bytes", workload.workingSet,
-		"old_limit_bytes", workload.limit, "new_limit_bytes", change.limit,
-		"standard_limit_bytes", workload.standardLimit)...)
 }
 
 // userMemoryPool is the host memory user containers may use together.

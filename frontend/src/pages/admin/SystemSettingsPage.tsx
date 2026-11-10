@@ -139,6 +139,7 @@ const sections: Array<{
       { name: 'memory_pressure_min_free_bytes', labelKey: 'admin.settings.field.memory_pressure_min_free_bytes.label', hintKey: 'admin.settings.field.memory_pressure_min_free_bytes.hint', type: 'bytes' },
       { name: 'memory_pressure_interval_seconds', labelKey: 'admin.settings.field.memory_pressure_interval_seconds.label', hintKey: 'admin.settings.field.memory_pressure_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'memory_boost_multiplier', labelKey: 'admin.settings.field.memory_boost_multiplier.label', hintKey: 'admin.settings.field.memory_boost_multiplier.hint', type: 'number' },
+      { name: 'cpu_boost_multiplier', labelKey: 'admin.settings.field.cpu_boost_multiplier.label', hintKey: 'admin.settings.field.cpu_boost_multiplier.hint', type: 'number' },
       { name: 'boost_min_free_memory_bytes', labelKey: 'admin.settings.field.boost_min_free_memory_bytes.label', hintKey: 'admin.settings.field.boost_min_free_memory_bytes.hint', type: 'bytes' },
     ],
   },

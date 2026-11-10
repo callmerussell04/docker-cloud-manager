@@ -26,13 +26,25 @@ const (
 	boostCooldownPasses = 6
 )
 
+// Fixed rules of CPU boost. They are not settings.
+const (
+	// A workload using more than this share of a CPU quota is close to it.
+	// Only workloads close to their standard quota are inspected: they are
+	// either candidates or already boosted.
+	cpuBoostNearQuotaPercent = 85
+	// Quotas are raised while host CPU load is below cpuBoostIdleHostPercent
+	// and returned to standard while it is above cpuBoostBusyHostPercent.
+	cpuBoostIdleHostPercent = 60
+	cpuBoostBusyHostPercent = 85
+)
+
 // BorrowedMemoryStopReason is the last error of a container stopped while it
 // used memory above its standard limit. It names no other user's usage.
 const BorrowedMemoryStopReason = "stopped by the platform: the host ran short of memory, so the memory this container had borrowed above its standard limit was reclaimed"
 
-// memoryWorkload is one measured running workload: a user container, or a
+// boostWorkload is one measured running workload: a user container, or a
 // build container when build is set.
-type memoryWorkload struct {
+type boostWorkload struct {
 	container model.Container
 	build     *model.BuildContainer
 	// reservation is what admission promised; standardLimit is the limit
@@ -45,16 +57,31 @@ type memoryWorkload struct {
 	limit int64
 	// coolingDown is set while a recently lowered limit may not grow.
 	coolingDown bool
+
+	// cpuStandardQuota is the CPU quota create and start apply and
+	// cpuCeiling the most CPU boost may raise it to, both per cpuPeriod.
+	cpuStandardQuota int64
+	cpuCeiling       int64
+	cpuPeriod        int64
+	// cpuUsed is the CPU the workload used since the previous pass, in
+	// cores. cpuMeasured is unset on its first sample.
+	cpuUsed     float64
+	cpuMeasured bool
+	// cpuQuota is its CPU quota now, per cpuQuotaPeriod, which differs from
+	// cpuPeriod if the period setting changed since it started. Both are
+	// read only for workloads close to their standard quota.
+	cpuQuota       int64
+	cpuQuotaPeriod int64
 }
 
-func (w memoryWorkload) ownerID() uuid.UUID {
+func (w boostWorkload) ownerID() uuid.UUID {
 	if w.build != nil {
 		return w.build.OwnerID
 	}
 	return w.container.OwnerID
 }
 
-func (w memoryWorkload) dockerID() string {
+func (w boostWorkload) dockerID() string {
 	if w.build != nil {
 		return w.build.DockerID
 	}
@@ -64,7 +91,7 @@ func (w memoryWorkload) dockerID() string {
 // poolUse is what the workload takes from the user memory pool, which is
 // also what stopping it gives back. The pool already holds back a build's
 // slot, so a build takes only what it uses above its reservation.
-func (w memoryWorkload) poolUse() int64 {
+func (w boostWorkload) poolUse() int64 {
 	if w.build != nil {
 		return max(w.workingSet-w.reservation, 0)
 	}
@@ -72,13 +99,13 @@ func (w memoryWorkload) poolUse() int64 {
 }
 
 // borrowed is the part of the current limit above the standard limit.
-func (w memoryWorkload) borrowed() int64 { return max(w.limit-w.standardLimit, 0) }
+func (w boostWorkload) borrowed() int64 { return max(w.limit-w.standardLimit, 0) }
 
-func (w memoryWorkload) nearLimit() bool {
+func (w boostWorkload) nearLimit() bool {
 	return w.workingSet*100 > w.limit*boostNearLimitPercent
 }
 
-func (w memoryWorkload) growCandidate() bool {
+func (w boostWorkload) growCandidate() bool {
 	return w.nearLimit() && w.limit < w.ceiling && !w.coolingDown
 }
 
@@ -86,7 +113,7 @@ func (w memoryWorkload) growCandidate() bool {
 type memoryBoostInput struct {
 	// pool is the memory user workloads may use together.
 	pool      int64
-	workloads []memoryWorkload
+	workloads []boostWorkload
 	// minFree is the free memory below which workloads are stopped.
 	minFree int64
 	// boostMinFree is the free memory a grant must leave and below which
@@ -127,13 +154,13 @@ func (in memoryBoostInput) growCandidateOwners() []uuid.UUID {
 
 // memoryLimitChange sets a workload's memory limit to limit.
 type memoryLimitChange struct {
-	workload memoryWorkload
+	workload boostWorkload
 	limit    int64
 }
 
 // memoryStop is a workload to stop, with the reason it records.
 type memoryStop struct {
-	workload memoryWorkload
+	workload boostWorkload
 	reason   string
 }
 
@@ -178,7 +205,7 @@ func planMemoryBoost(in memoryBoostInput) memoryBoostPlan {
 // listed as over its reservation. A workload at or below its reservation is
 // never listed.
 func stopOrder(in memoryBoostInput) []memoryStop {
-	var borrowing, over []memoryWorkload
+	var borrowing, over []boostWorkload
 	for _, w := range in.workloads {
 		switch {
 		case in.boostEnabled && w.workingSet > w.standardLimit:
@@ -187,10 +214,10 @@ func stopOrder(in memoryBoostInput) []memoryStop {
 			over = append(over, w)
 		}
 	}
-	slices.SortStableFunc(borrowing, func(a, b memoryWorkload) int {
+	slices.SortStableFunc(borrowing, func(a, b boostWorkload) int {
 		return cmp.Compare(b.workingSet-b.standardLimit, a.workingSet-a.standardLimit)
 	})
-	slices.SortStableFunc(over, func(a, b memoryWorkload) int {
+	slices.SortStableFunc(over, func(a, b boostWorkload) int {
 		return cmp.Compare(b.workingSet-b.reservation, a.workingSet-a.reservation)
 	})
 	stops := make([]memoryStop, 0, len(borrowing)+len(over))
@@ -205,7 +232,7 @@ func stopOrder(in memoryBoostInput) []memoryStop {
 
 // shrinks lowers every boosted limit to what its workload uses plus a margin,
 // never below the standard limit, skipping changes too small to matter.
-func shrinks(workloads []memoryWorkload) []memoryLimitChange {
+func shrinks(workloads []boostWorkload) []memoryLimitChange {
 	var changes []memoryLimitChange
 	for _, w := range workloads {
 		if w.limit <= w.standardLimit {
@@ -230,7 +257,7 @@ func grows(in memoryBoostInput, budget int64) []memoryLimitChange {
 		borrowedByOwner[w.ownerID()] += w.borrowed()
 	}
 	type request struct {
-		workload memoryWorkload
+		workload boostWorkload
 		bytes    int64
 	}
 	var requests []request
@@ -265,6 +292,55 @@ func grows(in memoryBoostInput, budget int64) []memoryLimitChange {
 			continue
 		}
 		changes = append(changes, memoryLimitChange{workload: r.workload, limit: r.workload.limit + grant})
+	}
+	return changes
+}
+
+// nearCPUQuota reports whether the workload used more than
+// cpuBoostNearQuotaPercent of quota since the previous pass.
+func (w boostWorkload) nearCPUQuota(quota int64) bool {
+	if !w.cpuMeasured || w.cpuPeriod <= 0 {
+		return false
+	}
+	return w.cpuUsed*100 > float64(quota)/float64(w.cpuPeriod)*cpuBoostNearQuotaPercent
+}
+
+// cpuBoostActs reports whether host CPU load is low enough to raise quotas
+// or high enough to take them back. In between nothing changes.
+func cpuBoostActs(hostLoadPercent float64) bool {
+	return hostLoadPercent < cpuBoostIdleHostPercent || hostLoadPercent > cpuBoostBusyHostPercent
+}
+
+// cpuQuotaChange sets a workload's CPU quota, and its CPU period when
+// period is not zero.
+type cpuQuotaChange struct {
+	workload boostWorkload
+	quota    int64
+	period   int64
+}
+
+// planCPUBoost decides one pass of CPU boost for inspected workloads: on a
+// busy host every raised quota returns to standard; on an idle host a
+// workload close to its quota gets one standard quota more, within its
+// ceiling. Lowering a quota only throttles, so it needs no usage check, and
+// a quota set under another CPU period is compared in cores and returned
+// with today's period; only a quota under today's period is raised. A
+// workload without a quota of its own is left alone.
+func planCPUBoost(hostLoadPercent float64, workloads []boostWorkload) []cpuQuotaChange {
+	var changes []cpuQuotaChange
+	for _, w := range workloads {
+		samePeriod := w.cpuQuotaPeriod == w.cpuPeriod
+		switch {
+		case w.cpuQuota <= 0 || w.cpuQuotaPeriod <= 0:
+		case hostLoadPercent > cpuBoostBusyHostPercent && w.cpuQuota*w.cpuPeriod > w.cpuStandardQuota*w.cpuQuotaPeriod:
+			change := cpuQuotaChange{workload: w, quota: w.cpuStandardQuota}
+			if !samePeriod {
+				change.period = w.cpuPeriod
+			}
+			changes = append(changes, change)
+		case hostLoadPercent < cpuBoostIdleHostPercent && samePeriod && w.cpuQuota < w.cpuCeiling && w.nearCPUQuota(w.cpuQuota):
+			changes = append(changes, cpuQuotaChange{workload: w, quota: min(w.cpuQuota+w.cpuStandardQuota, w.cpuCeiling)})
+		}
 	}
 	return changes
 }

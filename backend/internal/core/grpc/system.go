@@ -100,6 +100,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		MemoryPressureMinFreeBytes:           cfg.MemoryPressureMinFreeBytes,
 		MemoryPressureIntervalSeconds:        cfg.MemoryPressureIntervalSeconds,
 		MemoryBoostMultiplier:                cfg.MemoryBoostMultiplier,
+		CpuBoostMultiplier:                   cfg.CPUBoostMultiplier,
 		BoostMinFreeMemoryBytes:              cfg.BoostMinFreeMemoryBytes,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
@@ -193,6 +194,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.MemoryPressureMinFreeBytes = req.GetMemoryPressureMinFreeBytes()
 	newCfg.MemoryPressureIntervalSeconds = req.GetMemoryPressureIntervalSeconds()
 	newCfg.MemoryBoostMultiplier = req.GetMemoryBoostMultiplier()
+	newCfg.CPUBoostMultiplier = req.GetCpuBoostMultiplier()
 	newCfg.BoostMinFreeMemoryBytes = req.GetBoostMinFreeMemoryBytes()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())

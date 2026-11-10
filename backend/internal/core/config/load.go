@@ -172,6 +172,7 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		MemoryPressureMinFreeBytes:           envconfig.Int64(lookup, "MEMORY_PRESSURE_MIN_FREE_BYTES", 512*1024*1024),
 		MemoryPressureIntervalSeconds:        envconfig.Int64(lookup, "MEMORY_PRESSURE_INTERVAL_SECONDS", 10),
 		MemoryBoostMultiplier:                envconfig.Int64(lookup, "MEMORY_BOOST_MULTIPLIER", 8),
+		CPUBoostMultiplier:                   envconfig.Int64(lookup, "CPU_BOOST_MULTIPLIER", 8),
 		BoostMinFreeMemoryBytes:              envconfig.Int64(lookup, "BOOST_MIN_FREE_MEMORY_BYTES", 2*1024*1024*1024),
 		GitSourcesEnabled:                    envconfig.Bool(lookup, "GIT_SOURCES_ENABLED", true),
 		GitAllowedHosts:                      envconfig.NonEmptyCSV(lookup, "GIT_ALLOWED_HOSTS", []string{"github.com", "gitlab.com", "bitbucket.org"}),

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
@@ -135,7 +137,7 @@ func TestMemoryPressureWorkerStopsContainersOverTheirReservation(t *testing.T) {
 			cfg.BuildMemoryBytes = 1024 * pressureMiB
 			cfg.MaxConcurrentBuilds = 2
 			cfg.MemoryPressureMinFreeBytes = tc.minFreeMiB * pressureMiB
-			metrics := coremocks.NewHostMetricsProvider(t)
+			metrics := coremocks.NewMemoryPressureHostMetrics(t)
 			metrics.EXPECT().GetTotalMemory().Return(4096*pressureMiB, nil).Maybe()
 			builds := coremocks.NewActiveSystemBuildCounter(t)
 			builds.EXPECT().CountActive(mock.Anything).Return(tc.activeBuilds, nil).Maybe()
@@ -180,7 +182,7 @@ func TestNewMemoryPressureWorkerRejectsMissingDependencies(t *testing.T) {
 		return service.MemoryPressureWorkerDeps{
 			Repository: coretest.NewContainerStoreFake(),
 			Docker:     coremocks.NewMemoryPressureDockerAPI(t),
-			Metrics:    coremocks.NewHostMetricsProvider(t),
+			Metrics:    coremocks.NewMemoryPressureHostMetrics(t),
 			Builds:     coremocks.NewActiveSystemBuildCounter(t),
 			Users:      coremocks.NewUserInfoProvider(t),
 			Config:     testConfig(),
@@ -446,7 +448,7 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			}
 			pass := newBoostPass(t, cfg, tc.quotaMiB)
 			for _, bc := range tc.containers {
-				pass.add(bc, func(*mock.Call) {})
+				pass.add(bc)
 			}
 			for _, bb := range tc.builds {
 				pass.addBuild(bb)
@@ -466,36 +468,233 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 func TestMemoryPressureWorkerDoesNotRaiseALoweredLimitWithinTheCooldown(t *testing.T) {
 	ctx := context.Background()
 	pass := newBoostPass(t, boostTestConfig(), nil)
+	pass.add(boostContainer{name: "borrower", usedMiB: 1000, limitMiB: 2048})
 	// The first pass sees a busy host; the rest see the filler gone.
-	passes := 0
-	usage := func(name string) model.ContainerUsage {
-		switch {
-		case name == "filler" && passes == 1:
-			return model.ContainerUsage{WorkingSetBytes: 5000 * pressureMiB, MemoryLimitBytes: 8192 * pressureMiB}
-		case name == "filler":
-			return model.ContainerUsage{WorkingSetBytes: 10 * pressureMiB, MemoryLimitBytes: 8192 * pressureMiB}
-		case passes == 1:
-			return model.ContainerUsage{WorkingSetBytes: 1000 * pressureMiB, MemoryLimitBytes: 2048 * pressureMiB}
-		default:
-			return model.ContainerUsage{WorkingSetBytes: 1000 * pressureMiB, MemoryLimitBytes: pass.limits["borrower"]}
-		}
-	}
-	for _, bc := range []boostContainer{{name: "borrower"}, {name: "filler", reservationMiB: 2048}} {
-		pass.add(bc, func(call *mock.Call) {
-			call.Unset()
-			pass.docker.EXPECT().GetContainerUsage(mock.Anything, "docker-"+bc.name).RunAndReturn(
-				func(context.Context, string) (model.ContainerUsage, error) { return usage(bc.name), nil })
-		})
-	}
+	pass.add(boostContainer{name: "filler", reservationMiB: 2048, usedMiB: 5000})
 
 	var history []int64
-	for passes = 1; passes <= 8; passes++ {
+	for passes := 1; passes <= 8; passes++ {
+		if passes == 2 {
+			pass.usedMiB["filler"] = 10
+		}
 		pass.worker.RelievePressure(ctx)
 		history = append(history, pass.limits["borrower"]/pressureMiB)
 	}
 
 	require.Equal(t, []int64{1100, 1100, 1100, 1100, 1100, 1100, 1100, 1612}, history,
 		"lowered to usage plus 10%, held for six passes, then raised one step")
+}
+
+// cpuWorkload is a running container, or a build, in a CPU boost test. It
+// uses 100 MiB of memory, far from its memory limit.
+type cpuWorkload struct {
+	name  string
+	build bool
+	// usedMillicores is its CPU use between the two passes.
+	usedMillicores int64
+	// quota is its CPU quota now; unless set it is its standard quota.
+	quota int64
+	// period is the CPU period Docker reports; unless set it is the
+	// configured one.
+	period int64
+	busy   bool
+}
+
+// oneCore is the CPU quota of one core over the 100000 microsecond period.
+const oneCore = int64(100000)
+
+// cpuPassGap is the time between the two passes of a CPU boost test.
+const cpuPassGap = 10 * time.Second
+
+// Every container reserves 250 millicores, so its standard CPU quota is one
+// core and its CPU boost ceiling two; a build's standard quota is one core
+// and its ceiling eight. The worker decides on CPU from what a workload used
+// between two passes, so the first pass changes nothing.
+func TestMemoryPressureWorkerBoostsCPUWhileTheHostIsIdle(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		hostLoad  float64
+		workloads []cpuWorkload
+		// cpuBoostMultiplier defaults to 8.
+		cpuBoostMultiplier int64
+		// wantQuotas is every CPU quota sent to Docker, and wantPeriods
+		// every CPU period sent with one.
+		wantQuotas    map[string]int64
+		wantPeriods   map[string]int64
+		wantInspected []string
+		// wantLoadReads is how often the second pass reads host CPU load.
+		wantLoadReads int
+	}{
+		{
+			name:          "an idle host raises a container near its CPU quota by one standard quota and leaves the others alone",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "busy", usedMillicores: 950}, {name: "calm", usedMillicores: 300}},
+			wantQuotas:    map[string]int64{"busy": 2 * oneCore},
+			wantInspected: []string{"busy"},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "a raise stops at the CPU boost ceiling",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "boosted", usedMillicores: 1400, quota: 3 * oneCore / 2}},
+			wantQuotas:    map[string]int64{"boosted": 2 * oneCore},
+			wantInspected: []string{"boosted"},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "a container at its CPU boost ceiling is not raised",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "full", usedMillicores: 1900, quota: 2 * oneCore}},
+			wantQuotas:    map[string]int64{},
+			wantInspected: []string{"full"},
+			wantLoadReads: 1,
+		},
+		{
+			// The ceiling is four cores; a core used of two is not near.
+			name:               "a raised quota is not raised again until it is used",
+			hostLoad:           30,
+			cpuBoostMultiplier: 16,
+			workloads:          []cpuWorkload{{name: "boosted", usedMillicores: 1000, quota: 2 * oneCore}},
+			wantQuotas:         map[string]int64{},
+			wantInspected:      []string{"boosted"},
+			wantLoadReads:      1,
+		},
+		{
+			name:          "a busy host returns a raised quota to standard",
+			hostLoad:      90,
+			workloads:     []cpuWorkload{{name: "boosted", usedMillicores: 1500, quota: 2 * oneCore}, {name: "standard", usedMillicores: 950}},
+			wantQuotas:    map[string]int64{"boosted": oneCore},
+			wantInspected: []string{"boosted", "standard"},
+			wantLoadReads: 1,
+		},
+		{
+			// Two cores over a 50000 period, set before the period setting
+			// changed: the standard quota goes back with today's period.
+			name:          "a busy host returns a quota set under another CPU period to standard",
+			hostLoad:      90,
+			workloads:     []cpuWorkload{{name: "boosted", usedMillicores: 1500, quota: oneCore, period: oneCore / 2}},
+			wantQuotas:    map[string]int64{"boosted": oneCore},
+			wantPeriods:   map[string]int64{"boosted": oneCore},
+			wantInspected: []string{"boosted"},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "an idle host does not raise a quota set under another CPU period",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "busy", usedMillicores: 950, quota: oneCore / 2, period: oneCore / 2}},
+			wantQuotas:    map[string]int64{},
+			wantInspected: []string{"busy"},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "a host neither idle nor busy is left alone without inspecting anything",
+			hostLoad:      70,
+			workloads:     []cpuWorkload{{name: "busy", usedMillicores: 950}, {name: "boosted", usedMillicores: 1500, quota: 2 * oneCore}},
+			wantQuotas:    map[string]int64{},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "host load is not read when no workload is near its standard CPU quota",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "calm", usedMillicores: 300}},
+			wantQuotas:    map[string]int64{},
+			wantLoadReads: 0,
+		},
+		{
+			name:               "a CPU boost multiplier at the CPU burst multiplier reads, inspects and changes nothing",
+			hostLoad:           30,
+			cpuBoostMultiplier: 4,
+			workloads:          []cpuWorkload{{name: "busy", usedMillicores: 950}, {name: "boosted", usedMillicores: 1500, quota: 2 * oneCore}},
+			wantQuotas:         map[string]int64{},
+			wantLoadReads:      0,
+		},
+		{
+			name:          "an idle host raises a build near its CPU quota",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "build", build: true, usedMillicores: 950}},
+			wantQuotas:    map[string]int64{"build": 2 * oneCore},
+			wantInspected: []string{"build"},
+			wantLoadReads: 1,
+		},
+		{
+			name:          "a container with its own queued operation keeps its CPU quota",
+			hostLoad:      30,
+			workloads:     []cpuWorkload{{name: "queued", usedMillicores: 950, busy: true}, {name: "busy", usedMillicores: 950}},
+			wantQuotas:    map[string]int64{"busy": 2 * oneCore},
+			wantInspected: []string{"queued", "busy"},
+			wantLoadReads: 1,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx := context.Background()
+				cfg := boostTestConfig()
+				cfg.CPUBoostMultiplier = cmp.Or(tc.cpuBoostMultiplier, 8)
+				pass := newBoostPass(t, cfg, nil)
+				loads := 0
+				pass.metrics.EXPECT().GetCPULoad().RunAndReturn(func() (float64, error) {
+					loads++
+					return tc.hostLoad, nil
+				}).Maybe()
+				for _, wl := range tc.workloads {
+					if wl.build {
+						pass.addBuild(boostBuild{name: wl.name, usedMiB: 100})
+					} else {
+						pass.add(boostContainer{name: wl.name, usedMiB: 100, busy: wl.busy})
+					}
+					pass.cpuQuota[wl.name] = cmp.Or(wl.quota, oneCore)
+					pass.cpuPeriod[wl.name] = cmp.Or(wl.period, oneCore)
+				}
+
+				pass.worker.RelievePressure(ctx)
+				require.Empty(t, pass.cpuSent, "nothing is decided on a first sample")
+				require.Zero(t, loads, "nothing to decide, so host load is not read")
+				time.Sleep(cpuPassGap)
+				for _, wl := range tc.workloads {
+					pass.cpuNanos[wl.name] += cpuNanosecondsOver(wl.usedMillicores, cpuPassGap)
+				}
+				pass.worker.RelievePressure(ctx)
+
+				require.Equal(t, tc.wantQuotas, pass.updatedQuotas(), "CPU quotas sent to Docker")
+				wantPeriods := tc.wantPeriods
+				if wantPeriods == nil {
+					wantPeriods = map[string]int64{}
+				}
+				require.Equal(t, wantPeriods, pass.periodSent, "CPU periods sent to Docker")
+				require.ElementsMatch(t, tc.wantInspected, pass.inspected, "workloads inspected")
+				require.Equal(t, tc.wantLoadReads, loads, "host CPU load reads")
+				require.Empty(t, pass.sent, "CPU boost changes no memory limit")
+			})
+		})
+	}
+}
+
+// A memory and a CPU change for one container in one pass go to Docker as
+// one update.
+func TestMemoryPressureWorkerSendsOneUpdatePerWorkloadAndPass(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cfg := boostTestConfig()
+		cfg.CPUBoostMultiplier = 8
+		pass := newBoostPass(t, cfg, nil)
+		pass.metrics.EXPECT().GetCPULoad().Return(30, nil).Maybe()
+		pass.add(boostContainer{name: "both", usedMiB: 500})
+		pass.cpuQuota["both"] = oneCore
+
+		pass.worker.RelievePressure(ctx)
+		time.Sleep(cpuPassGap)
+		pass.usedMiB["both"] = 900
+		pass.cpuNanos["both"] += cpuNanosecondsOver(950, cpuPassGap)
+		pass.worker.RelievePressure(ctx)
+
+		require.Equal(t, 1, pass.updates["both"], "one Docker update")
+		require.Equal(t, map[string]int64{"both": 1536}, pass.updatedMiB())
+		require.Equal(t, map[string]int64{"both": 2 * oneCore}, pass.updatedQuotas())
+	})
+}
+
+func cpuNanosecondsOver(millicores int64, d time.Duration) int64 {
+	return millicores * d.Nanoseconds() / 1000
 }
 
 func boostTestConfig() config.SystemConfig {
@@ -510,40 +709,63 @@ func boostTestConfig() config.SystemConfig {
 	cfg.BuildMemoryBytes = 1024 * pressureMiB
 	cfg.BuildMemorySwapMultiplier = 3
 	cfg.MaxConcurrentBuilds = 2
+	cfg.DefaultCPUReservation = 250
+	cfg.MaxCPUBurstMultiplier = 4
+	cfg.ContainerCPUPeriod = oneCore
+	cfg.BuildCPUQuota = oneCore
+	cfg.BuildCPUPeriod = oneCore
+	// CPU boost is off unless a test turns it on.
+	cfg.CPUBoostMultiplier = 1
 	return cfg
 }
 
 // boostPass is a memory pressure worker over the container store fake and a
-// mocked Docker that records the limits it is sent and the build containers
-// it kills.
+// mocked Docker. Docker reports the usage the test scripts and the limits
+// and quotas it was last sent, and records the updates, inspections and
+// kills it gets.
 type boostPass struct {
-	t      *testing.T
-	cfg    config.SystemConfig
-	store  *coretest.ContainerStoreFake
-	docker *coremocks.MemoryPressureDockerAPI
-	users  *coremocks.UserInfoProvider
-	worker *service.MemoryPressureWorker
-	quota  map[string]int64
-	owners map[string]uuid.UUID
-	names  map[uuid.UUID]string
-	// limits is each container's current limit; sent names those updated.
-	limits map[string]int64
-	sent   map[string]bool
-	builds []model.BuildContainer
-	killed []string
+	t       *testing.T
+	cfg     config.SystemConfig
+	store   *coretest.ContainerStoreFake
+	docker  *coremocks.MemoryPressureDockerAPI
+	metrics *coremocks.MemoryPressureHostMetrics
+	users   *coremocks.UserInfoProvider
+	worker  *service.MemoryPressureWorker
+	quota   map[string]int64
+	owners  map[string]uuid.UUID
+	names   map[uuid.UUID]string
+	// usedMiB and cpuNanos are each workload's working set and cumulative
+	// CPU time, by name.
+	usedMiB  map[string]int64
+	cpuNanos map[string]int64
+	// limits and cpuQuota are each workload's current memory limit and CPU
+	// quota; sent and cpuSent name those updated, and updates counts the
+	// updates each got.
+	limits     map[string]int64
+	cpuQuota   map[string]int64
+	cpuPeriod  map[string]int64
+	periodSent map[string]int64
+	sent       map[string]bool
+	cpuSent    map[string]bool
+	updates    map[string]int
+	inspected  []string
+	builds     []model.BuildContainer
+	killed     []string
 }
 
 func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int64) *boostPass {
 	t.Helper()
 	p := &boostPass{
 		t: t, cfg: cfg, store: coretest.NewContainerStoreFake(),
-		docker: coremocks.NewMemoryPressureDockerAPI(t),
-		users:  coremocks.NewUserInfoProvider(t),
-		quota:  quotaMiB, owners: map[string]uuid.UUID{}, names: map[uuid.UUID]string{},
-		limits: map[string]int64{}, sent: map[string]bool{},
+		docker:  coremocks.NewMemoryPressureDockerAPI(t),
+		metrics: coremocks.NewMemoryPressureHostMetrics(t),
+		users:   coremocks.NewUserInfoProvider(t),
+		quota:   quotaMiB, owners: map[string]uuid.UUID{}, names: map[uuid.UUID]string{},
+		usedMiB: map[string]int64{}, cpuNanos: map[string]int64{},
+		limits: map[string]int64{}, cpuQuota: map[string]int64{}, cpuPeriod: map[string]int64{}, periodSent: map[string]int64{},
+		sent: map[string]bool{}, cpuSent: map[string]bool{}, updates: map[string]int{},
 	}
-	metrics := coremocks.NewHostMetricsProvider(t)
-	metrics.EXPECT().GetTotalMemory().Return(8192*pressureMiB, nil).Maybe()
+	p.metrics.EXPECT().GetTotalMemory().Return(8192*pressureMiB, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).RunAndReturn(
 		func(context.Context) (int, error) { return len(p.builds), nil }).Maybe()
@@ -552,7 +774,7 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 	worker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
 		Repository: p.store,
 		Docker:     p.docker,
-		Metrics:    metrics,
+		Metrics:    p.metrics,
 		Builds:     builds,
 		Users:      p.users,
 		Config:     coretest.StaticConfig{Config: cfg},
@@ -563,9 +785,8 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 	return p
 }
 
-// add saves a running container and scripts Docker for it. tweakUsage may
-// replace the usage expectation it is given.
-func (p *boostPass) add(bc boostContainer, tweakUsage func(*mock.Call)) {
+// add saves a running container and scripts Docker for it.
+func (p *boostPass) add(bc boostContainer) {
 	t := p.t
 	ctx := context.Background()
 	owner := p.owner(cmp.Or(bc.owner, bc.name))
@@ -581,24 +802,20 @@ func (p *boostPass) add(bc boostContainer, tweakUsage func(*mock.Call)) {
 	}
 	require.NoError(t, p.store.Save(ctx, c))
 	p.names[c.ID] = bc.name
-	p.limits[bc.name] = bc.limit()
 	if bc.busy {
 		op := model.ResourceOperation{ID: uuid.New(), ResourceType: model.ResourceTypeContainer, ResourceID: c.ID, OwnerID: c.OwnerID, Operation: model.OperationExpose, Status: model.OperationStatusPending}
 		require.NoError(t, p.store.QueueContainerOperation(ctx, c.ID, model.ContainerStatusRunning, model.ContainerStatusRunning, op, model.ContainerLifecycleOutbox{ID: uuid.New(), OperationID: op.ID, ContainerID: c.ID, Status: model.ContainerOutboxStatusPublished}))
 	}
-	tweakUsage(p.docker.EXPECT().GetContainerUsage(mock.Anything, c.DockerID).
-		Return(model.ContainerUsage{WorkingSetBytes: bc.usedMiB * pressureMiB, MemoryLimitBytes: bc.limit()}, nil).Once())
-	p.docker.EXPECT().UpdateContainerResources(mock.Anything, c.DockerID, mock.Anything).RunAndReturn(
-		func(_ context.Context, _ string, update model.ContainerResourceUpdate) error {
-			require.Equal(t, model.ContainerResourceUpdate{
-				MemoryLimitBytes:     update.MemoryLimitBytes,
-				MemoryReservation:    bc.reservation(),
-				MemorySwapMultiplier: p.cfg.ContainerMemorySwapMultiplier,
-			}, update, "only the memory limit changes; swap follows it and CPU is left as it is")
-			p.limits[bc.name] = update.MemoryLimitBytes
-			p.sent[bc.name] = true
-			return bc.updateErr
-		}).Maybe()
+	p.script(bc.name, c.DockerID, bc.usedMiB, bc.limit(), p.cfg.ContainerCPUPeriod, func(update model.ContainerResourceUpdate) error {
+		want := model.ContainerResourceUpdate{CPUQuota: update.CPUQuota, CPUPeriod: update.CPUPeriod}
+		if update.MemoryLimitBytes != 0 {
+			want.MemoryLimitBytes = update.MemoryLimitBytes
+			want.MemoryReservation = bc.reservation()
+			want.MemorySwapMultiplier = p.cfg.ContainerMemorySwapMultiplier
+		}
+		require.Equal(t, want, update, "swap follows a memory limit, the reservation is resent with it, and CPU shares and period are left as they are")
+		return bc.updateErr
+	})
 }
 
 // owner returns the user named key, creating it with its quota.
@@ -619,19 +836,15 @@ func (p *boostPass) addBuild(bb boostBuild) {
 	t := p.t
 	dockerID := "kaniko-" + bb.name
 	p.builds = append(p.builds, model.BuildContainer{DockerID: dockerID, BuildID: uuid.New(), OwnerID: p.owner(cmp.Or(bb.owner, bb.name))})
-	p.limits[bb.name] = bb.limit()
-	p.docker.EXPECT().GetContainerUsage(mock.Anything, dockerID).
-		Return(model.ContainerUsage{WorkingSetBytes: bb.usedMiB * pressureMiB, MemoryLimitBytes: bb.limit()}, nil).Once()
-	p.docker.EXPECT().UpdateContainerResources(mock.Anything, dockerID, mock.Anything).RunAndReturn(
-		func(_ context.Context, _ string, update model.ContainerResourceUpdate) error {
-			require.Equal(t, model.ContainerResourceUpdate{
-				MemoryLimitBytes:     update.MemoryLimitBytes,
-				MemorySwapMultiplier: p.cfg.BuildMemorySwapMultiplier,
-			}, update, "only the memory limit changes; swap follows the build multiplier, reservation and CPU are left as they are")
-			p.limits[bb.name] = update.MemoryLimitBytes
-			p.sent[bb.name] = true
-			return nil
-		}).Maybe()
+	p.script(bb.name, dockerID, bb.usedMiB, bb.limit(), p.cfg.BuildCPUPeriod, func(update model.ContainerResourceUpdate) error {
+		want := model.ContainerResourceUpdate{CPUQuota: update.CPUQuota, CPUPeriod: update.CPUPeriod}
+		if update.MemoryLimitBytes != 0 {
+			want.MemoryLimitBytes = update.MemoryLimitBytes
+			want.MemorySwapMultiplier = p.cfg.BuildMemorySwapMultiplier
+		}
+		require.Equal(t, want, update, "swap follows the build multiplier; reservation, CPU shares and period are left as they are")
+		return nil
+	})
 	p.docker.EXPECT().KillContainer(mock.Anything, dockerID).RunAndReturn(
 		func(context.Context, string) error {
 			p.killed = append(p.killed, bb.name)
@@ -639,10 +852,59 @@ func (p *boostPass) addBuild(bb boostBuild) {
 		}).Maybe()
 }
 
+// script has Docker report a workload's usage, current limit and CPU quota,
+// and record the updates check accepts.
+func (p *boostPass) script(name, dockerID string, usedMiB, limit, cpuPeriod int64, check func(model.ContainerResourceUpdate) error) {
+	p.usedMiB[name] = usedMiB
+	p.limits[name] = limit
+	p.cpuPeriod[name] = cpuPeriod
+	p.docker.EXPECT().GetContainerUsage(mock.Anything, dockerID).RunAndReturn(
+		func(context.Context, string) (model.ContainerUsage, error) {
+			return model.ContainerUsage{
+				WorkingSetBytes:     p.usedMiB[name] * pressureMiB,
+				MemoryLimitBytes:    p.limits[name],
+				CPUUsageNanoseconds: p.cpuNanos[name],
+			}, nil
+		}).Maybe()
+	p.docker.EXPECT().InspectContainer(mock.Anything, dockerID).RunAndReturn(
+		func(context.Context, string) (model.ContainerInspection, error) {
+			p.inspected = append(p.inspected, name)
+			return model.ContainerInspection{MemoryLimitBytes: p.limits[name], CPUQuota: p.cpuQuota[name], CPUPeriod: p.cpuPeriod[name]}, nil
+		}).Maybe()
+	p.docker.EXPECT().UpdateContainerResources(mock.Anything, dockerID, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ string, update model.ContainerResourceUpdate) error {
+			p.updates[name]++
+			require.False(p.t, update.CPUPeriod != 0 && update.CPUQuota == 0, "a CPU period goes only with a quota")
+			err := check(update)
+			// A failed update is recorded too: the test sees what was sent.
+			if update.MemoryLimitBytes != 0 {
+				p.limits[name] = update.MemoryLimitBytes
+				p.sent[name] = true
+			}
+			if update.CPUQuota != 0 {
+				p.cpuQuota[name] = update.CPUQuota
+				p.cpuSent[name] = true
+			}
+			if update.CPUPeriod != 0 {
+				p.cpuPeriod[name] = update.CPUPeriod
+				p.periodSent[name] = update.CPUPeriod
+			}
+			return err
+		}).Maybe()
+}
+
 func (p *boostPass) updatedMiB() map[string]int64 {
 	got := map[string]int64{}
 	for name := range p.sent {
 		got[name] = p.limits[name] / pressureMiB
+	}
+	return got
+}
+
+func (p *boostPass) updatedQuotas() map[string]int64 {
+	got := map[string]int64{}
+	for name := range p.cpuSent {
+		got[name] = p.cpuQuota[name]
 	}
 	return got
 }

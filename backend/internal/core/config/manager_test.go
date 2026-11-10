@@ -244,6 +244,7 @@ func validSystemConfig() config.SystemConfig {
 		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
 		MemoryPressureIntervalSeconds:        10,
 		MemoryBoostMultiplier:                8,
+		CPUBoostMultiplier:                   8,
 		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
@@ -269,9 +270,10 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 	}
 	boostOff := validSystemConfig()
 	boostOff.MemoryBoostMultiplier = 1
+	boostOff.CPUBoostMultiplier = 1
 	boostOff.BoostMinFreeMemoryBytes = boostOff.MemoryPressureMinFreeBytes
 	if err := config.ValidateSystemConfig(boostOff); err != nil {
-		t.Fatalf("a boost multiplier of 1 turns boost off and a high-water mark equal to the floor is valid: %v", err)
+		t.Fatalf("boost multipliers of 1 turn boost off and a high-water mark equal to the floor is valid: %v", err)
 	}
 	for _, tc := range []struct {
 		name  string
@@ -282,6 +284,8 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 		{name: "negative interval", apply: func(c *config.SystemConfig) { c.MemoryPressureIntervalSeconds = -1 }},
 		{name: "zero memory boost multiplier", apply: func(c *config.SystemConfig) { c.MemoryBoostMultiplier = 0 }},
 		{name: "memory boost multiplier above 64", apply: func(c *config.SystemConfig) { c.MemoryBoostMultiplier = 65 }},
+		{name: "zero cpu boost multiplier", apply: func(c *config.SystemConfig) { c.CPUBoostMultiplier = 0 }},
+		{name: "cpu boost multiplier above 64", apply: func(c *config.SystemConfig) { c.CPUBoostMultiplier = 65 }},
 		{name: "boost free memory below the pressure floor", apply: func(c *config.SystemConfig) {
 			c.BoostMinFreeMemoryBytes = c.MemoryPressureMinFreeBytes - 1
 		}},

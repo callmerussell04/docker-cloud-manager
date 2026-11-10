@@ -145,6 +145,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MemoryBoostMultiplier < 1 || cfg.MemoryBoostMultiplier > MaxBoostMultiplier {
 		return fmt.Errorf("memory boost multiplier must be between 1 and %d", MaxBoostMultiplier)
 	}
+	if cfg.CPUBoostMultiplier < 1 || cfg.CPUBoostMultiplier > MaxBoostMultiplier {
+		return fmt.Errorf("cpu boost multiplier must be between 1 and %d", MaxBoostMultiplier)
+	}
 	if cfg.BoostMinFreeMemoryBytes < cfg.MemoryPressureMinFreeBytes {
 		return fmt.Errorf("boost minimum free memory must be at least the memory pressure minimum free memory")
 	}

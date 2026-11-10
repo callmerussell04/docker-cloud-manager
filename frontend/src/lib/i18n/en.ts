@@ -641,6 +641,8 @@ export const en: Record<keyof typeof ru, string> = {
   'admin.settings.field.memory_pressure_interval_seconds.label': 'Memory pressure check interval',
   'admin.settings.field.memory_pressure_interval_seconds.hint': 'How often the platform measures the memory used by running containers.',
   'admin.settings.field.memory_boost_multiplier.label': 'Memory boost ceiling multiplier',
+  'admin.settings.field.cpu_boost_multiplier.label': 'CPU boost ceiling multiplier',
+  'admin.settings.field.cpu_boost_multiplier.hint': 'How far a running container using nearly all of its CPU ceiling may use idle host CPU, as a multiple of its reservation. The ceiling returns to standard when the host gets busy; taking CPU back only throttles. At or below the CPU limit multiplier, CPU boost is off.',
   'admin.settings.field.memory_boost_multiplier.hint': 'How far a running container close to its limit may borrow idle memory, as a multiple of its reservation. Borrowed memory is taken back when the host fills up. At or below the memory limit multiplier, boost is off.',
   'admin.settings.field.boost_min_free_memory_bytes.label': 'Free user memory for boost',
   'admin.settings.field.boost_min_free_memory_bytes.hint': 'Memory boost is granted only while at least this much user memory stays free; below it, raised limits are lowered back to unused headroom. Must be at least the minimum free user memory.',

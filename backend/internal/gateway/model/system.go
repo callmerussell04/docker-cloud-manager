@@ -72,6 +72,7 @@ type SystemConfig struct {
 	MemoryPressureMinFreeBytes           int64
 	MemoryPressureIntervalSeconds        int64
 	MemoryBoostMultiplier                int64
+	CPUBoostMultiplier                   int64
 	BoostMinFreeMemoryBytes              int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string
