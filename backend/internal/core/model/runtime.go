@@ -75,6 +75,17 @@ type ContainerResourceUpdate struct {
 	CPUPeriod            int64
 }
 
+// ContainerUsage is one stats sample of a running container.
+type ContainerUsage struct {
+	// WorkingSetBytes is memory usage less inactive file cache.
+	WorkingSetBytes int64
+	// MemoryLimitBytes is the hard memory limit the container runs with now.
+	MemoryLimitBytes int64
+	// CPUUsageNanoseconds is the CPU time the container has used since it
+	// started.
+	CPUUsageNanoseconds int64
+}
+
 type ContainerState struct {
 	Running      bool
 	Status       string

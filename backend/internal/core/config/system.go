@@ -5,6 +5,8 @@ const (
 	MinReportsUsageSnapshotIntervalSeconds     = int64(60)
 	MaxReportsUsageSnapshotIntervalSeconds     = int64(86400)
 	MaxVolumeUsageScanEntryBudget              = 10_000_000
+	// MaxBoostMultiplier bounds MemoryBoostMultiplier.
+	MaxBoostMultiplier = int64(64)
 )
 
 type SystemConfig struct {
@@ -86,6 +88,13 @@ type SystemConfig struct {
 	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
 	MemoryPressureMinFreeBytes           int64 `json:"memory_pressure_min_free_bytes"`
 	MemoryPressureIntervalSeconds        int64 `json:"memory_pressure_interval_seconds"`
+	// MemoryBoostMultiplier times the memory reservation is the boost
+	// ceiling a running container's limit may be raised to. At or below
+	// MaxBurstMultiplier it turns memory boost off.
+	MemoryBoostMultiplier int64 `json:"memory_boost_multiplier"`
+	// BoostMinFreeMemoryBytes is the free part of the user memory pool that
+	// must remain after a boost is granted. Below it boosted limits shrink.
+	BoostMinFreeMemoryBytes int64 `json:"boost_min_free_memory_bytes"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

@@ -256,6 +256,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Docker:     dockerAdapter,
 		Metrics:    metricsProvider,
 		Builds:     buildRepo,
+		Users:      ssoClient,
 		Config:     cfg.ConfigManager,
 		Logger:     logger,
 	})

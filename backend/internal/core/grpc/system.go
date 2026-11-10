@@ -99,6 +99,8 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
 		MemoryPressureMinFreeBytes:           cfg.MemoryPressureMinFreeBytes,
 		MemoryPressureIntervalSeconds:        cfg.MemoryPressureIntervalSeconds,
+		MemoryBoostMultiplier:                cfg.MemoryBoostMultiplier,
+		BoostMinFreeMemoryBytes:              cfg.BoostMinFreeMemoryBytes,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
 		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
@@ -190,6 +192,8 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
 	newCfg.MemoryPressureMinFreeBytes = req.GetMemoryPressureMinFreeBytes()
 	newCfg.MemoryPressureIntervalSeconds = req.GetMemoryPressureIntervalSeconds()
+	newCfg.MemoryBoostMultiplier = req.GetMemoryBoostMultiplier()
+	newCfg.BoostMinFreeMemoryBytes = req.GetBoostMinFreeMemoryBytes()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
 	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())

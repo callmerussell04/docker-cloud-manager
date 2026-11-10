@@ -118,17 +118,18 @@ func TestAdapterCreateContainerPlacesItUnderTheConfiguredCgroupParent(t *testing
 }
 
 // The working set is usage less the file cache the kernel can drop, so a
-// container is not counted as short of memory for cache it merely holds.
-func TestAdapterGetContainerMemoryWorkingSet(t *testing.T) {
+// container is not counted as short of memory for cache it merely holds. The
+// same sample carries the current memory limit and cumulative CPU time.
+func TestAdapterGetContainerUsage(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		stats string
-		want  int64
+		name           string
+		stats          string
+		wantWorkingSet int64
 	}{
-		{name: "cgroup v2 subtracts inactive file cache", stats: `{"memory_stats":{"usage":1000,"stats":{"inactive_file":300,"total_inactive_file":999}}}`, want: 700},
-		{name: "cgroup v1 subtracts total inactive file cache", stats: `{"memory_stats":{"usage":1000,"stats":{"total_inactive_file":250}}}`, want: 750},
-		{name: "no cache figure reports usage", stats: `{"memory_stats":{"usage":1000}}`, want: 1000},
-		{name: "cache above usage reports usage", stats: `{"memory_stats":{"usage":1000,"stats":{"inactive_file":4000}}}`, want: 1000},
+		{name: "cgroup v2 subtracts inactive file cache", stats: `{"memory_stats":{"usage":1000,"limit":8000,"stats":{"inactive_file":300,"total_inactive_file":999}},"cpu_stats":{"cpu_usage":{"total_usage":123456789}}}`, wantWorkingSet: 700},
+		{name: "cgroup v1 subtracts total inactive file cache", stats: `{"memory_stats":{"usage":1000,"limit":8000,"stats":{"total_inactive_file":250}},"cpu_stats":{"cpu_usage":{"total_usage":123456789}}}`, wantWorkingSet: 750},
+		{name: "no cache figure reports usage", stats: `{"memory_stats":{"usage":1000,"limit":8000},"cpu_stats":{"cpu_usage":{"total_usage":123456789}}}`, wantWorkingSet: 1000},
+		{name: "cache above usage reports usage", stats: `{"memory_stats":{"usage":1000,"limit":8000,"stats":{"inactive_file":4000}},"cpu_stats":{"cpu_usage":{"total_usage":123456789}}}`, wantWorkingSet: 1000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			daemon := dockertest.Serve(t, map[string]dockertest.Response{
@@ -138,10 +139,10 @@ func TestAdapterGetContainerMemoryWorkingSet(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
 
-			got, err := adapter.GetContainerMemoryWorkingSet(context.Background(), "docker-id")
+			got, err := adapter.GetContainerUsage(context.Background(), "docker-id")
 
 			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
+			require.Equal(t, model.ContainerUsage{WorkingSetBytes: tc.wantWorkingSet, MemoryLimitBytes: 8000, CPUUsageNanoseconds: 123456789}, got)
 			requests := daemon.Requests("/containers/docker-id/stats")
 			require.Len(t, requests, 1)
 			require.Equal(t, "1", requests[0].Query.Get("one-shot"), "one sample, without waiting for a second")

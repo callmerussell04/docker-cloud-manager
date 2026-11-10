@@ -142,6 +142,12 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MemoryPressureIntervalSeconds <= 0 {
 		return fmt.Errorf("memory pressure interval must be positive")
 	}
+	if cfg.MemoryBoostMultiplier < 1 || cfg.MemoryBoostMultiplier > MaxBoostMultiplier {
+		return fmt.Errorf("memory boost multiplier must be between 1 and %d", MaxBoostMultiplier)
+	}
+	if cfg.BoostMinFreeMemoryBytes < cfg.MemoryPressureMinFreeBytes {
+		return fmt.Errorf("boost minimum free memory must be at least the memory pressure minimum free memory")
+	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}

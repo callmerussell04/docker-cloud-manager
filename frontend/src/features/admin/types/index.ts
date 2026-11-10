@@ -83,6 +83,8 @@ export interface SystemConfig {
   host_min_free_disk_bytes: number;
   memory_pressure_min_free_bytes: number;
   memory_pressure_interval_seconds: number;
+  memory_boost_multiplier: number;
+  boost_min_free_memory_bytes: number;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -200,6 +202,8 @@ export const systemConfigSchema = z.object({
   host_min_free_disk_bytes: z.number().min(0),
   memory_pressure_min_free_bytes: z.number().min(0),
   memory_pressure_interval_seconds: z.number().min(1),
+  memory_boost_multiplier: z.number().int().min(1).max(64),
+  boost_min_free_memory_bytes: z.number().min(0),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),

@@ -2672,6 +2672,16 @@ components:
         memory_pressure_interval_seconds:
           type: integer
           format: int64
+        memory_boost_multiplier:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 64
+          description: Boost ceiling as a multiple of the memory reservation. At or below max_burst_multiplier memory boost is off.
+        boost_min_free_memory_bytes:
+          type: integer
+          format: int64
+          description: Free user memory that must remain after a boost is granted; below it boosted limits are lowered. At least memory_pressure_min_free_bytes.
         git_sources_enabled:
           type: boolean
         git_allowed_hosts:

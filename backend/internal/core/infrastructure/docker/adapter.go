@@ -577,35 +577,46 @@ func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
 	return err
 }
 
-// GetContainerMemoryWorkingSet returns the memory a running container holds
-// that the kernel cannot simply drop: its usage less inactive file cache, the
-// figure docker stats shows. It reads one sample and does not wait for a
-// second, unlike GetContainerStats.
-func (a *Adapter) GetContainerMemoryWorkingSet(ctx context.Context, dockerID string) (int64, error) {
+// GetContainerUsage reads one stats sample of a running container without
+// waiting for a second, unlike GetContainerStats. Its working set is the
+// memory the kernel cannot simply drop: usage less inactive file cache, the
+// figure docker stats shows.
+func (a *Adapter) GetContainerUsage(ctx context.Context, dockerID string) (model.ContainerUsage, error) {
 	statsResp, err := a.cli.ContainerStatsOneShot(ctx, dockerID)
 	if err != nil {
-		return 0, err
+		return model.ContainerUsage{}, err
 	}
 	defer func() { _ = statsResp.Body.Close() }() // read-only stream; close failure is not actionable
 
 	var v struct {
 		MemoryStats struct {
 			Usage int64            `json:"usage"`
+			Limit int64            `json:"limit"`
 			Stats map[string]int64 `json:"stats"`
 		} `json:"memory_stats"`
+		CPUStats struct {
+			CPUUsage struct {
+				TotalUsage int64 `json:"total_usage"`
+			} `json:"cpu_usage"`
+		} `json:"cpu_stats"`
 	}
 	if err := json.NewDecoder(statsResp.Body).Decode(&v); err != nil {
-		return 0, err
+		return model.ContainerUsage{}, err
+	}
+	usage := model.ContainerUsage{
+		WorkingSetBytes:     v.MemoryStats.Usage,
+		MemoryLimitBytes:    v.MemoryStats.Limit,
+		CPUUsageNanoseconds: v.CPUStats.CPUUsage.TotalUsage,
 	}
 	// cgroup v2 reports inactive_file; cgroup v1 reports total_inactive_file.
 	inactiveFile, ok := v.MemoryStats.Stats["inactive_file"]
 	if !ok {
 		inactiveFile = v.MemoryStats.Stats["total_inactive_file"]
 	}
-	if inactiveFile <= 0 || inactiveFile >= v.MemoryStats.Usage {
-		return v.MemoryStats.Usage, nil
+	if inactiveFile > 0 && inactiveFile < v.MemoryStats.Usage {
+		usage.WorkingSetBytes -= inactiveFile
 	}
-	return v.MemoryStats.Usage - inactiveFile, nil
+	return usage, nil
 }
 
 func (a *Adapter) GetContainerStats(ctx context.Context, dockerID string) (model.ContainerStats, error) {

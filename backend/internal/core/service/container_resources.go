@@ -15,8 +15,10 @@ const (
 // reservation is what admission promised: Docker protects that much memory
 // from reclaim and weighs CPU by it under contention. The limits are the
 // reservation times the burst multipliers. Both depend only on the
-// reservation and cfg, so create and every start apply the same values, and
-// nothing lowers them while the container runs.
+// reservation and cfg, so create and every start apply the same values. The
+// memory limit is the container's standard limit: while it runs, only the
+// memory pressure worker moves it, between the standard limit and the boost
+// ceiling.
 func containerResources(c model.Container, cfg config.SystemConfig) model.ContainerResourceUpdate {
 	memory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
 	cpu := normalizeCPUReservation(c.BaseCPUReservation, cfg)
@@ -28,6 +30,12 @@ func containerResources(c model.Container, cfg config.SystemConfig) model.Contai
 		CPUQuota:             cpuQuotaFromMillicores(cpu*max(cfg.MaxCPUBurstMultiplier, 1), cfg.ContainerCPUPeriod),
 		CPUPeriod:            cfg.ContainerCPUPeriod,
 	}
+}
+
+// memoryBoostCeiling is the highest memory limit memory boost may give a
+// running container: its reservation times MemoryBoostMultiplier.
+func memoryBoostCeiling(c model.Container, cfg config.SystemConfig) int64 {
+	return normalizeMemoryReservation(c.BaseMemoryReservation, cfg) * cfg.MemoryBoostMultiplier
 }
 
 func normalizeMemoryReservation(value int64, cfg config.SystemConfig) int64 {

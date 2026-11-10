@@ -243,6 +243,8 @@ func validSystemConfig() config.SystemConfig {
 		RegistryCleanupJobTimeoutSeconds:     20,
 		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
 		MemoryPressureIntervalSeconds:        10,
+		MemoryBoostMultiplier:                8,
+		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,
@@ -265,6 +267,12 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 	if err := config.ValidateSystemConfig(disabled); err != nil {
 		t.Fatalf("a zero floor turns the worker off and is valid: %v", err)
 	}
+	boostOff := validSystemConfig()
+	boostOff.MemoryBoostMultiplier = 1
+	boostOff.BoostMinFreeMemoryBytes = boostOff.MemoryPressureMinFreeBytes
+	if err := config.ValidateSystemConfig(boostOff); err != nil {
+		t.Fatalf("a boost multiplier of 1 turns boost off and a high-water mark equal to the floor is valid: %v", err)
+	}
 	for _, tc := range []struct {
 		name  string
 		apply func(*config.SystemConfig)
@@ -272,6 +280,11 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 		{name: "negative floor", apply: func(c *config.SystemConfig) { c.MemoryPressureMinFreeBytes = -1 }},
 		{name: "zero interval", apply: func(c *config.SystemConfig) { c.MemoryPressureIntervalSeconds = 0 }},
 		{name: "negative interval", apply: func(c *config.SystemConfig) { c.MemoryPressureIntervalSeconds = -1 }},
+		{name: "zero memory boost multiplier", apply: func(c *config.SystemConfig) { c.MemoryBoostMultiplier = 0 }},
+		{name: "memory boost multiplier above 64", apply: func(c *config.SystemConfig) { c.MemoryBoostMultiplier = 65 }},
+		{name: "boost free memory below the pressure floor", apply: func(c *config.SystemConfig) {
+			c.BoostMinFreeMemoryBytes = c.MemoryPressureMinFreeBytes - 1
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := validSystemConfig()

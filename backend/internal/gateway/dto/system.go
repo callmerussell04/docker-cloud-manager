@@ -71,6 +71,8 @@ type SystemConfigDTO struct {
 	HostMinFreeDiskBytes                 int64    `json:"host_min_free_disk_bytes"`
 	MemoryPressureMinFreeBytes           int64    `json:"memory_pressure_min_free_bytes"`
 	MemoryPressureIntervalSeconds        int64    `json:"memory_pressure_interval_seconds"`
+	MemoryBoostMultiplier                int64    `json:"memory_boost_multiplier"`
+	BoostMinFreeMemoryBytes              int64    `json:"boost_min_free_memory_bytes"`
 	GitSourcesEnabled                    bool     `json:"git_sources_enabled"`
 	GitAllowedHosts                      []string `json:"git_allowed_hosts"`
 	GitCloneTimeoutSeconds               int64    `json:"git_clone_timeout_seconds"`

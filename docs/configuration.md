@@ -157,7 +157,7 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 
 ### Начальные безопасные значения ресурсов из `.env.example`
 
-Следующие переменные окружения используются при создании рабочих настроек Core: `DEFAULT_CPU_RESERVATION_MILLICORES`, `RESERVED_SYSTEM_CPU_MILLICORES`, `CPU_OVERCOMMIT_FACTOR`, `MAX_CPU_BURST_MULTIPLIER`, `CONTAINER_CPU_PERIOD`, `MEMORY_PRESSURE_MIN_FREE_BYTES`, `MEMORY_PRESSURE_INTERVAL_SECONDS`, `IMAGE_BUILDS_ENABLED`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS`, `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS`, `MAX_STAGED_SOURCE_BYTES_PER_USER`, `MAX_QUEUED_BUILDS_PER_USER`, `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES`, `MAX_QUEUED_CONTAINER_CREATES_PER_USER`, `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE`, `MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS`, `HOST_MIN_FREE_DISK_BYTES`, `GIT_SOURCES_ENABLED`, `GIT_ALLOWED_HOSTS`, `GIT_CLONE_TIMEOUT_SECONDS`, `GIT_MAX_REPOSITORY_BYTES`.
+Следующие переменные окружения используются при создании рабочих настроек Core: `DEFAULT_CPU_RESERVATION_MILLICORES`, `RESERVED_SYSTEM_CPU_MILLICORES`, `CPU_OVERCOMMIT_FACTOR`, `MAX_CPU_BURST_MULTIPLIER`, `CONTAINER_CPU_PERIOD`, `MEMORY_PRESSURE_MIN_FREE_BYTES`, `MEMORY_PRESSURE_INTERVAL_SECONDS`, `MEMORY_BOOST_MULTIPLIER`, `BOOST_MIN_FREE_MEMORY_BYTES`, `IMAGE_BUILDS_ENABLED`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS`, `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS`, `MAX_STAGED_SOURCE_BYTES_PER_USER`, `MAX_QUEUED_BUILDS_PER_USER`, `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES`, `MAX_QUEUED_CONTAINER_CREATES_PER_USER`, `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE`, `MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS`, `HOST_MIN_FREE_DISK_BYTES`, `GIT_SOURCES_ENABLED`, `GIT_ALLOWED_HOSTS`, `GIT_CLONE_TIMEOUT_SECONDS`, `GIT_MAX_REPOSITORY_BYTES`.
 
 `CORE_HOST_DISK_PATH=/host` указывает путь подключения, по которому Core измеряет свободное место. `TENANT_CGROUP_PARENT` задаёт родительскую cgroup для пользовательских контейнеров и контейнеров сборки (например, `dcm-tenants.slice`); её читают Core и Builder, это настройка запуска, а не runtime config. Пустое значение оставляет cgroup по умолчанию Docker. Создание и ограничение этой cgroup описано в [руководстве по развёртыванию](deployment-single-vm.md#ограничение-памяти-пользовательских-контейнеров). Необязательная переменная `BUILDER_INSTANCE_ID` позволяет задать постоянный идентификатор обработчика сборок.
 
@@ -175,7 +175,7 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `default_memory_reservation_bytes` | 256 MiB | `> 0` |
 | `reserved_system_memory_bytes` | 2 GiB | `>= 0` |
 | `overcommit_factor` | `1` | `> 0`, `<= 10`. Какую долю памяти, оставленной пользователям, можно пообещать в резервах. При `1` все резервы выполнимы одновременно |
-| `max_burst_multiplier` | `4` | `1..10`. Жёсткий лимит памяти контейнера как кратное его резерва |
+| `max_burst_multiplier` | `4` | `1..10`. Стандартный лимит памяти контейнера как кратное его резерва |
 | `default_cpu_reservation_millicores` | `250` | `> 0` |
 | `reserved_system_cpu_millicores` | `500` | `>= 0` |
 | `cpu_overcommit_factor` | `4` | `> 0`, `<= 10` |
@@ -184,6 +184,8 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `default_cpu_shares` | `1024` | `> 0`. CPU shares контейнера с резервом CPU по умолчанию; остальные получают shares пропорционально резерву |
 | `memory_pressure_min_free_bytes` | 512 MiB | `>= 0`. Минимум свободной памяти в пуле пользовательских контейнеров; `0` отключает остановку при нехватке памяти |
 | `memory_pressure_interval_seconds` | `10` | `> 0`. Интервал измерения памяти работающих контейнеров |
+| `memory_boost_multiplier` | `8` | `1..64`. Потолок заимствования памяти как кратное резерва. Значение не больше `max_burst_multiplier` отключает заимствование |
+| `boost_min_free_memory_bytes` | 2 GiB | `>= memory_pressure_min_free_bytes`. Свободная память пула, которая должна остаться после выдачи заимствования; ниже неё повышенные лимиты снижаются |
 | `container_stop_timeout` | `10` секунд | `> 0` |
 | `container_ttl_hours` | `24` | `0` отключает TTL, отрицательные запрещены |
 | `container_pids_limit` | `256` | `> 0` |
@@ -194,9 +196,15 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `reserved_domain_prefixes` | системные имена | Допустимые уникальные префиксы |
 | `blocked_domain_prefix_patterns` | пусто | Уникальные допустимые регулярные выражения |
 
-Лимиты контейнера фиксированы: они задаются при создании, повторно применяются при каждом запуске и не меняются, пока контейнер работает. Изменение множителей действует на существующий контейнер со следующего запуска. Резерв памяти защищён от вытеснения, а процессорное время под нагрузкой делится пропорционально резервам.
+Стандартные лимиты контейнера задаются при создании и повторно применяются при каждом запуске. Изменение множителей `max_burst_multiplier` и `max_cpu_burst_multiplier` действует на существующий контейнер со следующего запуска. Резерв памяти защищён от вытеснения, а процессорное время под нагрузкой делится пропорционально резервам.
 
-Пул памяти пользовательских контейнеров равен памяти сервера за вычетом `reserved_system_memory_bytes` и памяти слотов сборки. Когда свободная часть пула (пул минус фактически занятая контейнерами память без неактивного файлового кэша) становится меньше `memory_pressure_min_free_bytes`, Core останавливает контейнеры, использующие больше своего резерва, начиная с наибольшего превышения, пока остановки не покроют нехватку. Контейнер, не превышающий резерв, платформа не останавливает. Причина остановки записывается в `last_error` контейнера.
+Пул памяти пользовательских контейнеров равен памяти сервера за вычетом `reserved_system_memory_bytes` и памяти слотов сборки. Свободная часть пула — это пул минус фактически занятая контейнерами память без неактивного файлового кэша. Раз в `memory_pressure_interval_seconds` Core измеряет работающие контейнеры и действует в таком порядке:
+
+1. Если свободно меньше `boost_min_free_memory_bytes`, повышенные лимиты памяти снижаются до занятой памяти плюс запас (10% от неё, но не меньше 64 MiB) и никогда ниже стандартного лимита. Снижение меньше чем на 5% пропускается.
+2. Если свободно меньше `memory_pressure_min_free_bytes`, Core останавливает сначала контейнеры, занявшие больше своего стандартного лимита, начиная с наибольшего заимствования, затем контейнеры, использующие больше своего резерва, начиная с наибольшего превышения, пока остановки не покроют нехватку. Контейнер, не превышающий резерв, платформа не останавливает. Причина остановки записывается в `last_error` контейнера.
+3. Если ничего не снижено и не остановлено, контейнер, занявший больше 85% текущего лимита, получает прибавку в половину стандартного лимита, но не выше потолка `резерв × memory_boost_multiplier`. Всего выдаётся не больше, чем оставляет свободными `boost_min_free_memory_bytes`; при нехватке остаток делится пропорционально резервам, а прибавки меньше 16 MiB не выдаются. Заимствованная память пользователя (сумма превышений лимитов над стандартными) не превышает его квоту памяти. Сниженный лимит не повышается снова в течение 6 проверок.
+
+Заимствование не учитывается при допуске и не мешает запуску чужих контейнеров. Новые значения настроек действуют со следующей проверки; при отключении заимствования уже повышенные лимиты остаются до следующего запуска контейнера. `memory_pressure_min_free_bytes = 0` отключает и остановки, и заимствование.
 
 ### Сборки, Git и безопасность
 
