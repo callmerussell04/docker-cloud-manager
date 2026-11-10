@@ -9,6 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dockertest"
 )
 
@@ -16,7 +17,8 @@ import (
 // limits and bounded log disk use; nothing downstream corrects it.
 func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 	daemon := dockertest.Serve(t, map[string]dockertest.Response{
-		"/containers/create": dockertest.Created(`{"Id":"docker-id"}`),
+		"/images/registry:5000/owner_app:latest/json": dockertest.OK(`{"Id":"sha256:checked","Config":{"Labels":{"org.opencontainers.image.title":"app"}}}`),
+		"/containers/create":                          dockertest.Created(`{"Id":"docker-id"}`),
 	})
 	adapter, err := docker.NewAdapter()
 	require.NoError(t, err)
@@ -47,6 +49,7 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 	require.Len(t, created, 1)
 	require.Equal(t, "dcm_app", created[0].Query.Get("name"))
 	var spec struct {
+		Image      string
 		Labels     map[string]string
 		HostConfig struct {
 			Memory            int64
@@ -65,6 +68,7 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 		}
 	}
 	require.NoError(t, json.Unmarshal(created[0].Body, &spec))
+	require.Equal(t, "sha256:checked", spec.Image, "the inspected image runs, not whatever the tag points at by then")
 	require.Equal(t, map[string]string{
 		"managed_by":        "docker-cloud-manager",
 		"dcm.resource_type": "container",
@@ -86,4 +90,87 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 	require.Equal(t, []string{"CAP_NET_RAW"}, host.CapDrop) // the client normalizes capability names
 	require.Equal(t, "json-file", host.LogConfig.Type)
 	require.Equal(t, map[string]string{"max-size": "10m", "max-file": "3"}, host.LogConfig.Config)
+}
+
+// Docker copies an image's labels onto its containers, and Traefik's Docker
+// provider reads every traefik.* label on a container it serves. A tenant's
+// image must therefore never bring its own: a router label would claim the
+// platform's host or another tenant's.
+func TestAdapterCreateContainerRejectsImagesDeclaringTraefikLabels(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels string
+	}{
+		{name: "router rule", labels: "{\"traefik.http.routers.evil.rule\":\"Host(`dcm.example`)\"}"},
+		{name: "enable flag", labels: `{"traefik.enable":"true"}`},
+		{name: "mixed case root", labels: `{"Traefik.HTTP.Routers.evil.priority":"1000"}`},
+		{name: "bare root", labels: `{"traefik":"x"}`},
+		{name: "beside harmless labels", labels: `{"maintainer":"someone","traefik.docker.network":"proxy_net"}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// No create route: the fake fails the test if a container is created.
+			dockertest.Serve(t, map[string]dockertest.Response{
+				"/images/attacker/app:latest/json": dockertest.OK(`{"Id":"sha256:evil","Config":{"Labels":` + tc.labels + `}}`),
+			})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			_, err = adapter.CreateContainer(context.Background(), model.ContainerRuntimeSpec{
+				ContainerName: "usr_app", ImageName: "attacker/app:latest", NetworkName: "dcm_user_net",
+				Domain: "app.dcm.example", InternalPort: 8080, ProxyNetworkName: "proxy_net",
+			})
+
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			require.NotContains(t, err.Error(), "evil", "label keys are image content and are not echoed")
+		})
+	}
+}
+
+func TestAdapterCreateContainerAcceptsImagesWithoutTraefikLabels(t *testing.T) {
+	tests := []struct {
+		name  string
+		image string
+	}{
+		{name: "no config", image: `{"Id":"sha256:plain"}`},
+		{name: "no labels", image: `{"Id":"sha256:plain","Config":{}}`},
+		{name: "similar root", image: `{"Id":"sha256:plain","Config":{"Labels":{"traefikish.enable":"true","com.example.traefik.enable":"true"}}}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/images/nginx:latest/json": dockertest.OK(tc.image),
+				"/containers/create":        dockertest.Created(`{"Id":"docker-id"}`),
+			})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			dockerID, err := adapter.CreateContainer(context.Background(), model.ContainerRuntimeSpec{
+				ContainerName: "usr_app", ImageName: "nginx:latest", NetworkName: "dcm_user_net",
+			})
+
+			require.NoError(t, err)
+			require.Equal(t, "docker-id", dockerID)
+			require.Len(t, daemon.Requests("/containers/create"), 1)
+		})
+	}
+}
+
+// An image Docker reports without an ID cannot be pinned, so nothing is created
+// from its tag instead.
+func TestAdapterCreateContainerRefusesAnImageWithoutAnID(t *testing.T) {
+	dockertest.Serve(t, map[string]dockertest.Response{
+		"/images/nginx:latest/json": dockertest.OK(`{"Config":{"Labels":{}}}`),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	_, err = adapter.CreateContainer(context.Background(), model.ContainerRuntimeSpec{
+		ContainerName: "usr_app", ImageName: "nginx:latest", NetworkName: "dcm_user_net",
+	})
+
+	require.Error(t, err)
 }

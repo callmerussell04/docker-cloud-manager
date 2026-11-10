@@ -76,7 +76,7 @@ func TestDockerAdapterNetworkContainerAndVolumeSmoke(t *testing.T) {
 	inspection, err := adapter.InspectContainer(ctx, dockerID)
 	require.NoError(t, err)
 	require.True(t, inspection.State.Running)
-	require.Equal(t, imageName, inspection.Image)
+	require.True(t, strings.HasPrefix(inspection.Image, "sha256:"), "the container is created from the inspected image ID, not the tag")
 	require.Contains(t, mountTargets(inspection.Mounts), "/data")
 
 	stats, err := adapter.GetContainerStats(ctx, dockerID)

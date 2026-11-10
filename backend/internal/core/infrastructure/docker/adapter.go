@@ -101,7 +101,49 @@ func (a *Adapter) findUserNetwork(ctx context.Context, networkName string) (stri
 	return "", nil
 }
 
+// errImageDeclaresTraefikLabels names no label: the keys are image content.
+var errImageDeclaresTraefikLabels = apperrors.New(apperrors.ErrBadRequest, "image declares traefik labels, which are reserved for the platform")
+
+// routingSafeImageID returns the content-addressed ID of imageName after
+// checking that the image declares no Traefik labels. Docker copies image
+// labels onto every container created from the image and a container can only
+// override a key, never unset it, so an image's own traefik.* labels would
+// reach Traefik's Docker provider as routers the platform never validated.
+// The caller creates the container from the returned ID, so the image that
+// was checked is the one that runs even if its tag is repointed meanwhile.
+func (a *Adapter) routingSafeImageID(ctx context.Context, imageName string) (string, error) {
+	inspect, err := a.cli.ImageInspect(ctx, imageName)
+	if err != nil {
+		return "", err
+	}
+	if inspect.Config != nil {
+		for key := range inspect.Config.Labels {
+			if isTraefikLabel(key) {
+				return "", errImageDeclaresTraefikLabels
+			}
+		}
+	}
+	if inspect.ID == "" {
+		return "", errors.New("image inspect returned no image id")
+	}
+	return inspect.ID, nil
+}
+
+// isTraefikLabel matches the way Traefik selects labels: by the traefik root
+// segment, ignoring case.
+func isTraefikLabel(key string) bool {
+	root, _, _ := strings.Cut(key, ".")
+	return strings.EqualFold(root, "traefik")
+}
+
+// CreateContainer creates a container whose Traefik labels are exactly the
+// ones set here: an image that declares its own is rejected as a bad request.
 func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRuntimeSpec) (string, error) {
+	imageID, err := a.routingSafeImageID(ctx, params.ImageName)
+	if err != nil {
+		return "", err
+	}
+
 	labels := map[string]string{
 		"managed_by":        "docker-cloud-manager",
 		"dcm.resource_type": "container",
@@ -180,7 +222,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 	}
 
 	containerConfig := &container.Config{
-		Image:      params.ImageName,
+		Image:      imageID,
 		Env:        params.EnvVars,
 		Labels:     labels,
 		Cmd:        params.Command,
