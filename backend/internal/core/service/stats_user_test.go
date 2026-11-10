@@ -43,10 +43,11 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	imgRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 4, nil)
 	volRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(2, nil)
 	projRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Project(nil), 5, nil)
-	svc := service.NewStatsService(service.StatsServiceDeps{
+	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Config: cfg, Users: users, Borrowed: coremocks.NewStatsBorrowedMemory(t),
+		Metrics: coremocks.NewStatsMetricsProvider(t), Config: cfg, Users: users, Borrowed: coremocks.NewStatsBorrowedMemory(t),
 	})
+	require.NoError(t, err)
 
 	stats, err := svc.GetUserStats(accessscope.WithUserScope(context.Background(), ownerID, "", ""))
 	require.NoError(t, err)

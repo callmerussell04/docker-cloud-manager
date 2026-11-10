@@ -389,9 +389,11 @@ func (s *ContainerService) runQueuedExpose(ctx context.Context, c model.Containe
 }
 
 // exposeRuntimeSpec is the inspected container's runtime with the new
-// generation's name and routing.
+// generation's name and routing. Its resources are the standard ones, as at
+// any start: a boost the old generation held does not carry over.
 func (s *ContainerService) exposeRuntimeSpec(c model.Container, inspect model.ContainerInspection, msg queue.ContainerLifecycleMessage, generation int) model.ContainerRuntimeSpec {
 	cfg := s.config.Get()
+	resources := containerResources(c, cfg)
 	networkAlias := c.NetworkAlias
 	if networkAlias == "" {
 		networkAlias = c.Name
@@ -407,12 +409,12 @@ func (s *ContainerService) exposeRuntimeSpec(c model.Container, inspect model.Co
 		Domain:               fmt.Sprintf("%s.%s", msg.DomainPrefix, cfg.BaseDomain),
 		InternalPort:         msg.InternalPort,
 		EnvVars:              append([]string(nil), inspect.Env...),
-		MemoryLimitBytes:     inspect.MemoryLimitBytes,
-		MemoryReservation:    inspect.MemoryReservation,
-		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
-		CPUShares:            inspect.CPUShares,
-		CPUQuota:             inspect.CPUQuota,
-		CPUPeriod:            inspect.CPUPeriod,
+		MemoryLimitBytes:     resources.MemoryLimitBytes,
+		MemoryReservation:    resources.MemoryReservation,
+		MemorySwapMultiplier: resources.MemorySwapMultiplier,
+		CPUShares:            resources.CPUShares,
+		CPUQuota:             resources.CPUQuota,
+		CPUPeriod:            resources.CPUPeriod,
 		PidsLimit:            cfg.ContainerPidsLimit,
 		ProxyNetworkName:     cfg.ProxyNetworkName,
 		VolumeMounts:         append([]model.ContainerMountSpec(nil), inspect.Mounts...),

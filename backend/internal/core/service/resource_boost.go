@@ -22,7 +22,8 @@ const (
 	shrinkMinMarginBytes = 64 << 20
 	// A shrink that lowers a limit by less than this share is skipped.
 	shrinkMinChangePercent = 5
-	// A lowered limit is not raised again for this many passes.
+	// A lowered memory limit, or a CPU quota returned to standard, is not
+	// raised again for this many passes.
 	boostCooldownPasses = 6
 )
 
@@ -67,6 +68,8 @@ type boostWorkload struct {
 	// cores. cpuMeasured is unset on its first sample.
 	cpuUsed     float64
 	cpuMeasured bool
+	// cpuCoolingDown is set while a recently lowered CPU quota may not grow.
+	cpuCoolingDown bool
 	// cpuQuota is its CPU quota now, per cpuQuotaPeriod, which differs from
 	// cpuPeriod if the period setting changed since it started. Both are
 	// read only for workloads close to their standard quota.
@@ -132,10 +135,20 @@ func (in memoryBoostInput) free() int64 {
 	return free
 }
 
+// allowedLimit is the highest memory limit the settings allow the workload
+// now: its boost ceiling, or its standard limit while boost is off.
+func (in memoryBoostInput) allowedLimit(w boostWorkload) int64 {
+	if !in.boostEnabled {
+		return w.standardLimit
+	}
+	return max(w.ceiling, w.standardLimit)
+}
+
 // growPossible reports whether the pass may grant anything, so the caller
-// looks up quotas only when they can matter.
+// looks up quotas only when they can matter. Nothing is granted in a pass
+// that lowers a limit.
 func (in memoryBoostInput) growPossible() bool {
-	return in.boostEnabled && in.free() > in.boostMinFree
+	return in.boostEnabled && in.free() > in.boostMinFree && len(shrinks(in.workloads, in.allowedLimit)) == 0
 }
 
 // growCandidateOwners are the owners whose quota the grow step reads.
@@ -175,24 +188,25 @@ type memoryBoostPlan struct {
 	changes   []memoryLimitChange
 }
 
-// planMemoryBoost decides one pass: lower boosted limits when the pool runs
-// low, stop workloads when it runs short, and otherwise raise the limits of
-// workloads close to them. It is the only place a running workload's memory
-// limit is lowered, and it never lowers one below its working set plus a
-// margin or below its standard limit.
+// planMemoryBoost decides one pass: stop workloads when the pool runs short,
+// lower boosted limits toward standard when it runs low, lower limits above
+// what the settings now allow (a lowered boost ceiling, or boost turned off)
+// at any time, and otherwise raise the limits of workloads close to them. It
+// is the only place a running workload's memory limit is lowered, and it
+// never lowers one below its working set plus a margin or below its standard
+// limit.
 func planMemoryBoost(in memoryBoostInput) memoryBoostPlan {
 	plan := memoryBoostPlan{free: in.free()}
 	plan.shortfall = in.minFree - plan.free
 	if plan.shortfall > 0 {
 		plan.stops = stopOrder(in)
 	}
-	if !in.boostEnabled {
+	if in.boostEnabled && plan.free < in.boostMinFree {
+		plan.changes = shrinks(in.workloads, func(w boostWorkload) int64 { return w.standardLimit })
 		return plan
 	}
-	switch {
-	case plan.free < in.boostMinFree:
-		plan.changes = shrinks(in.workloads)
-	case in.growPossible():
+	plan.changes = shrinks(in.workloads, in.allowedLimit)
+	if len(plan.changes) == 0 && in.growPossible() {
 		plan.changes = grows(in, plan.free-in.boostMinFree)
 	}
 	return plan
@@ -230,16 +244,18 @@ func stopOrder(in memoryBoostInput) []memoryStop {
 	return stops
 }
 
-// shrinks lowers every boosted limit to what its workload uses plus a margin,
-// never below the standard limit, skipping changes too small to matter.
-func shrinks(workloads []boostWorkload) []memoryLimitChange {
+// shrinks lowers every limit above floor, which is never below the standard
+// limit, toward it: to what the workload uses plus a margin, never below
+// floor, skipping changes too small to matter.
+func shrinks(workloads []boostWorkload, floor func(boostWorkload) int64) []memoryLimitChange {
 	var changes []memoryLimitChange
 	for _, w := range workloads {
-		if w.limit <= w.standardLimit {
+		lowest := max(floor(w), w.standardLimit)
+		if w.limit <= lowest {
 			continue
 		}
 		margin := max(w.workingSet*shrinkMarginPercent/100, shrinkMinMarginBytes)
-		target := max(w.standardLimit, w.workingSet+margin)
+		target := max(lowest, w.workingSet+margin)
 		if (w.limit-target)*100 < w.limit*shrinkMinChangePercent {
 			continue
 		}
@@ -322,10 +338,12 @@ type cpuQuotaChange struct {
 // planCPUBoost decides one pass of CPU boost for inspected workloads: on a
 // busy host every raised quota returns to standard; on an idle host a
 // workload close to its quota gets one standard quota more, within its
-// ceiling. Lowering a quota only throttles, so it needs no usage check, and
-// a quota set under another CPU period is compared in cores and returned
-// with today's period; only a quota under today's period is raised. A
-// workload without a quota of its own is left alone.
+// ceiling, unless its quota was lowered within the cooldown, so a workload
+// whose own use makes the host busy does not swing every pass. Lowering a
+// quota only throttles, so it needs no usage check, and a quota set under
+// another CPU period is compared in cores and returned with today's period;
+// only a quota under today's period is raised. A workload without a quota of
+// its own is left alone.
 func planCPUBoost(hostLoadPercent float64, workloads []boostWorkload) []cpuQuotaChange {
 	var changes []cpuQuotaChange
 	for _, w := range workloads {
@@ -338,7 +356,7 @@ func planCPUBoost(hostLoadPercent float64, workloads []boostWorkload) []cpuQuota
 				change.period = w.cpuPeriod
 			}
 			changes = append(changes, change)
-		case hostLoadPercent < cpuBoostIdleHostPercent && samePeriod && w.cpuQuota < w.cpuCeiling && w.nearCPUQuota(w.cpuQuota):
+		case hostLoadPercent < cpuBoostIdleHostPercent && samePeriod && !w.cpuCoolingDown && w.cpuQuota < w.cpuCeiling && w.nearCPUQuota(w.cpuQuota):
 			changes = append(changes, cpuQuotaChange{workload: w, quota: min(w.cpuQuota+w.cpuStandardQuota, w.cpuCeiling)})
 		}
 	}

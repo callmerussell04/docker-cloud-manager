@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +62,8 @@ type MemoryPressureConfigProvider interface {
 // memory boost on, a workload close to its limit while the pool has plenty
 // free gets its limit raised, up to its boost ceiling; when the pool runs
 // low, raised limits are lowered to what their workloads use plus a margin.
+// A limit above what the settings now allow, after the boost ceiling was
+// lowered or boost turned off, is lowered the same way on any pass.
 // When less than the stop floor is free, the worker stops containers and
 // kills builds using borrowed memory, then those using more than they
 // reserved, largest first. It never stops a container within its
@@ -70,7 +73,8 @@ type MemoryPressureConfigProvider interface {
 // With CPU boost on, the same pass raises the CPU quota of a workload using
 // nearly all of it while host CPU is idle, up to its CPU boost ceiling, and
 // returns raised quotas to standard when the host is busy. Taking CPU back
-// only throttles, so it needs no usage check.
+// only throttles, so it needs no usage check. A quota that was returned is
+// not raised again within the cooldown.
 type MemoryPressureWorker struct {
 	repo    MemoryPressureContainerRepo
 	docker  MemoryPressureDockerAPI
@@ -80,12 +84,13 @@ type MemoryPressureWorker struct {
 	cfg     MemoryPressureConfigProvider
 	logger  *slog.Logger
 
-	// mu serializes passes; cooldown is the passes left, by Docker ID,
-	// before a lowered limit may be raised again, and cpuSamples the last
-	// CPU time read of each workload.
-	mu         sync.Mutex
-	cooldown   map[string]int
-	cpuSamples map[string]cpuSample
+	// mu serializes passes; cooldown and cpuCooldown are the passes left, by
+	// Docker ID, before a lowered memory limit or CPU quota may be raised
+	// again, and cpuSamples the last CPU time read of each workload.
+	mu          sync.Mutex
+	cooldown    map[string]int
+	cpuCooldown map[string]int
+	cpuSamples  map[string]cpuSample
 	// borrowed is the memory the last pass measured above standard limits.
 	borrowed atomic.Int64
 }
@@ -120,15 +125,16 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		}
 	}
 	return &MemoryPressureWorker{
-		repo:       deps.Repository,
-		docker:     deps.Docker,
-		metrics:    deps.Metrics,
-		builds:     deps.Builds,
-		users:      deps.Users,
-		cfg:        deps.Config,
-		logger:     logging.WithComponent(deps.Logger, "memory_pressure_worker"),
-		cooldown:   map[string]int{},
-		cpuSamples: map[string]cpuSample{},
+		repo:        deps.Repository,
+		docker:      deps.Docker,
+		metrics:     deps.Metrics,
+		builds:      deps.Builds,
+		users:       deps.Users,
+		cfg:         deps.Config,
+		logger:      logging.WithComponent(deps.Logger, "memory_pressure_worker"),
+		cooldown:    map[string]int{},
+		cpuCooldown: map[string]int{},
+		cpuSamples:  map[string]cpuSample{},
 	}, nil
 }
 
@@ -142,8 +148,11 @@ func (w *MemoryPressureWorker) Run(ctx context.Context) {
 
 // RelievePressure runs one pass: it measures the running workloads once,
 // decides with planMemoryBoost and planCPUBoost, and applies the stops and
-// the limit and quota changes, at most one update per workload. A
-// zero MemoryPressureMinFreeBytes turns the worker off. A workload whose
+// the limit and quota changes, at most one update per workload. Lowered
+// memory limits go out before the CPU decision, which may wait a second on
+// host load, so they rest on fresh measurements; such a workload gets no CPU
+// change in the same pass. A zero MemoryPressureMinFreeBytes turns the
+// worker off. A workload whose
 // usage cannot be read counts as using nothing and is left alone.
 func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	w.mu.Lock()
@@ -170,7 +179,7 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		boostMinFree: cfg.BoostMinFreeMemoryBytes,
 		boostEnabled: cfg.MemoryBoostMultiplier > cfg.MaxBurstMultiplier,
 	}
-	next := passState{cooldown: map[string]int{}, cpuSamples: map[string]cpuSample{}}
+	next := passState{cooldown: map[string]int{}, cpuCooldown: map[string]int{}, cpuSamples: map[string]cpuSample{}}
 	for _, c := range running {
 		if c.DockerID == "" {
 			continue
@@ -221,21 +230,34 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		}
 		in.workloads = append(in.workloads, workload)
 	}
-	w.cooldown, w.cpuSamples = next.cooldown, next.cpuSamples
+	w.cooldown, w.cpuCooldown, w.cpuSamples = next.cooldown, next.cpuCooldown, next.cpuSamples
 	if in.quotas, err = w.memoryQuotas(ctx, in.growCandidateOwners()); err != nil {
 		return
 	}
 
 	plan := planMemoryBoost(in)
-	// Stops come first: the CPU decision may wait a second on host load.
+	// Stops and lowered limits come first: the CPU decision may wait a
+	// second on host load, and a limit must not be lowered on a stale
+	// working set. settled workloads get no further change this pass.
 	stopped := w.applyStops(ctx, plan)
-	cpuChanges := w.planCPU(ctx, cfg, in.workloads, stopped)
+	settled := maps.Clone(stopped)
+	applied, raises := map[string]int64{}, map[string]int64{}
+	for _, change := range plan.changes {
+		id := change.workload.dockerID()
+		switch {
+		case stopped[id]:
+		case change.limit >= change.workload.limit:
+			raises[id] = change.limit
+		default:
+			settled[id] = true
+			if w.changeResources(ctx, change.workload, change.limit, cpuQuotaChange{}, cfg) {
+				applied[id] = change.limit
+			}
+		}
+	}
+	cpuChanges := w.planCPU(ctx, cfg, in.workloads, settled)
 	if ctx.Err() != nil {
 		return
-	}
-	limits := map[string]int64{}
-	for _, change := range plan.changes {
-		limits[change.workload.dockerID()] = change.limit
 	}
 	quotas := map[string]cpuQuotaChange{}
 	for _, change := range cpuChanges {
@@ -243,7 +265,7 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	}
 	for _, workload := range in.workloads {
 		id := workload.dockerID()
-		if stopped[id] || (limits[id] == 0 && quotas[id].quota == 0) {
+		if settled[id] || (raises[id] == 0 && quotas[id].quota == 0) {
 			continue
 		}
 		// The CPU change carries what inspection read; the memory change
@@ -251,20 +273,16 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		if change, ok := quotas[id]; ok {
 			workload = change.workload
 		}
-		if !w.changeResources(ctx, workload, limits[id], quotas[id], cfg) {
-			delete(limits, id)
+		if w.changeResources(ctx, workload, raises[id], quotas[id], cfg) && raises[id] != 0 {
+			applied[id] = raises[id]
 		}
 	}
-	w.borrowed.Store(borrowedAfter(in, stopped, limits))
+	w.borrowed.Store(borrowedAfter(in, stopped, applied))
 }
 
 // borrowedAfter is what the running workloads borrow once the pass's
-// stops and applied limits take effect. Without boost nothing counts as
-// borrowed.
+// stops and applied limits take effect.
 func borrowedAfter(in memoryBoostInput, stopped map[string]bool, applied map[string]int64) int64 {
-	if !in.boostEnabled {
-		return 0
-	}
 	var total int64
 	for _, workload := range in.workloads {
 		id := workload.dockerID()
@@ -281,29 +299,31 @@ func borrowedAfter(in memoryBoostInput, stopped map[string]bool, applied map[str
 
 // BorrowedMemoryBytes is the memory running workloads had borrowed above
 // their standard limits when the last pass measured them: 0 before the first
-// pass and while memory boost or the worker is off.
+// pass and while the worker is off. With memory boost off it is what
+// workloads still hold of limits raised earlier.
 func (w *MemoryPressureWorker) BorrowedMemoryBytes() int64 {
 	return w.borrowed.Load()
 }
 
 // passState is what the worker carries from one pass to the next.
 type passState struct {
-	cooldown   map[string]int
-	cpuSamples map[string]cpuSample
+	cooldown    map[string]int
+	cpuCooldown map[string]int
+	cpuSamples  map[string]cpuSample
 }
 
 // planCPU decides CPU boost when it is on. Only workloads close to their
 // standard CPU quota can change, so host CPU load, which takes about a
 // second to read, is read only when there is one, and their quotas are
-// inspected only when the load is low or high enough to act on. Stopped
-// workloads are left out.
-func (w *MemoryPressureWorker) planCPU(ctx context.Context, cfg config.SystemConfig, workloads []boostWorkload, stopped map[string]bool) []cpuQuotaChange {
+// inspected only when the load is low or high enough to act on. Settled
+// workloads, stopped or given a lower memory limit this pass, are left out.
+func (w *MemoryPressureWorker) planCPU(ctx context.Context, cfg config.SystemConfig, workloads []boostWorkload, settled map[string]bool) []cpuQuotaChange {
 	if cfg.CPUBoostMultiplier <= cfg.MaxCPUBurstMultiplier {
 		return nil
 	}
 	var near []boostWorkload
 	for _, workload := range workloads {
-		if !stopped[workload.dockerID()] && workload.nearCPUQuota(workload.cpuStandardQuota) {
+		if !settled[workload.dockerID()] && workload.nearCPUQuota(workload.cpuStandardQuota) {
 			near = append(near, workload)
 		}
 	}
@@ -335,13 +355,17 @@ func (w *MemoryPressureWorker) planCPU(ctx context.Context, cfg config.SystemCon
 }
 
 // measure reads a workload's working set, current limit and CPU use since
-// the previous pass, and carries its cooldown and CPU sample into next. It
+// the previous pass, and carries its cooldowns and CPU sample into next. It
 // reports false when the usage cannot be read.
 func (w *MemoryPressureWorker) measure(ctx context.Context, workload *boostWorkload, next passState) bool {
 	dockerID := workload.dockerID()
 	passesLeft := w.cooldown[dockerID]
 	if passesLeft > 1 {
 		next.cooldown[dockerID] = passesLeft - 1
+	}
+	cpuPassesLeft := w.cpuCooldown[dockerID]
+	if cpuPassesLeft > 1 {
+		next.cpuCooldown[dockerID] = cpuPassesLeft - 1
 	}
 	usage, err := w.docker.GetContainerUsage(ctx, dockerID)
 	if err != nil {
@@ -353,6 +377,7 @@ func (w *MemoryPressureWorker) measure(ctx context.Context, workload *boostWorkl
 	workload.workingSet = usage.WorkingSetBytes
 	workload.limit = usage.MemoryLimitBytes
 	workload.coolingDown = passesLeft > 0
+	workload.cpuCoolingDown = cpuPassesLeft > 0
 	sample := cpuSample{nanoseconds: usage.CPUUsageNanoseconds, at: time.Now()}
 	next.cpuSamples[dockerID] = sample
 	// A restarted container's CPU time starts again from zero.
@@ -455,8 +480,8 @@ func (w *MemoryPressureWorker) stop(ctx context.Context, stop memoryStop) bool {
 // own. A zero limit or quota leaves that resource as it is; the CPU period
 // is sent only with a quota that changes it. Swap follows the
 // limit; CPU shares and period, and a build's memory reservation, are left
-// as they are. A lowered memory limit starts the cooldown. It reports whether
-// the update was sent.
+// as they are. A lowered memory limit or CPU quota starts its cooldown. It
+// reports whether the update was sent.
 func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boostWorkload, limit int64, cpu cpuQuotaChange, cfg config.SystemConfig) bool {
 	quota := cpu.quota
 	update := model.ContainerResourceUpdate{MemoryLimitBytes: limit, CPUQuota: quota, CPUPeriod: cpu.period}
@@ -500,6 +525,7 @@ func (w *MemoryPressureWorker) changeResources(ctx context.Context, workload boo
 		direction := "raised"
 		if quota*workload.cpuQuotaPeriod < workload.cpuQuota*workload.cpuPeriod {
 			direction = "lowered"
+			w.cpuCooldown[workload.dockerID()] = boostCooldownPasses
 		}
 		w.logger.InfoContext(ctx, kind+" cpu quota "+direction, workloadLogAttrs(workload,
 			"cpu_used_cores", workload.cpuUsed,

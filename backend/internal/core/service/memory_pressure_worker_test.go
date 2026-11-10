@@ -356,14 +356,30 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			wantLimitsMiB: map[string]int64{"broken": 1536, "near": 1536},
 		},
 		{
-			name:            "a boost multiplier at the burst multiplier makes no limit updates",
+			// Even on an idle host: the limit raised earlier comes back as
+			// far as its usage plus the margin allows.
+			name:            "with boost off nothing is raised and a limit raised earlier returns toward standard",
 			boostMultiplier: boostBurstMultiplier,
 			containers: []boostContainer{
 				{name: "near", usedMiB: 900},
 				{name: "boosted", usedMiB: 300, limitMiB: 2048},
-				{name: "filler", reservationMiB: 2048, usedMiB: 5000},
+				{name: "using", usedMiB: 1500, limitMiB: 2048},
 			},
-			wantLimitsMiB: map[string]int64{},
+			wantLimitsMiB: map[string]int64{"boosted": 1024, "using": 1650},
+		},
+		{
+			// The ceiling is now 1280 MiB. The host is idle, yet limits
+			// above the ceiling come down to it or to usage plus the
+			// margin, and a pass that lowers a limit raises none.
+			name:            "a lowered boost ceiling takes back the headroom above it",
+			boostMultiplier: 5,
+			containers: []boostContainer{
+				{name: "over", usedMiB: 600, limitMiB: 2048},
+				{name: "using", usedMiB: 1500, limitMiB: 2048},
+				{name: "within", usedMiB: 600, limitMiB: 1200},
+				{name: "near", usedMiB: 900},
+			},
+			wantLimitsMiB: map[string]int64{"over": 1280, "using": 1650},
 		},
 		{
 			// Boost was turned off while the build ran on a raised limit.
@@ -379,6 +395,12 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			builds:        []boostBuild{{name: "leftover", usedMiB: 1600, limitMiB: 2048}},
 			wantLimitsMiB: map[string]int64{},
 			wantKilled:    []string{"leftover"},
+		},
+		{
+			name:            "with boost off a build left on a raised limit returns to its build memory",
+			boostMultiplier: boostBurstMultiplier,
+			builds:          []boostBuild{{name: "leftover", usedMiB: 600, limitMiB: 2048}},
+			wantLimitsMiB:   map[string]int64{"leftover": 1024},
 		},
 		{
 			name:          "an idle host raises a build near its limit by one step",
@@ -504,9 +526,10 @@ func TestMemoryPressureWorkerReportsTheMemoryBorrowedAtItsLastPass(t *testing.T)
 	require.Equal(t, (512+256+512)*pressureMiB, pass.worker.BorrowedMemoryBytes(), "including the raise this pass made")
 
 	off := newBoostPass(t, func() config.SystemConfig { c := cfg; c.MemoryBoostMultiplier = boostBurstMultiplier; return c }(), nil)
-	off.add(boostContainer{name: "boosted", usedMiB: 600, limitMiB: 1536})
+	off.add(boostContainer{name: "boosted", usedMiB: 1200, limitMiB: 1536})
 	off.worker.RelievePressure(ctx)
-	require.Zero(t, off.worker.BorrowedMemoryBytes(), "with memory boost off nothing counts as borrowed")
+	require.Equal(t, 296*pressureMiB, off.worker.BorrowedMemoryBytes(),
+		"with memory boost off, what a limit raised earlier still holds above standard after it was lowered to usage plus the margin")
 }
 
 // cpuWorkload is a running container, or a build, in a CPU boost test. It
@@ -714,6 +737,70 @@ func TestMemoryPressureWorkerSendsOneUpdatePerWorkloadAndPass(t *testing.T) {
 		require.Equal(t, 1, pass.updates["both"], "one Docker update")
 		require.Equal(t, map[string]int64{"both": 1536}, pass.updatedMiB())
 		require.Equal(t, map[string]int64{"both": 2 * oneCore}, pass.updatedQuotas())
+	})
+}
+
+// A quota returned to standard on a busy host is not raised again for six
+// passes, so a workload whose own use makes the host busy does not swing
+// between boosted and throttled.
+func TestMemoryPressureWorkerDoesNotRaiseAReturnedCPUQuotaWithinTheCooldown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cfg := boostTestConfig()
+		cfg.CPUBoostMultiplier = 8
+		pass := newBoostPass(t, cfg, nil)
+		hostLoad := 90.0
+		pass.metrics.EXPECT().GetCPULoad().RunAndReturn(func() (float64, error) { return hostLoad, nil }).Maybe()
+		pass.add(boostContainer{name: "boosted", usedMiB: 100})
+		pass.cpuQuota["boosted"] = 2 * oneCore
+
+		pass.worker.RelievePressure(ctx)
+		var history []int64
+		for passes := 1; passes <= 8; passes++ {
+			if passes == 2 {
+				hostLoad = 30
+			}
+			time.Sleep(cpuPassGap)
+			pass.cpuNanos["boosted"] += cpuNanosecondsOver(950, cpuPassGap)
+			pass.worker.RelievePressure(ctx)
+			history = append(history, pass.cpuQuota["boosted"]/oneCore)
+		}
+
+		require.Equal(t, []int64{1, 1, 1, 1, 1, 1, 1, 2}, history,
+			"returned to standard, held for six passes on an idle host, then raised one step")
+	})
+}
+
+// A memory limit is lowered before the pass waits on host CPU load, so it
+// rests on a fresh working set, and that workload gets no CPU change in the
+// same pass.
+func TestMemoryPressureWorkerLowersLimitsBeforeReadingHostCPULoad(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cfg := boostTestConfig()
+		cfg.CPUBoostMultiplier = 8
+		pass := newBoostPass(t, cfg, nil)
+		var limitAtLoadRead int64
+		pass.metrics.EXPECT().GetCPULoad().RunAndReturn(func() (float64, error) {
+			limitAtLoadRead = pass.limits["boosted"] / pressureMiB
+			return 30, nil
+		}).Once()
+		pass.add(boostContainer{name: "boosted", usedMiB: 1000, limitMiB: 2048})
+		pass.cpuQuota["boosted"] = oneCore
+		pass.add(boostContainer{name: "busy", usedMiB: 100})
+		pass.cpuQuota["busy"] = oneCore
+		pass.add(boostContainer{name: "filler", reservationMiB: 2048, usedMiB: 10})
+
+		pass.worker.RelievePressure(ctx)
+		time.Sleep(cpuPassGap)
+		pass.usedMiB["filler"] = 5000
+		pass.cpuNanos["boosted"] += cpuNanosecondsOver(950, cpuPassGap)
+		pass.cpuNanos["busy"] += cpuNanosecondsOver(950, cpuPassGap)
+		pass.worker.RelievePressure(ctx)
+
+		require.EqualValues(t, 1100, limitAtLoadRead, "already lowered when host load is read")
+		require.Equal(t, 1, pass.updates["boosted"], "one Docker update")
+		require.Equal(t, map[string]int64{"busy": 2 * oneCore}, pass.updatedQuotas(), "the lowered workload waits a pass for CPU")
 	})
 }
 

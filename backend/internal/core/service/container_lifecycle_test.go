@@ -341,7 +341,11 @@ func deleteCases() []lifecycleCase {
 func exposeCases() []lifecycleCase {
 	inspect := func(err error) func(d *coremocks.ContainerDockerAPI) []string {
 		return func(d *coremocks.ContainerDockerAPI) []string {
-			d.EXPECT().InspectContainer(mock.Anything, recordedDocker).Return(model.ContainerInspection{Name: "/usr_web", Image: "nginx:latest"}, err).Once()
+			d.EXPECT().InspectContainer(mock.Anything, recordedDocker).Return(model.ContainerInspection{
+				Name: "/usr_web", Image: "nginx:latest",
+				// The old generation runs on a boost.
+				MemoryLimitBytes: 2048 << 20, CPUQuota: 800000, CPUPeriod: 100000,
+			}, err).Once()
 			return holdingUnlessMissing(err)
 		}
 	}
@@ -351,7 +355,8 @@ func exposeCases() []lifecycleCase {
 		return func(d *coremocks.ContainerDockerAPI) []string {
 			held := inspect(nil)(d)
 			d.EXPECT().CreateContainer(mock.Anything, mock.MatchedBy(func(spec model.ContainerRuntimeSpec) bool {
-				return spec.Generation == 2 && spec.Domain == "app.example.test" && spec.InternalPort == 8080
+				return spec.Generation == 2 && spec.Domain == "app.example.test" && spec.InternalPort == 8080 &&
+					specResources(spec) == lifecycleResources // standard again, not the boost
 			})).Return(exposedDocker, nil).Once()
 			d.EXPECT().StartContainer(mock.Anything, exposedDocker).Return(startErr).Once()
 			d.EXPECT().RemoveContainer(mock.Anything, mock.Anything, true).Return(nil).Maybe()

@@ -8,11 +8,39 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/require"
 )
 
 const bytesPerMBForTest = 1024 * 1024
+
+func TestNewStatsServiceRejectsMissingDependencies(t *testing.T) {
+	valid := func(t *testing.T) service.StatsServiceDeps {
+		return service.StatsServiceDeps{
+			Containers: coremocks.NewStatsContainerRepository(t),
+			Volumes:    coremocks.NewStatsVolumeRepository(t),
+			Images:     coremocks.NewStatsImageRepository(t),
+			Builds:     coremocks.NewStatsBuildRepository(t),
+			Projects:   coremocks.NewStatsProjectRepository(t),
+			Metrics:    coremocks.NewStatsMetricsProvider(t),
+			Config:     testConfig(),
+			Users:      coremocks.NewUserInfoProvider(t),
+			Borrowed:   coremocks.NewStatsBorrowedMemory(t),
+		}
+	}
+	depstest.RequireRejectsMissing(t, valid, service.NewStatsService, map[string]string{
+		"Containers": "containers",
+		"Volumes":    "volumes",
+		"Images":     "images",
+		"Builds":     "builds",
+		"Projects":   "projects",
+		"Metrics":    "metrics",
+		"Config":     "config",
+		"Users":      "users",
+		"Borrowed":   "borrowed memory",
+	})
+}
 
 func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	ctx := context.Background()
@@ -60,10 +88,11 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 
 	borrowed := coremocks.NewStatsBorrowedMemory(t)
 	borrowed.EXPECT().BorrowedMemoryBytes().Return(1234)
-	svc := service.NewStatsService(service.StatsServiceDeps{
+	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Borrowed: borrowed,
+		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Users: coremocks.NewUserInfoProvider(t), Borrowed: borrowed,
 	})
+	require.NoError(t, err)
 
 	stats, err := svc.GetSystemMonitoring(ctx)
 	require.NoError(t, err)

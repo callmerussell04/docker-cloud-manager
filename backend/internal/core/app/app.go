@@ -262,11 +262,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		cancel()
 		return nil, err
 	}
-	statsService := service.NewStatsService(service.StatsServiceDeps{
+	statsService, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
 		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Users: ssoClient,
 		Borrowed: memoryPressureWorker,
 	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)

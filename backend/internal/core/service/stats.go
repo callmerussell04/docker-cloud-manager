@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
@@ -84,7 +85,20 @@ type StatsServiceDeps struct {
 	Borrowed     StatsBorrowedMemory
 }
 
-func NewStatsService(deps StatsServiceDeps) *StatsService {
+func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
+	required := []struct {
+		name  string
+		value any
+	}{
+		{"containers", deps.Containers}, {"volumes", deps.Volumes}, {"images", deps.Images},
+		{"builds", deps.Builds}, {"projects", deps.Projects}, {"metrics", deps.Metrics},
+		{"config", deps.Config}, {"users", deps.Users}, {"borrowed memory", deps.Borrowed},
+	}
+	for _, dependency := range required {
+		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+			return nil, fmt.Errorf("stats service: %s is required", dependency.name)
+		}
+	}
 	hostDiskPath := deps.HostDiskPath
 	if hostDiskPath == "" {
 		hostDiskPath = "/"
@@ -100,7 +114,7 @@ func NewStatsService(deps StatsServiceDeps) *StatsService {
 		cfg:          deps.Config,
 		users:        deps.Users,
 		borrowed:     deps.Borrowed,
-	}
+	}, nil
 }
 
 func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error) {
