@@ -20,8 +20,6 @@ func TestManagerBackfillsLegacyConfig(t *testing.T) {
 		"overcommit_factor": 1.5,
 		"max_burst_multiplier": 4,
 		"default_cpu_shares": 1024,
-		"high_load_cpu_shares": 512,
-		"high_load_container_count": 5,
 		"container_stop_timeout": 10,
 		"max_log_size": "10m",
 		"max_log_files": "3",
@@ -185,8 +183,6 @@ func validSystemConfig() config.SystemConfig {
 		MaxCPUBurstMultiplier:                4,
 		ContainerCPUPeriod:                   100000,
 		DefaultCPUShares:                     1024,
-		HighLoadCPUShares:                    512,
-		HighLoadContainerCount:               5,
 		ContainerStopTimeout:                 10,
 		MaxLogSize:                           "10m",
 		MaxLogFiles:                          "3",
@@ -245,6 +241,8 @@ func validSystemConfig() config.SystemConfig {
 		VolumeUsageScanEntryBudget:           50000,
 		RegistryCleanupIntervalSeconds:       5,
 		RegistryCleanupJobTimeoutSeconds:     20,
+		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
+		MemoryPressureIntervalSeconds:        10,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,
@@ -258,6 +256,30 @@ func validSystemConfig() config.SystemConfig {
 		TelemetryMaxCommandArgs:              8,
 		TelemetryMaxCommandArgBytes:          128,
 		TelemetryWSReadLimitBytes:            4096,
+	}
+}
+
+func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
+	disabled := validSystemConfig()
+	disabled.MemoryPressureMinFreeBytes = 0
+	if err := config.ValidateSystemConfig(disabled); err != nil {
+		t.Fatalf("a zero floor turns the worker off and is valid: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.SystemConfig)
+	}{
+		{name: "negative floor", apply: func(c *config.SystemConfig) { c.MemoryPressureMinFreeBytes = -1 }},
+		{name: "zero interval", apply: func(c *config.SystemConfig) { c.MemoryPressureIntervalSeconds = 0 }},
+		{name: "negative interval", apply: func(c *config.SystemConfig) { c.MemoryPressureIntervalSeconds = -1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.apply(&cfg)
+			if err := config.ValidateSystemConfig(cfg); err == nil {
+				t.Fatal("ValidateSystemConfig() accepted the setting")
+			}
+		})
 	}
 }
 

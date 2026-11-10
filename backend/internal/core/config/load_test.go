@@ -69,7 +69,7 @@ func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
 	require.NoError(t, config.ValidateSystemConfig(runtime))
 	assert.Equal(t, "example.test", runtime.BaseDomain)
 	assert.Equal(t, int64(256<<20), runtime.DefaultMemoryReservation)
-	assert.Equal(t, 1.5, runtime.OvercommitFactor)
+	assert.Equal(t, 1.0, runtime.OvercommitFactor)
 	assert.Equal(t, 10, runtime.MaxContainersPerUser)
 	assert.Equal(t, "https://registry-backend:5000", runtime.RegistryAPIURL)
 	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, runtime.GitAllowedHosts)
@@ -87,11 +87,13 @@ func TestLoadOverrides(t *testing.T) {
 	values["TELEMETRY_ALLOWED_EXEC_COMMANDS"] = "/bin/sh, /bin/ash"
 	values["OBJECT_STORAGE_USE_SSL"] = "true"
 	values["CLICKHOUSE_DB"] = ""
+	values["TENANT_CGROUP_PARENT"] = "dcm-tenants.slice"
 
 	settings, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 6000, settings.Bootstrap.Port)
+	assert.Equal(t, "dcm-tenants.slice", settings.Bootstrap.TenantCgroupParent)
 	assert.True(t, settings.Bootstrap.ObjectStorage.UseSSL)
 	assert.Equal(t, "", settings.Bootstrap.ClickHouse.Database, "a value set to empty replaces the default")
 	assert.Equal(t, 10, settings.Runtime.MaxContainersPerUser, "an invalid optional value keeps its default")

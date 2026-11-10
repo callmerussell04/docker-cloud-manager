@@ -24,8 +24,6 @@ export interface SystemConfig {
   max_cpu_burst_multiplier: number;
   container_cpu_period: number;
   default_cpu_shares: number;
-  high_load_cpu_shares: number;
-  high_load_container_count: number;
   container_stop_timeout: number;
   max_log_size: string;
   max_log_files: string;
@@ -83,6 +81,8 @@ export interface SystemConfig {
   max_queued_compose_deploys_per_user: number;
   compose_coordinator_interval_seconds: number;
   host_min_free_disk_bytes: number;
+  memory_pressure_min_free_bytes: number;
+  memory_pressure_interval_seconds: number;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -141,8 +141,6 @@ export const systemConfigSchema = z.object({
   max_cpu_burst_multiplier: z.number().min(1),
   container_cpu_period: z.number().min(1),
   default_cpu_shares: z.number().min(2),
-  high_load_cpu_shares: z.number().min(2),
-  high_load_container_count: z.number().min(1),
   container_stop_timeout: z.number().min(1),
   max_log_size: z.string().min(1),
   max_log_files: z.string().min(1),
@@ -200,6 +198,8 @@ export const systemConfigSchema = z.object({
   max_queued_compose_deploys_per_user: z.number().min(0),
   compose_coordinator_interval_seconds: z.number().min(1),
   host_min_free_disk_bytes: z.number().min(0),
+  memory_pressure_min_free_bytes: z.number().min(0),
+  memory_pressure_interval_seconds: z.number().min(1),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),

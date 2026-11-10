@@ -39,10 +39,6 @@ type EventVolumeRepo interface {
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 
-type ContainerRebalancer interface {
-	RequestRebalance()
-}
-
 type EventProjectStatusUpdater interface {
 	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
 }
@@ -55,18 +51,16 @@ type EventWorker struct {
 	repo       EventContainerRepo
 	volumeRepo EventVolumeRepo
 	dockerAPI  EventDockerAPI
-	rebalancer ContainerRebalancer
 	projects   EventProjectStatusUpdater
 	cfg        EventConfigProvider
 	logger     *slog.Logger
 }
 
-func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, rebalancer ContainerRebalancer, projects EventProjectStatusUpdater, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
+func NewEventWorker(repo EventContainerRepo, volumeRepo EventVolumeRepo, dockerAPI EventDockerAPI, projects EventProjectStatusUpdater, cfg EventConfigProvider, logger *slog.Logger) *EventWorker {
 	return &EventWorker{
 		repo:       repo,
 		volumeRepo: volumeRepo,
 		dockerAPI:  dockerAPI,
-		rebalancer: rebalancer,
 		projects:   projects,
 		cfg:        cfg,
 		logger:     logging.WithComponent(logger, "event_worker"),
@@ -128,15 +122,12 @@ func (w *EventWorker) Run(ctx context.Context) {
 				case "start":
 					w.recordContainerEvent(ctx, msg, observedContainerState{status: model.ContainerStatusRunning})
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				case "die", "stop", "kill", "oom":
 					w.recordContainerEvent(ctx, msg, observedStateFromExitEvent(msg))
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				case "destroy":
 					w.recordContainerEvent(ctx, msg, observedContainerState{status: model.ContainerStatusMissing, cause: resourceMissingError("container")})
 					w.refreshProjectStatusFromEvent(ctx, msg)
-					w.rebalancer.RequestRebalance()
 				}
 			}
 		}
@@ -260,8 +251,6 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 		return
 	}
 
-	changed := false
-
 	for _, c := range containers {
 		if containerStatusHasActiveLifecycle(c.Status) {
 			active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
@@ -297,7 +286,6 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 				if w.recordContainerStatus(ctx, c.ID, model.ContainerStatusMissing, w.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))) {
 					w.logger.WarnContext(ctx, "docker container missing during state sync", "container_id", c.ID, "docker_id", c.DockerID)
 					w.refreshProjectStatus(ctx, c.ProjectID)
-					changed = true
 				}
 			}
 			continue
@@ -312,16 +300,9 @@ func (w *EventWorker) syncContainers(ctx context.Context) {
 			}
 			w.logger.InfoContext(ctx, "container status synced", "container_id", c.ID, "old_status", c.Status, "new_status", expectedStatus)
 			w.refreshProjectStatus(ctx, c.ProjectID)
-			if expectedStatus == model.ContainerStatusRunning || c.Status == model.ContainerStatusRunning {
-				changed = true
-			}
 		} else if observed.desiredStatus != nil && c.DesiredStatus != *observed.desiredStatus {
 			w.recordContainerStatus(ctx, c.ID, expectedStatus, w.repo.UpdateObservedStatus(ctx, c.ID, expectedStatus, observed.exitCode, observed.desiredStatus, observed.cause))
 		}
-	}
-
-	if changed {
-		w.rebalancer.RequestRebalance()
 	}
 }
 

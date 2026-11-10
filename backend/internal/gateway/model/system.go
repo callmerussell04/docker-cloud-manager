@@ -12,8 +12,6 @@ type SystemConfig struct {
 	MaxCPUBurstMultiplier                int64
 	ContainerCPUPeriod                   int64
 	DefaultCpuShares                     int64
-	HighLoadCpuShares                    int64
-	HighLoadContainerCount               int
 	ContainerStopTimeout                 int
 	MaxLogSize                           string
 	MaxLogFiles                          string
@@ -71,6 +69,8 @@ type SystemConfig struct {
 	RegistryCleanupIntervalSeconds       int64
 	RegistryCleanupJobTimeoutSeconds     int64
 	HostMinFreeDiskBytes                 int64
+	MemoryPressureMinFreeBytes           int64
+	MemoryPressureIntervalSeconds        int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string
 	GitCloneTimeoutSeconds               int64

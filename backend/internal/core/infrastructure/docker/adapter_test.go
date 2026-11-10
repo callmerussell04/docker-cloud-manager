@@ -59,6 +59,7 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 			CPUQuota          int64
 			CPUPeriod         int64
 			PidsLimit         *int64
+			CgroupParent      string
 			SecurityOpt       []string
 			CapDrop           []string
 			LogConfig         struct {
@@ -86,10 +87,66 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 	require.Equal(t, int64(100000), host.CPUPeriod)
 	require.NotNil(t, host.PidsLimit)
 	require.Equal(t, int64(200), *host.PidsLimit)
+	require.Empty(t, host.CgroupParent, "without a configured parent Docker chooses the cgroup")
 	require.Equal(t, []string{"no-new-privileges:true"}, host.SecurityOpt)
 	require.Equal(t, []string{"CAP_NET_RAW"}, host.CapDrop) // the client normalizes capability names
 	require.Equal(t, "json-file", host.LogConfig.Type)
 	require.Equal(t, map[string]string{"max-size": "10m", "max-file": "3"}, host.LogConfig.Config)
+}
+
+// The parent cgroup is where the host caps what user containers take
+// together, so every container the adapter creates must be placed under it.
+func TestAdapterCreateContainerPlacesItUnderTheConfiguredCgroupParent(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"/images/nginx:latest/json": dockertest.OK(`{"Id":"sha256:plain"}`),
+		"/containers/create":        dockertest.Created(`{"Id":"docker-id"}`),
+	})
+	adapter, err := docker.NewAdapter(docker.WithCgroupParent(" dcm-tenants.slice "))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	_, err = adapter.CreateContainer(context.Background(), model.ContainerRuntimeSpec{
+		ContainerName: "usr_app", ImageName: "nginx:latest", NetworkName: "dcm_user_net",
+	})
+	require.NoError(t, err)
+
+	created := daemon.Requests("/containers/create")
+	require.Len(t, created, 1)
+	var spec struct{ HostConfig struct{ CgroupParent string } }
+	require.NoError(t, json.Unmarshal(created[0].Body, &spec))
+	require.Equal(t, "dcm-tenants.slice", spec.HostConfig.CgroupParent)
+}
+
+// The working set is usage less the file cache the kernel can drop, so a
+// container is not counted as short of memory for cache it merely holds.
+func TestAdapterGetContainerMemoryWorkingSet(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		stats string
+		want  int64
+	}{
+		{name: "cgroup v2 subtracts inactive file cache", stats: `{"memory_stats":{"usage":1000,"stats":{"inactive_file":300,"total_inactive_file":999}}}`, want: 700},
+		{name: "cgroup v1 subtracts total inactive file cache", stats: `{"memory_stats":{"usage":1000,"stats":{"total_inactive_file":250}}}`, want: 750},
+		{name: "no cache figure reports usage", stats: `{"memory_stats":{"usage":1000}}`, want: 1000},
+		{name: "cache above usage reports usage", stats: `{"memory_stats":{"usage":1000,"stats":{"inactive_file":4000}}}`, want: 1000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/containers/docker-id/stats": dockertest.OK(tc.stats),
+			})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			got, err := adapter.GetContainerMemoryWorkingSet(context.Background(), "docker-id")
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			requests := daemon.Requests("/containers/docker-id/stats")
+			require.Len(t, requests, 1)
+			require.Equal(t, "1", requests[0].Query.Get("one-shot"), "one sample, without waiting for a second")
+		})
+	}
 }
 
 // Docker copies an image's labels onto its containers, and Traefik's Docker

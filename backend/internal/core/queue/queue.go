@@ -75,6 +75,9 @@ type ContainerLifecycleMessage struct {
 	DomainPrefix   string `json:"domain_prefix,omitempty"`
 	InternalPort   int    `json:"internal_port,omitempty"`
 	PreviousStatus string `json:"previous_status,omitempty"`
+	// Reason, on a stop the platform queued itself, is the safe message
+	// recorded as the stopped container's last error.
+	Reason string `json:"reason,omitempty"`
 }
 
 type ResourceLifecycleMessage struct {

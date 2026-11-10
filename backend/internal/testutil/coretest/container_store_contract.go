@@ -1,6 +1,7 @@
 package coretest
 
 import (
+	"bytes"
 	"context"
 	"slices"
 	"testing"
@@ -31,6 +32,7 @@ type ContainerStore interface {
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
 	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
+	GetRunning(ctx context.Context) ([]model.Container, error)
 	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
 	GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error)
 	ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error)
@@ -85,6 +87,12 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	})
 	t.Run("owner capacity lock", func(t *testing.T) {
 		testOwnerCapacityLock(t, newStore(t))
+	})
+	t.Run("observation keeps a recorded error for an unchanged status", func(t *testing.T) {
+		testObservationKeepsRecordedError(t, newStore(t))
+	})
+	t.Run("running containers", func(t *testing.T) {
+		testRunningContainers(t, newStore(t))
 	})
 	t.Run("reservation rule", func(t *testing.T) {
 		testReservationRule(t, newStore(t))
@@ -584,6 +592,62 @@ var reservingDesiredStatuses = map[string][]string{
 
 // testReservationRule tables every status against every desired status, one
 // owner per row, and reads which rows the reservation sums count.
+// A stop records why the platform stopped a container; the Docker events that
+// follow report the exit the record already holds and must not erase it.
+func testObservationKeepsRecordedError(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	c := contractContainer(uuid.New(), model.ContainerStatusStopping)
+	require.NoError(t, store.Save(ctx, c))
+	require.NoError(t, store.MarkStatusError(ctx, c.ID, model.ContainerStatusExited, errContractCause))
+
+	// The same status without a cause keeps the recorded error and still
+	// records the exit code.
+	exitCode := 143
+	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited, &exitCode, nil, nil))
+	got := getContainer(t, store, c.ID)
+	require.Equal(t, errContractCause.Error(), deref(got.LastError))
+	require.Equal(t, &exitCode, got.LastExitCode)
+
+	// A cause replaces it, whatever the status.
+	other := contractError("another cause")
+	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited, nil, nil, other))
+	require.Equal(t, other.Error(), deref(getContainer(t, store, c.ID).LastError))
+
+	// A new status without a cause clears it.
+	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusRunning, nil, nil, nil))
+	require.Nil(t, getContainer(t, store, c.ID).LastError)
+}
+
+func testRunningContainers(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	var want []model.Container
+	for _, status := range containerStatuses {
+		c := contractContainer(uuid.New(), status)
+		c.DesiredStatus = model.ContainerStatusRunning
+		c.BaseMemoryReservation, c.BaseCPUReservation = 64<<20, 125
+		require.NoError(t, store.Save(ctx, c))
+		if status == model.ContainerStatusRunning {
+			want = append(want, model.Container{
+				ID: c.ID, OwnerID: c.OwnerID, DockerID: c.DockerID,
+				BaseMemoryReservation: c.BaseMemoryReservation, BaseCPUReservation: c.BaseCPUReservation,
+			})
+		}
+	}
+	second := contractContainer(uuid.New(), model.ContainerStatusRunning)
+	require.NoError(t, store.Save(ctx, second))
+	want = append(want, model.Container{
+		ID: second.ID, OwnerID: second.OwnerID, DockerID: second.DockerID,
+		BaseMemoryReservation: second.BaseMemoryReservation, BaseCPUReservation: second.BaseCPUReservation,
+	})
+	slices.SortFunc(want, func(a, b model.Container) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+
+	// Only rows whose status is running are returned, whatever they desire,
+	// ordered by ID and carrying the fields a resource decision needs.
+	got, err := store.GetRunning(ctx)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
 func testReservationRule(t *testing.T, store ContainerStore) {
 	ctx := context.Background()
 	const memory, cpu = int64(64 << 20), int64(125)

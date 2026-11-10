@@ -27,12 +27,14 @@ const admissionMiB = int64(1 << 20)
 // 2000m, with no overcommit and nothing held back for the system. Every entry
 // point asks for 256 MiB and 250m: container create, container start, project
 // start, and build creation through BuildMemoryBytes and the build CPU quota.
+// Builder runs up to four builds at once unless a case narrows it.
 type admissionWorld struct {
 	quotaRAMMB, quotaDiskMB int64
 	quotaCPU                float64
 	usedDiskMB              int64
 	otherMemory, otherCPU   int64
 	activeBuilds            int
+	maxConcurrentBuilds     int
 	diskFreeBytes           int64
 }
 
@@ -44,6 +46,8 @@ func roomyAdmissionWorld() admissionWorld {
 		otherMemory:   256 * admissionMiB,
 		otherCPU:      250,
 		diskFreeBytes: 10 << 30,
+
+		maxConcurrentBuilds: 4,
 	}
 }
 
@@ -58,6 +62,7 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.OvercommitFactor, cfg.CPUOvercommitFactor = 1, 1
 	cfg.BuildMemoryBytes = 256 * admissionMiB
 	cfg.BuildCPUQuota, cfg.BuildCPUPeriod = 25000, 100000
+	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
 	cfg.HostMinFreeDiskBytes = 1 << 30
 	return cfg
 }
@@ -80,8 +85,8 @@ var admissionEntries = []admissionEntry{
 }
 
 // Every entry point admits memory and CPU through one check, in the order
-// user memory, user CPU, user disk, host memory including builds, host CPU
-// including builds, disk floor, so the same over-limit request is rejected
+// user memory, user CPU, user disk, host memory including build slots, host
+// CPU including build slots, disk floor, so the same over-limit request is rejected
 // with the same error kind wherever it arrives.
 func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 	for _, tc := range []struct {
@@ -133,6 +138,18 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.activeBuilds = 2
 			},
 			want: apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+		},
+		{
+			// One build runs at a time, so the five queued behind it hold
+			// nothing: the same reservations that two running builds exhaust
+			// the host with still fit.
+			name: "builds queued behind the concurrency limit reserve nothing",
+			world: func(w *admissionWorld) {
+				w.otherMemory = 1000 * admissionMiB
+				w.otherCPU = 800
+				w.activeBuilds = 6
+				w.maxConcurrentBuilds = 1
+			},
 		},
 		{
 			name:  "disk floor",

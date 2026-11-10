@@ -92,7 +92,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
+	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithCgroupParent(cfg.TenantCgroupParent), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	contService.SetProjectStatusUpdater(projService)
 	systemService := service.NewSystemService(cfg.ConfigManager)
-	systemService.SetRebalancer(contService)
 	statsService := service.NewStatsService(contRepo, volRepo, imgRepo, buildRepo, projRepo, metricsProvider, cfg.HostDiskPath, cfg.ConfigManager, ssoClient)
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
@@ -249,9 +248,21 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterReportAPI(gRPCServer, reportService)
 
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
-	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, contService, projService, cfg.ConfigManager, logger)
+	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
+	memoryPressureWorker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
+		Repository: contRepo,
+		Docker:     dockerAdapter,
+		Metrics:    metricsProvider,
+		Builds:     buildRepo,
+		Config:     cfg.ConfigManager,
+		Logger:     logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
 	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
 	composeCoordinator, err := compose.NewDeploymentCoordinator(compose.DeploymentCoordinatorDeps{
@@ -284,7 +295,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		eventWorker.Run,
 		gcWorker.Run,
 		volumeUsageWorker.Run,
-		contService.RunRebalancer,
+		memoryPressureWorker.Run,
 		composeCoordinator.Run,
 		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,

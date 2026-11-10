@@ -77,7 +77,7 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 
 	extractor := archive.NewExtractor()
 
-	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true})
+	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true, CgroupParent: cfg.TenantCgroupParent})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}

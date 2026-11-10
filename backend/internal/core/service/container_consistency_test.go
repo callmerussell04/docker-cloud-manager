@@ -376,79 +376,6 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	require.Equal(t, projectID.String(), details[auditlog.DetailProjectID])
 }
 
-func TestContainerServiceRebalancerCoalescesQueuedSignals(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		repo := newContainerRepository(t)
-		dockerAPI := coremocks.NewContainerDockerAPI(t)
-		metrics := coremocks.NewHostMetricsProvider(t)
-		svc := newTestContainerService(t, service.ContainerServiceDeps{
-			Repository:   repo,
-			Docker:       dockerAPI,
-			Metrics:      metrics,
-			Config:       testConfig(),
-			HostDiskPath: "",
-			Logger:       slog.Default(),
-		})
-		repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{{ID: uuid.New(), DockerID: "docker-id", BaseMemoryReservation: 128, BaseCPUReservation: 250}}, nil).Once()
-		metrics.EXPECT().GetTotalMemory().Return(int64(1024), nil)
-		metrics.EXPECT().GetLogicalCPUs().Return(int64(1), nil)
-		// One pass for a hundred queued signals: a second pass would be an unexpected call.
-		dockerAPI.EXPECT().UpdateContainerResources(mock.Anything, "docker-id", mock.Anything).Return(nil).Once()
-
-		for i := 0; i < 100; i++ {
-			svc.RequestRebalance()
-		}
-		ctx, cancel := context.WithCancel(t.Context())
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			svc.RunRebalancer(ctx)
-		}()
-		synctest.Wait()
-		cancel()
-		<-done
-	})
-}
-
-func TestContainerServiceRebalanceAppliesMemoryAndCPUBurst(t *testing.T) {
-	repo := newContainerRepository(t)
-	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	metrics := coremocks.NewHostMetricsProvider(t)
-	cfgValue := testSystemConfig()
-	cfgValue.MaxBurstMultiplier = 3
-	cfgValue.MaxCPUBurstMultiplier = 4
-	cfgValue.ContainerCPUPeriod = 100000
-	cfg := coretest.StaticConfig{Config: cfgValue}
-	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Metrics:      metrics,
-		Config:       cfg,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
-	})
-
-	repo.EXPECT().GetRunning(mock.Anything).Return([]model.Container{
-		{ID: uuid.New(), DockerID: "docker-a", BaseMemoryReservation: 100, BaseCPUReservation: 250},
-		{ID: uuid.New(), DockerID: "docker-b", BaseMemoryReservation: 100, BaseCPUReservation: 250},
-	}, nil)
-	metrics.EXPECT().GetTotalMemory().Return(int64(1000), nil)
-	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
-
-	dockerAPI.EXPECT().
-		UpdateContainerResources(mock.Anything, mock.AnythingOfType("string"), mock.MatchedBy(func(resources model.ContainerResourceUpdate) bool {
-			return resources.MemoryLimitBytes == 300 &&
-				resources.MemoryReservation == 100 &&
-				resources.CPUQuota == 100000 &&
-				resources.CPUPeriod == 100000 &&
-				resources.CPUShares == 1024
-		})).
-		Return(nil).
-		Twice()
-
-	svc.RebalanceResources(context.Background())
-}
-
 type queuedContainerOperation struct {
 	status        string
 	desiredStatus string
@@ -522,8 +449,6 @@ func testSystemConfig() config.SystemConfig {
 		MaxCPUBurstMultiplier:                4,
 		ContainerCPUPeriod:                   100000,
 		DefaultCPUShares:                     1024,
-		HighLoadCPUShares:                    512,
-		HighLoadContainerCount:               5,
 		ContainerStopTimeout:                 1,
 		BaseDomain:                           "example.test",
 		ContainerPidsLimit:                   256,

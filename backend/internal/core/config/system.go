@@ -19,8 +19,6 @@ type SystemConfig struct {
 	MaxCPUBurstMultiplier       int64    `json:"max_cpu_burst_multiplier"`
 	ContainerCPUPeriod          int64    `json:"container_cpu_period"`
 	DefaultCPUShares            int64    `json:"default_cpu_shares"`
-	HighLoadCPUShares           int64    `json:"high_load_cpu_shares"`
-	HighLoadContainerCount      int      `json:"high_load_container_count"`
 	ContainerStopTimeout        int      `json:"container_stop_timeout"`
 	MaxLogSize                  string   `json:"max_log_size"`
 	MaxLogFiles                 string   `json:"max_log_files"`
@@ -86,6 +84,8 @@ type SystemConfig struct {
 	RegistryCleanupIntervalSeconds       int64 `json:"registry_cleanup_interval_seconds"`
 	RegistryCleanupJobTimeoutSeconds     int64 `json:"registry_cleanup_job_timeout_seconds"`
 	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
+	MemoryPressureMinFreeBytes           int64 `json:"memory_pressure_min_free_bytes"`
+	MemoryPressureIntervalSeconds        int64 `json:"memory_pressure_interval_seconds"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

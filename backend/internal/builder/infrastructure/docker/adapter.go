@@ -40,6 +40,7 @@ type Adapter struct {
 	registryCA           []byte
 	requireNetworkPolicy bool
 	managedBy            string
+	cgroupParent         string
 }
 
 type Config struct {
@@ -48,6 +49,9 @@ type Config struct {
 	// ManagedBy is the managed_by label value the adapter gives build
 	// containers and cleans up orphans by. Empty selects docker-cloud-manager.
 	ManagedBy string
+	// CgroupParent is the cgroup Docker places build containers under. Empty
+	// keeps Docker's default parent.
+	CgroupParent string
 }
 
 func NewAdapter(cfg Config) (*Adapter, error) {
@@ -70,7 +74,7 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	if managedBy == "" {
 		managedBy = defaultManagedBy
 	}
-	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy, managedBy: managedBy}, nil
+	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy, managedBy: managedBy, cgroupParent: strings.TrimSpace(cfg.CgroupParent)}, nil
 }
 
 func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
@@ -150,11 +154,12 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
-			Memory:     params.MemoryBytes,
-			MemorySwap: memorySwap,
-			CPUQuota:   params.CPUQuota,
-			CPUPeriod:  params.CPUPeriod,
-			PidsLimit:  &pidsLimit,
+			Memory:       params.MemoryBytes,
+			CgroupParent: a.cgroupParent,
+			MemorySwap:   memorySwap,
+			CPUQuota:     params.CPUQuota,
+			CPUPeriod:    params.CPUPeriod,
+			PidsLimit:    &pidsLimit,
 		},
 	}, &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{

@@ -168,14 +168,19 @@ func (r *ContainerRepository) UpdateStatusByContainerIDAndGeneration(ctx context
 	return nil
 }
 
+// The observed-status writes below replace the last error with the
+// observation's cause. An observation without a cause that reports the status
+// already recorded keeps the last error, so the Docker events that follow a
+// stop do not erase the reason the stop recorded.
+
 func (r *ContainerRepository) UpdateObservedStatus(ctx context.Context, id uuid.UUID, status string, exitCode *int, desiredStatus *string, cause error) error {
 	query := `
 		UPDATE containers
-		SET status = $1,
+		SET status = $1::text,
 			desired_status = COALESCE($2, desired_status),
 			last_exit_code = $3,
 			last_observed_at = NOW(),
-			last_error = $4
+			last_error = CASE WHEN $4::text IS NULL AND status = $1::text THEN last_error ELSE $4::text END
 		WHERE id = $5
 	`
 	res, err := r.db.Exec(ctx, query, status, desiredStatus, nullableInt(exitCode), nullableError(cause), id)
@@ -192,11 +197,11 @@ func (r *ContainerRepository) UpdateObservedStatus(ctx context.Context, id uuid.
 func (r *ContainerRepository) UpdateObservedStatusByDockerID(ctx context.Context, dockerID string, status string, exitCode *int, desiredStatus *string, cause error) error {
 	query := `
 		UPDATE containers
-		SET status = $1,
+		SET status = $1::text,
 			desired_status = COALESCE($2, desired_status),
 			last_exit_code = $3,
 			last_observed_at = NOW(),
-			last_error = $4
+			last_error = CASE WHEN $4::text IS NULL AND status = $1::text THEN last_error ELSE $4::text END
 		WHERE docker_id = $5
 	`
 	res, err := r.db.Exec(ctx, query, status, desiredStatus, nullableInt(exitCode), nullableError(cause), dockerID)
@@ -213,11 +218,11 @@ func (r *ContainerRepository) UpdateObservedStatusByDockerID(ctx context.Context
 func (r *ContainerRepository) UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error {
 	query := `
 		UPDATE containers
-		SET status = $1,
+		SET status = $1::text,
 			desired_status = COALESCE($2, desired_status),
 			last_exit_code = $3,
 			last_observed_at = NOW(),
-			last_error = $4
+			last_error = CASE WHEN $4::text IS NULL AND status = $1::text THEN last_error ELSE $4::text END
 		WHERE id = $5 AND docker_generation = $6
 	`
 	res, err := r.db.Exec(ctx, query, status, desiredStatus, nullableInt(exitCode), nullableError(cause), containerID, generation)
@@ -279,11 +284,14 @@ func (r *ContainerRepository) GetUserReservedCPU(ctx context.Context, ownerID uu
 	return totalReserved, err
 }
 
+// GetRunning returns the identity, Docker container and reservations of every
+// container whose status is running, ordered by ID.
 func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container, error) {
 	query := `
-		SELECT id, docker_id, base_memory_reservation, base_cpu_millicores
-		FROM containers 
+		SELECT id, owner_id, docker_id, base_memory_reservation, base_cpu_millicores
+		FROM containers
 		WHERE status = $1
+		ORDER BY id
 	`
 	rows, err := r.db.Query(ctx, query, model.ContainerStatusRunning)
 	if err != nil {
@@ -295,7 +303,7 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container
 	for rows.Next() {
 		var c model.Container
 		var dockerID *string
-		if err := rows.Scan(&c.ID, &dockerID, &c.BaseMemoryReservation, &c.BaseCPUReservation); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.BaseMemoryReservation, &c.BaseCPUReservation); err != nil {
 			return nil, err
 		}
 		if dockerID != nil {

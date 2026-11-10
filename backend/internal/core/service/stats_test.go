@@ -26,6 +26,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	cfgData.DefaultMemoryReservation = 1
 	cfgData.OvercommitFactor = 1
 	cfgData.BuildMemoryBytes = 100
+	cfgData.MaxConcurrentBuilds = 2
 	cfgData.HostMinFreeDiskBytes = 100
 	cfg := coretest.StaticConfig{Config: cfgData}
 
@@ -41,7 +42,8 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	volRepo.EXPECT().CountAll(ctx).Return(4, nil)
 	imgRepo.EXPECT().GetTotalUsedDiskSpace(ctx).Return(int64(2), nil)
 	imgRepo.EXPECT().CountAll(ctx).Return(5, nil)
-	buildRepo.EXPECT().CountActive(ctx).Return(2, nil)
+	// Three builds are active, but only the two Builder can run hold memory.
+	buildRepo.EXPECT().CountActive(ctx).Return(3, nil)
 	buildRepo.EXPECT().CountAll(ctx).Return(6, nil)
 	projRepo.EXPECT().CountAll(ctx).Return(2, nil)
 	metrics.EXPECT().GetCPULoad().Return(42.5, nil)

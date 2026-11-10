@@ -2513,11 +2513,6 @@ components:
         default_cpu_shares:
           type: integer
           format: int64
-        high_load_cpu_shares:
-          type: integer
-          format: int64
-        high_load_container_count:
-          type: integer
         container_stop_timeout:
           type: integer
         max_log_size:
@@ -2669,6 +2664,12 @@ components:
           type: integer
           format: int64
         host_min_free_disk_bytes:
+          type: integer
+          format: int64
+        memory_pressure_min_free_bytes:
+          type: integer
+          format: int64
+        memory_pressure_interval_seconds:
           type: integer
           format: int64
         git_sources_enabled:

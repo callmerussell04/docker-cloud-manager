@@ -40,8 +40,6 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		MaxCpuBurstMultiplier:                cfg.MaxCPUBurstMultiplier,
 		ContainerCpuPeriod:                   cfg.ContainerCPUPeriod,
 		DefaultCpuShares:                     cfg.DefaultCPUShares,
-		HighLoadCpuShares:                    cfg.HighLoadCPUShares,
-		HighLoadContainerCount:               int32(cfg.HighLoadContainerCount),
 		ContainerStopTimeout:                 int32(cfg.ContainerStopTimeout),
 		MaxLogSize:                           cfg.MaxLogSize,
 		MaxLogFiles:                          cfg.MaxLogFiles,
@@ -99,6 +97,8 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		RegistryCleanupIntervalSeconds:       cfg.RegistryCleanupIntervalSeconds,
 		RegistryCleanupJobTimeoutSeconds:     cfg.RegistryCleanupJobTimeoutSeconds,
 		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
+		MemoryPressureMinFreeBytes:           cfg.MemoryPressureMinFreeBytes,
+		MemoryPressureIntervalSeconds:        cfg.MemoryPressureIntervalSeconds,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
 		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
@@ -131,8 +131,6 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.MaxCPUBurstMultiplier = req.GetMaxCpuBurstMultiplier()
 	newCfg.ContainerCPUPeriod = req.GetContainerCpuPeriod()
 	newCfg.DefaultCPUShares = req.GetDefaultCpuShares()
-	newCfg.HighLoadCPUShares = req.GetHighLoadCpuShares()
-	newCfg.HighLoadContainerCount = int(req.GetHighLoadContainerCount())
 	newCfg.ContainerStopTimeout = int(req.GetContainerStopTimeout())
 	newCfg.MaxLogSize = req.GetMaxLogSize()
 	newCfg.MaxLogFiles = req.GetMaxLogFiles()
@@ -190,6 +188,8 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.RegistryCleanupIntervalSeconds = req.GetRegistryCleanupIntervalSeconds()
 	newCfg.RegistryCleanupJobTimeoutSeconds = req.GetRegistryCleanupJobTimeoutSeconds()
 	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
+	newCfg.MemoryPressureMinFreeBytes = req.GetMemoryPressureMinFreeBytes()
+	newCfg.MemoryPressureIntervalSeconds = req.GetMemoryPressureIntervalSeconds()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
 	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())

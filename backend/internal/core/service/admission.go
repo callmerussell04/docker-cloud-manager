@@ -13,6 +13,9 @@ import (
 type admissionRequest struct {
 	memoryBytes   int64
 	cpuMillicores int64
+	// builds is how many image builds the request queues. A build asks for no
+	// memoryBytes or cpuMillicores of its own: it takes a build slot.
+	builds int64
 	// chargesUser reports whether the memory and CPU count against the
 	// owner's quotas. Builds reserve host capacity only.
 	chargesUser bool
@@ -100,12 +103,13 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 	}
 	if ledger.hostCounted {
 		pool := hostMemoryPool(ledger.hostMemoryBytes, cfg.ReservedSystemMemory, cfg.OvercommitFactor)
-		projected := ledger.systemReservedMemoryBytes + ledger.activeBuilds*cfg.BuildMemoryBytes + memory
+		builds := reservedBuildSlots(ledger.activeBuilds+max(req.builds, 0), cfg)
+		projected := ledger.systemReservedMemoryBytes + builds*cfg.BuildMemoryBytes + memory
 		if pool <= 0 || projected > pool {
 			return admissionVerdict{limit: limitHostMemory, projected: projected, capacity: pool}
 		}
 		pool = hostCPUPool(ledger.hostLogicalCPUs, cfg.ReservedSystemCPU, cfg.CPUOvercommitFactor)
-		projected = ledger.systemReservedCPUMillicores + ledger.activeBuilds*buildCPUMillicores(cfg) + cpu
+		projected = ledger.systemReservedCPUMillicores + builds*buildCPUMillicores(cfg) + cpu
 		if pool <= 0 || projected > pool {
 			return admissionVerdict{limit: limitHostCPU, projected: projected, capacity: pool}
 		}
@@ -272,6 +276,13 @@ func hostCPUPool(logicalCPUs, reservedSystemCPUMillicores int64, overcommitFacto
 		return 0
 	}
 	return int64(float64(available) * overcommitFactor)
+}
+
+// reservedBuildSlots is how many of activeBuilds, pending and running, hold
+// host memory and CPU. Builder runs at most MaxConcurrentBuilds at once, so
+// builds queued behind those reserve nothing until a slot frees.
+func reservedBuildSlots(activeBuilds int64, cfg config.SystemConfig) int64 {
+	return max(min(activeBuilds, int64(cfg.MaxConcurrentBuilds)), 0)
 }
 
 func buildCPUMillicores(cfg config.SystemConfig) int64 {

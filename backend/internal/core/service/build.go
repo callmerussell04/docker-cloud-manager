@@ -221,9 +221,10 @@ func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) er
 	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
 }
 
-// admitBuild checks one build's host memory and CPU reservation and the
-// owner's disk quota. Builds do not count against the owner's memory and CPU
-// quotas. The caller holds the capacity lock.
+// admitBuild checks the host memory and CPU one more build slot reserves and
+// the owner's disk quota. Builds do not count against the owner's memory and
+// CPU quotas, and a build queued behind MaxConcurrentBuilds others reserves
+// nothing more. The caller holds the capacity lock.
 func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
 	sources := admissionSources{
@@ -237,10 +238,7 @@ func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error 
 		hostDiskPath: s.hostDiskPath,
 		logger:       s.logger,
 	}
-	return sources.admit(ctx, ownerID, admissionRequest{
-		memoryBytes:   cfg.BuildMemoryBytes,
-		cpuMillicores: buildCPUMillicores(cfg),
-	}, cfg, "build")
+	return sources.admit(ctx, ownerID, admissionRequest{builds: 1}, cfg, "build")
 }
 
 func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {

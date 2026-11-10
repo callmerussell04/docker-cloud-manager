@@ -466,8 +466,8 @@ message PaginatedProjectResponse {
 }
 
 message SystemConfigData {
-  reserved 15, 16, 20, 21, 27;
-  reserved "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
+  reserved 7, 8, 15, 16, 20, 21, 27;
+  reserved "high_load_cpu_shares", "high_load_container_count", "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
 
   string base_domain = 1;
   int64 default_memory_reservation_bytes = 2;
@@ -475,8 +475,6 @@ message SystemConfigData {
   double overcommit_factor = 4;
   int64 max_burst_multiplier = 5;
   int64 default_cpu_shares = 6;
-  int64 high_load_cpu_shares = 7;
-  int32 high_load_container_count = 8;
   int32 container_stop_timeout = 9;
   string max_log_size = 10;
   string max_log_files = 11;
@@ -553,6 +551,8 @@ message SystemConfigData {
   int32 volume_usage_scan_entry_budget = 87;
   int64 registry_cleanup_interval_seconds = 88;
   int64 registry_cleanup_job_timeout_seconds = 89;
+  int64 memory_pressure_min_free_bytes = 90;
+  int64 memory_pressure_interval_seconds = 91;
 }
 
 message BuilderRuntimeConfigData {

@@ -3,16 +3,13 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
@@ -241,42 +238,5 @@ func (w *VolumeUsageWorker) stopWritableVolumeContainers(ctx context.Context, ow
 }
 
 func (w *VolumeUsageWorker) queueStop(ctx context.Context, c model.Container) error {
-	active, err := w.contRepo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
-	if err != nil {
-		return err
-	}
-	if active {
-		return apperrors.New(apperrors.ErrConflict, "resource operation is already in progress")
-	}
-	op := model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   c.ID,
-		OwnerID:      c.OwnerID,
-		Operation:    model.OperationStop,
-		Status:       model.OperationStatusPending,
-	}
-	msg := queue.ContainerLifecycleMessage{
-		OperationID:    op.ID.String(),
-		ContainerID:    c.ID.String(),
-		OwnerID:        c.OwnerID.String(),
-		Operation:      model.OperationStop,
-		RequestID:      logging.RequestIDFromContext(ctx),
-		CreatedAt:      time.Now().Unix(),
-		PreviousStatus: c.Status,
-	}
-	payload, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal over-quota stop message: %w", err)
-	}
-	outbox := model.ContainerLifecycleOutbox{
-		ID:          uuid.New(),
-		OperationID: op.ID,
-		ContainerID: c.ID,
-		Exchange:    queue.ContainerExchangeName,
-		RoutingKey:  queue.ContainerRoutingKey,
-		Payload:     payload,
-		Status:      model.ContainerOutboxStatusPending,
-	}
-	return w.contRepo.QueueContainerOperation(ctx, c.ID, model.ContainerStatusStopping, model.ContainerStatusExited, op, outbox)
+	return queueContainerStop(ctx, w.contRepo, c, "")
 }

@@ -34,11 +34,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ContainerCPUPeriod <= 0 {
 		return fmt.Errorf("container cpu period must be positive")
 	}
-	if cfg.DefaultCPUShares <= 0 || cfg.HighLoadCPUShares <= 0 {
+	if cfg.DefaultCPUShares <= 0 {
 		return fmt.Errorf("cpu shares must be positive")
 	}
-	if cfg.HighLoadContainerCount <= 0 || cfg.ContainerStopTimeout <= 0 {
-		return fmt.Errorf("container counters and timeouts must be positive")
+	if cfg.ContainerStopTimeout <= 0 {
+		return fmt.Errorf("container stop timeout must be positive")
 	}
 	if err := validation.DockerSize(cfg.MaxLogSize); err != nil {
 		return fmt.Errorf("invalid max log size: %w", err)
@@ -136,8 +136,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ReportsUsageSnapshotIntervalSeconds < MinReportsUsageSnapshotIntervalSeconds || cfg.ReportsUsageSnapshotIntervalSeconds > MaxReportsUsageSnapshotIntervalSeconds {
 		return fmt.Errorf("reports usage snapshot interval must be between %d and %d seconds", MinReportsUsageSnapshotIntervalSeconds, MaxReportsUsageSnapshotIntervalSeconds)
 	}
-	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.MaxQueuedBuildsPerUser < 0 || cfg.MaxQueuedComposeDeploysPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 {
+	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.MaxQueuedBuildsPerUser < 0 || cfg.MaxQueuedComposeDeploysPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 || cfg.MemoryPressureMinFreeBytes < 0 {
 		return fmt.Errorf("resource safety limits must not be negative")
+	}
+	if cfg.MemoryPressureIntervalSeconds <= 0 {
+		return fmt.Errorf("memory pressure interval must be positive")
 	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")

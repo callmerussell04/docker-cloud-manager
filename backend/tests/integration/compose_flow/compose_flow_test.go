@@ -162,6 +162,9 @@ func expectStackDocker(t *testing.T, f *coretest.ComposeFixture) *stackDocker {
 			docker.created[spec.NetworkAlias] = spec
 			return "docker-" + spec.NetworkAlias, nil
 		}).Times(2)
+	// Each start applies the container's resources before Docker runs it.
+	f.ContainerDocker.EXPECT().UpdateContainerResources(mock.Anything, "docker-db", mock.Anything).Return(nil).Once()
+	f.ContainerDocker.EXPECT().UpdateContainerResources(mock.Anything, "docker-web", mock.Anything).Return(nil).Once()
 	f.ContainerDocker.EXPECT().StartContainer(mock.Anything, "docker-db").Return(nil).Once()
 	f.ContainerDocker.EXPECT().StartContainer(mock.Anything, "docker-web").Return(nil).Once()
 	f.ContainerDocker.EXPECT().InspectContainer(mock.Anything, "docker-db").Return(dbInspection("starting"), nil).Once()

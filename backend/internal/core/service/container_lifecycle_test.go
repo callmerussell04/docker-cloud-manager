@@ -33,6 +33,19 @@ var (
 	errDockerDown     = apperrors.Wrap(apperrors.ErrUnavailable, "docker unavailable", errors.New("connection refused"))
 )
 
+// lifecycleResources is what the fixture container, reserving 128 MiB and
+// 500m, runs with under testSystemConfig: the reservation protected and
+// weighed at twice the 250m default's shares, and limits four times the
+// reservation.
+var lifecycleResources = model.ContainerResourceUpdate{
+	MemoryLimitBytes:     512 << 20,
+	MemoryReservation:    128 << 20,
+	MemorySwapMultiplier: 2,
+	CPUShares:            2048,
+	CPUQuota:             200000,
+	CPUPeriod:            100000,
+}
+
 // lifecycleFixture is how a container stands when its queued operation
 // arrives: the status it had before the request, and the busy and desired
 // statuses the request recorded.
@@ -75,6 +88,9 @@ type lifecycleCase struct {
 	// recorded gives a queued create a Docker container already recorded, as
 	// after a restart that interrupted the create past its record write.
 	recorded bool
+	// reason is the stop reason the queued message carries, as a stop the
+	// platform queued does.
+	reason string
 	// docker scripts the Docker double and returns the containers Docker holds
 	// when the operation arrives.
 	docker func(d *coremocks.ContainerDockerAPI) []string
@@ -124,7 +140,10 @@ func TestQueuedContainerLifecycleOutcomes(t *testing.T) {
 			})
 			worker := service.NewContainerCreateWorker(svc, cfg, slog.New(slog.DiscardHandler))
 
-			err := worker.HandleMessage(ctx, lifecycleMessage(c, op))
+			msg := lifecycleMessage(c, op)
+			msg.Reason = tc.reason
+
+			err := worker.HandleMessage(ctx, msg)
 
 			if len(tc.wantErr) == 0 {
 				require.NoError(t, err)
@@ -169,7 +188,7 @@ func createCases() []lifecycleCase {
 				return nil
 			}
 			d.EXPECT().CreateContainer(mock.Anything, mock.MatchedBy(func(spec model.ContainerRuntimeSpec) bool {
-				return spec.ImageName == "nginx:latest" && spec.Generation == 1
+				return spec.ImageName == "nginx:latest" && spec.Generation == 1 && specResources(spec) == lifecycleResources
 			})).Return(createdDocker, createErr).Once()
 			d.EXPECT().RemoveContainer(mock.Anything, createdDocker, true).Return(nil).Maybe()
 			if pull && createErr != nil {
@@ -215,12 +234,19 @@ func createCases() []lifecycleCase {
 }
 
 func startCases() []lifecycleCase {
-	start := func(err error) func(d *coremocks.ContainerDockerAPI) []string {
+	// start scripts a start: the container's resources are applied first,
+	// and resourcesErr, when set, stops the start before Docker runs it.
+	startWith := func(resourcesErr, err error) func(d *coremocks.ContainerDockerAPI) []string {
 		return func(d *coremocks.ContainerDockerAPI) []string {
+			d.EXPECT().UpdateContainerResources(mock.Anything, recordedDocker, lifecycleResources).Return(resourcesErr).Once()
+			if resourcesErr != nil {
+				return holdingUnlessMissing(resourcesErr)
+			}
 			d.EXPECT().StartContainer(mock.Anything, recordedDocker).Return(err).Once()
 			return holdingUnlessMissing(err)
 		}
 	}
+	start := func(err error) func(d *coremocks.ContainerDockerAPI) []string { return startWith(nil, err) }
 	busy := containerRow{Status: model.ContainerStatusStarting, DockerID: recordedDocker, Generation: 1, TTL: ttlKept}
 	running := busy
 	running.Status = model.ContainerStatusRunning
@@ -238,6 +264,8 @@ func startCases() []lifecycleCase {
 		{name: "success sets the TTL deadline", operation: op, docker: start(nil), wantRow: &running, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
 		{name: "success with TTL disabled clears the deadline", operation: op, ttlDisabled: true, docker: start(nil), wantRow: &noTTL, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
 		{name: "docker not found", operation: op, docker: start(cerrdefs.ErrNotFound), wantErr: []error{apperrors.ErrConflict}, wantRow: &missing, wantOperation: model.OperationStatusFailed},
+		{name: "docker not found applying resources", operation: op, docker: startWith(cerrdefs.ErrNotFound, nil), wantErr: []error{apperrors.ErrConflict}, wantRow: &missing, wantOperation: model.OperationStatusFailed},
+		{name: "rejected resources do not start the container", operation: op, docker: startWith(errDockerRejected, nil), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
 		{name: "retryable docker error", operation: op, docker: start(errDockerDown), wantErr: []error{apperrors.ErrUnavailable}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
 		{name: "terminal docker error", operation: op, docker: start(errDockerRejected), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
 		{name: "claim write fails", operation: op, docker: noDockerCalls, faults: coretest.ContainerStoreFaults{ClaimPendingOperation: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
@@ -265,9 +293,12 @@ func stopCases() []lifecycleCase {
 	missing := busy
 	missing.Status = model.ContainerStatusMissing
 	missing.HasLastError = true
+	explained := exited
+	explained.HasLastError = true
 	op := model.OperationStop
 	return []lifecycleCase{
 		{name: "success", operation: op, docker: stop(nil), wantRow: &exited, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
+		{name: "a platform stop records its reason", operation: op, reason: service.MemoryPressureStopReason, docker: stop(nil), wantRow: &explained, wantOperation: model.OperationStatusDone, wantDocker: held(recordedDocker)},
 		{name: "docker not found", operation: op, docker: stop(cerrdefs.ErrNotFound), wantErr: []error{apperrors.ErrConflict}, wantRow: &missing, wantOperation: model.OperationStatusFailed},
 		{name: "retryable docker error", operation: op, docker: stop(errDockerDown), wantErr: []error{apperrors.ErrUnavailable}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
 		{name: "terminal docker error", operation: op, docker: stop(errDockerRejected), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
@@ -427,6 +458,9 @@ func queueLifecycleOperation(t *testing.T, store *containerStore, operation stri
 		Status:           fixture.previous,
 		DesiredStatus:    fixture.previous,
 		TTLDeadline:      &ttl,
+
+		BaseMemoryReservation: 128 << 20,
+		BaseCPUReservation:    500,
 	}
 	op := model.ResourceOperation{
 		ID:           uuid.New(),
@@ -450,6 +484,18 @@ func queueLifecycleOperation(t *testing.T, store *containerStore, operation stri
 	require.NoError(t, store.Save(ctx, c))
 	require.NoError(t, store.QueueContainerOperation(ctx, c.ID, fixture.busy, fixture.desired, op, outbox))
 	return c, op
+}
+
+// specResources is the memory and CPU part of a container runtime spec.
+func specResources(spec model.ContainerRuntimeSpec) model.ContainerResourceUpdate {
+	return model.ContainerResourceUpdate{
+		MemoryLimitBytes:     spec.MemoryLimitBytes,
+		MemoryReservation:    spec.MemoryReservation,
+		MemorySwapMultiplier: spec.MemorySwapMultiplier,
+		CPUShares:            spec.CPUShares,
+		CPUQuota:             spec.CPUQuota,
+		CPUPeriod:            spec.CPUPeriod,
+	}
 }
 
 func lifecycleMessage(c model.Container, op model.ResourceOperation) queue.ContainerLifecycleMessage {

@@ -25,9 +25,12 @@ type Bootstrap struct {
 	SSOTarget     string
 	InternalToken string
 	HostDiskPath  string
-	ObjectStorage objectstorage.Config
-	ClickHouse    ClickHouse
-	Registry      Registry
+	// TenantCgroupParent is the cgroup Docker places user containers under.
+	// Empty keeps Docker's default parent.
+	TenantCgroupParent string
+	ObjectStorage      objectstorage.Config
+	ClickHouse         ClickHouse
+	Registry           Registry
 }
 
 // ClickHouse locates the reports store. An empty Addr disables it.
@@ -75,6 +78,8 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 		Port:          envconfig.Int(lookup, "CORE_GRPC_PORT", 50052),
 		HTTPPort:      envconfig.Int(lookup, "CORE_HTTP_PORT", 8083),
 		HostDiskPath:  envconfig.String(lookup, "CORE_HOST_DISK_PATH", "/"),
+
+		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
 		ClickHouse: ClickHouse{
 			Addr:     envconfig.String(lookup, "CLICKHOUSE_ADDR", ""),
 			Database: envconfig.String(lookup, "CLICKHOUSE_DB", "dcm_reports"),
@@ -94,7 +99,7 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		BaseDomain:                           baseDomain,
 		DefaultMemoryReservation:             envconfig.Int64(lookup, "DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
 		ReservedSystemMemory:                 envconfig.Int64(lookup, "RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
-		OvercommitFactor:                     envconfig.Float64(lookup, "OVERCOMMIT_FACTOR", 1.5),
+		OvercommitFactor:                     envconfig.Float64(lookup, "OVERCOMMIT_FACTOR", 1),
 		MaxBurstMultiplier:                   envconfig.Int64(lookup, "MAX_BURST_MULTIPLIER", 4),
 		DefaultCPUReservation:                envconfig.Int64(lookup, "DEFAULT_CPU_RESERVATION_MILLICORES", 250),
 		ReservedSystemCPU:                    envconfig.Int64(lookup, "RESERVED_SYSTEM_CPU_MILLICORES", 500),
@@ -102,8 +107,6 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		MaxCPUBurstMultiplier:                envconfig.Int64(lookup, "MAX_CPU_BURST_MULTIPLIER", 4),
 		ContainerCPUPeriod:                   envconfig.Int64(lookup, "CONTAINER_CPU_PERIOD", 100000),
 		DefaultCPUShares:                     envconfig.Int64(lookup, "DEFAULT_CPU_SHARES", 1024),
-		HighLoadCPUShares:                    envconfig.Int64(lookup, "HIGH_LOAD_CPU_SHARES", 512),
-		HighLoadContainerCount:               envconfig.Int(lookup, "HIGH_LOAD_CONTAINER_COUNT", 5),
 		ContainerStopTimeout:                 envconfig.Int(lookup, "CONTAINER_STOP_TIMEOUT", 10),
 		MaxLogSize:                           envconfig.String(lookup, "MAX_LOG_SIZE", "10m"),
 		MaxLogFiles:                          envconfig.String(lookup, "MAX_LOG_FILES", "3"),
@@ -166,6 +169,8 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		RegistryCleanupIntervalSeconds:       envconfig.Int64(lookup, "REGISTRY_CLEANUP_INTERVAL_SECONDS", 5),
 		RegistryCleanupJobTimeoutSeconds:     envconfig.Int64(lookup, "REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS", 20),
 		HostMinFreeDiskBytes:                 envconfig.Int64(lookup, "HOST_MIN_FREE_DISK_BYTES", 1024*1024*1024),
+		MemoryPressureMinFreeBytes:           envconfig.Int64(lookup, "MEMORY_PRESSURE_MIN_FREE_BYTES", 512*1024*1024),
+		MemoryPressureIntervalSeconds:        envconfig.Int64(lookup, "MEMORY_PRESSURE_INTERVAL_SECONDS", 10),
 		GitSourcesEnabled:                    envconfig.Bool(lookup, "GIT_SOURCES_ENABLED", true),
 		GitAllowedHosts:                      envconfig.NonEmptyCSV(lookup, "GIT_ALLOWED_HOSTS", []string{"github.com", "gitlab.com", "bitbucket.org"}),
 		GitCloneTimeoutSeconds:               envconfig.Int64(lookup, "GIT_CLONE_TIMEOUT_SECONDS", 60),

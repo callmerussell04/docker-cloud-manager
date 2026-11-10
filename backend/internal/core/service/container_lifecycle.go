@@ -279,7 +279,13 @@ func (s *ContainerService) removeLifecycleContainer(ctx context.Context, contain
 	}
 }
 
+// runQueuedStart applies the container's resources before starting it, so a
+// runtime config change reaches an existing container at its next start, when
+// no process can be using the memory a lower limit takes away.
 func (s *ContainerService) runQueuedStart(ctx context.Context, c model.Container, _ queue.ContainerLifecycleMessage) (lifecycleChange, error) {
+	if err := s.dockerAPI.UpdateContainerResources(ctx, c.DockerID, containerResources(c, s.config.Get())); err != nil {
+		return lifecycleChange{}, recordedContainerError(err)
+	}
 	if err := s.dockerAPI.StartContainer(ctx, c.DockerID); err != nil {
 		return lifecycleChange{}, recordedContainerError(err)
 	}
@@ -294,23 +300,26 @@ func (s *ContainerService) runQueuedStart(ctx context.Context, c model.Container
 		},
 		settled: func(ctx context.Context) {
 			s.logger.InfoContext(ctx, "container started", "container_id", c.ID, "owner_id", c.OwnerID)
-			s.RequestRebalance()
 			s.refreshProjectStatus(ctx, c.ProjectID)
 		},
 	}, nil
 }
 
-func (s *ContainerService) runQueuedStop(ctx context.Context, c model.Container, _ queue.ContainerLifecycleMessage) (lifecycleChange, error) {
+// runQueuedStop records the container exited. A stop the platform queued
+// carries its reason, which is recorded as the container's last error.
+func (s *ContainerService) runQueuedStop(ctx context.Context, c model.Container, msg queue.ContainerLifecycleMessage) (lifecycleChange, error) {
 	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
 		return lifecycleChange{}, recordedContainerError(err)
 	}
 	return lifecycleChange{
 		record: func(ctx context.Context) error {
+			if msg.Reason != "" {
+				return s.repo.MarkStatusError(ctx, c.ID, model.ContainerStatusExited, errors.New(msg.Reason))
+			}
 			return s.repo.UpdateStatus(ctx, c.ID, model.ContainerStatusExited)
 		},
 		settled: func(ctx context.Context) {
 			s.logger.InfoContext(ctx, "container stopped", "container_id", c.ID, "owner_id", c.OwnerID)
-			s.RequestRebalance()
 			s.refreshProjectStatus(ctx, c.ProjectID)
 		},
 	}, nil

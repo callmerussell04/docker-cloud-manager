@@ -3681,8 +3681,6 @@ type SystemConfigData struct {
 	OvercommitFactor                     float64                `protobuf:"fixed64,4,opt,name=overcommit_factor,json=overcommitFactor,proto3" json:"overcommit_factor,omitempty"`
 	MaxBurstMultiplier                   int64                  `protobuf:"varint,5,opt,name=max_burst_multiplier,json=maxBurstMultiplier,proto3" json:"max_burst_multiplier,omitempty"`
 	DefaultCpuShares                     int64                  `protobuf:"varint,6,opt,name=default_cpu_shares,json=defaultCpuShares,proto3" json:"default_cpu_shares,omitempty"`
-	HighLoadCpuShares                    int64                  `protobuf:"varint,7,opt,name=high_load_cpu_shares,json=highLoadCpuShares,proto3" json:"high_load_cpu_shares,omitempty"`
-	HighLoadContainerCount               int32                  `protobuf:"varint,8,opt,name=high_load_container_count,json=highLoadContainerCount,proto3" json:"high_load_container_count,omitempty"`
 	ContainerStopTimeout                 int32                  `protobuf:"varint,9,opt,name=container_stop_timeout,json=containerStopTimeout,proto3" json:"container_stop_timeout,omitempty"`
 	MaxLogSize                           string                 `protobuf:"bytes,10,opt,name=max_log_size,json=maxLogSize,proto3" json:"max_log_size,omitempty"`
 	MaxLogFiles                          string                 `protobuf:"bytes,11,opt,name=max_log_files,json=maxLogFiles,proto3" json:"max_log_files,omitempty"`
@@ -3758,6 +3756,8 @@ type SystemConfigData struct {
 	VolumeUsageScanEntryBudget           int32                  `protobuf:"varint,87,opt,name=volume_usage_scan_entry_budget,json=volumeUsageScanEntryBudget,proto3" json:"volume_usage_scan_entry_budget,omitempty"`
 	RegistryCleanupIntervalSeconds       int64                  `protobuf:"varint,88,opt,name=registry_cleanup_interval_seconds,json=registryCleanupIntervalSeconds,proto3" json:"registry_cleanup_interval_seconds,omitempty"`
 	RegistryCleanupJobTimeoutSeconds     int64                  `protobuf:"varint,89,opt,name=registry_cleanup_job_timeout_seconds,json=registryCleanupJobTimeoutSeconds,proto3" json:"registry_cleanup_job_timeout_seconds,omitempty"`
+	MemoryPressureMinFreeBytes           int64                  `protobuf:"varint,90,opt,name=memory_pressure_min_free_bytes,json=memoryPressureMinFreeBytes,proto3" json:"memory_pressure_min_free_bytes,omitempty"`
+	MemoryPressureIntervalSeconds        int64                  `protobuf:"varint,91,opt,name=memory_pressure_interval_seconds,json=memoryPressureIntervalSeconds,proto3" json:"memory_pressure_interval_seconds,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -3830,20 +3830,6 @@ func (x *SystemConfigData) GetMaxBurstMultiplier() int64 {
 func (x *SystemConfigData) GetDefaultCpuShares() int64 {
 	if x != nil {
 		return x.DefaultCpuShares
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetHighLoadCpuShares() int64 {
-	if x != nil {
-		return x.HighLoadCpuShares
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetHighLoadContainerCount() int32 {
-	if x != nil {
-		return x.HighLoadContainerCount
 	}
 	return 0
 }
@@ -4369,6 +4355,20 @@ func (x *SystemConfigData) GetRegistryCleanupIntervalSeconds() int64 {
 func (x *SystemConfigData) GetRegistryCleanupJobTimeoutSeconds() int64 {
 	if x != nil {
 		return x.RegistryCleanupJobTimeoutSeconds
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMemoryPressureMinFreeBytes() int64 {
+	if x != nil {
+		return x.MemoryPressureMinFreeBytes
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetMemoryPressureIntervalSeconds() int64 {
+	if x != nil {
+		return x.MemoryPressureIntervalSeconds
 	}
 	return 0
 }
@@ -5035,7 +5035,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xa5)\n" +
+	"totalCount\"\x83*\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5043,9 +5043,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1creserved_system_memory_bytes\x18\x03 \x01(\x03R\x19reservedSystemMemoryBytes\x12+\n" +
 	"\x11overcommit_factor\x18\x04 \x01(\x01R\x10overcommitFactor\x120\n" +
 	"\x14max_burst_multiplier\x18\x05 \x01(\x03R\x12maxBurstMultiplier\x12,\n" +
-	"\x12default_cpu_shares\x18\x06 \x01(\x03R\x10defaultCpuShares\x12/\n" +
-	"\x14high_load_cpu_shares\x18\a \x01(\x03R\x11highLoadCpuShares\x129\n" +
-	"\x19high_load_container_count\x18\b \x01(\x05R\x16highLoadContainerCount\x124\n" +
+	"\x12default_cpu_shares\x18\x06 \x01(\x03R\x10defaultCpuShares\x124\n" +
 	"\x16container_stop_timeout\x18\t \x01(\x05R\x14containerStopTimeout\x12 \n" +
 	"\fmax_log_size\x18\n" +
 	" \x01(\tR\n" +
@@ -5122,7 +5120,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"!volume_usage_cycle_budget_seconds\x18V \x01(\x03R\x1dvolumeUsageCycleBudgetSeconds\x12B\n" +
 	"\x1evolume_usage_scan_entry_budget\x18W \x01(\x05R\x1avolumeUsageScanEntryBudget\x12I\n" +
 	"!registry_cleanup_interval_seconds\x18X \x01(\x03R\x1eregistryCleanupIntervalSeconds\x12N\n" +
-	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSecondsJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSeconds\x12B\n" +
+	"\x1ememory_pressure_min_free_bytes\x18Z \x01(\x03R\x1amemoryPressureMinFreeBytes\x12G\n" +
+	" memory_pressure_interval_seconds\x18[ \x01(\x03R\x1dmemoryPressureIntervalSecondsJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

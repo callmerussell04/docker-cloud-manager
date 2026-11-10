@@ -181,7 +181,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		return model.SystemMonitoring{}, err
 	}
 	cfg := s.monitoringConfig()
-	reservedBuildMemory := int64(activeBuilds) * cfg.BuildMemoryBytes
+	reservedBuildMemory := reservedBuildSlots(int64(activeBuilds), cfg) * cfg.BuildMemoryBytes
 	totalReservedMemory := reservedMemory + reservedBuildMemory
 
 	imageUsedMB, err := s.imgRepo.GetTotalUsedDiskSpace(ctx)
@@ -263,6 +263,7 @@ func (s *StatsService) monitoringConfig() config.SystemConfig {
 			DefaultMemoryReservation: 256 * bytesPerMB,
 			OvercommitFactor:         1,
 			BuildMemoryBytes:         512 * bytesPerMB,
+			MaxConcurrentBuilds:      2,
 		}
 	}
 	return s.cfg.Get()

@@ -29,7 +29,6 @@ packages:
       ContainerImageRepository: {}
       ContainerOutboxConfigProvider: {}
       ContainerOutboxRepository: {}
-      ContainerRebalancer: {}
       ContainerRepository: {}
       ContainerVolumeRepository: {}
       EventContainerRepo: {}
@@ -39,6 +38,7 @@ packages:
       GCDockerAPI: {}
       HostDiskMetricsProvider: {}
       HostMetricsProvider: {}
+      MemoryPressureDockerAPI: {}
       ImageContainerRepository: {}
       ImageDockerAPI: {}
       ImageLifecycleRepository: {}

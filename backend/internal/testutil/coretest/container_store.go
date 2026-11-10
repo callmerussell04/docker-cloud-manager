@@ -1,6 +1,7 @@
 package coretest
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -89,6 +90,7 @@ type ContainerStoreFaults struct {
 	UpdateDockerIDAndStatus                        Fault
 	UpdateDockerIDRoutingAndGeneration             Fault
 	QueueContainerOperation                        Fault
+	GetRunning                                     Fault
 	HasActiveOperation                             Fault
 	GetOperationByID                               Fault
 	ClaimPendingOperation                          Fault
@@ -291,7 +293,8 @@ func (f *ContainerStoreFake) UpdateStatusByContainerIDAndGeneration(_ context.Co
 
 // UpdateObservedStatusByContainerIDAndGeneration writes an observation only
 // while the container records generation. A nil desiredStatus keeps the
-// current one.
+// current one, and an observation without a cause that reports the status
+// already recorded keeps the last error.
 func (f *ContainerStoreFake) UpdateObservedStatusByContainerIDAndGeneration(_ context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -299,13 +302,15 @@ func (f *ContainerStoreFake) UpdateObservedStatusByContainerIDAndGeneration(_ co
 		return err
 	}
 	return f.updateRecordedGeneration(containerID, generation, func(c *model.Container) {
+		if cause != nil || c.Status != status {
+			c.LastError = errorText(cause)
+		}
 		c.Status = status
 		if desiredStatus != nil {
 			c.DesiredStatus = *desiredStatus
 		}
 		c.LastExitCode = clonePtr(exitCode)
 		c.LastObservedAt = ptr(time.Now())
-		c.LastError = errorText(cause)
 	})
 }
 
@@ -366,6 +371,31 @@ func (f *ContainerStoreFake) QueueContainerOperation(_ context.Context, id uuid.
 	f.insertOperation(op)
 	f.insertOutbox(outbox)
 	return nil
+}
+
+// GetRunning returns the identity, Docker container and reservations of every
+// container whose status is running, ordered by ID.
+func (f *ContainerStoreFake) GetRunning(context.Context) ([]model.Container, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.GetRunning.take(); err != nil {
+		return nil, err
+	}
+	var running []model.Container
+	for _, c := range f.containers {
+		if c.Status != model.ContainerStatusRunning {
+			continue
+		}
+		running = append(running, model.Container{
+			ID:                    c.ID,
+			OwnerID:               c.OwnerID,
+			DockerID:              c.DockerID,
+			BaseMemoryReservation: c.BaseMemoryReservation,
+			BaseCPUReservation:    c.BaseCPUReservation,
+		})
+	}
+	slices.SortFunc(running, func(a, b model.Container) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	return running, nil
 }
 
 func (f *ContainerStoreFake) HasActiveOperation(_ context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {

@@ -45,8 +45,6 @@ const sections: Array<{
       { name: 'max_cpu_burst_multiplier', labelKey: 'admin.settings.field.max_cpu_burst_multiplier.label', hintKey: 'admin.settings.field.max_cpu_burst_multiplier.hint', type: 'number' },
       { name: 'container_cpu_period', labelKey: 'admin.settings.field.container_cpu_period.label', hintKey: 'admin.settings.field.container_cpu_period.hint', type: 'number' },
       { name: 'default_cpu_shares', labelKey: 'admin.settings.field.default_cpu_shares.label', hintKey: 'admin.settings.field.default_cpu_shares.hint', type: 'number' },
-      { name: 'high_load_cpu_shares', labelKey: 'admin.settings.field.high_load_cpu_shares.label', hintKey: 'admin.settings.field.high_load_cpu_shares.hint', type: 'number' },
-      { name: 'high_load_container_count', labelKey: 'admin.settings.field.high_load_container_count.label', hintKey: 'admin.settings.field.high_load_container_count.hint', type: 'number' },
       { name: 'container_stop_timeout', labelKey: 'admin.settings.field.container_stop_timeout.label', hintKey: 'admin.settings.field.container_stop_timeout.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
       { name: 'container_ttl_hours', labelKey: 'admin.settings.field.container_ttl_hours.label', hintKey: 'admin.settings.field.container_ttl_hours.hint', type: 'number', unitKey: 'admin.settings.unit.hours' },
       { name: 'container_pids_limit', labelKey: 'admin.settings.field.container_pids_limit.label', hintKey: 'admin.settings.field.container_pids_limit.hint', type: 'number' },
@@ -138,6 +136,8 @@ const sections: Array<{
       { name: 'max_queued_builds_per_user', labelKey: 'admin.settings.field.max_queued_builds_per_user.label', hintKey: 'admin.settings.field.max_queued_builds_per_user.hint', type: 'number' },
       { name: 'max_staged_source_bytes_per_user', labelKey: 'admin.settings.field.max_staged_source_bytes_per_user.label', hintKey: 'admin.settings.field.max_staged_source_bytes_per_user.hint', type: 'bytes' },
       { name: 'host_min_free_disk_bytes', labelKey: 'admin.settings.field.host_min_free_disk_bytes.label', hintKey: 'admin.settings.field.host_min_free_disk_bytes.hint', type: 'bytes' },
+      { name: 'memory_pressure_min_free_bytes', labelKey: 'admin.settings.field.memory_pressure_min_free_bytes.label', hintKey: 'admin.settings.field.memory_pressure_min_free_bytes.hint', type: 'bytes' },
+      { name: 'memory_pressure_interval_seconds', labelKey: 'admin.settings.field.memory_pressure_interval_seconds.label', hintKey: 'admin.settings.field.memory_pressure_interval_seconds.hint', type: 'number', unitKey: 'admin.settings.unit.seconds' },
     ],
   },
   {

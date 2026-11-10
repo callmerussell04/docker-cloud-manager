@@ -252,6 +252,7 @@ func (s *ContainerService) queuedCreateRuntimeSpec(c model.Container, mounts []m
 	if networkAlias == "" {
 		networkAlias = c.Name
 	}
+	resources := containerResources(c, cfg)
 	spec := model.ContainerRuntimeSpec{
 		ContainerID:          c.ID.String(),
 		OwnerID:              c.OwnerID.String(),
@@ -263,12 +264,12 @@ func (s *ContainerService) queuedCreateRuntimeSpec(c model.Container, mounts []m
 		Domain:               fullDomain,
 		InternalPort:         c.InternalPort,
 		EnvVars:              envList,
-		MemoryLimitBytes:     c.BaseMemoryReservation,
-		MemoryReservation:    c.BaseMemoryReservation,
-		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
-		CPUShares:            cfg.DefaultCPUShares,
-		CPUQuota:             cpuQuotaFromMillicores(normalizeCPUReservation(c.BaseCPUReservation, cfg), cfg.ContainerCPUPeriod),
-		CPUPeriod:            cfg.ContainerCPUPeriod,
+		MemoryLimitBytes:     resources.MemoryLimitBytes,
+		MemoryReservation:    resources.MemoryReservation,
+		MemorySwapMultiplier: resources.MemorySwapMultiplier,
+		CPUShares:            resources.CPUShares,
+		CPUQuota:             resources.CPUQuota,
+		CPUPeriod:            resources.CPUPeriod,
 		PidsLimit:            cfg.ContainerPidsLimit,
 		ProxyNetworkName:     cfg.ProxyNetworkName,
 		VolumeMounts:         dockerMounts,

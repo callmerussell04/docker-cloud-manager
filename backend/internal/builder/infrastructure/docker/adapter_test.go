@@ -103,6 +103,45 @@ func TestAdapterRunBuildContainerPassesProxyToRunSteps(t *testing.T) {
 	}
 }
 
+// Build containers run user Dockerfiles, so they sit under the same parent
+// cgroup as user containers and count against the same host cap.
+func TestAdapterRunBuildContainerPlacesItUnderTheConfiguredCgroupParent(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		parent string
+		want   string
+	}{
+		{name: "configured parent", parent: "dcm-tenants.slice", want: "dcm-tenants.slice"},
+		{name: "no parent keeps Docker's default", parent: "", want: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/networks/build_net": dockertest.OK(isolatedBuildNetwork),
+				"/images/kaniko/json": dockertest.OK(`{"Id":"kaniko"}`),
+				// Failing here ends the run once the container request is recorded.
+				"/containers/create": dockertest.Error(http.StatusInternalServerError, "stop after create"),
+			})
+			adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t), CgroupParent: tt.parent})
+
+			_, _, err := adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
+				RegistryUsername: "builder",
+				RegistryPassword: "password",
+				DestinationTag:   "registry:5000/owner_image:latest",
+				KanikoImage:      "kaniko",
+				Dockerfile:       "Dockerfile",
+				NetworkName:      "build_net",
+			})
+			require.Error(t, err)
+
+			created := daemon.Requests("/containers/create")
+			require.Len(t, created, 1)
+			var request struct{ HostConfig struct{ CgroupParent string } }
+			require.NoError(t, json.Unmarshal(created[0].Body, &request))
+			require.Equal(t, tt.want, request.HostConfig.CgroupParent)
+		})
+	}
+}
+
 func TestAdapterValidateBuildNetwork(t *testing.T) {
 	notFound := dockertest.Error(http.StatusNotFound, "network build_net not found")
 	daemonFailure := dockertest.Error(http.StatusInternalServerError, "daemon failure")

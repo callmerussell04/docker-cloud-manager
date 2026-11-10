@@ -233,6 +233,42 @@ docker compose --env-file backend/.env down
 > [!CAUTION]
 > Не добавляйте `-v`, если не требуется безвозвратно удалить базы данных, object storage, registry и очереди.
 
+## Ограничение памяти пользовательских контейнеров
+
+Этот шаг необязателен, но рекомендуется для рабочего сервера. Лимит памяти контейнера больше его резерва, поэтому вместе пользовательские контейнеры могут запросить больше памяти, чем есть на сервере. Core останавливает контейнеры, превысившие резерв, но проверяет память периодически. Родительская cgroup с ограничением памяти гарантирует, что нехватка останется внутри неё и не затронет PostgreSQL, Docker и службы DCM.
+
+На сервере с systemd и cgroup v2 создайте slice. `MemoryMax` равен памяти сервера за вычетом `reserved_system_memory_bytes`; для сервера с 16 ГБ и значением по умолчанию 2 ГБ это 14 ГБ:
+
+```ini
+# /etc/systemd/system/dcm-tenants.slice
+[Unit]
+Description=DCM user and build containers
+
+[Slice]
+MemoryMax=14G
+MemorySwapMax=0
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start dcm-tenants.slice
+```
+
+Укажите slice в env-файле и перезапустите Core и Builder:
+
+```dotenv
+TENANT_CGROUP_PARENT=dcm-tenants.slice
+```
+
+Настройка действует на контейнеры, созданные после перезапуска. Проверьте размещение нового контейнера:
+
+```bash
+docker inspect --format '{{.HostConfig.CgroupParent}}' <container>
+systemctl status dcm-tenants.slice
+```
+
+DCM не создаёт и не изменяет slice. При изменении `reserved_system_memory_bytes` или объёма памяти сервера обновите `MemoryMax` вручную. Docker должен использовать cgroup driver `systemd` (`docker info`); с драйвером `cgroupfs` вместо имени slice указывается путь cgroup.
+
 ## Следующие шаги
 
 - [Руководство администратора](admin-guide.md)

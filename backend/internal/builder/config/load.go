@@ -17,6 +17,9 @@ type Bootstrap struct {
 	Builder        BuilderConfig
 	StoragePath    string
 	RabbitMQURL    string
+	// TenantCgroupParent is the cgroup Docker places build containers under,
+	// the same one Core uses for user containers. Empty keeps Docker's default.
+	TenantCgroupParent string
 	// InstanceID is empty when unset; app.New falls back to the hostname.
 	InstanceID    string
 	ObjectStorage objectstorage.Config
@@ -35,6 +38,8 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		RegistryCAFile: envconfig.String(lookup, "REGISTRY_CA_FILE", "/run/dcm-registry/ca.crt"),
 		StoragePath:    storagePath,
 		InstanceID:     envconfig.String(lookup, "BUILDER_INSTANCE_ID", ""),
+
+		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
 		Builder: BuilderConfig{
 			BuildMemoryBytes:          envconfig.Int64(lookup, "BUILD_MEMORY_BYTES", 512*1024*1024),
 			BuildCPUQuota:             envconfig.Int64(lookup, "BUILD_CPU_QUOTA", 100000),

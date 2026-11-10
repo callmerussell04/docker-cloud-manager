@@ -32,6 +32,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "dcm-builds", cfg.ObjectStorage.Bucket)
 	assert.False(t, cfg.ObjectStorage.UseSSL)
 	assert.Empty(t, cfg.InstanceID)
+	assert.Empty(t, cfg.TenantCgroupParent)
 	assert.Equal(t, config.BuilderConfig{
 		BuildMemoryBytes:          512 << 20,
 		BuildCPUQuota:             100000,
@@ -57,9 +58,11 @@ func TestLoadOverrides(t *testing.T) {
 	values["MAX_BUILD_TIME_MINUTES"] = "3"
 	values["OBJECT_STORAGE_BUCKET"] = ""
 	values["MAX_LOG_SIZE_BYTES"] = "100"
+	values["TENANT_CGROUP_PARENT"] = "dcm-tenants.slice"
 
 	cfg, err := config.Load(envtest.Lookup(values))
 	require.NoError(t, err)
+	assert.Equal(t, "dcm-tenants.slice", cfg.TenantCgroupParent)
 	assert.Equal(t, "builder-7", cfg.InstanceID)
 	assert.Equal(t, 3*time.Minute, cfg.Builder.MaxBuildTime)
 	assert.Equal(t, "", cfg.ObjectStorage.Bucket, "a value set to empty replaces the default")

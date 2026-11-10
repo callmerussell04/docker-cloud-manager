@@ -157,9 +157,9 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 
 ### Начальные безопасные значения ресурсов из `.env.example`
 
-Следующие переменные окружения используются при создании рабочих настроек Core: `DEFAULT_CPU_RESERVATION_MILLICORES`, `RESERVED_SYSTEM_CPU_MILLICORES`, `CPU_OVERCOMMIT_FACTOR`, `MAX_CPU_BURST_MULTIPLIER`, `CONTAINER_CPU_PERIOD`, `IMAGE_BUILDS_ENABLED`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS`, `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS`, `MAX_STAGED_SOURCE_BYTES_PER_USER`, `MAX_QUEUED_BUILDS_PER_USER`, `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES`, `MAX_QUEUED_CONTAINER_CREATES_PER_USER`, `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE`, `MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS`, `HOST_MIN_FREE_DISK_BYTES`, `GIT_SOURCES_ENABLED`, `GIT_ALLOWED_HOSTS`, `GIT_CLONE_TIMEOUT_SECONDS`, `GIT_MAX_REPOSITORY_BYTES`.
+Следующие переменные окружения используются при создании рабочих настроек Core: `DEFAULT_CPU_RESERVATION_MILLICORES`, `RESERVED_SYSTEM_CPU_MILLICORES`, `CPU_OVERCOMMIT_FACTOR`, `MAX_CPU_BURST_MULTIPLIER`, `CONTAINER_CPU_PERIOD`, `MEMORY_PRESSURE_MIN_FREE_BYTES`, `MEMORY_PRESSURE_INTERVAL_SECONDS`, `IMAGE_BUILDS_ENABLED`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS`, `REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS`, `MAX_STAGED_SOURCE_BYTES_PER_USER`, `MAX_QUEUED_BUILDS_PER_USER`, `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES`, `MAX_QUEUED_CONTAINER_CREATES_PER_USER`, `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE`, `MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS`, `HOST_MIN_FREE_DISK_BYTES`, `GIT_SOURCES_ENABLED`, `GIT_ALLOWED_HOSTS`, `GIT_CLONE_TIMEOUT_SECONDS`, `GIT_MAX_REPOSITORY_BYTES`.
 
-`CORE_HOST_DISK_PATH=/host` указывает путь подключения, по которому Core измеряет свободное место. Необязательная переменная `BUILDER_INSTANCE_ID` позволяет задать постоянный идентификатор обработчика сборок.
+`CORE_HOST_DISK_PATH=/host` указывает путь подключения, по которому Core измеряет свободное место. `TENANT_CGROUP_PARENT` задаёт родительскую cgroup для пользовательских контейнеров и контейнеров сборки (например, `dcm-tenants.slice`); её читают Core и Builder, это настройка запуска, а не runtime config. Пустое значение оставляет cgroup по умолчанию Docker. Создание и ограничение этой cgroup описано в [руководстве по развёртыванию](deployment-single-vm.md#ограничение-памяти-пользовательских-контейнеров). Необязательная переменная `BUILDER_INSTANCE_ID` позволяет задать постоянный идентификатор обработчика сборок.
 
 После первого запуска runtime JSON становится источником рабочих значений; изменение исходного env не обязано перезаписать уже сохранённый config.
 
@@ -174,15 +174,16 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `base_domain` | `BASE_DOMAIN` | Непустой домен без пробелов и символов пути |
 | `default_memory_reservation_bytes` | 256 MiB | `> 0` |
 | `reserved_system_memory_bytes` | 2 GiB | `>= 0` |
-| `overcommit_factor` | `1.5` | `> 0`, `<= 10` |
-| `max_burst_multiplier` | `4` | `1..10` |
+| `overcommit_factor` | `1` | `> 0`, `<= 10`. Какую долю памяти, оставленной пользователям, можно пообещать в резервах. При `1` все резервы выполнимы одновременно |
+| `max_burst_multiplier` | `4` | `1..10`. Жёсткий лимит памяти контейнера как кратное его резерва |
 | `default_cpu_reservation_millicores` | `250` | `> 0` |
 | `reserved_system_cpu_millicores` | `500` | `>= 0` |
 | `cpu_overcommit_factor` | `4` | `> 0`, `<= 10` |
-| `max_cpu_burst_multiplier` | `4` | `1..10` |
+| `max_cpu_burst_multiplier` | `4` | `1..10`. Потолок CPU контейнера как кратное его резерва |
 | `container_cpu_period` | `100000` | `> 0` |
-| `default_cpu_shares`, `high_load_cpu_shares` | `1024`, `512` | `> 0` |
-| `high_load_container_count` | `5` | `> 0` |
+| `default_cpu_shares` | `1024` | `> 0`. CPU shares контейнера с резервом CPU по умолчанию; остальные получают shares пропорционально резерву |
+| `memory_pressure_min_free_bytes` | 512 MiB | `>= 0`. Минимум свободной памяти в пуле пользовательских контейнеров; `0` отключает остановку при нехватке памяти |
+| `memory_pressure_interval_seconds` | `10` | `> 0`. Интервал измерения памяти работающих контейнеров |
 | `container_stop_timeout` | `10` секунд | `> 0` |
 | `container_ttl_hours` | `24` | `0` отключает TTL, отрицательные запрещены |
 | `container_pids_limit` | `256` | `> 0` |
@@ -193,12 +194,16 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `reserved_domain_prefixes` | системные имена | Допустимые уникальные префиксы |
 | `blocked_domain_prefix_patterns` | пусто | Уникальные допустимые регулярные выражения |
 
+Лимиты контейнера фиксированы: они задаются при создании, повторно применяются при каждом запуске и не меняются, пока контейнер работает. Изменение множителей действует на существующий контейнер со следующего запуска. Резерв памяти защищён от вытеснения, а процессорное время под нагрузкой делится пропорционально резервам.
+
+Пул памяти пользовательских контейнеров равен памяти сервера за вычетом `reserved_system_memory_bytes` и памяти слотов сборки. Когда свободная часть пула (пул минус фактически занятая контейнерами память без неактивного файлового кэша) становится меньше `memory_pressure_min_free_bytes`, Core останавливает контейнеры, использующие больше своего резерва, начиная с наибольшего превышения, пока остановки не покроют нехватку. Контейнер, не превышающий резерв, платформа не останавливает. Причина остановки записывается в `last_error` контейнера.
+
 ### Сборки, Git и безопасность
 
 | Поля | Значение по умолчанию | Назначение |
 | --- | --- | --- |
 | `image_builds_enabled` | `true` | Глобально включает сборки |
-| `build_memory_bytes`, `build_cpu_quota`, `build_cpu_period` | 512 MiB, `100000`, `100000` | Резервы и ограничения сборки |
+| `build_memory_bytes`, `build_cpu_quota`, `build_cpu_period` | 512 MiB, `100000`, `100000` | Ограничения сборки и размер одного слота сборки. Ресурсы сервера резервируют не более `max_concurrent_builds` слотов; сборки, ожидающие в очереди за ними, ничего не резервируют |
 | `build_memory_swap_multiplier`, `build_pids_limit` | `2`, `512` | Изоляция среды выполнения |
 | `kaniko_image` | последняя версия Kaniko | Образ обработчика сборок |
 | `max_build_time_minutes`, `max_concurrent_builds` | `10`, `2` | Бюджет выполнения после захвата задачи и количество одновременных сборок |

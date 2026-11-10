@@ -37,7 +37,6 @@ type ContainerRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetRunning(ctx context.Context) ([]model.Container, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
@@ -137,7 +136,6 @@ type ContainerService struct {
 	builds       activeSystemBuildCounter
 	hostDiskPath string
 	logger       *slog.Logger
-	rebalanceCh  chan struct{}
 }
 
 // ContainerServiceDeps declares the capabilities needed by admission and lifecycle work.
@@ -177,8 +175,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		dockerAPI: deps.Docker, metrics: deps.Metrics, diskMetrics: deps.DiskMetrics,
 		config: deps.Config, users: deps.Users, builds: deps.Builds,
 		hostDiskPath: deps.HostDiskPath, auditor: deps.Audit,
-		logger:      logging.WithComponent(deps.Logger, "container_service"),
-		rebalanceCh: make(chan struct{}, 1),
+		logger: logging.WithComponent(deps.Logger, "container_service"),
 	}, nil
 }
 
