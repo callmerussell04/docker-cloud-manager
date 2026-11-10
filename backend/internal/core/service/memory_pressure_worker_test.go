@@ -105,6 +105,7 @@ func TestMemoryPressureWorkerStopsContainersOverTheirReservation(t *testing.T) {
 			ctx := context.Background()
 			store := coretest.NewContainerStoreFake()
 			docker := coremocks.NewMemoryPressureDockerAPI(t)
+			docker.EXPECT().ListRunningBuildContainers(mock.Anything).Return(nil, nil).Maybe()
 			names := map[uuid.UUID]string{}
 			for _, pc := range tc.containers {
 				c := model.Container{
@@ -221,14 +222,28 @@ const boostBurstMultiplier = 4
 // stopOf is a queued stop: the container and the reason recorded for it.
 type stopOf struct{ name, reason string }
 
+// boostBuild is one running build container in a boost pass. Its
+// reservation and standard limit are the 1 GiB build memory, and unless set
+// it runs at that limit.
+type boostBuild struct {
+	name     string
+	usedMiB  int64
+	limitMiB int64
+	owner    string
+}
+
+func (bb boostBuild) limit() int64 { return cmp.Or(bb.limitMiB, 1024) * pressureMiB }
+
 // The host has 8 GiB with 1 GiB held back for the system, so user containers
-// share a 7 GiB pool. Boosts are granted while at least 2 GiB of it stays
-// free, and containers are stopped when less than 512 MiB is free. A limit
-// grows by half its standard limit per pass.
+// share a 7 GiB pool, less 1 GiB for each running build. Boosts are granted
+// while at least 2 GiB of it stays free, and containers are stopped when less
+// than 512 MiB is free. A limit grows by half its standard limit per pass. A
+// build uses the pool only with what it uses above its 1 GiB slot.
 func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		containers []boostContainer
+		builds     []boostBuild
 		// boostMultiplier defaults to 8.
 		boostMultiplier int64
 		// quotaMiB is the memory quota of a named owner; others have 64 GiB.
@@ -236,6 +251,8 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 		// wantLimitsMiB is every limit update sent to Docker.
 		wantLimitsMiB map[string]int64
 		wantStopped   []stopOf
+		// wantKilled names the build containers killed, in order.
+		wantKilled []string
 	}{
 		{
 			name:          "an idle host raises a container near its limit by one step and leaves the others alone",
@@ -346,6 +363,80 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			},
 			wantLimitsMiB: map[string]int64{},
 		},
+		{
+			// Boost was turned off while the build ran on a raised limit.
+			// It still takes 576 MiB from the pool, leaving 220 MiB free,
+			// and is the furthest over its reservation, so it goes first.
+			name:            "with boost off a build left above its build memory is still counted and stopped like a container over its reservation",
+			boostMultiplier: boostBurstMultiplier,
+			containers: []boostContainer{
+				{name: "filler", reservationMiB: 2560, usedMiB: 2500},
+				{name: "filler2", reservationMiB: 2048, usedMiB: 2048},
+				{name: "over", usedMiB: 800},
+			},
+			builds:        []boostBuild{{name: "leftover", usedMiB: 1600, limitMiB: 2048}},
+			wantLimitsMiB: map[string]int64{},
+			wantKilled:    []string{"leftover"},
+		},
+		{
+			name:          "an idle host raises a build near its limit by one step",
+			containers:    []boostContainer{{name: "calm", usedMiB: 500}},
+			builds:        []boostBuild{{name: "build", usedMiB: 900}, {name: "quiet", usedMiB: 400}},
+			wantLimitsMiB: map[string]int64{"build": 1536},
+		},
+		{
+			// The ceiling is 5 GiB. The build uses 3576 MiB above its slot,
+			// leaving 2568 MiB free, so 520 MiB could be lent: the ceiling
+			// binds first.
+			name:            "a build raise stops at its boost ceiling",
+			boostMultiplier: 5,
+			builds:          []boostBuild{{name: "build", usedMiB: 4600, limitMiB: 5000}},
+			wantLimitsMiB:   map[string]int64{"build": 5120},
+		},
+		{
+			// Two builds leave a 5 GiB pool; 1944 MiB of it is free.
+			name:          "a busy host lowers a boosted build, never below usage plus the margin or its build memory",
+			containers:    []boostContainer{{name: "filler", reservationMiB: 2048, usedMiB: 2700}},
+			builds:        []boostBuild{{name: "margin", usedMiB: 1500, limitMiB: 2560}, {name: "standard", usedMiB: 600, limitMiB: 1536}},
+			wantLimitsMiB: map[string]int64{"margin": 1650, "standard": 1024},
+		},
+		{
+			// 756 MiB is missing below zero, a 1268 MiB shortfall. Killing
+			// the build frees the 976 MiB it uses above its slot, stopping
+			// the container frees the rest; the container over its
+			// reservation without borrowing stays, and the build within its
+			// build memory only gives back headroom.
+			name: "under pressure a build using borrowed memory is killed largest borrower first",
+			containers: []boostContainer{
+				{name: "borrower", usedMiB: 1600, limitMiB: 2048},
+				{name: "large", reservationMiB: 2048, usedMiB: 3300},
+			},
+			builds:        []boostBuild{{name: "build", usedMiB: 2000, limitMiB: 3072}, {name: "within", usedMiB: 1000, limitMiB: 1536}},
+			wantLimitsMiB: map[string]int64{"within": 1100},
+			wantStopped:   []stopOf{{"borrower", service.BorrowedMemoryStopReason}},
+			wantKilled:    []string{"build"},
+		},
+		{
+			// A 744 MiB shortfall: the container borrows more than the
+			// build, so stopping it alone covers the shortfall.
+			name: "a container borrowing more than a build is stopped before the build",
+			containers: []boostContainer{
+				{name: "borrower", usedMiB: 2000, limitMiB: 2048},
+				{name: "filler", reservationMiB: 2048, usedMiB: 4000},
+			},
+			builds:        []boostBuild{{name: "build", usedMiB: 1400, limitMiB: 2048}},
+			wantLimitsMiB: map[string]int64{"build": 1540},
+			wantStopped:   []stopOf{{"borrower", service.BorrowedMemoryStopReason}},
+		},
+		{
+			// The owner's container already borrows 512 MiB of a 768 MiB
+			// quota.
+			name:          "a build's borrowed memory counts toward its owner's quota",
+			containers:    []boostContainer{{name: "boosted", owner: "u", usedMiB: 600, limitMiB: 1536}},
+			builds:        []boostBuild{{name: "build", owner: "u", usedMiB: 900}},
+			quotaMiB:      map[string]int64{"u": 768},
+			wantLimitsMiB: map[string]int64{"build": 1280},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -357,11 +448,15 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			for _, bc := range tc.containers {
 				pass.add(bc, func(*mock.Call) {})
 			}
+			for _, bb := range tc.builds {
+				pass.addBuild(bb)
+			}
 
 			pass.worker.RelievePressure(ctx)
 
 			require.Equal(t, tc.wantLimitsMiB, pass.updatedMiB(), "limit updates sent to Docker")
 			require.Equal(t, tc.wantStopped, pass.stopped(), "stops queued, in order")
+			require.Equal(t, tc.wantKilled, pass.killed, "build containers killed, in order")
 		})
 	}
 }
@@ -412,11 +507,15 @@ func boostTestConfig() config.SystemConfig {
 	cfg.MemoryPressureMinFreeBytes = 512 * pressureMiB
 	cfg.MemoryBoostMultiplier = 8
 	cfg.BoostMinFreeMemoryBytes = 2048 * pressureMiB
+	cfg.BuildMemoryBytes = 1024 * pressureMiB
+	cfg.BuildMemorySwapMultiplier = 3
+	cfg.MaxConcurrentBuilds = 2
 	return cfg
 }
 
 // boostPass is a memory pressure worker over the container store fake and a
-// mocked Docker that records the limits it is sent.
+// mocked Docker that records the limits it is sent and the build containers
+// it kills.
 type boostPass struct {
 	t      *testing.T
 	cfg    config.SystemConfig
@@ -430,6 +529,8 @@ type boostPass struct {
 	// limits is each container's current limit; sent names those updated.
 	limits map[string]int64
 	sent   map[string]bool
+	builds []model.BuildContainer
+	killed []string
 }
 
 func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int64) *boostPass {
@@ -444,7 +545,10 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 	metrics := coremocks.NewHostMetricsProvider(t)
 	metrics.EXPECT().GetTotalMemory().Return(8192*pressureMiB, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
-	builds.EXPECT().CountActive(mock.Anything).Return(0, nil).Maybe()
+	builds.EXPECT().CountActive(mock.Anything).RunAndReturn(
+		func(context.Context) (int, error) { return len(p.builds), nil }).Maybe()
+	p.docker.EXPECT().ListRunningBuildContainers(mock.Anything).RunAndReturn(
+		func(context.Context) ([]model.BuildContainer, error) { return p.builds, nil }).Maybe()
 	worker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
 		Repository: p.store,
 		Docker:     p.docker,
@@ -464,14 +568,7 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 func (p *boostPass) add(bc boostContainer, tweakUsage func(*mock.Call)) {
 	t := p.t
 	ctx := context.Background()
-	ownerKey := cmp.Or(bc.owner, bc.name)
-	owner, ok := p.owners[ownerKey]
-	if !ok {
-		owner = uuid.New()
-		p.owners[ownerKey] = owner
-		quota := cmp.Or(p.quota[ownerKey], 64*1024)
-		p.users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaRAMMB: quota}, nil).Maybe()
-	}
+	owner := p.owner(cmp.Or(bc.owner, bc.name))
 	c := model.Container{
 		ID:                    uuid.New(),
 		OwnerID:               owner,
@@ -501,6 +598,44 @@ func (p *boostPass) add(bc boostContainer, tweakUsage func(*mock.Call)) {
 			p.limits[bc.name] = update.MemoryLimitBytes
 			p.sent[bc.name] = true
 			return bc.updateErr
+		}).Maybe()
+}
+
+// owner returns the user named key, creating it with its quota.
+func (p *boostPass) owner(key string) uuid.UUID {
+	owner, ok := p.owners[key]
+	if !ok {
+		owner = uuid.New()
+		p.owners[key] = owner
+		quota := cmp.Or(p.quota[key], 64*1024)
+		p.users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaRAMMB: quota}, nil).Maybe()
+	}
+	return owner
+}
+
+// addBuild runs a build container and scripts Docker for it. Its build slot
+// counts as active.
+func (p *boostPass) addBuild(bb boostBuild) {
+	t := p.t
+	dockerID := "kaniko-" + bb.name
+	p.builds = append(p.builds, model.BuildContainer{DockerID: dockerID, BuildID: uuid.New(), OwnerID: p.owner(cmp.Or(bb.owner, bb.name))})
+	p.limits[bb.name] = bb.limit()
+	p.docker.EXPECT().GetContainerUsage(mock.Anything, dockerID).
+		Return(model.ContainerUsage{WorkingSetBytes: bb.usedMiB * pressureMiB, MemoryLimitBytes: bb.limit()}, nil).Once()
+	p.docker.EXPECT().UpdateContainerResources(mock.Anything, dockerID, mock.Anything).RunAndReturn(
+		func(_ context.Context, _ string, update model.ContainerResourceUpdate) error {
+			require.Equal(t, model.ContainerResourceUpdate{
+				MemoryLimitBytes:     update.MemoryLimitBytes,
+				MemorySwapMultiplier: p.cfg.BuildMemorySwapMultiplier,
+			}, update, "only the memory limit changes; swap follows the build multiplier, reservation and CPU are left as they are")
+			p.limits[bb.name] = update.MemoryLimitBytes
+			p.sent[bb.name] = true
+			return nil
+		}).Maybe()
+	p.docker.EXPECT().KillContainer(mock.Anything, dockerID).RunAndReturn(
+		func(context.Context, string) error {
+			p.killed = append(p.killed, bb.name)
+			return nil
 		}).Maybe()
 }
 

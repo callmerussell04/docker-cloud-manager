@@ -1,5 +1,7 @@
 package model
 
+import "github.com/google/uuid"
+
 type ContainerMountSpec struct {
 	VolumeName string
 	Target     string
@@ -84,6 +86,14 @@ type ContainerUsage struct {
 	// CPUUsageNanoseconds is the CPU time the container has used since it
 	// started.
 	CPUUsageNanoseconds int64
+}
+
+// BuildContainer is a running Kaniko container, identified by the labels
+// Builder gives it.
+type BuildContainer struct {
+	DockerID string
+	BuildID  uuid.UUID
+	OwnerID  uuid.UUID
 }
 
 type ContainerState struct {

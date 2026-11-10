@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 )
 
 type Adapter struct {
@@ -575,6 +577,37 @@ func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {
 		return nil
 	}
 	return err
+}
+
+// ListRunningBuildContainers lists the running Kaniko containers Builder
+// started, with the build and owner their labels name. A container whose
+// identity labels do not parse is left out: it cannot be attributed.
+func (a *Adapter) ListRunningBuildContainers(ctx context.Context) ([]model.BuildContainer, error) {
+	containers, err := a.cli.ContainerList(ctx, container.ListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", "managed_by=docker-cloud-manager"),
+			filters.Arg("label", "dcm.resource_type=build"),
+			filters.Arg("status", "running"),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list build containers: %w", err)
+	}
+	builds := make([]model.BuildContainer, 0, len(containers))
+	for _, c := range containers {
+		buildID, buildErr := uuid.Parse(c.Labels["dcm.build_id"])
+		ownerID, ownerErr := uuid.Parse(c.Labels["dcm.owner_id"])
+		if buildErr != nil || ownerErr != nil {
+			continue
+		}
+		builds = append(builds, model.BuildContainer{DockerID: c.ID, BuildID: buildID, OwnerID: ownerID})
+	}
+	return builds, nil
+}
+
+// KillContainer sends SIGKILL, so the container exits with code 137.
+func (a *Adapter) KillContainer(ctx context.Context, dockerID string) error {
+	return a.cli.ContainerKill(ctx, dockerID, "KILL")
 }
 
 // GetContainerUsage reads one stats sample of a running container without

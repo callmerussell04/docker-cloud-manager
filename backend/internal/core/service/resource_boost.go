@@ -30,9 +30,11 @@ const (
 // used memory above its standard limit. It names no other user's usage.
 const BorrowedMemoryStopReason = "stopped by the platform: the host ran short of memory, so the memory this container had borrowed above its standard limit was reclaimed"
 
-// memoryWorkload is one measured running workload.
+// memoryWorkload is one measured running workload: a user container, or a
+// build container when build is set.
 type memoryWorkload struct {
 	container model.Container
+	build     *model.BuildContainer
 	// reservation is what admission promised; standardLimit is the limit
 	// create and start apply; ceiling is the most a boost may raise it to.
 	reservation   int64
@@ -43,6 +45,30 @@ type memoryWorkload struct {
 	limit int64
 	// coolingDown is set while a recently lowered limit may not grow.
 	coolingDown bool
+}
+
+func (w memoryWorkload) ownerID() uuid.UUID {
+	if w.build != nil {
+		return w.build.OwnerID
+	}
+	return w.container.OwnerID
+}
+
+func (w memoryWorkload) dockerID() string {
+	if w.build != nil {
+		return w.build.DockerID
+	}
+	return w.container.DockerID
+}
+
+// poolUse is what the workload takes from the user memory pool, which is
+// also what stopping it gives back. The pool already holds back a build's
+// slot, so a build takes only what it uses above its reservation.
+func (w memoryWorkload) poolUse() int64 {
+	if w.build != nil {
+		return max(w.workingSet-w.reservation, 0)
+	}
+	return w.workingSet
 }
 
 // borrowed is the part of the current limit above the standard limit.
@@ -74,7 +100,7 @@ type memoryBoostInput struct {
 func (in memoryBoostInput) free() int64 {
 	free := in.pool
 	for _, w := range in.workloads {
-		free -= w.workingSet
+		free -= w.poolUse()
 	}
 	return free
 }
@@ -92,8 +118,8 @@ func (in memoryBoostInput) growCandidateOwners() []uuid.UUID {
 		return nil
 	}
 	for _, w := range in.workloads {
-		if w.growCandidate() && !slices.Contains(owners, w.container.OwnerID) {
-			owners = append(owners, w.container.OwnerID)
+		if w.growCandidate() && !slices.Contains(owners, w.ownerID()) {
+			owners = append(owners, w.ownerID())
 		}
 	}
 	return owners
@@ -147,8 +173,10 @@ func planMemoryBoost(in memoryBoostInput) memoryBoostPlan {
 
 // stopOrder lists the workloads that may be stopped, first those using
 // borrowed memory, most first, then those over their reservation, largest
-// excess first. Without boost nothing is counted as borrowed. A workload at
-// or below its reservation is never listed.
+// excess first. Without boost nothing is counted as borrowed, so a workload
+// still above its standard limit from before boost was turned off is
+// listed as over its reservation. A workload at or below its reservation is
+// never listed.
 func stopOrder(in memoryBoostInput) []memoryStop {
 	var borrowing, over []memoryWorkload
 	for _, w := range in.workloads {
@@ -199,7 +227,7 @@ func shrinks(workloads []memoryWorkload) []memoryLimitChange {
 func grows(in memoryBoostInput, budget int64) []memoryLimitChange {
 	borrowedByOwner := map[uuid.UUID]int64{}
 	for _, w := range in.workloads {
-		borrowedByOwner[w.container.OwnerID] += w.borrowed()
+		borrowedByOwner[w.ownerID()] += w.borrowed()
 	}
 	type request struct {
 		workload memoryWorkload
@@ -212,12 +240,12 @@ func grows(in memoryBoostInput, budget int64) []memoryLimitChange {
 			continue
 		}
 		step := w.standardLimit * boostStepPercent / 100
-		headroom := in.quotas[w.container.OwnerID] - borrowedByOwner[w.container.OwnerID]
+		headroom := in.quotas[w.ownerID()] - borrowedByOwner[w.ownerID()]
 		bytes := min(step, w.ceiling-w.limit, headroom)
 		if bytes <= 0 {
 			continue
 		}
-		borrowedByOwner[w.container.OwnerID] += bytes
+		borrowedByOwner[w.ownerID()] += bytes
 		requests = append(requests, request{workload: w, bytes: bytes})
 		requested += bytes
 		reserved += w.reservation

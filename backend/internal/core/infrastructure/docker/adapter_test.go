@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
@@ -148,6 +149,58 @@ func TestAdapterGetContainerUsage(t *testing.T) {
 			require.Equal(t, "1", requests[0].Query.Get("one-shot"), "one sample, without waiting for a second")
 		})
 	}
+}
+
+// The memory pressure worker attributes a build container to its build and
+// owner by the labels Builder gives it, and asks only for running ones. A
+// container whose identity labels do not parse is not a build Core can
+// attribute, so it is left out.
+func TestAdapterListRunningBuildContainers(t *testing.T) {
+	buildID := "8f0e7a52-6a1b-4f36-9d6c-3c1f3d1f0a11"
+	ownerID := "2b7c1d4e-0f5a-4c3b-8e9d-7a6b5c4d3e2f"
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"/containers/json": dockertest.OK(`[
+			{"Id":"kaniko-1","Labels":{"managed_by":"docker-cloud-manager","dcm.resource_type":"build","dcm.build_id":"` + buildID + `","dcm.owner_id":"` + ownerID + `"}},
+			{"Id":"kaniko-bad","Labels":{"managed_by":"docker-cloud-manager","dcm.resource_type":"build","dcm.build_id":"not-a-uuid","dcm.owner_id":"` + ownerID + `"}}
+		]`),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	got, err := adapter.ListRunningBuildContainers(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, []model.BuildContainer{{
+		DockerID: "kaniko-1",
+		BuildID:  uuid.MustParse(buildID),
+		OwnerID:  uuid.MustParse(ownerID),
+	}}, got)
+	requests := daemon.Requests("/containers/json")
+	require.Len(t, requests, 1)
+	var filter map[string]map[string]bool
+	require.NoError(t, json.Unmarshal([]byte(requests[0].Query.Get("filters")), &filter))
+	require.Equal(t, map[string]map[string]bool{
+		"label":  {"managed_by=docker-cloud-manager": true, "dcm.resource_type=build": true},
+		"status": {"running": true},
+	}, filter)
+}
+
+// Killing sends SIGKILL, so the build container exits with code 137 and
+// Builder ends the build as failed for resource exhaustion.
+func TestAdapterKillContainer(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"POST /containers/kaniko-1/kill": dockertest.NoContent(),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	require.NoError(t, adapter.KillContainer(context.Background(), "kaniko-1"))
+
+	requests := daemon.Requests("/containers/kaniko-1/kill")
+	require.Len(t, requests, 1)
+	require.Equal(t, "KILL", requests[0].Query.Get("signal"))
 }
 
 // Docker copies an image's labels onto its containers, and Traefik's Docker

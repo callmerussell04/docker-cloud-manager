@@ -35,6 +35,8 @@ type containerStopQueue interface {
 type MemoryPressureDockerAPI interface {
 	GetContainerUsage(ctx context.Context, dockerID string) (model.ContainerUsage, error)
 	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
+	ListRunningBuildContainers(ctx context.Context) ([]model.BuildContainer, error)
+	KillContainer(ctx context.Context, dockerID string) error
 }
 
 type MemoryPressureHostMetrics interface {
@@ -50,15 +52,15 @@ type MemoryPressureConfigProvider interface {
 // system and for build slots. Admission keeps reservations within it, but
 // containers may use up to their limit, so their use together can exceed it.
 //
-// Each pass measures every running container and acts on the free part of
-// the pool. With memory boost on, a container close to its limit while the
-// pool has plenty free gets its limit raised, up to its boost ceiling; when
-// the pool runs low, raised limits are lowered to what their containers use
-// plus a margin. When less than the stop floor is free, the worker stops
-// containers using borrowed memory, then containers using more than they
-// reserved, largest first. It never stops a container that is within its
-// reservation. This worker is the only thing that lowers a running
-// container's memory limit.
+// Each pass measures every running container and build container and acts on the free part of the pool. With
+// memory boost on, a workload close to its limit while the pool has plenty
+// free gets its limit raised, up to its boost ceiling; when the pool runs
+// low, raised limits are lowered to what their workloads use plus a margin.
+// When less than the stop floor is free, the worker stops containers and
+// kills builds using borrowed memory, then those using more than they
+// reserved, largest first. It never stops a container within its
+// reservation or a build within its build memory. This worker is the only
+// thing that lowers a running workload's memory limit.
 type MemoryPressureWorker struct {
 	repo    MemoryPressureContainerRepo
 	docker  MemoryPressureDockerAPI
@@ -117,9 +119,9 @@ func (w *MemoryPressureWorker) Run(ctx context.Context) {
 	w.logger.InfoContext(ctx, "memory pressure worker stopped")
 }
 
-// RelievePressure runs one pass: it measures the running containers once,
+// RelievePressure runs one pass: it measures the running workloads once,
 // decides with planMemoryBoost, and applies the stops and limit changes. A
-// zero MemoryPressureMinFreeBytes turns the worker off. A container whose
+// zero MemoryPressureMinFreeBytes turns the worker off. A workload whose
 // usage cannot be read counts as using nothing and is left alone.
 func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	w.mu.Lock()
@@ -150,28 +152,43 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		if c.DockerID == "" {
 			continue
 		}
-		passesLeft := w.cooldown[c.DockerID]
-		if passesLeft > 1 {
-			nextCooldown[c.DockerID] = passesLeft - 1
-		}
-		usage, err := w.docker.GetContainerUsage(ctx, c.DockerID)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			w.logger.WarnContext(ctx, "failed to read container memory usage", "container_id", c.ID, "error", err)
-			continue
-		}
 		standard := containerResources(c, cfg)
-		in.workloads = append(in.workloads, memoryWorkload{
+		workload := memoryWorkload{
 			container:     c,
 			reservation:   standard.MemoryReservation,
 			standardLimit: standard.MemoryLimitBytes,
 			ceiling:       memoryBoostCeiling(c, cfg),
-			workingSet:    usage.WorkingSetBytes,
-			limit:         usage.MemoryLimitBytes,
-			coolingDown:   passesLeft > 0,
-		})
+		}
+		if !w.measure(ctx, &workload, nextCooldown) {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		in.workloads = append(in.workloads, workload)
+	}
+	builds, err := w.docker.ListRunningBuildContainers(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		// Containers can still be relieved; builds sit this pass out.
+		w.logger.WarnContext(ctx, "failed to list running build containers", "error", err)
+	}
+	for _, b := range builds {
+		workload := memoryWorkload{
+			build:         &b,
+			reservation:   cfg.BuildMemoryBytes,
+			standardLimit: cfg.BuildMemoryBytes,
+			ceiling:       cfg.BuildMemoryBytes * cfg.MemoryBoostMultiplier,
+		}
+		if !w.measure(ctx, &workload, nextCooldown) {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		in.workloads = append(in.workloads, workload)
 	}
 	w.cooldown = nextCooldown
 	if in.quotas, err = w.memoryQuotas(ctx, in.growCandidateOwners()); err != nil {
@@ -179,12 +196,41 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	}
 
 	plan := planMemoryBoost(in)
-	stopped := w.queueStops(ctx, plan)
+	stopped := w.applyStops(ctx, plan)
 	for _, change := range plan.changes {
-		if !stopped[change.workload.container.ID] {
+		if !stopped[change.workload.dockerID()] {
 			w.changeLimit(ctx, change, cfg)
 		}
 	}
+}
+
+// measure reads a workload's working set and current limit and carries its
+// cooldown into nextCooldown. It reports false when the usage cannot be read.
+func (w *MemoryPressureWorker) measure(ctx context.Context, workload *memoryWorkload, nextCooldown map[string]int) bool {
+	dockerID := workload.dockerID()
+	passesLeft := w.cooldown[dockerID]
+	if passesLeft > 1 {
+		nextCooldown[dockerID] = passesLeft - 1
+	}
+	usage, err := w.docker.GetContainerUsage(ctx, dockerID)
+	if err != nil {
+		if ctx.Err() == nil {
+			w.logger.WarnContext(ctx, "failed to read workload memory usage", workloadLogAttrs(*workload, "error", err)...)
+		}
+		return false
+	}
+	workload.workingSet = usage.WorkingSetBytes
+	workload.limit = usage.MemoryLimitBytes
+	workload.coolingDown = passesLeft > 0
+	return true
+}
+
+// workloadLogAttrs names a workload in a log line, followed by attrs.
+func workloadLogAttrs(workload memoryWorkload, attrs ...any) []any {
+	if workload.build != nil {
+		return append([]any{"build_id", workload.build.BuildID, "user_id", workload.build.OwnerID}, attrs...)
+	}
+	return append([]any{"container_id", workload.container.ID, "user_id", workload.container.OwnerID}, attrs...)
 }
 
 // memoryQuotas reads the memory quota of each owner. An owner whose quota
@@ -206,16 +252,17 @@ func (w *MemoryPressureWorker) memoryQuotas(ctx context.Context, owners []uuid.U
 	return quotas, nil
 }
 
-// queueStops queues the plan's stops in order until they cover its
-// shortfall, passing over containers with an active operation, and returns
-// the containers it stopped.
-func (w *MemoryPressureWorker) queueStops(ctx context.Context, plan memoryBoostPlan) map[uuid.UUID]bool {
-	stopped := map[uuid.UUID]bool{}
+// applyStops queues the plan's container stops and kills its build
+// containers, in order, until they cover its shortfall, passing over
+// containers with an active operation and workloads it fails to stop. It
+// returns the Docker IDs of the workloads it stopped.
+func (w *MemoryPressureWorker) applyStops(ctx context.Context, plan memoryBoostPlan) map[string]bool {
+	stopped := map[string]bool{}
 	if plan.shortfall <= 0 {
 		return stopped
 	}
 	if len(plan.stops) == 0 {
-		w.logger.WarnContext(ctx, "user memory pool is short but no container exceeds its reservation",
+		w.logger.WarnContext(ctx, "user memory pool is short but no workload exceeds its reservation",
 			"free_bytes", plan.free, "min_free_bytes", plan.free+plan.shortfall)
 		return stopped
 	}
@@ -224,60 +271,93 @@ func (w *MemoryPressureWorker) queueStops(ctx context.Context, plan memoryBoostP
 		if shortfall <= 0 {
 			break
 		}
-		c := stop.workload.container
-		c.Status = model.ContainerStatusRunning
-		if err := queueContainerStop(ctx, w.repo, c, stop.reason); err != nil {
-			if errors.Is(err, apperrors.ErrConflict) {
-				w.logger.DebugContext(ctx, "container to stop already has an active operation", "container_id", c.ID)
-				continue
-			}
-			w.logger.WarnContext(ctx, "failed to queue memory pressure stop", "container_id", c.ID, "error", err)
+		if !w.stop(ctx, stop) {
 			continue
 		}
-		w.logger.WarnContext(ctx, "container stop queued due to memory pressure",
-			"container_id", c.ID, "user_id", c.OwnerID,
-			"working_set_bytes", stop.workload.workingSet, "reservation_bytes", stop.workload.reservation,
-			"standard_limit_bytes", stop.workload.standardLimit)
-		stopped[c.ID] = true
-		// Stopping a container frees everything it holds, not only its excess.
-		shortfall -= stop.workload.workingSet
+		stopped[stop.workload.dockerID()] = true
+		// Stopping frees everything the workload takes from the pool, not
+		// only its excess.
+		shortfall -= stop.workload.poolUse()
 	}
 	return stopped
 }
 
-// changeLimit sets a container's memory limit, unless it has an active
-// operation of its own. Swap follows the limit; CPU is left as it is. A
-// lowered limit starts the cooldown.
+// stop queues a container's platform stop or kills a build container, which
+// Builder then ends as failed for resource exhaustion. It reports whether
+// the workload is being stopped.
+func (w *MemoryPressureWorker) stop(ctx context.Context, stop memoryStop) bool {
+	attrs := func(extra ...any) []any { return workloadLogAttrs(stop.workload, extra...) }
+	if stop.workload.build != nil {
+		if err := w.docker.KillContainer(ctx, stop.workload.build.DockerID); err != nil {
+			w.logger.WarnContext(ctx, "failed to kill build container under memory pressure", attrs("error", err)...)
+			return false
+		}
+		w.logger.WarnContext(ctx, "build container killed due to memory pressure", attrs(
+			"working_set_bytes", stop.workload.workingSet, "standard_limit_bytes", stop.workload.standardLimit)...)
+		return true
+	}
+	c := stop.workload.container
+	c.Status = model.ContainerStatusRunning
+	if err := queueContainerStop(ctx, w.repo, c, stop.reason); err != nil {
+		if errors.Is(err, apperrors.ErrConflict) {
+			w.logger.DebugContext(ctx, "container to stop already has an active operation", attrs()...)
+			return false
+		}
+		w.logger.WarnContext(ctx, "failed to queue memory pressure stop", attrs("error", err)...)
+		return false
+	}
+	w.logger.WarnContext(ctx, "container stop queued due to memory pressure", attrs(
+		"working_set_bytes", stop.workload.workingSet, "reservation_bytes", stop.workload.reservation,
+		"standard_limit_bytes", stop.workload.standardLimit)...)
+	return true
+}
+
+// changeLimit sets a workload's memory limit, unless it is a container with
+// an active operation of its own. Swap follows the limit; CPU is left as it
+// is, and so is a build's memory reservation. A lowered limit starts the
+// cooldown.
 func (w *MemoryPressureWorker) changeLimit(ctx context.Context, change memoryLimitChange, cfg config.SystemConfig) {
-	c := change.workload.container
-	active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
-	if err != nil {
-		w.logger.WarnContext(ctx, "failed to check container operations before a limit change", "container_id", c.ID, "error", err)
+	workload := change.workload
+	update := model.ContainerResourceUpdate{MemoryLimitBytes: change.limit}
+	if workload.build != nil {
+		update.MemorySwapMultiplier = cfg.BuildMemorySwapMultiplier
+	} else {
+		c := workload.container
+		active, err := w.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+		if err != nil {
+			w.logger.WarnContext(ctx, "failed to check container operations before a limit change", workloadLogAttrs(workload, "error", err)...)
+			return
+		}
+		if active {
+			w.logger.DebugContext(ctx, "container with an active operation keeps its memory limit", workloadLogAttrs(workload)...)
+			return
+		}
+		update.MemoryReservation = workload.reservation
+		update.MemorySwapMultiplier = cfg.ContainerMemorySwapMultiplier
+	}
+	if err := w.docker.UpdateContainerResources(ctx, workload.dockerID(), update); err != nil {
+		w.logger.WarnContext(ctx, "failed to change workload memory limit", workloadLogAttrs(workload, "error", err)...)
 		return
 	}
-	if active {
-		w.logger.DebugContext(ctx, "container with an active operation keeps its memory limit", "container_id", c.ID)
-		return
+	lowered := change.limit < workload.limit
+	if lowered {
+		w.cooldown[workload.dockerID()] = boostCooldownPasses
 	}
-	update := model.ContainerResourceUpdate{
-		MemoryLimitBytes:     change.limit,
-		MemoryReservation:    change.workload.reservation,
-		MemorySwapMultiplier: cfg.ContainerMemorySwapMultiplier,
-	}
-	if err := w.docker.UpdateContainerResources(ctx, c.DockerID, update); err != nil {
-		w.logger.WarnContext(ctx, "failed to change container memory limit", "container_id", c.ID, "error", err)
-		return
-	}
-	message := "container memory limit raised"
-	if change.limit < change.workload.limit {
+	var message string
+	switch {
+	case workload.build != nil && lowered:
+		message = "build memory limit lowered"
+	case workload.build != nil:
+		message = "build memory limit raised"
+	case lowered:
 		message = "container memory limit lowered"
-		w.cooldown[c.DockerID] = boostCooldownPasses
+	default:
+		message = "container memory limit raised"
 	}
-	w.logger.InfoContext(ctx, message,
-		"container_id", c.ID, "user_id", c.OwnerID,
-		"working_set_bytes", change.workload.workingSet,
-		"old_limit_bytes", change.workload.limit, "new_limit_bytes", change.limit,
-		"standard_limit_bytes", change.workload.standardLimit)
+	w.logger.InfoContext(ctx, message, workloadLogAttrs(workload,
+		"working_set_bytes", workload.workingSet,
+		"old_limit_bytes", workload.limit, "new_limit_bytes", change.limit,
+		"standard_limit_bytes", workload.standardLimit)...)
 }
 
 // userMemoryPool is the host memory user containers may use together.
