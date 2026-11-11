@@ -62,6 +62,7 @@ export function VolumesPage() {
             <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", tableLayouts.volumes.grid)}>
               <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('volumes.name')}</div></div>
               <div>{t('common.status')}</div>
+              <div>{t('volumes.usage')}</div>
               <div>{t('images.createdAt')}</div>
               <div className="flex justify-end">{t('common.actions')}</div>
             </div>

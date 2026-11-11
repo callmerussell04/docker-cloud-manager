@@ -174,8 +174,10 @@ type SystemMonitoringResponse struct {
 	// enforced, not_enforced or unknown: whether the container root filesystem
 	// cap is enforced on this host.
 	RootfsQuotaStatus string `protobuf:"bytes,25,opt,name=rootfs_quota_status,json=rootfsQuotaStatus,proto3" json:"rootfs_quota_status,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The sum of the sizes of all volumes not being deleted.
+	DcmReservedVolumeBytes int64 `protobuf:"varint,26,opt,name=dcm_reserved_volume_bytes,json=dcmReservedVolumeBytes,proto3" json:"dcm_reserved_volume_bytes,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -381,6 +383,13 @@ func (x *SystemMonitoringResponse) GetRootfsQuotaStatus() string {
 		return x.RootfsQuotaStatus
 	}
 	return ""
+}
+
+func (x *SystemMonitoringResponse) GetDcmReservedVolumeBytes() int64 {
+	if x != nil {
+		return x.DcmReservedVolumeBytes
+	}
+	return 0
 }
 
 type Empty struct {
@@ -2680,8 +2689,10 @@ func (x *ImageListResponse) GetImages() []*ImageData {
 }
 
 type CreateVolumeRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Zero asks for the default volume size.
+	SizeBytes     int64 `protobuf:"varint,5,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2721,6 +2732,13 @@ func (x *CreateVolumeRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *CreateVolumeRequest) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
 }
 
 type CreateVolumeResponse struct {
@@ -2823,8 +2841,12 @@ type VolumeData struct {
 	LastError       string                 `protobuf:"bytes,8,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
 	UsedBytes       int64                  `protobuf:"varint,9,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
 	UsageObservedAt int64                  `protobuf:"varint,10,opt,name=usage_observed_at,json=usageObservedAt,proto3" json:"usage_observed_at,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	SizeBytes       int64                  `protobuf:"varint,11,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	// Whether the kernel enforces size_bytes; otherwise it is checked
+	// periodically.
+	SizeEnforced  bool `protobuf:"varint,12,opt,name=size_enforced,json=sizeEnforced,proto3" json:"size_enforced,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *VolumeData) Reset() {
@@ -2925,6 +2947,20 @@ func (x *VolumeData) GetUsageObservedAt() int64 {
 		return x.UsageObservedAt
 	}
 	return 0
+}
+
+func (x *VolumeData) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *VolumeData) GetSizeEnforced() bool {
+	if x != nil {
+		return x.SizeEnforced
+	}
+	return false
 }
 
 type VolumeListResponse struct {
@@ -3779,6 +3815,7 @@ type SystemConfigData struct {
 	MemoryBoostMultiplier                int64                  `protobuf:"varint,92,opt,name=memory_boost_multiplier,json=memoryBoostMultiplier,proto3" json:"memory_boost_multiplier,omitempty"`
 	CpuBoostMultiplier                   int64                  `protobuf:"varint,93,opt,name=cpu_boost_multiplier,json=cpuBoostMultiplier,proto3" json:"cpu_boost_multiplier,omitempty"`
 	BoostMinFreeMemoryBytes              int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
+	DefaultVolumeSizeBytes               int64                  `protobuf:"varint,95,opt,name=default_volume_size_bytes,json=defaultVolumeSizeBytes,proto3" json:"default_volume_size_bytes,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4415,6 +4452,13 @@ func (x *SystemConfigData) GetBoostMinFreeMemoryBytes() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetDefaultVolumeSizeBytes() int64 {
+	if x != nil {
+		return x.DefaultVolumeSizeBytes
+	}
+	return 0
+}
+
 type BuilderRuntimeConfigData struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
 	BuildMemoryBytes               int64                  `protobuf:"varint,1,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
@@ -4758,7 +4802,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\x86\t\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xc1\t\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4787,7 +4831,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18host_min_free_disk_bytes\x18\x16 \x01(\x03R\x14hostMinFreeDiskBytes\x12D\n" +
 	"\x1fdcm_reserved_build_memory_bytes\x18\x17 \x01(\x03R\x1bdcmReservedBuildMemoryBytes\x129\n" +
 	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\x12.\n" +
-	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\"\a\n" +
+	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\x129\n" +
+	"\x19dcm_reserved_volume_bytes\x18\x1a \x01(\x03R\x16dcmReservedVolumeBytes\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +
@@ -4999,13 +5044,15 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"last_error\x18\t \x01(\tR\tlastErrorJ\x04\b\x04\x10\x05R\tis_custom\"<\n" +
 	"\x11ImageListResponse\x12'\n" +
-	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"Z\n" +
+	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"y\n" +
 	"\x13CreateVolumeRequest\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04nameJ\x04\b\x01\x10\x02J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\bowner_idR\x06driverR\vdriver_opts\"3\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x05 \x01(\x03R\tsizeBytesJ\x04\b\x01\x10\x02J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\bowner_idR\x06driverR\vdriver_opts\"3\n" +
 	"\x14CreateVolumeResponse\x12\x1b\n" +
 	"\tvolume_id\x18\x01 \x01(\tR\bvolumeId\"B\n" +
 	"\x13VolumeActionRequest\x12\x1b\n" +
-	"\tvolume_id\x18\x02 \x01(\tR\bvolumeIdJ\x04\b\x01\x10\x02R\bowner_id\"\xbc\x02\n" +
+	"\tvolume_id\x18\x02 \x01(\tR\bvolumeIdJ\x04\b\x01\x10\x02R\bowner_id\"\x80\x03\n" +
 	"\n" +
 	"VolumeData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
@@ -5022,7 +5069,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"used_bytes\x18\t \x01(\x03R\tusedBytes\x12*\n" +
 	"\x11usage_observed_at\x18\n" +
-	" \x01(\x03R\x0fusageObservedAtR\x06driver\"@\n" +
+	" \x01(\x03R\x0fusageObservedAt\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\v \x01(\x03R\tsizeBytes\x12#\n" +
+	"\rsize_enforced\x18\f \x01(\bR\fsizeEnforcedR\x06driver\"@\n" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
@@ -5088,7 +5138,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xab+\n" +
+	"totalCount\"\xe6+\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5178,7 +5228,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	" memory_pressure_interval_seconds\x18[ \x01(\x03R\x1dmemoryPressureIntervalSeconds\x126\n" +
 	"\x17memory_boost_multiplier\x18\\ \x01(\x03R\x15memoryBoostMultiplier\x120\n" +
 	"\x14cpu_boost_multiplier\x18] \x01(\x03R\x12cpuBoostMultiplier\x12<\n" +
-	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytes\x129\n" +
+	"\x19default_volume_size_bytes\x18_ \x01(\x03R\x16defaultVolumeSizeBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

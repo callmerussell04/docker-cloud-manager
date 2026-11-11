@@ -70,6 +70,7 @@ func (h *StatsHandler) GetSystemMonitoring(ctx context.Context, _ *coreapi.Empty
 		DcmBorrowedMemoryBytes:      stats.DCMBorrowedMemoryBytes,
 		RootfsQuotaStatus:           string(stats.RootfsQuotaStatus),
 		DcmDiskUsedBytes:            stats.DCMDiskUsedBytes,
+		DcmReservedVolumeBytes:      stats.DCMReservedVolumeBytes,
 		HostMinFreeDiskBytes:        stats.HostMinFreeDiskBytes,
 		AdmissionStatus:             stats.AdmissionStatus,
 		AdmissionReasons:            stats.AdmissionReasons,

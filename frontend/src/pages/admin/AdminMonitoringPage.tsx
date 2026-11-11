@@ -91,6 +91,7 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
     dcm_reserved_build_memory_bytes: stats?.dcm_reserved_build_memory_bytes ?? 0,
     dcm_borrowed_memory_bytes: stats?.dcm_borrowed_memory_bytes ?? 0,
     dcm_disk_used_bytes: stats?.dcm_disk_used_bytes ?? 0,
+    dcm_reserved_volume_bytes: stats?.dcm_reserved_volume_bytes ?? 0,
     host_min_free_disk_bytes: stats?.host_min_free_disk_bytes ?? 0,
     admission_status: stats?.admission_status ?? 'open',
     admission_reasons: stats?.admission_reasons ?? [],
@@ -220,6 +221,13 @@ export function AdminMonitoringPage() {
               used={stats.dcm_disk_used_bytes}
               total={stats.disk_total_bytes}
               detail={t('admin.monitoring.ofHostDisk')}
+            />
+            <MetricCard
+              title={t('admin.monitoring.reservedVolumes')}
+              icon={HardDrive}
+              used={stats.dcm_reserved_volume_bytes}
+              total={stats.disk_total_bytes}
+              detail={t('admin.monitoring.reservedVolumesDetail')}
             />
             <MetricCard
               title={t('admin.monitoring.buildMemory')}

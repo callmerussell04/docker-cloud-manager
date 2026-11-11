@@ -154,7 +154,7 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	cpuReserved, err := containerRepo.GetTotalSystemReservedCPU(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 250, cpuReserved)
-	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable}))
+	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 	require.NoError(t, volumeRepo.LinkProjectVolume(ctx, projectID, volumeID))
 	require.NoError(t, volumeRepo.SaveMounts(ctx, []model.VolumeMount{{ContainerID: containerID, VolumeID: volumeID, MountPath: "/data", IsReadOnly: true}}))
 
@@ -162,9 +162,9 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, inUse)
 	require.NoError(t, volumeRepo.UpdateUsage(ctx, volumeID, 2048))
-	used, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+	reserved, err := volumeRepo.GetUserReservedVolumeBytes(ctx, ownerID)
 	require.NoError(t, err)
-	require.EqualValues(t, 2048, used)
+	require.EqualValues(t, 1<<20, reserved, "a volume within its size reserves its size")
 	volumes, err := volumeRepo.GetByProjectID(ctx, projectID)
 	require.NoError(t, err)
 	require.Len(t, volumes, 1)
@@ -253,7 +253,7 @@ func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
 	projects := repository.NewProjectRepository(db)
 	ownerID := uuid.New()
 
-	plain := model.Volume{ID: uuid.New(), OwnerID: ownerID, Name: "plain", DockerName: "vol_plain"}
+	plain := model.Volume{ID: uuid.New(), OwnerID: ownerID, Name: "plain", DockerName: "vol_plain", SizeBytes: 1 << 20}
 	require.NoError(t, volumes.Save(ctx, plain))
 	got, err := volumes.GetByID(ctx, plain.ID)
 	require.NoError(t, err)
@@ -276,7 +276,7 @@ func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
 
 	projectID := uuid.New()
 	require.NoError(t, projects.Save(ctx, model.Project{ID: projectID, OwnerID: ownerID, Name: "linked", Status: model.ProjectStatusRunning}))
-	linked := model.Volume{ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, Name: "linked", DockerName: "vol_linked"}
+	linked := model.Volume{ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, Name: "linked", DockerName: "vol_linked", SizeBytes: 1 << 20}
 	require.NoError(t, volumes.Save(ctx, linked))
 	got, err = volumes.GetByID(ctx, linked.ID)
 	require.NoError(t, err)

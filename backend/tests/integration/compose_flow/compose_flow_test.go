@@ -42,7 +42,9 @@ volumes:
 
 func TestComposeDeploymentRunsToDone(t *testing.T) {
 	ctx := context.Background()
-	f := coretest.NewComposeFixture(t, coretest.IntegrationConfig())
+	cfg := coretest.IntegrationConfig()
+	cfg.DefaultVolumeSizeBytes = 256 << 20
+	f := coretest.NewComposeFixture(t, cfg)
 	docker := expectStackDocker(t, f)
 
 	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
@@ -62,6 +64,8 @@ func TestComposeDeploymentRunsToDone(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, volumes, 1)
 	require.Equal(t, model.VolumeStatusCreating, volumes[0].Status)
+	require.EqualValues(t, 256<<20, volumes[0].SizeBytes, "a Compose volume gets the default size")
+	require.False(t, volumes[0].SizeEnforced)
 	require.Empty(t, stackContainers(t, f, projectID))
 	require.Equal(t, 1, f.RunResourceOperations(t))
 
@@ -131,6 +135,43 @@ func TestComposeDeploymentRunsToDone(t *testing.T) {
 		require.Equal(t, projectID.String(), spec.ProjectID)
 		require.Equal(t, f.OwnerID.String(), spec.OwnerID)
 	}
+}
+
+// A Compose volume is admitted like any other: when the default size does not
+// fit the owner's 4096 MB disk quota, the deployment fails with the quota
+// error and creates nothing in Docker.
+func TestComposeDeploymentFailsWhenItsVolumesDoNotFitTheDiskQuota(t *testing.T) {
+	ctx := context.Background()
+	cfg := coretest.IntegrationConfig()
+	cfg.DefaultVolumeSizeBytes = 5 << 30
+	f := coretest.NewComposeFixture(t, cfg)
+
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": stackCompose,
+	})))
+	require.NoError(t, err)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	require.NoError(t, err)
+	require.NoError(t, f.Deliver(t))
+
+	for range 3 {
+		f.Tick(t)
+		if job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID); err == nil && job.Status == model.ComposeDeploymentStatusFailed {
+			break
+		}
+	}
+
+	require.NoError(t, err)
+	require.Equal(t, model.ComposeDeploymentStatusFailed, job.Status)
+	require.NotNil(t, job.ErrorMessage)
+	require.Contains(t, *job.ErrorMessage, "user disk quota exceeded")
+	project, err := f.Repos.Projects.GetByID(ctx, projectID)
+	require.NoError(t, err)
+	require.Equal(t, model.ProjectStatusFailed, project.Status)
+	volumes, _, err := f.Repos.Volumes.List(ctx, model.ListOptions{OwnerID: &f.OwnerID})
+	require.NoError(t, err)
+	require.Empty(t, volumes, "no volume is recorded")
+	require.Empty(t, stackContainers(t, f, projectID))
 }
 
 // stackDocker records the runtime specs Docker is asked to create.

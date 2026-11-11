@@ -1,7 +1,7 @@
-import { Trash2, HardDrive, AlertTriangle } from 'lucide-react';
+import { Trash2, HardDrive, AlertTriangle, Clock } from 'lucide-react';
 import { type VolumeData } from '../types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 import { useDeleteVolume } from '../hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -23,6 +23,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   
   const displayName = volume.name || t('volumes.name');
   const isMissing = volume.status === 'missing';
+  const isOverSize = volume.size_bytes > 0 && volume.used_bytes > volume.size_bytes;
 
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.volumes.grid, tableLayouts.volumes.minWidth)}>
@@ -39,6 +40,18 @@ export function VolumeRow({ volume }: VolumeRowProps) {
         <span className={isMissing ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
           {statusLabel(t, volume.status)}
         </span>
+      </div>
+
+      <div className="min-w-0 text-sm">
+        <span className={isOverSize ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
+          {t('volumes.usageOfSize', { used: formatBytes(volume.used_bytes), size: formatBytes(volume.size_bytes) })}
+        </span>
+        {!volume.size_enforced && (
+          <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400" title={t('volumes.sizeMeasuredHint')}>
+            <Clock className="w-3 h-3 shrink-0" />
+            <span className="truncate">{t('volumes.sizeMeasured')}</span>
+          </div>
+        )}
       </div>
 
       <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>

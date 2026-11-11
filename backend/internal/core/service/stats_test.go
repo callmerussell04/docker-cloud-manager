@@ -69,6 +69,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 		Missing: 1,
 	}, nil)
 	volRepo.EXPECT().GetTotalUsedVolumeBytes(ctx).Return(int64(512), nil)
+	volRepo.EXPECT().GetTotalVolumeSizeBytes(ctx).Return(int64(3<<30), nil)
 	volRepo.EXPECT().CountAll(ctx).Return(4, nil)
 	imgRepo.EXPECT().GetTotalUsedDiskSpace(ctx).Return(int64(2), nil)
 	imgRepo.EXPECT().CountAll(ctx).Return(5, nil)
@@ -113,6 +114,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.EqualValues(t, 1234, stats.DCMBorrowedMemoryBytes, "borrowed memory as the memory pressure worker last measured it")
 	require.Equal(t, model.RootfsQuotaNotEnforced, stats.RootfsQuotaStatus, "root filesystem cap status as Core found it at startup")
 	require.EqualValues(t, 2*bytesPerMBForTest+512, stats.DCMDiskUsedBytes)
+	require.EqualValues(t, 3<<30, stats.DCMReservedVolumeBytes, "the sum of volume sizes")
 	require.EqualValues(t, 100, stats.HostMinFreeDiskBytes)
 	require.Equal(t, "open", stats.AdmissionStatus)
 	require.Empty(t, stats.AdmissionReasons)

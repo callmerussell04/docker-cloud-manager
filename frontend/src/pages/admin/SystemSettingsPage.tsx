@@ -50,6 +50,7 @@ const sections: Array<{
       { name: 'container_pids_limit', labelKey: 'admin.settings.field.container_pids_limit.label', hintKey: 'admin.settings.field.container_pids_limit.hint', type: 'number' },
       { name: 'container_memory_swap_multiplier', labelKey: 'admin.settings.field.container_memory_swap_multiplier.label', hintKey: 'admin.settings.field.container_memory_swap_multiplier.hint', type: 'float' },
       { name: 'max_volumes_per_user', labelKey: 'admin.settings.field.max_volumes_per_user.label', hintKey: 'admin.settings.field.max_volumes_per_user.hint', type: 'number' },
+      { name: 'default_volume_size_bytes', labelKey: 'admin.settings.field.default_volume_size_bytes.label', hintKey: 'admin.settings.field.default_volume_size_bytes.hint', type: 'bytes' },
       { name: 'max_containers_per_user', labelKey: 'admin.settings.field.max_containers_per_user.label', hintKey: 'admin.settings.field.max_containers_per_user.hint', type: 'number' },
       { name: 'container_disk_quota', labelKey: 'admin.settings.field.container_disk_quota.label', hintKey: 'admin.settings.field.container_disk_quota.hint', placeholderKey: 'admin.settings.placeholder.dockerSize' },
       { name: 'max_log_size', labelKey: 'admin.settings.field.max_log_size.label', hintKey: 'admin.settings.field.max_log_size.hint', placeholderKey: 'admin.settings.placeholder.logSize' },

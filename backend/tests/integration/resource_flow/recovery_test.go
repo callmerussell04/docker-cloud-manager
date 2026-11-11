@@ -118,7 +118,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 						resourceID, err = volumes.Create(coretest.UserContext(ownerID), model.VolumeCreateParams{Name: "data"})
 						require.NoError(t, err)
 					case "volume delete":
-						require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable}))
+						require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 						require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
 					case "image delete":
 						require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
@@ -214,7 +214,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 					require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
 					require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
 				case "volume delete":
-					require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable}))
+					require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 					require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
 				default:
 					var err error
@@ -356,7 +356,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				_, err := volumes.Create(coretest.UserContext(ownerID), model.VolumeCreateParams{Name: "data"})
 				require.NoError(t, err)
 			case "volume delete":
-				require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable}))
+				require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 				require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
 			case "image delete":
 				require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
@@ -448,13 +448,14 @@ func newRecoveryVolumeService(t *testing.T, repos coretest.CoreRepositories, doc
 		return model.UserInfo{ID: id, QuotaDiskMB: 4096}, nil
 	}).Maybe()
 	svc, err := service.NewVolumeService(service.VolumeServiceDeps{
-		Repository:  repos.Volumes,
-		Docker:      docker,
-		Config:      cfg,
-		Lifecycle:   lifecycle,
-		Users:       users,
-		ImageRepo:   repos.Images,
-		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
+		Repository:   repos.Volumes,
+		Docker:       docker,
+		Config:       cfg,
+		Lifecycle:    lifecycle,
+		Users:        users,
+		ImageRepo:    repos.Images,
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		CapacityLock: repos.Containers,
 	})
 	require.NoError(t, err)
 	return svc

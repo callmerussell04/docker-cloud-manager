@@ -74,12 +74,12 @@ packages:
       UserInfoProvider: {}
       VolumeDockerAPI: {}
       volumeImageDiskRepository: {}
+      VolumeCapacityLock: {}
       VolumeLifecycleRepository: {}
       VolumeRepository: {}
       VolumeUsageConfigProvider: {}
       VolumeUsageContainerRepo: {}
       VolumeUsageDockerAPI: {}
-      VolumeUsageImageRepo: {}
       VolumeUsageRepo: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose:
     config:

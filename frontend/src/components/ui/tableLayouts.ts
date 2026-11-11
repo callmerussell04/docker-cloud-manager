@@ -4,8 +4,8 @@ export const tableLayouts = {
     grid: 'grid-cols-[minmax(220px,2fr)_minmax(120px,0.8fr)_minmax(220px,1.4fr)_minmax(18rem,max-content)]',
   },
   volumes: {
-    minWidth: 'min-w-[760px]',
-    grid: 'grid-cols-[minmax(260px,2fr)_minmax(140px,1fr)_minmax(200px,1.5fr)_4rem]',
+    minWidth: 'min-w-[940px]',
+    grid: 'grid-cols-[minmax(240px,2fr)_minmax(120px,0.8fr)_minmax(180px,1.2fr)_minmax(200px,1.5fr)_4rem]',
   },
   projects: {
     minWidth: 'min-w-[1080px]',

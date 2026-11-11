@@ -39,7 +39,7 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 			{Status: model.ContainerStatusRunning},
 		}, 3, nil)
 	imgRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(10), nil)
-	volRepo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(1024*1024+1), nil)
+	volRepo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(1024*1024+1), nil)
 	imgRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 4, nil)
 	volRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(2, nil)
 	projRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Project(nil), 5, nil)

@@ -38,7 +38,8 @@ func (h *VolumeHandler) CreateVolume(ctx context.Context, req *coreapi.CreateVol
 	}
 
 	params := model.VolumeCreateParams{
-		Name: req.GetName(),
+		Name:      req.GetName(),
+		SizeBytes: req.GetSizeBytes(),
 	}
 
 	volumeID, err := h.logic.Create(ctx, params)
@@ -92,6 +93,8 @@ func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.Pagination
 			LastError:       stringValue(v.LastError),
 			UsedBytes:       v.UsedBytes,
 			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
+			SizeBytes:       v.SizeBytes,
+			SizeEnforced:    v.SizeEnforced,
 		})
 	}
 

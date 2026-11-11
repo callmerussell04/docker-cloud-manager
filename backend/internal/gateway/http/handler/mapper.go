@@ -25,7 +25,7 @@ func createContainerInputFromDTO(req dto.CreateContainerDTO) model.CreateContain
 }
 
 func createVolumeInputFromDTO(req dto.CreateVolumeDTO) model.CreateVolumeInput {
-	return model.CreateVolumeInput{Name: req.Name}
+	return model.CreateVolumeInput{Name: req.Name, SizeBytes: req.SizeBytes}
 }
 
 func containersToDTO(items []model.Container) []dto.ContainerDTO {
@@ -95,6 +95,8 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 			LastError:       item.LastError,
 			UsedBytes:       item.UsedBytes,
 			UsageObservedAt: item.UsageObservedAt,
+			SizeBytes:       item.SizeBytes,
+			SizeEnforced:    item.SizeEnforced,
 			CreatedAt:       item.CreatedAt,
 			OwnerID:         item.OwnerID,
 			OwnerUsername:   item.OwnerUsername,
@@ -113,6 +115,8 @@ func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
 			LastError:       item.LastError,
 			UsedBytes:       item.UsedBytes,
 			UsageObservedAt: item.UsageObservedAt,
+			SizeBytes:       item.SizeBytes,
+			SizeEnforced:    item.SizeEnforced,
 			CreatedAt:       item.CreatedAt,
 		})
 	}
@@ -295,6 +299,7 @@ func systemConfigFromDTO(data dto.SystemConfigDTO) model.SystemConfig {
 		MemoryBoostMultiplier:                data.MemoryBoostMultiplier,
 		CPUBoostMultiplier:                   data.CPUBoostMultiplier,
 		BoostMinFreeMemoryBytes:              data.BoostMinFreeMemoryBytes,
+		DefaultVolumeSizeBytes:               data.DefaultVolumeSizeBytes,
 		GitSourcesEnabled:                    data.GitSourcesEnabled,
 		GitAllowedHosts:                      data.GitAllowedHosts,
 		GitCloneTimeoutSeconds:               data.GitCloneTimeoutSeconds,
@@ -386,6 +391,7 @@ func systemConfigToDTO(data model.SystemConfig) dto.SystemConfigDTO {
 		MemoryBoostMultiplier:                data.MemoryBoostMultiplier,
 		CPUBoostMultiplier:                   data.CPUBoostMultiplier,
 		BoostMinFreeMemoryBytes:              data.BoostMinFreeMemoryBytes,
+		DefaultVolumeSizeBytes:               data.DefaultVolumeSizeBytes,
 		GitSourcesEnabled:                    data.GitSourcesEnabled,
 		GitAllowedHosts:                      data.GitAllowedHosts,
 		GitCloneTimeoutSeconds:               data.GitCloneTimeoutSeconds,
@@ -432,6 +438,7 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		DCMBorrowedMemoryBytes:      data.DCMBorrowedMemoryBytes,
 		RootfsQuotaStatus:           data.RootfsQuotaStatus,
 		DCMDiskUsedBytes:            data.DCMDiskUsedBytes,
+		DCMReservedVolumeBytes:      data.DCMReservedVolumeBytes,
 		HostMinFreeDiskBytes:        data.HostMinFreeDiskBytes,
 		AdmissionStatus:             data.AdmissionStatus,
 		AdmissionReasons:            data.AdmissionReasons,

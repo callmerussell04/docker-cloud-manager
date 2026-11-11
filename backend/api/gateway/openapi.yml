@@ -481,6 +481,8 @@ paths:
                   volume_id:
                     type: string
                     format: uuid
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
 
@@ -2044,6 +2046,10 @@ components:
       properties:
         name:
           type: string
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. Omitted or 0 uses default_volume_size_bytes; otherwise at least 1048576 (1 MiB). The size cannot change after creation. A size below 1 MiB is rejected with 400; a size that does not fit what the owner's images and volume sizes leave of the disk quota is rejected with 409 (user disk quota exceeded).
 
     Volume:
       type: object
@@ -2065,6 +2071,13 @@ components:
         usage_observed_at:
           type: integer
           format: int64
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. A volume measured above it counts with its measurement, and the running containers that mount it writable are stopped.
+        size_enforced:
+          type: boolean
+          description: True when the kernel refuses writes past size_bytes; false when the size is only checked periodically, so usage can briefly exceed it.
         created_at:
           type: integer
           format: int64
@@ -2092,6 +2105,13 @@ components:
         usage_observed_at:
           type: integer
           format: int64
+        size_bytes:
+          type: integer
+          format: int64
+          description: Size reserved against the owner's disk quota. A volume measured above it counts with its measurement, and the running containers that mount it writable are stopped.
+        size_enforced:
+          type: boolean
+          description: True when the kernel refuses writes past size_bytes; false when the size is only checked periodically, so usage can briefly exceed it.
         created_at:
           type: integer
           format: int64
@@ -2350,6 +2370,10 @@ components:
           format: int64
           description: Memory running containers and builds borrow above their standard limits, as the memory pressure worker last measured it. 0 before its first pass and while memory boost is off.
         dcm_disk_used_bytes: { type: integer, format: int64 }
+        dcm_reserved_volume_bytes:
+          type: integer
+          format: int64
+          description: The sum of the sizes of all volumes not being deleted, the disk promised to volumes.
         host_min_free_disk_bytes: { type: integer, format: int64 }
         admission_status: { type: string }
         admission_reasons:
@@ -2701,6 +2725,11 @@ components:
           type: integer
           format: int64
           description: Free user memory that must remain after a boost is granted; below it boosted limits are lowered. At least memory_pressure_min_free_bytes.
+        default_volume_size_bytes:
+          type: integer
+          format: int64
+          minimum: 1048576
+          description: Size of a volume created without one, including every volume a Compose deployment creates. At least 1 MiB.
         git_sources_enabled:
           type: boolean
         git_allowed_hosts:

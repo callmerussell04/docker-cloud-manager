@@ -151,6 +151,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BoostMinFreeMemoryBytes < cfg.MemoryPressureMinFreeBytes {
 		return fmt.Errorf("boost minimum free memory must be at least the memory pressure minimum free memory")
 	}
+	if cfg.DefaultVolumeSizeBytes < MinVolumeSizeBytes {
+		return fmt.Errorf("default volume size must be at least 1 MiB")
+	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}

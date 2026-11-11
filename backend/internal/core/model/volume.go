@@ -18,7 +18,14 @@ type Volume struct {
 	LastError       *string
 	UsedBytes       int64
 	UsageObservedAt *time.Time
-	CreatedAt       time.Time
+	// SizeBytes is reserved against the owner's disk quota from creation and
+	// never changes.
+	SizeBytes int64
+	// SizeEnforced reports whether Docker was given SizeBytes at creation, so
+	// the kernel refuses writes past it. Otherwise the volume usage worker
+	// checks the size periodically.
+	SizeEnforced bool
+	CreatedAt    time.Time
 }
 
 // VolumeUsageScan is the resumable progress of one volume usage measurement.
@@ -44,6 +51,8 @@ const (
 type VolumeCreateParams struct {
 	ProjectID *uuid.UUID
 	Name      string
+	// SizeBytes is the requested size; zero means the configured default.
+	SizeBytes int64
 }
 
 type ComposeVolume struct {

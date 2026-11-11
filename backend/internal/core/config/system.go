@@ -7,6 +7,9 @@ const (
 	MaxVolumeUsageScanEntryBudget              = 10_000_000
 	// MaxBoostMultiplier bounds MemoryBoostMultiplier and CPUBoostMultiplier.
 	MaxBoostMultiplier = int64(64)
+	// MinVolumeSizeBytes is the smallest volume size, for the default and for
+	// a size given at creation.
+	MinVolumeSizeBytes = int64(1 << 20)
 )
 
 type SystemConfig struct {
@@ -99,6 +102,9 @@ type SystemConfig struct {
 	// BoostMinFreeMemoryBytes is the free part of the user memory pool that
 	// must remain after a boost is granted. Below it boosted limits shrink.
 	BoostMinFreeMemoryBytes int64 `json:"boost_min_free_memory_bytes"`
+	// DefaultVolumeSizeBytes is the size of a volume created without one,
+	// including every volume a Compose deployment creates.
+	DefaultVolumeSizeBytes int64 `json:"default_volume_size_bytes"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

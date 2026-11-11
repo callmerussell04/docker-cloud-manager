@@ -246,6 +246,7 @@ func validSystemConfig() config.SystemConfig {
 		MemoryBoostMultiplier:                8,
 		CPUBoostMultiplier:                   8,
 		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
+		DefaultVolumeSizeBytes:               1 << 30,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
 		GitCloneTimeoutSeconds:               60,
@@ -289,6 +290,8 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 		{name: "boost free memory below the pressure floor", apply: func(c *config.SystemConfig) {
 			c.BoostMinFreeMemoryBytes = c.MemoryPressureMinFreeBytes - 1
 		}},
+		{name: "zero default volume size", apply: func(c *config.SystemConfig) { c.DefaultVolumeSizeBytes = 0 }},
+		{name: "default volume size below 1 MiB", apply: func(c *config.SystemConfig) { c.DefaultVolumeSizeBytes = 1<<20 - 1 }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := validSystemConfig()

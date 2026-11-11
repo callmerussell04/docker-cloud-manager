@@ -132,7 +132,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Users:        ssoClient,
 		ImageRepo:    imgRepo,
 		DiskMetrics:  metricsProvider,
+		CapacityLock: contRepo,
 		HostDiskPath: cfg.HostDiskPath,
+		Logger:       logger,
 	})
 	if err != nil {
 		return nil, err
@@ -248,7 +250,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, projService, cfg.ConfigManager, logger)
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
-	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, imgRepo, dockerAdapter, ssoClient, cfg.ConfigManager, logger)
+	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	memoryPressureWorker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
 		Repository: contRepo,
 		Docker:     dockerAdapter,

@@ -86,6 +86,7 @@ export interface SystemConfig {
   memory_boost_multiplier: number;
   cpu_boost_multiplier: number;
   boost_min_free_memory_bytes: number;
+  default_volume_size_bytes: number;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -115,6 +116,7 @@ export interface SystemMonitoring {
   dcm_reserved_build_memory_bytes: number;
   dcm_borrowed_memory_bytes: number;
   dcm_disk_used_bytes: number;
+  dcm_reserved_volume_bytes: number;
   host_min_free_disk_bytes: number;
   admission_status: string;
   admission_reasons: string[];
@@ -210,6 +212,7 @@ export const systemConfigSchema = z.object({
   memory_boost_multiplier: z.number().int().min(1).max(64),
   cpu_boost_multiplier: z.number().int().min(1).max(64),
   boost_min_free_memory_bytes: z.number().min(0),
+  default_volume_size_bytes: z.number().min(1024 * 1024),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),

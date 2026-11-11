@@ -37,7 +37,7 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 
 	volumeID, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
@@ -80,7 +80,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
 			},
 			wantErr: apperrors.ErrLimitExceeded,
@@ -92,7 +92,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
 				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1, QuotaRAMMB: 1024}, nil)
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-				repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
+				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
 			wantErr: apperrors.ErrQuotaExceeded,
 		},
@@ -115,6 +115,105 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			require.ErrorIs(t, err, tt.wantErr)
 		})
 	}
+}
+
+// A volume gets the size it asks for, or the default, and is admitted only
+// when that size fits what the owner's images and other volumes leave of the
+// disk quota.
+func TestVolumeServiceCreateReservesItsSize(t *testing.T) {
+	const mib = int64(1 << 20)
+	for _, tc := range []struct {
+		name string
+		size int64
+		// imagesMB and volumesBytes are already reserved against a 100 MB quota.
+		imagesMB, volumesBytes int64
+		want                   error
+		wantSize               int64
+	}{
+		{name: "no size gets the default", wantSize: 64 * mib},
+		{name: "a given size is kept", size: 10 * mib, wantSize: 10 * mib},
+		{name: "the smallest size", size: mib, wantSize: mib},
+		{name: "fits exactly beside images and other volumes", size: 10 * mib, imagesMB: 40, volumesBytes: 50 * mib, wantSize: 10 * mib},
+		{name: "does not fit beside images and other volumes", size: 11 * mib, imagesMB: 40, volumesBytes: 50 * mib, want: apperrors.ErrQuotaExceeded},
+		{name: "the default size counts", volumesBytes: 37 * mib, want: apperrors.ErrQuotaExceeded},
+		{name: "other volumes alone fill the quota", size: mib, volumesBytes: 100 * mib, want: apperrors.ErrQuotaExceeded},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ownerID := uuid.New()
+			repo := newVolumeRepoMock(t)
+			users := coremocks.NewUserInfoProvider(t)
+			imageRepo := coremocks.NewVolumeImageDiskRepository(t)
+			lock := coremocks.NewVolumeCapacityLock(t)
+			cfg := volumeTestConfig()
+			cfg.Config.DefaultVolumeSizeBytes = 64 * mib
+			lifecycle := &volumeLifecycleFake{}
+			held := false
+			lock.EXPECT().AcquireOwnerCapacityLock(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (func(), error) {
+				held = true
+				return func() { held = false }, nil
+			}).Once()
+			lifecycle.onCreate = func() { require.True(t, held, "the volume is queued under the owner capacity lock") }
+			users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 100}, nil)
+			imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(tc.imagesMB, nil)
+			repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(tc.volumesBytes, nil)
+			repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+			svc := newTestVolumeService(t, service.VolumeServiceDeps{
+				Repository: repo, Docker: coremocks.NewVolumeDockerAPI(t), Config: cfg,
+				Lifecycle: lifecycle, Users: users, ImageRepo: imageRepo, CapacityLock: lock,
+			})
+
+			_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data", SizeBytes: tc.size})
+
+			require.False(t, held, "the lock is released")
+			if tc.want != nil {
+				require.ErrorIs(t, err, tc.want)
+				require.False(t, lifecycle.createQueued, "a rejected volume is not queued")
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, lifecycle.createQueued)
+			require.Equal(t, tc.wantSize, lifecycle.volume.SizeBytes)
+			require.False(t, lifecycle.volume.SizeEnforced, "sizes are only measured")
+		})
+	}
+}
+
+// A size below 1 MiB is a bad request that does not echo the value, decided
+// before any quota is read or lock taken.
+func TestVolumeServiceCreateRejectsTooSmallSize(t *testing.T) {
+	for _, size := range []int64{1<<20 - 1, 4095, -5} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			lifecycle := &volumeLifecycleFake{}
+			svc := newTestVolumeService(t, service.VolumeServiceDeps{
+				Repository: newVolumeRepoMock(t), Docker: coremocks.NewVolumeDockerAPI(t), Config: volumeTestConfig(),
+				Lifecycle: lifecycle, CapacityLock: coremocks.NewVolumeCapacityLock(t),
+			})
+
+			_, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.VolumeCreateParams{Name: "data", SizeBytes: size})
+
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			require.NotContains(t, err.Error(), fmt.Sprint(size))
+			require.False(t, lifecycle.createQueued)
+		})
+	}
+}
+
+// A failed lock rejects the create before anything is read or queued.
+func TestVolumeServiceCreateReturnsLockFailure(t *testing.T) {
+	ownerID := uuid.New()
+	lock := coremocks.NewVolumeCapacityLock(t)
+	lockErr := errors.New("lock unavailable")
+	lock.EXPECT().AcquireOwnerCapacityLock(mock.Anything, ownerID).Return(nil, lockErr)
+	lifecycle := &volumeLifecycleFake{}
+	svc := newTestVolumeService(t, service.VolumeServiceDeps{
+		Repository: newVolumeRepoMock(t), Docker: coremocks.NewVolumeDockerAPI(t), Config: volumeTestConfig(),
+		Lifecycle: lifecycle, CapacityLock: lock,
+	})
+
+	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
+
+	require.ErrorIs(t, err, lockErr)
+	require.False(t, lifecycle.createQueued)
 }
 
 func TestVolumeServiceResolveByNameUsesScopeAndRejectsUnavailableVolumes(t *testing.T) {
@@ -273,7 +372,7 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 
 	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.EXPECT().GetUserUsedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
 
 	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
@@ -530,6 +629,8 @@ func newVolumeRepoMock(t *testing.T) *volumeRepoMock {
 }
 
 type volumeLifecycleFake struct {
+	// onCreate, when set, runs as the volume is queued.
+	onCreate     func()
 	op           model.ResourceOperation
 	volume       model.Volume
 	createQueued bool
@@ -553,6 +654,9 @@ func newVolumeLifecycleFake(operationID, volumeID, ownerID uuid.UUID, operation 
 }
 
 func (f *volumeLifecycleFake) CreateQueuedVolume(ctx context.Context, vol model.Volume, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {
+	if f.onCreate != nil {
+		f.onCreate()
+	}
 	f.volume = vol
 	f.op = op
 	f.createQueued = true

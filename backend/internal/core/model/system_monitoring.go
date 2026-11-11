@@ -36,6 +36,9 @@ type SystemMonitoring struct {
 	// their standard limits.
 	DCMBorrowedMemoryBytes int64
 	DCMDiskUsedBytes       int64
+	// DCMReservedVolumeBytes is the sum of the sizes of all volumes not
+	// being deleted: the disk promised to volumes.
+	DCMReservedVolumeBytes int64
 	HostMinFreeDiskBytes   int64
 	AdmissionStatus        string
 	AdmissionReasons       []string

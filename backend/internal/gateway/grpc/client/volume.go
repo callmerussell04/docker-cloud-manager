@@ -10,7 +10,8 @@ import (
 
 func (c *CoreClient) CreateVolume(ctx context.Context, createVolumeDTO model.CreateVolumeInput) (string, error) {
 	req := &coreapi.CreateVolumeRequest{
-		Name: createVolumeDTO.Name,
+		Name:      createVolumeDTO.Name,
+		SizeBytes: createVolumeDTO.SizeBytes,
 	}
 	resp, err := c.volumeAPI.CreateVolume(ctx, req)
 	if err != nil {
@@ -51,6 +52,8 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 			LastError:       item.GetLastError(),
 			UsedBytes:       item.GetUsedBytes(),
 			UsageObservedAt: item.GetUsageObservedAt(),
+			SizeBytes:       item.GetSizeBytes(),
+			SizeEnforced:    item.GetSizeEnforced(),
 			CreatedAt:       item.GetCreatedAt(),
 			OwnerID:         item.GetOwnerId(),
 			OwnerUsername:   item.GetOwnerUsername(),

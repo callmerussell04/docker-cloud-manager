@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
@@ -33,7 +35,7 @@ type VolumeRepository interface {
 }
 
 type volumeDiskUsageRepository interface {
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type volumeImageDiskRepository interface {
@@ -55,6 +57,12 @@ type VolumeLifecycleRepository interface {
 	RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error
 }
 
+// VolumeCapacityLock serialises admission for one owner, so two creates
+// cannot both count the same free disk quota.
+type VolumeCapacityLock interface {
+	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
+}
+
 type VolumeDockerAPI interface {
 	CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error)
 	RemoveVolume(ctx context.Context, volumeName string, force bool) error
@@ -69,10 +77,13 @@ type VolumeService struct {
 	diskMetrics  HostDiskMetricsProvider
 	hostDiskPath string
 	lifecycle    VolumeLifecycleRepository
+	capacityLock VolumeCapacityLock
+	logger       *slog.Logger
 }
 
 // VolumeServiceDeps contains the mandatory lifecycle and admission capabilities.
 // An empty HostDiskPath uses the host filesystem root for disk admission.
+// Logger is optional.
 type VolumeServiceDeps struct {
 	Repository   VolumeRepository
 	Docker       VolumeDockerAPI
@@ -81,7 +92,9 @@ type VolumeServiceDeps struct {
 	Users        UserInfoProvider
 	ImageRepo    volumeImageDiskRepository
 	DiskMetrics  HostDiskMetricsProvider
+	CapacityLock VolumeCapacityLock
 	HostDiskPath string
+	Logger       *slog.Logger
 }
 
 func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
@@ -92,6 +105,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		{"repository", deps.Repository}, {"docker", deps.Docker},
 		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
 		{"users", deps.Users}, {"images", deps.ImageRepo}, {"disk metrics", deps.DiskMetrics},
+		{"capacity lock", deps.CapacityLock},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -107,11 +121,33 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		imageRepo:    deps.ImageRepo,
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
+		capacityLock: deps.CapacityLock,
+		logger:       logging.WithComponent(deps.Logger, "volume_service"),
 	}, nil
 }
 
-func (s *VolumeService) ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID) error {
-	return ensureDiskQuotaAvailable(ctx, ownerID, s.users, s.imageRepo, s.repo)
+// admitVolumeSize checks that sizeBytes fits what the owner's reserved disk
+// leaves of their disk quota. The caller holds the owner capacity lock.
+func (s *VolumeService) admitVolumeSize(ctx context.Context, ownerID uuid.UUID, sizeBytes int64) error {
+	sources := admissionSources{
+		users:   s.users,
+		images:  s.imageRepo,
+		volumes: s.repo,
+		logger:  s.logger,
+	}
+	return sources.admit(ctx, ownerID, admissionRequest{userDiskBytes: sizeBytes}, s.cfg.Get(), "volume")
+}
+
+// volumeSize is the size a create asks for, or the default when it asks for
+// none. A size below the minimum is a bad request.
+func volumeSize(requested int64, cfg config.SystemConfig) (int64, error) {
+	if requested == 0 {
+		return cfg.DefaultVolumeSizeBytes, nil
+	}
+	if requested < config.MinVolumeSizeBytes {
+		return 0, apperrors.New(apperrors.ErrBadRequest, "volume size must be at least 1 MiB")
+	}
+	return requested, nil
 }
 
 func (s *VolumeService) ensureHostDiskFloor() error {
@@ -126,19 +162,29 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 	if err := validation.ResourceName(params.Name); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
-	if err := s.ensureDiskQuotaAvailable(ctx, ownerID); err != nil {
+	cfg := s.cfg.Get()
+	sizeBytes, err := volumeSize(params.SizeBytes, cfg)
+	if err != nil {
+		return uuid.Nil, err
+	}
+
+	unlock, err := s.capacityLock.AcquireOwnerCapacityLock(ctx, ownerID)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	defer unlock()
+	if err := s.admitVolumeSize(ctx, ownerID, sizeBytes); err != nil {
 		return uuid.Nil, err
 	}
 	if err := s.ensureHostDiskFloor(); err != nil {
 		return uuid.Nil, err
 	}
 
-	// Проверка лимита на количество томов
 	count, err := s.repo.CountByOwnerID(ctx, ownerID)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if count >= s.cfg.Get().MaxVolumesPerUser {
+	if count >= cfg.MaxVolumesPerUser {
 		return uuid.Nil, apperrors.ErrLimitExceeded
 	}
 
@@ -152,6 +198,7 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		Name:       params.Name,
 		DockerName: dockerName,
 		Status:     model.VolumeStatusCreating,
+		SizeBytes:  sizeBytes,
 	}
 
 	op, outbox, err := resourceOperationOutbox(ctx, model.ResourceTypeVolume, volID, ownerID, model.OperationCreate)

@@ -93,6 +93,27 @@ func TestSSOClientAuthHeaderPermissionAndGRPCErrorMapping(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
+func TestCoreClientMapsVolumeSizes(t *testing.T) {
+	volumeSrv := &coreVolumeServer{}
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterVolumeAPIServer(server, volumeSrv)
+	})
+	coreClient := client.NewCoreClient(conn)
+
+	id, err := coreClient.CreateVolume(context.Background(), model.CreateVolumeInput{Name: "data", SizeBytes: 32 << 20})
+	require.NoError(t, err)
+	require.Equal(t, "volume-id", id)
+	require.Equal(t, "data", volumeSrv.created.GetName())
+	require.EqualValues(t, 32<<20, volumeSrv.created.GetSizeBytes())
+
+	volumes, err := coreClient.ListVolumes(context.Background(), 1, 10)
+	require.NoError(t, err)
+	require.Len(t, volumes.Volumes, 2)
+	require.EqualValues(t, 1<<30, volumes.Volumes[0].SizeBytes)
+	require.False(t, volumes.Volumes[0].SizeEnforced)
+	require.True(t, volumes.Volumes[1].SizeEnforced)
+}
+
 func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	containerSrv := &coreContainerServer{}
 	systemSrv := &coreSystemServer{}
@@ -145,10 +166,12 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "example.test", config.BaseDomain)
 	require.True(t, config.ImageBuildsEnabled)
 	require.EqualValues(t, 250, config.DefaultCPUReservationMillicores)
-	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500}))
+	require.EqualValues(t, 1<<30, config.DefaultVolumeSizeBytes)
+	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500, DefaultVolumeSizeBytes: 2 << 30}))
 	require.Equal(t, "updated.test", systemSrv.updated.BaseDomain)
 	require.Equal(t, int32(5), systemSrv.updated.MaxContainersPerUser)
 	require.EqualValues(t, 500, systemSrv.updated.DefaultCpuReservationMillicores)
+	require.EqualValues(t, 2<<30, systemSrv.updated.DefaultVolumeSizeBytes)
 
 	userStats, err := coreClient.GetUserStats(context.Background())
 	require.NoError(t, err)
@@ -158,6 +181,7 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, 42.5, monitoring.CPUPercent)
 	require.EqualValues(t, 512, monitoring.DCMBorrowedMemoryBytes)
 	require.Equal(t, "not_enforced", monitoring.RootfsQuotaStatus)
+	require.EqualValues(t, 4096, monitoring.DCMReservedVolumeBytes)
 
 	overview, err := coreClient.GetReportsOverview(context.Background(), 1, 2)
 	require.NoError(t, err)
@@ -355,13 +379,30 @@ func (s *coreContainerServer) GetContainerStats(context.Context, *coreapi.Contai
 	return &coreapi.ContainerStatsResponse{CpuPercentage: 12.5, MemoryUsageBytes: 1024, MemoryLimitBytes: 3072, MemoryStandardLimitBytes: 2048}, nil
 }
 
+type coreVolumeServer struct {
+	coreapi.UnimplementedVolumeAPIServer
+	created *coreapi.CreateVolumeRequest
+}
+
+func (s *coreVolumeServer) CreateVolume(_ context.Context, req *coreapi.CreateVolumeRequest) (*coreapi.CreateVolumeResponse, error) {
+	s.created = req
+	return &coreapi.CreateVolumeResponse{VolumeId: "volume-id"}, nil
+}
+
+func (s *coreVolumeServer) ListVolumes(context.Context, *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
+	return &coreapi.PaginatedVolumeResponse{Volumes: []*coreapi.VolumeData{
+		{Id: "measured", Name: "data", SizeBytes: 1 << 30, UsedBytes: 10},
+		{Id: "enforced", Name: "logs", SizeBytes: 2 << 30, SizeEnforced: true},
+	}, TotalCount: 2}, nil
+}
+
 type coreSystemServer struct {
 	coreapi.UnimplementedSystemAPIServer
 	updated *coreapi.SystemConfigData
 }
 
 func (s *coreSystemServer) GetConfig(context.Context, *coreapi.Empty) (*coreapi.SystemConfigData, error) {
-	return &coreapi.SystemConfigData{BaseDomain: "example.test", ImageBuildsEnabled: true, DefaultCpuReservationMillicores: 250}, nil
+	return &coreapi.SystemConfigData{BaseDomain: "example.test", ImageBuildsEnabled: true, DefaultCpuReservationMillicores: 250, DefaultVolumeSizeBytes: 1 << 30}, nil
 }
 
 func (s *coreSystemServer) UpdateConfig(_ context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {
@@ -378,7 +419,7 @@ func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreap
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
-	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, RootfsQuotaStatus: "not_enforced"}, nil
+	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, RootfsQuotaStatus: "not_enforced", DcmReservedVolumeBytes: 4096}, nil
 }
 
 type coreReportServer struct {

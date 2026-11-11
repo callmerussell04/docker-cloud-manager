@@ -104,6 +104,8 @@ message SystemMonitoringResponse {
   // enforced, not_enforced or unknown: whether the container root filesystem
   // cap is enforced on this host.
   string rootfs_quota_status = 25;
+  // The sum of the sizes of all volumes not being deleted.
+  int64 dcm_reserved_volume_bytes = 26;
 }
 
 message Empty {}
@@ -363,6 +365,8 @@ message CreateVolumeRequest {
   string name = 2;
   reserved 3, 4;
   reserved "driver", "driver_opts";
+  // Zero asks for the default volume size.
+  int64 size_bytes = 5;
 }
 
 message CreateVolumeResponse {
@@ -387,6 +391,10 @@ message VolumeData {
   string last_error = 8;
   int64 used_bytes = 9;
   int64 usage_observed_at = 10;
+  int64 size_bytes = 11;
+  // Whether the kernel enforces size_bytes; otherwise it is checked
+  // periodically.
+  bool size_enforced = 12;
 }
 
 message VolumeListResponse {
@@ -560,6 +568,7 @@ message SystemConfigData {
   int64 memory_boost_multiplier = 92;
   int64 cpu_boost_multiplier = 93;
   int64 boost_min_free_memory_bytes = 94;
+  int64 default_volume_size_bytes = 95;
 }
 
 message BuilderRuntimeConfigData {

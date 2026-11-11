@@ -121,6 +121,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		Users:        users,
 		ImageRepo:    repos.Images,
 		DiskMetrics:  diskMetrics,
+		CapacityLock: repos.Containers,
 		HostDiskPath: "/",
 	})
 	require.NoError(t, err)

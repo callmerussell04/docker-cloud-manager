@@ -56,13 +56,14 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 
 	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)
 	volumes, err := service.NewVolumeService(service.VolumeServiceDeps{
-		Repository:  repos.Volumes,
-		Docker:      volumeDocker,
-		Config:      cfg,
-		Lifecycle:   lifecycle,
-		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
-		Users:       users,
-		ImageRepo:   repos.Images,
+		Repository:   repos.Volumes,
+		Docker:       volumeDocker,
+		Config:       cfg,
+		Lifecycle:    lifecycle,
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		Users:        users,
+		ImageRepo:    repos.Images,
+		CapacityLock: repos.Containers,
 	})
 	require.NoError(t, err)
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
@@ -162,7 +163,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, "subdomain web.example.test is already in use", apperrors.SafeMessage(err))
 
 	missingVolumeID := uuid.New()
-	require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: missingVolumeID, OwnerID: ownerID, Name: "missing", DockerName: "vol_missing", Status: model.VolumeStatusMissing}))
+	require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: missingVolumeID, OwnerID: ownerID, Name: "missing", DockerName: "vol_missing", Status: model.VolumeStatusMissing, SizeBytes: 1 << 20}))
 	_, err = containers.Create(ownerCtx, model.ContainerCreateParams{
 		Name:         "missing-volume",
 		ImageTag:     "nginx:latest",

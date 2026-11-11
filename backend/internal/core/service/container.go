@@ -70,7 +70,7 @@ type containerLockRepository interface {
 }
 
 type ContainerVolumeRepository interface {
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 }

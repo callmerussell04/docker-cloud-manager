@@ -191,6 +191,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 		Status:     model.VolumeStatusAvailable,
 		CreatedAt:  time.Unix(321, 0),
 		UsedBytes:  128,
+		SizeBytes:  64 << 20,
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	logic.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
@@ -200,10 +201,11 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	client := coreapi.NewVolumeAPIClient(conn)
 	ctx := userScopeContext(ownerID)
 
-	createResp, err := client.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data"})
+	createResp, err := client.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data", SizeBytes: 32 << 20})
 	require.NoError(t, err)
 	require.Equal(t, volumeID.String(), createResp.VolumeId)
 	require.Equal(t, "data", createParams.Name)
+	require.EqualValues(t, 32<<20, createParams.SizeBytes)
 
 	listResp, err := client.ListVolumes(ctx, &coreapi.PaginationRequest{Limit: 10})
 	require.NoError(t, err)
@@ -211,6 +213,8 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	require.Equal(t, "data", listResp.Volumes[0].Name)
 	require.Equal(t, "alice", listResp.Volumes[0].OwnerUsername)
 	require.EqualValues(t, 128, listResp.Volumes[0].UsedBytes)
+	require.EqualValues(t, 64<<20, listResp.Volumes[0].SizeBytes)
+	require.False(t, listResp.Volumes[0].SizeEnforced)
 
 	_, err = client.DeleteVolume(ctx, &coreapi.VolumeActionRequest{VolumeId: volumeID.String()})
 	require.NoError(t, err)
@@ -240,15 +244,18 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	require.Equal(t, initial.BaseDomain, got.BaseDomain)
 	require.Equal(t, initial.BuildPidsLimit, got.BuildPidsLimit)
 	require.Equal(t, int32(initial.MaxContainersPerUser), got.MaxContainersPerUser)
+	require.Equal(t, initial.DefaultVolumeSizeBytes, got.DefaultVolumeSizeBytes)
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{
 		BaseDomain:                    "example.test",
 		DefaultMemoryReservationBytes: initial.DefaultMemoryReservation,
 		BuildPidsLimit:                initial.BuildPidsLimit,
 		MaxContainersPerUser:          int32(initial.MaxContainersPerUser),
+		DefaultVolumeSizeBytes:        256 << 20,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "example.test", updated.BaseDomain)
+	require.EqualValues(t, 256<<20, updated.DefaultVolumeSizeBytes)
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
@@ -345,7 +352,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	projectLogic.EXPECT().Cancel(mock.Anything, projectID).Return(nil)
 	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
-	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, DCMDiskUsedBytes: 20, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
+	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, DCMDiskUsedBytes: 20, DCMReservedVolumeBytes: 40, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterProjectAPI(s, projectLogic, users)
 		coregrpc.RegisterStatsAPI(s, statsLogic)
@@ -374,6 +381,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	require.Equal(t, 12.5, systemStats.CpuPercent)
 	require.EqualValues(t, 30, systemStats.GetDcmBorrowedMemoryBytes())
 	require.Equal(t, "not_enforced", systemStats.GetRootfsQuotaStatus())
+	require.EqualValues(t, 40, systemStats.GetDcmReservedVolumeBytes())
 	require.Equal(t, int64(999), systemStats.ObservedAt)
 }
 

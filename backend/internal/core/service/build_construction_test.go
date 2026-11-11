@@ -54,7 +54,7 @@ func newBuildRepository(t *testing.T) *coremocks.BuildRepository {
 func buildServiceDeps(t *testing.T) service.BuildServiceDeps {
 	t.Helper()
 	volumes := coremocks.NewBuildVolumeDiskRepository(t)
-	volumes.EXPECT().GetUserUsedVolumeBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 	staged := coremocks.NewStagedObjectRepository(t)
 	staged.EXPECT().Reserve(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	staged.EXPECT().Release(mock.Anything, mock.Anything).Return(nil).Maybe()

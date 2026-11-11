@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
 
@@ -12,38 +11,23 @@ type diskQuotaImageRepository interface {
 }
 
 type diskQuotaVolumeRepository interface {
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
-func usedDiskMB(ctx context.Context, ownerID uuid.UUID, imageRepo diskQuotaImageRepository, volumeRepo diskQuotaVolumeRepository) (int64, error) {
-	usedMB, err := imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
+// reservedDiskMB is the disk reserved by ownerID, in MB: the disk their images
+// use plus, for every volume not being deleted, its size or its measured usage
+// when that is larger. Admission, builds and user stats all read it here.
+func reservedDiskMB(ctx context.Context, ownerID uuid.UUID, imageRepo diskQuotaImageRepository, volumeRepo diskQuotaVolumeRepository) (int64, error) {
+	reservedMB, err := imageRepo.GetUserUsedDiskSpace(ctx, ownerID)
 	if err != nil {
 		return 0, err
 	}
 	if volumeRepo != nil {
-		usedBytes, err := volumeRepo.GetUserUsedVolumeBytes(ctx, ownerID)
+		volumeBytes, err := volumeRepo.GetUserReservedVolumeBytes(ctx, ownerID)
 		if err != nil {
 			return 0, err
 		}
-		usedMB += bytesToMBRoundedUp(usedBytes)
+		reservedMB += bytesToMBRoundedUp(volumeBytes)
 	}
-	return usedMB, nil
-}
-
-func ensureDiskQuotaAvailable(ctx context.Context, ownerID uuid.UUID, users UserInfoProvider, imageRepo diskQuotaImageRepository, volumeRepo diskQuotaVolumeRepository) error {
-	if users == nil || imageRepo == nil {
-		return nil
-	}
-	user, err := users.GetUser(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB, err := usedDiskMB(ctx, ownerID, imageRepo, volumeRepo)
-	if err != nil {
-		return err
-	}
-	if usedMB >= user.QuotaDiskMB {
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	}
-	return nil
+	return reservedMB, nil
 }

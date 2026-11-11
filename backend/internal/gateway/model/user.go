@@ -27,6 +27,7 @@ type SystemMonitoring struct {
 	DCMBorrowedMemoryBytes      int64
 	RootfsQuotaStatus           string // enforced, not_enforced or unknown
 	DCMDiskUsedBytes            int64
+	DCMReservedVolumeBytes      int64
 	HostMinFreeDiskBytes        int64
 	AdmissionStatus             string
 	AdmissionReasons            []string

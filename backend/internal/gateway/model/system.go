@@ -74,6 +74,7 @@ type SystemConfig struct {
 	MemoryBoostMultiplier                int64
 	CPUBoostMultiplier                   int64
 	BoostMinFreeMemoryBytes              int64
+	DefaultVolumeSizeBytes               int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string
 	GitCloneTimeoutSeconds               int64

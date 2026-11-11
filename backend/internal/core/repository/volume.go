@@ -18,8 +18,8 @@ type VolumeRepository struct {
 	db *pgxpool.Pool
 }
 
-const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, created_at`
-const qualifiedVolumeColumns = `volumes.id, volumes.owner_id, volumes.project_id, volumes.name, volumes.docker_name, volumes.status, volumes.last_observed_at, volumes.last_error, volumes.used_bytes, volumes.usage_observed_at, volumes.created_at`
+const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, size_bytes, size_enforced, created_at`
+const qualifiedVolumeColumns = `volumes.id, volumes.owner_id, volumes.project_id, volumes.name, volumes.docker_name, volumes.status, volumes.last_observed_at, volumes.last_error, volumes.used_bytes, volumes.usage_observed_at, volumes.size_bytes, volumes.size_enforced, volumes.created_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -40,9 +40,9 @@ func insertVolume(ctx context.Context, db executor, vol model.Volume) error {
 	}
 
 	_, err := db.Exec(ctx, `
-		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, vol.ID, vol.OwnerID, vol.ProjectID, vol.Name, vol.DockerName, status)
+		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status, size_bytes, size_enforced)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, vol.ID, vol.OwnerID, vol.ProjectID, vol.Name, vol.DockerName, status, vol.SizeBytes, vol.SizeEnforced)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -316,11 +316,22 @@ func (r *VolumeRepository) UpdateUsage(ctx context.Context, id uuid.UUID, usedBy
 	return nil
 }
 
-func (r *VolumeRepository) GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE owner_id = $1 AND status != $2`
-	var usedBytes int64
-	err := r.db.QueryRow(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&usedBytes)
-	return usedBytes, err
+// GetUserReservedVolumeBytes sums, over the owner's volumes not being deleted,
+// each volume's size or its measured usage when that is larger. It is the
+// volume part of the owner's reserved disk.
+func (r *VolumeRepository) GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `SELECT COALESCE(SUM(GREATEST(size_bytes, used_bytes)), 0)::bigint FROM volumes WHERE owner_id = $1 AND status != $2`
+	var reserved int64
+	err := r.db.QueryRow(ctx, query, ownerID, model.VolumeStatusDeleting).Scan(&reserved)
+	return reserved, err
+}
+
+// GetTotalVolumeSizeBytes sums the sizes of all volumes not being deleted.
+func (r *VolumeRepository) GetTotalVolumeSizeBytes(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM volumes WHERE status != $1`
+	var total int64
+	err := r.db.QueryRow(ctx, query, model.VolumeStatusDeleting).Scan(&total)
+	return total, err
 }
 
 func (r *VolumeRepository) GetTotalUsedVolumeBytes(ctx context.Context) (int64, error) {
@@ -328,23 +339,6 @@ func (r *VolumeRepository) GetTotalUsedVolumeBytes(ctx context.Context) (int64, 
 	var usedBytes int64
 	err := r.db.QueryRow(ctx, query, model.VolumeStatusDeleting).Scan(&usedBytes)
 	return usedBytes, err
-}
-
-func (r *VolumeRepository) GetOwnersWithVolumes(ctx context.Context) ([]uuid.UUID, error) {
-	rows, err := r.db.Query(ctx, `SELECT DISTINCT owner_id FROM volumes`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var owners []uuid.UUID
-	for rows.Next() {
-		var ownerID uuid.UUID
-		if err := rows.Scan(&ownerID); err != nil {
-			return nil, err
-		}
-		owners = append(owners, ownerID)
-	}
-	return owners, rows.Err()
 }
 
 func scanVolume(s scanner) (model.Volume, error) {
@@ -356,7 +350,7 @@ func scanVolume(s scanner) (model.Volume, error) {
 
 	if err := s.Scan(
 		&v.ID, &v.OwnerID, &projectID, &v.Name, &v.DockerName, &v.Status,
-		&lastObservedAt, &lastError, &v.UsedBytes, &usageObservedAt, &v.CreatedAt,
+		&lastObservedAt, &lastError, &v.UsedBytes, &usageObservedAt, &v.SizeBytes, &v.SizeEnforced, &v.CreatedAt,
 	); err != nil {
 		return model.Volume{}, err
 	}

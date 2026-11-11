@@ -7,18 +7,20 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
 func TestVolumeServiceRejectsMissingDependencies(t *testing.T) {
 	depstest.RequireRejectsMissing(t, volumeServiceDeps, service.NewVolumeService, map[string]string{
-		"Repository":  "repository",
-		"Docker":      "docker",
-		"Config":      "config",
-		"Lifecycle":   "lifecycle",
-		"Users":       "users",
-		"ImageRepo":   "images",
-		"DiskMetrics": "disk metrics",
+		"Repository":   "repository",
+		"Docker":       "docker",
+		"Config":       "config",
+		"Lifecycle":    "lifecycle",
+		"Users":        "users",
+		"ImageRepo":    "images",
+		"DiskMetrics":  "disk metrics",
+		"CapacityLock": "capacity lock",
 	})
 }
 
@@ -31,18 +33,20 @@ func TestVolumeServiceAcceptsRequiredDependencies(t *testing.T) {
 func volumeServiceDeps(t *testing.T) service.VolumeServiceDeps {
 	t.Helper()
 	return service.VolumeServiceDeps{
-		Repository:  coremocks.NewVolumeRepository(t),
-		Docker:      coremocks.NewVolumeDockerAPI(t),
-		Config:      testConfig(),
-		Lifecycle:   coremocks.NewVolumeLifecycleRepository(t),
-		Users:       coremocks.NewUserInfoProvider(t),
-		ImageRepo:   coremocks.NewVolumeImageDiskRepository(t),
-		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
+		Repository:   coremocks.NewVolumeRepository(t),
+		Docker:       coremocks.NewVolumeDockerAPI(t),
+		Config:       testConfig(),
+		Lifecycle:    coremocks.NewVolumeLifecycleRepository(t),
+		Users:        coremocks.NewUserInfoProvider(t),
+		ImageRepo:    coremocks.NewVolumeImageDiskRepository(t),
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		CapacityLock: coremocks.NewVolumeCapacityLock(t),
 	}
 }
 
 var _ service.VolumeRepository = (*repository.VolumeRepository)(nil)
 var _ service.VolumeLifecycleRepository = (*repository.ResourceLifecycleRepository)(nil)
+var _ service.VolumeCapacityLock = (*repository.ContainerRepository)(nil)
 
 // Tests unrelated to admission still assemble every mandatory capability.
 func newTestVolumeService(t *testing.T, deps service.VolumeServiceDeps) *service.VolumeService {
@@ -55,6 +59,11 @@ func newTestVolumeService(t *testing.T, deps service.VolumeServiceDeps) *service
 	}
 	if deps.DiskMetrics == nil {
 		deps.DiskMetrics = coremocks.NewHostDiskMetricsProvider(t)
+	}
+	if deps.CapacityLock == nil {
+		lock := coremocks.NewVolumeCapacityLock(t)
+		lock.EXPECT().AcquireOwnerCapacityLock(mock.Anything, mock.Anything).Return(func() {}, nil).Maybe()
+		deps.CapacityLock = lock
 	}
 	svc, err := service.NewVolumeService(deps)
 	require.NoError(t, err)

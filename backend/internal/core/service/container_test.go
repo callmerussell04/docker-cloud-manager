@@ -41,7 +41,7 @@ func newTestContainerService(t *testing.T, deps service.ContainerServiceDeps) *s
 	}
 	if deps.Volumes == nil {
 		volumes := coremocks.NewContainerVolumeRepository(t)
-		volumes.EXPECT().GetUserUsedVolumeBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+		volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 		deps.Volumes = volumes
 	}
 	if deps.Images == nil {

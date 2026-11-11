@@ -21,6 +21,10 @@ type admissionRequest struct {
 	chargesUser bool
 	// diskWriteBytes is what the work is projected to write to host disk.
 	diskWriteBytes int64
+	// userDiskBytes is disk the request reserves against the owner's disk
+	// quota, such as a new volume's size. With none, the request is
+	// rejected only when the owner's reserved disk already fills the quota.
+	userDiskBytes int64
 }
 
 // reservationLedger is a snapshot of the memory, CPU and disk already promised
@@ -34,9 +38,9 @@ type reservationLedger struct {
 	userReservedCPUMillicores int64
 
 	// userDiskCounted is false when no image repository counts disk usage.
-	userDiskCounted bool
-	userDiskQuotaMB int64
-	userUsedDiskMB  int64
+	userDiskCounted    bool
+	userDiskQuotaMB    int64
+	userReservedDiskMB int64
 
 	systemReservedMemoryBytes   int64
 	systemReservedCPUMillicores int64
@@ -98,8 +102,14 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 			return admissionVerdict{limit: limitUserCPU, projected: projected, capacity: ledger.userCPUQuotaMillicores}
 		}
 	}
-	if ledger.userDiskCounted && ledger.userUsedDiskMB >= ledger.userDiskQuotaMB {
-		return admissionVerdict{limit: limitUserDisk, projected: ledger.userUsedDiskMB, capacity: ledger.userDiskQuotaMB}
+	if ledger.userDiskCounted {
+		if req.userDiskBytes > 0 {
+			if projected := ledger.userReservedDiskMB + bytesToMBRoundedUp(req.userDiskBytes); projected > ledger.userDiskQuotaMB {
+				return admissionVerdict{limit: limitUserDisk, projected: projected, capacity: ledger.userDiskQuotaMB}
+			}
+		} else if ledger.userReservedDiskMB >= ledger.userDiskQuotaMB {
+			return admissionVerdict{limit: limitUserDisk, projected: ledger.userReservedDiskMB, capacity: ledger.userDiskQuotaMB}
+		}
 	}
 	if ledger.hostCounted {
 		pool := hostMemoryPool(ledger.hostMemoryBytes, cfg.ReservedSystemMemory, cfg.OvercommitFactor)
@@ -135,10 +145,10 @@ type systemReservationReader interface {
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
 
-// admissionSources are where a reservation ledger is read from. users and
-// system are required; userReservations is read only for requests charged to
-// the owner. Absent images, volumes, host or disk metrics leave that part of
-// the ledger uncounted.
+// admissionSources are where a reservation ledger is read from. users is
+// required; userReservations is read only for requests charged to the owner,
+// and system and builds only when host metrics are wired. Absent images,
+// volumes, host or disk metrics leave that part of the ledger uncounted.
 type admissionSources struct {
 	users            UserInfoProvider
 	userReservations userReservationReader
@@ -191,25 +201,25 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, cha
 	if s.images != nil {
 		ledger.userDiskCounted = true
 		ledger.userDiskQuotaMB = user.QuotaDiskMB
-		if ledger.userUsedDiskMB, err = usedDiskMB(ctx, ownerID, s.images, s.volumes); err != nil {
+		if ledger.userReservedDiskMB, err = reservedDiskMB(ctx, ownerID, s.images, s.volumes); err != nil {
 			return ledger, err
 		}
 	}
-	if ledger.systemReservedMemoryBytes, err = s.system.GetTotalSystemReservedMemory(ctx); err != nil {
-		s.logReadFailure(ctx, "failed to calculate total system reserved memory", err)
-		return ledger, apperrors.ErrInternal
-	}
-	if ledger.systemReservedCPUMillicores, err = s.system.GetTotalSystemReservedCPU(ctx); err != nil {
-		s.logReadFailure(ctx, "failed to calculate total system reserved cpu", err)
-		return ledger, apperrors.ErrInternal
-	}
-	activeBuilds, err := s.builds.CountActive(ctx)
-	if err != nil {
-		return ledger, err
-	}
-	ledger.activeBuilds = int64(activeBuilds)
 	if s.hostMetrics != nil {
 		ledger.hostCounted = true
+		if ledger.systemReservedMemoryBytes, err = s.system.GetTotalSystemReservedMemory(ctx); err != nil {
+			s.logReadFailure(ctx, "failed to calculate total system reserved memory", err)
+			return ledger, apperrors.ErrInternal
+		}
+		if ledger.systemReservedCPUMillicores, err = s.system.GetTotalSystemReservedCPU(ctx); err != nil {
+			s.logReadFailure(ctx, "failed to calculate total system reserved cpu", err)
+			return ledger, apperrors.ErrInternal
+		}
+		activeBuilds, err := s.builds.CountActive(ctx)
+		if err != nil {
+			return ledger, err
+		}
+		ledger.activeBuilds = int64(activeBuilds)
 		if ledger.hostMemoryBytes, err = s.hostMetrics.GetTotalMemory(); err != nil {
 			s.logReadFailure(ctx, "failed to get system memory", err)
 			return ledger, apperrors.ErrInternal

@@ -55,13 +55,14 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	})
 	require.NoError(t, err)
 	volumes, err := service.NewVolumeService(service.VolumeServiceDeps{
-		Repository:  repos.Volumes,
-		Docker:      coremocks.NewVolumeDockerAPI(t),
-		Config:      cfg,
-		Lifecycle:   repository.NewResourceLifecycleRepository(repos.DB),
-		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
-		Users:       users,
-		ImageRepo:   repos.Images,
+		Repository:   repos.Volumes,
+		Docker:       coremocks.NewVolumeDockerAPI(t),
+		Config:       cfg,
+		Lifecycle:    repository.NewResourceLifecycleRepository(repos.DB),
+		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
+		Users:        users,
+		ImageRepo:    repos.Images,
+		CapacityLock: repos.Containers,
 	})
 	require.NoError(t, err)
 

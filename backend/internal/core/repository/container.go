@@ -314,14 +314,19 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container
 	return containers, rows.Err()
 }
 
-func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
+// ListRunningWritersOfVolume lists the running containers that mount
+// volumeID writable.
+func (r *ContainerRepository) ListRunningWritersOfVolume(ctx context.Context, volumeID uuid.UUID) ([]model.Container, error) {
 	query := `
-		SELECT DISTINCT c.id, c.docker_id
+		SELECT c.id, c.owner_id, c.docker_id, c.status
 		FROM containers c
-		JOIN volume_mounts vm ON vm.container_id = c.id
-		WHERE c.owner_id = $1 AND c.status = $2 AND vm.is_readonly = false
+		WHERE c.status = $2 AND EXISTS (
+			SELECT 1 FROM volume_mounts vm
+			WHERE vm.container_id = c.id AND vm.volume_id = $1 AND vm.is_readonly = false
+		)
+		ORDER BY c.id
 	`
-	rows, err := r.db.Query(ctx, query, ownerID, model.ContainerStatusRunning)
+	rows, err := r.db.Query(ctx, query, volumeID, model.ContainerStatusRunning)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +335,7 @@ func (r *ContainerRepository) GetRunningWithWritableVolumeMounts(ctx context.Con
 	for rows.Next() {
 		var c model.Container
 		var dockerID *string
-		if err := rows.Scan(&c.ID, &dockerID); err != nil {
+		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Status); err != nil {
 			return nil, err
 		}
 		if dockerID != nil {

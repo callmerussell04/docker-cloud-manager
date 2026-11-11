@@ -27,15 +27,19 @@ const admissionMiB = int64(1 << 20)
 // 2000m, with no overcommit and nothing held back for the system. Every entry
 // point asks for 256 MiB and 250m: container create, container start, project
 // start, and build creation through BuildMemoryBytes and the build CPU quota.
-// Builder runs up to four builds at once unless a case narrows it.
+// Builder runs up to four builds at once unless a case narrows it. A volume
+// create asks for the default 64 MiB size and no memory or CPU.
 type admissionWorld struct {
 	quotaRAMMB, quotaDiskMB int64
 	quotaCPU                float64
-	usedDiskMB              int64
-	otherMemory, otherCPU   int64
-	activeBuilds            int
-	maxConcurrentBuilds     int
-	diskFreeBytes           int64
+	// usedDiskMB is image disk; reservedVolumeBytes is what the owner's
+	// volumes reserve.
+	usedDiskMB            int64
+	reservedVolumeBytes   int64
+	otherMemory, otherCPU int64
+	activeBuilds          int
+	maxConcurrentBuilds   int
+	diskFreeBytes         int64
 }
 
 func roomyAdmissionWorld() admissionWorld {
@@ -64,6 +68,7 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.BuildCPUQuota, cfg.BuildCPUPeriod = 25000, 100000
 	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
 	cfg.HostMinFreeDiskBytes = 1 << 30
+	cfg.DefaultVolumeSizeBytes = 64 * admissionMiB
 	return cfg
 }
 
@@ -74,7 +79,10 @@ type admissionEntry struct {
 	// chargesUser reports whether the request counts against the owner's
 	// memory and CPU quotas. Builds reserve host capacity only.
 	chargesUser bool
-	run         func(t *testing.T, w admissionWorld) (queued bool, err error)
+	// volume marks the volume create, which asks only for disk quota and
+	// meets the disk floor.
+	volume bool
+	run    func(t *testing.T, w admissionWorld) (queued bool, err error)
 }
 
 var admissionEntries = []admissionEntry{
@@ -82,6 +90,7 @@ var admissionEntries = []admissionEntry{
 	{name: "container start", chargesUser: true, run: admitContainerStart},
 	{name: "project start", chargesUser: true, run: admitProjectStart},
 	{name: "build creation", chargesUser: false, run: admitBuildCreation},
+	{name: "volume create", volume: true, run: admitVolumeCreate},
 }
 
 // Every entry point admits memory and CPU through one check, in the order
@@ -94,8 +103,9 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		world func(*admissionWorld)
 		// want is the error kind for requests charged to the user; wantBuild,
 		// for builds, is the same unless the limit is a user memory or CPU
-		// quota, which builds do not count against.
-		want, wantBuild error
+		// quota, which builds do not count against. wantVolume is for volume
+		// creates, which meet only the disk quota and the disk floor.
+		want, wantBuild, wantVolume error
 	}{
 		{name: "fits", world: func(*admissionWorld) {}},
 		{
@@ -111,7 +121,25 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "user disk quota",
 			world: func(w *admissionWorld) { w.usedDiskMB = 1024 },
-			want:  apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded,
+			want:  apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
+		},
+		{
+			// Measured usage is nothing, but the sizes the owner's volumes
+			// reserve fill the quota.
+			name:  "volume sizes fill the user disk quota",
+			world: func(w *admissionWorld) { w.reservedVolumeBytes = 1024 * admissionMiB },
+			want:  apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
+		},
+		{
+			// 1000 of 1024 MB leaves room for a container or a build, but
+			// not for a 64 MiB volume.
+			name:       "a volume needs room for its size",
+			world:      func(w *admissionWorld) { w.usedDiskMB = 1000 },
+			wantVolume: apperrors.ErrQuotaExceeded,
+		},
+		{
+			name:  "a volume that fills the quota exactly",
+			world: func(w *admissionWorld) { w.usedDiskMB, w.reservedVolumeBytes = 900, 60*admissionMiB },
 		},
 		{
 			name:  "host memory",
@@ -154,7 +182,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "disk floor",
 			world: func(w *admissionWorld) { w.diskFreeBytes = 512 * admissionMiB },
-			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
 		},
 		{
 			name: "user disk is checked before host memory",
@@ -162,7 +190,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.usedDiskMB = 1024
 				w.otherMemory = 1400 * admissionMiB
 			},
-			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded,
+			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
 		},
 		{
 			name: "user memory is checked before the disk floor",
@@ -170,7 +198,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.quotaRAMMB = 700
 				w.diskFreeBytes = 0
 			},
-			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrHostExhausted,
+			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
 		},
 	} {
 		for _, entry := range admissionEntries {
@@ -178,7 +206,10 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w := roomyAdmissionWorld()
 				tc.world(&w)
 				want := tc.want
-				if !entry.chargesUser {
+				switch {
+				case entry.volume:
+					want = tc.wantVolume
+				case !entry.chargesUser:
 					want = tc.wantBuild
 				}
 
@@ -227,8 +258,11 @@ func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID
 	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).Return(w.activeBuilds, nil).Maybe()
+	volumes := coremocks.NewContainerVolumeRepository(t)
+	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
 	return newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:  store,
+		Volumes:     volumes,
 		Images:      images,
 		Metrics:     admissionHostMetrics(t),
 		DiskMetrics: admissionDiskMetrics(t, w),
@@ -341,6 +375,9 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 	images := coremocks.NewBuildImageRepository(t)
 	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
 	deps.Images = images
+	volumes := coremocks.NewBuildVolumeDiskRepository(t)
+	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
+	deps.VolumeRepo = volumes
 	repo := coremocks.NewBuildRepository(t)
 	repo.EXPECT().AcquireCapacityLock(mock.Anything).Return(func() {}, nil).Once()
 	repo.EXPECT().CountActive(mock.Anything).Return(w.activeBuilds, nil).Maybe()
@@ -358,6 +395,39 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 	_, _, err = svc.CreateBuildJob(ctx, "demo", "archive.zip", "build.log", ".", "Dockerfile", nil, "request")
 
 	return queued, err
+}
+
+// admitVolumeCreate creates a volume of the default size under the owner
+// capacity lock that store holds.
+func admitVolumeCreate(t *testing.T, w admissionWorld) (bool, error) {
+	ownerID := uuid.New()
+	store := admissionStore(t, w, ownerID)
+	users := coremocks.NewUserInfoProvider(t)
+	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{
+		ID: ownerID, QuotaRAMMB: w.quotaRAMMB, QuotaCPU: w.quotaCPU, QuotaDiskMB: w.quotaDiskMB,
+	}, nil).Maybe()
+	images := coremocks.NewVolumeImageDiskRepository(t)
+	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
+	repo := newVolumeRepoMock(t)
+	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	lifecycle := &volumeLifecycleFake{}
+	svc := newTestVolumeService(t, service.VolumeServiceDeps{
+		Repository:   repo,
+		Docker:       coremocks.NewVolumeDockerAPI(t),
+		Config:       coretest.StaticConfig{Config: w.config()},
+		Lifecycle:    lifecycle,
+		Users:        users,
+		ImageRepo:    images,
+		DiskMetrics:  admissionDiskMetrics(t, w),
+		CapacityLock: store,
+		Logger:       slog.New(slog.DiscardHandler),
+	})
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	_, err := svc.Create(ctx, model.VolumeCreateParams{Name: "data"})
+
+	return lifecycle.createQueued, err
 }
 
 // queuedCount reports how many lifecycle operations store holds queued.

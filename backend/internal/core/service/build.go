@@ -57,7 +57,7 @@ type BuildImageRepository interface {
 }
 
 type BuildVolumeDiskRepository interface {
-	GetUserUsedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 // BuildObjectStore stages build archives and logs. StatObject sizes staged
@@ -213,8 +213,8 @@ func (s *BuildService) ensureImageBuildsEnabled() error {
 	return nil
 }
 
-func (s *BuildService) getUserUsedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	return usedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
+func (s *BuildService) getUserReservedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	return reservedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
 func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
@@ -281,7 +281,7 @@ func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uu
 	if err != nil {
 		return err
 	}
-	usedMB, err := s.getUserUsedDiskMB(ctx, ownerID)
+	usedMB, err := s.getUserReservedDiskMB(ctx, ownerID)
 	if err != nil {
 		return err
 	}
@@ -800,7 +800,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err != nil {
 		return err
 	}
-	usedMB, err := s.getUserUsedDiskMB(ctx, img.OwnerID)
+	usedMB, err := s.getUserReservedDiskMB(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}
