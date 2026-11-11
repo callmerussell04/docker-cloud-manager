@@ -176,8 +176,10 @@ type SystemMonitoringResponse struct {
 	RootfsQuotaStatus string `protobuf:"bytes,25,opt,name=rootfs_quota_status,json=rootfsQuotaStatus,proto3" json:"rootfs_quota_status,omitempty"`
 	// The sum of the sizes of all volumes not being deleted.
 	DcmReservedVolumeBytes int64 `protobuf:"varint,26,opt,name=dcm_reserved_volume_bytes,json=dcmReservedVolumeBytes,proto3" json:"dcm_reserved_volume_bytes,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// measured, enforced or unavailable: how volume sizes are enforced.
+	VolumeSizeMode string `protobuf:"bytes,27,opt,name=volume_size_mode,json=volumeSizeMode,proto3" json:"volume_size_mode,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -390,6 +392,13 @@ func (x *SystemMonitoringResponse) GetDcmReservedVolumeBytes() int64 {
 		return x.DcmReservedVolumeBytes
 	}
 	return 0
+}
+
+func (x *SystemMonitoringResponse) GetVolumeSizeMode() string {
+	if x != nil {
+		return x.VolumeSizeMode
+	}
+	return ""
 }
 
 type Empty struct {
@@ -3816,6 +3825,7 @@ type SystemConfigData struct {
 	CpuBoostMultiplier                   int64                  `protobuf:"varint,93,opt,name=cpu_boost_multiplier,json=cpuBoostMultiplier,proto3" json:"cpu_boost_multiplier,omitempty"`
 	BoostMinFreeMemoryBytes              int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
 	DefaultVolumeSizeBytes               int64                  `protobuf:"varint,95,opt,name=default_volume_size_bytes,json=defaultVolumeSizeBytes,proto3" json:"default_volume_size_bytes,omitempty"`
+	VolumeSizeEnforcement                bool                   `protobuf:"varint,96,opt,name=volume_size_enforcement,json=volumeSizeEnforcement,proto3" json:"volume_size_enforcement,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4459,6 +4469,13 @@ func (x *SystemConfigData) GetDefaultVolumeSizeBytes() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetVolumeSizeEnforcement() bool {
+	if x != nil {
+		return x.VolumeSizeEnforcement
+	}
+	return false
+}
+
 type BuilderRuntimeConfigData struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
 	BuildMemoryBytes               int64                  `protobuf:"varint,1,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
@@ -4802,7 +4819,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xc1\t\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xeb\t\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4832,7 +4849,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x1fdcm_reserved_build_memory_bytes\x18\x17 \x01(\x03R\x1bdcmReservedBuildMemoryBytes\x129\n" +
 	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\x12.\n" +
 	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\x129\n" +
-	"\x19dcm_reserved_volume_bytes\x18\x1a \x01(\x03R\x16dcmReservedVolumeBytes\"\a\n" +
+	"\x19dcm_reserved_volume_bytes\x18\x1a \x01(\x03R\x16dcmReservedVolumeBytes\x12(\n" +
+	"\x10volume_size_mode\x18\x1b \x01(\tR\x0evolumeSizeMode\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +
@@ -5138,7 +5156,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xe6+\n" +
+	"totalCount\"\x9e,\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5229,7 +5247,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x17memory_boost_multiplier\x18\\ \x01(\x03R\x15memoryBoostMultiplier\x120\n" +
 	"\x14cpu_boost_multiplier\x18] \x01(\x03R\x12cpuBoostMultiplier\x12<\n" +
 	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytes\x129\n" +
-	"\x19default_volume_size_bytes\x18_ \x01(\x03R\x16defaultVolumeSizeBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x19default_volume_size_bytes\x18_ \x01(\x03R\x16defaultVolumeSizeBytes\x126\n" +
+	"\x17volume_size_enforcement\x18` \x01(\bR\x15volumeSizeEnforcementJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

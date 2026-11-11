@@ -49,6 +49,9 @@ type Request struct {
 
 // Daemon is a fake Docker daemon. Routes are keyed by unversioned path, such
 // as "/containers/create"; "METHOD /path" keys take precedence over path keys.
+// A key ending in "*" matches every path with that prefix, such as
+// "DELETE /volumes/*" for a name the adapter generates; exact keys take
+// precedence over prefix keys.
 type Daemon struct {
 	t      testing.TB
 	routes map[string]Response
@@ -92,6 +95,9 @@ func (d *Daemon) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		response, found = d.routes[path]
 	}
+	if !found {
+		response, found = d.prefixRoute(r.Method + " " + path)
+	}
 	if !found || response.Status == 0 {
 		d.t.Errorf("unexpected Docker API call %s %s", r.Method, path)
 		w.WriteHeader(http.StatusTeapot)
@@ -99,6 +105,24 @@ func (d *Daemon) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(response.Status)
 	_, _ = io.WriteString(w, response.Body) // test fake; the client reports write failures
+}
+
+// prefixRoute finds the "*" route whose prefix matches key ("METHOD /path"),
+// preferring the longest prefix.
+func (d *Daemon) prefixRoute(key string) (Response, bool) {
+	var (
+		best     Response
+		bestLen  = -1
+		matching bool
+	)
+	for route, response := range d.routes {
+		prefix, ok := strings.CutSuffix(route, "*")
+		if !ok || !strings.HasPrefix(key, prefix) || len(prefix) <= bestLen {
+			continue
+		}
+		best, bestLen, matching = response, len(prefix), true
+	}
+	return best, matching
 }
 
 // Requests returns the recorded calls to path, in arrival order.

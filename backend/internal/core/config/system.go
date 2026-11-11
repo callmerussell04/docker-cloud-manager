@@ -105,6 +105,10 @@ type SystemConfig struct {
 	// DefaultVolumeSizeBytes is the size of a volume created without one,
 	// including every volume a Compose deployment creates.
 	DefaultVolumeSizeBytes int64 `json:"default_volume_size_bytes"`
+	// VolumeSizeEnforcement gives each new volume's size to Docker so the
+	// kernel refuses writes past it. Turning it on requires a host whose
+	// Docker data directory supports project quotas.
+	VolumeSizeEnforcement bool `json:"volume_size_enforcement"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

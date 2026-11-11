@@ -70,6 +70,8 @@ packages:
       StatsBorrowedMemory: {}
       StatsRootfsQuota: {}
       StatsVolumeRepository: {}
+      StatsVolumeSizeMode: {}
+      SystemVolumeSizeSupport: {}
       UsageSnapshotSource: {}
       UserInfoProvider: {}
       VolumeDockerAPI: {}
@@ -77,6 +79,8 @@ packages:
       VolumeCapacityLock: {}
       VolumeLifecycleRepository: {}
       VolumeRepository: {}
+      VolumeSizeModeReader: {}
+      VolumeSizeSupportChecker: {}
       VolumeUsageConfigProvider: {}
       VolumeUsageContainerRepo: {}
       VolumeUsageDockerAPI: {}

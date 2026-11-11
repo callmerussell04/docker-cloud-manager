@@ -113,6 +113,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	})
 
 	metricsProvider := metrics.NewSystemMetrics()
+	volumeSizeEnforcement := service.CheckVolumeSizeEnforcement(context.Background(), dockerAdapter, cfg.ConfigManager, appLogger)
 
 	contService, err := service.NewContainerService(service.ContainerServiceDeps{
 		Repository: contRepo, Volumes: volRepo,
@@ -133,6 +134,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		ImageRepo:    imgRepo,
 		DiskMetrics:  metricsProvider,
 		CapacityLock: contRepo,
+		SizeMode:     volumeSizeEnforcement,
 		HostDiskPath: cfg.HostDiskPath,
 		Logger:       logger,
 	})
@@ -187,7 +189,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	contService.SetProjectStatusUpdater(projService)
-	systemService := service.NewSystemService(cfg.ConfigManager)
+	systemService, err := service.NewSystemService(service.SystemServiceDeps{
+		Config: cfg.ConfigManager, VolumeSizeSupport: volumeSizeEnforcement,
+	})
+	if err != nil {
+		return nil, err
+	}
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
 	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL, rabbitmq.Topology{})
@@ -268,7 +275,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	statsService, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
 		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Users: ssoClient,
-		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota,
+		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSizeEnforcement,
 	})
 	if err != nil {
 		cancel()

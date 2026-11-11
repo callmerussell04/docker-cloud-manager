@@ -6,6 +6,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -63,6 +64,38 @@ func TestVolumeRepositoryKeepsSizeAndEnforcedFlag(t *testing.T) {
 			require.Equal(t, tc.enforced, listed[0].SizeEnforced)
 		})
 	}
+}
+
+// A created volume records whether its size is kernel-enforced, and keeps
+// that flag through every later status and usage write: turning enforcement
+// on or off never changes a volume that already exists.
+func TestVolumeRepositoryMarkAvailableRecordsTheEnforcedFlagOnce(t *testing.T) {
+	for _, enforced := range []bool{false, true} {
+		t.Run(map[bool]string{false: "measured", true: "enforced"}[enforced], func(t *testing.T) {
+			ctx := context.Background()
+			db := dbtest.OpenCorePostgres(t)
+			repo := repository.NewVolumeRepository(db)
+			id := uuid.New()
+			require.NoError(t, repo.Save(ctx, model.Volume{ID: id, OwnerID: uuid.New(), Name: "data", DockerName: "vol_data", Status: model.VolumeStatusCreating, SizeBytes: 8 * volumeTestMiB}))
+
+			require.NoError(t, repo.MarkAvailable(ctx, id, enforced))
+			got, err := repo.GetByID(ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, model.VolumeStatusAvailable, got.Status)
+			require.Equal(t, enforced, got.SizeEnforced)
+
+			require.NoError(t, repo.UpdateUsage(ctx, id, 2*volumeTestMiB))
+			require.NoError(t, repo.UpdateStatus(ctx, id, model.VolumeStatusMissing))
+			require.NoError(t, repo.UpdateStatus(ctx, id, model.VolumeStatusAvailable))
+			got, err = repo.GetByID(ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, enforced, got.SizeEnforced)
+		})
+	}
+	t.Run("unknown volume", func(t *testing.T) {
+		repo := repository.NewVolumeRepository(dbtest.OpenCorePostgres(t))
+		require.ErrorIs(t, repo.MarkAvailable(context.Background(), uuid.New(), true), apperrors.ErrNotFound)
+	})
 }
 
 // A volume reserves its size, or its measurement when that is larger, until

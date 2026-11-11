@@ -5,6 +5,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/mock"
@@ -21,6 +22,7 @@ func TestVolumeServiceRejectsMissingDependencies(t *testing.T) {
 		"ImageRepo":    "images",
 		"DiskMetrics":  "disk metrics",
 		"CapacityLock": "capacity lock",
+		"SizeMode":     "volume size mode",
 	})
 }
 
@@ -41,12 +43,14 @@ func volumeServiceDeps(t *testing.T) service.VolumeServiceDeps {
 		ImageRepo:    coremocks.NewVolumeImageDiskRepository(t),
 		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
 		CapacityLock: coremocks.NewVolumeCapacityLock(t),
+		SizeMode:     coremocks.NewVolumeSizeModeReader(t),
 	}
 }
 
 var _ service.VolumeRepository = (*repository.VolumeRepository)(nil)
 var _ service.VolumeLifecycleRepository = (*repository.ResourceLifecycleRepository)(nil)
 var _ service.VolumeCapacityLock = (*repository.ContainerRepository)(nil)
+var _ service.VolumeSizeModeReader = (*service.VolumeSizeEnforcement)(nil)
 
 // Tests unrelated to admission still assemble every mandatory capability.
 func newTestVolumeService(t *testing.T, deps service.VolumeServiceDeps) *service.VolumeService {
@@ -64,6 +68,9 @@ func newTestVolumeService(t *testing.T, deps service.VolumeServiceDeps) *service
 		lock := coremocks.NewVolumeCapacityLock(t)
 		lock.EXPECT().AcquireOwnerCapacityLock(mock.Anything, mock.Anything).Return(func() {}, nil).Maybe()
 		deps.CapacityLock = lock
+	}
+	if deps.SizeMode == nil {
+		deps.SizeMode = coretest.MeasuredVolumeSizeMode(t)
 	}
 	svc, err := service.NewVolumeService(deps)
 	require.NoError(t, err)

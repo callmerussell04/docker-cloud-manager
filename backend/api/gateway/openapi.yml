@@ -887,6 +887,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /admin/monitoring:
     get:
@@ -2383,6 +2385,10 @@ components:
           type: string
           enum: [enforced, not_enforced, unknown]
           description: Whether the container root filesystem cap (container_disk_quota) is enforced on this host, as Core classified Docker's storage driver at startup. not_enforced means Docker accepts the cap without applying it; unknown covers unlisted storage setups and a failed read.
+        volume_size_mode:
+          type: string
+          enum: [measured, enforced, unavailable]
+          description: How new volumes get their size. measured when volume_size_enforcement is off (sizes are checked periodically); enforced when it is on and the host supports volume sizes; unavailable when it is on but the host check failed at startup, so new volumes are created measured until a restart or a settings update that turns it on again passes the check.
         containers_total: { type: integer }
         containers_running: { type: integer }
         containers_stopped: { type: integer }
@@ -2730,6 +2736,9 @@ components:
           format: int64
           minimum: 1048576
           description: Size of a volume created without one, including every volume a Compose deployment creates. At least 1 MiB.
+        volume_size_enforcement:
+          type: boolean
+          description: Give each new volume's size to Docker so the kernel refuses writes past it. Turning it on runs a host check (a throwaway sized volume) and is rejected with 400 when the host does not support volume sizes. Volumes created earlier keep size_enforced false and stay checked periodically.
         git_sources_enabled:
           type: boolean
         git_allowed_hosts:

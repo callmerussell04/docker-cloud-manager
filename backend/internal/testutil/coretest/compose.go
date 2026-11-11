@@ -122,6 +122,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		ImageRepo:    repos.Images,
 		DiskMetrics:  diskMetrics,
 		CapacityLock: repos.Containers,
+		SizeMode:     MeasuredVolumeSizeMode(t),
 		HostDiskPath: "/",
 	})
 	require.NoError(t, err)
@@ -327,4 +328,13 @@ func ComposeTarGz(t *testing.T, files map[string]string) []byte {
 	require.NoError(t, tw.Close())
 	require.NoError(t, gzw.Close())
 	return buf.Bytes()
+}
+
+// MeasuredVolumeSizeMode reports every volume as created in measured mode, as
+// with volume_size_enforcement off.
+func MeasuredVolumeSizeMode(t *testing.T) *coremocks.VolumeSizeModeReader {
+	t.Helper()
+	mode := coremocks.NewVolumeSizeModeReader(t)
+	mode.EXPECT().VolumeSizeMode().Return(model.VolumeSizeMeasured).Maybe()
+	return mode
 }

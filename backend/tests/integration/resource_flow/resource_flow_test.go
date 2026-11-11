@@ -64,6 +64,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Users:        users,
 		ImageRepo:    repos.Images,
 		CapacityLock: repos.Containers,
+		SizeMode:     coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
@@ -97,6 +98,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	stats, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: repos.Containers, Volumes: repos.Volumes, Images: repos.Images, Builds: repos.Builds, Projects: repos.Projects,
 		Metrics: statsMetrics, Config: cfg, Users: users, Borrowed: borrowed, RootfsQuota: rootfsQuota,
+		VolumeSizeMode: coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 

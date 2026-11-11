@@ -43,6 +43,7 @@ type SystemMonitoring struct {
 	AdmissionStatus        string
 	AdmissionReasons       []string
 	RootfsQuotaStatus      RootfsQuotaStatus
+	VolumeSizeMode         VolumeSizeMode
 	ContainersTotal        int
 	ContainersRunning      int
 	ContainersStopped      int
@@ -63,4 +64,19 @@ const (
 	RootfsQuotaEnforced    RootfsQuotaStatus = "enforced"
 	RootfsQuotaNotEnforced RootfsQuotaStatus = "not_enforced"
 	RootfsQuotaUnknown     RootfsQuotaStatus = "unknown"
+)
+
+// VolumeSizeMode says how volume sizes are enforced for new volumes.
+type VolumeSizeMode string
+
+const (
+	// VolumeSizeMeasured: enforcement is off; the volume usage worker stops
+	// writers of a volume measured above its size.
+	VolumeSizeMeasured VolumeSizeMode = "measured"
+	// VolumeSizeEnforced: enforcement is on and the host supports it; new
+	// volumes get a kernel-enforced size.
+	VolumeSizeEnforced VolumeSizeMode = "enforced"
+	// VolumeSizeUnavailable: enforcement is on but the host check failed at
+	// startup; new volumes are created measured.
+	VolumeSizeUnavailable VolumeSizeMode = "unavailable"
 )

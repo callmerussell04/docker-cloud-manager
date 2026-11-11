@@ -18,29 +18,31 @@ const bytesPerMBForTest = 1024 * 1024
 func TestNewStatsServiceRejectsMissingDependencies(t *testing.T) {
 	valid := func(t *testing.T) service.StatsServiceDeps {
 		return service.StatsServiceDeps{
-			Containers:  coremocks.NewStatsContainerRepository(t),
-			Volumes:     coremocks.NewStatsVolumeRepository(t),
-			Images:      coremocks.NewStatsImageRepository(t),
-			Builds:      coremocks.NewStatsBuildRepository(t),
-			Projects:    coremocks.NewStatsProjectRepository(t),
-			Metrics:     coremocks.NewStatsMetricsProvider(t),
-			Config:      testConfig(),
-			Users:       coremocks.NewUserInfoProvider(t),
-			Borrowed:    coremocks.NewStatsBorrowedMemory(t),
-			RootfsQuota: coremocks.NewStatsRootfsQuota(t),
+			Containers:     coremocks.NewStatsContainerRepository(t),
+			Volumes:        coremocks.NewStatsVolumeRepository(t),
+			Images:         coremocks.NewStatsImageRepository(t),
+			Builds:         coremocks.NewStatsBuildRepository(t),
+			Projects:       coremocks.NewStatsProjectRepository(t),
+			Metrics:        coremocks.NewStatsMetricsProvider(t),
+			Config:         testConfig(),
+			Users:          coremocks.NewUserInfoProvider(t),
+			Borrowed:       coremocks.NewStatsBorrowedMemory(t),
+			RootfsQuota:    coremocks.NewStatsRootfsQuota(t),
+			VolumeSizeMode: coremocks.NewStatsVolumeSizeMode(t),
 		}
 	}
 	depstest.RequireRejectsMissing(t, valid, service.NewStatsService, map[string]string{
-		"Containers":  "containers",
-		"Volumes":     "volumes",
-		"Images":      "images",
-		"Builds":      "builds",
-		"Projects":    "projects",
-		"Metrics":     "metrics",
-		"Config":      "config",
-		"Users":       "users",
-		"Borrowed":    "borrowed memory",
-		"RootfsQuota": "rootfs quota status",
+		"Containers":     "containers",
+		"Volumes":        "volumes",
+		"Images":         "images",
+		"Builds":         "builds",
+		"Projects":       "projects",
+		"Metrics":        "metrics",
+		"Config":         "config",
+		"Users":          "users",
+		"Borrowed":       "borrowed memory",
+		"RootfsQuota":    "rootfs quota status",
+		"VolumeSizeMode": "volume size mode",
 	})
 }
 
@@ -93,10 +95,12 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	borrowed.EXPECT().BorrowedMemoryBytes().Return(1234)
 	rootfsQuota := coremocks.NewStatsRootfsQuota(t)
 	rootfsQuota.EXPECT().RootfsQuotaStatus().Return(model.RootfsQuotaNotEnforced)
+	volumeSize := coremocks.NewStatsVolumeSizeMode(t)
+	volumeSize.EXPECT().VolumeSizeMode().Return(model.VolumeSizeEnforced)
 	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
 		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Users: coremocks.NewUserInfoProvider(t), Borrowed: borrowed,
-		RootfsQuota: rootfsQuota,
+		RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSize,
 	})
 	require.NoError(t, err)
 
@@ -115,6 +119,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.Equal(t, model.RootfsQuotaNotEnforced, stats.RootfsQuotaStatus, "root filesystem cap status as Core found it at startup")
 	require.EqualValues(t, 2*bytesPerMBForTest+512, stats.DCMDiskUsedBytes)
 	require.EqualValues(t, 3<<30, stats.DCMReservedVolumeBytes, "the sum of volume sizes")
+	require.Equal(t, model.VolumeSizeEnforced, stats.VolumeSizeMode)
 	require.EqualValues(t, 100, stats.HostMinFreeDiskBytes)
 	require.Equal(t, "open", stats.AdmissionStatus)
 	require.Empty(t, stats.AdmissionReasons)

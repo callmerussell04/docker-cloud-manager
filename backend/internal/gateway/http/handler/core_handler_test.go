@@ -149,27 +149,30 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	resp = perform(router, http.MethodDelete, "/projects/"+projectID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test", DefaultVolumeSizeBytes: 1073741824}, nil)
+	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test", DefaultVolumeSizeBytes: 1073741824, VolumeSizeEnforcement: true}, nil)
 	resp = perform(router, http.MethodGet, "/admin/config", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "example.test")
 	require.Contains(t, resp.Body.String(), `"default_volume_size_bytes":1073741824`)
+	require.Contains(t, resp.Body.String(), `"volume_size_enforcement":true`)
 	var updatedConfig model.SystemConfig
 	svc.EXPECT().UpdateSystemConfig(mock.Anything, mock.AnythingOfType("model.SystemConfig")).
 		Run(func(_ context.Context, cfg model.SystemConfig) { updatedConfig = cfg }).Return(nil)
-	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"example.test","default_volume_size_bytes":2097152}`, nil)
+	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"example.test","default_volume_size_bytes":2097152,"volume_size_enforcement":true}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.EqualValues(t, 2097152, updatedConfig.DefaultVolumeSizeBytes)
+	require.True(t, updatedConfig.VolumeSizeEnforcement)
 
 	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
 	resp = perform(router, http.MethodGet, "/stats", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512, RootfsQuotaStatus: "unknown", DCMReservedVolumeBytes: 4096}, nil)
+	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512, RootfsQuotaStatus: "unknown", DCMReservedVolumeBytes: 4096, VolumeSizeMode: "measured"}, nil)
 	resp = perform(router, http.MethodGet, "/admin/monitoring", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"dcm_borrowed_memory_bytes":512`)
 	require.Contains(t, resp.Body.String(), `"rootfs_quota_status":"unknown"`)
 	require.Contains(t, resp.Body.String(), `"dcm_reserved_volume_bytes":4096`)
+	require.Contains(t, resp.Body.String(), `"volume_size_mode":"measured"`)
 
 	svc.EXPECT().GetReportsOverview(mock.Anything, int64(1), int64(2)).Return(model.ReportsOverview{From: 1, To: 2}, nil)
 	resp = perform(router, http.MethodGet, "/admin/reports/overview?from=1&to=2", ``, nil)

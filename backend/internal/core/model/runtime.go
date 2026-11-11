@@ -43,6 +43,9 @@ type VolumeRuntimeSpec struct {
 	VolumeID   string
 	OwnerID    string
 	ProjectID  string
+	// SizeBytes, when positive, is given to Docker's local volume driver so
+	// the kernel refuses writes past it. Zero creates an unsized volume.
+	SizeBytes int64
 }
 
 type VolumeInspection struct {

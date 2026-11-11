@@ -45,7 +45,7 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	projRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Project(nil), 5, nil)
 	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: coremocks.NewStatsMetricsProvider(t), Config: cfg, Users: users, Borrowed: coremocks.NewStatsBorrowedMemory(t), RootfsQuota: coremocks.NewStatsRootfsQuota(t),
+		Metrics: coremocks.NewStatsMetricsProvider(t), Config: cfg, Users: users, Borrowed: coremocks.NewStatsBorrowedMemory(t), RootfsQuota: coremocks.NewStatsRootfsQuota(t), VolumeSizeMode: coremocks.NewStatsVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 

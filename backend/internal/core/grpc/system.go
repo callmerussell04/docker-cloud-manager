@@ -103,6 +103,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		CpuBoostMultiplier:                   cfg.CPUBoostMultiplier,
 		BoostMinFreeMemoryBytes:              cfg.BoostMinFreeMemoryBytes,
 		DefaultVolumeSizeBytes:               cfg.DefaultVolumeSizeBytes,
+		VolumeSizeEnforcement:                cfg.VolumeSizeEnforcement,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
 		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
@@ -198,6 +199,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.CPUBoostMultiplier = req.GetCpuBoostMultiplier()
 	newCfg.BoostMinFreeMemoryBytes = req.GetBoostMinFreeMemoryBytes()
 	newCfg.DefaultVolumeSizeBytes = req.GetDefaultVolumeSizeBytes()
+	newCfg.VolumeSizeEnforcement = req.GetVolumeSizeEnforcement()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
 	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())

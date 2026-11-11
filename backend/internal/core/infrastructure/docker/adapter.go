@@ -291,8 +291,15 @@ func (a *Adapter) RemoveContainer(ctx context.Context, dockerID string, force bo
 	})
 }
 
+// localVolumeDriver is Docker's built-in volume driver; its "size" option
+// sets a project quota on the volume directory when the host supports it.
+const localVolumeDriver = "local"
+
+// CreateVolume creates a volume. A positive SizeBytes is sent to the local
+// driver as its "size" option, so the kernel refuses writes past it; Docker
+// refuses the create when the host cannot enforce it.
 func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error) {
-	vol, err := a.cli.VolumeCreate(ctx, volume.CreateOptions{
+	opts := volume.CreateOptions{
 		Name: params.VolumeName,
 		Labels: map[string]string{
 			"managed_by":        "docker-cloud-manager",
@@ -301,12 +308,59 @@ func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSp
 			"dcm.owner_id":      params.OwnerID,
 			"dcm.project_id":    params.ProjectID,
 		},
-	})
+	}
+	if params.SizeBytes > 0 {
+		opts.Driver = localVolumeDriver
+		opts.DriverOpts = map[string]string{"size": strconv.FormatInt(params.SizeBytes, 10)}
+	}
+	vol, err := a.cli.VolumeCreate(ctx, opts)
 	if err != nil {
 		return "", err
 	}
 
 	return vol.Name, nil
+}
+
+// volumeSizeCheckBytes is the size of the throwaway volume the host check
+// creates; it is never written to.
+const volumeSizeCheckBytes = 16 << 20
+
+// volumeSizeCheckRemoveTimeout bounds removing the check volume, which runs
+// even when the caller's context has ended.
+const volumeSizeCheckRemoveTimeout = 10 * time.Second
+
+// CheckVolumeSizeSupport reports whether Docker accepts a size for a local
+// volume on this host. It creates a small sized volume under a unique name
+// and removes it on every path. Docker refusing the size (an invalid
+// parameter, such as "quota size requested but no quota support") reports
+// false with no error; any other failure, including a failed removal, is an
+// error.
+func (a *Adapter) CheckVolumeSizeSupport(ctx context.Context) (supported bool, err error) {
+	name := "dcm-volume-size-check-" + uuid.NewString()
+	defer func() {
+		removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), volumeSizeCheckRemoveTimeout)
+		defer cancel()
+		if removeErr := a.cli.VolumeRemove(removeCtx, name, true); removeErr != nil && !cerrdefs.IsNotFound(removeErr) {
+			supported = false
+			err = errors.Join(err, fmt.Errorf("remove volume size check volume: %w", removeErr))
+		}
+	}()
+	_, err = a.cli.VolumeCreate(ctx, volume.CreateOptions{
+		Name:       name,
+		Driver:     localVolumeDriver,
+		DriverOpts: map[string]string{"size": strconv.Itoa(volumeSizeCheckBytes)},
+		Labels: map[string]string{
+			"managed_by":        "docker-cloud-manager",
+			"dcm.resource_type": "volume_size_check",
+		},
+	})
+	if err != nil {
+		if cerrdefs.IsInvalidArgument(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create volume size check volume: %w", err)
+	}
+	return true, nil
 }
 
 func (a *Adapter) RemoveVolume(ctx context.Context, volumeName string, force bool) error {

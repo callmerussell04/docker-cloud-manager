@@ -53,6 +53,11 @@ type StatsRootfsQuota interface {
 	RootfsQuotaStatus() model.RootfsQuotaStatus
 }
 
+// StatsVolumeSizeMode reports the mode new volumes are created in.
+type StatsVolumeSizeMode interface {
+	VolumeSizeMode() model.VolumeSizeMode
+}
+
 type StatsProjectRepository interface {
 	List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error)
 	CountAll(ctx context.Context) (int, error)
@@ -76,22 +81,24 @@ type StatsService struct {
 	users        UserInfoProvider
 	borrowed     StatsBorrowedMemory
 	rootfsQuota  StatsRootfsQuota
+	volumeSize   StatsVolumeSizeMode
 }
 
 // StatsServiceDeps are what the stats service reads. An empty HostDiskPath
 // measures "/".
 type StatsServiceDeps struct {
-	Containers   StatsContainerRepository
-	Volumes      StatsVolumeRepository
-	Images       StatsImageRepository
-	Builds       StatsBuildRepository
-	Projects     StatsProjectRepository
-	Metrics      StatsMetricsProvider
-	HostDiskPath string
-	Config       ConfigManager
-	Users        UserInfoProvider
-	Borrowed     StatsBorrowedMemory
-	RootfsQuota  StatsRootfsQuota
+	Containers     StatsContainerRepository
+	Volumes        StatsVolumeRepository
+	Images         StatsImageRepository
+	Builds         StatsBuildRepository
+	Projects       StatsProjectRepository
+	Metrics        StatsMetricsProvider
+	HostDiskPath   string
+	Config         ConfigManager
+	Users          UserInfoProvider
+	Borrowed       StatsBorrowedMemory
+	RootfsQuota    StatsRootfsQuota
+	VolumeSizeMode StatsVolumeSizeMode
 }
 
 func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
@@ -102,7 +109,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		{"containers", deps.Containers}, {"volumes", deps.Volumes}, {"images", deps.Images},
 		{"builds", deps.Builds}, {"projects", deps.Projects}, {"metrics", deps.Metrics},
 		{"config", deps.Config}, {"users", deps.Users}, {"borrowed memory", deps.Borrowed},
-		{"rootfs quota status", deps.RootfsQuota},
+		{"rootfs quota status", deps.RootfsQuota}, {"volume size mode", deps.VolumeSizeMode},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -125,6 +132,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		users:        deps.Users,
 		borrowed:     deps.Borrowed,
 		rootfsQuota:  deps.RootfsQuota,
+		volumeSize:   deps.VolumeSizeMode,
 	}, nil
 }
 
@@ -267,6 +275,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DCMReservedBuildMemoryBytes: reservedBuildMemory,
 		DCMBorrowedMemoryBytes:      s.borrowed.BorrowedMemoryBytes(),
 		RootfsQuotaStatus:           s.rootfsQuota.RootfsQuotaStatus(),
+		VolumeSizeMode:              s.volumeSize.VolumeSizeMode(),
 		DCMDiskUsedBytes:            imageUsedMB*bytesPerMB + volumeUsedBytes,
 		DCMReservedVolumeBytes:      reservedVolumeBytes,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,

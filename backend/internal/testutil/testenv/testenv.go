@@ -14,10 +14,12 @@ import (
 const RequireIntegration = "DCM_TEST_REQUIRE_INTEGRATION"
 
 // exempt lists the gates that skip even when integration is required. The
-// host-firewall network-policy test changes host iptables, so it stays a
-// manual deployment check.
+// host-firewall network-policy test changes host iptables, and the volume
+// quota test needs a Docker data directory with project quotas, which neither
+// development hosts nor CI have; both stay manual deployment checks.
 var exempt = map[string]bool{
-	"CORE_TEST_NETWORK_POLICY": true,
+	"CORE_TEST_NETWORK_POLICY":     true,
+	"DCM_TEST_VOLUME_QUOTA_DOCKER": true,
 }
 
 // Lookup returns the trimmed value of key. When it is empty, t skips, or fails

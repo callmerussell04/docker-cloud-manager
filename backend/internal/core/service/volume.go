@@ -23,6 +23,10 @@ type VolumeRepository interface {
 	volumeDiskUsageRepository
 	volumeStateRepository
 	Save(ctx context.Context, vol model.Volume) error
+	// MarkAvailable records a volume Docker has created, with whether its
+	// size is kernel-enforced. The flag is written only here and never changes
+	// afterwards.
+	MarkAvailable(ctx context.Context, id uuid.UUID, sizeEnforced bool) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error)
 	GetByName(ctx context.Context, ownerID uuid.UUID, name string) (model.Volume, error)
 	LinkProjectVolume(ctx context.Context, projectID, volumeID uuid.UUID) error
@@ -63,6 +67,11 @@ type VolumeCapacityLock interface {
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
 
+// VolumeSizeModeReader reports the mode new volumes are created in.
+type VolumeSizeModeReader interface {
+	VolumeSizeMode() model.VolumeSizeMode
+}
+
 type VolumeDockerAPI interface {
 	CreateVolume(ctx context.Context, params model.VolumeRuntimeSpec) (string, error)
 	RemoveVolume(ctx context.Context, volumeName string, force bool) error
@@ -78,6 +87,7 @@ type VolumeService struct {
 	hostDiskPath string
 	lifecycle    VolumeLifecycleRepository
 	capacityLock VolumeCapacityLock
+	sizeMode     VolumeSizeModeReader
 	logger       *slog.Logger
 }
 
@@ -93,6 +103,7 @@ type VolumeServiceDeps struct {
 	ImageRepo    volumeImageDiskRepository
 	DiskMetrics  HostDiskMetricsProvider
 	CapacityLock VolumeCapacityLock
+	SizeMode     VolumeSizeModeReader
 	HostDiskPath string
 	Logger       *slog.Logger
 }
@@ -105,7 +116,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		{"repository", deps.Repository}, {"docker", deps.Docker},
 		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
 		{"users", deps.Users}, {"images", deps.ImageRepo}, {"disk metrics", deps.DiskMetrics},
-		{"capacity lock", deps.CapacityLock},
+		{"capacity lock", deps.CapacityLock}, {"volume size mode", deps.SizeMode},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -122,6 +133,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
 		capacityLock: deps.CapacityLock,
+		sizeMode:     deps.SizeMode,
 		logger:       logging.WithComponent(deps.Logger, "volume_service"),
 	}, nil
 }
@@ -381,10 +393,16 @@ func (s *VolumeService) executeQueuedVolumeCreate(ctx context.Context, operation
 	if vol.ProjectID != nil {
 		dockerParams.ProjectID = vol.ProjectID.String()
 	}
+	// The one place a volume's mode is decided. Docker refusing the size
+	// fails this create like any other failure, without falling back.
+	sizeEnforced := s.sizeMode.VolumeSizeMode() == model.VolumeSizeEnforced
+	if sizeEnforced {
+		dockerParams.SizeBytes = vol.SizeBytes
+	}
 	if _, err := s.dockerAPI.CreateVolume(ctx, dockerParams); err != nil {
 		return s.retryOrFailQueuedVolume(ctx, operationID, volumeID, normalizeContainerRuntimeError(err))
 	}
-	if err := s.repo.UpdateStatus(ctx, volumeID, model.VolumeStatusAvailable); err != nil {
+	if err := s.repo.MarkAvailable(ctx, volumeID, sizeEnforced); err != nil {
 		// Docker volume creation is idempotent by name, so a retried operation
 		// can record the status the failed write left behind.
 		err = fmt.Errorf("record volume %s status: %w", model.VolumeStatusAvailable, err)

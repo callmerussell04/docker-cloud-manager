@@ -166,6 +166,20 @@ func (r *VolumeRepository) UpdateStatus(ctx context.Context, id uuid.UUID, statu
 	return nil
 }
 
+// MarkAvailable records a volume Docker has created as available, with
+// whether its size is kernel-enforced.
+func (r *VolumeRepository) MarkAvailable(ctx context.Context, id uuid.UUID, sizeEnforced bool) error {
+	query := `UPDATE volumes SET status = $1, size_enforced = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3`
+	res, err := r.db.Exec(ctx, query, model.VolumeStatusAvailable, sizeEnforced, id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func (r *VolumeRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
 	var msg *string
 	if cause != nil {

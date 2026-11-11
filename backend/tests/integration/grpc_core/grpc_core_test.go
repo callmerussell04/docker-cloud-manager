@@ -63,6 +63,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 		Users:        users,
 		ImageRepo:    repos.Images,
 		CapacityLock: repos.Containers,
+		SizeMode:     coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 

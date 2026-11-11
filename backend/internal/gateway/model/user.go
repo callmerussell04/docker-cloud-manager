@@ -28,6 +28,7 @@ type SystemMonitoring struct {
 	RootfsQuotaStatus           string // enforced, not_enforced or unknown
 	DCMDiskUsedBytes            int64
 	DCMReservedVolumeBytes      int64
+	VolumeSizeMode              string // measured, enforced or unavailable
 	HostMinFreeDiskBytes        int64
 	AdmissionStatus             string
 	AdmissionReasons            []string

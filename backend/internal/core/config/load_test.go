@@ -75,6 +75,7 @@ func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
 	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, runtime.GitAllowedHosts)
 	assert.Equal(t, []string{}, runtime.BlockedDomainPrefixPatterns)
 	assert.Equal(t, config.DefaultReportsUsageSnapshotIntervalSeconds, runtime.ReportsUsageSnapshotIntervalSeconds)
+	assert.False(t, runtime.VolumeSizeEnforcement, "volume sizes are measured unless an administrator turns enforcement on")
 	assert.NotContains(t, assertJSON(t, runtime), secret)
 }
 
@@ -88,6 +89,7 @@ func TestLoadOverrides(t *testing.T) {
 	values["OBJECT_STORAGE_USE_SSL"] = "true"
 	values["CLICKHOUSE_DB"] = ""
 	values["TENANT_CGROUP_PARENT"] = "dcm-tenants.slice"
+	values["VOLUME_SIZE_ENFORCEMENT"] = "true"
 
 	settings, err := config.Load(envtest.Lookup(values))
 
@@ -98,6 +100,7 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "", settings.Bootstrap.ClickHouse.Database, "a value set to empty replaces the default")
 	assert.Equal(t, 10, settings.Runtime.MaxContainersPerUser, "an invalid optional value keeps its default")
 	assert.Equal(t, 2.5, settings.Runtime.OvercommitFactor)
+	assert.True(t, settings.Runtime.VolumeSizeEnforcement)
 	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, settings.Runtime.GitAllowedHosts)
 	assert.Equal(t, []string{"/bin/sh", "/bin/ash"}, settings.Runtime.TelemetryAllowedExecCommands)
 }

@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Box, Cpu, Database, Disc, HardDrive, Layers, R
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import type { RootfsQuotaStatus, SystemMonitoring } from '@/features/admin/types';
+import type { RootfsQuotaStatus, SystemMonitoring, VolumeSizeMode } from '@/features/admin/types';
 import { dateLocale, useLocale, useT } from '@/lib/i18n';
 import { formatBytes } from '@/lib/utils';
 import { useSystemMonitoring } from '@/features/admin/hooks';
@@ -96,6 +96,7 @@ function safeStats(stats?: SystemMonitoring): SystemMonitoring {
     admission_status: stats?.admission_status ?? 'open',
     admission_reasons: stats?.admission_reasons ?? [],
     rootfs_quota_status: stats?.rootfs_quota_status ?? 'unknown',
+    volume_size_mode: stats?.volume_size_mode ?? 'measured',
     containers_total: stats?.containers_total ?? 0,
     containers_running: stats?.containers_running ?? 0,
     containers_stopped: stats?.containers_stopped ?? 0,
@@ -130,6 +131,33 @@ function RootfsQuotaCard({ status }: { status: RootfsQuotaStatus }) {
         </div>
         <Badge variant={rootfsQuotaBadge[known]} className="self-start sm:self-center shrink-0">
           {t(`admin.monitoring.rootfsQuota.${known}`)}
+        </Badge>
+      </CardContent>
+    </Card>
+  );
+}
+
+const volumeSizeModeBadge: Record<VolumeSizeMode, 'success' | 'warning' | 'default'> = {
+  enforced: 'success',
+  measured: 'default',
+  unavailable: 'warning',
+};
+
+function VolumeSizeModeCard({ mode }: { mode: VolumeSizeMode }) {
+  const t = useT();
+  const known = mode in volumeSizeModeBadge ? mode : 'measured';
+  return (
+    <Card>
+      <CardContent className="p-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <HardDrive className="w-5 h-5 shrink-0 text-slate-500 dark:text-slate-400" />
+          <div className="min-w-0">
+            <p className="font-medium text-slate-900 dark:text-slate-100">{t('admin.monitoring.volumeSizeMode')}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{t(`admin.monitoring.volumeSizeMode.${known}.hint`)}</p>
+          </div>
+        </div>
+        <Badge variant={volumeSizeModeBadge[known]} className="self-start sm:self-center shrink-0">
+          {t(`admin.monitoring.volumeSizeMode.${known}`)}
         </Badge>
       </CardContent>
     </Card>
@@ -246,6 +274,7 @@ export function AdminMonitoringPage() {
           </div>
 
           <RootfsQuotaCard status={stats.rootfs_quota_status} />
+          <VolumeSizeModeCard mode={stats.volume_size_mode} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
             <CountCard label={t('admin.monitoring.containersTotal')} value={stats.containers_total} icon={Box} />

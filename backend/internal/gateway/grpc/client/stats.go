@@ -55,6 +55,7 @@ func systemMonitoringFromProto(data *coreapi.SystemMonitoringResponse) model.Sys
 		RootfsQuotaStatus:           data.GetRootfsQuotaStatus(),
 		DCMDiskUsedBytes:            data.GetDcmDiskUsedBytes(),
 		DCMReservedVolumeBytes:      data.GetDcmReservedVolumeBytes(),
+		VolumeSizeMode:              data.GetVolumeSizeMode(),
 		HostMinFreeDiskBytes:        data.GetHostMinFreeDiskBytes(),
 		AdmissionStatus:             data.GetAdmissionStatus(),
 		AdmissionReasons:            append([]string(nil), data.GetAdmissionReasons()...),

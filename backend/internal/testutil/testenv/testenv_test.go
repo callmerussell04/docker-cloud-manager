@@ -76,6 +76,7 @@ func TestEnabled(t *testing.T) {
 		{name: "unset gate skips", key: "CORE_TEST_DOCKER", wantSkipped: true},
 		{name: "disabled gate fails when integration is required", key: "CORE_TEST_DOCKER", value: "0", require: "1", wantFailed: true},
 		{name: "network policy is exempt", key: "CORE_TEST_NETWORK_POLICY", require: "1", wantSkipped: true},
+		{name: "volume quota host is exempt", key: "DCM_TEST_VOLUME_QUOTA_DOCKER", require: "1", wantSkipped: true},
 		{name: "enabled exempt gate runs", key: "CORE_TEST_NETWORK_POLICY", value: "1", require: "1"},
 	}
 	for _, tt := range tests {

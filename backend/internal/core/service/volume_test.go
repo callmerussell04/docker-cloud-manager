@@ -563,7 +563,7 @@ func TestVolumeServiceExecuteQueuedReturnsStatusWriteFailure(t *testing.T) {
 			repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data"}, nil)
 			dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).Return("", tt.createErr)
 			if tt.createErr == nil {
-				repo.EXPECT().UpdateStatus(mock.Anything, volumeID, model.VolumeStatusAvailable).Return(tt.statusErr)
+				repo.EXPECT().MarkAvailable(mock.Anything, volumeID, false).Return(tt.statusErr)
 			}
 			if tt.createErr != nil || tt.statusErr != nil {
 				repo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, mock.Anything).Return(tt.markErr)
@@ -706,4 +706,66 @@ func volumeTestConfig() coretest.StaticConfig {
 	cfg := testConfig()
 	cfg.Config.MaxVolumesPerUser = 5
 	return cfg
+}
+
+// The queued create is where a volume's mode is decided, once: only when
+// enforcement is on and the host supports it does Docker get the size, and
+// only then is the volume recorded as kernel-enforced. Docker refusing the
+// size fails the create like any other failure; there is no silent fallback.
+func TestVolumeServiceExecuteQueuedCreateDecidesTheSizeMode(t *testing.T) {
+	const sizeBytes = 256 << 20
+	refused := fmt.Errorf("%w: quota size requested but no quota support", cerrdefs.ErrInvalidArgument)
+	tests := []struct {
+		name         string
+		mode         model.VolumeSizeMode
+		dockerErr    error
+		wantSize     int64
+		wantEnforced bool
+		wantStatus   string
+	}{
+		{name: "measured", mode: model.VolumeSizeMeasured, wantSize: 0, wantEnforced: false, wantStatus: model.OperationStatusDone},
+		{name: "enforced", mode: model.VolumeSizeEnforced, wantSize: sizeBytes, wantEnforced: true, wantStatus: model.OperationStatusDone},
+		{name: "unavailable", mode: model.VolumeSizeUnavailable, wantSize: 0, wantEnforced: false, wantStatus: model.OperationStatusDone},
+		{name: "enforced but Docker refuses the size", mode: model.VolumeSizeEnforced, dockerErr: refused, wantSize: sizeBytes, wantStatus: model.OperationStatusFailed},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ownerID, volumeID, operationID := uuid.New(), uuid.New(), uuid.New()
+			repo := newVolumeRepoMock(t)
+			dockerAPI := coremocks.NewVolumeDockerAPI(t)
+			lifecycle := newVolumeLifecycleFake(operationID, volumeID, ownerID, model.OperationCreate)
+			sizeMode := coremocks.NewVolumeSizeModeReader(t)
+			sizeMode.EXPECT().VolumeSizeMode().Return(tt.mode)
+			svc := newTestVolumeService(t, service.VolumeServiceDeps{
+				Repository: repo,
+				Docker:     dockerAPI,
+				Config:     volumeTestConfig(),
+				Lifecycle:  lifecycle,
+				SizeMode:   sizeMode,
+			})
+			repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{
+				ID: volumeID, OwnerID: ownerID, DockerName: "vol_data", SizeBytes: sizeBytes, Status: model.VolumeStatusCreating,
+			}, nil)
+			var sent model.VolumeRuntimeSpec
+			dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).
+				Run(func(_ context.Context, spec model.VolumeRuntimeSpec) { sent = spec }).
+				Return("vol_data", tt.dockerErr).Once()
+			if tt.dockerErr == nil {
+				repo.EXPECT().MarkAvailable(mock.Anything, volumeID, tt.wantEnforced).Return(nil).Once()
+			} else {
+				repo.EXPECT().MarkStatusError(mock.Anything, volumeID, model.VolumeStatusError, mock.Anything).Return(nil).Once()
+			}
+
+			err := svc.ExecuteQueuedVolumeOperation(context.Background(), operationID, volumeID)
+
+			if tt.dockerErr != nil {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, "vol_data", sent.VolumeName)
+			require.Equal(t, tt.wantSize, sent.SizeBytes)
+			require.Equal(t, tt.wantStatus, lifecycle.op.Status)
+		})
+	}
 }

@@ -456,6 +456,7 @@ func newRecoveryVolumeService(t *testing.T, repos coretest.CoreRepositories, doc
 		ImageRepo:    repos.Images,
 		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
 		CapacityLock: repos.Containers,
+		SizeMode:     coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 	return svc

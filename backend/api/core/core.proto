@@ -106,6 +106,8 @@ message SystemMonitoringResponse {
   string rootfs_quota_status = 25;
   // The sum of the sizes of all volumes not being deleted.
   int64 dcm_reserved_volume_bytes = 26;
+  // measured, enforced or unavailable: how volume sizes are enforced.
+  string volume_size_mode = 27;
 }
 
 message Empty {}
@@ -569,6 +571,7 @@ message SystemConfigData {
   int64 cpu_boost_multiplier = 93;
   int64 boost_min_free_memory_bytes = 94;
   int64 default_volume_size_bytes = 95;
+  bool volume_size_enforcement = 96;
 }
 
 message BuilderRuntimeConfigData {

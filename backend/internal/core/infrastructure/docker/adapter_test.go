@@ -367,3 +367,123 @@ func TestAdapterReadRootfsQuotaStatus(t *testing.T) {
 		})
 	}
 }
+
+// A volume is given a size only when Core asks for one: that is what turns
+// the kernel limit on, and a measured volume must stay unsized.
+func TestAdapterCreateVolumeSendsTheSizeOnlyWhenAsked(t *testing.T) {
+	tests := []struct {
+		name       string
+		sizeBytes  int64
+		wantDriver string
+		wantOpts   map[string]string
+	}{
+		{name: "measured volume", sizeBytes: 0},
+		{name: "enforced volume", sizeBytes: 64 << 20, wantDriver: "local", wantOpts: map[string]string{"size": "67108864"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"POST /volumes/create": dockertest.Created(`{"Name":"vol_owner_data","Driver":"local"}`),
+			})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			name, err := adapter.CreateVolume(context.Background(), model.VolumeRuntimeSpec{
+				VolumeName: "vol_owner_data", VolumeID: "volume-1", OwnerID: "owner-1", SizeBytes: tt.sizeBytes,
+			})
+			require.NoError(t, err)
+			require.Equal(t, "vol_owner_data", name)
+
+			requests := daemon.Requests("/volumes/create")
+			require.Len(t, requests, 1)
+			var sent struct {
+				Name       string
+				Driver     string
+				DriverOpts map[string]string
+				Labels     map[string]string
+			}
+			require.NoError(t, json.Unmarshal(requests[0].Body, &sent))
+			require.Equal(t, "vol_owner_data", sent.Name)
+			require.Equal(t, tt.wantDriver, sent.Driver)
+			require.Equal(t, tt.wantOpts, sent.DriverOpts)
+			require.Equal(t, "volume-1", sent.Labels["dcm.volume_id"])
+		})
+	}
+}
+
+// The host check creates a sized throwaway volume and always removes it, so
+// checks leave nothing behind. Docker refusing the size means "not supported";
+// anything else that goes wrong is an error.
+func TestAdapterCheckVolumeSizeSupport(t *testing.T) {
+	tests := []struct {
+		name          string
+		create        dockertest.Response
+		remove        dockertest.Response
+		wantSupported bool
+		wantErr       bool
+	}{
+		{
+			name:          "Docker accepts the size",
+			create:        dockertest.Created(`{"Name":"check","Driver":"local","Options":{"size":"16777216"}}`),
+			remove:        dockertest.NoContent(),
+			wantSupported: true,
+		},
+		{
+			name:   "Docker refuses the size",
+			create: dockertest.Error(400, "quota size requested but no quota support"),
+			remove: dockertest.Error(404, "no such volume"),
+		},
+		{
+			name:    "the create fails for another reason",
+			create:  dockertest.Error(500, "daemon is shutting down"),
+			remove:  dockertest.Error(404, "no such volume"),
+			wantErr: true,
+		},
+		{
+			name:    "the volume is created but cannot be removed",
+			create:  dockertest.Created(`{"Name":"check","Driver":"local","Options":{"size":"16777216"}}`),
+			remove:  dockertest.Error(500, "volume is busy"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"POST /volumes/create": tt.create,
+				"DELETE /volumes/*":    tt.remove,
+			})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			supported, err := adapter.CheckVolumeSizeSupport(context.Background())
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, tt.wantSupported, supported)
+
+			creates := daemon.Requests("/volumes/create")
+			require.Len(t, creates, 1)
+			var sent struct {
+				Name       string
+				Driver     string
+				DriverOpts map[string]string
+				Labels     map[string]string
+			}
+			require.NoError(t, json.Unmarshal(creates[0].Body, &sent))
+			require.NotEmpty(t, sent.Name)
+			require.Equal(t, "local", sent.Driver)
+			require.NotEmpty(t, sent.DriverOpts["size"])
+			require.Equal(t, "docker-cloud-manager", sent.Labels["managed_by"])
+
+			removes := daemon.Requests("/volumes/" + sent.Name)
+			require.Len(t, removes, 1, "the check volume is removed on every path")
+			require.Equal(t, "DELETE", removes[0].Method)
+			require.Equal(t, "1", removes[0].Query.Get("force"))
+		})
+	}
+}

@@ -87,6 +87,7 @@ export interface SystemConfig {
   cpu_boost_multiplier: number;
   boost_min_free_memory_bytes: number;
   default_volume_size_bytes: number;
+  volume_size_enforcement: boolean;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -103,6 +104,8 @@ export interface SystemConfig {
 }
 
 export type RootfsQuotaStatus = 'enforced' | 'not_enforced' | 'unknown';
+
+export type VolumeSizeMode = 'measured' | 'enforced' | 'unavailable';
 
 export interface SystemMonitoring {
   cpu_percent: number;
@@ -121,6 +124,7 @@ export interface SystemMonitoring {
   admission_status: string;
   admission_reasons: string[];
   rootfs_quota_status: RootfsQuotaStatus;
+  volume_size_mode: VolumeSizeMode;
   containers_total: number;
   containers_running: number;
   containers_stopped: number;
@@ -213,6 +217,7 @@ export const systemConfigSchema = z.object({
   cpu_boost_multiplier: z.number().int().min(1).max(64),
   boost_min_free_memory_bytes: z.number().min(0),
   default_volume_size_bytes: z.number().min(1024 * 1024),
+  volume_size_enforcement: z.boolean(),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),
