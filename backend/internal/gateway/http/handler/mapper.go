@@ -430,6 +430,7 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		DCMReservedMemoryBytes:      data.DCMReservedMemoryBytes,
 		DCMReservedBuildMemoryBytes: data.DCMReservedBuildMemoryBytes,
 		DCMBorrowedMemoryBytes:      data.DCMBorrowedMemoryBytes,
+		RootfsQuotaStatus:           data.RootfsQuotaStatus,
 		DCMDiskUsedBytes:            data.DCMDiskUsedBytes,
 		HostMinFreeDiskBytes:        data.HostMinFreeDiskBytes,
 		AdmissionStatus:             data.AdmissionStatus,

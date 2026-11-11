@@ -325,6 +325,45 @@ func (a *Adapter) Close() error {
 	return nil
 }
 
+// containerdSnapshotterDriverType is the driver-type Docker reports when its
+// image store is a containerd snapshotter, which ignores the size option.
+const containerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
+
+// ReadRootfsQuotaStatus reports whether Docker enforces the root filesystem
+// size option (StorageOpt "size") on this host, judged from its storage
+// driver. Overlay2 on XFS counts as enforced because Docker refuses the option
+// there when the mount lacks project quotas, so a created container has its
+// cap. A failed read is RootfsQuotaUnknown with the error.
+func (a *Adapter) ReadRootfsQuotaStatus(ctx context.Context) (model.RootfsQuotaStatus, error) {
+	info, err := a.cli.Info(ctx)
+	if err != nil {
+		return model.RootfsQuotaUnknown, fmt.Errorf("read docker info: %w", err)
+	}
+	status := make(map[string]string, len(info.DriverStatus))
+	for _, pair := range info.DriverStatus {
+		status[strings.ToLower(pair[0])] = pair[1]
+	}
+	if status["driver-type"] == containerdSnapshotterDriverType {
+		return model.RootfsQuotaNotEnforced, nil
+	}
+	switch info.Driver {
+	case "overlay2":
+		backing, reported := status["backing filesystem"]
+		switch {
+		case !reported:
+			return model.RootfsQuotaUnknown, nil
+		case strings.EqualFold(backing, "xfs"):
+			return model.RootfsQuotaEnforced, nil
+		default:
+			return model.RootfsQuotaNotEnforced, nil
+		}
+	case "btrfs", "zfs", "devicemapper":
+		return model.RootfsQuotaEnforced, nil
+	default:
+		return model.RootfsQuotaUnknown, nil
+	}
+}
+
 func (a *Adapter) PullImage(ctx context.Context, imageName string) error {
 	options := image.PullOptions{}
 	if a.pullAuth != nil {

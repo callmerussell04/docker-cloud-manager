@@ -262,10 +262,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		cancel()
 		return nil, err
 	}
+	rootfsQuota := service.CheckRootfsQuota(ctx, dockerAdapter, appLogger)
 	statsService, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
 		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Users: ssoClient,
-		Borrowed: memoryPressureWorker,
+		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota,
 	})
 	if err != nil {
 		cancel()

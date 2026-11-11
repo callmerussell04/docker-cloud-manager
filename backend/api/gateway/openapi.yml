@@ -2355,6 +2355,10 @@ components:
         admission_reasons:
           type: array
           items: { type: string }
+        rootfs_quota_status:
+          type: string
+          enum: [enforced, not_enforced, unknown]
+          description: Whether the container root filesystem cap (container_disk_quota) is enforced on this host, as Core classified Docker's storage driver at startup. not_enforced means Docker accepts the cap without applying it; unknown covers unlisted storage setups and a failed read.
         containers_total: { type: integer }
         containers_running: { type: integer }
         containers_stopped: { type: integer }

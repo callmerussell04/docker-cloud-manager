@@ -39,6 +39,7 @@ type SystemMonitoring struct {
 	HostMinFreeDiskBytes   int64
 	AdmissionStatus        string
 	AdmissionReasons       []string
+	RootfsQuotaStatus      RootfsQuotaStatus
 	ContainersTotal        int
 	ContainersRunning      int
 	ContainersStopped      int
@@ -50,3 +51,13 @@ type SystemMonitoring struct {
 	ProjectsTotal          int
 	ObservedAt             time.Time
 }
+
+// RootfsQuotaStatus says whether Docker enforces the container root
+// filesystem cap (the size storage option) on this host.
+type RootfsQuotaStatus string
+
+const (
+	RootfsQuotaEnforced    RootfsQuotaStatus = "enforced"
+	RootfsQuotaNotEnforced RootfsQuotaStatus = "not_enforced"
+	RootfsQuotaUnknown     RootfsQuotaStatus = "unknown"
+)

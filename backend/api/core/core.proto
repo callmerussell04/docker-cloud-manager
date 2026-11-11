@@ -101,6 +101,9 @@ message SystemMonitoringResponse {
   int64 host_min_free_disk_bytes = 22;
   int64 dcm_reserved_build_memory_bytes = 23;
   int64 dcm_borrowed_memory_bytes = 24;
+  // enforced, not_enforced or unknown: whether the container root filesystem
+  // cap is enforced on this host.
+  string rootfs_quota_status = 25;
 }
 
 message Empty {}

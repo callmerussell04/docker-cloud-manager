@@ -154,10 +154,11 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
 	resp = perform(router, http.MethodGet, "/stats", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512}, nil)
+	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512, RootfsQuotaStatus: "unknown"}, nil)
 	resp = perform(router, http.MethodGet, "/admin/monitoring", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"dcm_borrowed_memory_bytes":512`)
+	require.Contains(t, resp.Body.String(), `"rootfs_quota_status":"unknown"`)
 
 	svc.EXPECT().GetReportsOverview(mock.Anything, int64(1), int64(2)).Return(model.ReportsOverview{From: 1, To: 2}, nil)
 	resp = perform(router, http.MethodGet, "/admin/reports/overview?from=1&to=2", ``, nil)

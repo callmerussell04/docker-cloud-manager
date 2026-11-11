@@ -192,7 +192,7 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | `container_pids_limit` | `256` | `> 0` |
 | `container_memory_swap_multiplier` | `2` | `1..10` |
 | `max_log_size`, `max_log_files` | `10m`, `3` | Размер Docker и положительное количество файлов |
-| `container_disk_quota` | `1G` | Формат размера Docker |
+| `container_disk_quota` | `1G` | Формат размера Docker. Ограничение корневой файловой системы контейнера; действует только на поддерживающем его хранилище Docker. Действует ли оно на этом сервере, показывает `rootfs_quota_status` в мониторинге (см. [требования к серверу](deployment-single-vm.md#ограничение-корневой-файловой-системы-контейнеров)) |
 | `max_volumes_per_user`, `max_containers_per_user` | `5`, `10` | `> 0` |
 | `reserved_domain_prefixes` | системные имена | Допустимые уникальные префиксы |
 | `blocked_domain_prefix_patterns` | пусто | Уникальные допустимые регулярные выражения |

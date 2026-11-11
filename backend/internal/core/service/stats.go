@@ -46,6 +46,12 @@ type StatsBorrowedMemory interface {
 	BorrowedMemoryBytes() int64
 }
 
+// StatsRootfsQuota reports whether the container root filesystem cap is
+// enforced on this host, as Core found at startup.
+type StatsRootfsQuota interface {
+	RootfsQuotaStatus() model.RootfsQuotaStatus
+}
+
 type StatsProjectRepository interface {
 	List(ctx context.Context, opts model.ListOptions) ([]model.Project, int, error)
 	CountAll(ctx context.Context) (int, error)
@@ -68,6 +74,7 @@ type StatsService struct {
 	cfg          ConfigManager
 	users        UserInfoProvider
 	borrowed     StatsBorrowedMemory
+	rootfsQuota  StatsRootfsQuota
 }
 
 // StatsServiceDeps are what the stats service reads. An empty HostDiskPath
@@ -83,6 +90,7 @@ type StatsServiceDeps struct {
 	Config       ConfigManager
 	Users        UserInfoProvider
 	Borrowed     StatsBorrowedMemory
+	RootfsQuota  StatsRootfsQuota
 }
 
 func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
@@ -93,6 +101,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		{"containers", deps.Containers}, {"volumes", deps.Volumes}, {"images", deps.Images},
 		{"builds", deps.Builds}, {"projects", deps.Projects}, {"metrics", deps.Metrics},
 		{"config", deps.Config}, {"users", deps.Users}, {"borrowed memory", deps.Borrowed},
+		{"rootfs quota status", deps.RootfsQuota},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -114,6 +123,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		cfg:          deps.Config,
 		users:        deps.Users,
 		borrowed:     deps.Borrowed,
+		rootfsQuota:  deps.RootfsQuota,
 	}, nil
 }
 
@@ -255,6 +265,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DCMReservedMemoryBytes:      reservedMemory,
 		DCMReservedBuildMemoryBytes: reservedBuildMemory,
 		DCMBorrowedMemoryBytes:      s.borrowed.BorrowedMemoryBytes(),
+		RootfsQuotaStatus:           s.rootfsQuota.RootfsQuotaStatus(),
 		DCMDiskUsedBytes:            imageUsedMB*bytesPerMB + volumeUsedBytes,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
 		AdmissionStatus:             admissionStatus,

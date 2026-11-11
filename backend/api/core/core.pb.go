@@ -171,8 +171,11 @@ type SystemMonitoringResponse struct {
 	HostMinFreeDiskBytes        int64                  `protobuf:"varint,22,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
 	DcmReservedBuildMemoryBytes int64                  `protobuf:"varint,23,opt,name=dcm_reserved_build_memory_bytes,json=dcmReservedBuildMemoryBytes,proto3" json:"dcm_reserved_build_memory_bytes,omitempty"`
 	DcmBorrowedMemoryBytes      int64                  `protobuf:"varint,24,opt,name=dcm_borrowed_memory_bytes,json=dcmBorrowedMemoryBytes,proto3" json:"dcm_borrowed_memory_bytes,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// enforced, not_enforced or unknown: whether the container root filesystem
+	// cap is enforced on this host.
+	RootfsQuotaStatus string `protobuf:"bytes,25,opt,name=rootfs_quota_status,json=rootfsQuotaStatus,proto3" json:"rootfs_quota_status,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -371,6 +374,13 @@ func (x *SystemMonitoringResponse) GetDcmBorrowedMemoryBytes() int64 {
 		return x.DcmBorrowedMemoryBytes
 	}
 	return 0
+}
+
+func (x *SystemMonitoringResponse) GetRootfsQuotaStatus() string {
+	if x != nil {
+		return x.RootfsQuotaStatus
+	}
+	return ""
 }
 
 type Empty struct {
@@ -4748,7 +4758,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xd6\b\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\x86\t\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4776,7 +4786,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x11admission_reasons\x18\x15 \x03(\tR\x10admissionReasons\x126\n" +
 	"\x18host_min_free_disk_bytes\x18\x16 \x01(\x03R\x14hostMinFreeDiskBytes\x12D\n" +
 	"\x1fdcm_reserved_build_memory_bytes\x18\x17 \x01(\x03R\x1bdcmReservedBuildMemoryBytes\x129\n" +
-	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\"\a\n" +
+	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\x12.\n" +
+	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +

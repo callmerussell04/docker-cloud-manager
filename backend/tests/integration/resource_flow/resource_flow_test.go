@@ -91,9 +91,11 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.NoError(t, err)
 	borrowed := coremocks.NewStatsBorrowedMemory(t)
 	borrowed.EXPECT().BorrowedMemoryBytes().Return(0).Maybe()
+	rootfsQuota := coremocks.NewStatsRootfsQuota(t)
+	rootfsQuota.EXPECT().RootfsQuotaStatus().Return(model.RootfsQuotaUnknown).Maybe()
 	stats, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: repos.Containers, Volumes: repos.Volumes, Images: repos.Images, Builds: repos.Builds, Projects: repos.Projects,
-		Metrics: statsMetrics, Config: cfg, Users: users, Borrowed: borrowed,
+		Metrics: statsMetrics, Config: cfg, Users: users, Borrowed: borrowed, RootfsQuota: rootfsQuota,
 	})
 	require.NoError(t, err)
 

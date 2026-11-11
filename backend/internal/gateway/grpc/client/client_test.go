@@ -157,6 +157,7 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 42.5, monitoring.CPUPercent)
 	require.EqualValues(t, 512, monitoring.DCMBorrowedMemoryBytes)
+	require.Equal(t, "not_enforced", monitoring.RootfsQuotaStatus)
 
 	overview, err := coreClient.GetReportsOverview(context.Background(), 1, 2)
 	require.NoError(t, err)
@@ -377,7 +378,7 @@ func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreap
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
-	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512}, nil
+	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, RootfsQuotaStatus: "not_enforced"}, nil
 }
 
 type coreReportServer struct {

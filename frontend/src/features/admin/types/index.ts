@@ -101,6 +101,8 @@ export interface SystemConfig {
   telemetry_ws_read_limit_bytes: number;
 }
 
+export type RootfsQuotaStatus = 'enforced' | 'not_enforced' | 'unknown';
+
 export interface SystemMonitoring {
   cpu_percent: number;
   memory_total_bytes: number;
@@ -116,6 +118,7 @@ export interface SystemMonitoring {
   host_min_free_disk_bytes: number;
   admission_status: string;
   admission_reasons: string[];
+  rootfs_quota_status: RootfsQuotaStatus;
   containers_total: number;
   containers_running: number;
   containers_stopped: number;

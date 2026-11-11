@@ -25,6 +25,7 @@ type SystemMonitoringDTO struct {
 	DCMReservedMemoryBytes      int64    `json:"dcm_reserved_memory_bytes"`
 	DCMReservedBuildMemoryBytes int64    `json:"dcm_reserved_build_memory_bytes"`
 	DCMBorrowedMemoryBytes      int64    `json:"dcm_borrowed_memory_bytes"`
+	RootfsQuotaStatus           string   `json:"rootfs_quota_status"`
 	DCMDiskUsedBytes            int64    `json:"dcm_disk_used_bytes"`
 	HostMinFreeDiskBytes        int64    `json:"host_min_free_disk_bytes"`
 	AdmissionStatus             string   `json:"admission_status"`

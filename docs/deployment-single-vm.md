@@ -269,6 +269,51 @@ systemctl status dcm-tenants.slice
 
 DCM не создаёт и не изменяет slice. При изменении `reserved_system_memory_bytes` или объёма памяти сервера обновите `MemoryMax` вручную. Docker должен использовать cgroup driver `systemd` (`docker info`); с драйвером `cgroupfs` вместо имени slice указывается путь cgroup.
 
+## Ограничение корневой файловой системы контейнеров
+
+Настройка `container_disk_quota` (по умолчанию `1G`) передаётся Docker как параметр хранилища `size` при создании контейнера. Docker применяет его не на всех серверах: на части конфигураций он принимает параметр без ошибки и ничего не ограничивает. Тогда контейнер может заполнить диск сервера записью в свою файловую систему (тома ограничиваются отдельно).
+
+Core при запуске читает сведения о хранилище Docker и показывает результат в мониторинге (`rootfs_quota_status`):
+
+| Хранилище Docker | Состояние |
+|---|---|
+| `overlay2` на XFS | `enforced` — Docker сам отказывает в создании контейнера, если XFS смонтирована без `pquota` |
+| `btrfs`, `zfs`, `devicemapper` | `enforced` |
+| `overlay2` на другой файловой системе (например ext4) | `not_enforced` |
+| хранилище образов containerd (`driver-type: io.containerd.snapshotter.v1`) | `not_enforced` |
+| любое другое хранилище или сведения не прочитаны | `unknown` |
+
+Если состояние не `enforced`, Core пишет предупреждение в журнал при каждом запуске; работе DCM это не мешает.
+
+Чтобы ограничение действовало, до установки подготовьте каталог данных Docker (`/var/lib/docker`):
+
+1. Разместите его на XFS, смонтированной с параметром `pquota` (для корневой файловой системы — через параметр ядра `rootflags=pquota`), например в `/etc/fstab`:
+
+   ```text
+   /dev/sdb1  /var/lib/docker  xfs  defaults,pquota  0 0
+   ```
+
+2. Используйте драйвер хранилища `overlay2` без хранилища образов containerd. В `/etc/docker/daemon.json`:
+
+   ```json
+   {
+     "storage-driver": "overlay2",
+     "features": { "containerd-snapshotter": false }
+   }
+   ```
+
+3. Перезапустите Docker и проверьте:
+
+   ```bash
+   docker info --format '{{.Driver}} {{json .DriverStatus}}'
+   ```
+
+   Ожидается `overlay2` и `["Backing Filesystem","xfs"]` без `driver-type`.
+
+4. Перезапустите Core и убедитесь, что в мониторинге ограничение показано как действующее.
+
+Смена драйвера хранилища скрывает уже загруженные образы и созданные контейнеры. Выполняйте её до установки DCM.
+
 ## Следующие шаги
 
 - [Руководство администратора](admin-guide.md)

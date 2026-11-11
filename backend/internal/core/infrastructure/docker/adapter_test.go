@@ -285,3 +285,85 @@ func TestAdapterCreateContainerRefusesAnImageWithoutAnID(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// The root filesystem cap is a storage option only some storage setups honour;
+// on others Docker accepts it and ignores it. The status tells an
+// administrator which kind of host this is.
+func TestAdapterReadRootfsQuotaStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		info    dockertest.Response
+		want    model.RootfsQuotaStatus
+		wantErr bool
+	}{
+		{
+			name: "overlay2 on XFS",
+			info: dockertest.OK(`{"Driver":"overlay2","DriverStatus":[["Backing Filesystem","xfs"],["Supports d_type","true"]]}`),
+			want: model.RootfsQuotaEnforced,
+		},
+		{
+			name: "overlay2 on ext4",
+			info: dockertest.OK(`{"Driver":"overlay2","DriverStatus":[["Backing Filesystem","extfs"],["Supports d_type","true"]]}`),
+			want: model.RootfsQuotaNotEnforced,
+		},
+		{
+			name: "overlay2 without a reported backing filesystem",
+			info: dockertest.OK(`{"Driver":"overlay2","DriverStatus":[["Supports d_type","true"]]}`),
+			want: model.RootfsQuotaUnknown,
+		},
+		{
+			name: "containerd snapshotter",
+			info: dockertest.OK(`{"Driver":"overlayfs","DriverStatus":[["driver-type","io.containerd.snapshotter.v1"]]}`),
+			want: model.RootfsQuotaNotEnforced,
+		},
+		{
+			name: "containerd snapshotter even when the backing filesystem is XFS",
+			info: dockertest.OK(`{"Driver":"overlayfs","DriverStatus":[["driver-type","io.containerd.snapshotter.v1"],["Backing Filesystem","xfs"]]}`),
+			want: model.RootfsQuotaNotEnforced,
+		},
+		{
+			name: "btrfs",
+			info: dockertest.OK(`{"Driver":"btrfs","DriverStatus":[["Build Version","Btrfs v6.6"]]}`),
+			want: model.RootfsQuotaEnforced,
+		},
+		{
+			name: "zfs",
+			info: dockertest.OK(`{"Driver":"zfs","DriverStatus":[["Zpool","tank"]]}`),
+			want: model.RootfsQuotaEnforced,
+		},
+		{
+			name: "devicemapper",
+			info: dockertest.OK(`{"Driver":"devicemapper","DriverStatus":[["Pool Name","docker-thinpool"]]}`),
+			want: model.RootfsQuotaEnforced,
+		},
+		{
+			name: "an unlisted driver",
+			info: dockertest.OK(`{"Driver":"vfs","DriverStatus":[]}`),
+			want: model.RootfsQuotaUnknown,
+		},
+		{
+			name:    "the info cannot be read",
+			info:    dockertest.Error(500, "daemon is starting"),
+			want:    model.RootfsQuotaUnknown,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{"GET /info": tt.info})
+			adapter, err := docker.NewAdapter()
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+			status, err := adapter.ReadRootfsQuotaStatus(context.Background())
+
+			require.Equal(t, tt.want, status)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Len(t, daemon.Requests("/info"), 1)
+		})
+	}
+}
