@@ -186,11 +186,7 @@ func Clone(ctx context.Context, req CloneRequest) (RepoInfo, error) {
 	args = append(args, "--", info.URL, req.DestDir)
 
 	cmd := exec.CommandContext(cloneCtx, "git", args...)
-	cmd.Env = append(os.Environ(),
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=",
-		"SSH_ASKPASS=",
-	)
+	cmd.Env = cloneEnv(os.Environ())
 	if output, err := cmd.CombinedOutput(); err != nil {
 		if sizeErr := cloneSizeError(sizeErrCh); sizeErr != nil {
 			return RepoInfo{}, sizeErr
@@ -213,6 +209,35 @@ func Clone(ctx context.Context, req CloneRequest) (RepoInfo, error) {
 
 	info.Ref = ref
 	return info, nil
+}
+
+// cloneEnvNames are the variables git needs from the caller's environment: where
+// to find its helpers and configuration, how to reach the remote through a
+// proxy, and which certificate authorities to trust.
+var cloneEnvNames = map[string]bool{
+	"PATH": true, "HOME": true, "TMPDIR": true, "LANG": true, "LC_ALL": true,
+	"HTTP_PROXY": true, "HTTPS_PROXY": true, "NO_PROXY": true, "ALL_PROXY": true,
+	"http_proxy": true, "https_proxy": true, "no_proxy": true, "all_proxy": true,
+	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true,
+}
+
+// cloneEnv builds the environment of the git child from an allowlist. The
+// caller's process holds bootstrap secrets (DSNs, service tokens, storage keys)
+// and git talks to an untrusted remote, so nothing else is inherited: neither
+// those secrets nor GIT_* settings that could change how git connects.
+func cloneEnv(environ []string) []string {
+	env := make([]string, 0, len(cloneEnvNames)+3)
+	for _, entry := range environ {
+		name, _, found := strings.Cut(entry, "=")
+		if found && cloneEnvNames[name] {
+			env = append(env, entry)
+		}
+	}
+	return append(env,
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=",
+		"SSH_ASKPASS=",
+	)
 }
 
 func ArchiveToZipFile(ctx context.Context, sourceDir, archivePath string, limits ArchiveLimits) (ArchiveStats, error) {

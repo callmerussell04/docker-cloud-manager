@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -165,4 +166,59 @@ func TestValidationErrorsNeverEchoTheirInput(t *testing.T) {
 			require.NotContains(t, apperrors.SafeMessage(err), marker)
 		})
 	}
+}
+
+// TestCloneGivesGitOnlyTheEnvironmentItNeeds runs Clone against a stand-in git
+// executable that records its environment. Core clones on a request path, so
+// its bootstrap secrets must not reach a process that talks to an untrusted
+// remote.
+func TestCloneGivesGitOnlyTheEnvironmentItNeeds(t *testing.T) {
+	binDir := t.TempDir()
+	envFile := filepath.Join(t.TempDir(), "git.env")
+	// The last argument is the clone destination; env is a shell-independent
+	// way to list the environment the child received.
+	script := "#!/bin/sh\nenv > '" + envFile + "'\nfor last; do :; done\nmkdir -p \"$last\"\n"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700))
+
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("HTTPS_PROXY", "http://proxy.internal:3128")
+	t.Setenv("https_proxy", "http://proxy.internal:3128")
+	t.Setenv("NO_PROXY", "localhost")
+	t.Setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+	t.Setenv("DATABASE_URL", "postgres://user:database-secret@db/core")
+	t.Setenv("INTERNAL_SERVICE_TOKEN", "internal-secret")
+	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "storage-secret")
+	t.Setenv("GIT_SSH_COMMAND", "ssh -o ProxyCommand=evil")
+	t.Setenv("GIT_ASKPASS", "/usr/bin/leak-credentials")
+
+	_, err := gitsource.Clone(context.Background(), gitsource.CloneRequest{
+		RepoURL:      "https://github.com/owner/repo.git",
+		DestDir:      filepath.Join(t.TempDir(), "repo"),
+		AllowedHosts: []string{"github.com"},
+	})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(envFile)
+	require.NoError(t, err)
+	got := map[string]string{}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
+		name, value, _ := strings.Cut(line, "=")
+		got[name] = value
+	}
+
+	names := slices.Sorted(maps.Keys(got))
+	for _, name := range []string{"DATABASE_URL", "INTERNAL_SERVICE_TOKEN", "OBJECT_STORAGE_SECRET_KEY", "GIT_SSH_COMMAND"} {
+		require.NotContains(t, names, name)
+	}
+	require.False(t, strings.Contains(string(raw), "secret"), "a secret value reached git: variables %v", names)
+	require.Equal(t, os.Getenv("PATH"), got["PATH"])
+	require.Equal(t, os.Getenv("HOME"), got["HOME"])
+	require.Equal(t, "http://proxy.internal:3128", got["HTTPS_PROXY"])
+	require.Equal(t, "http://proxy.internal:3128", got["https_proxy"])
+	require.Equal(t, "localhost", got["NO_PROXY"])
+	require.Equal(t, "/etc/ssl/certs/ca-certificates.crt", got["SSL_CERT_FILE"])
+	require.Equal(t, "0", got["GIT_TERMINAL_PROMPT"])
+	require.Empty(t, got["GIT_ASKPASS"])
+	require.Empty(t, got["SSH_ASKPASS"])
 }
