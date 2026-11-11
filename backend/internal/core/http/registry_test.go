@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -115,6 +118,50 @@ func TestRegistryEdgeLogsUnavailableBackend(t *testing.T) {
 	require.Equal(t, 1, strings.Count(logs.String(), "registry backend request failed"))
 	require.Contains(t, logs.String(), "connection refused")
 }
+
+// The Registry cleanup fence (service.RegistryCleanupDelay) counts on the edge
+// ending every admitted request within a minute: a build whose credential was
+// revoked cannot keep writing through a request that was already let in. The
+// same limit applies to reads, so one blob transfer cannot outlast a minute.
+func TestRegistryEdgeEndsARequestTheBackendHasNotFinishedInAMinute(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "blob download", method: http.MethodGet, path: "/v2/owner_image/blobs/sha256:0000"},
+		{name: "blob upload", method: http.MethodPatch, path: "/v2/owner_image/blobs/uploads/session"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				target, err := url.Parse("https://registry-backend.test")
+				require.NoError(t, err)
+				// The backend answers at once and then never finishes the body,
+				// as a transfer slower than the limit would.
+				transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: stalledBody{ctx: req.Context()}, Request: req}, nil
+				})
+				handler := corehttp.RegistryEdgeHandler(target, "registry:5000", transport, corehttpmocks.NewMockRegistryTokenLogic(t), slog.New(slog.DiscardHandler))
+				started := time.Now()
+
+				handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tt.method, tt.path, nil))
+
+				require.Equal(t, time.Minute, time.Since(started))
+			})
+		})
+	}
+}
+
+// stalledBody blocks until its request is canceled, like a transport body
+// read interrupted by the request context.
+type stalledBody struct{ ctx context.Context }
+
+func (b stalledBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+
+func (stalledBody) Close() error { return nil }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
