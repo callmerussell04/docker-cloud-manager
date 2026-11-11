@@ -170,12 +170,17 @@ func (w *VolumeUsageWorker) forgetRemovedScans(volumes []model.Volume) {
 	}
 }
 
-// enforceSizes stops the running containers that can write to a volume whose
-// usage is above its size. Each volume is judged by its own size alone.
+// enforceSizes stops the running containers that can write to a measured
+// volume whose usage is above its size. Each volume is judged by its own size
+// alone. A kernel-enforced volume is left to the kernel: the scan sums apparent
+// file sizes, which sparse files push past a size the volume cannot exceed.
 func (w *VolumeUsageWorker) enforceSizes(ctx context.Context, volumes []model.Volume) {
 	for _, vol := range volumes {
 		if ctx.Err() != nil {
 			return
+		}
+		if vol.SizeEnforced {
+			continue
 		}
 		usage := w.measuredBytes(vol)
 		if usage <= vol.SizeBytes {

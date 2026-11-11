@@ -399,6 +399,31 @@ func TestVolumeUsageWorkerStopsOnlyWritersOfOversizedVolume(t *testing.T) {
 	})
 }
 
+// A kernel-enforced volume is measured and published like any other, but its
+// writers are never stopped: sparse files can measure above a size the kernel
+// does not let the volume exceed.
+func TestVolumeUsageWorkerLeavesEnforcedVolumeToTheKernel(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		f := newVolumeUsageFixture(t)
+		const mb = 1 << 20
+		owner := uuid.New()
+		enforced, measured := uuid.New(), uuid.New()
+		name := f.addVolume(enforced, owner, 2*mb, 0, fakeVolumeDisk{entries: 3, bytesPerEntry: mb})
+		f.volumes[0].SizeEnforced = true
+		f.addVolume(measured, owner, 2*mb, 0, fakeVolumeDisk{entries: 3, bytesPerEntry: mb})
+		f.addWriter(enforced)
+		measuredWriter := f.addWriter(measured)
+		stop := f.run(t)
+
+		synctest.Wait()
+		_, published, stops := f.snapshot()
+		require.Contains(t, published, fmt.Sprintf("%s=%d", name, 3*mb), "an enforced volume is still measured")
+		require.Equal(t, []uuid.UUID{measuredWriter}, stops)
+
+		stop()
+	})
+}
+
 // Volumes are checked one by one against their own sizes: an owner whose
 // volumes are each within size loses no container, however much they hold in
 // total.

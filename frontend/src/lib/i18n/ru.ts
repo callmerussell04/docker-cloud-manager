@@ -150,7 +150,7 @@ export const ru = {
   'dashboard.subtitle': 'Сводка по использованию ресурсов платформы',
   'dashboard.usedPercent': 'Использовано {percent}%',
   'dashboard.ram': 'Оперативная память (RAM) (Зарезервировано)',
-  'dashboard.disk': 'Дисковое пространство (Образы)',
+  'dashboard.disk': 'Дисковое пространство (образы и размеры томов)',
   'dashboard.containerLimit': 'Лимит контейнеров',
   'dashboard.volumeLimit': 'Лимит томов (Volumes)',
   'dashboard.runningContainers': 'Запущенные контейнеры',

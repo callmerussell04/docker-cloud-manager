@@ -96,7 +96,7 @@ func SystemConfig() config.SystemConfig {
 		MemoryBoostMultiplier:                8,
 		CPUBoostMultiplier:                   8,
 		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
-		DefaultVolumeSizeBytes:               1 << 30,
+		DefaultVolumeSizeBytes:               256 << 20,
 		VolumeSizeEnforcement:                false,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},

@@ -14,7 +14,7 @@ import (
 
 const volumeTestMiB = int64(1 << 20)
 
-// Volumes that existed before volume sizes get the default 1 GiB, measured
+// Volumes that existed before volume sizes get the default 256 MiB, measured
 // rather than kernel-enforced.
 func TestVolumeSizeMigrationGivesExistingVolumesTheDefault(t *testing.T) {
 	ctx := context.Background()
@@ -29,7 +29,7 @@ func TestVolumeSizeMigrationGivesExistingVolumesTheDefault(t *testing.T) {
 	var sizeBytes int64
 	var enforced bool
 	require.NoError(t, db.QueryRow(ctx, `SELECT size_bytes, size_enforced FROM volumes WHERE id = $1`, volumeID).Scan(&sizeBytes, &enforced))
-	require.EqualValues(t, 1<<30, sizeBytes)
+	require.EqualValues(t, 256<<20, sizeBytes)
 	require.False(t, enforced)
 }
 

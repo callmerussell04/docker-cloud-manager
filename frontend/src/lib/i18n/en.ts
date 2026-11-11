@@ -152,7 +152,7 @@ export const en: Record<keyof typeof ru, string> = {
   'dashboard.subtitle': 'Platform resource usage overview',
   'dashboard.usedPercent': 'Used {percent}%',
   'dashboard.ram': 'Memory (RAM) (Reserved)',
-  'dashboard.disk': 'Disk space (Images)',
+  'dashboard.disk': 'Disk space (images and volume sizes)',
   'dashboard.containerLimit': 'Container limit',
   'dashboard.volumeLimit': 'Volume limit',
   'dashboard.runningContainers': 'Running containers',
