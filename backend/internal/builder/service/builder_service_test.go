@@ -421,6 +421,72 @@ func testCompletesCanceled(t *testing.T, waitResult func(context.Context) error)
 	require.NoError(t, err)
 }
 
+// Core stops a build under memory pressure by recording it
+// failed_resource_exhausted; Builder's status poll acts on it. Each case runs
+// on synctest's fake clock, so the poll fires once every goroutine blocks.
+func TestBuilderServiceHandleBuildMessageCompletesResourceExhaustedWhenCoreStopsTheBuild(t *testing.T) {
+	for name, waitResult := range waitResultsAfterTheBuildContextEnds {
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) { testCompletesResourceExhaustedStop(t, waitResult) })
+		})
+	}
+}
+
+func testCompletesResourceExhaustedStop(t *testing.T, waitResult func(context.Context) error) {
+	cfg := testBuilderRuntimeConfig()
+	cfg.BuildCancelPollInterval = 2 * time.Second
+	h := newBuilderHarness(t, cfg)
+	msg := testBuildMessage()
+
+	expectStarted(h, msg, msg.ImageID)
+	expectBuildPrepared(h, msg)
+	expectDockerRunWithLogs(h, "log\n")
+	h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).Return("/tmp/build.log", nil)
+	h.core.EXPECT().GetBuildStatus(mock.Anything, msg.BuildID).Return("failed_resource_exhausted", nil).Once()
+	h.docker.EXPECT().
+		WaitForBuild(mock.Anything, "container-id").
+		RunAndReturn(func(ctx context.Context, containerID string) error {
+			<-ctx.Done()
+			return waitResult(ctx)
+		})
+	h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+	h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because server resources were exhausted.", int64(5<<20)).Return(nil).Once()
+	expectLogUpload(h, msg, 2)
+	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_resource_exhausted"), 0).Return(nil)
+	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+
+	err := h.service.HandleBuildMessage(context.Background(), msg)
+	require.NoError(t, err)
+}
+
+// A stop Core records while the archive still downloads ends the build
+// before Kaniko starts, with the same outcome and log line.
+func TestBuilderServiceCompletesResourceExhaustedWhenCoreStopsTheBuildBeforeKaniko(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := testBuilderRuntimeConfig()
+		cfg.BuildCancelPollInterval = 2 * time.Second
+		h := newBuilderHarness(t, cfg)
+		msg := testBuildMessage()
+
+		expectStarted(h, msg, msg.ImageID)
+		h.workspaces.EXPECT().ArchivePath(msg.BuildID, msg.ArchiveObjectKey).Return("/tmp/archive.zip")
+		h.files.EXPECT().CleanUp("/tmp/archive.zip").Return(nil)
+		h.logs.EXPECT().CleanUp(msg.BuildID).Return(nil).Maybe()
+		h.objects.EXPECT().DownloadFile(mock.Anything, msg.ArchiveObjectKey, "/tmp/archive.zip").
+			RunAndReturn(func(ctx context.Context, _, _ string) error {
+				<-ctx.Done()
+				return ctx.Err()
+			})
+		h.core.EXPECT().GetBuildStatus(mock.Anything, msg.BuildID).Return("failed_resource_exhausted", nil).Once()
+		h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because server resources were exhausted.", int64(5<<20)).Return(nil).Once()
+		expectLogUpload(h, msg, 1)
+		h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_resource_exhausted"), 0).Return(nil)
+		h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+
+		require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+	})
+}
+
 func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
 	for name, waitResult := range waitResultsAfterTheBuildContextEnds {
 		t.Run(name, func(t *testing.T) { testCompletesTimeout(t, waitResult) })

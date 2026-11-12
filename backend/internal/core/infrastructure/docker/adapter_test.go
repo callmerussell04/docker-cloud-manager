@@ -186,23 +186,6 @@ func TestAdapterListRunningBuildContainers(t *testing.T) {
 	}, filter)
 }
 
-// Killing sends SIGKILL, so the build container exits with code 137 and
-// Builder ends the build as failed for resource exhaustion.
-func TestAdapterKillContainer(t *testing.T) {
-	daemon := dockertest.Serve(t, map[string]dockertest.Response{
-		"POST /containers/kaniko-1/kill": dockertest.NoContent(),
-	})
-	adapter, err := docker.NewAdapter()
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
-
-	require.NoError(t, adapter.KillContainer(context.Background(), "kaniko-1"))
-
-	requests := daemon.Requests("/containers/kaniko-1/kill")
-	require.Len(t, requests, 1)
-	require.Equal(t, "KILL", requests[0].Query.Get("signal"))
-}
-
 // Docker copies an image's labels onto its containers, and Traefik's Docker
 // provider reads every traefik.* label on a container it serves. A tenant's
 // image must therefore never bring its own: a router label would claim the

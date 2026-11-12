@@ -39,6 +39,7 @@ packages:
       GCDockerAPI: {}
       HostDiskMetricsProvider: {}
       HostMetricsProvider: {}
+      MemoryPressureBuildStopper: {}
       MemoryPressureDockerAPI: {}
       MemoryPressureHostMetrics: {}
       ImageContainerRepository: {}

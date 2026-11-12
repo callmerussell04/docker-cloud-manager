@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -191,6 +192,9 @@ func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessf
 	}{
 		{model.BuildStatusCanceled, model.RegistryTagDelete},
 		{model.BuildStatusFailedQuotaExceeded, model.RegistryTagDelete},
+		// A build the memory pressure worker stopped meets Builder's late
+		// completion: the status stays and the manifest is cleaned up.
+		{model.BuildStatusFailedResourceExhausted, model.RegistryTagDelete},
 		{model.BuildStatusFailedInternal, model.RegistryTagDelete},
 		{model.BuildStatusSuccess, model.RegistryTagKeep},
 	} {
@@ -341,4 +345,132 @@ func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {
 	require.NoError(t, svc.CancelBuildRecord(ctx, buildID))
 	require.NoError(t, svc.CancelBuildRecord(ctx, buildID))
 	require.Equal(t, 1, cancelCalls)
+}
+
+var errTestDatabase = errors.New("database unavailable")
+
+// The memory pressure worker stops a running build by recording it
+// failed_resource_exhausted: status first, then Registry revocation with tag
+// deletion and archive cleanup. Builder's status poll then stops Kaniko. The
+// stop never cascades a cancellation to the build's Compose deployment.
+func TestBuildServiceStopBuildForResourceExhaustion(t *testing.T) {
+	type world struct {
+		repo     *coremocks.BuildRepository
+		images   *coremocks.BuildImageRepository
+		auth     *coremocks.BuildRegistryAuthorizer
+		objects  *coremocks.BuildObjectStore
+		svc      *service.BuildService
+		build    model.Build
+		recorded []string
+	}
+	newWorld := func(t *testing.T, status string) *world {
+		projectID := uuid.New()
+		w := &world{
+			repo:    newBuildRepository(t),
+			images:  coremocks.NewBuildImageRepository(t),
+			auth:    coremocks.NewBuildRegistryAuthorizer(t),
+			objects: coremocks.NewBuildObjectStore(t),
+			build: model.Build{
+				ID: uuid.New(), ImageID: uuid.New(), OwnerID: uuid.New(), ProjectID: &projectID,
+				Status: status, ArchiveObjectKey: "build-archives/source.zip",
+			},
+		}
+		w.svc = newTestBuildService(t, service.BuildServiceDeps{
+			Repository:   w.repo,
+			Images:       w.images,
+			Registry:     coremocks.NewImageRegistryAPI(t),
+			ObjectStore:  w.objects,
+			RegistryAuth: w.auth,
+			// No expectations: a platform stop never cancels a deployment.
+			Deployments: coremocks.NewBuildDeploymentCanceler(t),
+		})
+		return w
+	}
+
+	t.Run("a running build is recorded, revoked with tag deletion and cleaned up", func(t *testing.T) {
+		w := newWorld(t, model.BuildStatusRunning)
+		stopped := w.build
+		stopped.Status = model.BuildStatusFailedResourceExhausted
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(w.build, nil).Once()
+		mark := w.images.EXPECT().
+			MarkBuildFailedAndDeleteImageTx(mock.Anything, w.build.ID, w.build.ImageID, model.BuildStatusFailedResourceExhausted).
+			Run(func(context.Context, uuid.UUID, uuid.UUID, string) { w.recorded = append(w.recorded, "status") }).
+			Return(nil).Once()
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(stopped, nil).Once()
+		w.auth.EXPECT().RevokeBuild(mock.Anything, w.build.ID, model.RegistryTagDelete).
+			Run(func(context.Context, uuid.UUID, model.RegistryTagDisposition) {
+				w.recorded = append(w.recorded, "revoke")
+			}).
+			Return(nil).Once().NotBefore(mark)
+		w.objects.EXPECT().DeleteObject(mock.Anything, "build-archives/source.zip").
+			Run(func(context.Context, string) { w.recorded = append(w.recorded, "archive") }).
+			Return(nil).Once()
+
+		ok, err := w.svc.StopBuildForResourceExhaustion(context.Background(), w.build.ID)
+
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, []string{"status", "revoke", "archive"}, w.recorded)
+	})
+
+	for _, status := range []string{model.BuildStatusPending, model.BuildStatusSuccess, model.BuildStatusCanceled, model.BuildStatusFailedResourceExhausted} {
+		t.Run("a "+status+" build is left alone", func(t *testing.T) {
+			w := newWorld(t, status)
+			w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(w.build, nil).Once()
+
+			ok, err := w.svc.StopBuildForResourceExhaustion(context.Background(), w.build.ID)
+
+			require.NoError(t, err)
+			require.False(t, ok)
+		})
+	}
+
+	t.Run("a build Builder completed first keeps its status and its tag", func(t *testing.T) {
+		w := newWorld(t, model.BuildStatusRunning)
+		succeeded := w.build
+		succeeded.Status = model.BuildStatusSuccess
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(w.build, nil).Once()
+		// The guarded write finds the build terminal and changes nothing.
+		w.images.EXPECT().
+			MarkBuildFailedAndDeleteImageTx(mock.Anything, w.build.ID, w.build.ImageID, model.BuildStatusFailedResourceExhausted).
+			Return(nil).Once()
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(succeeded, nil).Once()
+
+		ok, err := w.svc.StopBuildForResourceExhaustion(context.Background(), w.build.ID)
+
+		require.NoError(t, err)
+		require.False(t, ok)
+	})
+
+	t.Run("a failed status write is returned and nothing else happens", func(t *testing.T) {
+		w := newWorld(t, model.BuildStatusRunning)
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(w.build, nil).Once()
+		w.images.EXPECT().
+			MarkBuildFailedAndDeleteImageTx(mock.Anything, w.build.ID, w.build.ImageID, model.BuildStatusFailedResourceExhausted).
+			Return(errTestDatabase).Once()
+
+		ok, err := w.svc.StopBuildForResourceExhaustion(context.Background(), w.build.ID)
+
+		require.ErrorIs(t, err, errTestDatabase)
+		require.False(t, ok)
+	})
+
+	t.Run("a failed revocation still counts as stopped", func(t *testing.T) {
+		w := newWorld(t, model.BuildStatusRunning)
+		stopped := w.build
+		stopped.Status = model.BuildStatusFailedResourceExhausted
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(w.build, nil).Once()
+		w.images.EXPECT().
+			MarkBuildFailedAndDeleteImageTx(mock.Anything, w.build.ID, w.build.ImageID, model.BuildStatusFailedResourceExhausted).
+			Return(nil).Once()
+		w.repo.EXPECT().GetByID(mock.Anything, w.build.ID).Return(stopped, nil).Once()
+		// Builder's completion repeats the revocation.
+		w.auth.EXPECT().RevokeBuild(mock.Anything, w.build.ID, model.RegistryTagDelete).Return(errTestDatabase).Once()
+		w.objects.EXPECT().DeleteObject(mock.Anything, "build-archives/source.zip").Return(nil).Once()
+
+		ok, err := w.svc.StopBuildForResourceExhaustion(context.Background(), w.build.ID)
+
+		require.NoError(t, err)
+		require.True(t, ok)
+	})
 }

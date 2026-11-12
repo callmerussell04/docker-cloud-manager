@@ -286,13 +286,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	memoryPressureWorker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
-		Repository: contRepo,
-		Docker:     dockerAdapter,
-		Metrics:    metricsProvider,
-		Builds:     buildRepo,
-		Quotas:     userQuotas,
-		Config:     cfg.ConfigManager,
-		Logger:     logger,
+		Repository:   contRepo,
+		Docker:       dockerAdapter,
+		Metrics:      metricsProvider,
+		Builds:       buildRepo,
+		BuildStopper: buildService,
+		Quotas:       userQuotas,
+		Config:       cfg.ConfigManager,
+		Logger:       logger,
 	})
 	if err != nil {
 		cancel()

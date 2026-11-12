@@ -698,11 +698,6 @@ func (a *Adapter) ListRunningBuildContainers(ctx context.Context) ([]model.Build
 	return builds, nil
 }
 
-// KillContainer sends SIGKILL, so the container exits with code 137.
-func (a *Adapter) KillContainer(ctx context.Context, dockerID string) error {
-	return a.cli.ContainerKill(ctx, dockerID, "KILL")
-}
-
 // GetContainerUsage reads one stats sample of a running container without
 // waiting for a second, unlike GetContainerStats. Its working set is the
 // memory the kernel cannot simply drop: usage less inactive file cache, the

@@ -640,6 +640,19 @@ func (b *coordinatorBuilds) CancelBuildRecord(ctx context.Context, id uuid.UUID)
 	return nil
 }
 
+// stopForResourceExhaustion plays the memory pressure worker's stop through
+// BuildService.StopBuildForResourceExhaustion: a running build is recorded
+// failed_resource_exhausted and, unlike cancellation, nothing cascades to
+// its deployment.
+func (b *coordinatorBuilds) stopForResourceExhaustion(id uuid.UUID) {
+	build, ok := b.builds[id]
+	if !ok || build.Status != model.BuildStatusRunning {
+		return
+	}
+	build.Status = model.BuildStatusFailedResourceExhausted
+	b.builds[id] = build
+}
+
 func buildUnfinished(build model.Build) bool {
 	return build.Status == model.BuildStatusPending || build.Status == model.BuildStatusRunning
 }

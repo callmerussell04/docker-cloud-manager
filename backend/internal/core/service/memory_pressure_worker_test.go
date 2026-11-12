@@ -147,9 +147,11 @@ func TestMemoryPressureWorkerStopsContainersOverTheirReservation(t *testing.T) {
 				Docker:     docker,
 				Metrics:    metrics,
 				Builds:     builds,
-				Quotas:     testQuotas(t, nil, nil),
-				Config:     coretest.StaticConfig{Config: cfg},
-				Logger:     slog.New(slog.DiscardHandler),
+				// Only containers run, so no build is stopped.
+				BuildStopper: coremocks.NewMemoryPressureBuildStopper(t),
+				Quotas:       testQuotas(t, nil, nil),
+				Config:       coretest.StaticConfig{Config: cfg},
+				Logger:       slog.New(slog.DiscardHandler),
 			})
 			require.NoError(t, err)
 
@@ -181,21 +183,23 @@ var errNeverRead = errors.New("usage must not be read")
 func TestNewMemoryPressureWorkerRejectsMissingDependencies(t *testing.T) {
 	valid := func(t *testing.T) service.MemoryPressureWorkerDeps {
 		return service.MemoryPressureWorkerDeps{
-			Repository: coretest.NewContainerStoreFake(),
-			Docker:     coremocks.NewMemoryPressureDockerAPI(t),
-			Metrics:    coremocks.NewMemoryPressureHostMetrics(t),
-			Builds:     coremocks.NewActiveSystemBuildCounter(t),
-			Quotas:     testQuotas(t, nil, nil),
-			Config:     testConfig(),
+			Repository:   coretest.NewContainerStoreFake(),
+			Docker:       coremocks.NewMemoryPressureDockerAPI(t),
+			Metrics:      coremocks.NewMemoryPressureHostMetrics(t),
+			Builds:       coremocks.NewActiveSystemBuildCounter(t),
+			BuildStopper: coremocks.NewMemoryPressureBuildStopper(t),
+			Quotas:       testQuotas(t, nil, nil),
+			Config:       testConfig(),
 		}
 	}
 	depstest.RequireRejectsMissing(t, valid, service.NewMemoryPressureWorker, map[string]string{
-		"Repository": "repository",
-		"Docker":     "docker",
-		"Metrics":    "metrics",
-		"Builds":     "builds",
-		"Quotas":     "quotas",
-		"Config":     "config",
+		"Repository":   "repository",
+		"Docker":       "docker",
+		"Metrics":      "metrics",
+		"Builds":       "builds",
+		"BuildStopper": "build stopper",
+		"Quotas":       "quotas",
+		"Config":       "config",
 	})
 }
 
@@ -233,6 +237,9 @@ type boostBuild struct {
 	usedMiB  int64
 	limitMiB int64
 	owner    string
+	// stopErr fails the build's stop, as when its status cannot be
+	// recorded.
+	stopErr error
 }
 
 func (bb boostBuild) limit() int64 { return cmp.Or(bb.limitMiB, 1024) * pressureMiB }
@@ -258,8 +265,11 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 		// wantLimitsMiB is every limit update sent to Docker.
 		wantLimitsMiB map[string]int64
 		wantStopped   []stopOf
-		// wantKilled names the build containers killed, in order.
-		wantKilled []string
+		// wantBuildsStopped names the builds stopped through the build
+		// service, which records them failed_resource_exhausted and revokes
+		// them with tag deletion (TestBuildServiceStopBuildForResourceExhaustion),
+		// in order. Docker gets no kill or stop for a build: its mock has none.
+		wantBuildsStopped []string
 	}{
 		{
 			name:          "an idle host raises a container near its limit by one step and leaves the others alone",
@@ -422,9 +432,9 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 				{name: "filler2", reservationMiB: 2048, usedMiB: 2048},
 				{name: "over", usedMiB: 800},
 			},
-			builds:        []boostBuild{{name: "leftover", usedMiB: 1600, limitMiB: 2048}},
-			wantLimitsMiB: map[string]int64{},
-			wantKilled:    []string{"leftover"},
+			builds:            []boostBuild{{name: "leftover", usedMiB: 1600, limitMiB: 2048}},
+			wantLimitsMiB:     map[string]int64{},
+			wantBuildsStopped: []string{"leftover"},
 		},
 		{
 			name:            "with boost off a build left on a raised limit returns to its build memory",
@@ -455,20 +465,44 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			wantLimitsMiB: map[string]int64{"margin": 1650, "standard": 1024},
 		},
 		{
-			// 756 MiB is missing below zero, a 1268 MiB shortfall. Killing
+			// 756 MiB is missing below zero, a 1268 MiB shortfall. Stopping
 			// the build frees the 976 MiB it uses above its slot, stopping
 			// the container frees the rest; the container over its
 			// reservation without borrowing stays, and the build within its
 			// build memory only gives back headroom.
-			name: "under pressure a build using borrowed memory is killed largest borrower first",
+			name: "under pressure a build using borrowed memory is stopped largest borrower first",
 			containers: []boostContainer{
 				{name: "borrower", usedMiB: 1600, limitMiB: 2048},
 				{name: "large", reservationMiB: 2048, usedMiB: 3300},
 			},
-			builds:        []boostBuild{{name: "build", usedMiB: 2000, limitMiB: 3072}, {name: "within", usedMiB: 1000, limitMiB: 1536}},
-			wantLimitsMiB: map[string]int64{"within": 1100},
+			builds:            []boostBuild{{name: "build", usedMiB: 2000, limitMiB: 3072}, {name: "within", usedMiB: 1000, limitMiB: 1536}},
+			wantLimitsMiB:     map[string]int64{"within": 1100},
+			wantStopped:       []stopOf{{"borrower", service.BorrowedMemoryStopReason}},
+			wantBuildsStopped: []string{"build"},
+		},
+		{
+			// The same pool as above, but the build's stop cannot be
+			// recorded: it is passed over and the pass continues, and
+			// stopping the container that borrows next covers the whole
+			// shortfall on its own.
+			name: "a build whose stop cannot be recorded is passed over and the pass continues",
+			containers: []boostContainer{
+				{name: "borrower", usedMiB: 1600, limitMiB: 2048},
+				{name: "large", reservationMiB: 2048, usedMiB: 3300},
+			},
+			builds: []boostBuild{{name: "build", usedMiB: 2000, limitMiB: 3072, stopErr: errors.New("database unavailable")}, {name: "within", usedMiB: 1000, limitMiB: 1536}},
+			// The build still running is lowered toward its use like any
+			// workload that was not stopped.
+			wantLimitsMiB: map[string]int64{"build": 2200, "within": 1100},
 			wantStopped:   []stopOf{{"borrower", service.BorrowedMemoryStopReason}},
-			wantKilled:    []string{"build"},
+		},
+		{
+			// Two build slots and the filler leave 420 MiB of the pool free,
+			// below the stop floor, but nothing uses more than it reserved.
+			name:          "under pressure a build within its build memory is never stopped",
+			containers:    []boostContainer{{name: "filler", reservationMiB: 4700, usedMiB: 4700}},
+			builds:        []boostBuild{{name: "full", usedMiB: 1024}, {name: "near", usedMiB: 1000}},
+			wantLimitsMiB: map[string]int64{},
 		},
 		{
 			// A 744 MiB shortfall: the container borrows more than the
@@ -516,7 +550,7 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 
 			require.Equal(t, tc.wantLimitsMiB, pass.updatedMiB(), "limit updates sent to Docker")
 			require.Equal(t, tc.wantStopped, pass.stopped(), "stops queued, in order")
-			require.Equal(t, tc.wantKilled, pass.killed, "build containers killed, in order")
+			require.Equal(t, tc.wantBuildsStopped, pass.buildsStopped, "builds stopped through the build service, in order")
 		})
 	}
 }
@@ -870,8 +904,8 @@ func boostTestConfig() config.SystemConfig {
 
 // boostPass is a memory pressure worker over the container store fake and a
 // mocked Docker. Docker reports the usage the test scripts and the limits
-// and quotas it was last sent, and records the updates, inspections and
-// kills it gets.
+// and quotas it was last sent, and records the updates and inspections it
+// gets. The build stopper records the builds the worker stops.
 type boostPass struct {
 	t       *testing.T
 	cfg     config.SystemConfig
@@ -890,16 +924,17 @@ type boostPass struct {
 	// limits and cpuQuota are each workload's current memory limit and CPU
 	// quota; sent and cpuSent name those updated, and updates counts the
 	// updates each got.
-	limits     map[string]int64
-	cpuQuota   map[string]int64
-	cpuPeriod  map[string]int64
-	periodSent map[string]int64
-	sent       map[string]bool
-	cpuSent    map[string]bool
-	updates    map[string]int
-	inspected  []string
-	builds     []model.BuildContainer
-	killed     []string
+	limits        map[string]int64
+	cpuQuota      map[string]int64
+	cpuPeriod     map[string]int64
+	periodSent    map[string]int64
+	sent          map[string]bool
+	cpuSent       map[string]bool
+	updates       map[string]int
+	inspected     []string
+	builds        []model.BuildContainer
+	stopper       *coremocks.MemoryPressureBuildStopper
+	buildsStopped []string
 }
 
 func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int64) *boostPass {
@@ -913,6 +948,7 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 		usedMiB: map[string]int64{}, cpuNanos: map[string]int64{},
 		limits: map[string]int64{}, cpuQuota: map[string]int64{}, cpuPeriod: map[string]int64{}, periodSent: map[string]int64{},
 		sent: map[string]bool{}, cpuSent: map[string]bool{}, updates: map[string]int{},
+		stopper: coremocks.NewMemoryPressureBuildStopper(t),
 	}
 	p.metrics.EXPECT().GetTotalMemory().Return(8192*pressureMiB, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
@@ -924,13 +960,14 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 	quotas, err := userquota.New(p.quotas, static)
 	require.NoError(t, err)
 	worker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
-		Repository: p.store,
-		Docker:     p.docker,
-		Metrics:    p.metrics,
-		Builds:     builds,
-		Quotas:     quotas,
-		Config:     static,
-		Logger:     slog.New(slog.DiscardHandler),
+		Repository:   p.store,
+		Docker:       p.docker,
+		Metrics:      p.metrics,
+		Builds:       builds,
+		BuildStopper: p.stopper,
+		Quotas:       quotas,
+		Config:       static,
+		Logger:       slog.New(slog.DiscardHandler),
 	})
 	require.NoError(t, err)
 	p.worker = worker
@@ -989,7 +1026,8 @@ func (p *boostPass) owner(key string) uuid.UUID {
 func (p *boostPass) addBuild(bb boostBuild) {
 	t := p.t
 	dockerID := "kaniko-" + bb.name
-	p.builds = append(p.builds, model.BuildContainer{DockerID: dockerID, BuildID: uuid.New(), OwnerID: p.owner(cmp.Or(bb.owner, bb.name))})
+	buildID := uuid.New()
+	p.builds = append(p.builds, model.BuildContainer{DockerID: dockerID, BuildID: buildID, OwnerID: p.owner(cmp.Or(bb.owner, bb.name))})
 	p.script(bb.name, dockerID, bb.usedMiB, bb.limit(), p.cfg.BuildCPUPeriod, func(update model.ContainerResourceUpdate) error {
 		want := model.ContainerResourceUpdate{CPUQuota: update.CPUQuota, CPUPeriod: update.CPUPeriod}
 		if update.MemoryLimitBytes != 0 {
@@ -999,10 +1037,13 @@ func (p *boostPass) addBuild(bb boostBuild) {
 		require.Equal(t, want, update, "swap follows the build multiplier; reservation, CPU shares and period are left as they are")
 		return nil
 	})
-	p.docker.EXPECT().KillContainer(mock.Anything, dockerID).RunAndReturn(
-		func(context.Context, string) error {
-			p.killed = append(p.killed, bb.name)
-			return nil
+	p.stopper.EXPECT().StopBuildForResourceExhaustion(mock.Anything, buildID).RunAndReturn(
+		func(context.Context, uuid.UUID) (bool, error) {
+			if bb.stopErr != nil {
+				return false, bb.stopErr
+			}
+			p.buildsStopped = append(p.buildsStopped, bb.name)
+			return true, nil
 		}).Maybe()
 }
 

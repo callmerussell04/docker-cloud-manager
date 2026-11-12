@@ -313,7 +313,10 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		return apperrors.New(apperrors.ErrUnavailable, "build authorization is unavailable")
 	}
 
-	buildCtx, cancel := context.WithTimeout(ctx, cfg.MaxBuildTime)
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, cfg.MaxBuildTime)
+	defer cancelTimeout()
+	buildCtx, stopBuild := context.WithCancelCause(timeoutCtx)
+	cancel := func() { stopBuild(nil) }
 	buildCtx = logging.ContextWithRequestID(buildCtx, msg.RequestID)
 
 	s.activeMu.Lock()
@@ -325,7 +328,7 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		s.activeMu.Unlock()
 	}()
 
-	pollDone := s.watchBuildCancellation(buildCtx, cancel, msg.BuildID, cfg.BuildCancelPollInterval)
+	pollDone := s.watchBuildStatus(buildCtx, stopBuild, msg.BuildID, cfg.BuildCancelPollInterval)
 	defer func() {
 		cancel()
 		<-pollDone
@@ -335,13 +338,13 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	defer func() { _ = s.fileManager.CleanUp(archivePath) }() // best effort; cleanupFinalizedBuild retries and reports removal
 	if err := s.objectStore.DownloadFile(buildCtx, msg.ArchiveObjectKey, archivePath); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
+			return s.completeStoppedBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
 		return err
 	}
 	if err := s.fileManager.ValidateArchive(archivePath, msg.ContextDir, msg.Dockerfile); err != nil {
 		if buildCtx.Err() != nil {
-			return s.completeCanceledBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
+			return s.completeStoppedBuild(buildCtx, msg, imageID, cfg.MaxBuildLogSizeBytes)
 		}
 		logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
 		if err := s.logManager.WriteSystemLog(buildCtx, msg.BuildID, "Build failed because the uploaded archive is invalid.", cfg.MaxBuildLogSizeBytes); err != nil {
@@ -436,20 +439,39 @@ func (s *BuilderService) forgetBuildResult(ctx context.Context, buildID string) 
 	return nil
 }
 
-// completeCanceledBuild runs after the build context is done, so its log
-// write and upload use a detached cleanup context.
-func (s *BuilderService) completeCanceledBuild(ctx context.Context, msg buildqueue.ImageBuildMessage, imageID string, maxLogSize int64) error {
+// completeStoppedBuild runs after the build context is done, so its log
+// write and upload use a detached cleanup context. A build Core stopped for
+// resource exhaustion keeps that outcome; any other stop is a cancellation.
+func (s *BuilderService) completeStoppedBuild(ctx context.Context, msg buildqueue.ImageBuildMessage, imageID string, maxLogSize int64) error {
 	logger := s.logger.With("build_id", msg.BuildID, "image_id", imageID, "owner_id", msg.OwnerID)
 	logCtx, cancel := cleanupContext(ctx)
 	defer cancel()
-	s.writeSystemBuildLog(logCtx, logger, msg.BuildID, msg.LogObjectKey, maxLogSize, buildLogCanceled)
-	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, buildStatusCanceled, 0); err != nil {
+	status, message := buildStatusCanceled, buildLogCanceled
+	if stoppedForResourceExhaustion(ctx) {
+		status, message = buildStatusFailedResourceExhausted, buildLogResourceExhausted
+	}
+	s.writeSystemBuildLog(logCtx, logger, msg.BuildID, msg.LogObjectKey, maxLogSize, message)
+	if err := s.completeBuild(logging.ContextWithRequestID(context.Background(), msg.RequestID), msg.BuildID, imageID, status, 0); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel context.CancelFunc, buildID string, pollInterval time.Duration) <-chan struct{} {
+// errStoppedForResourceExhaustion is the cause of a build context ended
+// because Core recorded the build failed_resource_exhausted: the platform
+// stopped it under memory pressure.
+var errStoppedForResourceExhaustion = errors.New("build stopped by the platform: server resources were exhausted")
+
+// stoppedForResourceExhaustion reports whether ctx ended because Core
+// stopped the build for resource exhaustion.
+func stoppedForResourceExhaustion(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), errStoppedForResourceExhaustion)
+}
+
+// watchBuildStatus polls Core and stops the build once Core records a
+// terminal status: as a resource-exhaustion stop for
+// failed_resource_exhausted, as a cancellation otherwise.
+func (s *BuilderService) watchBuildStatus(ctx context.Context, stop context.CancelCauseFunc, buildID string, pollInterval time.Duration) <-chan struct{} {
 	if pollInterval <= 0 {
 		pollInterval = defaultBuildCancelPollInterval
 	}
@@ -471,8 +493,12 @@ func (s *BuilderService) watchBuildCancellation(ctx context.Context, cancel cont
 					continue
 				}
 				if isTerminalBuildStatus(status) {
-					s.logger.InfoContext(ctx, "build cancellation detected", "build_id", buildID, "status", status, "duration_ms", time.Since(startedAt).Milliseconds())
-					cancel()
+					s.logger.InfoContext(ctx, "terminal build status detected", "build_id", buildID, "status", status, "duration_ms", time.Since(startedAt).Milliseconds())
+					var cause error
+					if status == buildStatusFailedResourceExhausted {
+						cause = errStoppedForResourceExhaustion
+					}
+					stop(cause)
 					return
 				}
 			}
@@ -557,10 +583,14 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 		logCtx, cancelLog = cleanupContext(ctx)
 		defer cancelLog()
 	}
-	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		status = buildStatusFailedTimeout
 		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogTimeout)
-	} else if errors.Is(ctx.Err(), context.Canceled) {
+	case stoppedForResourceExhaustion(ctx):
+		status = buildStatusFailedResourceExhausted
+		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
+	case errors.Is(ctx.Err(), context.Canceled):
 		status = buildStatusCanceled
 		s.writeSystemBuildLog(logCtx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogCanceled)
 	}
@@ -631,8 +661,8 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 	case waitErr == nil && ctx.Err() == nil:
 		return buildStatusSuccess
 	case isResourceExhaustedError(waitErr):
-		// A canceled or timed-out build is killed too; its caller records
-		// that outcome and its log line instead.
+		// A canceled, timed-out or platform-stopped build is killed too; its
+		// caller records that outcome and its log line instead.
 		if ctx.Err() == nil {
 			s.writeSystemBuildLog(ctx, logger, job.BuildID, job.LogObjectKey, cfg.MaxBuildLogSizeBytes, buildLogResourceExhausted)
 		}

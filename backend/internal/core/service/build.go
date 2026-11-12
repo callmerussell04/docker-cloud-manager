@@ -695,6 +695,45 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	return nil
 }
 
+// StopBuildForResourceExhaustion is the memory pressure worker's stop of a
+// running build. Core never reaches the build container (ADR 0003): it
+// records the build failed_resource_exhausted, and Builder's status poll
+// stops Kaniko and reports the same status, which completion then leaves
+// unchanged. The status is written first, then the Registry credential is
+// revoked with tag deletion and the staged archive is cleaned up. Unlike
+// cancellation, the stop does not cascade to a Compose deployment, which
+// fails as for any failed build. A build that is not running, or that
+// reaches another terminal status first, is left alone. It reports whether
+// the build was stopped. A failed revocation is logged and still counts as
+// a stop, because Builder's completion revokes the credential again.
+func (s *BuildService) StopBuildForResourceExhaustion(ctx context.Context, buildID uuid.UUID) (bool, error) {
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return false, fmt.Errorf("read build to stop: %w", err)
+	}
+	if b.Status != model.BuildStatusRunning {
+		return false, nil
+	}
+	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusFailedResourceExhausted); err != nil {
+		return false, fmt.Errorf("record build stopped for resource exhaustion: %w", err)
+	}
+	// The write is guarded by status, so a completion that landed first
+	// keeps its outcome; read back which one was recorded.
+	recorded, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return false, fmt.Errorf("read stopped build status: %w", err)
+	}
+	if recorded.Status != model.BuildStatusFailedResourceExhausted {
+		return false, nil
+	}
+	s.logger.WarnContext(ctx, "build record stopped for resource exhaustion", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
+		s.logger.WarnContext(ctx, "failed to revoke stopped build registry credential", "build_id", buildID, "error", err)
+	}
+	s.cleanupBuildArchive(ctx, b)
+	return true, nil
+}
+
 func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Build) {
 	if build.ArchiveObjectKey == "" {
 		return

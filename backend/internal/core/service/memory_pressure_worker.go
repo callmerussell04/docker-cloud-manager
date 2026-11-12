@@ -39,7 +39,14 @@ type MemoryPressureDockerAPI interface {
 	InspectContainer(ctx context.Context, dockerID string) (model.ContainerInspection, error)
 	UpdateContainerResources(ctx context.Context, dockerID string, resources model.ContainerResourceUpdate) error
 	ListRunningBuildContainers(ctx context.Context) ([]model.BuildContainer, error)
-	KillContainer(ctx context.Context, dockerID string) error
+}
+
+// MemoryPressureBuildStopper stops a running build through the Builder
+// contract (ADR 0003): it records the build failed_resource_exhausted and
+// Builder's status poll stops Kaniko. It reports whether the build was
+// stopped; a build that is no longer running is not.
+type MemoryPressureBuildStopper interface {
+	StopBuildForResourceExhaustion(ctx context.Context, buildID uuid.UUID) (bool, error)
 }
 
 type MemoryPressureHostMetrics interface {
@@ -65,8 +72,9 @@ type MemoryPressureConfigProvider interface {
 // A limit above what the settings now allow, after the boost ceiling was
 // lowered or boost turned off, is lowered the same way on any pass.
 // When less than the stop floor is free, the worker stops containers and
-// kills builds using borrowed memory, then those using more than they
-// reserved, largest first. It never stops a container within its
+// builds using borrowed memory, then those using more than they reserved,
+// largest first. A build is stopped by recording its outcome, never by
+// reaching its container. It never stops a container within its
 // reservation or a build within its build memory. This worker is the only
 // thing that lowers a running workload's memory limit.
 //
@@ -80,6 +88,7 @@ type MemoryPressureWorker struct {
 	docker  MemoryPressureDockerAPI
 	metrics MemoryPressureHostMetrics
 	builds  activeSystemBuildCounter
+	stopper MemoryPressureBuildStopper
 	quotas  UserQuotaProvider
 	cfg     MemoryPressureConfigProvider
 	logger  *slog.Logger
@@ -102,13 +111,14 @@ type cpuSample struct {
 }
 
 type MemoryPressureWorkerDeps struct {
-	Repository MemoryPressureContainerRepo
-	Docker     MemoryPressureDockerAPI
-	Metrics    MemoryPressureHostMetrics
-	Builds     activeSystemBuildCounter
-	Quotas     UserQuotaProvider
-	Config     MemoryPressureConfigProvider
-	Logger     *slog.Logger
+	Repository   MemoryPressureContainerRepo
+	Docker       MemoryPressureDockerAPI
+	Metrics      MemoryPressureHostMetrics
+	Builds       activeSystemBuildCounter
+	BuildStopper MemoryPressureBuildStopper
+	Quotas       UserQuotaProvider
+	Config       MemoryPressureConfigProvider
+	Logger       *slog.Logger
 }
 
 func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWorker, error) {
@@ -117,7 +127,8 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		value any
 	}{
 		{"repository", deps.Repository}, {"docker", deps.Docker}, {"metrics", deps.Metrics},
-		{"builds", deps.Builds}, {"quotas", deps.Quotas}, {"config", deps.Config},
+		{"builds", deps.Builds}, {"build stopper", deps.BuildStopper},
+		{"quotas", deps.Quotas}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -129,6 +140,7 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		docker:      deps.Docker,
 		metrics:     deps.Metrics,
 		builds:      deps.Builds,
+		stopper:     deps.BuildStopper,
 		quotas:      deps.Quotas,
 		cfg:         deps.Config,
 		logger:      logging.WithComponent(deps.Logger, "memory_pressure_worker"),
@@ -415,8 +427,8 @@ func (w *MemoryPressureWorker) memoryQuotas(ctx context.Context, owners []uuid.U
 	return quotaBytes, nil
 }
 
-// applyStops queues the plan's container stops and kills its build
-// containers, in order, until they cover its shortfall, passing over
+// applyStops queues the plan's container stops and records its build stops,
+// in order, until they cover its shortfall, passing over
 // containers with an active operation and workloads it fails to stop. It
 // returns the Docker IDs of the workloads it stopped.
 func (w *MemoryPressureWorker) applyStops(ctx context.Context, plan memoryBoostPlan) map[string]bool {
@@ -445,17 +457,22 @@ func (w *MemoryPressureWorker) applyStops(ctx context.Context, plan memoryBoostP
 	return stopped
 }
 
-// stop queues a container's platform stop or kills a build container, which
-// Builder then ends as failed for resource exhaustion. It reports whether
-// the workload is being stopped.
+// stop queues a container's platform stop or records a build as failed for
+// resource exhaustion, which Builder's status poll then acts on. It reports
+// whether the workload is being stopped.
 func (w *MemoryPressureWorker) stop(ctx context.Context, stop memoryStop) bool {
 	attrs := func(extra ...any) []any { return workloadLogAttrs(stop.workload, extra...) }
 	if stop.workload.build != nil {
-		if err := w.docker.KillContainer(ctx, stop.workload.build.DockerID); err != nil {
-			w.logger.WarnContext(ctx, "failed to kill build container under memory pressure", attrs("error", err)...)
+		stopped, err := w.stopper.StopBuildForResourceExhaustion(ctx, stop.workload.build.BuildID)
+		if err != nil {
+			w.logger.WarnContext(ctx, "failed to record build stop under memory pressure", attrs("error", err)...)
 			return false
 		}
-		w.logger.WarnContext(ctx, "build container killed due to memory pressure", attrs(
+		if !stopped {
+			w.logger.DebugContext(ctx, "build to stop is no longer running", attrs()...)
+			return false
+		}
+		w.logger.WarnContext(ctx, "build stopped due to memory pressure", attrs(
 			"working_set_bytes", stop.workload.workingSet, "standard_limit_bytes", stop.workload.standardLimit)...)
 		return true
 	}

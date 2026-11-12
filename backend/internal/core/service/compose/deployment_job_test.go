@@ -416,6 +416,27 @@ func TestComposeDeploymentJobBuildFailureStaysFailedWhenRollbackRetries(t *testi
 	w.requireSourceReleased(t)
 }
 
+// The memory pressure worker stops a running build by recording it
+// failed_resource_exhausted without the cancellation cascade, so the
+// deployment fails as for any failed build and is never canceled.
+func TestComposeDeploymentJobFailsWhenThePlatformStopsItsBuild(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.deploy(t, twoBuildCompose)
+	require.NoError(t, w.deliver(t))
+	w.setBuildStatus(t, "api", model.BuildStatusRunning)
+	w.builds.stopForResourceExhaustion(w.build(t, "api").ID)
+
+	w.tick(t)
+
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.Equal(t, "build for service api failed with status: failed_resource_exhausted", *w.store.job.ErrorMessage)
+	require.False(t, w.store.job.CancelRequested, "the deployment was never canceled")
+	require.Equal(t, model.BuildStatusFailedResourceExhausted, w.build(t, "api").Status, "rollback leaves the stopped build's status")
+	require.Equal(t, model.BuildStatusCanceled, w.build(t, "worker").Status, "the unfinished build is canceled with the failure")
+	require.Empty(t, w.images.deleted, "no build pushed an image to delete")
+	w.requireSourceReleased(t)
+}
+
 // A errTransientDatabase failure after the job starts but before its plan is durable
 // returns the job to queued, so the redelivered message runs ingestion again
 // and the job then runs to done.
