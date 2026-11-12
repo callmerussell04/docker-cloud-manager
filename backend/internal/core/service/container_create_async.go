@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/cleanupctx"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
@@ -122,7 +123,7 @@ func (s *ContainerService) runQueuedCreate(ctx context.Context, operationID uuid
 	if pulled {
 		releaseNetwork := change.discard
 		change.discard = func(ctx context.Context) {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			cleanupCtx, cancel := cleanupctx.Detached(ctx)
 			_ = s.dockerAPI.RemoveImage(cleanupCtx, imageTag, false) // best-effort removal of an image pulled for a failed create; create's outcome stands
 			cancel()
 			releaseNetwork(ctx)

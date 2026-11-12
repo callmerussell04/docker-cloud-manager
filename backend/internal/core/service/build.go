@@ -13,6 +13,8 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/cleanupctx"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildobjects"
@@ -124,7 +126,7 @@ type BuildService struct {
 	cfg          BuildConfigProvider
 	objectStore  BuildObjectStore
 	deployments  BuildDeploymentCanceler
-	staged       StagedObjectRepository
+	staging      *stagedsource.Staging
 	containers   BuildContainerReservationRepository
 	diskMetrics  HostDiskMetricsProvider
 	hostMetrics  HostMetricsProvider
@@ -193,7 +195,14 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		cfg:          deps.Config,
 		objectStore:  deps.ObjectStore,
 		deployments:  deps.Deployments,
-		staged:       deps.StagedObjects,
+		staging: stagedsource.New(stagedsource.Deps{
+			Repository:   deps.StagedObjects,
+			Users:        deps.Users,
+			ReservedDisk: reservedDiskSource{images: deps.Images, volumes: deps.VolumeRepo},
+			DiskMetrics:  deps.DiskMetrics,
+			HostDiskPath: deps.HostDiskPath,
+			Config:       deps.Config,
+		}),
 		containers:   deps.Containers,
 		diskMetrics:  deps.DiskMetrics,
 		hostMetrics:  deps.HostMetrics,
@@ -215,10 +224,6 @@ func (s *BuildService) ensureImageBuildsEnabled() error {
 
 func (s *BuildService) getUserReservedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	return reservedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
-}
-
-func (s *BuildService) ensureHostDiskFloorForWrite(projectedWriteBytes int64) error {
-	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.buildConfig().HostMinFreeDiskBytes, projectedWriteBytes)
 }
 
 // admitBuild checks the host memory and CPU one more build slot reserves and
@@ -256,44 +261,16 @@ func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.U
 	return nil
 }
 
+// reserveStagedBuildArchive reserves a staged build archive. A build counts the
+// owner's reserved disk plus staged bytes against the disk quota.
 func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
-	if objectKey == "" {
-		return nil
-	}
-	if bytesReserved < 0 {
-		bytesReserved = 0
-	}
-	cfg := s.buildConfig()
-	if err := s.ensureUserStagedDiskQuota(ctx, ownerID, bytesReserved); err != nil {
-		return err
-	}
-	return s.staged.Reserve(ctx, model.StagedObjectReservation{
-		ID:            uuid.New(),
-		OwnerID:       ownerID,
-		ObjectKey:     objectKey,
-		Kind:          model.StagedObjectKindBuildArchive,
-		BytesReserved: bytesReserved,
-	}, cfg.MaxStagedSourceBytesPerUser)
-}
-
-func (s *BuildService) ensureUserStagedDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
-	user, err := s.users.GetUser(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB, err := s.getUserReservedDiskMB(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	stagedBytes, err := s.staged.ActiveBytesByOwner(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	usedMB += stagedBytesToMB(stagedBytes + incomingBytes)
-	if usedMB > user.QuotaDiskMB {
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	}
-	return nil
+	return s.staging.Reserve(ctx, stagedsource.Reservation{
+		OwnerID:   ownerID,
+		ObjectKey: objectKey,
+		Kind:      model.StagedObjectKindBuildArchive,
+		Bytes:     bytesReserved,
+		Rule:      stagedsource.CountReservedAndStaged,
+	})
 }
 
 func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, objectKey string) {
@@ -305,16 +282,13 @@ func (s *BuildService) updateStagedBuildArchiveBytes(ctx context.Context, object
 		s.logger.WarnContext(ctx, "failed to stat staged build archive object", "error", err)
 		return
 	}
-	if err := s.staged.UpdateBytes(ctx, objectKey, info.Size); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.staging.Resize(ctx, objectKey, info.Size); err != nil {
 		s.logger.WarnContext(ctx, "failed to update staged build archive reservation", "error", err)
 	}
 }
 
 func (s *BuildService) releaseStagedBuildArchive(ctx context.Context, objectKey string) {
-	if objectKey == "" {
-		return
-	}
-	if err := s.staged.Release(ctx, objectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.staging.Release(ctx, objectKey); err != nil {
 		s.logger.WarnContext(ctx, "failed to release staged build archive reservation", "error", err)
 	}
 }
@@ -378,7 +352,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().MaxArchiveSizeBytes); err != nil {
+	if err := s.staging.CheckHostDiskFloor(s.buildConfig().MaxArchiveSizeBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -408,16 +382,16 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	reserved := true
 	releaseReservation := func() {
 		if reserved {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			cleanupCtx, cancel := cleanupctx.Detached(ctx)
 			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
 			cancel()
 			reserved = false
 		}
 	}
 
-	limitedArchive := &maxBytesReader{r: input.Archive, remaining: cfg.MaxArchiveSizeBytes}
+	limitedArchive := stagedsource.CappedReader(input.Archive, cfg.MaxArchiveSizeBytes)
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, limitedArchive, -1, "application/octet-stream"); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
@@ -430,7 +404,7 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
@@ -461,7 +435,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	if err != nil {
 		return BuildInitResult{}, err
 	}
-	if err := s.ensureHostDiskFloorForWrite(s.buildConfig().GitMaxRepositoryBytes); err != nil {
+	if err := s.staging.CheckHostDiskFloor(s.buildConfig().GitMaxRepositoryBytes); err != nil {
 		return BuildInitResult{}, err
 	}
 	cfg := s.buildConfig()
@@ -527,7 +501,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	reserved := true
 	releaseReservation := func() {
 		if reserved {
-			cleanupCtx, cancel := detachedCleanupContext(ctx)
+			cleanupCtx, cancel := cleanupctx.Detached(ctx)
 			s.releaseStagedBuildArchive(cleanupCtx, archiveObjectKey)
 			cancel()
 			reserved = false
@@ -542,7 +516,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 	defer func() { _ = archive.Close() }() // read-only stream; close failure is not actionable
 
 	if err := s.objectStore.UploadStream(ctx, archiveObjectKey, archive, stats.ArchiveBytes, "application/zip"); err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
@@ -551,7 +525,7 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 
 	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
 	if err != nil {
-		cleanupCtx, cancel := detachedCleanupContext(ctx)
+		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
 		cancel()
 		releaseReservation()
@@ -724,7 +698,7 @@ func (s *BuildService) cleanupBuildArchive(ctx context.Context, build model.Buil
 	if s.objectStore == nil {
 		return
 	}
-	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
 	if err := s.objectStore.DeleteObject(cleanupCtx, build.ArchiveObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete canceled build archive object", "build_id", build.ID, "error", err)
@@ -897,31 +871,9 @@ func (s *BuildService) cleanupBuildLog(ctx context.Context, build model.Build) {
 	if s.objectStore == nil || build.LogFilePath == "" {
 		return
 	}
-	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
 	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogFilePath); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "error", err)
 	}
-}
-
-type maxBytesReader struct {
-	r         io.Reader
-	remaining int64
-}
-
-func (r *maxBytesReader) Read(p []byte) (int, error) {
-	if r.remaining <= 0 {
-		var one [1]byte
-		n, err := r.r.Read(one[:])
-		if n > 0 {
-			return 0, apperrors.ErrBadRequest
-		}
-		return 0, err
-	}
-	if int64(len(p)) > r.remaining {
-		p = p[:r.remaining]
-	}
-	n, err := r.r.Read(p)
-	r.remaining -= int64(n)
-	return n, err
 }

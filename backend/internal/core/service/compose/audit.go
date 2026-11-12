@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/google/uuid"
@@ -19,7 +18,7 @@ func (c *DeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ow
 	if c.auditor == nil || srv.DomainPrefix == "" || srv.InternalPort <= 0 {
 		return
 	}
-	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	actorID, actorUsername, actorScope := auditlog.ActorFromContext(ctx)
 	ownerUsername := actorUsername
 	if ownerUsername == "" && c.users != nil {
 		if user, err := c.users.GetUser(ctx, ownerID); err == nil {
@@ -39,9 +38,9 @@ func (c *DeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ow
 		ResourceType:  auditlog.ResourceContainer,
 		ResourceID:    containerID.String(),
 		ResourceName:  containerName,
-		OwnerID:       ownerPtr(ownerID),
+		OwnerID:       auditlog.OptionalID(ownerID),
 		OwnerUsername: ownerUsername,
-		RequestID:     requestIDFromContext(ctx),
+		RequestID:     logging.RequestIDFromContext(ctx),
 		DetailsJSON: auditlog.SafeDetailsJSON(map[string]string{
 			auditlog.DetailSourceType:     sourceType,
 			auditlog.DetailProjectID:      projectID.String(),
@@ -59,27 +58,6 @@ func (c *DeploymentCoordinator) recordComposeExposeAudit(ctx context.Context, ow
 	}
 }
 
-func auditActorFromContext(ctx context.Context) (*uuid.UUID, string, string) {
-	scope, ok := accessscope.FromContext(ctx)
-	if !ok || scope.Kind == "" {
-		return nil, "", auditlog.ActorScopeUnknown
-	}
-	var actorID *uuid.UUID
-	if scope.UserID != uuid.Nil {
-		value := scope.UserID
-		actorID = &value
-	}
-	return actorID, scope.Username, string(scope.Kind)
-}
-
-func ownerPtr(ownerID uuid.UUID) *uuid.UUID {
-	if ownerID == uuid.Nil {
-		return nil
-	}
-	value := ownerID
-	return &value
-}
-
 func composeFullDomain(prefix, baseDomain string) string {
 	if prefix == "" {
 		return ""
@@ -88,8 +66,4 @@ func composeFullDomain(prefix, baseDomain string) string {
 		return prefix
 	}
 	return fmt.Sprintf("%s.%s", prefix, baseDomain)
-}
-
-func requestIDFromContext(ctx context.Context) string {
-	return logging.RequestIDFromContext(ctx)
 }

@@ -98,6 +98,17 @@ packages:
       ObjectStorage: {}
       ProjectRepository: {}
       StagedObjectRepository: {}
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource:
+    config:
+      dir: internal/testutil/mocks/core/service/stagedsource
+      outpkg: stagedsourcemocks
+      mockname: "{{.InterfaceName | camelcase}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      HostDiskMetrics: {}
+      Repository: {}
+      ReservedDiskReader: {}
+      UserInfoProvider: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
       dir: internal/testutil/mocks/core/http

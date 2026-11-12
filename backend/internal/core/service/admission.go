@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
@@ -104,7 +105,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 	}
 	if ledger.userDiskCounted {
 		if req.userDiskBytes > 0 {
-			if projected := ledger.userReservedDiskMB + bytesToMBRoundedUp(req.userDiskBytes); projected > ledger.userDiskQuotaMB {
+			if projected := ledger.userReservedDiskMB + model.BytesToMBRoundedUp(req.userDiskBytes); projected > ledger.userDiskQuotaMB {
 				return admissionVerdict{limit: limitUserDisk, projected: projected, capacity: ledger.userDiskQuotaMB}
 			}
 		} else if ledger.userReservedDiskMB >= ledger.userDiskQuotaMB {

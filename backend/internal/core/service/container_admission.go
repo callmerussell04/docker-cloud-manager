@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource"
 	"github.com/google/uuid"
 )
 
@@ -48,5 +49,5 @@ func (s *ContainerService) admit(ctx context.Context, ownerID uuid.UUID, req adm
 }
 
 func (s *ContainerService) checkHostDiskCapacity() error {
-	return ensureHostDiskFloorProjected(s.diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, 0)
+	return stagedsource.CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, 0)
 }

@@ -142,7 +142,7 @@ func (s *ReportService) RecordAuditEvent(ctx context.Context, event model.AuditE
 		return apperrors.ErrForbidden
 	}
 	// Actor identity comes only from the authenticated scope, never the event payload.
-	event.ActorUserID, event.ActorUsername, event.ActorScope = auditActorFromContext(ctx)
+	event.ActorUserID, event.ActorUsername, event.ActorScope = auditlog.ActorFromContext(ctx)
 	if scope.Kind == accessscope.KindSystem {
 		event.ActorUserID = nil
 		event.ActorUsername = ""

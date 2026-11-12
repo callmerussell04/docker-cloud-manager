@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
@@ -162,10 +163,6 @@ func volumeSize(requested int64, cfg config.SystemConfig) (int64, error) {
 	return requested, nil
 }
 
-func (s *VolumeService) ensureHostDiskFloor() error {
-	return ensureHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes)
-}
-
 func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreateParams) (uuid.UUID, error) {
 	ownerID, err := accessscope.RequireUserOwner(ctx)
 	if err != nil {
@@ -188,7 +185,7 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 	if err := s.admitVolumeSize(ctx, ownerID, sizeBytes); err != nil {
 		return uuid.Nil, err
 	}
-	if err := s.ensureHostDiskFloor(); err != nil {
+	if err := stagedsource.CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes, 0); err != nil {
 		return uuid.Nil, err
 	}
 

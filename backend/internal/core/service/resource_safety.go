@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
 
@@ -17,32 +16,4 @@ type StagedObjectRepository interface {
 
 type HostDiskMetricsProvider interface {
 	GetDiskUsage(path string) (model.HostDiskStats, error)
-}
-
-func ensureHostDiskFloor(metrics HostDiskMetricsProvider, path string, minFreeBytes int64) error {
-	return ensureHostDiskFloorProjected(metrics, path, minFreeBytes, 0)
-}
-
-func ensureHostDiskFloorProjected(metrics HostDiskMetricsProvider, path string, minFreeBytes int64, projectedWriteBytes int64) error {
-	if metrics == nil || minFreeBytes <= 0 {
-		return nil
-	}
-	if path == "" {
-		path = "/"
-	}
-	if projectedWriteBytes < 0 {
-		projectedWriteBytes = 0
-	}
-	stats, err := metrics.GetDiskUsage(path)
-	if err != nil {
-		return err
-	}
-	if stats.FreeBytes-projectedWriteBytes < minFreeBytes {
-		return apperrors.ErrHostExhausted
-	}
-	return nil
-}
-
-func stagedBytesToMB(bytes int64) int64 {
-	return bytesToMBRoundedUp(bytes)
 }

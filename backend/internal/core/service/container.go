@@ -436,7 +436,7 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 		outcome = auditlog.OutcomeFailure
 		errorCode = apperrors.SafeMessage(opErr)
 	}
-	actorID, actorUsername, actorScope := auditActorFromContext(ctx)
+	actorID, actorUsername, actorScope := auditlog.ActorFromContext(ctx)
 	ownerUsername := c.OwnerUsername
 	if ownerUsername == "" && c.OwnerID == actorIDValue(actorID) {
 		ownerUsername = actorUsername
@@ -464,9 +464,9 @@ func (s *ContainerService) recordExposeAudit(ctx context.Context, c model.Contai
 		ResourceType:  auditlog.ResourceContainer,
 		ResourceID:    c.ID.String(),
 		ResourceName:  c.Name,
-		OwnerID:       ownerPtr(c.OwnerID),
+		OwnerID:       auditlog.OptionalID(c.OwnerID),
 		OwnerUsername: ownerUsername,
-		RequestID:     requestIDFromContext(ctx),
+		RequestID:     logging.RequestIDFromContext(ctx),
 		ErrorCode:     errorCode,
 		DetailsJSON:   auditlog.SafeDetailsJSON(details),
 	})

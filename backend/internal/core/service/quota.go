@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/google/uuid"
 )
 
@@ -27,7 +28,17 @@ func reservedDiskMB(ctx context.Context, ownerID uuid.UUID, imageRepo diskQuotaI
 		if err != nil {
 			return 0, err
 		}
-		reservedMB += bytesToMBRoundedUp(volumeBytes)
+		reservedMB += model.BytesToMBRoundedUp(volumeBytes)
 	}
 	return reservedMB, nil
+}
+
+// reservedDiskSource reads reservedDiskMB for the staged disk quota check.
+type reservedDiskSource struct {
+	images  diskQuotaImageRepository
+	volumes diskQuotaVolumeRepository
+}
+
+func (r reservedDiskSource) ReservedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	return reservedDiskMB(ctx, ownerID, r.images, r.volumes)
 }

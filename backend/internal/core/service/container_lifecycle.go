@@ -9,6 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/cleanupctx"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
@@ -272,7 +273,7 @@ func (s *ContainerService) removeLifecycleContainer(ctx context.Context, contain
 	if dockerID == "" {
 		return
 	}
-	cleanupCtx, cancel := detachedCleanupContext(ctx)
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
 	if err := s.dockerAPI.RemoveContainer(cleanupCtx, dockerID, true); err != nil && !isDockerNotFound(err) {
 		s.logger.WarnContext(cleanupCtx, "failed to remove unrecorded container generation", "container_id", containerID, "docker_id", dockerID, "error", normalizeContainerRuntimeError(err))
