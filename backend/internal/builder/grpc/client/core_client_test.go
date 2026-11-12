@@ -87,7 +87,12 @@ func TestCoreClientMapsGRPCErrors(t *testing.T) {
 func newCoreConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor("test-internal-token")))
+	callers, err := internalauth.NewAuthenticator(internalauth.CallerPolicy{
+		Caller: internalauth.CallerBuilder, Credential: "test-builder-token", Methods: internalauth.AllMethods(),
+		Scopes: []accessscope.Kind{accessscope.KindSystem},
+	})
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.UnaryInterceptor(callers.UnaryServerInterceptor()))
 	register(server)
 	go func() {
 		_ = server.Serve(listener)
@@ -101,7 +106,7 @@ func newCoreConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("test-internal-token")),
+		grpc.WithUnaryInterceptor(internalauth.SystemScopeUnaryClientInterceptor("test-builder-token")),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })

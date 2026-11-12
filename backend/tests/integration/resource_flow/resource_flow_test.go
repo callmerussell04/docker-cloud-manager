@@ -190,7 +190,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		GetUsers(mock.Anything, []uuid.UUID{ownerID}).
 		Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil).
 		Maybe()
-	conn := coretest.NewCoreGRPCConn(t, "core-token", coretest.CoreGRPCRegistration{
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{
 		Containers: containers,
 		Volumes:    volumes,
 		Images:     images,
@@ -198,7 +198,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Users:      userDirectory,
 	})
 	client := coreapi.NewContainerAPIClient(conn)
-	grpcCtx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
+	grpcCtx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
 
 	listResp, err := client.ListContainers(grpcCtx, &coreapi.PaginationRequest{Limit: 10})
 	require.NoError(t, err)

@@ -39,7 +39,7 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(cfg.InternalToken),
+			internalauth.SystemScopeUnaryClientInterceptor(cfg.ServiceToken),
 		),
 	)
 	if err != nil {

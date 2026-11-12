@@ -9,6 +9,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 )
@@ -16,6 +17,13 @@ import (
 type SSOClient struct {
 	authAPI sso.AuthClient
 	userAPI sso.UserAPIClient
+}
+
+// withoutAuthenticatedUser states system scope for a call made before any
+// user is authenticated: the public auth routes and access token checks. SSO
+// refuses a call without a scope.
+func withoutAuthenticatedUser(ctx context.Context) context.Context {
+	return accessscope.WithSystemScope(ctx)
 }
 
 func NewSSOClient(cc *grpc.ClientConn) *SSOClient {
@@ -32,7 +40,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 		Password: password,
 	}
 
-	resp, err := c.authAPI.Register(ctx, req)
+	resp, err := c.authAPI.Register(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
 		return "", grpcerrors.FromGRPC(err)
 	}
@@ -46,7 +54,7 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (model
 		Password: password,
 	}
 
-	resp, err := c.authAPI.Login(ctx, req)
+	resp, err := c.authAPI.Login(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
 		return model.Tokens{}, grpcerrors.FromGRPC(err)
 	}
@@ -63,7 +71,7 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 		RefreshToken: refreshToken,
 	}
 
-	resp, err := c.authAPI.Refresh(ctx, req)
+	resp, err := c.authAPI.Refresh(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
 		return model.Tokens{}, grpcerrors.FromGRPC(err)
 	}
@@ -76,7 +84,7 @@ func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tok
 }
 
 func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error) {
-	resp, err := c.authAPI.GetAuthConfig(ctx, &sso.GetAuthConfigRequest{})
+	resp, err := c.authAPI.GetAuthConfig(withoutAuthenticatedUser(ctx), &sso.GetAuthConfigRequest{})
 	if err != nil {
 		return model.AuthConfig{}, grpcerrors.FromGRPC(err)
 	}
@@ -92,7 +100,7 @@ func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 }
 
 func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error) {
-	resp, err := c.authAPI.StartOIDCLogin(ctx, &sso.StartOIDCLoginRequest{
+	resp, err := c.authAPI.StartOIDCLogin(withoutAuthenticatedUser(ctx), &sso.StartOIDCLoginRequest{
 		Provider:      provider,
 		RedirectAfter: redirectAfter,
 	})
@@ -106,7 +114,7 @@ func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter 
 }
 
 func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error) {
-	resp, err := c.authAPI.CompleteOIDCCallback(ctx, &sso.CompleteOIDCCallbackRequest{
+	resp, err := c.authAPI.CompleteOIDCCallback(withoutAuthenticatedUser(ctx), &sso.CompleteOIDCCallbackRequest{
 		Provider:     provider,
 		Code:         code,
 		State:        state,
@@ -131,7 +139,7 @@ func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (m
 		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
-	resp, err := c.userAPI.VerifyAccessToken(ctx, &sso.VerifyTokenRequest{
+	resp, err := c.userAPI.VerifyAccessToken(withoutAuthenticatedUser(ctx), &sso.VerifyTokenRequest{
 		AccessToken: token,
 	})
 	if err != nil {
@@ -151,7 +159,7 @@ func (c *SSOClient) CheckPermission(ctx context.Context, authHeader, permission 
 		return model.AuthUser{}, apperrors.ErrUnauthorized
 	}
 
-	resp, err := c.userAPI.CheckPermission(ctx, &sso.CheckPermissionRequest{
+	resp, err := c.userAPI.CheckPermission(withoutAuthenticatedUser(ctx), &sso.CheckPermissionRequest{
 		AccessToken: token,
 		Permission:  permission,
 	})
@@ -275,7 +283,7 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 }
 
 func (c *SSOClient) Logout(ctx context.Context, refreshToken string) error {
-	_, err := c.authAPI.Logout(ctx, &sso.LogoutRequest{RefreshToken: refreshToken})
+	_, err := c.authAPI.Logout(withoutAuthenticatedUser(ctx), &sso.LogoutRequest{RefreshToken: refreshToken})
 	if err != nil {
 		return grpcerrors.FromGRPC(err)
 	}

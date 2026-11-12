@@ -14,10 +14,11 @@ const secret = "s3cret-value"
 
 func requiredEnv() map[string]string {
 	return map[string]string{
-		"DATABASE_URL":           "postgres://u:" + secret + "@db/sso",
-		"JWT_SECRET":             secret,
-		"INTERNAL_SERVICE_TOKEN": secret,
-		"SSO_ADMIN_PASSWORD":     secret,
+		"DATABASE_URL":          "postgres://u:" + secret + "@db/sso",
+		"JWT_SECRET":            secret,
+		"GATEWAY_SERVICE_TOKEN": "gateway-" + secret,
+		"CORE_SERVICE_TOKEN":    "core-" + secret,
+		"SSO_ADMIN_PASSWORD":    secret,
 	}
 }
 
@@ -29,7 +30,8 @@ func TestLoadDefaults(t *testing.T) {
 		Port:           50051,
 		DBURL:          "postgres://u:" + secret + "@db/sso",
 		JWTSecret:      secret,
-		InternalToken:  secret,
+		GatewayToken:   "gateway-" + secret,
+		CoreToken:      "core-" + secret,
 		AccessTTL:      15 * time.Minute,
 		SessionTTL:     30 * 24 * time.Hour,
 		SessionIdleTTL: 7 * 24 * time.Hour,
@@ -67,7 +69,12 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
 		"DATABASE_URL",
 		"JWT_SECRET",
-		"INTERNAL_SERVICE_TOKEN",
+		"GATEWAY_SERVICE_TOKEN",
+		"CORE_SERVICE_TOKEN",
 		"SSO_ADMIN_PASSWORD",
 	})
+}
+
+func TestLoadRefusesSharedServiceCredentialsWithoutValues(t *testing.T) {
+	envtest.AssertDistinct(t, config.Load, requiredEnv(), []string{"GATEWAY_SERVICE_TOKEN", "CORE_SERVICE_TOKEN"})
 }

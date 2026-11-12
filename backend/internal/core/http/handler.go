@@ -140,14 +140,14 @@ func pathUUID(c *gin.Context, name string) (uuid.UUID, bool) {
 	return id, true
 }
 
-func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, streamHandler *StreamHandler, internalToken string, logger *slog.Logger) *gin.Engine {
+func SetupRouter(composeHandler *ComposeHandler, buildHandler *BuildHandler, streamHandler *StreamHandler, authenticator *internalauth.Authenticator, logger *slog.Logger) *gin.Engine {
 	r := gin.New()
 	r.Use(logging.RequestIDMiddleware())
 	r.Use(logging.AccessLogMiddleware(logger))
 	r.Use(logging.RecoveryMiddleware(logger))
 
 	internal := r.Group("/api/v1")
-	internal.Use(internalauth.Middleware(internalToken))
+	internal.Use(authenticator.Middleware())
 	internal.POST("/projects/compose", composeHandler.DeployCompose)
 	internal.POST("/projects/compose/git", composeHandler.DeployComposeFromGit)
 	internal.GET("/images/build/availability", buildHandler.BuildAvailability)

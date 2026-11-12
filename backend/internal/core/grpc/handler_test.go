@@ -591,7 +591,14 @@ func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 func newCoreGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer(grpc.UnaryInterceptor(internalauth.UnaryServerInterceptor("test-internal-token")))
+	// The handler tests allow one caller every call and scope kind; Core's
+	// caller policies are tested against a real server in grpc_core.
+	callers, err := internalauth.NewAuthenticator(internalauth.CallerPolicy{
+		Caller: internalauth.CallerGateway, Credential: "test-gateway-token", Methods: internalauth.AllMethods(),
+		Scopes: []accessscope.Kind{accessscope.KindUser, accessscope.KindAdmin, accessscope.KindSystem},
+	})
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.UnaryInterceptor(callers.UnaryServerInterceptor()))
 	register(server)
 	go func() {
 		_ = server.Serve(listener)
@@ -605,11 +612,21 @@ func newCoreGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn
 			return listener.DialContext(ctx)
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("test-internal-token")),
+		grpc.WithChainUnaryInterceptor(defaultSystemScope, internalauth.UnaryClientInterceptor("test-gateway-token")),
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
+}
+
+// defaultSystemScope states system scope for a test call whose context holds
+// none, so handler tests without a scope exercise the handler, not the
+// required-scope refusal.
+func defaultSystemScope(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	if _, ok := accessscope.FromContext(ctx); !ok {
+		ctx = accessscope.WithSystemScope(ctx)
+	}
+	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
 func userScopeContext(ownerID uuid.UUID) context.Context {

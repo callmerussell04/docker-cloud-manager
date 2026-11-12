@@ -187,7 +187,7 @@ func TestCloneGivesGitOnlyTheEnvironmentItNeeds(t *testing.T) {
 	t.Setenv("NO_PROXY", "localhost")
 	t.Setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
 	t.Setenv("DATABASE_URL", "postgres://user:database-secret@db/core")
-	t.Setenv("INTERNAL_SERVICE_TOKEN", "internal-secret")
+	t.Setenv("CORE_SERVICE_TOKEN", "internal-secret")
 	t.Setenv("OBJECT_STORAGE_SECRET_KEY", "storage-secret")
 	t.Setenv("GIT_SSH_COMMAND", "ssh -o ProxyCommand=evil")
 	t.Setenv("GIT_ASKPASS", "/usr/bin/leak-credentials")
@@ -208,7 +208,7 @@ func TestCloneGivesGitOnlyTheEnvironmentItNeeds(t *testing.T) {
 	}
 
 	names := slices.Sorted(maps.Keys(got))
-	for _, name := range []string{"DATABASE_URL", "INTERNAL_SERVICE_TOKEN", "OBJECT_STORAGE_SECRET_KEY", "GIT_SSH_COMMAND"} {
+	for _, name := range []string{"DATABASE_URL", "CORE_SERVICE_TOKEN", "OBJECT_STORAGE_SECRET_KEY", "GIT_SSH_COMMAND"} {
 		require.NotContains(t, names, name)
 	}
 	require.False(t, strings.Contains(string(raw), "secret"), "a secret value reached git: variables %v", names)

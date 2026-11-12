@@ -54,12 +54,16 @@ func TestReportGRPCRequiresAdminScope(t *testing.T) {
 					reports.EXPECT().GetUserUsageTimeline(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 					reports.EXPECT().ListAuditEvents(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
 					svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
-					conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc})
-					ctx := coretest.InternalGRPCContext(context.Background(), "reports-token", accessscope.Scope{Kind: kind, UserID: uuid.New(), Username: "alice"})
+					conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Reports: svc})
+					ctx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: kind, UserID: uuid.New(), Username: "alice"})
 					err := op.call(ctx, coreapi.NewReportAPIClient(conn))
 					want := codes.PermissionDenied
-					if kind == accessscope.KindAdmin {
+					switch kind {
+					case accessscope.KindAdmin:
 						want = codes.OK
+					case "":
+						// A request without a scope never reaches the handler.
+						want = codes.Unauthenticated
 					}
 					require.Equal(t, want, status.Code(err))
 					if kind != accessscope.KindAdmin {
@@ -77,15 +81,23 @@ func TestAuditGRPCBindsActorToTrustedScope(t *testing.T) {
 			reports := coremocks.NewReportsRepository(t)
 			actorID := uuid.New()
 			var recorded model.AuditEvent
-			reports.EXPECT().RecordAuditEvent(mock.Anything, mock.Anything).Run(func(ctx context.Context, event model.AuditEvent) { recorded = event }).Return(nil).Once()
+			if kind != "" {
+				reports.EXPECT().RecordAuditEvent(mock.Anything, mock.Anything).Run(func(ctx context.Context, event model.AuditEvent) { recorded = event }).Return(nil).Once()
+			}
 			svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
-			conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc})
-			ctx := coretest.InternalGRPCContext(context.Background(), "reports-token", accessscope.Scope{Kind: kind, UserID: actorID, Username: "alice"})
+			conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Reports: svc})
+			ctx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: kind, UserID: actorID, Username: "alice"})
 			_, err := coreapi.NewReportAPIClient(conn).RecordAuditEvent(ctx, &coreapi.AuditEventData{
 				Action: "containers.create", ActorScope: "admin", ActorUserId: uuid.NewString(), ActorUsername: "forged-admin",
 			})
+			if kind == "" {
+				// Omitted scope metadata is refused, not recorded as system.
+				require.Equal(t, codes.Unauthenticated, status.Code(err))
+				require.Empty(t, reports.Calls)
+				return
+			}
 			require.NoError(t, err)
-			if kind == "" || kind == accessscope.KindSystem {
+			if kind == accessscope.KindSystem {
 				require.Equal(t, "system", recorded.ActorScope)
 				require.Nil(t, recorded.ActorUserID)
 				require.Empty(t, recorded.ActorUsername)
@@ -101,7 +113,7 @@ func TestAuditGRPCBindsActorToTrustedScope(t *testing.T) {
 func TestReportGRPCRejectsUntrustedTransport(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
 	svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
-	conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc})
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Reports: svc})
 	client := coreapi.NewReportAPIClient(conn)
 	for _, token := range []string{"", "wrong-token"} {
 		ctx := coretest.InternalGRPCContext(context.Background(), token, accessscope.Scope{Kind: accessscope.KindAdmin, UserID: uuid.New()})

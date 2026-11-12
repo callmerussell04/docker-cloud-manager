@@ -23,11 +23,42 @@ import (
 const (
 	RequestIDHeader = "X-Request-Id"
 	RequestIDKey    = "request_id"
+	// CallerKey names the authenticated calling service in final request logs.
+	CallerKey = "caller"
 )
 
 type contextKey string
 
-const requestIDContextKey contextKey = "request_id"
+const (
+	requestIDContextKey contextKey = "request_id"
+	callerContextKey    contextKey = "caller"
+)
+
+// callerSlot lets the authentication step, which runs inside the request log
+// middleware or interceptor, report the caller back to it.
+type callerSlot struct {
+	caller string
+}
+
+func withCallerSlot(ctx context.Context) (context.Context, *callerSlot) {
+	slot := &callerSlot{}
+	return context.WithValue(ctx, callerContextKey, slot), slot
+}
+
+// SetCaller records the authenticated calling service for the final request
+// log. It does nothing outside a logged request.
+func SetCaller(ctx context.Context, caller string) {
+	if slot, ok := ctx.Value(callerContextKey).(*callerSlot); ok {
+		slot.caller = caller
+	}
+}
+
+func (s *callerSlot) attrs(attrs []slog.Attr) []slog.Attr {
+	if s.caller == "" {
+		return attrs
+	}
+	return append(attrs, slog.String(CallerKey, s.caller))
+}
 
 type Config struct {
 	Level  string
@@ -107,6 +138,8 @@ func AccessLogMiddleware(logger *slog.Logger) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		startedAt := time.Now()
+		ctx, caller := withCallerSlot(c.Request.Context())
+		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 
 		statusCode := c.Writer.Status()
@@ -123,6 +156,7 @@ func AccessLogMiddleware(logger *slog.Logger) gin.HandlerFunc {
 			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 			slog.Int("bytes", c.Writer.Size()),
 		}
+		attrs = caller.attrs(attrs)
 
 		if userID, ok := c.Get("user_id"); ok {
 			attrs = append(attrs, slog.Any("user_id", userID))
@@ -167,6 +201,7 @@ func UnaryServerInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		startedAt := time.Now()
 		ctx = contextWithIncomingRequestID(ctx)
+		ctx, caller := withCallerSlot(ctx)
 
 		resp, err := handler(ctx, req)
 		code := status.Code(err)
@@ -177,6 +212,7 @@ func UnaryServerInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
 			slog.String("grpc_code", code.String()),
 			slog.Int64("duration_ms", time.Since(startedAt).Milliseconds()),
 		}
+		attrs = caller.attrs(attrs)
 		if err != nil {
 			attrs = append(attrs, slog.Any("error", err))
 		}

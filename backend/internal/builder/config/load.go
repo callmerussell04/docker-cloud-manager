@@ -13,7 +13,7 @@ import (
 type Bootstrap struct {
 	RegistryCAFile string
 	CoreTarget     string
-	InternalToken  string
+	ServiceToken   string
 	Builder        BuilderConfig
 	StoragePath    string
 	RabbitMQURL    string
@@ -34,7 +34,7 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 
 	cfg := Bootstrap{
 		CoreTarget:     required.Get("CORE_GRPC_TARGET"),
-		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
+		ServiceToken:   required.Get("BUILDER_SERVICE_TOKEN"),
 		RabbitMQURL:    required.Get("RABBITMQ_URL"),
 		ObjectStorage:  objectstorage.LoadConfig(lookup, required),
 		InstanceID:     required.Get("BUILDER_INSTANCE_ID"),

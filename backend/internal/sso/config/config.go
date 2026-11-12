@@ -9,10 +9,12 @@ import (
 
 // Bootstrap is SSO's process-lifetime configuration.
 type Bootstrap struct {
-	Port           int
-	DBURL          string
-	JWTSecret      string
-	InternalToken  string
+	Port      int
+	DBURL     string
+	JWTSecret string
+	// GatewayToken and CoreToken identify the callers SSO accepts.
+	GatewayToken   string
+	CoreToken      string
 	AccessTTL      time.Duration
 	SessionTTL     time.Duration
 	SessionIdleTTL time.Duration
@@ -54,7 +56,8 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		Port:           envconfig.Int(lookup, "SSO_GRPC_PORT", 50051),
 		DBURL:          required.Get("DATABASE_URL"),
 		JWTSecret:      required.Get("JWT_SECRET"),
-		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
+		GatewayToken:   required.Get("GATEWAY_SERVICE_TOKEN"),
+		CoreToken:      required.Get("CORE_SERVICE_TOKEN"),
 		AccessTTL:      15 * time.Minute,
 		SessionTTL:     30 * 24 * time.Hour,
 		SessionIdleTTL: 7 * 24 * time.Hour,
@@ -78,6 +81,12 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		},
 	}
 	if err := required.Err(); err != nil {
+		return Bootstrap{}, err
+	}
+	if err := envconfig.Distinct(
+		envconfig.Setting{Key: "GATEWAY_SERVICE_TOKEN", Value: cfg.GatewayToken},
+		envconfig.Setting{Key: "CORE_SERVICE_TOKEN", Value: cfg.CoreToken},
+	); err != nil {
 		return Bootstrap{}, err
 	}
 	return cfg, nil

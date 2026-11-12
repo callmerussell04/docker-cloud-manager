@@ -2,14 +2,11 @@ package app
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -18,7 +15,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 
@@ -104,10 +100,7 @@ type gatewayClients struct {
 }
 
 func newGRPCClients(cfg config.Bootstrap, logger *slog.Logger) (gatewayClients, error) {
-	grpcOpts, err := grpcDialOptions(cfg, logger)
-	if err != nil {
-		return gatewayClients{}, err
-	}
+	grpcOpts := grpcDialOptions(cfg, logger)
 
 	ssoConn, err := grpc.NewClient(cfg.SSOTarget, grpcOpts...)
 	if err != nil {
@@ -150,9 +143,9 @@ type proxyHandlers struct {
 func newProxyHandlers(cfg config.Bootstrap, tickets *service.TelemetryTicketStore) (proxyHandlers, error) {
 	proxyTransport := newProxyTransport(cfg.Proxy)
 	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
-		TargetURL:     cfg.CoreHTTPTarget,
-		InternalToken: cfg.InternalToken,
-		Transport:     proxyTransport,
+		TargetURL:    cfg.CoreHTTPTarget,
+		ServiceToken: cfg.ServiceToken,
+		Transport:    proxyTransport,
 	})
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("core proxy setup fail: %w", err)
@@ -161,7 +154,7 @@ func newProxyHandlers(cfg config.Bootstrap, tickets *service.TelemetryTicketStor
 	// Core serves the log and terminal streams on the same internal listener.
 	streamProxyOpts := handler.ProxyOptions{
 		TargetURL:      cfg.CoreHTTPTarget,
-		InternalToken:  cfg.InternalToken,
+		ServiceToken:   cfg.ServiceToken,
 		Transport:      proxyTransport,
 		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
 	}
@@ -276,17 +269,12 @@ func (a *App) closeGRPC() error {
 	return err
 }
 
-func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) ([]grpc.DialOption, error) {
-	creds, err := grpcCredentials(cfg.GRPC.TLS)
-	if err != nil {
-		return nil, err
-	}
-
+func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) []grpc.DialOption {
 	timeoutInterceptor := unaryTimeoutInterceptor(cfg.GRPC.RequestTimeout)
 	interceptors := []grpc.UnaryClientInterceptor{
 		timeoutInterceptor,
 		logging.UnaryClientInterceptor(logger),
-		internalauth.UnaryClientInterceptor(cfg.InternalToken),
+		internalauth.UnaryClientInterceptor(cfg.ServiceToken),
 	}
 
 	minConnectTimeout := cfg.GRPC.MinConnectTimeout
@@ -295,7 +283,9 @@ func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) ([]grpc.DialOpti
 	}
 
 	return []grpc.DialOption{
-		grpc.WithTransportCredentials(creds),
+		// Internal gRPC runs on the host's private Docker networks without TLS
+		// (ADR 0006); each call carries Gateway's own credential.
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithConnectParams(grpc.ConnectParams{
 			Backoff: backoff.Config{
 				BaseDelay:  1 * time.Second,
@@ -311,39 +301,7 @@ func grpcDialOptions(cfg config.Bootstrap, logger *slog.Logger) ([]grpc.DialOpti
 			PermitWithoutStream: true,
 		}),
 		grpc.WithChainUnaryInterceptor(interceptors...),
-	}, nil
-}
-
-func grpcCredentials(cfg config.GRPCTLS) (credentials.TransportCredentials, error) {
-	if !cfg.Enabled {
-		return insecure.NewCredentials(), nil
 	}
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: cfg.ServerName,
-	}
-	if cfg.CAFile != "" {
-		caPEM, err := os.ReadFile(cfg.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read grpc tls ca file: %w", err)
-		}
-		rootCAs := x509.NewCertPool()
-		if ok := rootCAs.AppendCertsFromPEM(caPEM); !ok {
-			return nil, fmt.Errorf("failed to parse grpc tls ca file")
-		}
-		tlsConfig.RootCAs = rootCAs
-	}
-	if cfg.CertFile != "" || cfg.KeyFile != "" {
-		if cfg.CertFile == "" || cfg.KeyFile == "" {
-			return nil, fmt.Errorf("both grpc tls cert and key files are required for mtls")
-		}
-		cert, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load grpc mtls client certificate: %w", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{cert}
-	}
-	return credentials.NewTLS(tlsConfig), nil
 }
 
 func unaryTimeoutInterceptor(timeout time.Duration) grpc.UnaryClientInterceptor {

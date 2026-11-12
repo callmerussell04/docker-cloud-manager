@@ -8,10 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	builderclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/grpc/client"
+	buildermodel "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
@@ -19,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 )
 
 func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
@@ -68,11 +72,16 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, activeBytes)
 
-	started, didStart, err := builds.StartBuildRecord(ctx, result.BuildID)
+	// Builder claims and completes the build through its own client and
+	// credential, behind Core's production caller policies.
+	builderConn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Builds: builds},
+		grpc.WithUnaryInterceptor(internalauth.SystemScopeUnaryClientInterceptor(coretest.BuilderCredential)))
+	core := builderclient.NewCoreClient(builderConn)
+	_, didStart, startedStatus, err := core.StartBuildRecord(ctx, result.BuildID.String())
 	require.NoError(t, err)
 	require.True(t, didStart)
-	require.Equal(t, model.BuildStatusRunning, started.Status)
-	_, didStart, err = builds.StartBuildRecord(ctx, result.BuildID)
+	require.Equal(t, buildermodel.BuildStatus(model.BuildStatusRunning), startedStatus)
+	_, didStart, _, err = core.StartBuildRecord(ctx, result.BuildID.String())
 	require.NoError(t, err)
 	require.False(t, didStart)
 
@@ -84,7 +93,7 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	require.NoError(t, logs.Close())
 	require.Equal(t, "line1\nline2\n", string(body))
 
-	require.NoError(t, builds.CompleteBuildRecord(ctx, result.BuildID, build.ImageID, model.BuildStatusSuccess, 0))
+	require.NoError(t, core.CompleteBuildRecord(ctx, result.BuildID.String(), build.ImageID.String(), buildermodel.BuildStatus(model.BuildStatusSuccess), 0))
 	completed, err := repos.Builds.GetByID(ctx, result.BuildID)
 	require.NoError(t, err)
 	require.Equal(t, model.BuildStatusSuccess, completed.Status)

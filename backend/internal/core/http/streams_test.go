@@ -13,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	coregrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
@@ -29,14 +30,15 @@ import (
 )
 
 const (
-	streamInternalToken = "internal-token"
+	streamGatewayToken  = "internal-token"
+	streamBuilderToken  = "builder-token"
 	streamContainerPath = "00000000-0000-0000-0000-000000000001"
 	streamUserID        = "11111111-1111-1111-1111-111111111111"
 )
 
 var streamContainerID = uuid.MustParse(streamContainerPath)
 
-func TestRouterRequiresInternalTokenAndRegistersRoutes(t *testing.T) {
+func TestRouterRequiresAKnownCallerAndRegistersRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := corehttpmocks.NewMockStreamUseCases(t)
 	router := newStreamRouter(service)
@@ -54,6 +56,14 @@ func TestRouterRequiresInternalTokenAndRegistersRoutes(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
+
+	// Builder's credential has no HTTP routes, whatever scope it states.
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/logs/stream", nil)
+	req.Header.Set(internalauth.HeaderName, streamBuilderToken)
+	req.Header.Set(internalauth.HeaderScope, string(accessscope.KindSystem))
+	resp = httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+	require.Equal(t, http.StatusForbidden, resp.Code)
 }
 
 func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
@@ -86,9 +96,9 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 			want: accessscope.KindAdmin,
 		},
 		{
-			name:    "system default",
+			name:    "system scope",
 			path:    "/api/v1/containers/" + streamContainerPath + "/logs/stream",
-			headers: map[string]string{},
+			headers: map[string]string{internalauth.HeaderScope: string(accessscope.KindSystem)},
 			want:    accessscope.KindSystem,
 		},
 	}
@@ -111,6 +121,12 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.Code)
 		})
 	}
+
+	t.Run("missing scope", func(t *testing.T) {
+		router := newStreamRouter(corehttpmocks.NewMockStreamUseCases(t))
+		resp := streamRequest(router, http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/logs/stream", map[string]string{})
+		require.Equal(t, http.StatusUnauthorized, resp.Code, "a request without a scope is not system scope")
+	})
 }
 
 func TestStreamLogsValidatesQueryAndWritesSSE(t *testing.T) {
@@ -363,7 +379,7 @@ func TestShutdownEndsOpenLogStreamsAndTerminalSessions(t *testing.T) {
 	}}
 	req, err := http.NewRequest(http.MethodGet, "http://bufnet/api/v1/containers/"+streamContainerPath+"/logs/stream", nil)
 	require.NoError(t, err)
-	req.Header.Set(internalauth.HeaderName, streamInternalToken)
+	req.Header.Set(internalauth.HeaderName, streamGatewayToken)
 	for key, value := range streamScopeHeaders() {
 		req.Header.Set(key, value)
 	}
@@ -398,12 +414,18 @@ func newStreamRouter(service *corehttpmocks.MockStreamUseCases) *gin.Engine {
 }
 
 func newStreamRouterFor(handler *corehttp.StreamHandler) *gin.Engine {
-	return corehttp.SetupRouter(nil, nil, handler, streamInternalToken, discardLogger())
+	callers, err := internalauth.NewAuthenticator(coregrpc.CallerPolicies(coregrpc.CallerCredentials{
+		Gateway: streamGatewayToken, Builder: streamBuilderToken,
+	})...)
+	if err != nil {
+		panic(err)
+	}
+	return corehttp.SetupRouter(nil, nil, handler, callers, discardLogger())
 }
 
 func streamRequest(router http.Handler, method, path string, headers map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)
-	req.Header.Set(internalauth.HeaderName, streamInternalToken)
+	req.Header.Set(internalauth.HeaderName, streamGatewayToken)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -444,7 +466,7 @@ func dialTerminal(t *testing.T, server *memoryServer, path string) *websocket.Co
 	t.Helper()
 	wsURL := "ws://bufnet" + path
 	header := http.Header{}
-	header.Set(internalauth.HeaderName, streamInternalToken)
+	header.Set(internalauth.HeaderName, streamGatewayToken)
 	for key, value := range streamScopeHeaders() {
 		header.Set(key, value)
 	}

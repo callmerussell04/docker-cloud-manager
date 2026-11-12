@@ -15,7 +15,7 @@ const secret = "s3cret-value"
 func requiredEnv() map[string]string {
 	return map[string]string{
 		"CORE_GRPC_TARGET":          "core:50052",
-		"INTERNAL_SERVICE_TOKEN":    secret,
+		"BUILDER_SERVICE_TOKEN":     secret,
 		"RABBITMQ_URL":              "amqp://u:" + secret + "@mq",
 		"OBJECT_STORAGE_ENDPOINT":   "minio:9000",
 		"OBJECT_STORAGE_ACCESS_KEY": secret,
@@ -84,7 +84,7 @@ func TestLoadPrefersTheBuildLogSizeKey(t *testing.T) {
 func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 	envtest.AssertRequired(t, config.Load, requiredEnv(), []string{
 		"CORE_GRPC_TARGET",
-		"INTERNAL_SERVICE_TOKEN",
+		"BUILDER_SERVICE_TOKEN",
 		"RABBITMQ_URL",
 		"OBJECT_STORAGE_ENDPOINT",
 		"OBJECT_STORAGE_ACCESS_KEY",

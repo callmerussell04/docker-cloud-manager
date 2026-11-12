@@ -146,11 +146,44 @@ func (r *Required) Err() error {
 	return r.err
 }
 
+// DuplicateError names two settings that must hold different values but
+// hold the same one. It never carries the value.
+type DuplicateError struct {
+	Key      string
+	OtherKey string
+}
+
+func (e *DuplicateError) Error() string {
+	return "environment variables must hold different values: " + e.Key + " and " + e.OtherKey
+}
+
+// Setting pairs a setting's name with its loaded value.
+type Setting struct {
+	Key   string
+	Value string
+}
+
+// Distinct reports the first two settings that hold the same value.
+func Distinct(settings ...Setting) error {
+	for i, setting := range settings {
+		for _, other := range settings[i+1:] {
+			if setting.Value == other.Value {
+				return &DuplicateError{Key: setting.Key, OtherKey: other.Key}
+			}
+		}
+	}
+	return nil
+}
+
 // LogEntry returns the message and attributes a main logs for a Load failure.
 func LogEntry(err error) (string, []any) {
 	var missing *MissingError
 	if errors.As(err, &missing) {
 		return "required environment variable is not set", []any{"env_var", missing.Key}
+	}
+	var duplicate *DuplicateError
+	if errors.As(err, &duplicate) {
+		return "environment variables must hold different values", []any{"env_vars", []string{duplicate.Key, duplicate.OtherKey}}
 	}
 	return err.Error(), nil
 }

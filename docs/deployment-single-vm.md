@@ -111,11 +111,13 @@ openssl rand -hex 32
 
 - `POSTGRES_PASSWORD`;
 - `JWT_SECRET`;
-- `INTERNAL_SERVICE_TOKEN`;
+- `GATEWAY_SERVICE_TOKEN`, `CORE_SERVICE_TOKEN` и `BUILDER_SERVICE_TOKEN` — у каждой службы свои учётные данные; одинаковые значения не позволят запустить Core и SSO;
 - `SSO_ADMIN_PASSWORD`;
 - `RABBITMQ_PASSWORD`;
 - `MINIO_ROOT_PASSWORD` и совпадающего с ним `OBJECT_STORAGE_SECRET_KEY`;
 - `CLICKHOUSE_PASSWORD`.
+
+Core принимает вызовы только от Gateway и Builder, SSO — только от Gateway и Core; Builder может выполнять у Core лишь четыре вызова сборки и только от имени системы (политики описаны в `docs/configuration.md`). Итоговые журналы запросов Core и SSO содержат ключ `caller` с именем вызывающей службы; сами учётные данные в журналы не попадают. Внутренний gRPC работает без TLS: службы находятся на одном сервере в частных сетях Docker (ADR 0006).
 
 Переменные Keycloak обязательны только при запуске дополнительного Keycloak Compose-файла, но оставлять опубликованные значения `change_me_*` небезопасно.
 

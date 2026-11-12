@@ -81,7 +81,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 		GetUsers(mock.Anything, []uuid.UUID{ownerID}).
 		Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil).
 		Maybe()
-	conn := coretest.NewCoreGRPCConn(t, "core-token", coretest.CoreGRPCRegistration{
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{
 		Containers: containers,
 		Volumes:    volumes,
 		Users:      userDirectory,
@@ -94,7 +94,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	_, err = client.ListContainers(wrongTokenCtx, &coreapi.PaginationRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 
-	userCtx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
+	userCtx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
 	createResp, err := client.CreateContainer(userCtx, &coreapi.CreateContainerRequest{Name: "created", ImageTag: "nginx:latest"})
 	require.NoError(t, err)
 	require.NotEmpty(t, createResp.ContainerId)
@@ -160,7 +160,7 @@ func TestCoreAdmitsWithTheIdentityServiceUnreachable(t *testing.T) {
 		SizeMode:     coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
-	conn := coretest.NewCoreGRPCConn(t, "core-token", coretest.CoreGRPCRegistration{
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{
 		Containers: containers,
 		Volumes:    volumes,
 		Users:      unreachable,
@@ -177,7 +177,7 @@ func TestCoreAdmitsWithTheIdentityServiceUnreachable(t *testing.T) {
 		{name: "an owner over a custom quota is rejected", ownerID: limitedID, want: codes.ResourceExhausted},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: tc.ownerID, Username: "owner", Role: "user"})
+			ctx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: tc.ownerID, Username: "owner", Role: "user"})
 			stopped := uuid.New()
 			require.NoError(t, repos.Containers.Save(context.Background(), model.Container{
 				ID:                    stopped,

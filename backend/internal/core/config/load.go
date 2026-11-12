@@ -20,13 +20,17 @@ type Settings struct {
 
 // Bootstrap is Core's process-lifetime configuration.
 type Bootstrap struct {
-	Port          int
-	HTTPPort      int
-	DBURL         string
-	RabbitMQURL   string
-	SSOTarget     string
-	InternalToken string
-	HostDiskPath  string
+	Port        int
+	HTTPPort    int
+	DBURL       string
+	RabbitMQURL string
+	SSOTarget   string
+	// ServiceToken is Core's own credential, sent with its calls to SSO.
+	ServiceToken string
+	// GatewayToken and BuilderToken identify the callers Core accepts.
+	GatewayToken string
+	BuilderToken string
+	HostDiskPath string
 	// TenantCgroupParent is the cgroup Docker places user containers under.
 	// Empty keeps Docker's default parent.
 	TenantCgroupParent string
@@ -82,10 +86,12 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 	baseDomain := required.Get("BASE_DOMAIN")
 
 	bootstrap := Bootstrap{
-		DBURL:         dbURL,
-		RabbitMQURL:   required.Get("RABBITMQ_URL"),
-		SSOTarget:     required.Get("SSO_GRPC_TARGET"),
-		InternalToken: required.Get("INTERNAL_SERVICE_TOKEN"),
+		DBURL:        dbURL,
+		RabbitMQURL:  required.Get("RABBITMQ_URL"),
+		SSOTarget:    required.Get("SSO_GRPC_TARGET"),
+		ServiceToken: required.Get("CORE_SERVICE_TOKEN"),
+		GatewayToken: required.Get("GATEWAY_SERVICE_TOKEN"),
+		BuilderToken: required.Get("BUILDER_SERVICE_TOKEN"),
 		Registry: Registry{
 			Authority:              required.Get("REGISTRY_URL"),
 			BackendURL:             required.Get("REGISTRY_BACKEND_URL"),
@@ -120,6 +126,13 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 		},
 	}
 	if err := required.Err(); err != nil {
+		return Settings{}, err
+	}
+	if err := envconfig.Distinct(
+		envconfig.Setting{Key: "CORE_SERVICE_TOKEN", Value: bootstrap.ServiceToken},
+		envconfig.Setting{Key: "GATEWAY_SERVICE_TOKEN", Value: bootstrap.GatewayToken},
+		envconfig.Setting{Key: "BUILDER_SERVICE_TOKEN", Value: bootstrap.BuilderToken},
+	); err != nil {
 		return Settings{}, err
 	}
 	return Settings{Bootstrap: bootstrap, Runtime: loadRuntime(lookup, baseDomain)}, nil

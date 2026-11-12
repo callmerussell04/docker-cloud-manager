@@ -27,8 +27,8 @@ func TestCoreGRPCConnBoundsCallsWithoutCallerDeadline(t *testing.T) {
 			<-ctx.Done()
 			return nil, 0, apperrors.ErrTimeout
 		}).Once()
-	conn := coretest.NewCoreGRPCConn(t, "core-token", coretest.CoreGRPCRegistration{Containers: containers})
-	ctx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.New()})
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Containers: containers})
+	ctx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.New()})
 
 	_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.PaginationRequest{Limit: 10})
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))

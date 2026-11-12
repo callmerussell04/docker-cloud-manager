@@ -144,17 +144,36 @@ type CoreGRPCRegistration struct {
 	Users      coregrpc.UserDirectory
 }
 
-func NewCoreGRPCConn(t *testing.T, token string, reg CoreGRPCRegistration, clientOptions ...grpc.DialOption) *grpc.ClientConn {
+// The credentials Core's test servers accept, under Core's production policy
+// table.
+const (
+	GatewayCredential = "gateway-test-credential"
+	BuilderCredential = "builder-test-credential"
+)
+
+// CoreCallers returns Core's production authenticator over the test
+// credentials.
+func CoreCallers(t *testing.T) *internalauth.Authenticator {
+	t.Helper()
+	callers, err := internalauth.NewAuthenticator(coregrpc.CallerPolicies(coregrpc.CallerCredentials{
+		Gateway: GatewayCredential, Builder: BuilderCredential,
+	})...)
+	require.NoError(t, err)
+	return callers
+}
+
+// NewCoreGRPCConn serves reg behind Core's production caller policies.
+func NewCoreGRPCConn(t *testing.T, reg CoreGRPCRegistration, clientOptions ...grpc.DialOption) *grpc.ClientConn {
 	t.Helper()
 	listener := bufconn.Listen(1024 * 1024)
-	server := grpc.NewServer(grpc.ChainUnaryInterceptor(internalauth.UnaryServerInterceptor(token)))
+	server := grpc.NewServer(grpc.ChainUnaryInterceptor(CoreCallers(t).UnaryServerInterceptor()))
 	if reg.Containers != nil {
 		coregrpc.RegisterContainerAPI(server, reg.Containers, reg.Users)
 	}
 	if reg.Volumes != nil {
 		coregrpc.RegisterVolumeAPI(server, reg.Volumes, reg.Users)
 	}
-	if reg.Images != nil {
+	if reg.Images != nil || reg.Builds != nil {
 		coregrpc.RegisterImageAPI(server, reg.Images, reg.Builds, reg.Users)
 	}
 	if reg.Projects != nil {
@@ -205,10 +224,12 @@ func InternalGRPCContext(ctx context.Context, token string, scope accessscope.Sc
 	return metadata.AppendToOutgoingContext(ctx, pairs...)
 }
 
-// CoreHTTPRouter builds Core's internal router without container streams;
-// a request to a stream route panics into the recovery middleware's 500.
-func CoreHTTPRouter(composeHandler *corehttp.ComposeHandler, buildHandler *corehttp.BuildHandler, token string) http.Handler {
-	return corehttp.SetupRouter(composeHandler, buildHandler, nil, token, DiscardLogger())
+// CoreHTTPRouter builds Core's internal router, behind Core's production
+// caller policies, without container streams; a request to a stream route
+// panics into the recovery middleware's 500.
+func CoreHTTPRouter(t *testing.T, composeHandler *corehttp.ComposeHandler, buildHandler *corehttp.BuildHandler) http.Handler {
+	t.Helper()
+	return corehttp.SetupRouter(composeHandler, buildHandler, nil, CoreCallers(t), DiscardLogger())
 }
 
 func InternalHTTPRequest(method, path, token string, scope accessscope.Scope, body io.Reader, contentType string) *http.Request {

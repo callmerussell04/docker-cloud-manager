@@ -220,7 +220,7 @@ func TestRouterProxiesNeverForwardSpoofedIdentityHeaders(t *testing.T) {
 				require.Equal(t, scope.user.UserID, forwarded.Get(internalauth.HeaderUserID))
 				require.Equal(t, scope.user.Username, forwarded.Get(internalauth.HeaderUsername))
 				require.Equal(t, scope.user.Role, forwarded.Get(internalauth.HeaderRole))
-				require.Equal(t, securityInternalToken, forwarded.Get(internalauth.HeaderName))
+				require.Equal(t, securityGatewayToken, forwarded.Get(internalauth.HeaderName))
 				require.Empty(t, upstream[0].URL.Query().Get("ticket"), "the stream ticket must not reach Core")
 				require.Equal(t, "core.internal", upstream[0].URL.Host, "every proxy forwards to Core")
 			})
@@ -277,8 +277,8 @@ func TestRouterKeepsCredentialsOutOfLogs(t *testing.T) {
 }
 
 const (
-	securityInternalToken = "internal-token-value"
-	securityOrigin        = "https://dcm.example.test"
+	securityGatewayToken = "internal-token-value"
+	securityOrigin       = "https://dcm.example.test"
 )
 
 type securityHarness struct {
@@ -304,7 +304,7 @@ func newSecurityHarness(t *testing.T, logger *slog.Logger) *securityHarness {
 		upstream: &recordingUpstream{},
 	}
 	tickets := service.NewTelemetryTicketStore(0)
-	proxyOpts := handler.ProxyOptions{InternalToken: securityInternalToken, Transport: h.upstream, AllowedOrigins: []string{securityOrigin}}
+	proxyOpts := handler.ProxyOptions{ServiceToken: securityGatewayToken, Transport: h.upstream, AllowedOrigins: []string{securityOrigin}}
 	coreOpts := proxyOpts
 	coreOpts.TargetURL = "http://core.internal"
 

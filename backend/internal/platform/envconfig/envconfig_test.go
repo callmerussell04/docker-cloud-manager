@@ -116,3 +116,24 @@ func TestLogEntryKeepsTheRequiredSettingLogShape(t *testing.T) {
 	assert.Equal(t, "other", msg)
 	assert.Empty(t, args)
 }
+
+func TestDistinctNamesTheFirstSharedValueWithoutIt(t *testing.T) {
+	require.NoError(t, envconfig.Distinct(
+		envconfig.Setting{Key: "A_TOKEN", Value: "one"},
+		envconfig.Setting{Key: "B_TOKEN", Value: "two"},
+	))
+
+	err := envconfig.Distinct(
+		envconfig.Setting{Key: "A_TOKEN", Value: "one"},
+		envconfig.Setting{Key: "B_TOKEN", Value: "two"},
+		envconfig.Setting{Key: "C_TOKEN", Value: "one"},
+	)
+	var duplicate *envconfig.DuplicateError
+	require.ErrorAs(t, err, &duplicate)
+	assert.Equal(t, envconfig.DuplicateError{Key: "A_TOKEN", OtherKey: "C_TOKEN"}, *duplicate)
+	assert.NotContains(t, err.Error(), "one")
+
+	msg, args := envconfig.LogEntry(fmt.Errorf("load: %w", err))
+	assert.Equal(t, "environment variables must hold different values", msg)
+	assert.Equal(t, []any{"env_vars", []string{"A_TOKEN", "C_TOKEN"}}, args)
+}

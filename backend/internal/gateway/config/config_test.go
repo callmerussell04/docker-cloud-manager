@@ -15,10 +15,10 @@ const secret = "s3cret-value"
 
 func requiredEnv() map[string]string {
 	return map[string]string{
-		"SSO_GRPC_TARGET":        "sso:1",
-		"CORE_GRPC_TARGET":       "core:2",
-		"CORE_HTTP_TARGET":       "http://core:3",
-		"INTERNAL_SERVICE_TOKEN": secret,
+		"SSO_GRPC_TARGET":       "sso:1",
+		"CORE_GRPC_TARGET":      "core:2",
+		"CORE_HTTP_TARGET":      "http://core:3",
+		"GATEWAY_SERVICE_TOKEN": secret,
 	}
 }
 
@@ -28,7 +28,7 @@ func TestLoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 8081, cfg.Port)
 	assert.Equal(t, "sso:1", cfg.SSOTarget)
-	assert.Equal(t, secret, cfg.InternalToken)
+	assert.Equal(t, secret, cfg.ServiceToken)
 	assert.Equal(t, config.HTTPServer{
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       360 * time.Second,
@@ -67,8 +67,6 @@ func TestLoadOverrides(t *testing.T) {
 	values["GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS"] = "-1"
 	values["COOKIE_SAMESITE"] = " Strict "
 	values["COOKIE_NAME"] = ""
-	values["GATEWAY_GRPC_TLS_ENABLED"] = "true"
-	values["GATEWAY_GRPC_TLS_CA_FILE"] = "/ca.pem"
 	values["APP_ENV"] = "production"
 
 	cfg, err := config.Load(envtest.Lookup(values))
@@ -81,7 +79,6 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, config.DefaultRouter().AuthRateLimit.Window, cfg.Router.AuthRateLimit.Window)
 	assert.Equal(t, http.SameSiteStrictMode, cfg.Cookie.SameSite)
 	assert.Equal(t, "refresh_token", cfg.Cookie.Name, "an empty string keeps its default")
-	assert.Equal(t, config.GRPCTLS{Enabled: true, CAFile: "/ca.pem"}, cfg.GRPC.TLS)
 	assert.Equal(t, "production", cfg.AppEnv)
 }
 
@@ -116,7 +113,7 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 		"SSO_GRPC_TARGET",
 		"CORE_GRPC_TARGET",
 		"CORE_HTTP_TARGET",
-		"INTERNAL_SERVICE_TOKEN",
+		"GATEWAY_SERVICE_TOKEN",
 	})
 }
 

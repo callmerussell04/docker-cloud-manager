@@ -54,6 +54,28 @@ func AssertRequired[T any](t *testing.T, load func(envconfig.Lookup) (T, error),
 	require.NoError(t, err)
 }
 
+// AssertDistinct checks that load refuses each pair of keys holding the same
+// value, names both keys, and echoes no value from values.
+func AssertDistinct[T any](t *testing.T, load func(envconfig.Lookup) (T, error), values map[string]string, keys []string) {
+	t.Helper()
+	require.GreaterOrEqual(t, len(keys), 2, "a distinct check needs two settings")
+	for i, key := range keys {
+		for _, other := range keys[i+1:] {
+			t.Run(key+"="+other, func(t *testing.T) {
+				env := copied(values)
+				env[other] = env[key]
+				_, err := load(Lookup(env))
+				var duplicate *envconfig.DuplicateError
+				require.ErrorAs(t, err, &duplicate)
+				assert.ElementsMatch(t, []string{key, other}, []string{duplicate.Key, duplicate.OtherKey})
+				for _, value := range values {
+					assert.NotContains(t, err.Error(), value)
+				}
+			})
+		}
+	}
+}
+
 func copied(values map[string]string) map[string]string {
 	out := make(map[string]string, len(values))
 	for key, value := range values {

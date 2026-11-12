@@ -69,9 +69,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
+	authenticator, err := internalauth.NewAuthenticator(ssogrpc.CallerPolicies(ssogrpc.CallerCredentials{
+		Gateway: cfg.GatewayToken, Core: cfg.CoreToken,
+	})...)
+	if err != nil {
+		return nil, err
+	}
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
-		internalauth.UnaryServerInterceptor(cfg.InternalToken),
+		authenticator.UnaryServerInterceptor(),
 	))
 	ssogrpc.Register(gRPCServer, authService)
 

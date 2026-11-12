@@ -27,10 +27,25 @@ DCM использует два уровня настроек:
 | `CORE_POSTGRES_DB` | `dcm_core_db` | База Core | Restart |
 | `SSO_POSTGRES_DB` | `dcm_sso_db` | База SSO | Restart |
 | `JWT_SECRET` | `change_me_*` | Подпись токенов DCM tokens | Secret |
-| `INTERNAL_SERVICE_TOKEN` | `change_me_*` | Доверие между службами DCM services | Secret, restart всех серверных служб |
+| `GATEWAY_SERVICE_TOKEN` | `change_me_*` | Учётные данные Gateway при вызовах SSO и Core; их принимают SSO и Core | Secret, restart Gateway, SSO и Core |
+| `CORE_SERVICE_TOKEN` | `change_me_*` | Учётные данные Core при вызовах SSO; их принимает SSO | Secret, restart Core и SSO |
+| `BUILDER_SERVICE_TOKEN` | `change_me_*` | Учётные данные Builder при вызовах Core; их принимает Core | Secret, restart Builder и Core |
 | `SSO_ADMIN_USERNAME` | `admin` | Bootstrap admin login | SSO restart; применяется при начальной настройке |
 | `SSO_ADMIN_EMAIL` | `admin@example.local` | Bootstrap admin email | SSO restart |
 | `SSO_ADMIN_PASSWORD` | `change_me_*` | Bootstrap admin password | Secret, SSO restart |
+
+#### Учётные данные служб
+
+Каждая вызывающая служба знает только свои учётные данные, а сервер знает учётные данные тех служб, которые он принимает: Core принимает Gateway и Builder, SSO принимает Gateway и Core. Сервер определяет вызывающую службу по учётным данным и применяет её политику:
+
+| Сервер | Вызывающая служба | Разрешённые вызовы | Область действия (scope) |
+| --- | --- | --- | --- |
+| Core | Gateway | Все RPC, кроме четырёх вызовов Builder; все внутренние HTTP-маршруты | `user`, `admin`, `system` |
+| Core | Builder | Только `StartBuildRecord`, `CompleteBuildRecord`, `GetBuildStatus`, `GetBuilderRuntimeConfig`; HTTP-маршрутов нет | только `system` |
+| SSO | Gateway | Все RPC | `user`, `admin`, `system` |
+| SSO | Core | Только `GetUser` и `BatchGetUsers` | только `system` |
+
+Неизвестные учётные данные и запрос без scope отклоняются как неаутентифицированные (`Unauthenticated`, HTTP `401`); вызов или scope вне политики — как запрещённые (`PermissionDenied`, HTTP `403`). Служба не запускается, если её учётные данные не заданы, пусты или совпадают с учётными данными другой службы; сообщение называет переменную, но не её значение.
 
 ### Пулы соединений PostgreSQL
 
@@ -134,13 +149,13 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | Ограничения тела и частоты запросов | `GATEWAY_MAX_JSON_BODY_BYTES`, `GATEWAY_AUTH_RATE_LIMIT_REQUESTS`, `GATEWAY_AUTH_RATE_LIMIT_WINDOW_SECONDS`, `GATEWAY_UPLOAD_RATE_LIMIT_REQUESTS`, `GATEWAY_UPLOAD_RATE_LIMIT_WINDOW_SECONDS` | Ограничения на внешней границе API |
 | Время ожидания HTTP | `GATEWAY_READ_HEADER_TIMEOUT_SECONDS`, `GATEWAY_READ_TIMEOUT_SECONDS`, `GATEWAY_WRITE_TIMEOUT_SECONDS`, `GATEWAY_IDLE_TIMEOUT_SECONDS`, `GATEWAY_SHUTDOWN_TIMEOUT_SECONDS`, `GATEWAY_MAX_HEADER_BYTES` | Ограничения публичного HTTP-сервера |
 | Передача через прокси | `GATEWAY_PROXY_DIAL_TIMEOUT_SECONDS`, `GATEWAY_PROXY_TLS_HANDSHAKE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_RESPONSE_HEADER_TIMEOUT_SECONDS`, `GATEWAY_PROXY_IDLE_CONN_TIMEOUT_SECONDS`, `GATEWAY_PROXY_EXPECT_CONTINUE_TIMEOUT_SECONDS`, `GATEWAY_PROXY_MAX_IDLE_CONNS`, `GATEWAY_PROXY_MAX_IDLE_CONNS_PER_HOST` | Передача HTTP-запросов к внутренним службам |
-| gRPC | `GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS`, `GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS`, `GATEWAY_GRPC_TLS_ENABLED`, `GATEWAY_GRPC_TLS_CA_FILE`, `GATEWAY_GRPC_TLS_CERT_FILE`, `GATEWAY_GRPC_TLS_KEY_FILE`, `GATEWAY_GRPC_TLS_SERVER_NAME` | Соединения gRPC от Gateway к внутренним службам |
+| gRPC | `GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS`, `GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS` | Соединения gRPC от Gateway к внутренним службам |
 | Состояние и потоки | `GATEWAY_READINESS_TIMEOUT_SECONDS`, `GATEWAY_TELEMETRY_TICKET_TTL_SECONDS` | Время ожидания проверки готовности и срок действия билета доступа |
 | Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
 
 Срок refresh-cookie вычисляется из срока сессии SSO (30 дней всего, 7 дней без обновления); `COOKIE_MAX_AGE_SECONDS` удалён. Для cookie-запросов refresh/logout обязателен разрешённый `Origin` или `Referer`; список берётся из `CORS_ALLOWED_ORIGINS`.
 
-Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Переменные с путями к файлам TLS используются только при `GATEWAY_GRPC_TLS_ENABLED=true`.
+Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Внутренний gRPC работает без TLS внутри частных сетей Docker одного сервера (ADR 0006).
 
 ### Потоки контейнеров в Core
 

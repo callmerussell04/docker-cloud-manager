@@ -84,7 +84,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(
 			logging.UnaryClientInterceptor(logger),
-			internalauth.UnaryClientInterceptor(cfg.InternalToken),
+			// Core may state only system scope to SSO, even while serving a user.
+			internalauth.SystemScopeUnaryClientInterceptor(cfg.ServiceToken),
 		),
 	)
 	if err != nil {
@@ -210,9 +211,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	containerConsumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
 	resourceConsumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
 
+	authenticator, err := internalauth.NewAuthenticator(coregrpc.CallerPolicies(coregrpc.CallerCredentials{
+		Gateway: cfg.GatewayToken, Builder: cfg.BuilderToken,
+	})...)
+	if err != nil {
+		return nil, err
+	}
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		logging.UnaryServerInterceptor(logger),
-		internalauth.UnaryServerInterceptor(cfg.InternalToken),
+		authenticator.UnaryServerInterceptor(),
 	))
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -261,7 +268,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	streamHandler := corehttp.NewStreamHandler(streamService, logger)
-	router := corehttp.SetupRouter(composeHandler, buildHandler, streamHandler, cfg.InternalToken, logger)
+	router := corehttp.SetupRouter(composeHandler, buildHandler, streamHandler, authenticator, logger)
 
 	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

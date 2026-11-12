@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCoreHTTPRouterRequiresInternalToken(t *testing.T) {
+func TestCoreHTTPRouterRequiresGatewayCredential(t *testing.T) {
 	router, _ := newHTTPRouter(t, coretest.IntegrationConfig())
 	scope := accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.New(), Username: "alice", Role: "user"}
 
@@ -27,7 +27,7 @@ func TestCoreHTTPRouterRequiresInternalToken(t *testing.T) {
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
 
-	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/images/build/availability", "core-token", scope, nil, "")
+	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/images/build/availability", coretest.GatewayCredential, scope, nil, "")
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 }
@@ -41,7 +41,7 @@ func TestCoreHTTPBuildAndComposeUploadsPersistToDatabase(t *testing.T) {
 		{Name: "context", Value: "app"},
 		{Name: "archive", FileName: "source.zip", Value: "archive"},
 	})
-	req := coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build", "core-token", scope, body, contentType)
+	req := coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build", coretest.GatewayCredential, scope, body, contentType)
 	resp := coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 	require.Equal(t, 1, dbtest.CountRows(t, f.Repos.DB, "builds"))
@@ -51,7 +51,7 @@ func TestCoreHTTPBuildAndComposeUploadsPersistToDatabase(t *testing.T) {
 	var logObjectKey string
 	require.NoError(t, f.Repos.DB.QueryRow(context.Background(), `SELECT id, log_file_path FROM builds LIMIT 1`).Scan(&buildID, &logObjectKey))
 	f.Objects.Put(logObjectKey, []byte("build logs\n"))
-	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/"+buildID.String()+"/logs", "core-token", scope, nil, "")
+	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/"+buildID.String()+"/logs", coretest.GatewayCredential, scope, nil, "")
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Equal(t, "build logs\n", resp.Body.String())
@@ -60,7 +60,7 @@ func TestCoreHTTPBuildAndComposeUploadsPersistToDatabase(t *testing.T) {
 		{Name: "project_name", Value: "http-compose"},
 		{Name: "archive", FileName: "compose.zip", Value: string(coretest.ComposeZip(t, map[string]string{"docker-compose.yml": "services:\n  web:\n    image: nginx:latest\n"}))},
 	})
-	req = coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/projects/compose", "core-token", scope, composeBody, composeType)
+	req = coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/projects/compose", coretest.GatewayCredential, scope, composeBody, composeType)
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 	require.Equal(t, 1, dbtest.CountRows(t, f.Repos.DB, "projects"))
@@ -72,18 +72,18 @@ func TestCoreHTTPValidationErrorsAreSafe(t *testing.T) {
 	scope := accessscope.Scope{Kind: accessscope.KindUser, UserID: f.OwnerID, Username: "alice", Role: "user"}
 
 	body, contentType := coretest.MultipartBody(t, []coretest.FormPart{{Name: "archive", FileName: "source.zip", Value: "archive"}})
-	req := coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build", "core-token", scope, body, contentType)
+	req := coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build", coretest.GatewayCredential, scope, body, contentType)
 	resp := coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 	require.Contains(t, resp.Body.String(), `"error_code"`)
 
-	req = coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build/git", "core-token", scope, strings.NewReader(`{"repo_url":"ftp://example.test/repo.git","tag":"bad"}`), "application/json")
+	req = coretest.InternalHTTPRequest(http.MethodPost, "/api/v1/images/build/git", coretest.GatewayCredential, scope, strings.NewReader(`{"repo_url":"ftp://example.test/repo.git","tag":"bad"}`), "application/json")
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 	require.NotContains(t, resp.Body.String(), "postgres")
 	require.NotContains(t, resp.Body.String(), "docker")
 
-	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/not-a-uuid/logs", "core-token", scope, nil, "")
+	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/not-a-uuid/logs", coretest.GatewayCredential, scope, nil, "")
 	resp = coretest.PerformHTTP(router, req)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
@@ -93,6 +93,6 @@ func TestCoreHTTPValidationErrorsAreSafe(t *testing.T) {
 func newHTTPRouter(t *testing.T, cfg config.SystemConfig) (http.Handler, *coretest.ComposeFixture) {
 	t.Helper()
 	f := coretest.NewComposeFixture(t, cfg)
-	router := coretest.CoreHTTPRouter(corehttp.NewComposeHandler(f.Orchestrator, f.Config), corehttp.NewBuildHandler(f.Builds, f.Config), "core-token")
+	router := coretest.CoreHTTPRouter(t, corehttp.NewComposeHandler(f.Orchestrator, f.Config), corehttp.NewBuildHandler(f.Builds, f.Config))
 	return router, f
 }

@@ -19,7 +19,7 @@ import (
 
 type ProxyOptions struct {
 	TargetURL      string
-	InternalToken  string
+	ServiceToken   string
 	Transport      http.RoundTripper
 	AllowedOrigins []string
 }
@@ -31,7 +31,7 @@ func NewCoreProxyHandler(opts ProxyOptions) (gin.HandlerFunc, error) {
 	}
 
 	return func(c *gin.Context) {
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -54,7 +54,7 @@ func NewTelemetryLogsProxyHandler(opts ProxyOptions, auth TelemetryProxyAuthOpti
 			return
 		}
 		clearWriteDeadline(c)
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -77,7 +77,7 @@ func NewTelemetryTerminalProxyHandler(opts ProxyOptions, auth TelemetryProxyAuth
 			return
 		}
 		clearWriteDeadline(c)
-		prepareProxyRequest(c, opts.InternalToken)
+		prepareProxyRequest(c, opts.ServiceToken)
 		proxy.ServeHTTP(c.Writer, c.Request)
 	}, nil
 }
@@ -95,10 +95,10 @@ func newGatewayProxy(opts ProxyOptions) (*httputil.ReverseProxy, error) {
 	return proxy, nil
 }
 
-func prepareProxyRequest(c *gin.Context, internalToken string) {
+func prepareProxyRequest(c *gin.Context, serviceToken string) {
 	clearProxyIdentityHeaders(c.Request.Header)
 	internalauth.SetScopeHeadersFromContext(c.Request.Header, c.Request.Context())
-	c.Request.Header.Set(internalauth.HeaderName, internalToken)
+	c.Request.Header.Set(internalauth.HeaderName, serviceToken)
 	if requestID := logging.RequestIDFromContext(c.Request.Context()); requestID != "" {
 		c.Request.Header.Set(logging.RequestIDHeader, requestID)
 	}

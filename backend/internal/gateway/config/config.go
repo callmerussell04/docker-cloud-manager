@@ -15,7 +15,8 @@ type Bootstrap struct {
 	SSOTarget      string
 	CoreTarget     string
 	CoreHTTPTarget string
-	InternalToken  string
+	// ServiceToken is Gateway's own credential, sent to SSO and Core.
+	ServiceToken string
 	// AppEnv is the raw APP_ENV value; unlike the logging default it is empty when unset.
 	AppEnv string
 
@@ -106,16 +107,6 @@ type Proxy struct {
 type GRPC struct {
 	RequestTimeout    time.Duration
 	MinConnectTimeout time.Duration
-	TLS               GRPCTLS
-}
-
-// GRPCTLS configures optional TLS or mTLS on those connections.
-type GRPCTLS struct {
-	Enabled    bool
-	CAFile     string
-	CertFile   string
-	KeyFile    string
-	ServerName string
 }
 
 // Readiness bounds the upstream checks behind /health/ready.
@@ -131,7 +122,7 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		SSOTarget:      required.Get("SSO_GRPC_TARGET"),
 		CoreTarget:     required.Get("CORE_GRPC_TARGET"),
 		CoreHTTPTarget: required.Get("CORE_HTTP_TARGET"),
-		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
+		ServiceToken:   required.Get("GATEWAY_SERVICE_TOKEN"),
 		AppEnv:         envconfig.String(lookup, "APP_ENV", ""),
 		HTTP: HTTPServer{
 			ReadHeaderTimeout: envconfig.DurationSeconds(lookup, "GATEWAY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
@@ -162,13 +153,6 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		GRPC: GRPC{
 			RequestTimeout:    envconfig.DurationSeconds(lookup, "GATEWAY_GRPC_REQUEST_TIMEOUT_SECONDS", 300*time.Second),
 			MinConnectTimeout: envconfig.DurationSeconds(lookup, "GATEWAY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS", 5*time.Second),
-			TLS: GRPCTLS{
-				Enabled:    envconfig.Bool(lookup, "GATEWAY_GRPC_TLS_ENABLED", false),
-				CAFile:     envconfig.String(lookup, "GATEWAY_GRPC_TLS_CA_FILE", ""),
-				CertFile:   envconfig.String(lookup, "GATEWAY_GRPC_TLS_CERT_FILE", ""),
-				KeyFile:    envconfig.String(lookup, "GATEWAY_GRPC_TLS_KEY_FILE", ""),
-				ServerName: envconfig.String(lookup, "GATEWAY_GRPC_TLS_SERVER_NAME", ""),
-			},
 		},
 		Readiness: Readiness{
 			Timeout: envconfig.DurationSeconds(lookup, "GATEWAY_READINESS_TIMEOUT_SECONDS", 3*time.Second),

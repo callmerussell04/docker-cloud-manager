@@ -31,9 +31,9 @@ func TestCoreProxyStripsSpoofableIdentityHeadersAndForwardsInternalScope(t *test
 		return proxyResponse(http.StatusCreated, `{"path":"`+req.URL.Path+`","body":"`+string(body)+`"}`), nil
 	})
 	proxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
-		TargetURL:     "http://core.internal",
-		InternalToken: "internal-token",
-		Transport:     transport,
+		TargetURL:    "http://core.internal",
+		ServiceToken: "internal-token",
+		Transport:    transport,
 	})
 	require.NoError(t, err)
 	router := gin.New()
@@ -78,8 +78,8 @@ func TestCoreProxyStripsSpoofedIdentityHeadersWithoutScope(t *testing.T) {
 	}
 	var upstream *http.Request
 	proxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
-		TargetURL:     "http://core.internal",
-		InternalToken: "internal-token",
+		TargetURL:    "http://core.internal",
+		ServiceToken: "internal-token",
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			upstream = req.Clone(req.Context())
 			return proxyResponse(http.StatusOK, `{}`), nil
@@ -111,8 +111,8 @@ func TestTelemetryLogsProxyConsumesTicketOnceAndRemovesTicketFromUpstreamQuery(t
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketConsumer(t)
 	var upstream *http.Request
 	proxy, err := handler.NewTelemetryLogsProxyHandler(handler.ProxyOptions{
-		TargetURL:     "http://core.internal",
-		InternalToken: "internal-token",
+		TargetURL:    "http://core.internal",
+		ServiceToken: "internal-token",
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			upstream = req.Clone(req.Context())
 			return proxyResponse(http.StatusOK, `stream`), nil
@@ -181,7 +181,7 @@ func TestTelemetryTerminalProxyAllowsConfiguredOrigin(t *testing.T) {
 	called := false
 	proxy, err := handler.NewTelemetryTerminalProxyHandler(handler.ProxyOptions{
 		TargetURL:      "http://core.internal",
-		InternalToken:  "internal-token",
+		ServiceToken:   "internal-token",
 		AllowedOrigins: []string{"http://frontend.example"},
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			called = true

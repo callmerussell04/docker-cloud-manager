@@ -20,7 +20,9 @@ func requiredEnv() map[string]string {
 		"BASE_DOMAIN":                "example.test",
 		"RABBITMQ_URL":               "amqp://u:" + secret + "@mq",
 		"SSO_GRPC_TARGET":            "sso:50051",
-		"INTERNAL_SERVICE_TOKEN":     secret,
+		"CORE_SERVICE_TOKEN":         "core-" + secret,
+		"GATEWAY_SERVICE_TOKEN":      "gateway-" + secret,
+		"BUILDER_SERVICE_TOKEN":      "builder-" + secret,
 		"REGISTRY_URL":               "registry:5000",
 		"REGISTRY_BACKEND_URL":       "https://registry-backend:5000",
 		"REGISTRY_CA_FILE":           "/ca",
@@ -45,7 +47,9 @@ func TestLoadBootstrapDefaults(t *testing.T) {
 		DBURL:         "postgres://u:" + secret + "@db/core",
 		RabbitMQURL:   "amqp://u:" + secret + "@mq",
 		SSOTarget:     "sso:50051",
-		InternalToken: secret,
+		ServiceToken:  "core-" + secret,
+		GatewayToken:  "gateway-" + secret,
+		BuilderToken:  "builder-" + secret,
 		HostDiskPath:  "/",
 		ObjectStorage: objectstorage.Config{Endpoint: "minio:9000", Bucket: "dcm-builds", AccessKey: secret, SecretKey: secret},
 		ClickHouse:    config.ClickHouse{Database: "dcm_reports"},
@@ -134,7 +138,9 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 		"BASE_DOMAIN",
 		"RABBITMQ_URL",
 		"SSO_GRPC_TARGET",
-		"INTERNAL_SERVICE_TOKEN",
+		"CORE_SERVICE_TOKEN",
+		"GATEWAY_SERVICE_TOKEN",
+		"BUILDER_SERVICE_TOKEN",
 		"REGISTRY_URL",
 		"REGISTRY_BACKEND_URL",
 		"REGISTRY_CA_FILE",
@@ -154,4 +160,8 @@ func assertJSON(t *testing.T, value any) string {
 	data, err := json.Marshal(value)
 	require.NoError(t, err)
 	return string(data)
+}
+
+func TestLoadRefusesSharedServiceCredentialsWithoutValues(t *testing.T) {
+	envtest.AssertDistinct(t, config.Load, requiredEnv(), []string{"CORE_SERVICE_TOKEN", "GATEWAY_SERVICE_TOKEN", "BUILDER_SERVICE_TOKEN"})
 }

@@ -30,7 +30,7 @@ func TestGatewayReportsAndAuditReachCoreWithAuthenticatedScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	reports := coremocks.NewReportsRepository(t)
 	svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
-	conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc}, grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("reports-token")))
+	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Reports: svc}, grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor(coretest.GatewayCredential)))
 	coreHandler := handler.NewCoreHandler(client.NewCoreClient(conn))
 	verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
 	actorID := uuid.New()
