@@ -331,7 +331,7 @@ docker volume create --opt size=16M dcm-quota-check && docker volume rm dcm-quot
 Ручная проверка ограничения на подготовленном сервере (из `backend/`, Docker должен быть доступен текущему пользователю, нужен образ `busybox`):
 
 ```bash
-DCM_TEST_VOLUME_QUOTA_DOCKER=1 GOTOOLCHAIN=go1.26.10 GOCACHE=/tmp/go-build-cache \
+DCM_TEST_VOLUME_QUOTA_DOCKER=1 GOTOOLCHAIN=go1.26.11 GOCACHE=/tmp/go-build-cache \
   go test ./internal/core/infrastructure/docker/ -run TestDockerAdapterEnforcesVolumeSizeSmoke -v
 ```
 
@@ -368,7 +368,7 @@ DCM_TEST_VOLUME_QUOTA_DOCKER=1 GOTOOLCHAIN=go1.26.10 GOCACHE=/tmp/go-build-cache
 
 ```bash
 cd backend
-GOTOOLCHAIN=go1.26.10 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
+GOTOOLCHAIN=go1.26.11 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='postgres://.../dcm_core_test?sslmode=disable' \
   go test -count=1 -timeout=5m ./tests/integration/registry_isolation
 ```
 
@@ -378,25 +378,27 @@ GOTOOLCHAIN=go1.26.10 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='pos
 
 ```bash
 cd backend
-GOTOOLCHAIN=go1.26.10 CORE_TEST_NETWORK_POLICY=1 \
+GOTOOLCHAIN=go1.26.11 CORE_TEST_NETWORK_POLICY=1 \
   go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/integration/registry_isolation
 ```
 
 ## Go toolchain and build inputs
 
-DCM pins Go **1.26.10**, a supported patch release on the 1.26 line; check the
+DCM pins Go **1.26.11**, a supported patch release on the 1.26 line; check the
 [Go release policy and patch notes](https://go.dev/doc/devel/release) and
 [official downloads](https://go.dev/dl/?mode=json) when updating. It fixes
 [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809),
 a `crypto/x509` denylist of compromised intermediate certificates. The production
 scan reaches `Certificate.Verify` through `crypto/tls` handshakes, and every service
 binary links that verifier for its HTTPS/TLS clients, so the advisory is patched
-rather than accepted.
+rather than accepted. Go 1.26.11 also fixes
+[GO-2026-6859](https://pkg.go.dev/vuln/GO-2026-6859), a `net/http` HTTP/1 server
+crash from a `MaxBytesReader` header race, which every service binary reaches.
 
-`backend/go.mod` sets the minimum to 1.26.10. Canonical Make targets export exactly
-`GOTOOLCHAIN=go1.26.10`; the `go` directive alone is a minimum and does not prevent a
+`backend/go.mod` sets the minimum to 1.26.11. Canonical Make targets export exactly
+`GOTOOLCHAIN=go1.26.11`; the `go` directive alone is a minimum and does not prevent a
 newer installed compiler from being selected. For direct commands, export
-`GOTOOLCHAIN=go1.26.10` explicitly. Keep the module version and all four Dockerfile
+`GOTOOLCHAIN=go1.26.11` explicitly. Keep the module version and all four Dockerfile
 builder pins synchronized when updating. Toolchain downloads use Go's checksum
 database; do not disable checksum verification.
 
@@ -404,7 +406,7 @@ All four service Dockerfiles use these verified multi-platform image indexes:
 
 | Input | Pinned reference |
 | --- | --- |
-| Compiler | `golang:1.26.10-alpine3.24@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308` |
+| Compiler | `golang:1.26.11-alpine3.24@sha256:ae52b5bc6ed045a9ed26ab03dc19327a802a9cc9aa8b27ed57f5c6b60579b0bb` |
 | Runtime | `alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6` |
 
 Docker sets `GOTOOLCHAIN=local`, so module changes cannot silently download another
@@ -510,7 +512,7 @@ Network modules are pinned at these versions:
 The gRPC and x/net module requirements also determine the x/crypto, x/sys, x/text,
 x/sync, OpenTelemetry API/metric/trace and genproto RPC versions. Protobuf is
 1.36.11, matching the pinned code generator. These modules support the pinned
-Go 1.26.10 toolchain.
+Go 1.26.11 toolchain.
 
 Review these upstream notes when updating:
 [gRPC releases](https://github.com/grpc/grpc-go/releases),
@@ -557,6 +559,23 @@ Review these upstream notes when updating:
   use an HTTP/3 client transport. The pinned quic-go backport patches
   GO-2026-5676 regardless. Gorilla WebSocket 1.5.3 already contains the reported
   masking fix.
+
+### Raised indirect modules
+
+`backend/go.mod` requires two indirect compression modules above what any
+dependency asks for, because the versions the dependencies select carry
+reachable advisories:
+
+| Module | Version | Fixes | Reached through |
+| --- | --- | --- | --- |
+| `github.com/andybalholm/brotli` | 1.2.7 | [GO-2026-6888](https://pkg.go.dev/vuln/GO-2026-6888), excessive allocation on crafted streams | `clickhouse-go` (reports) |
+| `github.com/klauspost/compress` | 1.20.2 | [GO-2026-6865](https://pkg.go.dev/vuln/GO-2026-6865), panic on two-block frames | `minio-go` (object storage) |
+
+Several modules require them at lower versions (`clickhouse-go`, `ch-go`,
+`minio-go`, `moby/go-archive` and `golang-migrate` for compress; `clickhouse-go`
+and `golang-migrate` for brotli), so `go mod tidy` keeps these requirements only
+because they are the highest. Do not lower them when a dependency changes;
+`make vulncheck` fails if one falls below its fix.
 
 ### Accepted and residual advisories
 
