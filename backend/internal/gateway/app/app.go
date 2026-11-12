@@ -48,8 +48,8 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	useCases := newCoreUseCases(cfg, clients)
-	proxies, err := newProxyHandlers(cfg, useCases)
+	telemetryTickets := service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL)
+	proxies, err := newProxyHandlers(cfg, telemetryTickets)
 	if err != nil {
 		_ = clients.close() // startup already failed; the init error is returned
 		return nil, err
@@ -58,17 +58,17 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	cfg.Router.AuthRedirect.CookieAllowedOrigins = cfg.Router.CORSAllowedOrigins
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
 	router, err := gatewayhttp.NewRouter(cfg.Router, gatewayhttp.RouterDeps{
-		AuthHandler:                 handler.NewAuthHandler(useCases.auth, cfg.Cookie, cfg.Router.AuthRedirect),
-		CoreHandler:                 handler.NewCoreHandler(useCases.core),
-		UserHandler:                 handler.NewUserManagementHandler(useCases.users),
+		AuthHandler:                 handler.NewAuthHandler(clients.ssoClient, cfg.Cookie, cfg.Router.AuthRedirect),
+		CoreHandler:                 handler.NewCoreHandler(clients.coreClient),
+		UserHandler:                 handler.NewUserManagementHandler(clients.ssoClient),
 		HealthHandler:               healthHandler,
-		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(useCases.telemetryTickets),
+		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(telemetryTickets),
 		CoreHTTPProxy:               proxies.coreHTTP,
 		TelemetryLogsProxy:          proxies.telemetryLogs,
 		TelemetryTerminalProxy:      proxies.telemetryTerminal,
 		AdminTelemetryLogsProxy:     proxies.adminTelemetryLogs,
 		AdminTelemetryTerminalProxy: proxies.adminTelemetryTerminal,
-		TokenVerifier:               useCases.auth,
+		TokenVerifier:               clients.ssoClient,
 		Logger:                      logger,
 	})
 	if err != nil {
@@ -139,22 +139,6 @@ func (c gatewayClients) close() error {
 	return err
 }
 
-type gatewayUseCases struct {
-	auth             *service.AuthService
-	users            *service.UserManagementService
-	core             *service.Core
-	telemetryTickets *service.TelemetryTicketStore
-}
-
-func newCoreUseCases(cfg config.Bootstrap, clients gatewayClients) gatewayUseCases {
-	return gatewayUseCases{
-		auth:             service.NewAuth(clients.ssoClient),
-		users:            service.NewUserManagement(clients.ssoClient),
-		core:             service.NewCore(clients.coreClient),
-		telemetryTickets: service.NewTelemetryTicketStore(cfg.TelemetryTicketTTL),
-	}
-}
-
 type proxyHandlers struct {
 	coreHTTP               gin.HandlerFunc
 	telemetryLogs          gin.HandlerFunc
@@ -163,7 +147,7 @@ type proxyHandlers struct {
 	adminTelemetryTerminal gin.HandlerFunc
 }
 
-func newProxyHandlers(cfg config.Bootstrap, useCases gatewayUseCases) (proxyHandlers, error) {
+func newProxyHandlers(cfg config.Bootstrap, tickets *service.TelemetryTicketStore) (proxyHandlers, error) {
 	proxyTransport := newProxyTransport(cfg.Proxy)
 	coreProxy, err := handler.NewCoreProxyHandler(handler.ProxyOptions{
 		TargetURL:     cfg.CoreHTTPTarget,
@@ -180,19 +164,19 @@ func newProxyHandlers(cfg config.Bootstrap, useCases gatewayUseCases) (proxyHand
 		Transport:      proxyTransport,
 		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
 	}
-	telemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, false)
+	telemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
 	}
-	telemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, false)
+	telemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
 	}
-	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, useCases, true)
+	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
 	}
-	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, useCases, true)
+	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
 	}
@@ -206,17 +190,17 @@ func newProxyHandlers(cfg config.Bootstrap, useCases gatewayUseCases) (proxyHand
 	}, nil
 }
 
-func newTelemetryLogsProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+func newTelemetryLogsProxy(opts handler.ProxyOptions, tickets *service.TelemetryTicketStore, adminRoute bool) (gin.HandlerFunc, error) {
 	return handler.NewTelemetryLogsProxyHandler(opts, handler.TelemetryProxyAuthOptions{
-		Tickets:    useCases.telemetryTickets,
+		Tickets:    tickets,
 		StreamType: model.TelemetryStreamLogs,
 		AdminRoute: adminRoute,
 	})
 }
 
-func newTelemetryTerminalProxy(opts handler.ProxyOptions, useCases gatewayUseCases, adminRoute bool) (gin.HandlerFunc, error) {
+func newTelemetryTerminalProxy(opts handler.ProxyOptions, tickets *service.TelemetryTicketStore, adminRoute bool) (gin.HandlerFunc, error) {
 	return handler.NewTelemetryTerminalProxyHandler(opts, handler.TelemetryProxyAuthOptions{
-		Tickets:    useCases.telemetryTickets,
+		Tickets:    tickets,
 		StreamType: model.TelemetryStreamTerminal,
 		AdminRoute: adminRoute,
 	})

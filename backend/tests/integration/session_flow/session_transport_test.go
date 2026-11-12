@@ -13,7 +13,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
-	gatewayservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
@@ -50,7 +49,7 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	ssoClient := client.NewSSOClient(conn)
-	auth := handler.NewAuthHandler(gatewayservice.NewAuth(ssoClient), handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
+	auth := handler.NewAuthHandler(ssoClient, handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/login", auth.Login)

@@ -13,7 +13,6 @@ import (
 	gatewayhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	gatewaymodel "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
-	gatewayservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
@@ -32,7 +31,7 @@ func TestGatewayReportsAndAuditReachCoreWithAuthenticatedScope(t *testing.T) {
 	reports := coremocks.NewReportsRepository(t)
 	svc := service.NewReportService(reports, nil, nil, nil, coretest.DiscardLogger())
 	conn := coretest.NewCoreGRPCConn(t, "reports-token", coretest.CoreGRPCRegistration{Reports: svc}, grpc.WithUnaryInterceptor(internalauth.UnaryClientInterceptor("reports-token")))
-	coreHandler := handler.NewCoreHandler(gatewayservice.NewCore(client.NewCoreClient(conn)))
+	coreHandler := handler.NewCoreHandler(client.NewCoreClient(conn))
 	verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
 	actorID := uuid.New()
 	admin := gatewaymodel.AuthUser{UserID: actorID.String(), Username: "admin", Role: "admin"}
