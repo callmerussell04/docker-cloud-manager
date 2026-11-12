@@ -8,7 +8,7 @@ import { WS_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
+import { useT, useTRef } from '@/lib/i18n';
 import { ConnectionStatus } from '@/components/common/ConnectionStatus';
 
 interface ContainerTerminalModalProps {
@@ -27,6 +27,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
   const [isConnected, setIsConnected] = useState(false);
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
+  const tRef = useTRef();
 
   useEffect(() => {
     if (!container || !terminalRef.current) return;
@@ -103,7 +104,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
           }
         });
       } catch (error) {
-        const { message } = getApiErrorMessage(error, t('containers.terminalTicketFailed'), t);
+        const { message } = getApiErrorMessage(error, tRef.current('containers.terminalTicketFailed'), tRef.current);
         addToast(message, 'error');
         onClose();
       }
@@ -128,7 +129,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
       }
       term.dispose();
     };
-  }, [container, isAdmin, addToast, onClose]);
+  }, [container, isAdmin, addToast, onClose, tRef]);
 
   if (!container) return null;
 

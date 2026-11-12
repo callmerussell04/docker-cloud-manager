@@ -145,6 +145,38 @@ function useDebouncedValue<T>(value: T, delayMs = 350) {
   return debounced;
 }
 
+// usePageOf is a page number that returns to 1 whenever any filter changes,
+// in the same render, including a change back to earlier filters.
+function usePageOf(filters: readonly unknown[]) {
+  const key = JSON.stringify(filters);
+  const [state, setState] = useState({ key, page: 1 });
+  if (state.key !== key) {
+    // Adjusting state while rendering, as React documents for state that
+    // follows a changed input; React re-renders before committing.
+    setState({ key, page: 1 });
+  }
+  const page = state.key === key ? state.page : 1;
+  const setPage = (next: number) => setState({ key, page: next });
+  return [page, setPage] as const;
+}
+
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
+// useNowSeconds is the current time in Unix seconds, renewed every intervalMs,
+// so a value derived from it stays the same within a render.
+function useNowSeconds(intervalMs = 30_000) {
+  const [now, setNow] = useState(nowSeconds);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(nowSeconds()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+
+  return now;
+}
+
 function MetricCard({
   title,
   value,
@@ -239,16 +271,16 @@ export function AdminReportsPage() {
   const [rangeSeconds, setRangeSeconds] = useState(ranges[1].seconds);
   const [sort, setSort] = useState('disk');
   const [userSearch, setUserSearch] = useState('');
-  const [userPage, setUserPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState<UserUsageReportItem | undefined>();
   const [auditSearch, setAuditSearch] = useState('');
   const [auditOutcome, setAuditOutcome] = useState('');
   const [auditAction, setAuditAction] = useState('');
   const [auditResourceType, setAuditResourceType] = useState('');
-  const [auditPage, setAuditPage] = useState(1);
   const debouncedUserSearch = useDebouncedValue(userSearch);
   const debouncedAuditSearch = useDebouncedValue(auditSearch);
   const params = useMemo(() => rangeParams(rangeSeconds), [rangeSeconds]);
+  const [userPage, setUserPage] = usePageOf([debouncedUserSearch, rangeSeconds, sort]);
+  const [auditPage, setAuditPage] = usePageOf([debouncedAuditSearch, auditOutcome, auditAction, auditResourceType, rangeSeconds]);
 
   const overview = useReportsOverview(params);
   const users = useUserUsageReport({ ...params, sort, search: debouncedUserSearch, page: userPage, limit: userPageSize });
@@ -263,14 +295,7 @@ export function AdminReportsPage() {
     limit: auditPageSize,
   });
   const refreshSnapshots = useRefreshUsageSnapshots();
-
-  useEffect(() => {
-    setUserPage(1);
-  }, [debouncedUserSearch, rangeSeconds, sort]);
-
-  useEffect(() => {
-    setAuditPage(1);
-  }, [debouncedAuditSearch, auditOutcome, auditAction, auditResourceType, rangeSeconds]);
+  const now = useNowSeconds();
 
   const chartPoints = (timeline.data?.points ?? []).map((point) => ({
     time: new Date(point.bucket_start * 1000).toLocaleString(dateLocale(locale), { month: 'short', day: '2-digit', hour: '2-digit' }),
@@ -281,7 +306,7 @@ export function AdminReportsPage() {
   }));
   const lastSnapshotAt = overview.data?.last_usage_snapshot_at ?? 0;
   const snapshotInterval = overview.data?.usage_snapshot_interval_seconds ?? 0;
-  const snapshotAge = lastSnapshotAt > 0 ? Math.floor(Date.now() / 1000) - lastSnapshotAt : 0;
+  const snapshotAge = lastSnapshotAt > 0 ? now - lastSnapshotAt : 0;
   const isUsageStale = lastSnapshotAt === 0 || (snapshotInterval > 0 && snapshotAge > snapshotInterval);
   const lastSnapshotText = lastSnapshotAt > 0
     ? new Date(lastSnapshotAt * 1000).toLocaleString(dateLocale(locale))

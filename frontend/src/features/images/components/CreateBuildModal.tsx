@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -30,7 +30,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
-  const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
+  const [selectedSourceMode, setSelectedSourceMode] = useState<SourceMode>('archive');
   const [isHintHidden, setIsHintHidden] = useState(false);
   const { data: availability } = useBuildAvailability(isOpen);
 
@@ -44,14 +44,10 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   });
 
   const isGitDisabled = availability?.git_sources_enabled === false;
+  // Git sources can be switched off while the modal is open; archive is then the only source.
+  const sourceMode: SourceMode = isGitDisabled && selectedSourceMode === 'git' ? 'archive' : selectedSourceMode;
 
   const mutation = useCreateBuild();
-
-  useEffect(() => {
-    if (isGitDisabled && sourceMode === 'git') {
-      setSourceMode('archive');
-    }
-  }, [isGitDisabled, sourceMode]);
 
   const onSubmit = (data: CreateBuildValues) => {
     if (sourceMode === 'archive' && !file) {
@@ -111,7 +107,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
   const handleClose = () => {
     reset();
     setFile(null);
-    setSourceMode('archive');
+    setSelectedSourceMode('archive');
     onClose();
   };
 
@@ -143,7 +139,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
 
         <SourceModeSwitch
           value={sourceMode}
-          onChange={setSourceMode}
+          onChange={setSelectedSourceMode}
           archiveLabel={t('images.archive')}
           gitLabel={t('common.git')}
           gitDisabled={isGitDisabled}

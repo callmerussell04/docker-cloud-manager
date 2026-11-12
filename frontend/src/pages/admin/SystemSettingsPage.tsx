@@ -538,30 +538,17 @@ function ByteField({
 }) {
   const watchedValue = watch(field.name);
   const bytes = typeof watchedValue === 'number' && Number.isFinite(watchedValue) ? watchedValue : 0;
-  const [unit, setUnit] = useState<ByteUnit>(() => preferredByteUnit(bytes));
-  const [unitInitialized, setUnitInitialized] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [editingEmpty, setEditingEmpty] = useState(false);
+  // Until the administrator picks a unit or types, the unit follows the value.
+  const [chosenUnit, setChosenUnit] = useState<ByteUnit | null>(null);
+  // What the administrator is typing, and the form value it produced. It is
+  // shown only while the form still holds that value, so an empty field stays
+  // empty while it is edited and any other change shows the formatted value.
+  const [draft, setDraft] = useState<{ text: string; value: number | undefined } | null>(null);
+  const unit = chosenUnit ?? preferredByteUnit(bytes);
   const currentUnit = byteUnits.find((item) => item.label === unit) ?? byteUnits[0];
   const displayValue = bytes / currentUnit.multiplier;
+  const inputValue = draft && draft.value === watchedValue ? draft.text : formatNumberInput(displayValue);
   const errorMessage = getErrorMessage(error);
-
-  useEffect(() => {
-    setUnitInitialized(false);
-  }, [field.name]);
-
-  useEffect(() => {
-    if (!unitInitialized && bytes > 0) {
-      setUnit(preferredByteUnit(bytes));
-      setUnitInitialized(true);
-    }
-  }, [bytes, unitInitialized]);
-
-  useEffect(() => {
-    if (editingEmpty && watchedValue === undefined) return;
-    setInputValue(formatNumberInput(displayValue));
-    setEditingEmpty(false);
-  }, [displayValue, editingEmpty, watchedValue]);
 
   return (
     <div className="space-y-2">
@@ -575,35 +562,20 @@ function ByteField({
           error={!!error}
           onChange={(event) => {
             const rawValue = event.target.value;
-            setUnitInitialized(true);
-            setInputValue(rawValue);
-
-            if (rawValue.trim() === '') {
-              setEditingEmpty(true);
-              setValue(field.name, undefined as never, { shouldDirty: true, shouldValidate: true });
-              return;
-            }
-
-            const value = Number(rawValue);
-            if (!Number.isFinite(value)) {
-              setEditingEmpty(true);
-              setValue(field.name, undefined as never, { shouldDirty: true, shouldValidate: true });
-              return;
-            }
-
-            setEditingEmpty(false);
-            setValue(field.name, Math.round(value * currentUnit.multiplier) as never, { shouldDirty: true, shouldValidate: true });
+            const value = rawValue.trim() === '' ? Number.NaN : Number(rawValue);
+            const nextBytes = Number.isFinite(value) ? Math.round(value * currentUnit.multiplier) : undefined;
+            setChosenUnit(unit);
+            setDraft({ text: rawValue, value: nextBytes });
+            setValue(field.name, nextBytes as never, { shouldDirty: true, shouldValidate: true });
           }}
+          // A cleared or unreadable field stays as typed: the form holds no value to show.
+          onBlur={() => setDraft((current) => (current && current.value === undefined ? current : null))}
         />
         <Select
           value={unit}
           onChange={(event) => {
-            const nextUnit = event.target.value as ByteUnit;
-            const nextUnitConfig = byteUnits.find((item) => item.label === nextUnit) ?? byteUnits[0];
-            setUnitInitialized(true);
-            setEditingEmpty(false);
-            setUnit(nextUnit);
-            setInputValue(formatNumberInput(bytes / nextUnitConfig.multiplier));
+            setChosenUnit(event.target.value as ByteUnit);
+            setDraft(null);
           }}
           className="w-28 shrink-0"
           aria-label={t('admin.settings.byteUnit')}

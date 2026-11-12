@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, ChevronDown } from 'lucide-react';
@@ -50,10 +50,12 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
   const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
-  const [sourceMode, setSourceMode] = useState<SourceMode>('archive');
+  const [selectedSourceMode, setSelectedSourceMode] = useState<SourceMode>('archive');
   const [showInfo, setShowInfo] = useState(false);
   const [isHintHidden, setIsHintHidden] = useState(false);
   const isGitDisabled = buildAvailability?.git_sources_enabled === false;
+  // Git sources can be switched off while the modal is open; archive is then the only source.
+  const sourceMode: SourceMode = isGitDisabled && selectedSourceMode === 'git' ? 'archive' : selectedSourceMode;
   const selectedArchiveIsRawCompose = file ? isRawComposeFile(file.name) : false;
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<CreateProjectForm>({
@@ -61,12 +63,6 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
   });
 
   const mutation = useCreateProject();
-
-  useEffect(() => {
-    if (isGitDisabled && sourceMode === 'git') {
-      setSourceMode('archive');
-    }
-  }, [isGitDisabled, sourceMode]);
 
   const onSubmit = (data: CreateProjectForm) => {
     if (sourceMode === 'archive' && !file) {
@@ -109,7 +105,7 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
   const handleClose = () => {
     reset();
     setFile(null);
-    setSourceMode('archive');
+    setSelectedSourceMode('archive');
     setShowInfo(false);
     onClose();
   };
@@ -152,7 +148,7 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
 
           <SourceModeSwitch
             value={sourceMode}
-            onChange={setSourceMode}
+            onChange={setSelectedSourceMode}
             archiveLabel={t('projects.archive')}
             gitLabel={t('common.git')}
             gitDisabled={isGitDisabled}

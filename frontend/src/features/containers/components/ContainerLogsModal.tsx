@@ -8,7 +8,7 @@ import { API_URL } from '@/config';
 import { useToastStore } from '@/store/toastStore';
 import type { ContainerData } from '../types';
 import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
+import { useT, useTRef } from '@/lib/i18n';
 import { ConnectionStatus } from '@/components/common/ConnectionStatus';
 
 interface ContainerLogsModalProps {
@@ -30,6 +30,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
   const esRef = useRef<EventSource | null>(null);
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
+  const tRef = useTRef();
 
   useEffect(() => {
     if (!container) return;
@@ -60,7 +61,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         });
 
         es.addEventListener('error', (event) => {
-          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, t('containers.logsStreamError')), 'error');
+          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, tRef.current('containers.logsStreamError')), 'error');
           es.close();
           setIsConnected(false);
         });
@@ -75,7 +76,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
           setIsConnected(false);
         };
       } catch (error) {
-        const { message } = getApiErrorMessage(error, t('containers.logsTicketFailed'), t);
+        const { message } = getApiErrorMessage(error, tRef.current('containers.logsTicketFailed'), tRef.current);
         addToast(message, 'error');
         onClose();
       }
@@ -89,7 +90,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         esRef.current.close();
       }
     };
-  }, [container, isAdmin, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose]);
+  }, [container, isAdmin, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose, tRef]);
 
   useEffect(() => {
     if (follow && scrollRef.current) {

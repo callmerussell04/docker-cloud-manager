@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import { en } from './en';
 import { ru } from './ru';
 import { useLanguageStore, type Locale } from '@/store/languageStore';
@@ -24,6 +24,18 @@ export function useT(): TFunction {
   return useMemo(() => {
     return (key, params) => translate(language, key, params);
   }, [language]);
+}
+
+// useTRef holds the current translator for effects that must not restart when
+// the language changes, such as an open log stream or terminal session. Read
+// it as tRef.current inside the effect and its callbacks.
+export function useTRef(): RefObject<TFunction> {
+  const t = useT();
+  const ref = useRef(t);
+  useEffect(() => {
+    ref.current = t;
+  }, [t]);
+  return ref;
 }
 
 export function useLocale() {
