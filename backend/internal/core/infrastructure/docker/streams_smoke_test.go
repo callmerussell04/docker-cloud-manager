@@ -3,27 +3,27 @@ package docker_test
 import (
 	"context"
 	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/testenv"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/client"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAdapterDockerSmoke(t *testing.T) {
-	testenv.Enabled(t, "TELEMETRY_TEST_DOCKER")
+func TestAdapterContainerStreamsSmoke(t *testing.T) {
+	testenv.Enabled(t, "CORE_TEST_DOCKER")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	imageName := getenv("TELEMETRY_TEST_DOCKER_IMAGE", "busybox:latest")
+	imageName := getenv("CORE_TEST_DOCKER_IMAGE", "busybox:latest")
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cli.Close() })
@@ -34,10 +34,10 @@ func TestAdapterDockerSmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, pull.Close())
 
-	target := model.ContainerTarget{
-		ContainerID:      "00000000-0000-0000-0000-000000000001",
+	target := model.ContainerRuntimeTarget{
+		ContainerID:      uuid.New(),
 		Status:           "exited",
-		OwnerID:          "11111111-1111-1111-1111-111111111111",
+		OwnerID:          uuid.New(),
 		DockerGeneration: 2,
 	}
 	created, err := cli.ContainerCreate(ctx, &container.Config{
@@ -46,8 +46,8 @@ func TestAdapterDockerSmoke(t *testing.T) {
 		Labels: map[string]string{
 			"managed_by":        "docker-cloud-manager",
 			"dcm.resource_type": "container",
-			"dcm.container_id":  target.ContainerID,
-			"dcm.owner_id":      target.OwnerID,
+			"dcm.container_id":  target.ContainerID.String(),
+			"dcm.owner_id":      target.OwnerID.String(),
 			"dcm.generation":    "2",
 		},
 	}, nil, nil, nil, "")
@@ -74,20 +74,13 @@ func TestAdapterDockerSmoke(t *testing.T) {
 
 	require.NoError(t, adapter.EnsureContainerTarget(ctx, target))
 	mismatchedTarget := target
-	mismatchedTarget.OwnerID = "22222222-2222-2222-2222-222222222222"
+	mismatchedTarget.OwnerID = uuid.New()
 	require.ErrorIs(t, adapter.EnsureContainerTarget(ctx, mismatchedTarget), apperrors.ErrNotFound)
 
-	stream, err := adapter.StreamLogs(ctx, target, model.LogOptions{Tail: 20, Follow: false})
+	stream, err := adapter.StreamContainerLogs(ctx, target.DockerID, model.LogOptions{Tail: 20, Follow: false})
 	require.NoError(t, err)
 	defer func() { _ = stream.Close() }() // read-only stream; close failure is not actionable
 	body, err := io.ReadAll(stream)
 	require.NoError(t, err)
 	require.True(t, strings.Contains(string(body), "stdout") && strings.Contains(string(body), "stderr"), string(body))
-}
-
-func getenv(key, fallback string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return fallback
 }

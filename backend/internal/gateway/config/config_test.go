@@ -18,7 +18,6 @@ func requiredEnv() map[string]string {
 		"SSO_GRPC_TARGET":        "sso:1",
 		"CORE_GRPC_TARGET":       "core:2",
 		"CORE_HTTP_TARGET":       "http://core:3",
-		"TELEMETRY_HTTP_TARGET":  "http://telemetry:4",
 		"INTERNAL_SERVICE_TOKEN": secret,
 	}
 }
@@ -117,7 +116,6 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 		"SSO_GRPC_TARGET",
 		"CORE_GRPC_TARGET",
 		"CORE_HTTP_TARGET",
-		"TELEMETRY_HTTP_TARGET",
 		"INTERNAL_SERVICE_TOKEN",
 	})
 }

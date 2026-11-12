@@ -64,7 +64,6 @@ flowchart LR
 
     Gateway --> SSO[SSO]
     Gateway --> Core[Core]
-    Gateway --> Telemetry[Telemetry]
 
     SSO --> SsoDB[(PostgreSQL)]
     Core --> CoreDB[(PostgreSQL)]
@@ -77,17 +76,15 @@ flowchart LR
     Builder --> MinIO
     Builder --> Registry[(Docker Registry)]
     Builder --> Core
-    Telemetry --> Docker
     Docker --> Apps
 ```
 
 | Component | Responsibility |
 | --- | --- |
-| **Gateway** | HTTP edge/API gateway, request authentication, authorization, and stream proxying |
+| **Gateway** | HTTP edge/API gateway, request authentication, authorization, and proxying to Core, including log and terminal streams |
 | **SSO** | Users, roles, tokens, permissions, quotas, and OIDC identity binding |
-| **Core** | Docker orchestration, resource state, admission control, Compose, builds, reports, and audit |
+| **Core** | Docker orchestration, resource state, admission control, Compose, builds, container logs and browser terminals, reports, and audit |
 | **Builder** | RabbitMQ worker that builds custom images with Kaniko |
-| **Telemetry** | Internal-only service for container logs and browser terminals |
 | **Frontend** | React SPA for the user and administration panels |
 
 Long-running lifecycle operations execute asynchronously through durable database state and RabbitMQ queues. PostgreSQL remains the source of truth for users and runtime resources, while ClickHouse serves as the analytical read model.
@@ -179,7 +176,7 @@ make lint
 
 The `Backend` GitHub Actions workflow (`.github/workflows/backend.yml`) runs `make verify`, `make test` and `make vulncheck` as separate jobs on backend pushes and pull requests; a weekly schedule reruns only `make vulncheck`. It has read-only repository permissions, pins actions by commit and protoc 34.1 by checksum, sets job timeouts and prints test service state and logs when integration tests fail before removing the services.
 
-Canonical Make targets select Go **1.26.10** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.10` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` (requires `jq`) scans production roots and all five built binaries and fails on any symbol-level finding not accepted in `backend/vulncheck/policy.json`, or on an accepted entry that is no longer reported. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
+Canonical Make targets select Go **1.26.10** from `backend/go.mod` via `GOTOOLCHAIN`, including on newer hosts; first use may download it. Direct Go commands must use `GOTOOLCHAIN=go1.26.10` for the same compiler. Builds use read-only module metadata, disable CGO, and remove local paths/VCS metadata. `make build` does not format or tidy sources; run `make tidy` explicitly when needed. Scanner: govulncheck v1.9.0; `make vulncheck` (requires `jq`) scans production roots and all four built binaries and fails on any symbol-level finding not accepted in `backend/vulncheck/policy.json`, or on an accepted entry that is no longer reported. See [toolchain and build inputs](docs/deployment-single-vm.md#go-toolchain-and-build-inputs) for pins and scan applicability.
 
 Generation requires Go and `protoc` 34.1 from [protobuf v34.1](https://github.com/protocolbuffers/protobuf/releases/tag/v34.1) on `PATH` (or `make PROTOC=/path/to/protoc ...`). Make installs pinned Go plugins under ignored `backend/bin/tools/`; no global mockery, plugins, or gotestsum installation is needed. Initial use requires access to the Go module proxy.
 

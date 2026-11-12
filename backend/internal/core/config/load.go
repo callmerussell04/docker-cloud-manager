@@ -1,6 +1,8 @@
 package config
 
 import (
+	"time"
+
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
@@ -31,6 +33,26 @@ type Bootstrap struct {
 	ObjectStorage      objectstorage.Config
 	ClickHouse         ClickHouse
 	Registry           Registry
+	// HTTP configures the internal HTTP listener, which also serves the
+	// long-lived container log streams and terminal sessions.
+	HTTP    HTTPServer
+	Streams StreamLimits
+}
+
+// HTTPServer configures Core's internal HTTP listener. It sets no read or
+// write timeout, because log streams, terminal sessions and uploads outlive any.
+type HTTPServer struct {
+	ReadHeaderTimeout time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+	MaxHeaderBytes    int
+}
+
+// StreamLimits are the global limits on open container streams across all
+// users. The per-user limits are runtime settings.
+type StreamLimits struct {
+	MaxLogStreams       int
+	MaxTerminalSessions int
 }
 
 // ClickHouse locates the reports store. An empty Addr disables it.
@@ -80,6 +102,16 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 		HostDiskPath:  envconfig.String(lookup, "CORE_HOST_DISK_PATH", "/"),
 
 		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
+		HTTP: HTTPServer{
+			ReadHeaderTimeout: envconfig.DurationSeconds(lookup, "TELEMETRY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
+			IdleTimeout:       envconfig.DurationSeconds(lookup, "TELEMETRY_IDLE_TIMEOUT_SECONDS", 120*time.Second),
+			ShutdownTimeout:   envconfig.DurationSeconds(lookup, "TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS", 15*time.Second),
+			MaxHeaderBytes:    envconfig.Int(lookup, "TELEMETRY_MAX_HEADER_BYTES", 1<<20),
+		},
+		Streams: StreamLimits{
+			MaxLogStreams:       envconfig.Int(lookup, "TELEMETRY_MAX_GLOBAL_LOG_STREAMS", 100),
+			MaxTerminalSessions: envconfig.Int(lookup, "TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS", 50),
+		},
 		ClickHouse: ClickHouse{
 			Addr:     envconfig.String(lookup, "CLICKHOUSE_ADDR", ""),
 			Database: envconfig.String(lookup, "CLICKHOUSE_DB", "dcm_reports"),

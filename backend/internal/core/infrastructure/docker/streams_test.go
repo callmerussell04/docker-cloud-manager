@@ -7,34 +7,35 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/docker"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/infrastructure/docker"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dockertest"
 )
 
-func testTarget() model.ContainerTarget {
-	return model.ContainerTarget{
-		ContainerID:      "00000000-0000-0000-0000-000000000001",
+func streamTarget() model.ContainerRuntimeTarget {
+	return model.ContainerRuntimeTarget{
+		ContainerID:      uuid.MustParse("00000000-0000-0000-0000-000000000001"),
 		DockerID:         "docker-id",
-		OwnerID:          "11111111-1111-1111-1111-111111111111",
+		OwnerID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		DockerGeneration: 2,
 	}
 }
 
-func matchingLabels(target model.ContainerTarget) map[string]string {
+func matchingLabels(target model.ContainerRuntimeTarget) map[string]string {
 	return map[string]string{
 		"managed_by":        "docker-cloud-manager",
 		"dcm.resource_type": "container",
-		"dcm.container_id":  target.ContainerID,
-		"dcm.owner_id":      target.OwnerID,
+		"dcm.container_id":  target.ContainerID.String(),
+		"dcm.owner_id":      target.OwnerID.String(),
 		"dcm.generation":    strconv.Itoa(target.DockerGeneration),
 	}
 }
 
-func inspectBody(t *testing.T, labels map[string]string) string {
+func streamInspectBody(t *testing.T, labels map[string]string) string {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{"Id": "docker-id", "Config": map[string]any{"Labels": labels}})
 	require.NoError(t, err)
@@ -65,18 +66,18 @@ func TestAdapterEnsureContainerTargetChecksIdentityLabels(t *testing.T) {
 		{name: "missing managed-by marker", label: "managed_by", remove: true, wantErr: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			labels := matchingLabels(testTarget())
+			labels := matchingLabels(streamTarget())
 			if tt.remove {
 				delete(labels, tt.label)
 			} else if tt.label != "" {
 				labels[tt.label] = tt.value
 			}
 			dockertest.Serve(t, map[string]dockertest.Response{
-				"/containers/docker-id/json": dockertest.OK(inspectBody(t, labels)),
+				"/containers/docker-id/json": dockertest.OK(streamInspectBody(t, labels)),
 			})
-			adapter := newAdapter(t)
+			adapter := newStreamAdapter(t)
 
-			err := adapter.EnsureContainerTarget(context.Background(), testTarget())
+			err := adapter.EnsureContainerTarget(context.Background(), streamTarget())
 
 			if !tt.wantErr {
 				require.NoError(t, err)
@@ -97,9 +98,9 @@ func TestAdapterEnsureContainerTargetRejectsUnknownContainers(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dockertest.Serve(t, map[string]dockertest.Response{"/containers/docker-id/json": tt.response})
-			adapter := newAdapter(t)
+			adapter := newStreamAdapter(t)
 
-			require.ErrorIs(t, adapter.EnsureContainerTarget(context.Background(), testTarget()), apperrors.ErrNotFound)
+			require.ErrorIs(t, adapter.EnsureContainerTarget(context.Background(), streamTarget()), apperrors.ErrNotFound)
 		})
 	}
 }
@@ -112,9 +113,9 @@ func TestAdapterOpenTerminalRequestsUnprivilegedTTYExec(t *testing.T) {
 		// Failing here ends the open once the exec request is recorded.
 		"/exec/exec-id/start": dockertest.Error(http.StatusInternalServerError, "stop after exec create"),
 	})
-	adapter := newAdapter(t)
+	adapter := newStreamAdapter(t)
 
-	_, err := adapter.OpenTerminal(context.Background(), testTarget(), model.TerminalOptions{
+	_, err := adapter.OpenTerminal(context.Background(), streamTarget().DockerID, model.TerminalOptions{
 		Command: []string{"/bin/sh"},
 		Rows:    24,
 		Cols:    80,
@@ -135,7 +136,7 @@ func TestAdapterOpenTerminalRequestsUnprivilegedTTYExec(t *testing.T) {
 	require.Empty(t, exec["WorkingDir"])
 }
 
-func newAdapter(t *testing.T) *docker.Adapter {
+func newStreamAdapter(t *testing.T) *docker.Adapter {
 	t.Helper()
 	adapter, err := docker.NewAdapter()
 	require.NoError(t, err)

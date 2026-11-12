@@ -5,7 +5,7 @@
 ```bash
 docker compose --env-file backend/.env config --quiet
 docker compose --env-file backend/.env ps
-docker compose --env-file backend/.env logs --tail=200 gateway core sso builder telemetry
+docker compose --env-file backend/.env logs --tail=200 gateway core sso builder
 df -h
 docker system df
 ```
@@ -17,7 +17,7 @@ docker system df
 | `port 80 is already allocated` | `sudo ss -ltnp '( sport = :80 )'` | Остановить службу, занимающую порт, или изменить схему входящего прокси-сервера |
 | `non-overlapping IPv4 address pool` | `/etc/docker/daemon.json`, `docker network ls` | Настроить непересекающийся `default-address-pools` и перезапустить Docker |
 | Интерфейс доступен, поддомен приложения — нет | DNS с подстановочным знаком, префикс, внутренний порт | Исправить `*.BASE_DOMAIN`, дождаться завершения публикации, проверить порт приложения |
-| Проверка готовности возвращает `503` | Ответ `checks` и журналы зависимых служб | Восстановить недоступную зависимость Core, SSO или Telemetry |
+| Проверка готовности возвращает `503` | Ответ `checks` и журналы зависимых служб | Восстановить недоступную зависимость Core или SSO |
 | Сборка долго остаётся в `pending` | RabbitMQ, Builder, MinIO и журналы Core | Восстановить зависимую службу; не отправлять повторные сборки до проверки очереди |
 | Compose долго выполняется | Состояние проекта и сборок, журналы Core и Builder | Исправить сборку, зависимость или проверку работоспособности либо отменить активное развёртывание |
 | Операция отклонена из-за квоты | Квота пользователя и зарезервированные ресурсы | Освободить ресурсы или изменить квоту |
@@ -32,7 +32,7 @@ docker system df
 ```bash
 curl -sS -H 'Host: dcm.example.com' http://127.0.0.1/health/ready
 docker compose --env-file backend/.env ps
-docker compose --env-file backend/.env logs --tail=200 gateway core sso telemetry
+docker compose --env-file backend/.env logs --tail=200 gateway core sso
 ```
 
 Проверьте одноразовые задания миграций. При ненулевом коде завершения исправьте строку подключения, учётные данные или ошибку схемы до перезапуска зависимых служб.

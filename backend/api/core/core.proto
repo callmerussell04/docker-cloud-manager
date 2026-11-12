@@ -12,7 +12,8 @@ service ContainerAPI {
   rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
-  rpc GetContainerRuntimeTarget (ContainerRuntimeTargetRequest) returns (ContainerRuntimeTarget);
+  // Removed with the Telemetry service; do not reuse: GetContainerRuntimeTarget
+  // (messages ContainerRuntimeTargetRequest, ContainerRuntimeTarget).
 }
 
 service ImageAPI {
@@ -45,7 +46,8 @@ service SystemAPI {
   rpc GetConfig (Empty) returns (SystemConfigData);
   rpc UpdateConfig (SystemConfigData) returns (Empty);
   rpc GetBuilderRuntimeConfig (Empty) returns (BuilderRuntimeConfigData);
-  rpc GetTelemetryRuntimeConfig (Empty) returns (TelemetryRuntimeConfigData);
+  // Removed with the Telemetry service; do not reuse: GetTelemetryRuntimeConfig
+  // (message TelemetryRuntimeConfigData).
 }
 
 service StatsAPI {
@@ -300,18 +302,6 @@ message ContainerData {
   optional int32 last_exit_code = 13;
   int64 ttl_deadline = 14;
   string project_id = 15;
-}
-
-message ContainerRuntimeTargetRequest {
-  string container_id = 1;
-}
-
-message ContainerRuntimeTarget {
-  string container_id = 1;
-  string docker_id = 2;
-  string status = 3;
-  string owner_id = 4;
-  int32 docker_generation = 5;
 }
 
 message ContainerListResponse {
@@ -587,18 +577,6 @@ message BuilderRuntimeConfigData {
   int64 max_unpacked_size_bytes = 10;
   int64 max_build_log_size_bytes = 11;
   int64 build_cancel_poll_interval_seconds = 12;
-}
-
-message TelemetryRuntimeConfigData {
-  int32 telemetry_max_log_tail_lines = 1;
-  int32 telemetry_max_log_streams_per_user = 2;
-  int32 telemetry_max_terminal_sessions_per_user = 3;
-  int64 telemetry_terminal_idle_timeout_seconds = 4;
-  int64 telemetry_terminal_max_duration_seconds = 5;
-  repeated string telemetry_allowed_exec_commands = 6;
-  int32 telemetry_max_command_args = 7;
-  int32 telemetry_max_command_arg_bytes = 8;
-  int64 telemetry_ws_read_limit_bytes = 9;
 }
 
 message ContainerStatsResponse {

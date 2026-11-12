@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
@@ -58,6 +59,13 @@ func TestLoadBootstrapDefaults(t *testing.T) {
 			SigningKeyFile:         "/signing-key",
 			Issuer:                 "dcm",
 		},
+		HTTP: config.HTTPServer{
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       120 * time.Second,
+			ShutdownTimeout:   15 * time.Second,
+			MaxHeaderBytes:    1 << 20,
+		},
+		Streams: config.StreamLimits{MaxLogStreams: 100, MaxTerminalSessions: 50},
 	}, settings.Bootstrap)
 }
 
@@ -90,12 +98,18 @@ func TestLoadOverrides(t *testing.T) {
 	values["CLICKHOUSE_DB"] = ""
 	values["TENANT_CGROUP_PARENT"] = "dcm-tenants.slice"
 	values["VOLUME_SIZE_ENFORCEMENT"] = "true"
+	values["TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS"] = "7"
+	values["TELEMETRY_MAX_GLOBAL_LOG_STREAMS"] = "12"
+	values["TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS"] = "not-a-number"
 
 	settings, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 6000, settings.Bootstrap.Port)
 	assert.Equal(t, "dcm-tenants.slice", settings.Bootstrap.TenantCgroupParent)
+	assert.Equal(t, 7*time.Second, settings.Bootstrap.HTTP.ShutdownTimeout)
+	assert.Equal(t, 12, settings.Bootstrap.Streams.MaxLogStreams)
+	assert.Equal(t, 50, settings.Bootstrap.Streams.MaxTerminalSessions, "an invalid optional value keeps its default")
 	assert.True(t, settings.Bootstrap.ObjectStorage.UseSSL)
 	assert.Equal(t, "", settings.Bootstrap.ClickHouse.Database, "a value set to empty replaces the default")
 	assert.Equal(t, 10, settings.Runtime.MaxContainersPerUser, "an invalid optional value keeps its default")

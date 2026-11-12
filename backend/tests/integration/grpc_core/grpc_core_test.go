@@ -10,6 +10,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/grpc"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
@@ -108,15 +109,15 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), listResp.TotalCount)
 
-	targetResp, err := client.GetContainerRuntimeTarget(userCtx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: runtimeID.String()})
+	// Container streams resolve their target in-process, under the same owner access.
+	target, err := containers.GetRuntimeTarget(accessscope.WithUserScope(context.Background(), ownerID, "alice", "user"), runtimeID)
 	require.NoError(t, err)
-	require.Equal(t, "docker-runtime", targetResp.DockerId)
-	require.Equal(t, int32(3), targetResp.DockerGeneration)
-	require.Equal(t, ownerID.String(), targetResp.OwnerId)
+	require.Equal(t, "docker-runtime", target.DockerID)
+	require.Equal(t, 3, target.DockerGeneration)
+	require.Equal(t, ownerID, target.OwnerID)
 
-	otherCtx := coretest.InternalGRPCContext(context.Background(), "core-token", accessscope.Scope{Kind: accessscope.KindUser, UserID: otherOwnerID, Username: "bob", Role: "user"})
-	_, err = client.GetContainerRuntimeTarget(otherCtx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: runtimeID.String()})
-	require.Equal(t, codes.NotFound, status.Code(err))
+	_, err = containers.GetRuntimeTarget(accessscope.WithUserScope(context.Background(), otherOwnerID, "bob", "user"), runtimeID)
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
 
 	_, err = client.StartContainer(userCtx, &coreapi.ContainerActionRequest{ContainerId: runtimeID.String()})
 	require.NoError(t, err)

@@ -2,6 +2,7 @@ package http_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -11,14 +12,15 @@ import (
 	"testing"
 	"time"
 
+	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
-	telemetryhttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
-	telemetryhttpmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/telemetry/http"
-	telemetrymodelmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/telemetry/model"
+	corehttpmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/http"
+	coremodelmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/model"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -26,15 +28,17 @@ import (
 )
 
 const (
-	internalToken = "internal-token"
-	containerID   = "00000000-0000-0000-0000-000000000001"
-	userID        = "11111111-1111-1111-1111-111111111111"
+	streamInternalToken = "internal-token"
+	streamContainerPath = "00000000-0000-0000-0000-000000000001"
+	streamUserID        = "11111111-1111-1111-1111-111111111111"
 )
+
+var streamContainerID = uuid.MustParse(streamContainerPath)
 
 func TestRouterRequiresInternalTokenAndRegistersRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := telemetryhttpmocks.NewTelemetryService(t)
-	router := newRouter(service)
+	service := corehttpmocks.NewMockStreamUseCases(t)
+	router := newStreamRouter(service)
 
 	routes := map[string]struct{}{}
 	for _, route := range router.Routes() {
@@ -45,7 +49,7 @@ func TestRouterRequiresInternalTokenAndRegistersRoutes(t *testing.T) {
 	require.Contains(t, routes, "GET /api/v1/admin/containers/:id/logs/stream")
 	require.Contains(t, routes, "GET /api/v1/admin/containers/:id/terminal")
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/"+containerID+"/logs/stream", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/logs/stream", nil)
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
@@ -60,10 +64,10 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 	}{
 		{
 			name: "user scope",
-			path: "/api/v1/containers/" + containerID + "/logs/stream",
+			path: "/api/v1/containers/" + streamContainerPath + "/logs/stream",
 			headers: map[string]string{
 				internalauth.HeaderScope:    string(accessscope.KindUser),
-				internalauth.HeaderUserID:   userID,
+				internalauth.HeaderUserID:   streamUserID,
 				internalauth.HeaderUsername: "alice",
 				internalauth.HeaderRole:     "user",
 			},
@@ -71,10 +75,10 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 		},
 		{
 			name: "admin scope",
-			path: "/api/v1/admin/containers/" + containerID + "/logs/stream",
+			path: "/api/v1/admin/containers/" + streamContainerPath + "/logs/stream",
 			headers: map[string]string{
 				internalauth.HeaderScope:    string(accessscope.KindAdmin),
-				internalauth.HeaderUserID:   userID,
+				internalauth.HeaderUserID:   streamUserID,
 				internalauth.HeaderUsername: "admin",
 				internalauth.HeaderRole:     "admin",
 			},
@@ -82,7 +86,7 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 		},
 		{
 			name:    "system default",
-			path:    "/api/v1/containers/" + containerID + "/logs/stream",
+			path:    "/api/v1/containers/" + streamContainerPath + "/logs/stream",
 			headers: map[string]string{},
 			want:    accessscope.KindSystem,
 		},
@@ -90,11 +94,11 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			service := telemetryhttpmocks.NewTelemetryService(t)
-			router := newRouter(service)
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			router := newStreamRouter(service)
 			service.EXPECT().
-				StreamLogs(mock.Anything, containerID, mock.Anything).
-				Run(func(ctx context.Context, _ string, _ model.LogOptions) {
+				StreamLogs(mock.Anything, streamContainerID, mock.Anything).
+				Run(func(ctx context.Context, _ uuid.UUID, _ model.LogOptions) {
 					scope, ok := accessscope.FromContext(ctx)
 					require.True(t, ok)
 					require.Equal(t, tt.want, scope.Kind)
@@ -102,7 +106,7 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 				Return(io.NopCloser(strings.NewReader("line\n")), nil).
 				Once()
 
-			resp := httpRequest(router, http.MethodGet, tt.path, tt.headers)
+			resp := streamRequest(router, http.MethodGet, tt.path, tt.headers)
 			require.Equal(t, http.StatusOK, resp.Code)
 		})
 	}
@@ -110,19 +114,19 @@ func TestRouterRestoresScopeFromInternalHeaders(t *testing.T) {
 
 func TestStreamLogsValidatesQueryAndWritesSSE(t *testing.T) {
 	t.Run("valid query writes SSE", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		router := newStreamRouter(service)
 		since := time.Date(2026, 5, 15, 12, 0, 0, 0, time.UTC)
 
 		service.EXPECT().
-			StreamLogs(mock.Anything, containerID, mock.MatchedBy(func(opts model.LogOptions) bool {
+			StreamLogs(mock.Anything, streamContainerID, mock.MatchedBy(func(opts model.LogOptions) bool {
 				return opts.Tail == 10 && !opts.Follow && !opts.Timestamps && opts.Since.Equal(since)
 			})).
 			Return(io.NopCloser(strings.NewReader("line one\nline two\n")), nil).
 			Once()
 
-		path := "/api/v1/containers/" + containerID + "/logs/stream?tail=10&follow=false&timestamps=false&since=" + since.Format(time.RFC3339)
-		resp := httpRequest(router, http.MethodGet, path, scopeHeaders())
+		path := "/api/v1/containers/" + streamContainerPath + "/logs/stream?tail=10&follow=false&timestamps=false&since=" + since.Format(time.RFC3339)
+		resp := streamRequest(router, http.MethodGet, path, streamScopeHeaders())
 		require.Equal(t, http.StatusOK, resp.Code)
 		require.Equal(t, "text/event-stream", resp.Header().Get("Content-Type"))
 		require.Contains(t, resp.Body.String(), "event: log\n")
@@ -132,42 +136,42 @@ func TestStreamLogsValidatesQueryAndWritesSSE(t *testing.T) {
 	})
 
 	t.Run("unix since is accepted", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		router := newStreamRouter(service)
 		service.EXPECT().
-			StreamLogs(mock.Anything, containerID, mock.MatchedBy(func(opts model.LogOptions) bool {
+			StreamLogs(mock.Anything, streamContainerID, mock.MatchedBy(func(opts model.LogOptions) bool {
 				return opts.Since.Equal(time.Unix(42, 0))
 			})).
 			Return(io.NopCloser(strings.NewReader("")), nil).
 			Once()
 
-		resp := httpRequest(router, http.MethodGet, "/api/v1/containers/"+containerID+"/logs/stream?since=42", scopeHeaders())
+		resp := streamRequest(router, http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/logs/stream?since=42", streamScopeHeaders())
 		require.Equal(t, http.StatusOK, resp.Code)
 	})
 
 	t.Run("service error maps to safe JSON", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		router := newRouter(service)
-		service.EXPECT().StreamLogs(mock.Anything, containerID, mock.Anything).Return(nil, apperrors.ErrUnavailable).Once()
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		router := newStreamRouter(service)
+		service.EXPECT().StreamLogs(mock.Anything, streamContainerID, mock.Anything).Return(nil, apperrors.ErrUnavailable).Once()
 
-		resp := httpRequest(router, http.MethodGet, "/api/v1/containers/"+containerID+"/logs/stream", scopeHeaders())
+		resp := streamRequest(router, http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/logs/stream", streamScopeHeaders())
 		require.Equal(t, http.StatusServiceUnavailable, resp.Code)
 		require.Contains(t, resp.Body.String(), `"error_code":"unavailable"`)
 	})
 
 	invalid := []string{
 		"/api/v1/containers/not-a-uuid/logs/stream",
-		"/api/v1/containers/" + containerID + "/logs/stream?tail=0",
-		"/api/v1/containers/" + containerID + "/logs/stream?tail=bad",
-		"/api/v1/containers/" + containerID + "/logs/stream?follow=bad",
-		"/api/v1/containers/" + containerID + "/logs/stream?timestamps=bad",
-		"/api/v1/containers/" + containerID + "/logs/stream?since=not-time",
+		"/api/v1/containers/" + streamContainerPath + "/logs/stream?tail=0",
+		"/api/v1/containers/" + streamContainerPath + "/logs/stream?tail=bad",
+		"/api/v1/containers/" + streamContainerPath + "/logs/stream?follow=bad",
+		"/api/v1/containers/" + streamContainerPath + "/logs/stream?timestamps=bad",
+		"/api/v1/containers/" + streamContainerPath + "/logs/stream?since=not-time",
 	}
 	for _, path := range invalid {
 		t.Run(path, func(t *testing.T) {
-			service := telemetryhttpmocks.NewTelemetryService(t)
-			router := newRouter(service)
-			resp := httpRequest(router, http.MethodGet, path, scopeHeaders())
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			router := newStreamRouter(service)
+			resp := streamRequest(router, http.MethodGet, path, streamScopeHeaders())
 			require.Equal(t, http.StatusBadRequest, resp.Code)
 		})
 	}
@@ -175,38 +179,38 @@ func TestStreamLogsValidatesQueryAndWritesSSE(t *testing.T) {
 
 func TestOpenTerminalValidatesBoundaryAndWritesServiceError(t *testing.T) {
 	t.Run("requires websocket upgrade", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		router := newRouter(service)
-		resp := httpRequest(router, http.MethodGet, "/api/v1/containers/"+containerID+"/terminal", scopeHeaders())
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		router := newStreamRouter(service)
+		resp := streamRequest(router, http.MethodGet, "/api/v1/containers/"+streamContainerPath+"/terminal", streamScopeHeaders())
 		require.Equal(t, http.StatusBadRequest, resp.Code)
 	})
 
 	invalid := []string{
 		"/api/v1/containers/not-a-uuid/terminal",
-		"/api/v1/containers/" + containerID + "/terminal?arg=-i",
-		"/api/v1/containers/" + containerID + "/terminal?rows=bad",
-		"/api/v1/containers/" + containerID + "/terminal?cols=bad",
+		"/api/v1/containers/" + streamContainerPath + "/terminal?arg=-i",
+		"/api/v1/containers/" + streamContainerPath + "/terminal?rows=bad",
+		"/api/v1/containers/" + streamContainerPath + "/terminal?cols=bad",
 	}
 	for _, path := range invalid {
 		t.Run(path, func(t *testing.T) {
-			service := telemetryhttpmocks.NewTelemetryService(t)
-			router := newRouter(service)
-			resp := httpRequest(router, http.MethodGet, path, scopeHeaders())
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			router := newStreamRouter(service)
+			resp := streamRequest(router, http.MethodGet, path, streamScopeHeaders())
 			require.Equal(t, http.StatusBadRequest, resp.Code)
 		})
 	}
 
 	t.Run("service error is written to websocket", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		router := newStreamRouter(service)
 		server := newMemoryServer(t, router)
 
 		service.EXPECT().
-			OpenTerminal(mock.Anything, containerID, model.TerminalOptions{Rows: 30, Cols: 100, Command: []string{"/bin/sh", "-i"}}).
-			Return(nil, model.RuntimeConfig{}, apperrors.ErrForbidden).
+			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 30, Cols: 100, Command: []string{"/bin/sh", "-i"}}).
+			Return(nil, model.StreamConfig{}, apperrors.ErrForbidden).
 			Once()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal?cmd=/bin/sh&arg=-i&rows=30&cols=100")
+		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal?cmd=/bin/sh&arg=-i&rows=30&cols=100")
 		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 
 		var event wsEvent
@@ -218,9 +222,9 @@ func TestOpenTerminalValidatesBoundaryAndWritesServiceError(t *testing.T) {
 
 func TestOpenTerminalWebSocketBridge(t *testing.T) {
 	t.Run("binary input resize and close control", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		session := telemetrymodelmocks.NewTerminalSession(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		session := coremodelmocks.NewMockTerminalSession(t)
+		router := newStreamRouter(service)
 		server := newMemoryServer(t, router)
 		releaseRead := make(chan struct{})
 		writeDone := make(chan struct{})
@@ -228,8 +232,8 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		closeWriteDone := make(chan struct{})
 
 		service.EXPECT().
-			OpenTerminal(mock.Anything, containerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.RuntimeConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second, WSReadLimitBytes: 64}, nil).
+			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second, WSReadLimitBytes: 64}, nil).
 			Once()
 		session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
 			<-releaseRead
@@ -244,7 +248,7 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		session.EXPECT().CloseWrite().Run(func() { close(closeWriteDone) }).Return(nil).Once()
 		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
+		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
 		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
@@ -257,20 +261,20 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 	})
 
 	t.Run("process exit sends exit event", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		session := telemetrymodelmocks.NewTerminalSession(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		session := coremodelmocks.NewMockTerminalSession(t)
+		router := newStreamRouter(service)
 		server := newMemoryServer(t, router)
 
 		service.EXPECT().
-			OpenTerminal(mock.Anything, containerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.RuntimeConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second}, nil).
+			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second}, nil).
 			Once()
 		session.EXPECT().Read(mock.Anything).Return(0, io.EOF).Once()
 		session.EXPECT().Inspect(mock.Anything).Return(model.ExecState{Running: false, ExitCode: 7}, nil).Once()
 		session.EXPECT().Close().Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
+		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
 		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
@@ -282,15 +286,15 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 	})
 
 	t.Run("timeout sends safe error", func(t *testing.T) {
-		service := telemetryhttpmocks.NewTelemetryService(t)
-		session := telemetrymodelmocks.NewTerminalSession(t)
-		router := newRouter(service)
+		service := corehttpmocks.NewMockStreamUseCases(t)
+		session := coremodelmocks.NewMockTerminalSession(t)
+		router := newStreamRouter(service)
 		server := newMemoryServer(t, router)
 		releaseRead := make(chan struct{})
 
 		service.EXPECT().
-			OpenTerminal(mock.Anything, containerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.RuntimeConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: 20 * time.Millisecond}, nil).
+			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: 20 * time.Millisecond}, nil).
 			Once()
 		session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
 			<-releaseRead
@@ -298,7 +302,7 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		}).Maybe()
 		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+containerID+"/terminal")
+		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
 		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
 		requireReady(t, conn)
 
@@ -309,14 +313,83 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 	})
 }
 
-func newRouter(service *telemetryhttpmocks.TelemetryService) *gin.Engine {
-	handler := telemetryhttp.NewHandler(service, discardLogger())
-	return telemetryhttp.NewRouter(handler, internalToken, discardLogger())
+// Core's HTTP server ends open streams and terminal sessions when it shuts
+// down instead of waiting for them, which it would otherwise do until its
+// shutdown budget runs out (log streams) or not at all (hijacked WebSockets).
+func TestShutdownEndsOpenLogStreamsAndTerminalSessions(t *testing.T) {
+	service := corehttpmocks.NewMockStreamUseCases(t)
+	session := coremodelmocks.NewMockTerminalSession(t)
+	handler := corehttp.NewStreamHandler(service, discardLogger())
+	server := newMemoryServer(t, newStreamRouterFor(handler))
+	server.server.RegisterOnShutdown(handler.Shutdown)
+
+	logs, logsWriter := io.Pipe()
+	t.Cleanup(func() { _ = logsWriter.Close() }) // test teardown
+	logsOpened := make(chan struct{})
+	service.EXPECT().
+		StreamLogs(mock.Anything, streamContainerID, mock.Anything).
+		Run(func(context.Context, uuid.UUID, model.LogOptions) { close(logsOpened) }).
+		Return(logs, nil).
+		Once()
+	releaseRead := make(chan struct{})
+	service.EXPECT().
+		OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+		Return(session, model.StreamConfig{TerminalIdleTimeout: time.Minute, TerminalMaxDuration: time.Hour}, nil).
+		Once()
+	session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
+		<-releaseRead
+		return 0, io.EOF
+	}).Maybe()
+	session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return server.listener.DialContext(ctx)
+		},
+	}}
+	req, err := http.NewRequest(http.MethodGet, "http://bufnet/api/v1/containers/"+streamContainerPath+"/logs/stream", nil)
+	require.NoError(t, err)
+	req.Header.Set(internalauth.HeaderName, streamInternalToken)
+	for key, value := range streamScopeHeaders() {
+		req.Header.Set(key, value)
+	}
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }() // test teardown
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	requireSignal(t, logsOpened)
+
+	conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
+	defer func() { _ = conn.Close() }() // test teardown
+	requireReady(t, conn)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.server.Shutdown(shutdownCtx), "shutdown must not wait for open streams")
+
+	_, err = io.ReadAll(resp.Body)
+	require.NoError(t, err, "the log stream ends cleanly")
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	for {
+		if _, _, err := conn.ReadMessage(); err != nil {
+			var netErr net.Error
+			require.False(t, errors.As(err, &netErr) && netErr.Timeout(), "the terminal session must end, not stay open")
+			break
+		}
+	}
 }
 
-func httpRequest(router http.Handler, method, path string, headers map[string]string) *httptest.ResponseRecorder {
+func newStreamRouter(service *corehttpmocks.MockStreamUseCases) *gin.Engine {
+	return newStreamRouterFor(corehttp.NewStreamHandler(service, discardLogger()))
+}
+
+func newStreamRouterFor(handler *corehttp.StreamHandler) *gin.Engine {
+	return corehttp.SetupRouter(nil, nil, handler, streamInternalToken, discardLogger())
+}
+
+func streamRequest(router http.Handler, method, path string, headers map[string]string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, nil)
-	req.Header.Set(internalauth.HeaderName, internalToken)
+	req.Header.Set(internalauth.HeaderName, streamInternalToken)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
@@ -325,10 +398,10 @@ func httpRequest(router http.Handler, method, path string, headers map[string]st
 	return rec
 }
 
-func scopeHeaders() map[string]string {
+func streamScopeHeaders() map[string]string {
 	return map[string]string{
 		internalauth.HeaderScope:    string(accessscope.KindUser),
-		internalauth.HeaderUserID:   userID,
+		internalauth.HeaderUserID:   streamUserID,
 		internalauth.HeaderUsername: "alice",
 		internalauth.HeaderRole:     "user",
 	}
@@ -357,8 +430,8 @@ func dialTerminal(t *testing.T, server *memoryServer, path string) *websocket.Co
 	t.Helper()
 	wsURL := "ws://bufnet" + path
 	header := http.Header{}
-	header.Set(internalauth.HeaderName, internalToken)
-	for key, value := range scopeHeaders() {
+	header.Set(internalauth.HeaderName, streamInternalToken)
+	for key, value := range streamScopeHeaders() {
 		header.Set(key, value)
 	}
 	dialer := websocket.Dialer{

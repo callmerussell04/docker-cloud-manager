@@ -137,7 +137,8 @@ func TestRouterAdminStreamRoutesRequireAnAdminTicket(t *testing.T) {
 			adminTicket := h.issueTicket(t, concretePath(row.ticketRoute, containerID), accessIdentity("admin", func(string) bool { return true }))
 			rec = h.serve(row.method, path+"?ticket="+adminTicket, nil)
 			requirePassedAuthorization(t, rec)
-			require.Len(t, h.upstream.requests(), 1, "admin ticket must reach Telemetry")
+			require.Len(t, h.upstream.requests(), 1, "admin ticket must reach Core")
+			require.Equal(t, "core.internal", h.upstream.requests()[0].URL.Host)
 		})
 	}
 }
@@ -220,7 +221,8 @@ func TestRouterProxiesNeverForwardSpoofedIdentityHeaders(t *testing.T) {
 				require.Equal(t, scope.user.Username, forwarded.Get(internalauth.HeaderUsername))
 				require.Equal(t, scope.user.Role, forwarded.Get(internalauth.HeaderRole))
 				require.Equal(t, securityInternalToken, forwarded.Get(internalauth.HeaderName))
-				require.Empty(t, upstream[0].URL.Query().Get("ticket"), "the stream ticket must not reach Telemetry")
+				require.Empty(t, upstream[0].URL.Query().Get("ticket"), "the stream ticket must not reach Core")
+				require.Equal(t, "core.internal", upstream[0].URL.Host, "every proxy forwards to Core")
 			})
 		}
 	}
@@ -305,13 +307,11 @@ func newSecurityHarness(t *testing.T, logger *slog.Logger) *securityHarness {
 	proxyOpts := handler.ProxyOptions{InternalToken: securityInternalToken, Transport: h.upstream, AllowedOrigins: []string{securityOrigin}}
 	coreOpts := proxyOpts
 	coreOpts.TargetURL = "http://core.internal"
-	telemetryOpts := proxyOpts
-	telemetryOpts.TargetURL = "http://telemetry.internal"
 
 	coreProxy, err := handler.NewCoreProxyHandler(coreOpts)
 	require.NoError(t, err)
 	streamProxy := func(newProxy func(handler.ProxyOptions, handler.TelemetryProxyAuthOptions) (gin.HandlerFunc, error), streamType string, adminRoute bool) gin.HandlerFunc {
-		proxy, err := newProxy(telemetryOpts, handler.TelemetryProxyAuthOptions{Tickets: tickets, StreamType: streamType, AdminRoute: adminRoute})
+		proxy, err := newProxy(coreOpts, handler.TelemetryProxyAuthOptions{Tickets: tickets, StreamType: streamType, AdminRoute: adminRoute})
 		require.NoError(t, err)
 		return proxy
 	}
@@ -450,7 +450,7 @@ func (v *fakeTokenVerifier) CheckPermission(_ context.Context, authHeader, permi
 	return identity.user, nil
 }
 
-// recordingUpstream stands in for Core and Telemetry and keeps every request
+// recordingUpstream stands in for Core and keeps every request
 // the Gateway proxies forward.
 type recordingUpstream struct {
 	mu       sync.Mutex

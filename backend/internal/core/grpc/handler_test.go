@@ -49,13 +49,6 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 		CreatedAt:    time.Unix(123, 0),
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
-	logic.EXPECT().GetRuntimeTarget(mock.Anything, containerID).Return(model.ContainerRuntimeTarget{
-		ContainerID:      containerID,
-		DockerID:         "docker-id",
-		Status:           model.ContainerStatusRunning,
-		OwnerID:          ownerID,
-		DockerGeneration: 2,
-	}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterContainerAPI(s, logic, users)
 	})
@@ -78,11 +71,6 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
 	require.Equal(t, projectID.String(), listResp.Containers[0].ProjectId)
 	require.Equal(t, int32(1), listResp.TotalCount)
-
-	targetResp, err := client.GetContainerRuntimeTarget(ctx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
-	require.NoError(t, err)
-	require.Equal(t, "docker-id", targetResp.DockerId)
-	require.Equal(t, int32(2), targetResp.DockerGeneration)
 }
 
 func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {

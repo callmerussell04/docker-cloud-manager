@@ -15,6 +15,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
@@ -36,6 +37,7 @@ import (
 type App struct {
 	gRPCServer        *grpc.Server
 	httpServer        *http.Server
+	httpShutdown      time.Duration
 	registryServer    *http.Server
 	db                *pgxpool.Pool
 	lockDB            *pgxpool.Pool
@@ -240,12 +242,31 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	projService.SetDeploymentCanceler(orchestrator)
 	composeHandler := corehttp.NewComposeHandler(orchestrator, cfg.ConfigManager)
 	buildHandler := corehttp.NewBuildHandler(buildService, cfg.ConfigManager)
-	router := corehttp.SetupRouter(composeHandler, buildHandler, cfg.InternalToken, logger)
+	streamService, err := streams.NewService(streams.Deps{
+		Targets:             contService,
+		Docker:              dockerAdapter,
+		Config:              cfg.ConfigManager,
+		MaxLogStreams:       cfg.Streams.MaxLogStreams,
+		MaxTerminalSessions: cfg.Streams.MaxTerminalSessions,
+		Logger:              logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	streamHandler := corehttp.NewStreamHandler(streamService, logger)
+	router := corehttp.SetupRouter(composeHandler, buildHandler, streamHandler, cfg.InternalToken, logger)
 
 	httpServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: router,
+		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler:           router,
+		ReadHeaderTimeout: cfg.HTTP.ReadHeaderTimeout,
+		IdleTimeout:       cfg.HTTP.IdleTimeout,
+		MaxHeaderBytes:    cfg.HTTP.MaxHeaderBytes,
 	}
+	// Shutdown neither cancels open log streams nor sees hijacked terminal
+	// connections; the stream handler ends both when shutdown begins.
+	httpServer.RegisterOnShutdown(streamHandler.Shutdown)
 
 	coregrpc.RegisterContainerAPI(gRPCServer, contService, ssoClient)
 	coregrpc.RegisterVolumeAPI(gRPCServer, volService, ssoClient)
@@ -328,6 +349,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	return &App{
 		gRPCServer:        gRPCServer,
 		httpServer:        httpServer,
+		httpShutdown:      cfg.HTTP.ShutdownTimeout,
 		registryServer:    registry.edge,
 		db:                db,
 		lockDB:            lockDB,
@@ -397,7 +419,11 @@ func (a *App) Stop() {
 		cancel()
 	}
 	if a.httpServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		timeout := a.httpShutdown
+		if timeout <= 0 {
+			timeout = 15 * time.Second
+		}
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 		if err := a.httpServer.Shutdown(shutdownCtx); err != nil {
 			a.logger.Warn("core http server shutdown failed", "error", err)
 		}

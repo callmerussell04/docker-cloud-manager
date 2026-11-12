@@ -109,6 +109,21 @@ packages:
       Repository: {}
       ReservedDiskReader: {}
       UserInfoProvider: {}
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams:
+    config:
+      dir: internal/testutil/mocks/core/service/streams
+      outpkg: streamsmocks
+      mockname: "{{.InterfaceName | camelcase}}"
+      filename: "{{.InterfaceName | snakecase}}.go"
+    interfaces:
+      ContainerTargets: {}
+      Docker: {}
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model:
+    config:
+      dir: internal/testutil/mocks/core/model
+      outpkg: coremodelmocks
+    interfaces:
+      TerminalSession: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http:
     config:
       dir: internal/testutil/mocks/core/http
@@ -117,6 +132,7 @@ packages:
       BuildUseCases: {}
       ComposeUseCases: {}
       RegistryTokenLogic: {}
+      StreamUseCases: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc:
     config:
       dir: internal/testutil/mocks/core/grpc
@@ -189,28 +205,3 @@ packages:
       filename: "{{.InterfaceName | snakecase}}.go"
     interfaces:
       RuntimeSource: {}
-  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service:
-    config:
-      dir: internal/testutil/mocks/telemetry/service
-      outpkg: telemetryservicemocks
-      mockname: "{{.InterfaceName}}"
-      filename: "{{.InterfaceName | snakecase}}.go"
-    interfaces:
-      CoreClient: {}
-      DockerClient: {}
-  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/http:
-    config:
-      dir: internal/testutil/mocks/telemetry/http
-      outpkg: telemetryhttpmocks
-      mockname: "{{.InterfaceName}}"
-      filename: "{{.InterfaceName | snakecase}}.go"
-    interfaces:
-      TelemetryService: {}
-  github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model:
-    config:
-      dir: internal/testutil/mocks/telemetry/model
-      outpkg: telemetrymodelmocks
-      mockname: "{{.InterfaceName}}"
-      filename: "{{.InterfaceName | snakecase}}.go"
-    interfaces:
-      TerminalSession: {}

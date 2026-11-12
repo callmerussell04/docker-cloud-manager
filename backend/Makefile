@@ -111,7 +111,6 @@ test-fast: check-generated
 		-u DCM_CLICKHOUSE_TEST_PASSWORD \
 		-u CORE_TEST_DOCKER \
 		-u BUILDER_TEST_DOCKER \
-		-u TELEMETRY_TEST_DOCKER \
 		-u CORE_TEST_REGISTRY_ISOLATION \
 		-u CORE_TEST_NETWORK_POLICY \
 		GOCACHE=$(GOCACHE) $(GOTESTSUM) --format pkgname -- $(TEST_ARGS) $(TEST_PKGS)
@@ -154,7 +153,6 @@ test test-all: check-generated
 	DCM_CLICKHOUSE_TEST_PASSWORD='$(DCM_CLICKHOUSE_TEST_PASSWORD)' \
 	CORE_TEST_DOCKER=1 \
 	BUILDER_TEST_DOCKER=1 \
-	TELEMETRY_TEST_DOCKER=1 \
 	CORE_TEST_REGISTRY_ISOLATION=1 \
 	GOCACHE=$(GOCACHE) $(GOTESTSUM) --format pkgname -- $(TEST_ALL_ARGS) $(TEST_PKGS)
 
@@ -202,7 +200,7 @@ $(GOVULNCHECK):
 	GOBIN=$(dir $(GOVULNCHECK)) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 vulncheck: build $(GOVULNCHECK)
-	./vulncheck/check.sh $(GOVULNCHECK) $(BUILD_DIR) builder core gateway sso telemetry
+	./vulncheck/check.sh $(GOVULNCHECK) $(BUILD_DIR) builder core gateway sso
 
 # Integration-free gates in failure-cost order; make test and make vulncheck run separately.
 verify: check-format check-generated check-tidy build vet lint test-race

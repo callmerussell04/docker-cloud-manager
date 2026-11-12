@@ -158,25 +158,26 @@ func newProxyHandlers(cfg config.Bootstrap, tickets *service.TelemetryTicketStor
 		return proxyHandlers{}, fmt.Errorf("core proxy setup fail: %w", err)
 	}
 
-	telemetryProxyOpts := handler.ProxyOptions{
-		TargetURL:      cfg.TelemetryHTTPTarget,
+	// Core serves the log and terminal streams on the same internal listener.
+	streamProxyOpts := handler.ProxyOptions{
+		TargetURL:      cfg.CoreHTTPTarget,
 		InternalToken:  cfg.InternalToken,
 		Transport:      proxyTransport,
 		AllowedOrigins: cfg.Router.CORSAllowedOrigins,
 	}
-	telemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, tickets, false)
+	telemetryLogsProxy, err := newTelemetryLogsProxy(streamProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry logs proxy setup fail: %w", err)
 	}
-	telemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, tickets, false)
+	telemetryTerminalProxy, err := newTelemetryTerminalProxy(streamProxyOpts, tickets, false)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("telemetry terminal proxy setup fail: %w", err)
 	}
-	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(telemetryProxyOpts, tickets, true)
+	adminTelemetryLogsProxy, err := newTelemetryLogsProxy(streamProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry logs proxy setup fail: %w", err)
 	}
-	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(telemetryProxyOpts, tickets, true)
+	adminTelemetryTerminalProxy, err := newTelemetryTerminalProxy(streamProxyOpts, tickets, true)
 	if err != nil {
 		return proxyHandlers{}, fmt.Errorf("admin telemetry terminal proxy setup fail: %w", err)
 	}
@@ -217,8 +218,7 @@ func newReadiness(cfg config.Bootstrap, clients gatewayClients) *readinessChecke
 			Transport: newProxyTransport(cfg.Proxy),
 		},
 		httpTargets: map[string]string{
-			"core_http":      cfg.CoreHTTPTarget,
-			"telemetry_http": cfg.TelemetryHTTPTarget,
+			"core_http": cfg.CoreHTTPTarget,
 		},
 	}
 }

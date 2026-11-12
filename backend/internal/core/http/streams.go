@@ -14,38 +14,66 @@ import (
 	"sync"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-type TelemetryService interface {
-	StreamLogs(ctx context.Context, containerID string, opts model.LogOptions) (io.ReadCloser, error)
-	OpenTerminal(ctx context.Context, containerID string, opts model.TerminalOptions) (model.TerminalSession, model.RuntimeConfig, error)
+// StreamUseCases opens container log streams and terminal sessions.
+type StreamUseCases interface {
+	StreamLogs(ctx context.Context, containerID uuid.UUID, opts model.LogOptions) (io.ReadCloser, error)
+	OpenTerminal(ctx context.Context, containerID uuid.UUID, opts model.TerminalOptions) (model.TerminalSession, model.StreamConfig, error)
 }
 
-type Handler struct {
-	service  TelemetryService
+// StreamHandler serves container log streams (SSE) and terminal sessions
+// (WebSocket). Shutdown ends every open stream and session.
+type StreamHandler struct {
+	service  StreamUseCases
 	upgrader websocket.Upgrader
 	logger   *slog.Logger
+	// stopped is cancelled by Shutdown; every stream's context derives from it.
+	stopped context.Context
+	stop    context.CancelFunc
 }
 
-func NewHandler(service TelemetryService, logger *slog.Logger) *Handler {
-	return &Handler{
+func NewStreamHandler(service StreamUseCases, logger *slog.Logger) *StreamHandler {
+	stopped, stop := context.WithCancel(context.Background())
+	return &StreamHandler{
 		service: service,
 		upgrader: websocket.Upgrader{
+			// Gateway checks the Origin before it proxies; Core is internal only.
 			CheckOrigin: func(_ *http.Request) bool { return true },
 		},
-		logger: logging.WithComponent(logger, "telemetry_http"),
+		logger:  logging.WithComponent(logger, "container_streams_http"),
+		stopped: stopped,
+		stop:    stop,
 	}
 }
 
-func (h *Handler) StreamLogs(c *gin.Context) {
+// Shutdown ends every open log stream and terminal session; one opened later
+// ends at once. http.Server.Shutdown neither
+// cancels an open request nor tracks a hijacked WebSocket connection, so the
+// server calls this through RegisterOnShutdown.
+func (h *StreamHandler) Shutdown() {
+	h.stop()
+}
+
+// streamContext is the request context, also cancelled by Shutdown.
+func (h *StreamHandler) streamContext(c *gin.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	stopAfter := context.AfterFunc(h.stopped, cancel)
+	return ctx, func() {
+		stopAfter()
+		cancel()
+	}
+}
+
+func (h *StreamHandler) StreamLogs(c *gin.Context) {
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -55,7 +83,9 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 		return
 	}
 
-	stream, err := h.service.StreamLogs(c.Request.Context(), containerID, opts)
+	ctx, cancel := h.streamContext(c)
+	defer cancel()
+	stream, err := h.service.StreamLogs(ctx, containerID, opts)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
@@ -75,10 +105,10 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	h.writeLogEvents(c.Request.Context(), w, flusher, stream)
+	h.writeLogEvents(ctx, w, flusher, stream)
 }
 
-func (h *Handler) OpenTerminal(c *gin.Context) {
+func (h *StreamHandler) OpenTerminal(c *gin.Context) {
 	containerID, ok := pathUUID(c, "id")
 	if !ok {
 		return
@@ -94,7 +124,9 @@ func (h *Handler) OpenTerminal(c *gin.Context) {
 	}
 	defer func() { _ = conn.Close() }() // WebSocket teardown; the peer may already have closed
 
-	session, cfg, err := h.service.OpenTerminal(c.Request.Context(), containerID, opts)
+	ctx, cancel := h.streamContext(c)
+	defer cancel()
+	session, cfg, err := h.service.OpenTerminal(ctx, containerID, opts)
 	if err != nil {
 		_ = conn.WriteJSON(wsEvent{Type: "error", Error: apperrors.SafeMessage(err)}) // best-effort error frame before closing; the peer may be gone
 		return
@@ -103,11 +135,11 @@ func (h *Handler) OpenTerminal(c *gin.Context) {
 
 	sessionID := uuid.NewString()
 	started := time.Now()
-	reason := h.bridgeTerminal(c.Request.Context(), conn, session, cfg)
-	h.logger.InfoContext(c.Request.Context(), "terminal session closed", service.AuditAttrs(c.Request.Context(), containerID, sessionID, started, reason)...)
+	reason := h.bridgeTerminal(ctx, conn, session, cfg)
+	h.logger.InfoContext(ctx, "terminal session closed", streams.SessionLogAttrs(ctx, containerID.String(), sessionID, started, reason)...)
 }
 
-func (h *Handler) writeLogEvents(ctx context.Context, w gin.ResponseWriter, flusher http.Flusher, stream io.Reader) {
+func (h *StreamHandler) writeLogEvents(ctx context.Context, w gin.ResponseWriter, flusher http.Flusher, stream io.Reader) {
 	lines := make(chan string)
 	errCh := make(chan error, 1)
 	go func() {
@@ -149,7 +181,7 @@ func (h *Handler) writeLogEvents(ctx context.Context, w gin.ResponseWriter, flus
 	}
 }
 
-func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.RuntimeConfig) string {
+func (h *StreamHandler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.StreamConfig) string {
 	if cfg.WSReadLimitBytes > 0 {
 		conn.SetReadLimit(cfg.WSReadLimitBytes)
 	}
@@ -212,7 +244,7 @@ func (h *Handler) bridgeTerminal(ctx context.Context, conn *websocket.Conn, sess
 	}
 }
 
-func (h *Handler) waitTerminalBridge(doneChans ...<-chan string) {
+func (h *StreamHandler) waitTerminalBridge(doneChans ...<-chan string) {
 	timer := time.NewTimer(time.Second)
 	defer timer.Stop()
 	for _, done := range doneChans {
@@ -224,7 +256,7 @@ func (h *Handler) waitTerminalBridge(doneChans ...<-chan string) {
 	}
 }
 
-func readTerminalInput(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.RuntimeConfig, writeJSON func(wsEvent)) string {
+func readTerminalInput(ctx context.Context, conn *websocket.Conn, session model.TerminalSession, cfg model.StreamConfig, writeJSON func(wsEvent)) string {
 	idle := cfg.TerminalIdleTimeout
 	if idle <= 0 {
 		idle = 5 * time.Minute
@@ -324,15 +356,6 @@ func writeSSE(w io.Writer, event, data string) {
 	_, _ = io.WriteString(w, "\n") // see writeSSE
 }
 
-func pathUUID(c *gin.Context, name string) (string, bool) {
-	value := c.Param(name)
-	if _, err := uuid.Parse(value); err != nil {
-		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
-		return "", false
-	}
-	return value, true
-}
-
 func logOptions(c *gin.Context) (model.LogOptions, bool) {
 	opts := model.LogOptions{
 		Tail:       200,
@@ -396,7 +419,7 @@ func terminalOptions(c *gin.Context) (model.TerminalOptions, bool) {
 		opts.Command = append([]string{cmd}, args...)
 	}
 	if raw := c.Query("rows"); raw != "" {
-		value, err := service.ParseSize(raw)
+		value, err := streams.ParseSize(raw)
 		if err != nil {
 			httpresponse.Respond(c, http.StatusBadRequest, err)
 			return model.TerminalOptions{}, false
@@ -404,7 +427,7 @@ func terminalOptions(c *gin.Context) (model.TerminalOptions, bool) {
 		opts.Rows = value
 	}
 	if raw := c.Query("cols"); raw != "" {
-		value, err := service.ParseSize(raw)
+		value, err := streams.ParseSize(raw)
 		if err != nil {
 			httpresponse.Respond(c, http.StatusBadRequest, err)
 			return model.TerminalOptions{}, false

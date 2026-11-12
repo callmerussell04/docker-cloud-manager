@@ -142,18 +142,18 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 
 Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Переменные с путями к файлам TLS используются только при `GATEWAY_GRPC_TLS_ENABLED=true`.
 
-### Начальные ограничения Telemetry
+### Потоки контейнеров в Core
+
+Core отдаёт журналы контейнеров (SSE) и терминал (WebSocket) на своём внутреннем HTTP-порту. Эти переменные — начальные настройки Core; имена сохранили префикс `TELEMETRY_`.
 
 | Переменная | Значение в шаблоне | Назначение |
 | --- | --- | --- |
 | `TELEMETRY_MAX_GLOBAL_LOG_STREAMS` | `100` | Глобальный предел SSE logs |
 | `TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS` | `50` | Глобальный предел terminal sessions |
-| `TELEMETRY_READ_HEADER_TIMEOUT_SECONDS` | `5` | HTTP header timeout |
-| `TELEMETRY_IDLE_TIMEOUT_SECONDS` | `120` | HTTP idle timeout |
-| `TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown timeout |
-| `TELEMETRY_MAX_HEADER_BYTES` | `1048576` | Header size limit |
-| `TELEMETRY_GRPC_REQUEST_TIMEOUT_SECONDS` | `10` | Core RPC timeout |
-| `TELEMETRY_GRPC_MIN_CONNECT_TIMEOUT_SECONDS` | `5` | gRPC connect timeout |
+| `TELEMETRY_READ_HEADER_TIMEOUT_SECONDS` | `5` | Header timeout внутреннего HTTP Core |
+| `TELEMETRY_IDLE_TIMEOUT_SECONDS` | `120` | Idle timeout внутреннего HTTP Core |
+| `TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS` | `15` | Graceful shutdown внутреннего HTTP Core; открытые потоки и сессии завершаются сразу |
+| `TELEMETRY_MAX_HEADER_BYTES` | `1048576` | Предел заголовков внутреннего HTTP Core |
 
 ### Начальные безопасные значения ресурсов из `.env.example`
 

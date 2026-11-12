@@ -19,14 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ContainerAPI_CreateContainer_FullMethodName           = "/core.ContainerAPI/CreateContainer"
-	ContainerAPI_StartContainer_FullMethodName            = "/core.ContainerAPI/StartContainer"
-	ContainerAPI_StopContainer_FullMethodName             = "/core.ContainerAPI/StopContainer"
-	ContainerAPI_DeleteContainer_FullMethodName           = "/core.ContainerAPI/DeleteContainer"
-	ContainerAPI_ListContainers_FullMethodName            = "/core.ContainerAPI/ListContainers"
-	ContainerAPI_ExposeContainer_FullMethodName           = "/core.ContainerAPI/ExposeContainer"
-	ContainerAPI_GetContainerStats_FullMethodName         = "/core.ContainerAPI/GetContainerStats"
-	ContainerAPI_GetContainerRuntimeTarget_FullMethodName = "/core.ContainerAPI/GetContainerRuntimeTarget"
+	ContainerAPI_CreateContainer_FullMethodName   = "/core.ContainerAPI/CreateContainer"
+	ContainerAPI_StartContainer_FullMethodName    = "/core.ContainerAPI/StartContainer"
+	ContainerAPI_StopContainer_FullMethodName     = "/core.ContainerAPI/StopContainer"
+	ContainerAPI_DeleteContainer_FullMethodName   = "/core.ContainerAPI/DeleteContainer"
+	ContainerAPI_ListContainers_FullMethodName    = "/core.ContainerAPI/ListContainers"
+	ContainerAPI_ExposeContainer_FullMethodName   = "/core.ContainerAPI/ExposeContainer"
+	ContainerAPI_GetContainerStats_FullMethodName = "/core.ContainerAPI/GetContainerStats"
 )
 
 // ContainerAPIClient is the client API for ContainerAPI service.
@@ -40,7 +39,6 @@ type ContainerAPIClient interface {
 	ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
-	GetContainerRuntimeTarget(ctx context.Context, in *ContainerRuntimeTargetRequest, opts ...grpc.CallOption) (*ContainerRuntimeTarget, error)
 }
 
 type containerAPIClient struct {
@@ -121,16 +119,6 @@ func (c *containerAPIClient) GetContainerStats(ctx context.Context, in *Containe
 	return out, nil
 }
 
-func (c *containerAPIClient) GetContainerRuntimeTarget(ctx context.Context, in *ContainerRuntimeTargetRequest, opts ...grpc.CallOption) (*ContainerRuntimeTarget, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ContainerRuntimeTarget)
-	err := c.cc.Invoke(ctx, ContainerAPI_GetContainerRuntimeTarget_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ContainerAPIServer is the server API for ContainerAPI service.
 // All implementations must embed UnimplementedContainerAPIServer
 // for forward compatibility.
@@ -142,7 +130,6 @@ type ContainerAPIServer interface {
 	ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
-	GetContainerRuntimeTarget(context.Context, *ContainerRuntimeTargetRequest) (*ContainerRuntimeTarget, error)
 	mustEmbedUnimplementedContainerAPIServer()
 }
 
@@ -173,9 +160,6 @@ func (UnimplementedContainerAPIServer) ExposeContainer(context.Context, *ExposeR
 }
 func (UnimplementedContainerAPIServer) GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetContainerStats not implemented")
-}
-func (UnimplementedContainerAPIServer) GetContainerRuntimeTarget(context.Context, *ContainerRuntimeTargetRequest) (*ContainerRuntimeTarget, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetContainerRuntimeTarget not implemented")
 }
 func (UnimplementedContainerAPIServer) mustEmbedUnimplementedContainerAPIServer() {}
 func (UnimplementedContainerAPIServer) testEmbeddedByValue()                      {}
@@ -324,24 +308,6 @@ func _ContainerAPI_GetContainerStats_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ContainerAPI_GetContainerRuntimeTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ContainerRuntimeTargetRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ContainerAPIServer).GetContainerRuntimeTarget(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ContainerAPI_GetContainerRuntimeTarget_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ContainerAPIServer).GetContainerRuntimeTarget(ctx, req.(*ContainerRuntimeTargetRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ContainerAPI_ServiceDesc is the grpc.ServiceDesc for ContainerAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -376,10 +342,6 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetContainerStats",
 			Handler:    _ContainerAPI_GetContainerStats_Handler,
-		},
-		{
-			MethodName: "GetContainerRuntimeTarget",
-			Handler:    _ContainerAPI_GetContainerRuntimeTarget_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1225,10 +1187,9 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	SystemAPI_GetConfig_FullMethodName                 = "/core.SystemAPI/GetConfig"
-	SystemAPI_UpdateConfig_FullMethodName              = "/core.SystemAPI/UpdateConfig"
-	SystemAPI_GetBuilderRuntimeConfig_FullMethodName   = "/core.SystemAPI/GetBuilderRuntimeConfig"
-	SystemAPI_GetTelemetryRuntimeConfig_FullMethodName = "/core.SystemAPI/GetTelemetryRuntimeConfig"
+	SystemAPI_GetConfig_FullMethodName               = "/core.SystemAPI/GetConfig"
+	SystemAPI_UpdateConfig_FullMethodName            = "/core.SystemAPI/UpdateConfig"
+	SystemAPI_GetBuilderRuntimeConfig_FullMethodName = "/core.SystemAPI/GetBuilderRuntimeConfig"
 )
 
 // SystemAPIClient is the client API for SystemAPI service.
@@ -1238,7 +1199,6 @@ type SystemAPIClient interface {
 	GetConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SystemConfigData, error)
 	UpdateConfig(ctx context.Context, in *SystemConfigData, opts ...grpc.CallOption) (*Empty, error)
 	GetBuilderRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*BuilderRuntimeConfigData, error)
-	GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error)
 }
 
 type systemAPIClient struct {
@@ -1279,16 +1239,6 @@ func (c *systemAPIClient) GetBuilderRuntimeConfig(ctx context.Context, in *Empty
 	return out, nil
 }
 
-func (c *systemAPIClient) GetTelemetryRuntimeConfig(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*TelemetryRuntimeConfigData, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(TelemetryRuntimeConfigData)
-	err := c.cc.Invoke(ctx, SystemAPI_GetTelemetryRuntimeConfig_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // SystemAPIServer is the server API for SystemAPI service.
 // All implementations must embed UnimplementedSystemAPIServer
 // for forward compatibility.
@@ -1296,7 +1246,6 @@ type SystemAPIServer interface {
 	GetConfig(context.Context, *Empty) (*SystemConfigData, error)
 	UpdateConfig(context.Context, *SystemConfigData) (*Empty, error)
 	GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error)
-	GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error)
 	mustEmbedUnimplementedSystemAPIServer()
 }
 
@@ -1315,9 +1264,6 @@ func (UnimplementedSystemAPIServer) UpdateConfig(context.Context, *SystemConfigD
 }
 func (UnimplementedSystemAPIServer) GetBuilderRuntimeConfig(context.Context, *Empty) (*BuilderRuntimeConfigData, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBuilderRuntimeConfig not implemented")
-}
-func (UnimplementedSystemAPIServer) GetTelemetryRuntimeConfig(context.Context, *Empty) (*TelemetryRuntimeConfigData, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetTelemetryRuntimeConfig not implemented")
 }
 func (UnimplementedSystemAPIServer) mustEmbedUnimplementedSystemAPIServer() {}
 func (UnimplementedSystemAPIServer) testEmbeddedByValue()                   {}
@@ -1394,24 +1340,6 @@ func _SystemAPI_GetBuilderRuntimeConfig_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SystemAPI_GetTelemetryRuntimeConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(Empty)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: SystemAPI_GetTelemetryRuntimeConfig_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SystemAPIServer).GetTelemetryRuntimeConfig(ctx, req.(*Empty))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // SystemAPI_ServiceDesc is the grpc.ServiceDesc for SystemAPI service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1430,10 +1358,6 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBuilderRuntimeConfig",
 			Handler:    _SystemAPI_GetBuilderRuntimeConfig_Handler,
-		},
-		{
-			MethodName: "GetTelemetryRuntimeConfig",
-			Handler:    _SystemAPI_GetTelemetryRuntimeConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

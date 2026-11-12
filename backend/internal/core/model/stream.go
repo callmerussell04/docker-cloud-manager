@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-type RuntimeConfig struct {
+// StreamConfig is the runtime configuration a container log stream or terminal
+// session starts with; an open session keeps it until it ends.
+type StreamConfig struct {
 	MaxLogTailLines            int
 	MaxLogStreamsPerUser       int
 	MaxTerminalSessionsPerUser int
@@ -18,14 +20,7 @@ type RuntimeConfig struct {
 	WSReadLimitBytes           int64
 }
 
-type ContainerTarget struct {
-	ContainerID      string
-	DockerID         string
-	Status           string
-	OwnerID          string
-	DockerGeneration int
-}
-
+// LogOptions selects the container log lines a stream returns.
 type LogOptions struct {
 	Tail       int
 	Since      time.Time
@@ -33,17 +28,20 @@ type LogOptions struct {
 	Follow     bool
 }
 
+// TerminalOptions is the command and terminal size of a terminal session.
 type TerminalOptions struct {
 	Command []string
 	Rows    uint
 	Cols    uint
 }
 
+// ExecState is the state of a terminal session's process.
 type ExecState struct {
 	Running  bool
 	ExitCode int
 }
 
+// TerminalSession is an attached Docker exec with a TTY.
 type TerminalSession interface {
 	io.ReadWriteCloser
 	CloseWrite() error

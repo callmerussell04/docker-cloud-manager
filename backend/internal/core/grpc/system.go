@@ -240,21 +240,3 @@ func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.
 		BuildCancelPollIntervalSeconds: cfg.BuildCancelPollIntervalSeconds,
 	}, nil
 }
-
-func (h *SystemHandler) GetTelemetryRuntimeConfig(ctx context.Context, _ *coreapi.Empty) (*coreapi.TelemetryRuntimeConfigData, error) {
-	if err := requireSystemScope(ctx); err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-	cfg := h.logic.GetConfig(ctx)
-	return &coreapi.TelemetryRuntimeConfigData{
-		TelemetryMaxLogTailLines:            int32(cfg.TelemetryMaxLogTailLines),
-		TelemetryMaxLogStreamsPerUser:       int32(cfg.TelemetryMaxLogStreamsPerUser),
-		TelemetryMaxTerminalSessionsPerUser: int32(cfg.TelemetryMaxTerminalSessionsPerUser),
-		TelemetryTerminalIdleTimeoutSeconds: cfg.TelemetryTerminalIdleTimeoutSeconds,
-		TelemetryTerminalMaxDurationSeconds: cfg.TelemetryTerminalMaxDurationSeconds,
-		TelemetryAllowedExecCommands:        cfg.TelemetryAllowedExecCommands,
-		TelemetryMaxCommandArgs:             int32(cfg.TelemetryMaxCommandArgs),
-		TelemetryMaxCommandArgBytes:         int32(cfg.TelemetryMaxCommandArgBytes),
-		TelemetryWsReadLimitBytes:           cfg.TelemetryWSReadLimitBytes,
-	}, nil
-}

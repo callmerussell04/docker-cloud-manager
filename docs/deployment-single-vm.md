@@ -179,7 +179,7 @@ docker compose --env-file backend/.env ps --all
 Ожидаемый результат:
 
 - `core_db`, `sso_db`, `clickhouse`, `rabbitmq`, `minio` и `frontend` имеют состояние `healthy`;
-- `gateway`, `sso`, `core`, `builder`, `telemetry`, `traefik` и `registry` находятся в состоянии `running`;
+- `gateway`, `sso`, `core`, `builder`, `traefik` и `registry` находятся в состоянии `running`;
 - `migrate_core`, `migrate_sso`, `migrate_reports` завершились с кодом `0`.
 
 При ошибке перейдите к разделу [«Службы не запускаются или проверка готовности возвращает 503»](troubleshooting.md#службы-не-запускаются-или-проверка-готовности-возвращает-503).
@@ -201,7 +201,7 @@ curl -fsS http://dcm.example.com/health/ready
 curl -I http://dcm.example.com/
 ```
 
-Проверка жизнеспособности должна вернуть `status: ok`. Проверка готовности возвращает HTTP `200`, только когда Gateway видит Core по gRPC и HTTP, SSO по gRPC и Telemetry по HTTP.
+Проверка жизнеспособности должна вернуть `status: ok`. Проверка готовности возвращает HTTP `200`, только когда Gateway видит Core по gRPC и HTTP и SSO по gRPC.
 
 ## 10. Выполните первый вход
 
@@ -396,11 +396,11 @@ rather than accepted.
 `backend/go.mod` sets the minimum to 1.26.10. Canonical Make targets export exactly
 `GOTOOLCHAIN=go1.26.10`; the `go` directive alone is a minimum and does not prevent a
 newer installed compiler from being selected. For direct commands, export
-`GOTOOLCHAIN=go1.26.10` explicitly. Keep the module version and all five Dockerfile
+`GOTOOLCHAIN=go1.26.10` explicitly. Keep the module version and all four Dockerfile
 builder pins synchronized when updating. Toolchain downloads use Go's checksum
 database; do not disable checksum verification.
 
-All five service Dockerfiles use these verified multi-platform image indexes:
+All four service Dockerfiles use these verified multi-platform image indexes:
 
 | Input | Pinned reference |
 | --- | --- |
@@ -460,7 +460,7 @@ make vulncheck
 
 `make vulncheck` installs **govulncheck v1.9.0** in a versioned ignored tools
 folder, scans `./cmd/...` (production roots, excluding test-only roots), and scans
-`bin/builder`, `bin/core`, `bin/gateway`, `bin/sso`, and `bin/telemetry` separately.
+`bin/builder`, `bin/core`, `bin/gateway`, and `bin/sso` separately.
 It runs all scans even if one reports findings, then applies the reviewed
 applicability policy in `backend/vulncheck/policy.json`. Each accepted advisory
 names the scans it covers, a review date, a rationale and evidence links. The
@@ -562,7 +562,7 @@ Review these upstream notes when updating:
 
 `make vulncheck` passes only because GO-2026-4883 and GO-2026-4887 are recorded as
 reviewed acceptances in `backend/vulncheck/policy.json`, scoped to the scans that
-report them: production roots and the Builder, Core and Telemetry binaries. Any
+report them: production roots and the Builder and Core binaries. Any
 other symbol-level finding fails it. Gateway and SSO have no symbol-level findings;
 their module-only reports still require applicability review.
 

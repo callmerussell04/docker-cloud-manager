@@ -11,12 +11,11 @@ import (
 
 // Bootstrap is Gateway's process-lifetime configuration.
 type Bootstrap struct {
-	Port                int
-	SSOTarget           string
-	CoreTarget          string
-	CoreHTTPTarget      string
-	TelemetryHTTPTarget string
-	InternalToken       string
+	Port           int
+	SSOTarget      string
+	CoreTarget     string
+	CoreHTTPTarget string
+	InternalToken  string
 	// AppEnv is the raw APP_ENV value; unlike the logging default it is empty when unset.
 	AppEnv string
 
@@ -92,7 +91,7 @@ type HTTPServer struct {
 	MaxHeaderBytes    int
 }
 
-// Proxy configures the transport for proxied Core and Telemetry requests.
+// Proxy configures the transport for requests proxied to Core.
 type Proxy struct {
 	DialTimeout           time.Duration
 	TLSHandshakeTimeout   time.Duration
@@ -128,13 +127,12 @@ type Readiness struct {
 func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 	required := envconfig.NewRequired(lookup)
 	cfg := Bootstrap{
-		Port:                envconfig.Int(lookup, "GATEWAY_PORT", 8081),
-		SSOTarget:           required.Get("SSO_GRPC_TARGET"),
-		CoreTarget:          required.Get("CORE_GRPC_TARGET"),
-		CoreHTTPTarget:      required.Get("CORE_HTTP_TARGET"),
-		TelemetryHTTPTarget: required.Get("TELEMETRY_HTTP_TARGET"),
-		InternalToken:       required.Get("INTERNAL_SERVICE_TOKEN"),
-		AppEnv:              envconfig.String(lookup, "APP_ENV", ""),
+		Port:           envconfig.Int(lookup, "GATEWAY_PORT", 8081),
+		SSOTarget:      required.Get("SSO_GRPC_TARGET"),
+		CoreTarget:     required.Get("CORE_GRPC_TARGET"),
+		CoreHTTPTarget: required.Get("CORE_HTTP_TARGET"),
+		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
+		AppEnv:         envconfig.String(lookup, "APP_ENV", ""),
 		HTTP: HTTPServer{
 			ReadHeaderTimeout: envconfig.DurationSeconds(lookup, "GATEWAY_READ_HEADER_TIMEOUT_SECONDS", 5*time.Second),
 			ReadTimeout:       envconfig.DurationSeconds(lookup, "GATEWAY_READ_TIMEOUT_SECONDS", 360*time.Second),

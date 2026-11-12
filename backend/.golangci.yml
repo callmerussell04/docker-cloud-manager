@@ -55,8 +55,6 @@ linters:
               desc: platform packages do not import bounded contexts
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
               desc: platform packages do not import bounded contexts
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry
-              desc: platform packages do not import bounded contexts
         builder-context:
           files:
             - "**/internal/builder/**"
@@ -67,8 +65,6 @@ linters:
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
               desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
-              desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry
               desc: contexts share code only through internal/platform and api
         core-context:
           files:
@@ -81,8 +77,6 @@ linters:
               desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
               desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry
-              desc: contexts share code only through internal/platform and api
         gateway-context:
           files:
             - "**/internal/gateway/**"
@@ -94,8 +88,6 @@ linters:
               desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
               desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry
-              desc: contexts share code only through internal/platform and api
         sso-context:
           files:
             - "**/internal/sso/**"
@@ -106,21 +98,6 @@ linters:
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
               desc: contexts share code only through internal/platform and api
             - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
-              desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry
-              desc: contexts share code only through internal/platform and api
-        telemetry-context:
-          files:
-            - "**/internal/telemetry/**"
-            - "**/cmd/telemetry/**"
-          deny:
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/builder
-              desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/core
-              desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway
-              desc: contexts share code only through internal/platform and api
-            - pkg: github.com/callmerussell04/docker-cloud-manager/backend/internal/sso
               desc: contexts share code only through internal/platform and api
     errcheck:
       # Non-actionable cleanup. ClickHouse keeps database/sql: Rows.Close after

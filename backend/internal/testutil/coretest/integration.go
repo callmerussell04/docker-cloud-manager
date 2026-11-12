@@ -186,8 +186,10 @@ func InternalGRPCContext(ctx context.Context, token string, scope accessscope.Sc
 	return metadata.AppendToOutgoingContext(ctx, pairs...)
 }
 
+// CoreHTTPRouter builds Core's internal router without container streams;
+// a request to a stream route panics into the recovery middleware's 500.
 func CoreHTTPRouter(composeHandler *corehttp.ComposeHandler, buildHandler *corehttp.BuildHandler, token string) http.Handler {
-	return corehttp.SetupRouter(composeHandler, buildHandler, token, DiscardLogger())
+	return corehttp.SetupRouter(composeHandler, buildHandler, nil, token, DiscardLogger())
 }
 
 func InternalHTTPRequest(method, path, token string, scope accessscope.Scope, body io.Reader, contentType string) *http.Request {

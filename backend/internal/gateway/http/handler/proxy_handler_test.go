@@ -111,7 +111,7 @@ func TestTelemetryLogsProxyConsumesTicketOnceAndRemovesTicketFromUpstreamQuery(t
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketConsumer(t)
 	var upstream *http.Request
 	proxy, err := handler.NewTelemetryLogsProxyHandler(handler.ProxyOptions{
-		TargetURL:     "http://telemetry.internal",
+		TargetURL:     "http://core.internal",
 		InternalToken: "internal-token",
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			upstream = req.Clone(req.Context())
@@ -144,7 +144,7 @@ func TestTelemetryProxyRejectsMissingTicketAndInvalidWebSocketOrigin(t *testing.
 	gin.SetMode(gin.TestMode)
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketConsumer(t)
 	logsProxy, err := handler.NewTelemetryLogsProxyHandler(handler.ProxyOptions{
-		TargetURL: "http://telemetry.internal",
+		TargetURL: "http://core.internal",
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			t.Fatal("upstream must not be called")
 			return nil, nil
@@ -152,7 +152,7 @@ func TestTelemetryProxyRejectsMissingTicketAndInvalidWebSocketOrigin(t *testing.
 	}, handler.TelemetryProxyAuthOptions{Tickets: tickets, StreamType: model.TelemetryStreamLogs})
 	require.NoError(t, err)
 	terminalProxy, err := handler.NewTelemetryTerminalProxyHandler(handler.ProxyOptions{
-		TargetURL:      "http://telemetry.internal",
+		TargetURL:      "http://core.internal",
 		AllowedOrigins: []string{"http://frontend.example"},
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			t.Fatal("upstream must not be called")
@@ -180,7 +180,7 @@ func TestTelemetryTerminalProxyAllowsConfiguredOrigin(t *testing.T) {
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketConsumer(t)
 	called := false
 	proxy, err := handler.NewTelemetryTerminalProxyHandler(handler.ProxyOptions{
-		TargetURL:      "http://telemetry.internal",
+		TargetURL:      "http://core.internal",
 		InternalToken:  "internal-token",
 		AllowedOrigins: []string{"http://frontend.example"},
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {

@@ -210,12 +210,12 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, int32(1), listResp.TotalCount)
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
 
-	targetResp, err := client.GetContainerRuntimeTarget(grpcCtx, &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
+	target, err := containers.GetRuntimeTarget(accessscope.WithUserScope(context.Background(), ownerID, "alice", "user"), containerID)
 	require.NoError(t, err)
-	require.Equal(t, ownerID.String(), targetResp.OwnerId)
-	require.NotEmpty(t, targetResp.DockerId)
+	require.Equal(t, ownerID, target.OwnerID)
+	require.NotEmpty(t, target.DockerID)
 
-	_, err = client.GetContainerRuntimeTarget(context.Background(), &coreapi.ContainerRuntimeTargetRequest{ContainerId: containerID.String()})
+	_, err = client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 }
 

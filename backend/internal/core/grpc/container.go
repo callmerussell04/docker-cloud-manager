@@ -22,7 +22,6 @@ type ContainerLogic interface {
 	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
 	Action(ctx context.Context, containerID uuid.UUID, action string) error
 	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
-	GetRuntimeTarget(ctx context.Context, containerID uuid.UUID) (model.ContainerRuntimeTarget, error)
 }
 
 type ContainerHandler struct {
@@ -280,28 +279,5 @@ func (h *ContainerHandler) GetContainerStats(ctx context.Context, req *coreapi.C
 		MemoryStandardLimitBytes: stats.MemoryStandardLimitBytes,
 		NetworkRxBytes:           stats.NetworkRxBytes,
 		NetworkTxBytes:           stats.NetworkTxBytes,
-	}, nil
-}
-
-func (h *ContainerHandler) GetContainerRuntimeTarget(ctx context.Context, req *coreapi.ContainerRuntimeTargetRequest) (*coreapi.ContainerRuntimeTarget, error) {
-	if err := requireUserOrAdminScope(ctx); err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-	containerID, err := uuid.Parse(req.GetContainerId())
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid container_id")
-	}
-
-	target, err := h.logic.GetRuntimeTarget(ctx, containerID)
-	if err != nil {
-		return nil, grpcerrors.ToGRPC(err)
-	}
-
-	return &coreapi.ContainerRuntimeTarget{
-		ContainerId:      target.ContainerID.String(),
-		DockerId:         target.DockerID,
-		Status:           target.Status,
-		OwnerId:          target.OwnerID.String(),
-		DockerGeneration: int32(target.DockerGeneration),
 	}, nil
 }

@@ -6,8 +6,8 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/telemetry/model"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -15,26 +15,10 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-type Adapter struct {
-	cli *client.Client
-}
-
-func NewAdapter() (*Adapter, error) {
-	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, err
-	}
-	return &Adapter{cli: cli}, nil
-}
-
-func (a *Adapter) Close() error {
-	if a.cli != nil {
-		return a.cli.Close()
-	}
-	return nil
-}
-
-func (a *Adapter) EnsureContainerTarget(ctx context.Context, target model.ContainerTarget) error {
+// EnsureContainerTarget checks that the Docker container still carries the
+// identity labels of the record it was resolved from, so a recorded Docker ID
+// that now names another container is never streamed or attached to.
+func (a *Adapter) EnsureContainerTarget(ctx context.Context, target model.ContainerRuntimeTarget) error {
 	inspect, err := a.cli.ContainerInspect(ctx, target.DockerID)
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
@@ -51,7 +35,9 @@ func (a *Adapter) EnsureContainerTarget(ctx context.Context, target model.Contai
 	return nil
 }
 
-func (a *Adapter) StreamLogs(ctx context.Context, target model.ContainerTarget, opts model.LogOptions) (io.ReadCloser, error) {
+// StreamContainerLogs streams a container's stdout and stderr as plain text.
+// Cancelling ctx ends the stream.
+func (a *Adapter) StreamContainerLogs(ctx context.Context, dockerID string, opts model.LogOptions) (io.ReadCloser, error) {
 	logOpts := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
@@ -63,7 +49,7 @@ func (a *Adapter) StreamLogs(ctx context.Context, target model.ContainerTarget, 
 		logOpts.Since = strconv.FormatInt(opts.Since.Unix(), 10)
 	}
 
-	rawLogs, err := a.cli.ContainerLogs(ctx, target.DockerID, logOpts)
+	rawLogs, err := a.cli.ContainerLogs(ctx, dockerID, logOpts)
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
 			return nil, apperrors.ErrNotFound
@@ -94,8 +80,10 @@ func (a *Adapter) StreamLogs(ctx context.Context, target model.ContainerTarget, 
 	return pr, nil
 }
 
-func (a *Adapter) OpenTerminal(ctx context.Context, target model.ContainerTarget, opts model.TerminalOptions) (model.TerminalSession, error) {
-	resp, err := a.cli.ContainerExecCreate(ctx, target.DockerID, container.ExecOptions{
+// OpenTerminal attaches to a new exec of opts.Command with a TTY. The exec is
+// never privileged and gets no environment or user override.
+func (a *Adapter) OpenTerminal(ctx context.Context, dockerID string, opts model.TerminalOptions) (model.TerminalSession, error) {
+	resp, err := a.cli.ContainerExecCreate(ctx, dockerID, container.ExecOptions{
 		Cmd:          opts.Command,
 		AttachStdin:  true,
 		AttachStdout: true,
@@ -129,11 +117,11 @@ func (a *Adapter) OpenTerminal(ctx context.Context, target model.ContainerTarget
 	}, nil
 }
 
-func validateLabels(labels map[string]string, target model.ContainerTarget) error {
+func validateLabels(labels map[string]string, target model.ContainerRuntimeTarget) error {
 	if labels["managed_by"] != "docker-cloud-manager" ||
 		labels["dcm.resource_type"] != "container" ||
-		labels["dcm.container_id"] != target.ContainerID ||
-		labels["dcm.owner_id"] != target.OwnerID ||
+		labels["dcm.container_id"] != target.ContainerID.String() ||
+		labels["dcm.owner_id"] != target.OwnerID.String() ||
 		labels["dcm.generation"] != strconv.Itoa(target.DockerGeneration) {
 		return apperrors.New(apperrors.ErrNotFound, "container target verification failed")
 	}
