@@ -221,69 +221,75 @@ func TestOpenTerminalValidatesBoundaryAndWritesServiceError(t *testing.T) {
 	})
 }
 
+// Each case runs on synctest's fake clock, so no session timeout or wait can
+// race the machine's speed: a deadline fires only once every goroutine blocks.
 func TestOpenTerminalWebSocketBridge(t *testing.T) {
 	t.Run("binary input resize and close control", func(t *testing.T) {
-		service := corehttpmocks.NewMockStreamUseCases(t)
-		session := coremodelmocks.NewMockTerminalSession(t)
-		router := newStreamRouter(service)
-		server := newMemoryServer(t, router)
-		releaseRead := make(chan struct{})
-		writeDone := make(chan struct{})
-		resizeDone := make(chan struct{})
-		closeWriteDone := make(chan struct{})
+		synctest.Test(t, func(t *testing.T) {
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			session := coremodelmocks.NewMockTerminalSession(t)
+			router := newStreamRouter(service)
+			server := newMemoryServer(t, router)
+			releaseRead := make(chan struct{})
+			writeDone := make(chan struct{})
+			resizeDone := make(chan struct{})
+			closeWriteDone := make(chan struct{})
 
-		service.EXPECT().
-			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second, WSReadLimitBytes: 64}, nil).
-			Once()
-		session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
-			<-releaseRead
-			return 0, io.EOF
-		}).Maybe()
-		session.EXPECT().Write(mock.MatchedBy(func(payload []byte) bool {
-			return string(payload) == "input"
-		})).Run(func([]byte) { close(writeDone) }).Return(5, nil).Once()
-		session.EXPECT().Resize(mock.Anything, uint(40), uint(120)).Run(func(context.Context, uint, uint) {
-			close(resizeDone)
-		}).Return(nil).Once()
-		session.EXPECT().CloseWrite().Run(func() { close(closeWriteDone) }).Return(nil).Once()
-		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
+			service.EXPECT().
+				OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+				Return(session, model.StreamConfig{TerminalIdleTimeout: time.Hour, TerminalMaxDuration: time.Hour, WSReadLimitBytes: 64}, nil).
+				Once()
+			session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
+				<-releaseRead
+				return 0, io.EOF
+			}).Maybe()
+			session.EXPECT().Write(mock.MatchedBy(func(payload []byte) bool {
+				return string(payload) == "input"
+			})).Run(func([]byte) { close(writeDone) }).Return(5, nil).Once()
+			session.EXPECT().Resize(mock.Anything, uint(40), uint(120)).Run(func(context.Context, uint, uint) {
+				close(resizeDone)
+			}).Return(nil).Once()
+			session.EXPECT().CloseWrite().Run(func() { close(closeWriteDone) }).Return(nil).Once()
+			session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
-		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
-		requireReady(t, conn)
+			conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
+			defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
+			requireReady(t, conn)
 
-		require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("input")))
-		require.NoError(t, conn.WriteJSON(map[string]any{"type": "resize", "rows": 40, "cols": 120}))
-		require.NoError(t, conn.WriteJSON(map[string]any{"type": "close"}))
-		requireSignal(t, writeDone)
-		requireSignal(t, resizeDone)
-		requireSignal(t, closeWriteDone)
+			require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, []byte("input")))
+			require.NoError(t, conn.WriteJSON(map[string]any{"type": "resize", "rows": 40, "cols": 120}))
+			require.NoError(t, conn.WriteJSON(map[string]any{"type": "close"}))
+			requireSignal(t, writeDone)
+			requireSignal(t, resizeDone)
+			requireSignal(t, closeWriteDone)
+		})
 	})
 
 	t.Run("process exit sends exit event", func(t *testing.T) {
-		service := corehttpmocks.NewMockStreamUseCases(t)
-		session := coremodelmocks.NewMockTerminalSession(t)
-		router := newStreamRouter(service)
-		server := newMemoryServer(t, router)
+		synctest.Test(t, func(t *testing.T) {
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			session := coremodelmocks.NewMockTerminalSession(t)
+			router := newStreamRouter(service)
+			server := newMemoryServer(t, router)
 
-		service.EXPECT().
-			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: time.Second}, nil).
-			Once()
-		session.EXPECT().Read(mock.Anything).Return(0, io.EOF).Once()
-		session.EXPECT().Inspect(mock.Anything).Return(model.ExecState{Running: false, ExitCode: 7}, nil).Once()
-		session.EXPECT().Close().Return(nil).Maybe()
+			service.EXPECT().
+				OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+				Return(session, model.StreamConfig{TerminalIdleTimeout: time.Hour, TerminalMaxDuration: time.Hour}, nil).
+				Once()
+			session.EXPECT().Read(mock.Anything).Return(0, io.EOF).Once()
+			session.EXPECT().Inspect(mock.Anything).Return(model.ExecState{Running: false, ExitCode: 7}, nil).Once()
+			session.EXPECT().Close().Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
-		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
-		requireReady(t, conn)
+			conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
+			defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
+			requireReady(t, conn)
 
-		var event wsEvent
-		require.NoError(t, conn.ReadJSON(&event))
-		require.Equal(t, "exit", event.Type)
-		require.NotNil(t, event.ExitCode)
-		require.Equal(t, 7, *event.ExitCode)
+			var event wsEvent
+			require.NoError(t, conn.ReadJSON(&event))
+			require.Equal(t, "exit", event.Type)
+			require.NotNil(t, event.ExitCode)
+			require.Equal(t, 7, *event.ExitCode)
+		})
 	})
 
 	// The session deadline runs on synctest's fake clock: it fires once every
