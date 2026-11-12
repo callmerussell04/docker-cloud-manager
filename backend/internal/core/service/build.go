@@ -78,9 +78,10 @@ type BuildImageMetadataAPI interface {
 }
 
 // BuildRegistryAuthorizer claims builds with a repository-scoped Registry
-// credential and revokes that credential when the build ends.
+// credential and revokes that credential when the build ends. A claim is
+// refused, leaving the build pending, while maxRunning builds already run.
 type BuildRegistryAuthorizer interface {
-	ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error)
+	ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration, maxRunning int) (model.Build, bool, error)
 	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition) error
 }
 
@@ -655,8 +656,12 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	return buildID, imageID, nil
 }
 
+// StartBuildRecord claims a pending build for a Builder. Builds running at once
+// stay within max_concurrent_builds however many Builders run: over the cap
+// the build is returned unclaimed and still pending, and the Builder retries.
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
-	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(s.buildConfig().MaxBuildTimeMinutes)*time.Minute)
+	cfg := s.buildConfig()
+	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(cfg.MaxBuildTimeMinutes)*time.Minute, cfg.MaxConcurrentBuilds)
 	if err != nil {
 		return model.Build{}, false, err
 	}

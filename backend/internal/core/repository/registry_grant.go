@@ -26,12 +26,24 @@ func NewRegistryGrantRepository(db, lockDB *pgxpool.Pool) *RegistryGrantReposito
 	return &RegistryGrantRepository{db: db, lockDB: lockDB}
 }
 
-// ClaimBuild keeps its pending check, repository try-lock, credential insert
-// and running transition in one transaction because only together do they
-// exclude a concurrent tag deletion: the build row lock serializes claims, and
-// the transaction-scoped repository lock must still be held when the credential
-// becomes visible. The repository name comes from the shared imageref policy.
-func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error) {
+// buildClaimLockKey names the transaction lock that serializes build claims,
+// so the running-build count a claim checks cannot change before it commits.
+const buildClaimLockKey = "dcm:build-claims"
+
+// ClaimBuild keeps its pending check, running-build cap, repository try-lock,
+// credential insert and running transition in one transaction because only
+// together do they exclude a concurrent tag deletion: the build row lock
+// serializes claims of one build, and the transaction-scoped repository lock
+// must still be held when the credential becomes visible. The repository name
+// comes from the shared imageref policy.
+//
+// A pending build is not claimed while maxRunning builds already run, however
+// many Builders ask: it stays pending and is returned unclaimed. The claim lock
+// makes that check atomic with the transition. It is waited for in the query
+// pool because its holders are other claims only, and a claim holds it just for
+// its own statements, never for Registry, Docker or timer work; the repository
+// lock is still only tried, after the cap passes.
+func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration, maxRunning int) (model.Build, bool, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return model.Build{}, false, wrapOp("registry grant claim build", err)
@@ -47,6 +59,16 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return model.Build{}, false, wrapOp("registry grant claim build", err)
 	}
 	if b.Status != model.BuildStatusPending {
+		return b, false, nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, buildClaimLockKey); err != nil {
+		return b, false, wrapOp("registry grant claim build", err)
+	}
+	var running int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM builds WHERE status='running'`).Scan(&running); err != nil {
+		return b, false, wrapOp("registry grant claim build", err)
+	}
+	if running >= maxRunning {
 		return b, false, nil
 	}
 	var tag string

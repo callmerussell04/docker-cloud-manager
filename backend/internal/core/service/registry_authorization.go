@@ -27,7 +27,7 @@ const RegistryCleanupDelay = 181 * time.Second
 const RegistryPullCredentialLifetime = 30 * time.Minute
 
 type RegistryGrantRepository interface {
-	ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration) (model.Build, bool, error)
+	ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration, maxRunning int) (model.Build, bool, error)
 	AuthorizeCredential(ctx context.Context, hash []byte, now time.Time) (model.RegistryPrincipal, error)
 	RepositoryExists(ctx context.Context, repository string) (bool, error)
 	SavePullCredential(ctx context.Context, id uuid.UUID, repository string, hash []byte, lifetime time.Duration) error
@@ -76,14 +76,17 @@ func NewRegistryAuthorization(deps RegistryAuthorizationDeps) (*RegistryAuthoriz
 	return &RegistryAuthorization{repo: deps.Repository, users: deps.Users, signer: deps.Signer, authority: deps.Authority}, nil
 }
 
-func (s *RegistryAuthorization) ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration) (model.Build, bool, error) {
+// ClaimBuild moves a pending build to running and issues its Registry
+// credential, unless maxRunning builds already run: then the build stays
+// pending and is returned unclaimed.
+func (s *RegistryAuthorization) ClaimBuild(ctx context.Context, id uuid.UUID, lifetime time.Duration, maxRunning int) (model.Build, bool, error) {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return model.Build{}, false, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), fmt.Errorf("generate registry build credential: %w", err))
 	}
 	password := base64.RawURLEncoding.EncodeToString(secret)
 	hash := sha256.Sum256([]byte(password))
-	b, started, err := s.repo.ClaimBuild(ctx, id, hash[:], lifetime)
+	b, started, err := s.repo.ClaimBuild(ctx, id, hash[:], lifetime, maxRunning)
 	if err != nil {
 		return b, false, fmt.Errorf("claim registry build: %w", err)
 	}

@@ -237,7 +237,7 @@ func TestQueuedImageDeletionRequeuesWhenAClaimSlipsInDuringTheFence(t *testing.T
 	claimed := make(chan error, 1)
 	hook := func(*http.Request) {
 		hash := sha256.Sum256([]byte("blocked-" + blocked.String()))
-		_, started, err := f.grants.ClaimBuild(ctx, blocked, hash[:], time.Minute)
+		_, started, err := f.grants.ClaimBuild(ctx, blocked, hash[:], time.Minute, 10)
 		if err == nil && started {
 			err = errors.New("claim started during Registry deletion")
 		}
@@ -265,7 +265,7 @@ func TestQueuedImageDeletionReleasesTheRepositoryLockWhenCanceled(t *testing.T) 
 	<-reached
 	sibling := f.queueSibling(t, "demo:v2")
 	hash := sha256.Sum256([]byte("sibling-secret"))
-	_, _, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute)
+	_, _, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute, 10)
 	require.ErrorIs(t, err, apperrors.ErrUnavailable, "claims stay excluded during Registry deletion")
 
 	cancel()
@@ -275,7 +275,7 @@ func TestQueuedImageDeletionReleasesTheRepositoryLockWhenCanceled(t *testing.T) 
 	release, err := f.repos.Containers.AcquireOwnerCapacityLock(admitCtx, f.ownerID)
 	require.NoError(t, err, "cancellation must release the lock connection")
 	release()
-	_, started, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute)
+	_, started, err := f.grants.ClaimBuild(context.Background(), sibling, hash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.True(t, started, "cancellation must release the repository lock")
 	op, err := f.lifecycle.GetOperationByID(context.Background(), uuid.MustParse(message.OperationID))
@@ -352,7 +352,7 @@ func (f *fencedImageDeletion) claimSibling(t *testing.T, tag string) uuid.UUID {
 	t.Helper()
 	buildID := f.queueSibling(t, tag)
 	hash := sha256.Sum256([]byte("secret-" + buildID.String()))
-	_, started, err := f.grants.ClaimBuild(context.Background(), buildID, hash[:], time.Minute)
+	_, started, err := f.grants.ClaimBuild(context.Background(), buildID, hash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.True(t, started)
 	return buildID

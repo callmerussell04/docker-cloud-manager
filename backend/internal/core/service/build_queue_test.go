@@ -160,7 +160,7 @@ func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 		RegistryAuth: auth,
 	})
 
-	auth.EXPECT().ClaimBuild(mock.Anything, buildID, mock.Anything).Return(model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}, false, nil)
+	auth.EXPECT().ClaimBuild(mock.Anything, buildID, mock.Anything, mock.Anything).Return(model.Build{ID: buildID, ImageID: uuid.New(), Status: model.BuildStatusSuccess}, false, nil)
 
 	_, started, err := svc.StartBuildRecord(context.Background(), buildID)
 	require.NoError(t, err)

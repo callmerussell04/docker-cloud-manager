@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/config"
@@ -35,12 +34,6 @@ type App struct {
 }
 
 func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
-	if cfg.InstanceID == "" {
-		if hostname, err := os.Hostname(); err == nil {
-			cfg.InstanceID = hostname
-		}
-	}
-
 	coreConn, err := grpc.NewClient(
 		cfg.CoreTarget,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -77,7 +70,7 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 
 	extractor := archive.NewExtractor()
 
-	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true, CgroupParent: cfg.TenantCgroupParent})
+	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true, InstanceID: cfg.InstanceID, CgroupParent: cfg.TenantCgroupParent})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}

@@ -70,12 +70,12 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 
 	grants := repository.NewRegistryGrantRepository(db, db)
 	hash := sha256.Sum256([]byte("build-secret"))
-	started, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute)
+	started, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.True(t, didStart)
 	require.Equal(t, model.BuildStatusRunning, started.Status)
 
-	again, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute)
+	again, didStart, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.False(t, didStart)
 	require.Equal(t, model.BuildStatusRunning, again.Status)

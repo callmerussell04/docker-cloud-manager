@@ -88,7 +88,7 @@ func TestBuilderServiceLogsExcludeCredentialsBuildArgsAndObjectKeys(t *testing.T
 				routes[path] = response
 			}
 			dockertest.Serve(t, routes)
-			adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
+			adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t), InstanceID: "builder-test"})
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
 

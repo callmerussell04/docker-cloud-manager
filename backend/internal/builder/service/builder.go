@@ -75,6 +75,11 @@ type BuildNetworkAdmission interface {
 
 const defaultBuildCancelPollInterval = 2 * time.Second
 
+// refusedClaimRetryDelay is how long a Builder holds a delivery whose claim
+// Core refused because max_concurrent_builds builds already run, so the
+// message does not spin through the queue while every slot is taken.
+const refusedClaimRetryDelay = 5 * time.Second
+
 // buildCleanupTimeout bounds cleanup that must outlive the build's own context.
 const buildCleanupTimeout = 30 * time.Second
 
@@ -287,6 +292,9 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		return err
 	}
 	if !started {
+		if status == buildStatusPending {
+			return s.waitAfterRefusedClaim(ctx, msg.BuildID)
+		}
 		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
 		if isTerminalBuildStatus(status) {
 			cleanupCtx, cancel := cleanupContext(ctx)
@@ -363,6 +371,21 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 		return err
 	}
 	return nil
+}
+
+// waitAfterRefusedClaim holds a delivery Core left pending because the
+// running-build cap is reached, then returns it as retryable. Shutdown ends
+// the wait early.
+func (s *BuilderService) waitAfterRefusedClaim(ctx context.Context, buildID string) error {
+	s.logger.InfoContext(ctx, "build claim refused: running builds are at max_concurrent_builds", "build_id", buildID)
+	timer := time.NewTimer(refusedClaimRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return apperrors.New(apperrors.ErrUnavailable, "build slots are all in use")
+	}
 }
 
 func (s *BuilderService) completeBuild(ctx context.Context, buildID, imageID string, status model.BuildStatus, sizeMB int) error {
@@ -671,6 +694,7 @@ func cleanDockerfilePath(raw string) (string, error) {
 }
 
 const (
+	buildStatusPending                 model.BuildStatus = "pending"
 	buildStatusSuccess                 model.BuildStatus = "success"
 	buildStatusCanceled                model.BuildStatus = "canceled"
 	buildStatusFailed                  model.BuildStatus = "failed"

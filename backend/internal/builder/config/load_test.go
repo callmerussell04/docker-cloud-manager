@@ -20,6 +20,7 @@ func requiredEnv() map[string]string {
 		"OBJECT_STORAGE_ENDPOINT":   "minio:9000",
 		"OBJECT_STORAGE_ACCESS_KEY": secret,
 		"OBJECT_STORAGE_SECRET_KEY": secret,
+		"BUILDER_INSTANCE_ID":       "builder-1",
 	}
 }
 
@@ -31,7 +32,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "/tmp/builds", cfg.StoragePath)
 	assert.Equal(t, "dcm-builds", cfg.ObjectStorage.Bucket)
 	assert.False(t, cfg.ObjectStorage.UseSSL)
-	assert.Empty(t, cfg.InstanceID)
+	assert.Equal(t, "builder-1", cfg.InstanceID)
 	assert.Empty(t, cfg.TenantCgroupParent)
 	assert.Equal(t, config.BuilderConfig{
 		BuildMemoryBytes:          512 << 20,
@@ -88,5 +89,6 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 		"OBJECT_STORAGE_ENDPOINT",
 		"OBJECT_STORAGE_ACCESS_KEY",
 		"OBJECT_STORAGE_SECRET_KEY",
+		"BUILDER_INSTANCE_ID",
 	})
 }

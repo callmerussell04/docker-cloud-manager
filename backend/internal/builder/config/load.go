@@ -20,7 +20,9 @@ type Bootstrap struct {
 	// TenantCgroupParent is the cgroup Docker places build containers under,
 	// the same one Core uses for user containers. Empty keeps Docker's default.
 	TenantCgroupParent string
-	// InstanceID is empty when unset; app.New falls back to the hostname.
+	// InstanceID is the instance's stable identity. Build containers carry it
+	// as a label, and a starting Builder removes only containers carrying its
+	// own. It is required: a container's hostname changes on every recreate.
 	InstanceID    string
 	ObjectStorage objectstorage.Config
 }
@@ -35,9 +37,9 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		InternalToken:  required.Get("INTERNAL_SERVICE_TOKEN"),
 		RabbitMQURL:    required.Get("RABBITMQ_URL"),
 		ObjectStorage:  objectstorage.LoadConfig(lookup, required),
+		InstanceID:     required.Get("BUILDER_INSTANCE_ID"),
 		RegistryCAFile: envconfig.String(lookup, "REGISTRY_CA_FILE", "/run/dcm-registry/ca.crt"),
 		StoragePath:    storagePath,
-		InstanceID:     envconfig.String(lookup, "BUILDER_INSTANCE_ID", ""),
 
 		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
 		Builder: BuilderConfig{

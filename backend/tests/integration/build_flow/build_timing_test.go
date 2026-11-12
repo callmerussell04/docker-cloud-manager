@@ -3,6 +3,7 @@ package build_flow_test
 import (
 	"context"
 	"crypto/sha256"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestBuildQueueResidenceDoesNotConsumeExecutionOrReservations(t *testing.T) 
 			var claimed bool
 			if claimPath == "registry grant" {
 				hash := sha256.Sum256([]byte("build-secret"))
-				started, claimed, err = repos.Grants.ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute)
+				started, claimed, err = repos.Grants.ClaimBuild(ctx, result.BuildID, hash[:], 10*time.Minute, 10)
 			} else {
 				started, claimed, err = builds.StartBuildRecord(ctx, result.BuildID)
 			}
@@ -185,4 +186,41 @@ func TestBuildTimeoutPreservesCanceledAndTerminalState(t *testing.T) {
 			require.NotContains(t, objects, build.ArchiveObjectKey)
 		})
 	}
+}
+
+// Core caps running builds at max_concurrent_builds when a Builder claims one,
+// so the build slots admission reserved match what runs.
+func TestBuildClaimIsRefusedAtMaxConcurrentBuilds(t *testing.T) {
+	ctx := context.Background()
+	repos := coretest.OpenCoreRepositories(t)
+	owner := uuid.New()
+	builds := newBuildService(t, repos, owner, map[string][]byte{}, false)
+	maxRunning := coretest.IntegrationConfig().MaxConcurrentBuilds
+	queued := make([]uuid.UUID, maxRunning+1)
+	for i := range queued {
+		result, err := builds.CreateBuildFromArchive(coretest.UserContext(owner), service.BuildArchiveInput{Tag: "capped:v" + strconv.Itoa(i), ArchiveName: "source.zip", Archive: strings.NewReader("archive")})
+		require.NoError(t, err)
+		queued[i] = result.BuildID
+	}
+	for _, id := range queued[:maxRunning] {
+		_, started, err := builds.StartBuildRecord(ctx, id)
+		require.NoError(t, err)
+		require.True(t, started)
+	}
+
+	refused, started, err := builds.StartBuildRecord(ctx, queued[maxRunning])
+	require.NoError(t, err)
+	require.False(t, started)
+	require.Equal(t, model.BuildStatusPending, refused.Status, "a refused build stays pending for the redelivered claim")
+	reserved, err := repos.Staged.ActiveBytesByOwner(ctx, owner)
+	require.NoError(t, err)
+	require.Positive(t, reserved, "a refused build keeps its staged reservation")
+	active, err := repos.Builds.CountActive(ctx)
+	require.NoError(t, err)
+	require.Equal(t, maxRunning+1, active, "a refused build still counts toward admission's build slots")
+
+	require.NoError(t, builds.CancelBuildRecord(coretest.UserContext(owner), queued[0]))
+	_, started, err = builds.StartBuildRecord(ctx, queued[maxRunning])
+	require.NoError(t, err)
+	require.True(t, started, "a freed slot admits the claim")
 }

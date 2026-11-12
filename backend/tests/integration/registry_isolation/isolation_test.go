@@ -134,7 +134,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 		_ = resp.Body.Close() // status-only probe; close failure is not actionable
 		return resp.StatusCode == 401
 	}, 10*time.Second, 100*time.Millisecond)
-	adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: certFile})
+	adapter, err := builderdocker.NewAdapter(builderdocker.Config{RegistryCAFile: certFile, InstanceID: "registry-isolation-test"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapter.Close() })
 	metadata, err := registry.NewSecureAdapter(backendURL, httpClient, auth.TrustedToken)
@@ -145,7 +145,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	seed := func(owner uuid.UUID, tag, dockerfile, source string) (model.Build, string, string) {
 		imageID, buildID := uuid.New(), uuid.New()
 		require.NoError(t, buildRepo.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: tag}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
-		claim, started, err := auth.ClaimBuild(ctx, buildID, 10*time.Minute)
+		claim, started, err := auth.ClaimBuild(ctx, buildID, 10*time.Minute, 10)
 		require.NoError(t, err)
 		require.True(t, started)
 		dir := t.TempDir()

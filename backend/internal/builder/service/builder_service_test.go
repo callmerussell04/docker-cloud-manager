@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/storage"
@@ -942,4 +943,50 @@ func TestBuilderServiceQueuedBuildReceivesFullExecutionBudget(t *testing.T) {
 	h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil).Once()
 	h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+}
+
+// Core refuses a claim while max_concurrent_builds builds run across every
+// Builder, answering unclaimed and still pending. The Builder waits before
+// returning the delivery so the message does not spin through the queue.
+func TestBuilderServiceWaitsBeforeReleasingARefusedClaim(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newBuilderHarness(t, testBuilderRuntimeConfig())
+		msg := testBuildMessage()
+		h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "pending", nil).Once()
+		start := time.Now()
+		done := make(chan error, 1)
+
+		go func() { done <- h.service.HandleBuildMessage(context.Background(), msg) }()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			t.Fatalf("refused claim returned without waiting: %v", err)
+		default:
+		}
+
+		err := <-done
+		require.ErrorIs(t, err, apperrors.ErrUnavailable, "the delivery stays retryable")
+		require.Positive(t, time.Since(start))
+		_, journaled, loadErr := h.results.Load(context.Background(), msg.BuildID)
+		require.NoError(t, loadErr)
+		require.False(t, journaled)
+	})
+}
+
+func TestBuilderServiceStopsWaitingOnARefusedClaimAtShutdown(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newBuilderHarness(t, testBuilderRuntimeConfig())
+		msg := testBuildMessage()
+		h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "pending", nil).Once()
+		ctx, shutdown := context.WithCancel(context.Background())
+		start := time.Now()
+		done := make(chan error, 1)
+
+		go func() { done <- h.service.HandleBuildMessage(ctx, msg) }()
+		synctest.Wait()
+		shutdown()
+
+		require.ErrorIs(t, <-done, context.Canceled)
+		require.Zero(t, time.Since(start), "shutdown ends the wait without the clock advancing")
+	})
 }

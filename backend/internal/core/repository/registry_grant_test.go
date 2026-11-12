@@ -35,7 +35,7 @@ func TestRegistryGrantClaimIsExclusiveAndRevocationSurvivesRestart(t *testing.T)
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, started, err := grants.ClaimBuild(ctx, buildID, hashes[i][:], time.Minute)
+			_, started, err := grants.ClaimBuild(ctx, buildID, hashes[i][:], time.Minute, 10)
 			results <- result{i, started, err}
 		}(i)
 	}
@@ -91,7 +91,7 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	}
 	oldID := queue("replacement:latest")
 	oldHash := sha256.Sum256([]byte("old-secret"))
-	old, started, err := grants.ClaimBuild(ctx, oldID, oldHash[:], time.Minute)
+	old, started, err := grants.ClaimBuild(ctx, oldID, oldHash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.True(t, started)
 	require.NoError(t, grants.RevokeBuild(ctx, oldID, model.RegistryTagDelete, service.RegistryCleanupDelay))
@@ -104,11 +104,11 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	unlock, err := grants.LockRegistryRepository(ctx, repo)
 	require.NoError(t, err)
 	nextHash := sha256.Sum256([]byte("replacement-secret"))
-	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute)
+	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute, 10)
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
 	require.False(t, started)
 	unlock()
-	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute)
+	_, started, err = grants.ClaimBuild(ctx, replacementID, nextHash[:], time.Minute, 10)
 	require.NoError(t, err)
 	require.True(t, started)
 	facts, err := grants.RegistryCleanupFacts(ctx, job, service.RegistryCleanupDelay)
@@ -119,4 +119,88 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	require.NoError(t, err)
 	_, err = grants.AuthorizeCredential(ctx, nextHash[:], time.Now())
 	require.NoError(t, err, "fencing must leave a running build's credential usable")
+}
+
+// Builders on any number of instances share one cap: a claim is refused while
+// maxRunning builds already run, and the refused build stays pending.
+func TestRegistryGrantClaimCapsRunningBuilds(t *testing.T) {
+	db := dbtest.OpenCorePostgres(t)
+	ctx := context.Background()
+	builds := repository.NewBuildRepository(db, db)
+	grants := repository.NewRegistryGrantRepository(db, db)
+	owner := uuid.New()
+	queue := func() uuid.UUID {
+		imageID, buildID := uuid.New(), uuid.New()
+		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: "capped-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		return buildID
+	}
+	claim := func(id uuid.UUID, maxRunning int) (model.Build, bool, error) {
+		hash := sha256.Sum256([]byte(id.String()))
+		return grants.ClaimBuild(ctx, id, hash[:], time.Minute, maxRunning)
+	}
+	for range 2 {
+		_, started, err := claim(queue(), 2)
+		require.NoError(t, err)
+		require.True(t, started)
+	}
+
+	refused := queue()
+	b, started, err := claim(refused, 2)
+	require.NoError(t, err)
+	require.False(t, started, "no slot is free with max_concurrent_builds running")
+	require.Equal(t, model.BuildStatusPending, b.Status)
+	persisted, err := builds.GetByID(ctx, refused)
+	require.NoError(t, err)
+	require.Equal(t, model.BuildStatusPending, persisted.Status)
+	require.True(t, persisted.StartedAt.IsZero())
+	var credentials int
+	require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM registry_build_credentials WHERE build_id=$1`, refused).Scan(&credentials))
+	require.Zero(t, credentials, "a refused claim issues no credential")
+
+	_, started, err = claim(refused, 3)
+	require.NoError(t, err)
+	require.True(t, started, "one free slot admits the claim")
+}
+
+func TestRegistryGrantConcurrentClaimsTakeTheLastSlotOnce(t *testing.T) {
+	db := dbtest.OpenCorePostgres(t)
+	ctx := context.Background()
+	builds := repository.NewBuildRepository(db, db)
+	grants := repository.NewRegistryGrantRepository(db, db)
+	owner := uuid.New()
+	ids := make([]uuid.UUID, 2)
+	for i := range ids {
+		imageID, buildID := uuid.New(), uuid.New()
+		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: "race-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		ids[i] = buildID
+	}
+	for attempt := range 20 {
+		_, err := db.Exec(ctx, `UPDATE builds SET status='pending', started_at=NULL WHERE id = ANY($1)`, ids)
+		require.NoError(t, err)
+		_, err = db.Exec(ctx, `DELETE FROM registry_build_credentials WHERE build_id = ANY($1)`, ids)
+		require.NoError(t, err)
+
+		start := make(chan struct{})
+		errs := make(chan error, len(ids))
+		var wg sync.WaitGroup
+		for _, id := range ids {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				hash := sha256.Sum256([]byte(id.String()))
+				_, _, err := grants.ClaimBuild(ctx, id, hash[:], time.Minute, 1)
+				errs <- err
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			require.NoError(t, err)
+		}
+		var running int
+		require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM builds WHERE status='running' AND id = ANY($1)`, ids).Scan(&running))
+		require.Equal(t, 1, running, "attempt %d", attempt)
+	}
 }

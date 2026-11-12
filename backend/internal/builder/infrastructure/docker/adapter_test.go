@@ -306,6 +306,9 @@ func readTar(t *testing.T, archive []byte) map[string]tarFile {
 
 func newAdapter(t *testing.T, cfg builderdocker.Config) *builderdocker.Adapter {
 	t.Helper()
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = "builder-test"
+	}
 	adapter, err := builderdocker.NewAdapter(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
@@ -342,4 +345,74 @@ func TestAdapterWaitForBuildReportsAKilledContainerAsResourceExhaustion(t *testi
 			require.Equal(t, tt.wantResourceError, errors.Is(err, apperrors.ErrResourceExhausted))
 		})
 	}
+}
+
+// Several Builders may share a Docker daemon, so each build container names
+// the instance that started it.
+func TestAdapterRunBuildContainerLabelsItWithTheInstance(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"/networks/build_net": dockertest.OK(isolatedBuildNetwork),
+		"/images/kaniko/json": dockertest.OK(`{"Id":"kaniko"}`),
+		// Failing here ends the run once the container request is recorded.
+		"/containers/create": dockertest.Error(http.StatusInternalServerError, "stop after create"),
+	})
+	adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t), InstanceID: "builder-a"})
+
+	_, _, err := adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
+		BuildID:          "build-id",
+		OwnerID:          "owner-id",
+		RegistryUsername: "builder",
+		RegistryPassword: "password",
+		DestinationTag:   "registry:5000/owner_image:latest",
+		KanikoImage:      "kaniko",
+		Dockerfile:       "Dockerfile",
+		NetworkName:      "build_net",
+	})
+	require.Error(t, err)
+
+	created := daemon.Requests("/containers/create")
+	require.Len(t, created, 1)
+	var request struct{ Labels map[string]string }
+	require.NoError(t, json.Unmarshal(created[0].Body, &request))
+	require.Equal(t, map[string]string{
+		"managed_by":              "docker-cloud-manager",
+		"dcm.resource_type":       "build",
+		"dcm.build_id":            "build-id",
+		"dcm.owner_id":            "owner-id",
+		"dcm.builder_instance_id": "builder-a",
+	}, request.Labels)
+}
+
+// A starting Builder removes its own leftover build containers and never a
+// sibling instance's running build.
+func TestAdapterCleanupOrphanBuildContainersRemovesOnlyItsOwnInstances(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		// The daemon filters by label; the list also carries a sibling's build
+		// to prove the adapter does not rely on that filter alone.
+		"/containers/json": dockertest.OK(`[
+			{"Id":"own-build","Labels":{"managed_by":"docker-cloud-manager","dcm.resource_type":"build","dcm.builder_instance_id":"builder-a"}},
+			{"Id":"sibling-build","Labels":{"managed_by":"docker-cloud-manager","dcm.resource_type":"build","dcm.builder_instance_id":"builder-b"}}
+		]`),
+		"DELETE /containers/own-build": dockertest.NoContent(),
+	})
+	adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t), InstanceID: "builder-a"})
+
+	require.NoError(t, adapter.CleanupOrphanBuildContainers(context.Background()))
+
+	listed := daemon.Requests("/containers/json")
+	require.Len(t, listed, 1)
+	var filters map[string]map[string]bool
+	require.NoError(t, json.Unmarshal([]byte(listed[0].Query.Get("filters")), &filters))
+	require.Equal(t, map[string]bool{
+		"managed_by=docker-cloud-manager":   true,
+		"dcm.resource_type=build":           true,
+		"dcm.builder_instance_id=builder-a": true,
+	}, filters["label"])
+	require.Len(t, daemon.Requests("/containers/own-build"), 1)
+	require.Empty(t, daemon.Requests("/containers/sibling-build"))
+}
+
+func TestNewAdapterRequiresAnInstanceID(t *testing.T) {
+	_, err := builderdocker.NewAdapter(builderdocker.Config{})
+	require.ErrorContains(t, err, "instance ID is required")
 }

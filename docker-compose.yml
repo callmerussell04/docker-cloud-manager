@@ -442,7 +442,7 @@ services:
     environment:
       <<: [*rabbitmq-url-env, *object-storage-env, *build-runtime-env]
       CORE_GRPC_TARGET: "core:50052"
-      BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-}"
+      BUILDER_INSTANCE_ID: "${BUILDER_INSTANCE_ID:-builder-1}"
       TENANT_CGROUP_PARENT: "${TENANT_CGROUP_PARENT:-}"
       REGISTRY_URL: "${REGISTRY_URL:-registry:5000}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN is required}"
