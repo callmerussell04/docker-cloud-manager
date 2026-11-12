@@ -18,6 +18,7 @@ type BuildLogic interface {
 	CompleteBuildRecord(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
 	List(ctx context.Context, limit, offset int) ([]model.Build, int, error)
 	GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error)
+	GetBuildStatus(ctx context.Context, buildID uuid.UUID) (string, error)
 	DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 }
 
@@ -91,11 +92,11 @@ func (h *ImageHandler) GetBuildStatus(ctx context.Context, req *coreapi.BuildAct
 		return nil, status.Error(codes.InvalidArgument, "invalid build_id format")
 	}
 
-	build, err := h.buildLogic.GetBuild(ctx, buildID)
+	buildStatus, err := h.buildLogic.GetBuildStatus(ctx, buildID)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &coreapi.BuildStatusResponse{Status: build.Status}, nil
+	return &coreapi.BuildStatusResponse{Status: buildStatus}, nil
 }
 
 func (h *ImageHandler) GetBuild(ctx context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildData, error) {

@@ -45,8 +45,7 @@ func TestBuilderCredentialMakesOnlyItsFourCalls(t *testing.T) {
 	system.EXPECT().GetConfig(mock.Anything).Return(coretest.IntegrationConfig()).Once()
 	builds.EXPECT().StartBuildRecord(mock.Anything, buildID).
 		Return(model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusRunning}, true, nil).Once()
-	builds.EXPECT().GetBuild(mock.Anything, buildID).
-		Return(model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusRunning}, nil).Once()
+	builds.EXPECT().GetBuildStatus(mock.Anything, buildID).Return(model.BuildStatusRunning, nil).Once()
 	builds.EXPECT().CompleteBuildRecord(mock.Anything, buildID, imageID, "success", 3).Return(nil).Once()
 
 	t.Run("its four calls with system scope", func(t *testing.T) {

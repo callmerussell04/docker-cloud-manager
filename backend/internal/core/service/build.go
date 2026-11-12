@@ -863,6 +863,23 @@ func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.B
 	return b, nil
 }
 
+// GetBuildStatus is Builder's status poll. It requires system scope and reads
+// any owner's build; GetBuild's owner check never admits system scope.
+func (s *BuildService) GetBuildStatus(ctx context.Context, buildID uuid.UUID) (string, error) {
+	scope, err := accessscope.RequireScope(ctx)
+	if err != nil {
+		return "", err
+	}
+	if scope.Kind != accessscope.KindSystem {
+		return "", fmt.Errorf("%w: system scope is required", apperrors.ErrForbidden)
+	}
+	b, err := s.repo.GetByID(ctx, buildID)
+	if err != nil {
+		return "", err
+	}
+	return b.Status, nil
+}
+
 func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error {
 	b, err := s.repo.GetByID(ctx, buildID)
 	if err != nil {

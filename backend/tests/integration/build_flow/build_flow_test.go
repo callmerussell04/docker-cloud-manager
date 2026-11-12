@@ -84,6 +84,10 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	_, didStart, _, err = core.StartBuildRecord(ctx, result.BuildID.String())
 	require.NoError(t, err)
 	require.False(t, didStart)
+	// Builder's status poll reads the owner's build with system scope.
+	polled, err := core.GetBuildStatus(ctx, result.BuildID.String())
+	require.NoError(t, err)
+	require.Equal(t, buildermodel.BuildStatus(model.BuildStatusRunning), polled)
 
 	objects[build.LogFilePath] = []byte("line1\nline2\n")
 	logs, err := builds.OpenBuildLogs(coretest.UserContext(ownerID), result.BuildID)
@@ -295,4 +299,34 @@ func countTable(t *testing.T, db *pgxpool.Pool, table string) int {
 	var count int
 	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table).Scan(&count))
 	return count
+}
+
+// A user's cancellation reaches Builder's status poll through its own client
+// and credential, which is how a running build learns to stop.
+func TestBuilderStatusPollSeesCancellation(t *testing.T) {
+	ctx := context.Background()
+	repos := coretest.OpenCoreRepositories(t)
+	ownerID := uuid.New()
+	builds := newBuildService(t, repos, ownerID, map[string][]byte{}, false)
+	result, err := builds.CreateBuildFromArchive(coretest.UserContext(ownerID), service.BuildArchiveInput{
+		Tag:         "cancel-me:latest",
+		ContextDir:  "app",
+		Dockerfile:  "Dockerfile",
+		ArchiveName: "source.zip",
+		Archive:     strings.NewReader("archive-bytes"),
+	})
+	require.NoError(t, err)
+
+	builderConn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Builds: builds},
+		grpc.WithUnaryInterceptor(internalauth.SystemScopeUnaryClientInterceptor(coretest.BuilderCredential)))
+	core := builderclient.NewCoreClient(builderConn)
+	_, didStart, _, err := core.StartBuildRecord(ctx, result.BuildID.String())
+	require.NoError(t, err)
+	require.True(t, didStart)
+
+	require.NoError(t, builds.CancelBuildRecord(coretest.UserContext(ownerID), result.BuildID))
+
+	polled, err := core.GetBuildStatus(ctx, result.BuildID.String())
+	require.NoError(t, err)
+	require.Equal(t, buildermodel.BuildStatus(model.BuildStatusCanceled), polled)
 }

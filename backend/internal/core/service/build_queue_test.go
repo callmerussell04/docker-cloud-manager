@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/buildqueue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
@@ -473,4 +474,61 @@ func TestBuildServiceStopBuildForResourceExhaustion(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, ok)
 	})
+}
+
+// Builder polls a build's status with system scope; the owner read behind the
+// user and admin build lookups never admits system scope.
+func TestBuildServiceGetBuildStatusIsASystemRead(t *testing.T) {
+	buildID := uuid.New()
+	ownerID := uuid.New()
+
+	t.Run("system scope reads any owner's build", func(t *testing.T) {
+		repo := newBuildRepository(t)
+		svc := newTestBuildService(t, service.BuildServiceDeps{
+			Repository: repo,
+			Images:     coremocks.NewBuildImageRepository(t),
+			Registry:   coremocks.NewImageRegistryAPI(t),
+			Quotas:     testQuotas(t, nil, nil),
+		})
+		repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, OwnerID: ownerID, Status: model.BuildStatusCanceled}, nil)
+
+		status, err := svc.GetBuildStatus(accessscope.WithSystemScope(context.Background()), buildID)
+		require.NoError(t, err)
+		require.Equal(t, model.BuildStatusCanceled, status)
+	})
+
+	t.Run("a missing build is not found", func(t *testing.T) {
+		repo := newBuildRepository(t)
+		svc := newTestBuildService(t, service.BuildServiceDeps{
+			Repository: repo,
+			Images:     coremocks.NewBuildImageRepository(t),
+			Registry:   coremocks.NewImageRegistryAPI(t),
+			Quotas:     testQuotas(t, nil, nil),
+		})
+		repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{}, apperrors.ErrNotFound)
+
+		_, err := svc.GetBuildStatus(accessscope.WithSystemScope(context.Background()), buildID)
+		require.ErrorIs(t, err, apperrors.ErrNotFound)
+	})
+
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want error
+	}{
+		{"user scope", accessscope.WithUserScope(context.Background(), ownerID, "alice", "user"), apperrors.ErrForbidden},
+		{"admin scope", accessscope.WithAdminScope(context.Background(), uuid.New(), "root", "admin"), apperrors.ErrForbidden},
+		{"no scope", context.Background(), apperrors.ErrUnauthorized},
+	} {
+		t.Run(tc.name+" is refused before any read", func(t *testing.T) {
+			svc := newTestBuildService(t, service.BuildServiceDeps{
+				Repository: newBuildRepository(t),
+				Images:     coremocks.NewBuildImageRepository(t),
+				Registry:   coremocks.NewImageRegistryAPI(t),
+				Quotas:     testQuotas(t, nil, nil),
+			})
+			_, err := svc.GetBuildStatus(tc.ctx, buildID)
+			require.ErrorIs(t, err, tc.want)
+		})
+	}
 }
