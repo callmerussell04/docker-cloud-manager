@@ -80,7 +80,7 @@ type MemoryPressureWorker struct {
 	docker  MemoryPressureDockerAPI
 	metrics MemoryPressureHostMetrics
 	builds  activeSystemBuildCounter
-	users   UserInfoProvider
+	quotas  UserQuotaProvider
 	cfg     MemoryPressureConfigProvider
 	logger  *slog.Logger
 
@@ -106,7 +106,7 @@ type MemoryPressureWorkerDeps struct {
 	Docker     MemoryPressureDockerAPI
 	Metrics    MemoryPressureHostMetrics
 	Builds     activeSystemBuildCounter
-	Users      UserInfoProvider
+	Quotas     UserQuotaProvider
 	Config     MemoryPressureConfigProvider
 	Logger     *slog.Logger
 }
@@ -117,7 +117,7 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		value any
 	}{
 		{"repository", deps.Repository}, {"docker", deps.Docker}, {"metrics", deps.Metrics},
-		{"builds", deps.Builds}, {"users", deps.Users}, {"config", deps.Config},
+		{"builds", deps.Builds}, {"quotas", deps.Quotas}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -129,7 +129,7 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		docker:      deps.Docker,
 		metrics:     deps.Metrics,
 		builds:      deps.Builds,
-		users:       deps.Users,
+		quotas:      deps.Quotas,
 		cfg:         deps.Config,
 		logger:      logging.WithComponent(deps.Logger, "memory_pressure_worker"),
 		cooldown:    map[string]int{},
@@ -400,9 +400,9 @@ func workloadLogAttrs(workload boostWorkload, attrs ...any) []any {
 // cannot be read gets none, so nothing is lent to them this pass. It fails
 // only when ctx is done.
 func (w *MemoryPressureWorker) memoryQuotas(ctx context.Context, owners []uuid.UUID) (map[uuid.UUID]int64, error) {
-	quotas := make(map[uuid.UUID]int64, len(owners))
+	quotaBytes := make(map[uuid.UUID]int64, len(owners))
 	for _, owner := range owners {
-		user, err := w.users.GetUser(ctx, owner)
+		quota, err := w.quotas.EffectiveUserQuota(ctx, owner)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -410,9 +410,9 @@ func (w *MemoryPressureWorker) memoryQuotas(ctx context.Context, owners []uuid.U
 			w.logger.WarnContext(ctx, "failed to read user memory quota", "user_id", owner, "error", err)
 			continue
 		}
-		quotas[owner] = user.QuotaRAMMB * bytesPerMB
+		quotaBytes[owner] = quota.RAMMB * bytesPerMB
 	}
-	return quotas, nil
+	return quotaBytes, nil
 }
 
 // applyStops queues the plan's container stops and kills its build

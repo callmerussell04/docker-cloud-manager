@@ -252,14 +252,13 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	cfgValue.OvercommitFactor = 1.5
 	cfgValue.ContainerTTLHours = 24
 	cfg := coretest.StaticConfig{Config: cfgValue}
-	users := coremocks.NewUserInfoProvider(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
 		Images:       imageRepo,
 		Docker:       dockerAPI,
 		Metrics:      metrics,
 		Config:       cfg,
-		Users:        users,
+		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -267,7 +266,6 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	defer cancel()
 
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil).Maybe()
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
 	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(8*1024*1024*1024), nil)

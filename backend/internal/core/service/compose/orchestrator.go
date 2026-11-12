@@ -110,6 +110,11 @@ type UserInfoProvider interface {
 	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
+// QuotaProvider reads an owner's effective quota from Core.
+type QuotaProvider interface {
+	EffectiveUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, error)
+}
+
 type ImageCleaner interface {
 	Delete(ctx context.Context, imageID uuid.UUID) error
 }
@@ -174,7 +179,7 @@ type OrchestratorDeps struct {
 	StagedObjects     StagedObjectRepository
 	DiskMetrics       HostDiskMetricsProvider
 	HostDiskPath      string
-	Users             UserInfoProvider
+	Quotas            QuotaProvider
 	Logger            *slog.Logger
 }
 
@@ -205,7 +210,7 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 		objectStore:       deps.ObjectStore,
 		staging: stagedsource.New(stagedsource.Deps{
 			Repository:   deps.StagedObjects,
-			Users:        deps.Users,
+			Quotas:       deps.Quotas,
 			DiskMetrics:  deps.DiskMetrics,
 			HostDiskPath: deps.HostDiskPath,
 			Config:       deps.Config,

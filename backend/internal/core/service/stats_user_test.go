@@ -14,18 +14,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The dashboard shows the owner's effective quota from Core: a custom quota,
+// or else the default quota.
 func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		custom                   bool
+		wantRAMQuotaMB, wantDisk int64
+	}{
+		{name: "custom quota", custom: true, wantRAMQuotaMB: 512, wantDisk: 100},
+		{name: "default quota", wantRAMQuotaMB: 768, wantDisk: 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testUserStats(t, tc.custom, tc.wantRAMQuotaMB, tc.wantDisk)
+		})
+	}
+}
+
+func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB int64) {
+	t.Helper()
 	ownerID := uuid.New()
 	contRepo := coremocks.NewStatsContainerRepository(t)
 	volRepo := coremocks.NewStatsVolumeRepository(t)
 	imgRepo := coremocks.NewStatsImageRepository(t)
 	buildRepo := coremocks.NewStatsBuildRepository(t)
 	projRepo := coremocks.NewStatsProjectRepository(t)
-	users := coremocks.NewUserInfoProvider(t)
 	var containerListOpts model.ListOptions
 
-	cfg := coretest.StaticConfig{Config: testSystemConfig()}
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 512, QuotaDiskMB: 100}, nil)
+	cfgValue := testSystemConfig()
+	cfgValue.DefaultUserQuotaRAMMB, cfgValue.DefaultUserQuotaDiskMB = 768, 200
+	cfg := coretest.StaticConfig{Config: cfgValue}
+	customQuotas := map[uuid.UUID]model.UserQuota{}
+	if custom {
+		customQuotas[ownerID] = model.UserQuota{CPUMillicores: 1000, RAMMB: 512, DiskMB: 100}
+	}
 	contRepo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(256), nil)
 	contRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(3, nil)
 	contRepo.EXPECT().
@@ -45,7 +67,7 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	projRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Project(nil), 5, nil)
 	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: coremocks.NewStatsMetricsProvider(t), Config: cfg, Users: users, Borrowed: coremocks.NewStatsBorrowedMemory(t), RootfsQuota: coremocks.NewStatsRootfsQuota(t), VolumeSizeMode: coremocks.NewStatsVolumeSizeMode(t),
+		Metrics: coremocks.NewStatsMetricsProvider(t), Config: cfg, Quotas: testQuotas(t, cfg, customQuotas), Borrowed: coremocks.NewStatsBorrowedMemory(t), RootfsQuota: coremocks.NewStatsRootfsQuota(t), VolumeSizeMode: coremocks.NewStatsVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
 
@@ -55,9 +77,9 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 	require.Equal(t, 2, stats.ContainersRunning)
 	require.Equal(t, testSystemConfig().MaxContainersPerUser, stats.ContainersQuota)
 	require.EqualValues(t, 256, stats.RamUsedBytes)
-	require.EqualValues(t, 512*1024*1024, stats.RamQuotaBytes)
+	require.Equal(t, wantRAMQuotaMB*1024*1024, stats.RamQuotaBytes)
 	require.Equal(t, 12, stats.DiskUsedMB)
-	require.Equal(t, 100, stats.DiskQuotaMB)
+	require.Equal(t, int(wantDiskQuotaMB), stats.DiskQuotaMB)
 	require.Equal(t, 2, stats.VolumesTotal)
 	require.Equal(t, testSystemConfig().MaxVolumesPerUser, stats.VolumesQuota)
 	require.Equal(t, 4, stats.ImagesTotal)

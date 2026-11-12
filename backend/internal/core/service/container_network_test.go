@@ -111,7 +111,7 @@ func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 		Docker:       coremocks.NewContainerDockerAPI(t),
 		Metrics:      coremocks.NewHostMetricsProvider(t),
 		Config:       testConfig(),
-		Users:        coremocks.NewUserInfoProvider(t),
+		Quotas:       testQuotas(t, nil, nil),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})
@@ -140,10 +140,8 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	repo := newContainerRepository(t)
 	imageRepo := newContainerImageRepository(t)
 	metrics := coremocks.NewHostMetricsProvider(t)
-	users := coremocks.NewUserInfoProvider(t)
 	cfg := coretest.StaticConfig{Config: containerCreateConfig()}
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaRAMMB: 1024, QuotaDiskMB: 1024, QuotaCPU: 2}, nil)
 	repo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
@@ -157,7 +155,7 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 		Docker:       coremocks.NewContainerDockerAPI(t),
 		Metrics:      metrics,
 		Config:       cfg,
-		Users:        users,
+		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
 		HostDiskPath: "",
 		Logger:       slog.Default(),
 	})

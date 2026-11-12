@@ -154,6 +154,13 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.DefaultVolumeSizeBytes < MinVolumeSizeBytes {
 		return fmt.Errorf("default volume size must be at least 1 MiB")
 	}
+	// NaN fails every comparison, so it is rejected too.
+	if !(cfg.DefaultUserQuotaCPU > 0 && cfg.DefaultUserQuotaCPU <= MaxUserQuotaCPU) || CPUMillicores(cfg.DefaultUserQuotaCPU) < 1 {
+		return fmt.Errorf("default user cpu quota must be between 0.001 and %.0f cores", MaxUserQuotaCPU)
+	}
+	if cfg.DefaultUserQuotaRAMMB <= 0 || cfg.DefaultUserQuotaDiskMB <= 0 {
+		return fmt.Errorf("default user memory and disk quotas must be positive")
+	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}

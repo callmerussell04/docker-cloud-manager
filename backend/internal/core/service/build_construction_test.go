@@ -20,7 +20,7 @@ func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
 		"Repository":    "repository",
 		"Images":        "images",
 		"Registry":      "registry",
-		"Users":         "users",
+		"Quotas":        "quotas",
 		"Config":        "config",
 		"VolumeRepo":    "volumes",
 		"StagedObjects": "staged objects",
@@ -69,7 +69,7 @@ func buildServiceDeps(t *testing.T) service.BuildServiceDeps {
 		Repository:    newBuildRepository(t),
 		Images:        coremocks.NewBuildImageRepository(t),
 		Registry:      coremocks.NewImageRegistryAPI(t),
-		Users:         coremocks.NewUserInfoProvider(t),
+		Quotas:        testQuotas(t, nil, nil),
 		Config:        coretest.StaticConfig{Config: coretest.IntegrationConfig()},
 		VolumeRepo:    volumes,
 		StagedObjects: staged,
@@ -93,6 +93,9 @@ func newTestBuildService(t *testing.T, deps service.BuildServiceDeps) *service.B
 	defaults := buildServiceDeps(t)
 	if deps.Config == nil {
 		deps.Config = defaults.Config
+	}
+	if deps.Quotas == nil {
+		deps.Quotas = testQuotas(t, deps.Config, nil)
 	}
 	if deps.VolumeRepo == nil {
 		deps.VolumeRepo = defaults.VolumeRepo

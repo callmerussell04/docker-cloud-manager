@@ -104,6 +104,9 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		BoostMinFreeMemoryBytes:              cfg.BoostMinFreeMemoryBytes,
 		DefaultVolumeSizeBytes:               cfg.DefaultVolumeSizeBytes,
 		VolumeSizeEnforcement:                cfg.VolumeSizeEnforcement,
+		DefaultUserQuotaCpu:                  cfg.DefaultUserQuotaCPU,
+		DefaultUserQuotaRamMb:                cfg.DefaultUserQuotaRAMMB,
+		DefaultUserQuotaDiskMb:               cfg.DefaultUserQuotaDiskMB,
 		TelemetryMaxLogTailLines:             int32(cfg.TelemetryMaxLogTailLines),
 		TelemetryMaxLogStreamsPerUser:        int32(cfg.TelemetryMaxLogStreamsPerUser),
 		TelemetryMaxTerminalSessionsPerUser:  int32(cfg.TelemetryMaxTerminalSessionsPerUser),
@@ -200,6 +203,9 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.BoostMinFreeMemoryBytes = req.GetBoostMinFreeMemoryBytes()
 	newCfg.DefaultVolumeSizeBytes = req.GetDefaultVolumeSizeBytes()
 	newCfg.VolumeSizeEnforcement = req.GetVolumeSizeEnforcement()
+	newCfg.DefaultUserQuotaCPU = req.GetDefaultUserQuotaCpu()
+	newCfg.DefaultUserQuotaRAMMB = req.GetDefaultUserQuotaRamMb()
+	newCfg.DefaultUserQuotaDiskMB = req.GetDefaultUserQuotaDiskMb()
 	newCfg.TelemetryMaxLogTailLines = int(req.GetTelemetryMaxLogTailLines())
 	newCfg.TelemetryMaxLogStreamsPerUser = int(req.GetTelemetryMaxLogStreamsPerUser())
 	newCfg.TelemetryMaxTerminalSessionsPerUser = int(req.GetTelemetryMaxTerminalSessionsPerUser())

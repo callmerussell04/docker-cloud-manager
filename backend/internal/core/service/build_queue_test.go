@@ -21,13 +21,11 @@ import (
 func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
-	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	svc := newTestBuildService(t, service.BuildServiceDeps{
 		Repository: repo,
 		Images:     imageRepo,
 		Registry:   registry,
-		Users:      users,
 	})
 	ownerID := uuid.New()
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
@@ -35,7 +33,6 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	var queuedBuild model.Build
 	var queuedOutbox model.BuildQueueOutbox
 
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().
 		CreateQueuedBuild(mock.Anything, mock.AnythingOfType("model.Image"), mock.AnythingOfType("model.Build"), mock.AnythingOfType("model.BuildQueueOutbox")).
@@ -67,7 +64,6 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
-	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	staged := coremocks.NewStagedObjectRepository(t)
 	staged.EXPECT().ActiveBytesByOwner(mock.Anything, mock.Anything).Return(int64(0), nil)
@@ -76,7 +72,6 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 		Repository:    repo,
 		Images:        imageRepo,
 		Registry:      registry,
-		Users:         users,
 		ObjectStore:   objects,
 		StagedObjects: staged,
 	})
@@ -103,7 +98,6 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	staged.EXPECT().
 		UpdateBytes(mock.Anything, mock.AnythingOfType("string"), int64(len("archive"))).
 		Return(nil).Once()
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().
 		CreateQueuedBuild(mock.Anything, mock.AnythingOfType("model.Image"), mock.AnythingOfType("model.Build"), mock.AnythingOfType("model.BuildQueueOutbox")).
@@ -138,7 +132,7 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 		Repository:  repo,
 		Images:      imageRepo,
 		Registry:    coremocks.NewImageRegistryAPI(t),
-		Users:       coremocks.NewUserInfoProvider(t),
+		Quotas:      testQuotas(t, nil, nil),
 		ObjectStore: objects,
 	})
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
@@ -162,7 +156,7 @@ func TestBuildServiceStartBuildRecordSkipsTerminalBuild(t *testing.T) {
 		Repository:   repo,
 		Images:       coremocks.NewBuildImageRepository(t),
 		Registry:     coremocks.NewImageRegistryAPI(t),
-		Users:        coremocks.NewUserInfoProvider(t),
+		Quotas:       testQuotas(t, nil, nil),
 		RegistryAuth: auth,
 	})
 
@@ -182,7 +176,7 @@ func TestBuildServiceCompleteBuildRecordSkipsTerminalBuild(t *testing.T) {
 		Repository: repo,
 		Images:     imageRepo,
 		Registry:   coremocks.NewImageRegistryAPI(t),
-		Users:      coremocks.NewUserInfoProvider(t),
+		Quotas:     testQuotas(t, nil, nil),
 	})
 
 	repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: model.BuildStatusFailed}, nil)
@@ -209,7 +203,7 @@ func TestBuildServiceCompleteBuildRecordRedeliveryQueuesCleanupOnlyForUnsuccessf
 				Repository:   repo,
 				Images:       coremocks.NewBuildImageRepository(t),
 				Registry:     coremocks.NewImageRegistryAPI(t),
-				Users:        coremocks.NewUserInfoProvider(t),
+				Quotas:       testQuotas(t, nil, nil),
 				RegistryAuth: auth,
 			})
 			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, Status: tc.persisted}, nil)
@@ -227,16 +221,16 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	repo := newBuildRepository(t)
 	imageRepo := coremocks.NewBuildImageRepository(t)
 	objects := coremocks.NewBuildObjectStore(t)
-	users := coremocks.NewUserInfoProvider(t)
 	registry := coremocks.NewImageRegistryAPI(t)
 	auth := coremocks.NewBuildRegistryAuthorizer(t)
 	svc := newTestBuildService(t, service.BuildServiceDeps{
 		Repository:   repo,
 		Images:       imageRepo,
 		Registry:     registry,
-		Users:        users,
 		ObjectStore:  objects,
 		RegistryAuth: auth,
+		// The 2 MiB image does not fit a 1 MB disk quota.
+		Quotas: testQuotas(t, nil, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1}}),
 	})
 	var failedStatus string
 	var deleted []string
@@ -250,7 +244,6 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	}, nil)
 	imageRepo.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo-app:latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo-app", "latest").Return(int64(2*1024*1024), "digest", nil)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	imageRepo.EXPECT().GetReplacementImageSizeMB(mock.Anything, ownerID, "demo-app:latest", imageID).Return(int64(0), nil)
 	imageRepo.EXPECT().
@@ -283,7 +276,7 @@ func TestBuildServiceCancelStandaloneBuildDoesNotCancelDeployment(t *testing.T) 
 		Repository:  repo,
 		Images:      imageRepo,
 		Registry:    coremocks.NewImageRegistryAPI(t),
-		Users:       coremocks.NewUserInfoProvider(t),
+		Quotas:      testQuotas(t, nil, nil),
 		ObjectStore: objects,
 		Deployments: deployments,
 	})
@@ -325,7 +318,7 @@ func TestBuildServiceCancelComposeBuildCancelsDeploymentOnce(t *testing.T) {
 		Repository:  repo,
 		Images:      imageRepo,
 		Registry:    coremocks.NewImageRegistryAPI(t),
-		Users:       coremocks.NewUserInfoProvider(t),
+		Quotas:      testQuotas(t, nil, nil),
 		Deployments: deployments,
 	})
 	pendingBuild := model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, ProjectID: &projectID, Status: model.BuildStatusPending}

@@ -76,6 +76,9 @@ type SystemConfig struct {
 	BoostMinFreeMemoryBytes              int64
 	DefaultVolumeSizeBytes               int64
 	VolumeSizeEnforcement                bool
+	DefaultUserQuotaCPU                  float64
+	DefaultUserQuotaRAMMB                int64
+	DefaultUserQuotaDiskMB               int64
 	GitSourcesEnabled                    bool
 	GitAllowedHosts                      []string
 	GitCloneTimeoutSeconds               int64

@@ -562,6 +562,9 @@ message SystemConfigData {
   int64 boost_min_free_memory_bytes = 94;
   int64 default_volume_size_bytes = 95;
   bool volume_size_enforcement = 96;
+  double default_user_quota_cpu = 97;
+  int64 default_user_quota_ram_mb = 98;
+  int64 default_user_quota_disk_mb = 99;
 }
 
 message BuilderRuntimeConfigData {

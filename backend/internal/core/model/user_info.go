@@ -2,14 +2,13 @@ package model
 
 import "github.com/google/uuid"
 
+// UserInfo is the identity Core reads from SSO. Quotas are not part of it:
+// Core owns them (see model.UserQuota).
 type UserInfo struct {
-	Status      string
-	ID          uuid.UUID
-	Username    string
-	Role        string
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
-	QuotaCPU    float64
+	Status   string
+	ID       uuid.UUID
+	Username string
+	Role     string
 }
 
 // BytesToMBRoundedUp converts bytes to the whole MB that disk quotas count,

@@ -82,7 +82,7 @@ type VolumeService struct {
 	repo         VolumeRepository
 	dockerAPI    VolumeDockerAPI
 	cfg          ConfigManager
-	users        UserInfoProvider
+	quotas       UserQuotaProvider
 	imageRepo    volumeImageDiskRepository
 	diskMetrics  HostDiskMetricsProvider
 	hostDiskPath string
@@ -100,7 +100,7 @@ type VolumeServiceDeps struct {
 	Docker       VolumeDockerAPI
 	Config       ConfigManager
 	Lifecycle    VolumeLifecycleRepository
-	Users        UserInfoProvider
+	Quotas       UserQuotaProvider
 	ImageRepo    volumeImageDiskRepository
 	DiskMetrics  HostDiskMetricsProvider
 	CapacityLock VolumeCapacityLock
@@ -116,7 +116,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 	}{
 		{"repository", deps.Repository}, {"docker", deps.Docker},
 		{"config", deps.Config}, {"lifecycle", deps.Lifecycle},
-		{"users", deps.Users}, {"images", deps.ImageRepo}, {"disk metrics", deps.DiskMetrics},
+		{"quotas", deps.Quotas}, {"images", deps.ImageRepo}, {"disk metrics", deps.DiskMetrics},
 		{"capacity lock", deps.CapacityLock}, {"volume size mode", deps.SizeMode},
 	}
 	for _, dependency := range required {
@@ -129,7 +129,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		dockerAPI:    deps.Docker,
 		cfg:          deps.Config,
 		lifecycle:    deps.Lifecycle,
-		users:        deps.Users,
+		quotas:       deps.Quotas,
 		imageRepo:    deps.ImageRepo,
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
@@ -143,7 +143,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 // leaves of their disk quota. The caller holds the owner capacity lock.
 func (s *VolumeService) admitVolumeSize(ctx context.Context, ownerID uuid.UUID, sizeBytes int64) error {
 	sources := admissionSources{
-		users:   s.users,
+		quotas:  s.quotas,
 		images:  s.imageRepo,
 		volumes: s.repo,
 		logger:  s.logger,

@@ -1,5 +1,7 @@
 package config
 
+import "math"
+
 const (
 	DefaultReportsUsageSnapshotIntervalSeconds = int64(300)
 	MinReportsUsageSnapshotIntervalSeconds     = int64(60)
@@ -10,7 +12,16 @@ const (
 	// MinVolumeSizeBytes is the smallest volume size, for the default and for
 	// a size given at creation.
 	MinVolumeSizeBytes = int64(1 << 20)
+	// MaxUserQuotaCPU bounds a CPU quota in cores, so its millicores stay an
+	// exact int64.
+	MaxUserQuotaCPU = 1_000_000.0
 )
+
+// CPUMillicores converts a CPU quota in cores to the whole millicores that
+// admission counts, rounding to the nearest millicore.
+func CPUMillicores(cores float64) int64 {
+	return int64(math.Round(cores * 1000))
+}
 
 type SystemConfig struct {
 	BaseDomain                  string   `json:"base_domain"`
@@ -109,6 +120,13 @@ type SystemConfig struct {
 	// kernel refuses writes past it. Turning it on requires a host whose
 	// Docker data directory supports project quotas.
 	VolumeSizeEnforcement bool `json:"volume_size_enforcement"`
+	// DefaultUserQuotaCPU, DefaultUserQuotaRAMMB and DefaultUserQuotaDiskMB
+	// are the quota of every user without a custom quota, in cores and MB.
+	// They are read at use, so a change applies at each such user's next
+	// admission.
+	DefaultUserQuotaCPU    float64 `json:"default_user_quota_cpu"`
+	DefaultUserQuotaRAMMB  int64   `json:"default_user_quota_ram_mb"`
+	DefaultUserQuotaDiskMB int64   `json:"default_user_quota_disk_mb"`
 
 	GitSourcesEnabled      bool     `json:"git_sources_enabled"`
 	GitAllowedHosts        []string `json:"git_allowed_hosts"`

@@ -3706,6 +3706,9 @@ type SystemConfigData struct {
 	BoostMinFreeMemoryBytes              int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
 	DefaultVolumeSizeBytes               int64                  `protobuf:"varint,95,opt,name=default_volume_size_bytes,json=defaultVolumeSizeBytes,proto3" json:"default_volume_size_bytes,omitempty"`
 	VolumeSizeEnforcement                bool                   `protobuf:"varint,96,opt,name=volume_size_enforcement,json=volumeSizeEnforcement,proto3" json:"volume_size_enforcement,omitempty"`
+	DefaultUserQuotaCpu                  float64                `protobuf:"fixed64,97,opt,name=default_user_quota_cpu,json=defaultUserQuotaCpu,proto3" json:"default_user_quota_cpu,omitempty"`
+	DefaultUserQuotaRamMb                int64                  `protobuf:"varint,98,opt,name=default_user_quota_ram_mb,json=defaultUserQuotaRamMb,proto3" json:"default_user_quota_ram_mb,omitempty"`
+	DefaultUserQuotaDiskMb               int64                  `protobuf:"varint,99,opt,name=default_user_quota_disk_mb,json=defaultUserQuotaDiskMb,proto3" json:"default_user_quota_disk_mb,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4356,6 +4359,27 @@ func (x *SystemConfigData) GetVolumeSizeEnforcement() bool {
 	return false
 }
 
+func (x *SystemConfigData) GetDefaultUserQuotaCpu() float64 {
+	if x != nil {
+		return x.DefaultUserQuotaCpu
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetDefaultUserQuotaRamMb() int64 {
+	if x != nil {
+		return x.DefaultUserQuotaRamMb
+	}
+	return 0
+}
+
+func (x *SystemConfigData) GetDefaultUserQuotaDiskMb() int64 {
+	if x != nil {
+		return x.DefaultUserQuotaDiskMb
+	}
+	return 0
+}
+
 type BuilderRuntimeConfigData struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
 	BuildMemoryBytes               int64                  `protobuf:"varint,1,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
@@ -4920,7 +4944,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\x9e,\n" +
+	"totalCount\"\xc9-\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5012,7 +5036,10 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x14cpu_boost_multiplier\x18] \x01(\x03R\x12cpuBoostMultiplier\x12<\n" +
 	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytes\x129\n" +
 	"\x19default_volume_size_bytes\x18_ \x01(\x03R\x16defaultVolumeSizeBytes\x126\n" +
-	"\x17volume_size_enforcement\x18` \x01(\bR\x15volumeSizeEnforcementJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x17volume_size_enforcement\x18` \x01(\bR\x15volumeSizeEnforcement\x123\n" +
+	"\x16default_user_quota_cpu\x18a \x01(\x01R\x13defaultUserQuotaCpu\x128\n" +
+	"\x19default_user_quota_ram_mb\x18b \x01(\x03R\x15defaultUserQuotaRamMb\x12:\n" +
+	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMbJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

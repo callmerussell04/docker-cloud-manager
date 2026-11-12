@@ -71,9 +71,12 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 	repos := f.Repos
 	logger := DiscardLogger()
 
+	// The coordinator reads the owner's username for audit events only.
 	users := coremocks.NewUserInfoProvider(t)
 	users.EXPECT().GetUser(mock.Anything, f.OwnerID).
-		Return(model.UserInfo{ID: f.OwnerID, Username: "composer", QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil).Maybe()
+		Return(model.UserInfo{ID: f.OwnerID, Username: "composer"}, nil).Maybe()
+	repos.SetCustomQuota(t, f.OwnerID, model.UserQuota{CPUMillicores: 4000, RAMMB: 4096, DiskMB: 4096})
+	quotas := repos.UserQuotas(t, f.Config)
 	hostMetrics := coremocks.NewHostMetricsProvider(t)
 	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
 	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
@@ -87,7 +90,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		RegistryAuth:  repos.RegistryAuthorization(t),
 		Images:        repos.Images,
 		Registry:      f.Registry,
-		Users:         users,
+		Quotas:        quotas,
 		Logger:        logger,
 		Containers:    repos.Containers,
 		HostMetrics:   hostMetrics,
@@ -107,7 +110,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		Metrics:      hostMetrics,
 		DiskMetrics:  diskMetrics,
 		Config:       f.Config,
-		Users:        users,
+		Quotas:       quotas,
 		Builds:       repos.Builds,
 		HostDiskPath: "/",
 		Logger:       logger,
@@ -118,7 +121,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		Docker:       f.VolumeDocker,
 		Config:       f.Config,
 		Lifecycle:    repos.Lifecycle,
-		Users:        users,
+		Quotas:       quotas,
 		ImageRepo:    repos.Images,
 		DiskMetrics:  diskMetrics,
 		CapacityLock: repos.Containers,
@@ -153,7 +156,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		StagedObjects:     repos.Staged,
 		DiskMetrics:       diskMetrics,
 		HostDiskPath:      "/",
-		Users:             users,
+		Quotas:            quotas,
 		Logger:            logger,
 	})
 	require.NoError(t, err)

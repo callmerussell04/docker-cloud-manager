@@ -4,6 +4,7 @@ import "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/co
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -247,6 +248,9 @@ func validSystemConfig() config.SystemConfig {
 		CPUBoostMultiplier:                   8,
 		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
 		DefaultVolumeSizeBytes:               1 << 30,
+		DefaultUserQuotaCPU:                  1,
+		DefaultUserQuotaRAMMB:                2048,
+		DefaultUserQuotaDiskMB:               5120,
 		VolumeSizeEnforcement:                false,
 		GitSourcesEnabled:                    true,
 		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
@@ -301,6 +305,99 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 				t.Fatal("ValidateSystemConfig() accepted the setting")
 			}
 		})
+	}
+}
+
+func TestValidateSystemConfigRequiresPositiveDefaultUserQuotas(t *testing.T) {
+	smallest := validSystemConfig()
+	smallest.DefaultUserQuotaCPU = 0.001
+	smallest.DefaultUserQuotaRAMMB, smallest.DefaultUserQuotaDiskMB = 1, 1
+	if err := config.ValidateSystemConfig(smallest); err != nil {
+		t.Fatalf("one millicore, 1 MB of memory and 1 MB of disk are valid defaults: %v", err)
+	}
+	// The rejected values carry a marker that must not reach the message,
+	// which UpdateConfig returns to the admin client verbatim.
+	const marker = "7777"
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.SystemConfig)
+	}{
+		{name: "zero cpu", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = 0 }},
+		{name: "negative cpu", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = -7777 }},
+		{name: "cpu below one millicore", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = 0.00049 }},
+		{name: "cpu not a number", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = math.NaN() }},
+		{name: "cpu infinite", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = math.Inf(1) }},
+		{name: "cpu negative infinite", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = math.Inf(-1) }},
+		{name: "cpu above the maximum", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU = 77770000 }},
+		{name: "zero memory", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaRAMMB = 0 }},
+		{name: "negative memory", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaRAMMB = -7777 }},
+		{name: "zero disk", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaDiskMB = 0 }},
+		{name: "negative disk", apply: func(c *config.SystemConfig) { c.DefaultUserQuotaDiskMB = -7777 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.apply(&cfg)
+			err := config.ValidateSystemConfig(cfg)
+			if err == nil {
+				t.Fatal("ValidateSystemConfig() accepted the setting")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Fatalf("ValidateSystemConfig() error %q echoes the rejected value", err)
+			}
+		})
+	}
+}
+
+// Default user quotas are runtime settings: an update survives a restart, and
+// a file written before they existed gets the first-run defaults.
+func TestDefaultUserQuotasSurviveARestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	manager, err := config.NewManager(path, validSystemConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := manager.Get()
+	updated.DefaultUserQuotaCPU = 2.5
+	updated.DefaultUserQuotaRAMMB = 4096
+	updated.DefaultUserQuotaDiskMB = 10240
+	if err := manager.Update(updated); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := config.NewManager(path, validSystemConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := restarted.Get()
+	if got.DefaultUserQuotaCPU != 2.5 || got.DefaultUserQuotaRAMMB != 4096 || got.DefaultUserQuotaDiskMB != 10240 {
+		t.Fatalf("default user quotas after restart = %v, %d, %d", got.DefaultUserQuotaCPU, got.DefaultUserQuotaRAMMB, got.DefaultUserQuotaDiskMB)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"default_user_quota_cpu", "default_user_quota_ram_mb", "default_user_quota_disk_mb"} {
+		delete(raw, key)
+	}
+	older, err := json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, older, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backfilled, err := config.NewManager(path, validSystemConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = backfilled.Get()
+	if got.DefaultUserQuotaCPU != 1 || got.DefaultUserQuotaRAMMB != 2048 || got.DefaultUserQuotaDiskMB != 5120 {
+		t.Fatalf("backfilled default user quotas = %v, %d, %d", got.DefaultUserQuotaCPU, got.DefaultUserQuotaRAMMB, got.DefaultUserQuotaDiskMB)
 	}
 }
 

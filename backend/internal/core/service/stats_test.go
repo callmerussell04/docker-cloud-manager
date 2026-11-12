@@ -25,7 +25,7 @@ func TestNewStatsServiceRejectsMissingDependencies(t *testing.T) {
 			Projects:       coremocks.NewStatsProjectRepository(t),
 			Metrics:        coremocks.NewStatsMetricsProvider(t),
 			Config:         testConfig(),
-			Users:          coremocks.NewUserInfoProvider(t),
+			Quotas:         testQuotas(t, nil, nil),
 			Borrowed:       coremocks.NewStatsBorrowedMemory(t),
 			RootfsQuota:    coremocks.NewStatsRootfsQuota(t),
 			VolumeSizeMode: coremocks.NewStatsVolumeSizeMode(t),
@@ -39,7 +39,7 @@ func TestNewStatsServiceRejectsMissingDependencies(t *testing.T) {
 		"Projects":       "projects",
 		"Metrics":        "metrics",
 		"Config":         "config",
-		"Users":          "users",
+		"Quotas":         "quotas",
 		"Borrowed":       "borrowed memory",
 		"RootfsQuota":    "rootfs quota status",
 		"VolumeSizeMode": "volume size mode",
@@ -99,7 +99,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	volumeSize.EXPECT().VolumeSizeMode().Return(model.VolumeSizeEnforced)
 	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Users: coremocks.NewUserInfoProvider(t), Borrowed: borrowed,
+		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Quotas: testQuotas(t, nil, nil), Borrowed: borrowed,
 		RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSize,
 	})
 	require.NoError(t, err)

@@ -31,13 +31,8 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	otherOwnerID := uuid.New()
 	adminID := uuid.New()
 
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().
-		GetUser(mock.Anything, mock.AnythingOfType("uuid.UUID")).
-		RunAndReturn(func(ctx context.Context, id uuid.UUID) (model.UserInfo, error) {
-			return model.UserInfo{ID: id, Username: "user-" + id.String()[:8], QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil
-		}).
-		Maybe()
+	// Every owner has the default quota in Core's store.
+	quotas := repos.UserQuotas(t, cfg)
 	volumeDocker := coremocks.NewVolumeDockerAPI(t)
 	volumeDocker.EXPECT().
 		CreateVolume(mock.Anything, mock.AnythingOfType("model.VolumeRuntimeSpec")).
@@ -61,7 +56,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Config:       cfg,
 		Lifecycle:    lifecycle,
 		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
-		Users:        users,
+		Quotas:       quotas,
 		ImageRepo:    repos.Images,
 		CapacityLock: repos.Containers,
 		SizeMode:     coretest.MeasuredVolumeSizeMode(t),
@@ -76,7 +71,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 		Docker:       containerDocker,
 		Metrics:      metrics,
 		Config:       cfg,
-		Users:        users,
+		Quotas:       quotas,
 		HostDiskPath: "",
 		Logger:       coretest.DiscardLogger(),
 	})
@@ -97,7 +92,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	rootfsQuota.EXPECT().RootfsQuotaStatus().Return(model.RootfsQuotaUnknown).Maybe()
 	stats, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: repos.Containers, Volumes: repos.Volumes, Images: repos.Images, Builds: repos.Builds, Projects: repos.Projects,
-		Metrics: statsMetrics, Config: cfg, Users: users, Borrowed: borrowed, RootfsQuota: rootfsQuota,
+		Metrics: statsMetrics, Config: cfg, Quotas: quotas, Borrowed: borrowed, RootfsQuota: rootfsQuota,
 		VolumeSizeMode: coretest.MeasuredVolumeSizeMode(t),
 	})
 	require.NoError(t, err)
@@ -223,10 +218,8 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 	repos := coretest.OpenCoreRepositories(t)
 	cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
 	ownerID := uuid.New()
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{
-		ID: ownerID, Username: "limited", QuotaRAMMB: 1, QuotaDiskMB: 4096,
-	}, nil).Maybe()
+	repos.SetCustomQuota(t, ownerID, model.UserQuota{CPUMillicores: 4000, RAMMB: 1, DiskMB: 4096})
+	quotas := repos.UserQuotas(t, cfg)
 	metrics := coremocks.NewHostMetricsProvider(t)
 	metrics.EXPECT().GetTotalMemory().Return(int64(64<<30), nil).Maybe()
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
@@ -240,7 +233,7 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 		Docker:       coremocks.NewContainerDockerAPI(t),
 		Metrics:      metrics,
 		Config:       cfg,
-		Users:        users,
+		Quotas:       quotas,
 		HostDiskPath: "",
 		Logger:       coretest.DiscardLogger(),
 	})

@@ -122,7 +122,7 @@ type BuildService struct {
 	imageRepo    BuildImageRepository
 	volumeRepo   BuildVolumeDiskRepository
 	registryAPI  BuildImageMetadataAPI
-	users        UserInfoProvider
+	quotas       UserQuotaProvider
 	cfg          BuildConfigProvider
 	objectStore  BuildObjectStore
 	deployments  BuildDeploymentCanceler
@@ -142,7 +142,7 @@ type BuildServiceDeps struct {
 	Repository    BuildRepository
 	Images        BuildImageRepository
 	Registry      BuildImageMetadataAPI
-	Users         UserInfoProvider
+	Quotas        UserQuotaProvider
 	Logger        *slog.Logger
 	VolumeRepo    BuildVolumeDiskRepository
 	Config        BuildConfigProvider
@@ -174,7 +174,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		value any
 	}{
 		{"repository", deps.Repository}, {"images", deps.Images},
-		{"registry", deps.Registry}, {"users", deps.Users},
+		{"registry", deps.Registry}, {"quotas", deps.Quotas},
 		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
 		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
 		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
@@ -189,7 +189,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		repo:         deps.Repository,
 		imageRepo:    deps.Images,
 		registryAPI:  deps.Registry,
-		users:        deps.Users,
+		quotas:       deps.Quotas,
 		registryAuth: deps.RegistryAuth,
 		volumeRepo:   deps.VolumeRepo,
 		cfg:          deps.Config,
@@ -197,7 +197,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		deployments:  deps.Deployments,
 		staging: stagedsource.New(stagedsource.Deps{
 			Repository:   deps.StagedObjects,
-			Users:        deps.Users,
+			Quotas:       deps.Quotas,
 			ReservedDisk: reservedDiskSource{images: deps.Images, volumes: deps.VolumeRepo},
 			DiskMetrics:  deps.DiskMetrics,
 			HostDiskPath: deps.HostDiskPath,
@@ -233,7 +233,7 @@ func (s *BuildService) getUserReservedDiskMB(ctx context.Context, ownerID uuid.U
 func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
 	sources := admissionSources{
-		users:        s.users,
+		quotas:       s.quotas,
 		system:       s.containers,
 		builds:       s.repo,
 		images:       s.imageRepo,
@@ -770,7 +770,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		sizeMB = 1
 	}
 
-	user, err := s.users.GetUser(ctx, img.OwnerID)
+	quota, err := s.quotas.EffectiveUserQuota(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}
@@ -787,7 +787,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		usedMB = 0
 	}
 
-	if usedMB+int64(sizeMB) > user.QuotaDiskMB {
+	if usedMB+int64(sizeMB) > quota.DiskMB {
 		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
 			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
 		}

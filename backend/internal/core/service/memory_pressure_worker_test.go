@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/userquota"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
@@ -146,7 +147,7 @@ func TestMemoryPressureWorkerStopsContainersOverTheirReservation(t *testing.T) {
 				Docker:     docker,
 				Metrics:    metrics,
 				Builds:     builds,
-				Users:      coremocks.NewUserInfoProvider(t),
+				Quotas:     testQuotas(t, nil, nil),
 				Config:     coretest.StaticConfig{Config: cfg},
 				Logger:     slog.New(slog.DiscardHandler),
 			})
@@ -184,7 +185,7 @@ func TestNewMemoryPressureWorkerRejectsMissingDependencies(t *testing.T) {
 			Docker:     coremocks.NewMemoryPressureDockerAPI(t),
 			Metrics:    coremocks.NewMemoryPressureHostMetrics(t),
 			Builds:     coremocks.NewActiveSystemBuildCounter(t),
-			Users:      coremocks.NewUserInfoProvider(t),
+			Quotas:     testQuotas(t, nil, nil),
 			Config:     testConfig(),
 		}
 	}
@@ -193,7 +194,7 @@ func TestNewMemoryPressureWorkerRejectsMissingDependencies(t *testing.T) {
 		"Docker":     "docker",
 		"Metrics":    "metrics",
 		"Builds":     "builds",
-		"Users":      "users",
+		"Quotas":     "quotas",
 		"Config":     "config",
 	})
 }
@@ -248,8 +249,12 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 		builds     []boostBuild
 		// boostMultiplier defaults to 8.
 		boostMultiplier int64
-		// quotaMiB is the memory quota of a named owner; others have 64 GiB.
-		quotaMiB map[string]int64
+		// quotaMiB is the custom memory quota of a named owner; others have
+		// the default quota, 64 GiB unless defaultQuotaMiB sets it.
+		quotaMiB        map[string]int64
+		defaultQuotaMiB int64
+		// quotaUnreadable makes every quota read fail.
+		quotaUnreadable bool
 		// wantLimitsMiB is every limit update sent to Docker.
 		wantLimitsMiB map[string]int64
 		wantStopped   []stopOf
@@ -303,6 +308,31 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			},
 			quotaMiB:      map[string]int64{"u": 768},
 			wantLimitsMiB: map[string]int64{"near": 1280},
+		},
+		{
+			name: "a user on a 768 MiB default quota borrows within it",
+			containers: []boostContainer{
+				{name: "boosted", owner: "u", usedMiB: 600, limitMiB: 1536},
+				{name: "near", owner: "u", usedMiB: 900},
+			},
+			defaultQuotaMiB: 768,
+			wantLimitsMiB:   map[string]int64{"near": 1280},
+		},
+		{
+			name: "a custom quota lets a user borrow more than the default",
+			containers: []boostContainer{
+				{name: "boosted", owner: "u", usedMiB: 600, limitMiB: 1536},
+				{name: "near", owner: "u", usedMiB: 900},
+			},
+			defaultQuotaMiB: 768,
+			quotaMiB:        map[string]int64{"u": 4096},
+			wantLimitsMiB:   map[string]int64{"near": 1536},
+		},
+		{
+			name:            "an owner whose quota cannot be read is lent nothing",
+			containers:      []boostContainer{{name: "near", usedMiB: 900}},
+			quotaUnreadable: true,
+			wantLimitsMiB:   map[string]int64{},
 		},
 		{
 			// 6060 MiB is used, leaving 1108 MiB free: below the boost
@@ -468,7 +498,13 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 			if tc.boostMultiplier != 0 {
 				cfg.MemoryBoostMultiplier = tc.boostMultiplier
 			}
+			if tc.defaultQuotaMiB != 0 {
+				cfg.DefaultUserQuotaRAMMB = tc.defaultQuotaMiB
+			}
 			pass := newBoostPass(t, cfg, tc.quotaMiB)
+			if tc.quotaUnreadable {
+				pass.quotas.SetFaults(coretest.UserQuotaStoreFaults{GetCustomUserQuota: coretest.FailAlways(errors.New("quota store unavailable"))})
+			}
 			for _, bc := range tc.containers {
 				pass.add(bc)
 			}
@@ -820,6 +856,8 @@ func boostTestConfig() config.SystemConfig {
 	cfg.BuildMemoryBytes = 1024 * pressureMiB
 	cfg.BuildMemorySwapMultiplier = 3
 	cfg.MaxConcurrentBuilds = 2
+	// Owners without a custom quota may borrow up to 64 GiB.
+	cfg.DefaultUserQuotaRAMMB = 64 * 1024
 	cfg.DefaultCPUReservation = 250
 	cfg.MaxCPUBurstMultiplier = 4
 	cfg.ContainerCPUPeriod = oneCore
@@ -840,7 +878,7 @@ type boostPass struct {
 	store   *coretest.ContainerStoreFake
 	docker  *coremocks.MemoryPressureDockerAPI
 	metrics *coremocks.MemoryPressureHostMetrics
-	users   *coremocks.UserInfoProvider
+	quotas  *coretest.UserQuotaStoreFake
 	worker  *service.MemoryPressureWorker
 	quota   map[string]int64
 	owners  map[string]uuid.UUID
@@ -870,7 +908,7 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 		t: t, cfg: cfg, store: coretest.NewContainerStoreFake(),
 		docker:  coremocks.NewMemoryPressureDockerAPI(t),
 		metrics: coremocks.NewMemoryPressureHostMetrics(t),
-		users:   coremocks.NewUserInfoProvider(t),
+		quotas:  coretest.NewUserQuotaStoreFake(),
 		quota:   quotaMiB, owners: map[string]uuid.UUID{}, names: map[uuid.UUID]string{},
 		usedMiB: map[string]int64{}, cpuNanos: map[string]int64{},
 		limits: map[string]int64{}, cpuQuota: map[string]int64{}, cpuPeriod: map[string]int64{}, periodSent: map[string]int64{},
@@ -882,13 +920,16 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 		func(context.Context) (int, error) { return len(p.builds), nil }).Maybe()
 	p.docker.EXPECT().ListRunningBuildContainers(mock.Anything).RunAndReturn(
 		func(context.Context) ([]model.BuildContainer, error) { return p.builds, nil }).Maybe()
+	static := coretest.StaticConfig{Config: cfg}
+	quotas, err := userquota.New(p.quotas, static)
+	require.NoError(t, err)
 	worker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
 		Repository: p.store,
 		Docker:     p.docker,
 		Metrics:    p.metrics,
 		Builds:     builds,
-		Users:      p.users,
-		Config:     coretest.StaticConfig{Config: cfg},
+		Quotas:     quotas,
+		Config:     static,
 		Logger:     slog.New(slog.DiscardHandler),
 	})
 	require.NoError(t, err)
@@ -929,14 +970,16 @@ func (p *boostPass) add(bc boostContainer) {
 	})
 }
 
-// owner returns the user named key, creating it with its quota.
+// owner returns the user named key, creating it with its custom quota if it
+// has one.
 func (p *boostPass) owner(key string) uuid.UUID {
 	owner, ok := p.owners[key]
 	if !ok {
 		owner = uuid.New()
 		p.owners[key] = owner
-		quota := cmp.Or(p.quota[key], 64*1024)
-		p.users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaRAMMB: quota}, nil).Maybe()
+		if quota, custom := p.quota[key]; custom {
+			require.NoError(p.t, p.quotas.SetCustomUserQuota(context.Background(), owner, model.UserQuota{CPUMillicores: 1000, RAMMB: quota, DiskMB: 1024}))
+		}
 	}
 	return owner
 }

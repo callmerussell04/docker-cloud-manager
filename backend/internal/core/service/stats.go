@@ -78,7 +78,7 @@ type StatsService struct {
 	metrics      StatsMetricsProvider
 	hostDiskPath string
 	cfg          ConfigManager
-	users        UserInfoProvider
+	quotas       UserQuotaProvider
 	borrowed     StatsBorrowedMemory
 	rootfsQuota  StatsRootfsQuota
 	volumeSize   StatsVolumeSizeMode
@@ -95,7 +95,7 @@ type StatsServiceDeps struct {
 	Metrics        StatsMetricsProvider
 	HostDiskPath   string
 	Config         ConfigManager
-	Users          UserInfoProvider
+	Quotas         UserQuotaProvider
 	Borrowed       StatsBorrowedMemory
 	RootfsQuota    StatsRootfsQuota
 	VolumeSizeMode StatsVolumeSizeMode
@@ -108,7 +108,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 	}{
 		{"containers", deps.Containers}, {"volumes", deps.Volumes}, {"images", deps.Images},
 		{"builds", deps.Builds}, {"projects", deps.Projects}, {"metrics", deps.Metrics},
-		{"config", deps.Config}, {"users", deps.Users}, {"borrowed memory", deps.Borrowed},
+		{"config", deps.Config}, {"quotas", deps.Quotas}, {"borrowed memory", deps.Borrowed},
 		{"rootfs quota status", deps.RootfsQuota}, {"volume size mode", deps.VolumeSizeMode},
 	}
 	for _, dependency := range required {
@@ -129,7 +129,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		metrics:      deps.Metrics,
 		hostDiskPath: hostDiskPath,
 		cfg:          deps.Config,
-		users:        deps.Users,
+		quotas:       deps.Quotas,
 		borrowed:     deps.Borrowed,
 		rootfsQuota:  deps.RootfsQuota,
 		volumeSize:   deps.VolumeSizeMode,
@@ -147,11 +147,11 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	stats.ContainersQuota = cfg.MaxContainersPerUser
 	stats.VolumesQuota = cfg.MaxVolumesPerUser
 
-	user, err := s.users.GetUser(ctx, ownerID)
+	quota, err := s.quotas.EffectiveUserQuota(ctx, ownerID)
 	if err != nil {
 		return model.UserStats{}, err
 	}
-	stats.RamQuotaBytes = user.QuotaRAMMB * 1024 * 1024
+	stats.RamQuotaBytes = quota.RAMMB * bytesPerMB
 	stats.RamUsedBytes, err = s.contRepo.GetUserReservedMemory(ctx, ownerID)
 	if err != nil {
 		return model.UserStats{}, err
@@ -171,7 +171,7 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 		}
 	}
 
-	stats.DiskQuotaMB = int(user.QuotaDiskMB)
+	stats.DiskQuotaMB = int(quota.DiskMB)
 	diskReserved, err := reservedDiskMB(ctx, ownerID, s.imgRepo, s.volRepo)
 	if err != nil {
 		return model.UserStats{}, err

@@ -25,6 +25,7 @@ packages:
       CapacityChecker: {}
       ComposeOutboxConfigProvider: {}
       ComposeOutboxRepository: {}
+      ConfigManager: {}
       ContainerDockerAPI: {}
       ContainerImageRepository: {}
       ContainerOutboxConfigProvider: {}
@@ -108,7 +109,6 @@ packages:
       HostDiskMetrics: {}
       Repository: {}
       ReservedDiskReader: {}
-      UserInfoProvider: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams:
     config:
       dir: internal/testutil/mocks/core/service/streams

@@ -16,6 +16,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/streams"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/userquota"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
@@ -101,6 +102,11 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	contRepo := repository.NewContainerRepository(db, lockDB)
 	volRepo := repository.NewVolumeRepository(db)
+	// Quota reads made under the owner capacity lock use the query pool.
+	userQuotas, err := userquota.New(repository.NewUserQuotaRepository(db), cfg.ConfigManager)
+	if err != nil {
+		return nil, err
+	}
 	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db, lockDB)
 	projRepo := repository.NewProjectRepository(db)
@@ -121,7 +127,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Repository: contRepo, Volumes: volRepo,
 		Images: imgRepo, Docker: dockerAdapter,
 		Metrics: metricsProvider, DiskMetrics: metricsProvider, Config: cfg.ConfigManager,
-		Users: ssoClient, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath,
+		Quotas: userQuotas, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath,
 		Logger: logger,
 	})
 	if err != nil {
@@ -132,7 +138,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Docker:       dockerAdapter,
 		Config:       cfg.ConfigManager,
 		Lifecycle:    resourceLifecycleRepo,
-		Users:        ssoClient,
+		Quotas:       userQuotas,
 		ImageRepo:    imgRepo,
 		DiskMetrics:  metricsProvider,
 		CapacityLock: contRepo,
@@ -160,7 +166,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Repository:    buildRepo,
 		Images:        imgRepo,
 		Registry:      registry.adapter,
-		Users:         ssoClient,
+		Quotas:        userQuotas,
 		Logger:        logger,
 		RegistryAuth:  registry.auth,
 		VolumeRepo:    volRepo,
@@ -227,7 +233,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		StagedObjects:     stagedRepo,
 		DiskMetrics:       metricsProvider,
 		HostDiskPath:      cfg.HostDiskPath,
-		Users:             ssoClient,
+		Quotas:            userQuotas,
 		Logger:            logger,
 	})
 	if err != nil {
@@ -284,7 +290,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Docker:     dockerAdapter,
 		Metrics:    metricsProvider,
 		Builds:     buildRepo,
-		Users:      ssoClient,
+		Quotas:     userQuotas,
 		Config:     cfg.ConfigManager,
 		Logger:     logger,
 	})
@@ -295,7 +301,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	rootfsQuota := service.CheckRootfsQuota(ctx, dockerAdapter, appLogger)
 	statsService, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Users: ssoClient,
+		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Quotas: userQuotas,
 		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSizeEnforcement,
 	})
 	if err != nil {

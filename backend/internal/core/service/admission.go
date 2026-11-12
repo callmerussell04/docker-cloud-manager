@@ -146,12 +146,12 @@ type systemReservationReader interface {
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
 
-// admissionSources are where a reservation ledger is read from. users is
+// admissionSources are where a reservation ledger is read from. quotas is
 // required; userReservations is read only for requests charged to the owner,
 // and system and builds only when host metrics are wired. Absent images,
 // volumes, host or disk metrics leave that part of the ledger uncounted.
 type admissionSources struct {
-	users            UserInfoProvider
+	quotas           UserQuotaProvider
 	userReservations userReservationReader
 	system           systemReservationReader
 	builds           activeSystemBuildCounter
@@ -185,13 +185,13 @@ func (s admissionSources) admit(ctx context.Context, ownerID uuid.UUID, req admi
 // readLedger reads the disk only when cfg enables the disk floor.
 func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, chargesUser bool, cfg config.SystemConfig) (reservationLedger, error) {
 	var ledger reservationLedger
-	user, err := s.users.GetUser(ctx, ownerID)
+	quota, err := s.quotas.EffectiveUserQuota(ctx, ownerID)
 	if err != nil {
 		return ledger, err
 	}
 	if chargesUser {
-		ledger.userMemoryQuotaBytes = user.QuotaRAMMB * bytesPerMB
-		ledger.userCPUQuotaMillicores = int64(user.QuotaCPU * 1000)
+		ledger.userMemoryQuotaBytes = quota.RAMMB * bytesPerMB
+		ledger.userCPUQuotaMillicores = quota.CPUMillicores
 		if ledger.userReservedMemoryBytes, err = s.userReservations.GetUserReservedMemory(ctx, ownerID); err != nil {
 			return ledger, err
 		}
@@ -201,7 +201,7 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, cha
 	}
 	if s.images != nil {
 		ledger.userDiskCounted = true
-		ledger.userDiskQuotaMB = user.QuotaDiskMB
+		ledger.userDiskQuotaMB = quota.DiskMB
 		if ledger.userReservedDiskMB, err = reservedDiskMB(ctx, ownerID, s.images, s.volumes); err != nil {
 			return ledger, err
 		}

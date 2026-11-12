@@ -76,6 +76,9 @@ type SystemConfigDTO struct {
 	BoostMinFreeMemoryBytes              int64    `json:"boost_min_free_memory_bytes"`
 	DefaultVolumeSizeBytes               int64    `json:"default_volume_size_bytes"`
 	VolumeSizeEnforcement                bool     `json:"volume_size_enforcement"`
+	DefaultUserQuotaCPU                  float64  `json:"default_user_quota_cpu"`
+	DefaultUserQuotaRAMMB                int64    `json:"default_user_quota_ram_mb"`
+	DefaultUserQuotaDiskMB               int64    `json:"default_user_quota_disk_mb"`
 	GitSourcesEnabled                    bool     `json:"git_sources_enabled"`
 	GitAllowedHosts                      []string `json:"git_allowed_hosts"`
 	GitCloneTimeoutSeconds               int64    `json:"git_clone_timeout_seconds"`

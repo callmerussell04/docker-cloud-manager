@@ -211,6 +211,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	initial := coretest.SystemConfig()
 	initial.VolumeSizeEnforcement = true
+	initial.DefaultUserQuotaCPU, initial.DefaultUserQuotaRAMMB, initial.DefaultUserQuotaDiskMB = 1.5, 3072, 6144
 	logic := coregrpcmocks.NewMockSystemLogic(t)
 	var updated config.SystemConfig
 	logic.EXPECT().GetConfig(mock.Anything).Return(initial)
@@ -235,6 +236,9 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	require.Equal(t, int32(initial.MaxContainersPerUser), got.MaxContainersPerUser)
 	require.Equal(t, initial.DefaultVolumeSizeBytes, got.DefaultVolumeSizeBytes)
 	require.True(t, got.GetVolumeSizeEnforcement())
+	require.Equal(t, 1.5, got.GetDefaultUserQuotaCpu())
+	require.Equal(t, int64(3072), got.GetDefaultUserQuotaRamMb())
+	require.Equal(t, int64(6144), got.GetDefaultUserQuotaDiskMb())
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{
 		BaseDomain:                    "example.test",
@@ -243,11 +247,17 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 		MaxContainersPerUser:          int32(initial.MaxContainersPerUser),
 		DefaultVolumeSizeBytes:        256 << 20,
 		VolumeSizeEnforcement:         true,
+		DefaultUserQuotaCpu:           2.5,
+		DefaultUserQuotaRamMb:         4096,
+		DefaultUserQuotaDiskMb:        10240,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "example.test", updated.BaseDomain)
 	require.EqualValues(t, 256<<20, updated.DefaultVolumeSizeBytes)
 	require.True(t, updated.VolumeSizeEnforcement)
+	require.Equal(t, 2.5, updated.DefaultUserQuotaCPU)
+	require.Equal(t, int64(4096), updated.DefaultUserQuotaRAMMB)
+	require.Equal(t, int64(10240), updated.DefaultUserQuotaDiskMB)
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

@@ -34,7 +34,7 @@ func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID,
 // capacity lock.
 func (s *ContainerService) admit(ctx context.Context, ownerID uuid.UUID, req admissionRequest) error {
 	sources := admissionSources{
-		users:            s.users,
+		quotas:           s.quotas,
 		userReservations: s.repo,
 		system:           s.repo,
 		builds:           s.builds,

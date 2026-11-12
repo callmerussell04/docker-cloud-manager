@@ -59,8 +59,8 @@ func newTestContainerService(t *testing.T, deps service.ContainerServiceDeps) *s
 	if deps.Config == nil {
 		deps.Config = testConfig()
 	}
-	if deps.Users == nil {
-		deps.Users = coremocks.NewUserInfoProvider(t)
+	if deps.Quotas == nil {
+		deps.Quotas = testQuotas(t, deps.Config, nil)
 	}
 	if deps.Builds == nil {
 		builds := coremocks.NewActiveSystemBuildCounter(t)
@@ -82,7 +82,7 @@ func validContainerServiceDeps(t *testing.T) service.ContainerServiceDeps {
 		Metrics:     coremocks.NewHostMetricsProvider(t),
 		DiskMetrics: coremocks.NewHostDiskMetricsProvider(t),
 		Config:      testConfig(),
-		Users:       coremocks.NewUserInfoProvider(t),
+		Quotas:      testQuotas(t, nil, nil),
 		Builds:      coremocks.NewActiveSystemBuildCounter(t),
 	}
 }
@@ -96,7 +96,7 @@ func TestNewContainerServiceRequiresDependencies(t *testing.T) {
 		"Metrics":     "metrics",
 		"DiskMetrics": "disk metrics",
 		"Config":      "config",
-		"Users":       "users",
+		"Quotas":      "quotas",
 		"Builds":      "builds",
 	})
 }

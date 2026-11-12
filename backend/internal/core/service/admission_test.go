@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/userquota"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
@@ -29,9 +31,15 @@ const admissionMiB = int64(1 << 20)
 // start, and build creation through BuildMemoryBytes and the build CPU quota.
 // Builder runs up to four builds at once unless a case narrows it. A volume
 // create asks for the default 64 MiB size and no memory or CPU.
+//
+// The owner's quota is quotaRAMMB, quotaCPU and quotaDiskMB. With customQuota
+// it is a custom quota in Core's store and the defaults are one millicore and
+// 1 MB, which would reject everything; otherwise it is the default quota and
+// the owner has no custom quota.
 type admissionWorld struct {
 	quotaRAMMB, quotaDiskMB int64
 	quotaCPU                float64
+	customQuota             bool
 	// usedDiskMB is image disk; reservedVolumeBytes is what the owner's
 	// volumes reserve.
 	usedDiskMB            int64
@@ -69,7 +77,26 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
 	cfg.HostMinFreeDiskBytes = 1 << 30
 	cfg.DefaultVolumeSizeBytes = 64 * admissionMiB
+	cfg.DefaultUserQuotaCPU, cfg.DefaultUserQuotaRAMMB, cfg.DefaultUserQuotaDiskMB = w.quotaCPU, w.quotaRAMMB, w.quotaDiskMB
+	if w.customQuota {
+		cfg.DefaultUserQuotaCPU, cfg.DefaultUserQuotaRAMMB, cfg.DefaultUserQuotaDiskMB = 0.001, 1, 1
+	}
 	return cfg
+}
+
+// quotas returns the effective quota source for ownerID in w, over Core's
+// quota store and cfg.
+func (w admissionWorld) quotas(t *testing.T, ownerID uuid.UUID, cfg service.ConfigManager) *userquota.Service {
+	t.Helper()
+	store := coretest.NewUserQuotaStoreFake()
+	if w.customQuota {
+		require.NoError(t, store.SetCustomUserQuota(context.Background(), ownerID, model.UserQuota{
+			CPUMillicores: config.CPUMillicores(w.quotaCPU), RAMMB: w.quotaRAMMB, DiskMB: w.quotaDiskMB,
+		}))
+	}
+	quotas, err := userquota.New(store, cfg)
+	require.NoError(t, err)
+	return quotas
 }
 
 // admissionEntry runs one request entry point against a world and reports its
@@ -96,7 +123,8 @@ var admissionEntries = []admissionEntry{
 // Every entry point admits memory and CPU through one check, in the order
 // user memory, user CPU, user disk, host memory including build slots, host
 // CPU including build slots, disk floor, so the same over-limit request is rejected
-// with the same error kind wherever it arrives.
+// with the same error kind wherever it arrives. Each verdict holds whether the
+// owner's quota is the default quota or a custom quota in Core's store.
 func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -201,27 +229,96 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
 		},
 	} {
-		for _, entry := range admissionEntries {
-			t.Run(tc.name+"/"+entry.name, func(t *testing.T) {
+		for _, source := range []struct {
+			name   string
+			custom bool
+		}{{name: "default quota"}, {name: "custom quota", custom: true}} {
+			for _, entry := range admissionEntries {
+				t.Run(tc.name+"/"+source.name+"/"+entry.name, func(t *testing.T) {
+					w := roomyAdmissionWorld()
+					w.customQuota = source.custom
+					tc.world(&w)
+					want := tc.want
+					switch {
+					case entry.volume:
+						want = tc.wantVolume
+					case !entry.chargesUser:
+						want = tc.wantBuild
+					}
+
+					queued, err := entry.run(t, w)
+
+					if want == nil {
+						require.NoError(t, err)
+						require.True(t, queued, "admitted work is queued")
+						return
+					}
+					require.ErrorIs(t, err, want)
+					require.False(t, queued, "rejected work is not queued")
+				})
+			}
+		}
+	}
+}
+
+// Defaults are read at each admission: after an administrator lowers the
+// default quota, the next request of an owner on the default quota is
+// rejected and that of an owner with a custom quota is still admitted, by the
+// same service.
+func TestChangingADefaultQuotaChangesOnlyOwnersWithoutACustomQuota(t *testing.T) {
+	type entryPoint struct {
+		name string
+		// admit builds one service for ownerID that reads cfg at each
+		// request, and returns a function making the next request.
+		admit func(t *testing.T, w admissionWorld, ownerID uuid.UUID, cfg service.ConfigManager) func(n int) error
+	}
+	entries := []entryPoint{
+		{name: "container create", admit: func(t *testing.T, w admissionWorld, ownerID uuid.UUID, cfg service.ConfigManager) func(int) error {
+			svc := admissionContainerService(t, w, ownerID, admissionStore(t, w, ownerID), cfg)
+			ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+			return func(n int) error {
+				_, err := svc.Create(ctx, model.ContainerCreateParams{Name: fmt.Sprintf("web-%d", n), ImageTag: "nginx:latest", RequestedMemoryMB: 256})
+				return err
+			}
+		}},
+		{name: "volume create", admit: func(t *testing.T, w admissionWorld, ownerID uuid.UUID, cfg service.ConfigManager) func(int) error {
+			svc, _ := admissionVolumeService(t, w, ownerID, admissionStore(t, w, ownerID), cfg)
+			ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+			return func(n int) error {
+				_, err := svc.Create(ctx, model.VolumeCreateParams{Name: fmt.Sprintf("data-%d", n)})
+				return err
+			}
+		}},
+	}
+	for _, entry := range entries {
+		for _, tc := range []struct {
+			name      string
+			custom    bool
+			wantAfter error
+		}{
+			{name: "default quota", wantAfter: apperrors.ErrQuotaExceeded},
+			{name: "custom quota", custom: true},
+		} {
+			t.Run(entry.name+"/"+tc.name, func(t *testing.T) {
 				w := roomyAdmissionWorld()
-				tc.world(&w)
-				want := tc.want
-				switch {
-				case entry.volume:
-					want = tc.wantVolume
-				case !entry.chargesUser:
-					want = tc.wantBuild
-				}
+				w.customQuota = tc.custom
+				ownerID := uuid.New()
+				current := w.config()
+				current.DefaultUserQuotaCPU, current.DefaultUserQuotaRAMMB, current.DefaultUserQuotaDiskMB = 1, 1024, 1024
+				cfg := coremocks.NewConfigManager(t)
+				cfg.EXPECT().Get().RunAndReturn(func() config.SystemConfig { return current })
+				request := entry.admit(t, w, ownerID, cfg)
 
-				queued, err := entry.run(t, w)
+				require.NoError(t, request(1), "both owners fit the roomy defaults")
 
-				if want == nil {
-					require.NoError(t, err)
-					require.True(t, queued, "admitted work is queued")
+				current.DefaultUserQuotaCPU, current.DefaultUserQuotaRAMMB, current.DefaultUserQuotaDiskMB = 0.5, 512, 32
+				err := request(2)
+
+				if tc.wantAfter == nil {
+					require.NoError(t, err, "a custom quota does not follow the defaults")
 					return
 				}
-				require.ErrorIs(t, err, want)
-				require.False(t, queued, "rejected work is not queued")
+				require.ErrorIs(t, err, tc.wantAfter)
 			})
 		}
 	}
@@ -246,13 +343,9 @@ func admissionStore(t *testing.T, w admissionWorld, ownerID uuid.UUID) *containe
 }
 
 // admissionContainerService builds a container service over store whose
-// users, images, host and builds report w.
-func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID, store *containerStore) *service.ContainerService {
+// quotas, images, host and builds report w, reading cfg.
+func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID, store *containerStore, cfg service.ConfigManager) *service.ContainerService {
 	t.Helper()
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{
-		ID: ownerID, QuotaRAMMB: w.quotaRAMMB, QuotaCPU: w.quotaCPU, QuotaDiskMB: w.quotaDiskMB,
-	}, nil).Maybe()
 	images := coremocks.NewContainerImageRepository(t)
 	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
 	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
@@ -266,11 +359,36 @@ func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID
 		Images:      images,
 		Metrics:     admissionHostMetrics(t),
 		DiskMetrics: admissionDiskMetrics(t, w),
-		Config:      coretest.StaticConfig{Config: w.config()},
-		Users:       users,
+		Config:      cfg,
+		Quotas:      w.quotas(t, ownerID, cfg),
 		Builds:      builds,
 		Logger:      slog.New(slog.DiscardHandler),
 	})
+}
+
+// admissionVolumeService builds a volume service whose owner has no volumes
+// yet, under the owner capacity lock that store holds. The lifecycle fake
+// reports what was queued.
+func admissionVolumeService(t *testing.T, w admissionWorld, ownerID uuid.UUID, store *containerStore, cfg service.ConfigManager) (*service.VolumeService, *volumeLifecycleFake) {
+	t.Helper()
+	images := coremocks.NewVolumeImageDiskRepository(t)
+	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
+	repo := newVolumeRepoMock(t)
+	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
+	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	lifecycle := &volumeLifecycleFake{}
+	svc := newTestVolumeService(t, service.VolumeServiceDeps{
+		Repository:   repo,
+		Docker:       coremocks.NewVolumeDockerAPI(t),
+		Config:       cfg,
+		Lifecycle:    lifecycle,
+		Quotas:       w.quotas(t, ownerID, cfg),
+		ImageRepo:    images,
+		DiskMetrics:  admissionDiskMetrics(t, w),
+		CapacityLock: store,
+		Logger:       slog.New(slog.DiscardHandler),
+	})
+	return svc, lifecycle
 }
 
 func admissionHostMetrics(t *testing.T) *coremocks.HostMetricsProvider {
@@ -307,7 +425,7 @@ func stoppedContainer(ownerID uuid.UUID, projectID *uuid.UUID) model.Container {
 func admitContainerCreate(t *testing.T, w admissionWorld) (bool, error) {
 	ownerID := uuid.New()
 	store := admissionStore(t, w, ownerID)
-	svc := admissionContainerService(t, w, ownerID, store)
+	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
 	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest", RequestedMemoryMB: 256})
@@ -320,7 +438,7 @@ func admitContainerStart(t *testing.T, w admissionWorld) (bool, error) {
 	store := admissionStore(t, w, ownerID)
 	c := stoppedContainer(ownerID, nil)
 	saveContainer(t, store, c)
-	svc := admissionContainerService(t, w, ownerID, store)
+	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
 	err := svc.Start(ctx, c.ID)
@@ -346,11 +464,12 @@ func admitProjectStart(t *testing.T, w admissionWorld) (bool, error) {
 		got, err := store.GetByID(ctx, c.ID)
 		return []model.Container{got}, err
 	})
+	cfg := coretest.StaticConfig{Config: w.config()}
 	svc := newTestProjectService(t, service.ProjectServiceDeps{
 		Repository: projects,
 		Resources:  resources,
-		Capacity:   admissionContainerService(t, w, ownerID, store),
-		Config:     coretest.StaticConfig{Config: w.config()},
+		Capacity:   admissionContainerService(t, w, ownerID, store, cfg),
+		Config:     cfg,
 	})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
@@ -363,15 +482,12 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 	ownerID := uuid.New()
 	store := admissionStore(t, w, ownerID)
 	deps := buildServiceDeps(t)
-	deps.Config = coretest.StaticConfig{Config: w.config()}
+	cfg := coretest.StaticConfig{Config: w.config()}
+	deps.Config = cfg
 	deps.Containers = store
 	deps.HostMetrics = admissionHostMetrics(t)
 	deps.DiskMetrics = admissionDiskMetrics(t, w)
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{
-		ID: ownerID, QuotaRAMMB: w.quotaRAMMB, QuotaCPU: w.quotaCPU, QuotaDiskMB: w.quotaDiskMB,
-	}, nil).Maybe()
-	deps.Users = users
+	deps.Quotas = w.quotas(t, ownerID, cfg)
 	images := coremocks.NewBuildImageRepository(t)
 	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
 	deps.Images = images
@@ -402,27 +518,7 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 func admitVolumeCreate(t *testing.T, w admissionWorld) (bool, error) {
 	ownerID := uuid.New()
 	store := admissionStore(t, w, ownerID)
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{
-		ID: ownerID, QuotaRAMMB: w.quotaRAMMB, QuotaCPU: w.quotaCPU, QuotaDiskMB: w.quotaDiskMB,
-	}, nil).Maybe()
-	images := coremocks.NewVolumeImageDiskRepository(t)
-	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
-	repo := newVolumeRepoMock(t)
-	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
-	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
-	lifecycle := &volumeLifecycleFake{}
-	svc := newTestVolumeService(t, service.VolumeServiceDeps{
-		Repository:   repo,
-		Docker:       coremocks.NewVolumeDockerAPI(t),
-		Config:       coretest.StaticConfig{Config: w.config()},
-		Lifecycle:    lifecycle,
-		Users:        users,
-		ImageRepo:    images,
-		DiskMetrics:  admissionDiskMetrics(t, w),
-		CapacityLock: store,
-		Logger:       slog.New(slog.DiscardHandler),
-	})
+	svc, lifecycle := admissionVolumeService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
 	_, err := svc.Create(ctx, model.VolumeCreateParams{Name: "data"})
@@ -453,8 +549,8 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 		gate := make(chan struct{})
 		var mu sync.Mutex
 		ledgerReads := 0
-		users := coremocks.NewUserInfoProvider(t)
-		users.EXPECT().GetUser(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (model.UserInfo, error) {
+		images := coremocks.NewContainerImageRepository(t)
+		images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (int64, error) {
 			mu.Lock()
 			ledgerReads++
 			first := ledgerReads == 1
@@ -462,18 +558,17 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 			if first {
 				<-gate
 			}
-			return model.UserInfo{ID: ownerID, QuotaRAMMB: w.quotaRAMMB, QuotaCPU: w.quotaCPU, QuotaDiskMB: w.quotaDiskMB}, nil
+			return 0, nil
 		})
-		images := coremocks.NewContainerImageRepository(t)
-		images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil).Maybe()
 		images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+		static := coretest.StaticConfig{Config: cfg}
 		svc := newTestContainerService(t, service.ContainerServiceDeps{
 			Repository:  store,
 			Images:      images,
 			Metrics:     admissionHostMetrics(t),
 			DiskMetrics: admissionDiskMetrics(t, w),
-			Config:      coretest.StaticConfig{Config: cfg},
-			Users:       users,
+			Config:      static,
+			Quotas:      w.quotas(t, ownerID, static),
 			Logger:      slog.New(slog.DiscardHandler),
 		})
 		ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")

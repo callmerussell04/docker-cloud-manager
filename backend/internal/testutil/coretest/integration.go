@@ -16,8 +16,10 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	coregrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc"
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/userquota"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
@@ -77,6 +79,22 @@ type CoreRepositories struct {
 	Reports    *repository.ReportSnapshotRepository
 	Grants     *repository.RegistryGrantRepository
 	Lifecycle  *repository.ResourceLifecycleRepository
+	Quotas     *repository.UserQuotaRepository
+}
+
+// UserQuotas returns the production effective-quota source over the test
+// database and cfg.
+func (r CoreRepositories) UserQuotas(t *testing.T, cfg userquota.ConfigProvider) *userquota.Service {
+	t.Helper()
+	quotas, err := userquota.New(r.Quotas, cfg)
+	require.NoError(t, err)
+	return quotas
+}
+
+// SetCustomQuota gives ownerID a custom quota in the test database.
+func (r CoreRepositories) SetCustomQuota(t *testing.T, ownerID uuid.UUID, quota model.UserQuota) {
+	t.Helper()
+	require.NoError(t, r.Quotas.SetCustomUserQuota(context.Background(), ownerID, quota))
 }
 
 // RegistryAuthorization returns production Registry authorization over the
@@ -110,6 +128,7 @@ func OpenCoreRepositories(t *testing.T) CoreRepositories {
 		Reports:    repository.NewReportSnapshotRepository(db, nil, DiscardLogger()),
 		Grants:     repository.NewRegistryGrantRepository(db, lockDB),
 		Lifecycle:  repository.NewResourceLifecycleRepository(db),
+		Quotas:     repository.NewUserQuotaRepository(db),
 	}
 }
 

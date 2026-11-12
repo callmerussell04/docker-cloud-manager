@@ -2739,6 +2739,22 @@ components:
         volume_size_enforcement:
           type: boolean
           description: Give each new volume's size to Docker so the kernel refuses writes past it. Turning it on runs a host check (a throwaway sized volume) and is rejected with 400 when the host does not support volume sizes. Volumes created earlier keep size_enforced false and stay checked periodically.
+        default_user_quota_cpu:
+          type: number
+          format: double
+          minimum: 0.001
+          maximum: 1000000
+          description: CPU quota, in cores, of every user without a custom quota. Core stores quotas and reads the defaults at each admission, so a change applies to every such user at their next request. At least 0.001 (one millicore).
+        default_user_quota_ram_mb:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Memory quota, in MB, of every user without a custom quota. Must be positive.
+        default_user_quota_disk_mb:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Disk quota, in MB, of every user without a custom quota. Must be positive.
         git_sources_enabled:
           type: boolean
         git_allowed_hosts:

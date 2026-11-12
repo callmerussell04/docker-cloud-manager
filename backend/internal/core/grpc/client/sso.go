@@ -55,12 +55,9 @@ func userFromProto(pbUser *sso.UserData) (model.UserInfo, error) {
 		return model.UserInfo{}, apperrors.ErrInternal
 	}
 	return model.UserInfo{
-		ID:          userID,
-		Status:      pbUser.GetStatus(),
-		Username:    pbUser.GetUsername(),
-		Role:        pbUser.GetRole(),
-		QuotaRAMMB:  pbUser.GetQuotaRamMb(),
-		QuotaDiskMB: pbUser.GetQuotaDiskMb(),
-		QuotaCPU:    pbUser.GetQuotaCpu(),
+		ID:       userID,
+		Status:   pbUser.GetStatus(),
+		Username: pbUser.GetUsername(),
+		Role:     pbUser.GetRole(),
 	}, nil
 }

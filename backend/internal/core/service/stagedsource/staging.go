@@ -36,9 +36,9 @@ type Repository interface {
 	ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
-// UserInfoProvider reads the user's disk quota.
-type UserInfoProvider interface {
-	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
+// QuotaProvider reads the owner's effective quota from Core.
+type QuotaProvider interface {
+	EffectiveUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, error)
 }
 
 // ReservedDiskReader reads the disk an owner already reserves, in MB.
@@ -56,16 +56,16 @@ type ConfigProvider interface {
 	Get() config.SystemConfig
 }
 
-// unlimitedDiskQuotaMB is the disk quota when no user directory is wired.
+// unlimitedDiskQuotaMB is the disk quota when no quota provider is wired.
 const unlimitedDiskQuotaMB = 1<<62 - 1
 
 // Deps are the capabilities staging needs. A nil Repository turns staging off:
 // nothing is reserved, resized or released and no quota is checked. A nil
-// Users counts no disk quota. ReservedDisk is required only by
+// Quotas counts no disk quota. ReservedDisk is required only by
 // CountReservedAndStaged. A nil DiskMetrics turns the host disk floor off.
 type Deps struct {
 	Repository   Repository
-	Users        UserInfoProvider
+	Quotas       QuotaProvider
 	ReservedDisk ReservedDiskReader
 	DiskMetrics  HostDiskMetrics
 	HostDiskPath string
@@ -76,7 +76,7 @@ type Deps struct {
 // disk quota and the projected host disk floor.
 type Staging struct {
 	repo         Repository
-	users        UserInfoProvider
+	quotas       QuotaProvider
 	reservedDisk ReservedDiskReader
 	diskMetrics  HostDiskMetrics
 	hostDiskPath string
@@ -86,7 +86,7 @@ type Staging struct {
 func New(deps Deps) *Staging {
 	return &Staging{
 		repo:         deps.Repository,
-		users:        deps.Users,
+		quotas:       deps.Quotas,
 		reservedDisk: deps.ReservedDisk,
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
@@ -162,14 +162,14 @@ func (s *Staging) checkDiskQuota(ctx context.Context, ownerID uuid.UUID, incomin
 
 // diskQuotaMB is the one place staging reads the owner's disk quota.
 func (s *Staging) diskQuotaMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	if s.users == nil {
+	if s.quotas == nil {
 		return unlimitedDiskQuotaMB, nil
 	}
-	user, err := s.users.GetUser(ctx, ownerID)
+	quota, err := s.quotas.EffectiveUserQuota(ctx, ownerID)
 	if err != nil {
 		return 0, err
 	}
-	return user.QuotaDiskMB, nil
+	return quota.DiskMB, nil
 }
 
 // Resize records the stored size of a staged object, once the upload knows it.

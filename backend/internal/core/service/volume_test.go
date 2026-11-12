@@ -22,7 +22,6 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)
 	dockerAPI := coremocks.NewVolumeDockerAPI(t)
-	users := coremocks.NewUserInfoProvider(t)
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	cfg := volumeTestConfig()
 	lifecycle := &volumeLifecycleFake{}
@@ -31,11 +30,10 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 		Docker:     dockerAPI,
 		Config:     cfg,
 		Lifecycle:  lifecycle,
-		Users:      users,
+		Quotas:     testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
 		ImageRepo:  imageRepo})
 	var saved model.Volume
 
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
@@ -53,32 +51,34 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 	ownerID := uuid.New()
 	tests := []struct {
-		name    string
-		ctx     context.Context
-		params  model.VolumeCreateParams
-		setup   func(*volumeRepoMock, *coremocks.UserInfoProvider, *coremocks.VolumeImageDiskRepository)
-		wantErr error
+		name   string
+		ctx    context.Context
+		params model.VolumeCreateParams
+		setup  func(*volumeRepoMock, *coremocks.VolumeImageDiskRepository)
+		// diskQuotaMB is the owner's custom disk quota.
+		diskQuotaMB int64
+		wantErr     error
 	}{
 		{
 			name:    "missing scope",
 			ctx:     context.Background(),
 			params:  model.VolumeCreateParams{Name: "data"},
-			setup:   func(*volumeRepoMock, *coremocks.UserInfoProvider, *coremocks.VolumeImageDiskRepository) {},
+			setup:   func(*volumeRepoMock, *coremocks.VolumeImageDiskRepository) {},
 			wantErr: apperrors.ErrUnauthorized,
 		},
 		{
 			name:    "invalid name",
 			ctx:     accessscope.WithUserScope(context.Background(), ownerID, "", ""),
 			params:  model.VolumeCreateParams{Name: "bad name"},
-			setup:   func(*volumeRepoMock, *coremocks.UserInfoProvider, *coremocks.VolumeImageDiskRepository) {},
+			setup:   func(*volumeRepoMock, *coremocks.VolumeImageDiskRepository) {},
 			wantErr: apperrors.ErrBadRequest,
 		},
 		{
-			name:   "volume count limit",
-			ctx:    accessscope.WithUserScope(context.Background(), ownerID, "", ""),
-			params: model.VolumeCreateParams{Name: "data"},
-			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
-				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
+			name:        "volume count limit",
+			ctx:         accessscope.WithUserScope(context.Background(), ownerID, "", ""),
+			params:      model.VolumeCreateParams{Name: "data"},
+			diskQuotaMB: 1024,
+			setup: func(repo *volumeRepoMock, imageRepo *coremocks.VolumeImageDiskRepository) {
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
@@ -86,11 +86,11 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			wantErr: apperrors.ErrLimitExceeded,
 		},
 		{
-			name:   "disk quota",
-			ctx:    accessscope.WithUserScope(context.Background(), ownerID, "", ""),
-			params: model.VolumeCreateParams{Name: "data"},
-			setup: func(repo *volumeRepoMock, users *coremocks.UserInfoProvider, imageRepo *coremocks.VolumeImageDiskRepository) {
-				users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1, QuotaRAMMB: 1024}, nil)
+			name:        "disk quota",
+			ctx:         accessscope.WithUserScope(context.Background(), ownerID, "", ""),
+			params:      model.VolumeCreateParams{Name: "data"},
+			diskQuotaMB: 1,
+			setup: func(repo *volumeRepoMock, imageRepo *coremocks.VolumeImageDiskRepository) {
 				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
@@ -101,15 +101,15 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := newVolumeRepoMock(t)
-			users := coremocks.NewUserInfoProvider(t)
 			imageRepo := coremocks.NewVolumeImageDiskRepository(t)
-			tt.setup(repo, users, imageRepo)
+			tt.setup(repo, imageRepo)
+			cfg := volumeTestConfig()
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo,
 				Docker:     coremocks.NewVolumeDockerAPI(t),
-				Config:     volumeTestConfig(),
+				Config:     cfg,
 				Lifecycle:  &volumeLifecycleFake{},
-				Users:      users,
+				Quotas:     testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: max(tt.diskQuotaMB, 1)}}),
 				ImageRepo:  imageRepo})
 			_, err := svc.Create(tt.ctx, tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
@@ -141,7 +141,6 @@ func TestVolumeServiceCreateReservesItsSize(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ownerID := uuid.New()
 			repo := newVolumeRepoMock(t)
-			users := coremocks.NewUserInfoProvider(t)
 			imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 			lock := coremocks.NewVolumeCapacityLock(t)
 			cfg := volumeTestConfig()
@@ -153,13 +152,13 @@ func TestVolumeServiceCreateReservesItsSize(t *testing.T) {
 				return func() { held = false }, nil
 			}).Once()
 			lifecycle.onCreate = func() { require.True(t, held, "the volume is queued under the owner capacity lock") }
-			users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 100}, nil)
 			imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(tc.imagesMB, nil)
 			repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(tc.volumesBytes, nil)
 			repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
 				Repository: repo, Docker: coremocks.NewVolumeDockerAPI(t), Config: cfg,
-				Lifecycle: lifecycle, Users: users, ImageRepo: imageRepo, CapacityLock: lock,
+				Lifecycle: lifecycle, ImageRepo: imageRepo, CapacityLock: lock,
+				Quotas: testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 100}}),
 			})
 
 			_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data", SizeBytes: tc.size})
@@ -354,7 +353,6 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 	ownerID := uuid.New()
 	repo := newVolumeRepoMock(t)
 	dockerAPI := coremocks.NewVolumeDockerAPI(t)
-	users := coremocks.NewUserInfoProvider(t)
 	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
 	metrics := coremocks.NewHostDiskMetricsProvider(t)
 	cfgData := testSystemConfig()
@@ -365,12 +363,11 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 		Docker:       dockerAPI,
 		Config:       cfg,
 		Lifecycle:    &volumeLifecycleFake{},
-		Users:        users,
+		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
 		ImageRepo:    imageRepo,
 		DiskMetrics:  metrics,
 		HostDiskPath: "/host"})
 
-	users.EXPECT().GetUser(mock.Anything, ownerID).Return(model.UserInfo{ID: ownerID, QuotaDiskMB: 1024, QuotaRAMMB: 1024}, nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)

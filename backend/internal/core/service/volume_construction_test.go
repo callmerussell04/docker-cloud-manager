@@ -18,7 +18,7 @@ func TestVolumeServiceRejectsMissingDependencies(t *testing.T) {
 		"Docker":       "docker",
 		"Config":       "config",
 		"Lifecycle":    "lifecycle",
-		"Users":        "users",
+		"Quotas":       "quotas",
 		"ImageRepo":    "images",
 		"DiskMetrics":  "disk metrics",
 		"CapacityLock": "capacity lock",
@@ -39,7 +39,7 @@ func volumeServiceDeps(t *testing.T) service.VolumeServiceDeps {
 		Docker:       coremocks.NewVolumeDockerAPI(t),
 		Config:       testConfig(),
 		Lifecycle:    coremocks.NewVolumeLifecycleRepository(t),
-		Users:        coremocks.NewUserInfoProvider(t),
+		Quotas:       testQuotas(t, nil, nil),
 		ImageRepo:    coremocks.NewVolumeImageDiskRepository(t),
 		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
 		CapacityLock: coremocks.NewVolumeCapacityLock(t),
@@ -55,8 +55,8 @@ var _ service.VolumeSizeModeReader = (*service.VolumeSizeEnforcement)(nil)
 // Tests unrelated to admission still assemble every mandatory capability.
 func newTestVolumeService(t *testing.T, deps service.VolumeServiceDeps) *service.VolumeService {
 	t.Helper()
-	if deps.Users == nil {
-		deps.Users = coremocks.NewUserInfoProvider(t)
+	if deps.Quotas == nil {
+		deps.Quotas = testQuotas(t, deps.Config, nil)
 	}
 	if deps.ImageRepo == nil {
 		deps.ImageRepo = coremocks.NewVolumeImageDiskRepository(t)

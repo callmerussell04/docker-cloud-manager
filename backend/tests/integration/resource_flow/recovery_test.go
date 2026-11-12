@@ -443,16 +443,12 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 
 func newRecoveryVolumeService(t *testing.T, repos coretest.CoreRepositories, docker service.VolumeDockerAPI, cfg service.ConfigManager, lifecycle service.VolumeLifecycleRepository) *service.VolumeService {
 	t.Helper()
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().GetUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, id uuid.UUID) (model.UserInfo, error) {
-		return model.UserInfo{ID: id, QuotaDiskMB: 4096}, nil
-	}).Maybe()
 	svc, err := service.NewVolumeService(service.VolumeServiceDeps{
 		Repository:   repos.Volumes,
 		Docker:       docker,
 		Config:       cfg,
 		Lifecycle:    lifecycle,
-		Users:        users,
+		Quotas:       repos.UserQuotas(t, cfg),
 		ImageRepo:    repos.Images,
 		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
 		CapacityLock: repos.Containers,

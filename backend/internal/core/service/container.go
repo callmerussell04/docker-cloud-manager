@@ -118,6 +118,12 @@ type UserInfoProvider interface {
 	GetUser(ctx context.Context, userID uuid.UUID) (model.UserInfo, error)
 }
 
+// UserQuotaProvider reads an owner's effective quota from Core: their custom
+// quota, or else the runtime default. Quota readers never ask SSO.
+type UserQuotaProvider interface {
+	EffectiveUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, error)
+}
+
 type ProjectStatusUpdater interface {
 	RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error
 }
@@ -130,7 +136,7 @@ type ContainerService struct {
 	metrics      HostMetricsProvider
 	diskMetrics  HostDiskMetricsProvider
 	config       ConfigManager
-	users        UserInfoProvider
+	quotas       UserQuotaProvider
 	projects     ProjectStatusUpdater
 	auditor      AuditRecorder
 	builds       activeSystemBuildCounter
@@ -148,7 +154,7 @@ type ContainerServiceDeps struct {
 	Metrics      HostMetricsProvider
 	DiskMetrics  HostDiskMetricsProvider
 	Config       ConfigManager
-	Users        UserInfoProvider
+	Quotas       UserQuotaProvider
 	Builds       activeSystemBuildCounter
 	HostDiskPath string
 	Logger       *slog.Logger
@@ -163,7 +169,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		{"repository", deps.Repository}, {"volumes", deps.Volumes},
 		{"images", deps.Images}, {"docker", deps.Docker},
 		{"metrics", deps.Metrics}, {"disk metrics", deps.DiskMetrics},
-		{"config", deps.Config}, {"users", deps.Users}, {"builds", deps.Builds},
+		{"config", deps.Config}, {"quotas", deps.Quotas}, {"builds", deps.Builds},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -173,7 +179,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 	return &ContainerService{
 		repo: deps.Repository, volumeRepo: deps.Volumes, imageRepo: deps.Images,
 		dockerAPI: deps.Docker, metrics: deps.Metrics, diskMetrics: deps.DiskMetrics,
-		config: deps.Config, users: deps.Users, builds: deps.Builds,
+		config: deps.Config, quotas: deps.Quotas, builds: deps.Builds,
 		hostDiskPath: deps.HostDiskPath, auditor: deps.Audit,
 		logger: logging.WithComponent(deps.Logger, "container_service"),
 	}, nil

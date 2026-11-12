@@ -84,6 +84,9 @@ func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
 	assert.Equal(t, []string{}, runtime.BlockedDomainPrefixPatterns)
 	assert.Equal(t, config.DefaultReportsUsageSnapshotIntervalSeconds, runtime.ReportsUsageSnapshotIntervalSeconds)
 	assert.False(t, runtime.VolumeSizeEnforcement, "volume sizes are measured unless an administrator turns enforcement on")
+	assert.Equal(t, 1.0, runtime.DefaultUserQuotaCPU)
+	assert.Equal(t, int64(2048), runtime.DefaultUserQuotaRAMMB)
+	assert.Equal(t, int64(5120), runtime.DefaultUserQuotaDiskMB)
 	assert.NotContains(t, assertJSON(t, runtime), secret)
 }
 
@@ -98,6 +101,9 @@ func TestLoadOverrides(t *testing.T) {
 	values["CLICKHOUSE_DB"] = ""
 	values["TENANT_CGROUP_PARENT"] = "dcm-tenants.slice"
 	values["VOLUME_SIZE_ENFORCEMENT"] = "true"
+	values["DEFAULT_USER_QUOTA_CPU"] = "2.5"
+	values["DEFAULT_USER_QUOTA_RAM_MB"] = "4096"
+	values["DEFAULT_USER_QUOTA_DISK_MB"] = "10240"
 	values["TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS"] = "7"
 	values["TELEMETRY_MAX_GLOBAL_LOG_STREAMS"] = "12"
 	values["TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS"] = "not-a-number"
@@ -115,6 +121,9 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, 10, settings.Runtime.MaxContainersPerUser, "an invalid optional value keeps its default")
 	assert.Equal(t, 2.5, settings.Runtime.OvercommitFactor)
 	assert.True(t, settings.Runtime.VolumeSizeEnforcement)
+	assert.Equal(t, 2.5, settings.Runtime.DefaultUserQuotaCPU)
+	assert.Equal(t, int64(4096), settings.Runtime.DefaultUserQuotaRAMMB)
+	assert.Equal(t, int64(10240), settings.Runtime.DefaultUserQuotaDiskMB)
 	assert.Equal(t, []string{"github.com", "gitlab.com", "bitbucket.org"}, settings.Runtime.GitAllowedHosts)
 	assert.Equal(t, []string{"/bin/sh", "/bin/ash"}, settings.Runtime.TelemetryAllowedExecCommands)
 }

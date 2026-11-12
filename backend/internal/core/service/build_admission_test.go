@@ -52,9 +52,7 @@ func TestBuildServiceAdmission(t *testing.T) {
 					}
 					deps.Config = coretest.StaticConfig{Config: cfg}
 					owner := uuid.New()
-					users := coremocks.NewUserInfoProvider(t)
-					users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaDiskMB: 1024}, nil).Maybe()
-					deps.Users = users
+					deps.Quotas = testQuotas(t, deps.Config, map[uuid.UUID]model.UserQuota{owner: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}})
 					images := coremocks.NewBuildImageRepository(t)
 					images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Maybe()
 					deps.Images = images
@@ -128,11 +126,9 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 			objects := coremocks.NewBuildObjectStore(t)
 			objects.EXPECT().StatObject(mock.Anything, archiveKey).
 				Return(objectstorage.ObjectInfo{Size: archiveSize}, scenario.statErr).Once()
-			users := coremocks.NewUserInfoProvider(t)
 			images := coremocks.NewBuildImageRepository(t)
 			staged := coremocks.NewStagedObjectRepository(t)
 			if scenario.statErr == nil {
-				users.EXPECT().GetUser(mock.Anything, owner).Return(model.UserInfo{ID: owner, QuotaDiskMB: scenario.quotaDiskMB}, nil).Once()
 				images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Once()
 				staged.EXPECT().ActiveBytesByOwner(mock.Anything, owner).Return(int64(0), nil).Once()
 			}
@@ -149,7 +145,7 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 				Repository:    newBuildRepository(t),
 				Images:        images,
 				Registry:      coremocks.NewImageRegistryAPI(t),
-				Users:         users,
+				Quotas:        testQuotas(t, coretest.StaticConfig{Config: cfg}, map[uuid.UUID]model.UserQuota{owner: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: scenario.quotaDiskMB}}),
 				Config:        coretest.StaticConfig{Config: cfg},
 				ObjectStore:   objects,
 				StagedObjects: staged,

@@ -88,6 +88,9 @@ export interface SystemConfig {
   boost_min_free_memory_bytes: number;
   default_volume_size_bytes: number;
   volume_size_enforcement: boolean;
+  default_user_quota_cpu: number;
+  default_user_quota_ram_mb: number;
+  default_user_quota_disk_mb: number;
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
@@ -218,6 +221,9 @@ export const systemConfigSchema = z.object({
   boost_min_free_memory_bytes: z.number().min(0),
   default_volume_size_bytes: z.number().min(1024 * 1024),
   volume_size_enforcement: z.boolean(),
+  default_user_quota_cpu: z.number().min(0.001).max(1_000_000),
+  default_user_quota_ram_mb: z.number().int().min(1),
+  default_user_quota_disk_mb: z.number().int().min(1),
   git_sources_enabled: z.boolean(),
   git_allowed_hosts: stringListSchema,
   git_clone_timeout_seconds: z.number().min(1),

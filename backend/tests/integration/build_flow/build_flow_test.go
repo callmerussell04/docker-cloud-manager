@@ -247,11 +247,7 @@ func newBuildService(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, store service.BuildObjectStore) *service.BuildService {
 	t.Helper()
 	cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
-	users := coremocks.NewUserInfoProvider(t)
-	users.EXPECT().
-		GetUser(mock.Anything, ownerID).
-		Return(model.UserInfo{ID: ownerID, Username: "builder", QuotaRAMMB: 4096, QuotaDiskMB: 4096, QuotaCPU: 4}, nil).
-		Maybe()
+	repos.SetCustomQuota(t, ownerID, model.UserQuota{CPUMillicores: 4000, RAMMB: 4096, DiskMB: 4096})
 	hostMetrics := coremocks.NewHostMetricsProvider(t)
 	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
 	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
@@ -270,7 +266,7 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 		RegistryAuth:  repos.RegistryAuthorization(t),
 		Images:        repos.Images,
 		Registry:      registry,
-		Users:         users,
+		Quotas:        repos.UserQuotas(t, cfg),
 		Logger:        coretest.DiscardLogger(),
 		Containers:    repos.Containers,
 		HostMetrics:   hostMetrics,
