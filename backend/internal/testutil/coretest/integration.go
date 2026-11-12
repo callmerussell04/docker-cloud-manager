@@ -141,6 +141,7 @@ type CoreGRPCRegistration struct {
 	System     coregrpc.SystemLogic
 	Stats      coregrpc.StatsLogic
 	Reports    coregrpc.ReportLogic
+	Quotas     coregrpc.QuotaLogic
 	Users      coregrpc.UserDirectory
 }
 
@@ -187,6 +188,9 @@ func NewCoreGRPCConn(t *testing.T, reg CoreGRPCRegistration, clientOptions ...gr
 	}
 	if reg.Reports != nil {
 		coregrpc.RegisterReportAPI(server, reg.Reports)
+	}
+	if reg.Quotas != nil {
+		coregrpc.RegisterQuotaAPI(server, reg.Quotas)
 	}
 	go func() {
 		_ = server.Serve(listener)

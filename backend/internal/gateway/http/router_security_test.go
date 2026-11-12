@@ -51,6 +51,8 @@ var adminRoutePermissions = []struct {
 	{method: http.MethodPut, route: "/api/v1/admin/users/:id", permission: permissions.UsersAdminUpdate},
 	{method: http.MethodDelete, route: "/api/v1/admin/users/:id", permission: permissions.UsersAdminDelete},
 	{method: http.MethodPost, route: "/api/v1/admin/users/:id/activate", permission: permissions.UsersAdminUpdate},
+	{method: http.MethodPut, route: "/api/v1/admin/users/:id/quota", permission: permissions.UsersAdminUpdate},
+	{method: http.MethodDelete, route: "/api/v1/admin/users/:id/quota", permission: permissions.UsersAdminUpdate},
 	{method: http.MethodGet, route: "/api/v1/admin/containers", permission: permissions.ContainersAdminList},
 	{method: http.MethodPost, route: "/api/v1/admin/containers/:id/action/:action", permission: permissions.ContainersAdminAction},
 	{method: http.MethodGet, route: "/api/v1/admin/containers/:id/stats", permission: permissions.ContainersAdminStats},
@@ -324,7 +326,7 @@ func newSecurityHarness(t *testing.T, logger *slog.Logger) *securityHarness {
 	h.router, err = gatewayhttp.NewRouter(cfg, gatewayhttp.RouterDeps{
 		AuthHandler:                 handler.NewAuthHandler(h.auth, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{securityOrigin}}),
 		CoreHandler:                 handler.NewCoreHandler(unreachableCoreService{}),
-		UserHandler:                 handler.NewUserManagementHandler(unreachableUserService{}),
+		UserHandler:                 handler.NewUserManagementHandler(handler.UserManagementDeps{Users: unreachableUserDirectory{}, AdminUsers: unreachableAdminUsers{}, Audit: unreachableCoreService{}}),
 		HealthHandler:               handler.NewHealthHandler(nil),
 		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(tickets),
 		CoreHTTPProxy:               coreProxy,
@@ -477,4 +479,6 @@ func (u *recordingUpstream) requests() []*http.Request {
 
 type unreachableCoreService struct{ handler.CoreService }
 
-type unreachableUserService struct{ handler.UserManagementService }
+type unreachableUserDirectory struct{ handler.UserDirectory }
+
+type unreachableAdminUsers struct{ handler.AdminUserService }

@@ -66,15 +66,10 @@ func TestUserRepositorySaveGetUpdateListAndCount(t *testing.T) {
 
 	local.Username = "alice2"
 	local.Email = "alice2@example.com"
-	local.QuotaCPU = 2
-	local.QuotaRAMMB = 4096
-	local.QuotaDiskMB = 8192
 	require.NoError(t, repo.UpdateUser(ctx, local))
 	updated, err := repo.GetUserByID(ctx, local.ID)
 	require.NoError(t, err)
 	require.Equal(t, "alice2", updated.Username)
-	require.Equal(t, float64(2), updated.QuotaCPU)
-	require.Equal(t, int64(8192), updated.QuotaDiskMB)
 
 	listed, total, err := repo.ListUsers(ctx, model.ListUsersOptions{Limit: 10, Offset: 0})
 	require.NoError(t, err)
@@ -131,9 +126,6 @@ func user(username, role, status string) model.User {
 		PasswordHash: "hash-" + username,
 		Role:         role,
 		Status:       status,
-		QuotaCPU:     1,
-		QuotaRAMMB:   2048,
-		QuotaDiskMB:  5120,
 		AuthSource:   model.AuthSourceLocal,
 	}
 }

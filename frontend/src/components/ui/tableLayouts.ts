@@ -20,8 +20,8 @@ export const tableLayouts = {
     grid: 'grid-cols-[minmax(220px,1.5fr)_minmax(150px,1fr)_7rem_minmax(180px,1.5fr)_10rem]',
   },
   adminUsers: {
-    minWidth: 'min-w-[1040px]',
-    grid: 'grid-cols-[minmax(180px,1.5fr)_minmax(260px,2fr)_7rem_7rem_minmax(180px,1.5fr)_7rem]',
+    minWidth: 'min-w-[1080px]',
+    grid: 'grid-cols-[minmax(180px,1.5fr)_minmax(260px,2fr)_7rem_7rem_minmax(180px,1.5fr)_9rem]',
   },
   adminContainers: {
     minWidth: 'min-w-[1340px]',

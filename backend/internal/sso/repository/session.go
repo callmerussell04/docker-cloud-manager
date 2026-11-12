@@ -19,7 +19,7 @@ type SessionRepository struct{ db *pgxpool.Pool }
 
 func NewSessionRepository(db *pgxpool.Pool) *SessionRepository { return &SessionRepository{db: db} }
 
-const userColumns = `id, username, email, password_hash, role, status, quota_cpu, quota_ram_mb, quota_disk_mb,
+const userColumns = `id, username, email, password_hash, role, status,
  auth_source, external_provider, external_subject, external_username, last_login_at`
 
 func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {

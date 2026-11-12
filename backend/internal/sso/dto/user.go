@@ -16,24 +16,18 @@ type ListUsersRequest struct {
 }
 
 type CreateUserRequest struct {
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }
 
 type UpdateUserRequest struct {
-	UserID      uuid.UUID
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	UserID   uuid.UUID
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }

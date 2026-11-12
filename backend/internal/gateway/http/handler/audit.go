@@ -24,7 +24,17 @@ type auditInput struct {
 	DetailsJSON  string
 }
 
+// AuditRecorder records an audit event in Core.
+type AuditRecorder interface {
+	RecordAuditEvent(ctx context.Context, event model.AuditEvent) error
+}
+
 func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
+	recordAudit(c, h.service, input)
+}
+
+// recordAudit attributes the event to the request's scope.
+func recordAudit(c *gin.Context, recorder AuditRecorder, input auditInput) {
 	if input.Action == "" {
 		return
 	}
@@ -47,7 +57,7 @@ func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
 	}
 	// Audit is best effort: a failed write never changes the response. It is
 	// attached to the request so the access log records it.
-	err := h.service.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
+	err := recorder.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
 		OccurredAt:    time.Now().UTC().Unix(),
 		ActorUserID:   actorUserID,
 		ActorUsername: scope.Username,

@@ -217,14 +217,11 @@ func (c *SSOClient) GetUser(ctx context.Context, userID string) (model.AdminUser
 
 func (c *SSOClient) CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error) {
 	resp, err := c.userAPI.CreateUser(ctx, &sso.CreateUserRequest{
-		Username:    input.Username,
-		Email:       input.Email,
-		Password:    input.Password,
-		Role:        input.Role,
-		Status:      input.Status,
-		QuotaCpu:    input.QuotaCPU,
-		QuotaRamMb:  input.QuotaRAMMB,
-		QuotaDiskMb: input.QuotaDiskMB,
+		Username: input.Username,
+		Email:    input.Email,
+		Password: input.Password,
+		Role:     input.Role,
+		Status:   input.Status,
 	})
 	if err != nil {
 		return model.AdminUser{}, grpcerrors.FromGRPC(err)
@@ -234,15 +231,12 @@ func (c *SSOClient) CreateUser(ctx context.Context, input model.CreateUserInput)
 
 func (c *SSOClient) UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error) {
 	resp, err := c.userAPI.UpdateUser(ctx, &sso.UpdateUserRequest{
-		UserId:      userID,
-		Username:    input.Username,
-		Email:       input.Email,
-		Password:    input.Password,
-		Role:        input.Role,
-		Status:      input.Status,
-		QuotaCpu:    input.QuotaCPU,
-		QuotaRamMb:  input.QuotaRAMMB,
-		QuotaDiskMb: input.QuotaDiskMB,
+		UserId:   userID,
+		Username: input.Username,
+		Email:    input.Email,
+		Password: input.Password,
+		Role:     input.Role,
+		Status:   input.Status,
 	})
 	if err != nil {
 		return model.AdminUser{}, grpcerrors.FromGRPC(err)
@@ -271,14 +265,11 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 		return model.AdminUser{}
 	}
 	return model.AdminUser{
-		UserID:      user.GetUserId(),
-		Username:    user.GetUsername(),
-		Email:       user.GetEmail(),
-		Role:        user.GetRole(),
-		Status:      user.GetStatus(),
-		QuotaCPU:    user.GetQuotaCpu(),
-		QuotaRAMMB:  user.GetQuotaRamMb(),
-		QuotaDiskMB: user.GetQuotaDiskMb(),
+		UserID:   user.GetUserId(),
+		Username: user.GetUsername(),
+		Email:    user.GetEmail(),
+		Role:     user.GetRole(),
+		Status:   user.GetStatus(),
 	}
 }
 

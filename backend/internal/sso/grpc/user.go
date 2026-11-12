@@ -89,14 +89,11 @@ func (h *Handler) CreateUser(ctx context.Context, req *sso.CreateUserRequest) (*
 		return nil, grpcerrors.ToGRPC(err)
 	}
 	createDTO := dto.CreateUserRequest{
-		Username:    req.GetUsername(),
-		Email:       req.GetEmail(),
-		Password:    req.GetPassword(),
-		Role:        req.GetRole(),
-		Status:      req.GetStatus(),
-		QuotaCPU:    req.GetQuotaCpu(),
-		QuotaRAMMB:  req.GetQuotaRamMb(),
-		QuotaDiskMB: req.GetQuotaDiskMb(),
+		Username: req.GetUsername(),
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+		Role:     req.GetRole(),
+		Status:   req.GetStatus(),
 	}
 	if createDTO.Username == "" || createDTO.Email == "" || createDTO.Password == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
@@ -118,29 +115,23 @@ func (h *Handler) UpdateUser(ctx context.Context, req *sso.UpdateUserRequest) (*
 		return nil, status.Error(codes.InvalidArgument, "invalid user_id format")
 	}
 	updateDTO := dto.UpdateUserRequest{
-		UserID:      userID,
-		Username:    req.GetUsername(),
-		Email:       req.GetEmail(),
-		Password:    req.GetPassword(),
-		Role:        req.GetRole(),
-		Status:      req.GetStatus(),
-		QuotaCPU:    req.GetQuotaCpu(),
-		QuotaRAMMB:  req.GetQuotaRamMb(),
-		QuotaDiskMB: req.GetQuotaDiskMb(),
+		UserID:   userID,
+		Username: req.GetUsername(),
+		Email:    req.GetEmail(),
+		Password: req.GetPassword(),
+		Role:     req.GetRole(),
+		Status:   req.GetStatus(),
 	}
 	if updateDTO.Username == "" || updateDTO.Email == "" {
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
 	user, err := h.auth.UpdateUser(ctx, updateDTO.UserID, ssoservice.UpdateUserInput{
-		Username:    updateDTO.Username,
-		Email:       updateDTO.Email,
-		Password:    updateDTO.Password,
-		Role:        updateDTO.Role,
-		Status:      updateDTO.Status,
-		QuotaCPU:    updateDTO.QuotaCPU,
-		QuotaRAMMB:  updateDTO.QuotaRAMMB,
-		QuotaDiskMB: updateDTO.QuotaDiskMB,
+		Username: updateDTO.Username,
+		Email:    updateDTO.Email,
+		Password: updateDTO.Password,
+		Role:     updateDTO.Role,
+		Status:   updateDTO.Status,
 	})
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)

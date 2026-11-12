@@ -50,6 +50,17 @@ service SystemAPI {
   // (message TelemetryRuntimeConfigData).
 }
 
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+service QuotaAPI {
+  // GetUserQuotas returns the effective quota of each user, marked custom or
+  // default. At most 100 users per call.
+  rpc GetUserQuotas (GetUserQuotasRequest) returns (UserQuotasResponse);
+  rpc SetUserQuota (SetUserQuotaRequest) returns (UserQuotaData);
+  // ResetUserQuota returns the user to the default quota and returns it.
+  rpc ResetUserQuota (UserQuotaActionRequest) returns (UserQuotaData);
+}
+
 service StatsAPI {
   rpc GetUserStats (Empty) returns (UserStatsResponse);
   rpc GetSystemMonitoring (Empty) returns (SystemMonitoringResponse);
@@ -62,6 +73,35 @@ service ReportAPI {
   rpc ListAuditEvents (ListAuditEventsRequest) returns (PaginatedAuditEventResponse);
   rpc RecordAuditEvent (AuditEventData) returns (Empty);
   rpc RefreshUsageSnapshots (Empty) returns (RefreshUsageSnapshotsResponse);
+}
+
+message GetUserQuotasRequest {
+  repeated string user_ids = 1;
+}
+
+message UserQuotaData {
+  string user_id = 1;
+  // CPU in cores; memory and disk in MB.
+  double cpu = 2;
+  int64 ram_mb = 3;
+  int64 disk_mb = 4;
+  // False when the user has the default quota.
+  bool custom = 5;
+}
+
+message UserQuotasResponse {
+  repeated UserQuotaData quotas = 1;
+}
+
+message SetUserQuotaRequest {
+  string user_id = 1;
+  double cpu = 2;
+  int64 ram_mb = 3;
+  int64 disk_mb = 4;
+}
+
+message UserQuotaActionRequest {
+  string user_id = 1;
 }
 
 message UserStatsResponse {

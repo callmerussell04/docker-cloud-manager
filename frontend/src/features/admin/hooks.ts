@@ -21,6 +21,8 @@ import {
   getSystemConfigFn,
   getSystemMonitoringFn,
   reactivateAdminUserFn,
+  resetAdminUserQuotaFn,
+  setAdminUserQuotaFn,
   updateAdminUserFn,
   updateSystemConfigFn,
 } from './api';
@@ -283,6 +285,40 @@ export function useAdminCancelBuild() {
     },
     onError: (error: unknown) => {
       addToast(getApiErrorMessage(error, t('images.cancelBuildFailed'), t).message, 'error');
+    },
+  });
+}
+
+export function useSetAdminUserQuota() {
+  const queryClient = useQueryClient();
+  const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: setAdminUserQuotaFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
+      addToast(t('admin.users.quotaSaved'), 'success');
+    },
+    onError: (error: unknown) => {
+      addToast(getApiErrorMessage(error, t('admin.users.quotaSaveFailed'), t).message, 'error');
+    },
+  });
+}
+
+export function useResetAdminUserQuota() {
+  const queryClient = useQueryClient();
+  const addToast = useToastStore((state) => state.addToast);
+  const t = useT();
+
+  return useMutation({
+    mutationFn: resetAdminUserQuotaFn,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
+      addToast(t('admin.users.quotaReset'), 'success');
+    },
+    onError: (error: unknown) => {
+      addToast(getApiErrorMessage(error, t('admin.users.quotaResetFailed'), t).message, 'error');
     },
   });
 }

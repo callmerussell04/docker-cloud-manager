@@ -218,17 +218,19 @@ func newRouterDeps(t *testing.T) *routerDeps {
 	t.Helper()
 	auth := gatewayhandlermocks.NewMockAuthService(t)
 	core := gatewayhandlermocks.NewMockCoreService(t)
-	users := gatewayhandlermocks.NewMockUserManagementService(t)
+	users := gatewayhandlermocks.NewMockUserDirectory(t)
+	adminUsers := gatewayhandlermocks.NewMockAdminUserService(t)
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketIssuer(t)
 	readiness := gatewayhandlermocks.NewMockReadinessService(t)
 	verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
-	return &routerDeps{auth: auth, core: core, users: users, tickets: tickets, readiness: readiness, verifier: verifier}
+	return &routerDeps{auth: auth, core: core, users: users, adminUsers: adminUsers, tickets: tickets, readiness: readiness, verifier: verifier}
 }
 
 type routerDeps struct {
 	auth       *gatewayhandlermocks.MockAuthService
 	core       *gatewayhandlermocks.MockCoreService
-	users      *gatewayhandlermocks.MockUserManagementService
+	users      *gatewayhandlermocks.MockUserDirectory
+	adminUsers *gatewayhandlermocks.MockAdminUserService
 	tickets    *gatewayhandlermocks.MockTelemetryTicketIssuer
 	readiness  *gatewayhandlermocks.MockReadinessService
 	verifier   *gatewaymiddlewaremocks.MockTokenVerifier
@@ -240,7 +242,7 @@ func (d *routerDeps) routerDeps() gatewayhttp.RouterDeps {
 	return gatewayhttp.RouterDeps{
 		AuthHandler:            handler.NewAuthHandler(d.auth, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{}),
 		CoreHandler:            coreHandler,
-		UserHandler:            handler.NewUserManagementHandler(d.users),
+		UserHandler:            handler.NewUserManagementHandler(handler.UserManagementDeps{Users: d.users, AdminUsers: d.adminUsers, Audit: d.core}),
 		HealthHandler:          handler.NewHealthHandler(d.readiness),
 		TelemetryTicketHandler: handler.NewTelemetryTicketHandler(d.tickets),
 		CoreHTTPProxy: func(c *gin.Context) {

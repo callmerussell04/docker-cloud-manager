@@ -41,7 +41,6 @@ func TestAuthServiceRegisterStoresPasswordHash(t *testing.T) {
 	require.Equal(t, model.RoleUser, saved.Role)
 	require.Equal(t, model.StatusActive, saved.Status)
 	require.Equal(t, model.AuthSourceLocal, saved.AuthSource)
-	require.Equal(t, int64(2048), saved.QuotaRAMMB)
 	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(saved.PasswordHash), []byte("secret123")))
 
 }
@@ -114,7 +113,7 @@ func TestAuthServiceUserManagement(t *testing.T) {
 		Once()
 	user, err := svc.CreateUser(ctx, service.CreateUserInput{
 		Username: "admin", Email: "admin@example.com", Password: "secret123",
-		Role: model.RoleAdmin, Status: model.StatusActive, QuotaCPU: 2, QuotaRAMMB: 4096, QuotaDiskMB: 8192,
+		Role: model.RoleAdmin, Status: model.StatusActive,
 	})
 	require.NoError(t, err)
 	require.Equal(t, created.ID, user.ID)
@@ -123,7 +122,7 @@ func TestAuthServiceUserManagement(t *testing.T) {
 	repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Return(apperrors.ErrAlreadyExists)
 	_, err = svc.CreateUser(ctx, service.CreateUserInput{
 		Username: "admin", Email: "admin@example.com", Password: "secret123",
-		Role: model.RoleAdmin, Status: model.StatusActive, QuotaCPU: 2, QuotaRAMMB: 4096, QuotaDiskMB: 8192,
+		Role: model.RoleAdmin, Status: model.StatusActive,
 	})
 	require.ErrorIs(t, err, apperrors.ErrAlreadyExists)
 
@@ -139,11 +138,10 @@ func TestAuthServiceUserManagement(t *testing.T) {
 		Once()
 	updatedUser, err := svc.UpdateUser(ctx, existing.ID, service.UpdateUserInput{
 		Username: "alice2", Email: "alice2@example.com", Password: "newsecret",
-		Role: model.RoleAdmin, Status: model.StatusActive, QuotaCPU: 3, QuotaRAMMB: 6144, QuotaDiskMB: 10240,
+		Role: model.RoleAdmin, Status: model.StatusActive,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "alice2", updatedUser.Username)
-	require.Equal(t, int64(10240), updated.QuotaDiskMB)
 	require.NoError(t, bcrypt.CompareHashAndPassword([]byte(updated.PasswordHash), []byte("newsecret")))
 
 	repo.EXPECT().GetUserByID(mock.Anything, existing.ID).Return(updated, nil).Once()
@@ -170,9 +168,8 @@ func TestAuthServiceRejectsInvalidUserInputAndLastAdminChanges(t *testing.T) {
 		name  string
 		input service.CreateUserInput
 	}{
-		{name: "bad role", input: service.CreateUserInput{Username: "u", Email: "u@example.com", Password: "secret123", Role: "owner", Status: model.StatusActive, QuotaCPU: 1, QuotaRAMMB: 1, QuotaDiskMB: 1}},
-		{name: "bad status", input: service.CreateUserInput{Username: "u", Email: "u@example.com", Password: "secret123", Role: model.RoleUser, Status: "locked", QuotaCPU: 1, QuotaRAMMB: 1, QuotaDiskMB: 1}},
-		{name: "bad quota", input: service.CreateUserInput{Username: "u", Email: "u@example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive, QuotaCPU: 0, QuotaRAMMB: 1, QuotaDiskMB: 1}},
+		{name: "bad role", input: service.CreateUserInput{Username: "u", Email: "u@example.com", Password: "secret123", Role: "owner", Status: model.StatusActive}},
+		{name: "bad status", input: service.CreateUserInput{Username: "u", Email: "u@example.com", Password: "secret123", Role: model.RoleUser, Status: "locked"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -385,9 +382,6 @@ func userWithPassword(id uuid.UUID, username, password, role, status string) mod
 		PasswordHash: string(hash),
 		Role:         role,
 		Status:       status,
-		QuotaCPU:     1,
-		QuotaRAMMB:   2048,
-		QuotaDiskMB:  5120,
 		AuthSource:   model.AuthSourceLocal,
 	}
 }

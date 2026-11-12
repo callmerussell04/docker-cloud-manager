@@ -50,6 +50,8 @@ const (
 	ActionUserAdminUpdate     = "user.admin_update"
 	ActionUserAdminDeactivate = "user.admin_deactivate"
 	ActionUserAdminReactivate = "user.admin_reactivate"
+	ActionUserQuotaSet        = "user.quota_set"
+	ActionUserQuotaReset      = "user.quota_reset"
 
 	ActionTelemetryLogsTicket     = "telemetry.logs_ticket"
 	ActionTelemetryTerminalTicket = "telemetry.terminal_ticket"
@@ -67,4 +69,7 @@ const (
 	DetailPreviousInternalPort = "previous_internal_port"
 	DetailProvider             = "provider"
 	DetailAdmin                = "admin"
+	DetailQuotaCPU             = "quota_cpu"
+	DetailQuotaRAMMB           = "quota_ram_mb"
+	DetailQuotaDiskMB          = "quota_disk_mb"
 )

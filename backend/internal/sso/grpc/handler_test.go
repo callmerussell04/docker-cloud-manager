@@ -73,7 +73,7 @@ func TestSSOUserGRPCMapsReadAndPermissionRPCs(t *testing.T) {
 	auth := ssogrpcmocks.NewMockAuthService(t)
 	userID := uuid.New()
 	otherID := uuid.New()
-	user := model.User{ID: userID, Username: "alice", Email: "alice@example.com", Role: model.RoleAdmin, Status: model.StatusActive, QuotaCPU: 2, QuotaRAMMB: 4096, QuotaDiskMB: 8192}
+	user := model.User{ID: userID, Username: "alice", Email: "alice@example.com", Role: model.RoleAdmin, Status: model.StatusActive}
 	auth.EXPECT().VerifyAccessToken(mock.Anything, "access").Return(user, nil)
 	auth.EXPECT().CheckPermission(mock.Anything, "access", "users.admin.list").Return(user, true, nil)
 	auth.EXPECT().GetUser(mock.Anything, userID).Return(user, nil)
@@ -112,10 +112,10 @@ func TestSSOUserGRPCMapsReadAndPermissionRPCs(t *testing.T) {
 func TestSSOUserGRPCAdminRoutes(t *testing.T) {
 	auth := ssogrpcmocks.NewMockAuthService(t)
 	userID := uuid.New()
-	user := model.User{ID: userID, Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive, QuotaCPU: 1, QuotaRAMMB: 2048, QuotaDiskMB: 5120}
+	user := model.User{ID: userID, Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive}
 	auth.EXPECT().ListUsers(mock.Anything, 20, 20).Return([]model.User{user}, 1, nil)
 	auth.EXPECT().CreateUser(mock.Anything, mock.MatchedBy(func(input ssoservice.CreateUserInput) bool {
-		return input.Username == "bob" && input.Role == model.RoleUser && input.QuotaRAMMB == 1024
+		return input.Username == "bob" && input.Role == model.RoleUser
 	})).Return(user, nil)
 	auth.EXPECT().UpdateUser(mock.Anything, userID, mock.MatchedBy(func(input ssoservice.UpdateUserInput) bool {
 		return input.Username == "alice2" && input.Password == "newsecret"
@@ -130,11 +130,11 @@ func TestSSOUserGRPCAdminRoutes(t *testing.T) {
 	require.Equal(t, int32(1), listResp.TotalCount)
 	require.Len(t, listResp.Users, 1)
 
-	createResp, err := client.CreateUser(context.Background(), &sso.CreateUserRequest{Username: "bob", Email: "bob@example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048})
+	createResp, err := client.CreateUser(context.Background(), &sso.CreateUserRequest{Username: "bob", Email: "bob@example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive})
 	require.NoError(t, err)
 	requireUserData(t, createResp, user)
 
-	updateResp, err := client.UpdateUser(context.Background(), &sso.UpdateUserRequest{UserId: userID.String(), Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive, QuotaCpu: 2, QuotaRamMb: 4096, QuotaDiskMb: 8192})
+	updateResp, err := client.UpdateUser(context.Background(), &sso.UpdateUserRequest{UserId: userID.String(), Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive})
 	require.NoError(t, err)
 	requireUserData(t, updateResp, user)
 
@@ -189,7 +189,4 @@ func requireUserData(t *testing.T, got *sso.UserData, want model.User) {
 	require.Equal(t, want.Email, got.Email)
 	require.Equal(t, want.Role, got.Role)
 	require.Equal(t, want.Status, got.Status)
-	require.Equal(t, want.QuotaCPU, got.QuotaCpu)
-	require.Equal(t, want.QuotaRAMMB, got.QuotaRamMb)
-	require.Equal(t, want.QuotaDiskMB, got.QuotaDiskMb)
 }

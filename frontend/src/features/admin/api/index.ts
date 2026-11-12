@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { AdminUser, AdminUserForm, SystemConfig, SystemMonitoring } from '../types';
+import type { AdminUser, AdminUserAccount, AdminUserForm, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
 import type { AdminContainerData, ContainerStats } from '@/features/containers/types';
 import type { AdminVolumeData } from '@/features/volumes/types';
 import type { AdminImageData, AdminBuildData } from '@/features/images/types';
@@ -71,23 +71,33 @@ export const getAdminUsersFn = async (page: number, limit: number) => {
   return { items: response.data.users || [], total_count: response.data.total_count || 0 };
 };
 
-export const createAdminUserFn = async (data: AdminUserForm): Promise<AdminUser> => {
-  const response = await privateApi.post<AdminUser>('/admin/users', data);
+export const createAdminUserFn = async (data: AdminUserForm): Promise<AdminUserAccount> => {
+  const response = await privateApi.post<AdminUserAccount>('/admin/users', data);
   return response.data;
 };
 
-export const updateAdminUserFn = async ({ id, data }: { id: string; data: AdminUserForm }): Promise<AdminUser> => {
-  const response = await privateApi.put<AdminUser>(`/admin/users/${id}`, data);
+export const updateAdminUserFn = async ({ id, data }: { id: string; data: AdminUserForm }): Promise<AdminUserAccount> => {
+  const response = await privateApi.put<AdminUserAccount>(`/admin/users/${id}`, data);
   return response.data;
 };
 
-export const deactivateAdminUserFn = async (id: string): Promise<AdminUser> => {
-  const response = await privateApi.delete<AdminUser>(`/admin/users/${id}`);
+export const deactivateAdminUserFn = async (id: string): Promise<AdminUserAccount> => {
+  const response = await privateApi.delete<AdminUserAccount>(`/admin/users/${id}`);
   return response.data;
 };
 
-export const reactivateAdminUserFn = async (id: string): Promise<AdminUser> => {
-  const response = await privateApi.post<AdminUser>(`/admin/users/${id}/activate`);
+export const reactivateAdminUserFn = async (id: string): Promise<AdminUserAccount> => {
+  const response = await privateApi.post<AdminUserAccount>(`/admin/users/${id}/activate`);
+  return response.data;
+};
+
+export const setAdminUserQuotaFn = async ({ id, data }: { id: string; data: UserQuotaForm }): Promise<UserQuota> => {
+  const response = await privateApi.put<UserQuota>(`/admin/users/${id}/quota`, data);
+  return response.data;
+};
+
+export const resetAdminUserQuotaFn = async (id: string): Promise<UserQuota> => {
+  const response = await privateApi.delete<UserQuota>(`/admin/users/${id}/quota`);
   return response.data;
 };
 

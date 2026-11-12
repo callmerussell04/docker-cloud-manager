@@ -9,3 +9,11 @@ type UserQuota struct {
 	DiskMB        int64
 	Custom        bool
 }
+
+// UserQuotaLimits is a custom quota as an administrator asks for it: CPU in
+// cores, memory and disk in MB.
+type UserQuotaLimits struct {
+	CPUCores float64
+	RAMMB    int64
+	DiskMB   int64
+}

@@ -17,56 +17,159 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
+type userHandlerHarness struct {
+	router     *gin.Engine
+	users      *gatewayhandlermocks.MockUserDirectory
+	adminUsers *gatewayhandlermocks.MockAdminUserService
+	audit      *gatewayhandlermocks.MockAuditRecorder
+}
+
+func newUserHandlerHarness(t *testing.T) userHandlerHarness {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
-	svc := gatewayhandlermocks.NewMockUserManagementService(t)
-	h := handler.NewUserManagementHandler(svc)
-	router := gin.New()
-	router.GET("/users", h.ListUsers)
-	router.GET("/users/:id", h.GetUser)
-	router.POST("/users", h.CreateUser)
-	router.PUT("/users/:id", h.UpdateUser)
-	router.DELETE("/users/:id", h.DeactivateUser)
-	router.POST("/users/:id/activate", h.ReactivateUser)
+	h := userHandlerHarness{
+		users:      gatewayhandlermocks.NewMockUserDirectory(t),
+		adminUsers: gatewayhandlermocks.NewMockAdminUserService(t),
+		audit:      gatewayhandlermocks.NewMockAuditRecorder(t),
+	}
+	userHandler := handler.NewUserManagementHandler(handler.UserManagementDeps{Users: h.users, AdminUsers: h.adminUsers, Audit: h.audit})
+	h.router = gin.New()
+	h.router.Use(withScope(accessscope.WithAdminScope(context.Background(), adminActorID, "root", "admin")))
+	h.router.GET("/users", userHandler.ListUsers)
+	h.router.GET("/users/:id", userHandler.GetUser)
+	h.router.POST("/users", userHandler.CreateUser)
+	h.router.PUT("/users/:id", userHandler.UpdateUser)
+	h.router.DELETE("/users/:id", userHandler.DeactivateUser)
+	h.router.POST("/users/:id/activate", userHandler.ReactivateUser)
+	h.router.PUT("/users/:id/quota", userHandler.SetUserQuota)
+	h.router.DELETE("/users/:id/quota", userHandler.ResetUserQuota)
+	return h
+}
+
+var adminActorID = uuid.New()
+
+func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
+	h := newUserHandlerHarness(t)
 	userID := uuid.NewString()
-	user := model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", QuotaCPU: 1, QuotaRAMMB: 1024, QuotaDiskMB: 2048}
+	user := model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.com", Role: "user", Status: "active"}
+	withQuota := model.AdminUserWithQuota{User: user, Quota: model.UserQuota{UserID: userID, CPU: 1.5, RAMMB: 1024, DiskMB: 2048, Custom: true}}
 
-	svc.EXPECT().ListUsers(mock.Anything, 2, 10).Return(model.PaginatedAdminUsers{Users: []model.AdminUser{user}, TotalCount: 1}, nil)
-	resp := perform(router, http.MethodGet, "/users?page=2&limit=10", ``, nil)
+	h.adminUsers.EXPECT().ListUsers(mock.Anything, 2, 10).Return(model.PaginatedAdminUsersWithQuota{Users: []model.AdminUserWithQuota{withQuota}, TotalCount: 1}, nil)
+	resp := perform(h.router, http.MethodGet, "/users?page=2&limit=10", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	require.Contains(t, resp.Body.String(), `"total_count":1`)
+	require.JSONEq(t, `{"total_count":1,"users":[{"user_id":"`+userID+`","username":"alice","email":"alice@example.com","role":"user","status":"active","quota_cpu":1.5,"quota_ram_mb":1024,"quota_disk_mb":2048,"quota_custom":true}]}`, resp.Body.String())
 
-	svc.EXPECT().GetUser(mock.Anything, userID).Return(user, nil)
-	resp = perform(router, http.MethodGet, "/users/"+userID, ``, nil)
+	h.adminUsers.EXPECT().GetUser(mock.Anything, userID).Return(withQuota, nil)
+	resp = perform(h.router, http.MethodGet, "/users/"+userID, ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	require.Contains(t, resp.Body.String(), `"username":"alice"`)
+	require.Contains(t, resp.Body.String(), `"quota_custom":true`)
 
-	svc.EXPECT().CreateUser(mock.Anything, mock.MatchedBy(func(input model.CreateUserInput) bool {
-		return input.Username == "bob" && input.Role == "user" && input.QuotaDiskMB == 2048
-	})).Return(user, nil)
-	resp = perform(router, http.MethodPost, "/users", `{"username":"bob","email":"bob@example.com","password":"secret","role":"user","status":"active","quota_cpu":1,"quota_ram_mb":1024,"quota_disk_mb":2048}`, nil)
+	h.users.EXPECT().CreateUser(mock.Anything, model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "user", Status: "active"}).Return(user, nil)
+	resp = perform(h.router, http.MethodPost, "/users", `{"username":"bob","email":"bob@example.com","password":"secret","role":"user","status":"active"}`, nil)
 	require.Equal(t, http.StatusCreated, resp.Code)
+	require.NotContains(t, resp.Body.String(), "quota")
 
-	svc.EXPECT().UpdateUser(mock.Anything, userID, mock.MatchedBy(func(input model.UpdateUserInput) bool {
-		return input.Username == "alice2" && input.Password == "newsecret"
-	})).Return(user, nil)
-	resp = perform(router, http.MethodPut, "/users/"+userID, `{"username":"alice2","email":"alice2@example.com","password":"newsecret","role":"admin","status":"active","quota_cpu":2,"quota_ram_mb":2048,"quota_disk_mb":4096}`, nil)
+	h.users.EXPECT().UpdateUser(mock.Anything, userID, model.UpdateUserInput{Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: "admin", Status: "active"}).Return(user, nil)
+	resp = perform(h.router, http.MethodPut, "/users/"+userID, `{"username":"alice2","email":"alice2@example.com","password":"newsecret","role":"admin","status":"active"}`, nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.NotContains(t, resp.Body.String(), "quota")
+
+	h.users.EXPECT().DeactivateUser(mock.Anything, userID).Return(user, nil)
+	resp = perform(h.router, http.MethodDelete, "/users/"+userID, ``, nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	h.users.EXPECT().ReactivateUser(mock.Anything, userID).Return(user, nil)
+	resp = perform(h.router, http.MethodPost, "/users/"+userID+"/activate", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 
-	svc.EXPECT().DeactivateUser(mock.Anything, userID).Return(user, nil)
-	resp = perform(router, http.MethodDelete, "/users/"+userID, ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
-	svc.EXPECT().ReactivateUser(mock.Anything, userID).Return(user, nil)
-	resp = perform(router, http.MethodPost, "/users/"+userID+"/activate", ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
+	resp = perform(h.router, http.MethodGet, "/users/bad-id", ``, nil)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	resp = perform(h.router, http.MethodPost, "/users", `{"username":"bad name","role":"user","status":"active"}`, nil)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	resp = perform(h.router, http.MethodPost, "/users", `{"username":"alice","role":"owner","status":"active"}`, nil)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	resp = perform(h.router, http.MethodPost, "/users", `{"username":"alice","role":"user","status":"disabled"}`, nil)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+}
 
-	resp = perform(router, http.MethodGet, "/users/bad-id", ``, nil)
-	require.Equal(t, http.StatusBadRequest, resp.Code)
-	resp = perform(router, http.MethodPost, "/users", `{"username":"bad name","role":"user","status":"active"}`, nil)
-	require.Equal(t, http.StatusBadRequest, resp.Code)
-	resp = perform(router, http.MethodPost, "/users", `{"username":"alice","role":"owner","status":"active"}`, nil)
-	require.Equal(t, http.StatusBadRequest, resp.Code)
-	resp = perform(router, http.MethodPost, "/users", `{"username":"alice","role":"user","status":"disabled"}`, nil)
+func TestUserReadsFailAsUnavailableWhenCoreCannotAnswer(t *testing.T) {
+	h := newUserHandlerHarness(t)
+	userID := uuid.NewString()
+	h.adminUsers.EXPECT().ListUsers(mock.Anything, 1, 20).Return(model.PaginatedAdminUsersWithQuota{}, apperrors.ErrUnavailable)
+	h.adminUsers.EXPECT().GetUser(mock.Anything, userID).Return(model.AdminUserWithQuota{}, apperrors.ErrUnavailable)
+
+	resp := perform(h.router, http.MethodGet, "/users", ``, nil)
+	require.Equal(t, http.StatusServiceUnavailable, resp.Code)
+	require.NotContains(t, resp.Body.String(), "quota_cpu")
+	resp = perform(h.router, http.MethodGet, "/users/"+userID, ``, nil)
+	require.Equal(t, http.StatusServiceUnavailable, resp.Code)
+	require.NotContains(t, resp.Body.String(), "quota_cpu")
+}
+
+// auditedQuotaEvent matches the audit event of a quota change on userID by
+// the harness's administrator.
+func auditedQuotaEvent(action, userID, outcome string, details func(string) bool) any {
+	return mock.MatchedBy(func(event model.AuditEvent) bool {
+		return event.Action == action && event.ResourceType == "user" && event.ResourceID == userID && event.OwnerID == userID &&
+			event.ActorUserID == adminActorID.String() && event.ActorScope == "admin" && event.Outcome == outcome && details(event.DetailsJSON)
+	})
+}
+
+func TestSetAndResetUserQuotaAreAudited(t *testing.T) {
+	h := newUserHandlerHarness(t)
+	userID := uuid.NewString()
+	h.adminUsers.EXPECT().SetUserQuota(mock.Anything, userID, model.UserQuotaLimits{CPU: 2.5, RAMMB: 4096, DiskMB: 10240}).
+		Return(model.UserQuota{UserID: userID, CPU: 2.5, RAMMB: 4096, DiskMB: 10240, Custom: true}, nil)
+	h.audit.EXPECT().RecordAuditEvent(mock.Anything, auditedQuotaEvent("user.quota_set", userID, "success", func(details string) bool {
+		return details == `{"quota_cpu":"2.5","quota_disk_mb":"10240","quota_ram_mb":"4096"}`
+	})).Return(nil).Once()
+
+	resp := perform(h.router, http.MethodPut, "/users/"+userID+"/quota", `{"quota_cpu":2.5,"quota_ram_mb":4096,"quota_disk_mb":10240}`, nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.JSONEq(t, `{"user_id":"`+userID+`","quota_cpu":2.5,"quota_ram_mb":4096,"quota_disk_mb":10240,"quota_custom":true}`, resp.Body.String())
+
+	h.adminUsers.EXPECT().ResetUserQuota(mock.Anything, userID).Return(model.UserQuota{UserID: userID, CPU: 1, RAMMB: 2048, DiskMB: 5120}, nil)
+	h.audit.EXPECT().RecordAuditEvent(mock.Anything, auditedQuotaEvent("user.quota_reset", userID, "success", func(details string) bool { return details == "{}" })).Return(nil).Once()
+
+	resp = perform(h.router, http.MethodDelete, "/users/"+userID+"/quota", ``, nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.JSONEq(t, `{"user_id":"`+userID+`","quota_cpu":1,"quota_ram_mb":2048,"quota_disk_mb":5120,"quota_custom":false}`, resp.Body.String())
+}
+
+func TestQuotaRoutesAnswerNotFoundForAnUnknownUserAndAuditTheFailure(t *testing.T) {
+	h := newUserHandlerHarness(t)
+	userID := uuid.NewString()
+	h.adminUsers.EXPECT().SetUserQuota(mock.Anything, userID, mock.Anything).Return(model.UserQuota{}, apperrors.ErrNotFound)
+	h.adminUsers.EXPECT().ResetUserQuota(mock.Anything, userID).Return(model.UserQuota{}, apperrors.ErrNotFound)
+	noDetails := func(details string) bool { return details == "{}" }
+	h.audit.EXPECT().RecordAuditEvent(mock.Anything, auditedQuotaEvent("user.quota_set", userID, "failure", noDetails)).Return(nil).Once()
+	h.audit.EXPECT().RecordAuditEvent(mock.Anything, auditedQuotaEvent("user.quota_reset", userID, "failure", noDetails)).Return(nil).Once()
+
+	resp := perform(h.router, http.MethodPut, "/users/"+userID+"/quota", `{"quota_cpu":1,"quota_ram_mb":1,"quota_disk_mb":1}`, nil)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+	resp = perform(h.router, http.MethodDelete, "/users/"+userID+"/quota", ``, nil)
+	require.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+// A rejected quota is a bad request whose answer never repeats the value.
+func TestSetUserQuotaRejectsANonPositiveValueWithoutEchoingIt(t *testing.T) {
+	h := newUserHandlerHarness(t)
+	userID := uuid.NewString()
+	for name, body := range map[string]string{
+		"negative cpu":    `{"quota_cpu":-31.5,"quota_ram_mb":1024,"quota_disk_mb":1024}`,
+		"zero cpu":        `{"quota_cpu":0,"quota_ram_mb":1024,"quota_disk_mb":1024}`,
+		"negative memory": `{"quota_cpu":1,"quota_ram_mb":-315,"quota_disk_mb":1024}`,
+		"negative disk":   `{"quota_cpu":1,"quota_ram_mb":1024,"quota_disk_mb":-3150}`,
+		"missing disk":    `{"quota_cpu":1,"quota_ram_mb":1024}`,
+		"not a number":    `{"quota_cpu":"315x","quota_ram_mb":1024,"quota_disk_mb":1024}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := perform(h.router, http.MethodPut, "/users/"+userID+"/quota", body, nil)
+
+			require.Equal(t, http.StatusBadRequest, resp.Code)
+			require.NotContains(t, resp.Body.String(), "315")
+		})
+	}
+	resp := perform(h.router, http.MethodPut, "/users/not-a-uuid/quota", `{"quota_cpu":1,"quota_ram_mb":1,"quota_disk_mb":1}`, nil)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 }
 

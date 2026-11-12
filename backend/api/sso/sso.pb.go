@@ -1087,9 +1087,6 @@ type UserData struct {
 	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
 	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	QuotaRamMb    int64                  `protobuf:"varint,5,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
-	QuotaDiskMb   int64                  `protobuf:"varint,6,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
-	QuotaCpu      float64                `protobuf:"fixed64,7,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
 	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1151,27 +1148,6 @@ func (x *UserData) GetRole() string {
 		return x.Role
 	}
 	return ""
-}
-
-func (x *UserData) GetQuotaRamMb() int64 {
-	if x != nil {
-		return x.QuotaRamMb
-	}
-	return 0
-}
-
-func (x *UserData) GetQuotaDiskMb() int64 {
-	if x != nil {
-		return x.QuotaDiskMb
-	}
-	return 0
-}
-
-func (x *UserData) GetQuotaCpu() float64 {
-	if x != nil {
-		return x.QuotaCpu
-	}
-	return 0
 }
 
 func (x *UserData) GetStatus() string {
@@ -1336,9 +1312,6 @@ type CreateUserRequest struct {
 	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
 	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
 	Status        string                 `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
-	QuotaCpu      float64                `protobuf:"fixed64,6,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
-	QuotaRamMb    int64                  `protobuf:"varint,7,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
-	QuotaDiskMb   int64                  `protobuf:"varint,8,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1408,27 +1381,6 @@ func (x *CreateUserRequest) GetStatus() string {
 	return ""
 }
 
-func (x *CreateUserRequest) GetQuotaCpu() float64 {
-	if x != nil {
-		return x.QuotaCpu
-	}
-	return 0
-}
-
-func (x *CreateUserRequest) GetQuotaRamMb() int64 {
-	if x != nil {
-		return x.QuotaRamMb
-	}
-	return 0
-}
-
-func (x *CreateUserRequest) GetQuotaDiskMb() int64 {
-	if x != nil {
-		return x.QuotaDiskMb
-	}
-	return 0
-}
-
 type UpdateUserRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -1437,9 +1389,6 @@ type UpdateUserRequest struct {
 	Password      string                 `protobuf:"bytes,4,opt,name=password,proto3" json:"password,omitempty"`
 	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
 	Status        string                 `protobuf:"bytes,6,opt,name=status,proto3" json:"status,omitempty"`
-	QuotaCpu      float64                `protobuf:"fixed64,7,opt,name=quota_cpu,json=quotaCpu,proto3" json:"quota_cpu,omitempty"`
-	QuotaRamMb    int64                  `protobuf:"varint,8,opt,name=quota_ram_mb,json=quotaRamMb,proto3" json:"quota_ram_mb,omitempty"`
-	QuotaDiskMb   int64                  `protobuf:"varint,9,opt,name=quota_disk_mb,json=quotaDiskMb,proto3" json:"quota_disk_mb,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1516,27 +1465,6 @@ func (x *UpdateUserRequest) GetStatus() string {
 	return ""
 }
 
-func (x *UpdateUserRequest) GetQuotaCpu() float64 {
-	if x != nil {
-		return x.QuotaCpu
-	}
-	return 0
-}
-
-func (x *UpdateUserRequest) GetQuotaRamMb() int64 {
-	if x != nil {
-		return x.QuotaRamMb
-	}
-	return 0
-}
-
-func (x *UpdateUserRequest) GetQuotaDiskMb() int64 {
-	if x != nil {
-		return x.QuotaDiskMb
-	}
-	return 0
-}
-
 var File_api_sso_sso_proto protoreflect.FileDescriptor
 
 const file_api_sso_sso_proto_rawDesc = "" +
@@ -1602,17 +1530,13 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\rUserIDRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"1\n" +
 	"\x14BatchGetUsersRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\xe4\x01\n" +
+	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\xbb\x01\n" +
 	"\bUserData\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\x12 \n" +
-	"\fquota_ram_mb\x18\x05 \x01(\x03R\n" +
-	"quotaRamMb\x12\"\n" +
-	"\rquota_disk_mb\x18\x06 \x01(\x03R\vquotaDiskMb\x12\x1b\n" +
-	"\tquota_cpu\x18\a \x01(\x01R\bquotaCpu\x12\x16\n" +
-	"\x06status\x18\b \x01(\tR\x06status\"<\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\x12\x16\n" +
+	"\x06status\x18\b \x01(\tR\x06statusJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fquota_ram_mbR\rquota_disk_mbR\tquota_cpu\"<\n" +
 	"\x15BatchGetUsersResponse\x12#\n" +
 	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users\"<\n" +
 	"\x10ListUsersRequest\x12\x12\n" +
@@ -1621,28 +1545,21 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\x11ListUsersResponse\x12#\n" +
 	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xf0\x01\n" +
+	"totalCount\"\xc7\x01\n" +
 	"\x11CreateUserRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1a\n" +
 	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12\x16\n" +
-	"\x06status\x18\x05 \x01(\tR\x06status\x12\x1b\n" +
-	"\tquota_cpu\x18\x06 \x01(\x01R\bquotaCpu\x12 \n" +
-	"\fquota_ram_mb\x18\a \x01(\x03R\n" +
-	"quotaRamMb\x12\"\n" +
-	"\rquota_disk_mb\x18\b \x01(\x03R\vquotaDiskMb\"\x89\x02\n" +
+	"\x06status\x18\x05 \x01(\tR\x06statusJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\tquota_cpuR\fquota_ram_mbR\rquota_disk_mb\"\xe0\x01\n" +
 	"\x11UpdateUserRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x1a\n" +
 	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
-	"\x06status\x18\x06 \x01(\tR\x06status\x12\x1b\n" +
-	"\tquota_cpu\x18\a \x01(\x01R\bquotaCpu\x12 \n" +
-	"\fquota_ram_mb\x18\b \x01(\x03R\n" +
-	"quotaRamMb\x12\"\n" +
-	"\rquota_disk_mb\x18\t \x01(\x03R\vquotaDiskMb2\xc8\x03\n" +
+	"\x06status\x18\x06 \x01(\tR\x06statusJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"R\tquota_cpuR\fquota_ram_mbR\rquota_disk_mb2\xc8\x03\n" +
 	"\x04Auth\x127\n" +
 	"\bRegister\x12\x14.sso.RegisterRequest\x1a\x15.sso.RegisterResponse\x12.\n" +
 	"\x05Login\x12\x11.sso.LoginRequest\x1a\x12.sso.LoginResponse\x124\n" +

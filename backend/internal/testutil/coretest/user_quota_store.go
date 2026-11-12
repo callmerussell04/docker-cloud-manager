@@ -19,8 +19,10 @@ type UserQuotaStoreFake struct {
 // UserQuotaStoreFaults holds one Fault per UserQuotaStoreFake method. A failing
 // call returns the fault's error and changes nothing.
 type UserQuotaStoreFaults struct {
-	GetCustomUserQuota Fault
-	SetCustomUserQuota Fault
+	GetCustomUserQuota    Fault
+	GetCustomUserQuotas   Fault
+	SetCustomUserQuota    Fault
+	DeleteCustomUserQuota Fault
 }
 
 var _ UserQuotaStore = (*UserQuotaStoreFake)(nil)
@@ -56,5 +58,30 @@ func (s *UserQuotaStoreFake) SetCustomUserQuota(_ context.Context, ownerID uuid.
 	}
 	quota.Custom = true
 	s.quotas[ownerID] = quota
+	return nil
+}
+
+func (s *UserQuotaStoreFake) GetCustomUserQuotas(_ context.Context, ownerIDs []uuid.UUID) (map[uuid.UUID]model.UserQuota, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.faults.GetCustomUserQuotas.take(); err != nil {
+		return nil, err
+	}
+	quotas := make(map[uuid.UUID]model.UserQuota)
+	for _, ownerID := range ownerIDs {
+		if quota, found := s.quotas[ownerID]; found {
+			quotas[ownerID] = quota
+		}
+	}
+	return quotas, nil
+}
+
+func (s *UserQuotaStoreFake) DeleteCustomUserQuota(_ context.Context, ownerID uuid.UUID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.faults.DeleteCustomUserQuota.take(); err != nil {
+		return err
+	}
+	delete(s.quotas, ownerID)
 	return nil
 }

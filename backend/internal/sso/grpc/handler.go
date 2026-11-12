@@ -43,13 +43,10 @@ func Register(gRPCServer *grpc.Server, auth AuthService) {
 
 func userToProto(user model.User) *sso.UserData {
 	return &sso.UserData{
-		UserId:      user.ID.String(),
-		Username:    user.Username,
-		Email:       user.Email,
-		Role:        user.Role,
-		QuotaRamMb:  user.QuotaRAMMB,
-		QuotaDiskMb: user.QuotaDiskMB,
-		QuotaCpu:    user.QuotaCPU,
-		Status:      user.Status,
+		UserId:   user.ID.String(),
+		Username: user.Username,
+		Email:    user.Email,
+		Role:     user.Role,
+		Status:   user.Status,
 	}
 }

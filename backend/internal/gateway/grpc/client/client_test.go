@@ -56,10 +56,10 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	require.Equal(t, model.AuthUser{UserID: "user-id", Username: "alice", Role: "user"}, user)
 	require.Equal(t, "access", servers.users.verifiedToken)
 
-	admin, err := ssoClient.CreateUser(context.Background(), model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "admin", Status: "active", QuotaCPU: 2, QuotaRAMMB: 1024, QuotaDiskMB: 2048})
+	admin, err := ssoClient.CreateUser(context.Background(), model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "admin", Status: "active"})
 	require.NoError(t, err)
 	require.Equal(t, "bob", admin.Username)
-	require.Equal(t, float64(2), servers.users.createdQuotaCPU)
+	require.Equal(t, "admin", servers.users.createdRole)
 
 	list, err := ssoClient.ListUsers(context.Background(), 2, 10)
 	require.NoError(t, err)
@@ -278,7 +278,7 @@ type ssoUserServer struct {
 	verifiedToken     string
 	permission        string
 	allowPermission   bool
-	createdQuotaCPU   float64
+	createdRole       string
 	updatedStatus     string
 	deactivatedUserID string
 	reactivatedUserID string
@@ -299,7 +299,7 @@ func (s *ssoUserServer) CheckPermission(_ context.Context, req *sso.CheckPermiss
 
 func (s *ssoUserServer) ListUsers(_ context.Context, req *sso.ListUsersRequest) (*sso.ListUsersResponse, error) {
 	return &sso.ListUsersResponse{
-		Users:      []*sso.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", QuotaCpu: 1, QuotaRamMb: 1024, QuotaDiskMb: 2048}},
+		Users:      []*sso.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active"}},
 		TotalCount: 1,
 	}, nil
 }
@@ -313,8 +313,8 @@ func (s *ssoUserServer) BatchGetUsers(context.Context, *sso.BatchGetUsersRequest
 }
 
 func (s *ssoUserServer) CreateUser(_ context.Context, req *sso.CreateUserRequest) (*sso.UserData, error) {
-	s.createdQuotaCPU = req.QuotaCpu
-	return &sso.UserData{UserId: "user-id", Username: req.Username, Email: req.Email, Role: req.Role, Status: req.Status, QuotaCpu: req.QuotaCpu, QuotaRamMb: req.QuotaRamMb, QuotaDiskMb: req.QuotaDiskMb}, nil
+	s.createdRole = req.Role
+	return &sso.UserData{UserId: "user-id", Username: req.Username, Email: req.Email, Role: req.Role, Status: req.Status}, nil
 }
 
 func (s *ssoUserServer) UpdateUser(_ context.Context, req *sso.UpdateUserRequest) (*sso.UserData, error) {
@@ -458,4 +458,61 @@ func (s *coreReportServer) RecordAuditEvent(_ context.Context, req *coreapi.Audi
 
 func (s *coreReportServer) RefreshUsageSnapshots(context.Context, *coreapi.Empty) (*coreapi.RefreshUsageSnapshotsResponse, error) {
 	return &coreapi.RefreshUsageSnapshotsResponse{SnapshotsCount: 3}, nil
+}
+
+type coreQuotaServer struct {
+	coreapi.UnimplementedQuotaAPIServer
+	requestedIDs []string
+	set          *coreapi.SetUserQuotaRequest
+	resetID      string
+}
+
+func (s *coreQuotaServer) GetUserQuotas(_ context.Context, req *coreapi.GetUserQuotasRequest) (*coreapi.UserQuotasResponse, error) {
+	s.requestedIDs = req.GetUserIds()
+	return &coreapi.UserQuotasResponse{Quotas: []*coreapi.UserQuotaData{
+		{UserId: "user-a", Cpu: 2.5, RamMb: 4096, DiskMb: 8192, Custom: true},
+		{UserId: "user-b", Cpu: 1, RamMb: 2048, DiskMb: 5120},
+	}}, nil
+}
+
+func (s *coreQuotaServer) SetUserQuota(_ context.Context, req *coreapi.SetUserQuotaRequest) (*coreapi.UserQuotaData, error) {
+	s.set = req
+	return &coreapi.UserQuotaData{UserId: req.GetUserId(), Cpu: req.GetCpu(), RamMb: req.GetRamMb(), DiskMb: req.GetDiskMb(), Custom: true}, nil
+}
+
+func (s *coreQuotaServer) ResetUserQuota(_ context.Context, req *coreapi.UserQuotaActionRequest) (*coreapi.UserQuotaData, error) {
+	s.resetID = req.GetUserId()
+	if req.GetUserId() == "missing" {
+		return nil, status.Error(codes.NotFound, "not found")
+	}
+	return &coreapi.UserQuotaData{UserId: req.GetUserId(), Cpu: 1, RamMb: 2048, DiskMb: 5120}, nil
+}
+
+func TestCoreClientMapsUserQuotas(t *testing.T) {
+	quotaSrv := &coreQuotaServer{}
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterQuotaAPIServer(server, quotaSrv)
+	})
+	coreClient := client.NewCoreClient(conn)
+	ctx := context.Background()
+
+	quotas, err := coreClient.GetUserQuotas(ctx, []string{"user-a", "user-b"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"user-a", "user-b"}, quotaSrv.requestedIDs)
+	require.Equal(t, []model.UserQuota{
+		{UserID: "user-a", CPU: 2.5, RAMMB: 4096, DiskMB: 8192, Custom: true},
+		{UserID: "user-b", CPU: 1, RAMMB: 2048, DiskMB: 5120},
+	}, quotas)
+
+	set, err := coreClient.SetUserQuota(ctx, "user-a", model.UserQuotaLimits{CPU: 0.5, RAMMB: 512, DiskMB: 1024})
+	require.NoError(t, err)
+	require.Equal(t, model.UserQuota{UserID: "user-a", CPU: 0.5, RAMMB: 512, DiskMB: 1024, Custom: true}, set)
+	require.Equal(t, int64(512), quotaSrv.set.GetRamMb())
+
+	reset, err := coreClient.ResetUserQuota(ctx, "user-a")
+	require.NoError(t, err)
+	require.Equal(t, model.UserQuota{UserID: "user-a", CPU: 1, RAMMB: 2048, DiskMB: 5120}, reset)
+
+	_, err = coreClient.ResetUserQuota(ctx, "missing")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }

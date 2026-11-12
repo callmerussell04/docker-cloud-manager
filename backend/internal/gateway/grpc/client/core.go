@@ -14,6 +14,7 @@ type CoreClient struct {
 	systemAPI    coreapi.SystemAPIClient
 	statsAPI     coreapi.StatsAPIClient
 	reportAPI    coreapi.ReportAPIClient
+	quotaAPI     coreapi.QuotaAPIClient
 }
 
 func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
@@ -25,5 +26,6 @@ func NewCoreClient(cc *grpc.ClientConn) *CoreClient {
 		systemAPI:    coreapi.NewSystemAPIClient(cc),
 		statsAPI:     coreapi.NewStatsAPIClient(cc),
 		reportAPI:    coreapi.NewReportAPIClient(cc),
+		quotaAPI:     coreapi.NewQuotaAPIClient(cc),
 	}
 }

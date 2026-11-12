@@ -19,6 +19,9 @@ var allowedDetailKeys = map[string]struct{}{
 	DetailPreviousInternalPort: {},
 	DetailProvider:             {},
 	DetailAdmin:                {},
+	DetailQuotaCPU:             {},
+	DetailQuotaRAMMB:           {},
+	DetailQuotaDiskMB:          {},
 }
 
 func SafeDetailsJSON(details map[string]string) string {

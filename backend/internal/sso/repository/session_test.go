@@ -192,7 +192,7 @@ func TestPasswordAndStatusChangesInvalidateEverySession(t *testing.T) {
 			require.NoError(t, err)
 			second, err := svc.Login(ctx, "alice", "secret123")
 			require.NoError(t, err)
-			update := service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive, QuotaCPU: 1, QuotaRAMMB: 2048, QuotaDiskMB: 5120}
+			update := service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive}
 			if kind == "password" {
 				update.Password = "newsecret"
 			} else {
@@ -313,7 +313,7 @@ func TestUnknownSecretAndRoleUpdatesPreserveOtherSessions(t *testing.T) {
 		_, err = svc.Refresh(ctx, value)
 		require.ErrorIs(t, err, apperrors.ErrInvalidToken)
 	}
-	_, err = svc.UpdateUser(ctx, id, service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleAdmin, Status: model.StatusActive, QuotaCPU: 1, QuotaRAMMB: 2048, QuotaDiskMB: 5120})
+	_, err = svc.UpdateUser(ctx, id, service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleAdmin, Status: model.StatusActive})
 	require.NoError(t, err)
 	user, allowed, err := svc.CheckPermission(ctx, pair.AccessToken, permissions.UsersAdminList)
 	require.NoError(t, err)
@@ -348,7 +348,7 @@ func TestPasswordChangeRejectsLoginUsingEarlierCredentialSnapshot(t *testing.T) 
 	result := make(chan error, 1)
 	go func() { _, err := staleLogin.Login(ctx, "alice", "secret123"); result <- err }()
 	<-lookedUp
-	_, err = svc.UpdateUser(ctx, id, service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive, QuotaCPU: 1, QuotaRAMMB: 2048, QuotaDiskMB: 5120})
+	_, err = svc.UpdateUser(ctx, id, service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Password: "newsecret", Role: model.RoleUser, Status: model.StatusActive})
 	close(resume)
 	require.NoError(t, err)
 	require.ErrorIs(t, <-result, apperrors.ErrInvalidCredentials)

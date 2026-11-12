@@ -56,12 +56,6 @@ const (
 	PermissionUsersAdminDelete = permissions.UsersAdminDelete
 )
 
-const (
-	defaultQuotaCPU    = 1.0
-	defaultQuotaRAMMB  = 2048
-	defaultQuotaDiskMB = 5120
-)
-
 var rolePermissions = map[string]map[string]struct{}{
 	model.RoleAdmin: {
 		PermissionSystemConfigRead:        {},
@@ -166,25 +160,19 @@ type BootstrapAdminConfig struct {
 }
 
 type CreateUserInput struct {
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }
 
 type UpdateUserInput struct {
-	Username    string
-	Email       string
-	Password    string
-	Role        string
-	Status      string
-	QuotaCPU    float64
-	QuotaRAMMB  int64
-	QuotaDiskMB int64
+	Username string
+	Email    string
+	Password string
+	Role     string
+	Status   string
 }
 
 func (s *AuthService) VerifyAccessToken(ctx context.Context, accessToken string) (model.User, error) {
@@ -303,9 +291,6 @@ func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdm
 		PasswordHash: string(hash),
 		Role:         model.RoleAdmin,
 		Status:       model.StatusActive,
-		QuotaCPU:     defaultQuotaCPU,
-		QuotaRAMMB:   defaultQuotaRAMMB,
-		QuotaDiskMB:  defaultQuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 
@@ -336,9 +321,6 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 		PasswordHash: string(hash),
 		Role:         model.RoleUser,
 		Status:       model.StatusActive,
-		QuotaCPU:     defaultQuotaCPU,
-		QuotaRAMMB:   defaultQuotaRAMMB,
-		QuotaDiskMB:  defaultQuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 
@@ -546,9 +528,6 @@ func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, id
 		Email:            email,
 		Role:             role,
 		Status:           model.StatusActive,
-		QuotaCPU:         defaultQuotaCPU,
-		QuotaRAMMB:       defaultQuotaRAMMB,
-		QuotaDiskMB:      defaultQuotaDiskMB,
 		AuthSource:       model.AuthSourceOIDC,
 		ExternalProvider: provider,
 		ExternalSubject:  identity.Subject,
@@ -642,7 +621,7 @@ func (s *AuthService) roleForOIDCIdentity(identity OIDCIdentity) string {
 }
 
 func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (model.User, error) {
-	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+	if err := validateUserInput(input.Role, input.Status); err != nil {
 		return model.User{}, err
 	}
 
@@ -658,9 +637,6 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 		PasswordHash: string(hash),
 		Role:         input.Role,
 		Status:       input.Status,
-		QuotaCPU:     input.QuotaCPU,
-		QuotaRAMMB:   input.QuotaRAMMB,
-		QuotaDiskMB:  input.QuotaDiskMB,
 		AuthSource:   model.AuthSourceLocal,
 	}
 	if err := s.repo.SaveUser(ctx, user); err != nil {
@@ -673,7 +649,7 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 }
 
 func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input UpdateUserInput) (model.User, error) {
-	if err := validateUserInput(input.Role, input.Status, input.QuotaCPU, input.QuotaRAMMB, input.QuotaDiskMB); err != nil {
+	if err := validateUserInput(input.Role, input.Status); err != nil {
 		return model.User{}, err
 	}
 
@@ -689,9 +665,6 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 	user.Email = input.Email
 	user.Role = input.Role
 	user.Status = input.Status
-	user.QuotaCPU = input.QuotaCPU
-	user.QuotaRAMMB = input.QuotaRAMMB
-	user.QuotaDiskMB = input.QuotaDiskMB
 	if input.Password != "" {
 		hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 		if err != nil {
@@ -736,15 +709,12 @@ func (s *AuthService) ReactivateUser(ctx context.Context, userID uuid.UUID) (mod
 	return user, nil
 }
 
-func validateUserInput(role, status string, quotaCPU float64, quotaRAMMB, quotaDiskMB int64) error {
+func validateUserInput(role, status string) error {
 	if !validRole(role) {
 		return apperrors.New(apperrors.ErrBadRequest, "role must be one of: admin, user")
 	}
 	if !validStatus(status) {
 		return apperrors.New(apperrors.ErrBadRequest, "status must be one of: active, deactivated")
-	}
-	if quotaCPU <= 0 || quotaRAMMB <= 0 || quotaDiskMB <= 0 {
-		return apperrors.New(apperrors.ErrBadRequest, "quotas must be positive")
 	}
 	return nil
 }

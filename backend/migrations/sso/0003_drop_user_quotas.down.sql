@@ -1,0 +1,4 @@
+ALTER TABLE users
+    ADD COLUMN quota_cpu DECIMAL(3,1) DEFAULT 1.0,
+    ADD COLUMN quota_ram_mb INTEGER DEFAULT 2048,
+    ADD COLUMN quota_disk_mb INTEGER DEFAULT 5120;

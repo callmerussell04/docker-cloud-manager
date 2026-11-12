@@ -37,6 +37,7 @@ func TestBuilderCredentialMakesOnlyItsFourCalls(t *testing.T) {
 		System:     system,
 		Stats:      coregrpcmocks.NewMockStatsLogic(t),
 		Reports:    coregrpcmocks.NewMockReportLogic(t),
+		Quotas:     coregrpcmocks.NewMockQuotaLogic(t),
 		Users:      coregrpcmocks.NewMockUserDirectory(t),
 	}
 	conn := coretest.NewCoreGRPCConn(t, reg)
@@ -92,6 +93,18 @@ func TestBuilderCredentialMakesOnlyItsFourCalls(t *testing.T) {
 			},
 			"list builds": func(ctx context.Context) error {
 				_, err := coreapi.NewImageAPIClient(conn).ListBuilds(ctx, &coreapi.PaginationRequest{})
+				return err
+			},
+			"read user quotas": func(ctx context.Context) error {
+				_, err := coreapi.NewQuotaAPIClient(conn).GetUserQuotas(ctx, &coreapi.GetUserQuotasRequest{})
+				return err
+			},
+			"set a user quota": func(ctx context.Context) error {
+				_, err := coreapi.NewQuotaAPIClient(conn).SetUserQuota(ctx, &coreapi.SetUserQuotaRequest{UserId: uuid.NewString(), Cpu: 1, RamMb: 1, DiskMb: 1})
+				return err
+			},
+			"reset a user quota": func(ctx context.Context) error {
+				_, err := coreapi.NewQuotaAPIClient(conn).ResetUserQuota(ctx, &coreapi.UserQuotaActionRequest{UserId: uuid.NewString()})
 				return err
 			},
 		} {

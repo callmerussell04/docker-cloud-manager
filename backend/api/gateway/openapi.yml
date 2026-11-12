@@ -1045,6 +1045,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedAdminUsers'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     post:
       summary: Create a user as admin
       tags: [Admin]
@@ -1056,11 +1058,11 @@ paths:
               $ref: '#/components/schemas/CreateAdminUserRequest'
       responses:
         '201':
-          description: User created
+          description: User created, with the default quota until one is set
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -1081,6 +1083,8 @@ paths:
                 $ref: '#/components/schemas/AdminUser'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     put:
       summary: Update a user as admin
       tags: [Admin]
@@ -1098,7 +1102,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -1116,7 +1120,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1134,9 +1138,60 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUser'
+                $ref: '#/components/schemas/AdminUserAccount'
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/quota:
+    put:
+      summary: Give a user a custom quota
+      description: >-
+        Requires the admin user-update permission. Gateway confirms through SSO
+        that the user exists. Lowering a quota below what the user already
+        reserves stops nothing; it applies from their next admission. Audited
+        as user.quota_set.
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserQuotaRequest'
+      responses:
+        '200':
+          description: The user's custom quota
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserQuota'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      summary: Return a user to the default quota
+      description: >-
+        Requires the admin user-update permission. Removes the user's custom
+        quota; resetting a user already on the default changes nothing.
+        Audited as user.quota_reset.
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The default quota the user now has
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserQuota'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /admin/containers:
     get:
@@ -1794,6 +1849,7 @@ components:
     # ADMIN USERS
     AdminUser:
       type: object
+      description: SSO's user with the effective quota Core holds for them.
       properties:
         user_id:
           type: string
@@ -1812,12 +1868,35 @@ components:
         quota_cpu:
           type: number
           format: double
+          description: CPU quota in cores
         quota_ram_mb:
           type: integer
           format: int64
         quota_disk_mb:
           type: integer
           format: int64
+        quota_custom:
+          type: boolean
+          description: False when the user has the default quota from the runtime settings
+
+    AdminUserAccount:
+      type: object
+      description: A user's account as an account change returns it; quotas are read with the user.
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
 
     PaginatedAdminUsers:
       type: object
@@ -1831,7 +1910,7 @@ components:
 
     CreateAdminUserRequest:
       type: object
-      required: [username, email, password, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
+      required: [username, email, password, role, status]
       properties:
         username:
           type: string
@@ -1847,9 +1926,34 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+
+    UpdateAdminUserRequest:
+      type: object
+      required: [username, email, role, status]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        role:
+          type: string
+          enum: [admin, user]
+        status:
+          type: string
+          enum: [active, deactivated]
+
+    SetUserQuotaRequest:
+      type: object
+      required: [quota_cpu, quota_ram_mb, quota_disk_mb]
+      properties:
         quota_cpu:
           type: number
           format: double
+          description: CPU in cores, from 0.001 to 1000000
           minimum: 0
           exclusiveMinimum: true
         quota_ram_mb:
@@ -1861,37 +1965,25 @@ components:
           format: int64
           minimum: 1
 
-    UpdateAdminUserRequest:
+    UserQuota:
       type: object
-      required: [username, email, role, status, quota_cpu, quota_ram_mb, quota_disk_mb]
       properties:
-        username:
+        user_id:
           type: string
-        email:
-          type: string
-          format: email
-        password:
-          type: string
-          minLength: 6
-        role:
-          type: string
-          enum: [admin, user]
-        status:
-          type: string
-          enum: [active, deactivated]
+          format: uuid
         quota_cpu:
           type: number
           format: double
-          minimum: 0
-          exclusiveMinimum: true
+          description: CPU quota in cores
         quota_ram_mb:
           type: integer
           format: int64
-          minimum: 1
         quota_disk_mb:
           type: integer
           format: int64
-          minimum: 1
+        quota_custom:
+          type: boolean
+          description: False when the user has the default quota from the runtime settings
 
     # CONTAINERS
     CreateContainerRequest:

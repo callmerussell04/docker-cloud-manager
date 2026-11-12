@@ -42,7 +42,7 @@ If commit succeeds but the response or Set-Cookie is lost, the old token is cons
 | Logout storage/SSO failure or uncertain commit | Safe `503`/`504`, no successful-logout claim, preserve cookie for retry. Browser suspends actions and offers retry; confirmed success clears memory, queries and cookie. |
 | Logout racing refresh | Same user/session locks serialize them. Logout can resolve a consumed predecessor. Either logout prevents refresh, or refresh commits first and logout revokes the successor too. A late Set-Cookie may restore an unusable cookie but cannot restore authorization. |
 | Password change/reset or deactivation | Revoke all of that user's sessions atomically with the user mutation. Serialize with login/refresh using the user lock. Reactivation never revives them. Failure rolls back both changes. |
-| Role/profile/quota update | Keep sessions; use current user data for authorization. Deactivation through any update path still revokes all sessions. |
+| Role/profile update, or a quota change in Core | Keep sessions; use current user data for authorization. Deactivation through any update path still revokes all sessions. |
 | Another device logs in | Create a separate session; existing sessions remain active. |
 
 Ordinary logout is single-session DCM logout. There is no logout-all endpoint, session-management UI or Keycloak end-session flow. All-session revocation is an internal security operation used by password/status changes. Keycloak's own SSO session remains active, so a later explicit OIDC login can sign in again without a provider password prompt. DCM does not promise provider-wide logout or consume Keycloak back-channel logout events.

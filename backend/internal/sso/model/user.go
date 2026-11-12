@@ -28,9 +28,6 @@ type User struct {
 	PasswordHash     string
 	Role             string
 	Status           string
-	QuotaCPU         float64
-	QuotaRAMMB       int64
-	QuotaDiskMB      int64
 	AuthSource       string
 	ExternalProvider string
 	ExternalSubject  string

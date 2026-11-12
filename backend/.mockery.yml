@@ -143,6 +143,7 @@ packages:
       ContainerLogic: {}
       ImageLogic: {}
       ProjectLogic: {}
+      QuotaLogic: {}
       ReportLogic: {}
       StatsLogic: {}
       SystemLogic: {}
@@ -170,12 +171,21 @@ packages:
       dir: internal/testutil/mocks/gateway/http/handler
       outpkg: gatewayhandlermocks
     interfaces:
+      AdminUserService: {}
+      AuditRecorder: {}
       AuthService: {}
       CoreService: {}
       ReadinessService: {}
       TelemetryTicketConsumer: {}
       TelemetryTicketIssuer: {}
-      UserManagementService: {}
+      UserDirectory: {}
+  github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
+    config:
+      dir: internal/testutil/mocks/gateway/service
+      outpkg: gatewayservicemocks
+    interfaces:
+      AdminUserDirectory: {}
+      UserQuotaAPI: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware:
     config:
       dir: internal/testutil/mocks/gateway/http/middleware

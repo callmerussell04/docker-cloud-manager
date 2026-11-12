@@ -140,6 +140,8 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.PUT("/users/:id", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.UpdateUser)
 	admin.DELETE("/users/:id", adminPermission(deps, permissions.UsersAdminDelete), deps.UserHandler.DeactivateUser)
 	admin.POST("/users/:id/activate", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.ReactivateUser)
+	admin.PUT("/users/:id/quota", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.SetUserQuota)
+	admin.DELETE("/users/:id/quota", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.ResetUserQuota)
 
 	admin.GET("/containers", adminPermission(deps, permissions.ContainersAdminList), deps.CoreHandler.ListAdminContainers)
 	admin.POST("/containers/:id/action/:action", adminPermission(deps, permissions.ContainersAdminAction), deps.CoreHandler.AdminActionContainer)

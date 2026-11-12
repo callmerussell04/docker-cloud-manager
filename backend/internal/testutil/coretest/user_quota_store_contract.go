@@ -13,7 +13,9 @@ import (
 // repository and UserQuotaStoreFake.
 type UserQuotaStore interface {
 	GetCustomUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, bool, error)
+	GetCustomUserQuotas(ctx context.Context, ownerIDs []uuid.UUID) (map[uuid.UUID]model.UserQuota, error)
 	SetCustomUserQuota(ctx context.Context, ownerID uuid.UUID, quota model.UserQuota) error
+	DeleteCustomUserQuota(ctx context.Context, ownerID uuid.UUID) error
 }
 
 // RunUserQuotaStoreContract pins the behaviour every UserQuotaStore shares.
@@ -61,5 +63,43 @@ func RunUserQuotaStoreContract(t *testing.T, newStore func(t *testing.T) UserQuo
 
 		require.NoError(t, err)
 		require.False(t, found)
+	})
+	t.Run("a batch read returns only the owners with a custom quota", func(t *testing.T) {
+		ctx := context.Background()
+		store := newStore(t)
+		customID, defaultID := uuid.New(), uuid.New()
+		require.NoError(t, store.SetCustomUserQuota(ctx, customID, model.UserQuota{CPUMillicores: 1500, RAMMB: 3072, DiskMB: 8192}))
+
+		got, err := store.GetCustomUserQuotas(ctx, []uuid.UUID{customID, defaultID})
+
+		require.NoError(t, err)
+		require.Equal(t, map[uuid.UUID]model.UserQuota{
+			customID: {CPUMillicores: 1500, RAMMB: 3072, DiskMB: 8192, Custom: true},
+		}, got)
+	})
+	t.Run("a batch read of no owners is empty", func(t *testing.T) {
+		got, err := newStore(t).GetCustomUserQuotas(context.Background(), nil)
+
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+	t.Run("deleting returns the owner to the default quota", func(t *testing.T) {
+		ctx := context.Background()
+		store := newStore(t)
+		ownerID, otherID := uuid.New(), uuid.New()
+		require.NoError(t, store.SetCustomUserQuota(ctx, ownerID, model.UserQuota{CPUMillicores: 1500, RAMMB: 3072, DiskMB: 8192}))
+		require.NoError(t, store.SetCustomUserQuota(ctx, otherID, model.UserQuota{CPUMillicores: 250, RAMMB: 512, DiskMB: 1024}))
+
+		require.NoError(t, store.DeleteCustomUserQuota(ctx, ownerID))
+
+		_, found, err := store.GetCustomUserQuota(ctx, ownerID)
+		require.NoError(t, err)
+		require.False(t, found)
+		_, found, err = store.GetCustomUserQuota(ctx, otherID)
+		require.NoError(t, err)
+		require.True(t, found)
+	})
+	t.Run("deleting an owner on the default quota changes nothing", func(t *testing.T) {
+		require.NoError(t, newStore(t).DeleteCustomUserQuota(context.Background(), uuid.New()))
 	})
 }

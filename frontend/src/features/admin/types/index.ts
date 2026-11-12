@@ -1,16 +1,23 @@
 import { z } from 'zod';
 import type { TFunction } from '@/lib/i18n';
 
-export interface AdminUser {
+export interface AdminUserAccount {
   user_id: string;
   username: string;
   email: string;
   role: 'admin' | 'user';
   status: 'active' | 'deactivated';
+}
+
+/** A user's effective quota from Core. quota_custom is false for the default quota. */
+export interface UserQuota {
   quota_cpu: number;
   quota_ram_mb: number;
   quota_disk_mb: number;
+  quota_custom: boolean;
 }
+
+export interface AdminUser extends AdminUserAccount, UserQuota {}
 
 export interface SystemConfig {
   base_domain: string;
@@ -247,9 +254,14 @@ export const adminUserSchema = (t: TFunction) => z.object({
   password: z.string().optional(),
   role: z.enum(['admin', 'user']),
   status: z.enum(['active', 'deactivated']),
-  quota_cpu: z.number().min(0.1),
-  quota_ram_mb: z.number().min(1),
-  quota_disk_mb: z.number().min(1),
 });
 
 export type AdminUserForm = z.input<ReturnType<typeof adminUserSchema>>;
+
+export const userQuotaSchema = (t: TFunction) => z.object({
+  quota_cpu: z.number({ error: t('validation.quotaPositive') }).min(0.001, t('validation.quotaPositive')).max(1_000_000, t('validation.quotaPositive')),
+  quota_ram_mb: z.number({ error: t('validation.quotaPositive') }).int().min(1, t('validation.quotaPositive')),
+  quota_disk_mb: z.number({ error: t('validation.quotaPositive') }).int().min(1, t('validation.quotaPositive')),
+});
+
+export type UserQuotaForm = z.input<ReturnType<typeof userQuotaSchema>>;

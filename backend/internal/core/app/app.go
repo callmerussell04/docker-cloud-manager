@@ -287,6 +287,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterProjectAPI(gRPCServer, projService, ssoClient)
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterReportAPI(gRPCServer, reportService)
+	coregrpc.RegisterQuotaAPI(gRPCServer, userQuotas)
 
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, projService, cfg.ConfigManager, logger)

@@ -1365,6 +1365,196 @@ var SystemAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	QuotaAPI_GetUserQuotas_FullMethodName  = "/core.QuotaAPI/GetUserQuotas"
+	QuotaAPI_SetUserQuota_FullMethodName   = "/core.QuotaAPI/SetUserQuota"
+	QuotaAPI_ResetUserQuota_FullMethodName = "/core.QuotaAPI/ResetUserQuota"
+)
+
+// QuotaAPIClient is the client API for QuotaAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+type QuotaAPIClient interface {
+	// GetUserQuotas returns the effective quota of each user, marked custom or
+	// default. At most 100 users per call.
+	GetUserQuotas(ctx context.Context, in *GetUserQuotasRequest, opts ...grpc.CallOption) (*UserQuotasResponse, error)
+	SetUserQuota(ctx context.Context, in *SetUserQuotaRequest, opts ...grpc.CallOption) (*UserQuotaData, error)
+	// ResetUserQuota returns the user to the default quota and returns it.
+	ResetUserQuota(ctx context.Context, in *UserQuotaActionRequest, opts ...grpc.CallOption) (*UserQuotaData, error)
+}
+
+type quotaAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewQuotaAPIClient(cc grpc.ClientConnInterface) QuotaAPIClient {
+	return &quotaAPIClient{cc}
+}
+
+func (c *quotaAPIClient) GetUserQuotas(ctx context.Context, in *GetUserQuotasRequest, opts ...grpc.CallOption) (*UserQuotasResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotasResponse)
+	err := c.cc.Invoke(ctx, QuotaAPI_GetUserQuotas_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *quotaAPIClient) SetUserQuota(ctx context.Context, in *SetUserQuotaRequest, opts ...grpc.CallOption) (*UserQuotaData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotaData)
+	err := c.cc.Invoke(ctx, QuotaAPI_SetUserQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *quotaAPIClient) ResetUserQuota(ctx context.Context, in *UserQuotaActionRequest, opts ...grpc.CallOption) (*UserQuotaData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UserQuotaData)
+	err := c.cc.Invoke(ctx, QuotaAPI_ResetUserQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// QuotaAPIServer is the server API for QuotaAPI service.
+// All implementations must embed UnimplementedQuotaAPIServer
+// for forward compatibility.
+//
+// QuotaAPI is administrators' view of user quotas. Every call needs admin
+// scope. Core does not confirm a user exists; Gateway does, through SSO.
+type QuotaAPIServer interface {
+	// GetUserQuotas returns the effective quota of each user, marked custom or
+	// default. At most 100 users per call.
+	GetUserQuotas(context.Context, *GetUserQuotasRequest) (*UserQuotasResponse, error)
+	SetUserQuota(context.Context, *SetUserQuotaRequest) (*UserQuotaData, error)
+	// ResetUserQuota returns the user to the default quota and returns it.
+	ResetUserQuota(context.Context, *UserQuotaActionRequest) (*UserQuotaData, error)
+	mustEmbedUnimplementedQuotaAPIServer()
+}
+
+// UnimplementedQuotaAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedQuotaAPIServer struct{}
+
+func (UnimplementedQuotaAPIServer) GetUserQuotas(context.Context, *GetUserQuotasRequest) (*UserQuotasResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetUserQuotas not implemented")
+}
+func (UnimplementedQuotaAPIServer) SetUserQuota(context.Context, *SetUserQuotaRequest) (*UserQuotaData, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetUserQuota not implemented")
+}
+func (UnimplementedQuotaAPIServer) ResetUserQuota(context.Context, *UserQuotaActionRequest) (*UserQuotaData, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResetUserQuota not implemented")
+}
+func (UnimplementedQuotaAPIServer) mustEmbedUnimplementedQuotaAPIServer() {}
+func (UnimplementedQuotaAPIServer) testEmbeddedByValue()                  {}
+
+// UnsafeQuotaAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to QuotaAPIServer will
+// result in compilation errors.
+type UnsafeQuotaAPIServer interface {
+	mustEmbedUnimplementedQuotaAPIServer()
+}
+
+func RegisterQuotaAPIServer(s grpc.ServiceRegistrar, srv QuotaAPIServer) {
+	// If the following call panics, it indicates UnimplementedQuotaAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&QuotaAPI_ServiceDesc, srv)
+}
+
+func _QuotaAPI_GetUserQuotas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserQuotasRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).GetUserQuotas(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_GetUserQuotas_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).GetUserQuotas(ctx, req.(*GetUserQuotasRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _QuotaAPI_SetUserQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetUserQuotaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).SetUserQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_SetUserQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).SetUserQuota(ctx, req.(*SetUserQuotaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _QuotaAPI_ResetUserQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UserQuotaActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QuotaAPIServer).ResetUserQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QuotaAPI_ResetUserQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QuotaAPIServer).ResetUserQuota(ctx, req.(*UserQuotaActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// QuotaAPI_ServiceDesc is the grpc.ServiceDesc for QuotaAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var QuotaAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.QuotaAPI",
+	HandlerType: (*QuotaAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetUserQuotas",
+			Handler:    _QuotaAPI_GetUserQuotas_Handler,
+		},
+		{
+			MethodName: "SetUserQuota",
+			Handler:    _QuotaAPI_SetUserQuota_Handler,
+		},
+		{
+			MethodName: "ResetUserQuota",
+			Handler:    _QuotaAPI_ResetUserQuota_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/core/core.proto",
+}
+
+const (
 	StatsAPI_GetUserStats_FullMethodName        = "/core.StatsAPI/GetUserStats"
 	StatsAPI_GetSystemMonitoring_FullMethodName = "/core.StatsAPI/GetSystemMonitoring"
 )

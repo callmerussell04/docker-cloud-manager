@@ -130,10 +130,10 @@ message UserData {
   string username = 2;
   string email = 3;
   string role = 4;
-  int64 quota_ram_mb = 5;
-  int64 quota_disk_mb = 6;
-  double quota_cpu = 7;
   string status = 8;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 5, 6, 7;
+  reserved "quota_ram_mb", "quota_disk_mb", "quota_cpu";
 }
 
 message BatchGetUsersResponse {
@@ -156,9 +156,9 @@ message CreateUserRequest {
   string password = 3;
   string role = 4;
   string status = 5;
-  double quota_cpu = 6;
-  int64 quota_ram_mb = 7;
-  int64 quota_disk_mb = 8;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 6, 7, 8;
+  reserved "quota_cpu", "quota_ram_mb", "quota_disk_mb";
 }
 
 message UpdateUserRequest {
@@ -168,7 +168,7 @@ message UpdateUserRequest {
   string password = 4;
   string role = 5;
   string status = 6;
-  double quota_cpu = 7;
-  int64 quota_ram_mb = 8;
-  int64 quota_disk_mb = 9;
+  // Quotas moved to Core (ADR 0005); do not reuse.
+  reserved 7, 8, 9;
+  reserved "quota_cpu", "quota_ram_mb", "quota_disk_mb";
 }

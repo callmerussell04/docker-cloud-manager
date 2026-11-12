@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Edit, Plus, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
+import { Edit, Gauge, Plus, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,7 +11,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { useToastStore } from '@/store/toastStore';
-import { type AdminUser, type AdminUserForm, adminUserSchema } from '@/features/admin/types';
+import { type AdminUser, type AdminUserForm, adminUserSchema, type UserQuotaForm, userQuotaSchema } from '@/features/admin/types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { cn } from '@/lib/utils';
 import { statusLabel, useT } from '@/lib/i18n';
@@ -20,6 +20,8 @@ import {
   useCreateAdminUser,
   useDeactivateAdminUser,
   useReactivateAdminUser,
+  useResetAdminUserQuota,
+  useSetAdminUserQuota,
   useUpdateAdminUser,
 } from '@/features/admin/hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -29,6 +31,7 @@ export function AdminUsersPage() {
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [deactivateUser, setDeactivateUser] = useState<AdminUser | null>(null);
+  const [quotaUser, setQuotaUser] = useState<AdminUser | null>(null);
   const limit = 20;
   const t = useT();
 
@@ -84,11 +87,17 @@ export function AdminUsersPage() {
                   <div><Badge variant={user.role === 'admin' ? 'error' : 'default'}>{user.role}</Badge></div>
                   <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{statusLabel(t, user.status)}</Badge></div>
                   <div className="text-xs text-slate-500 space-y-1">
+                    <Badge variant={user.quota_custom ? 'warning' : 'default'}>
+                      {user.quota_custom ? t('admin.users.quotaCustom') : t('admin.users.quotaDefault')}
+                    </Badge>
                     <div>CPU: {user.quota_cpu}</div>
                     <div>RAM: {user.quota_ram_mb} MB</div>
                     <div>Disk: {user.quota_disk_mb} MB</div>
                   </div>
                   <div className="flex gap-2 justify-end shrink-0">
+                    <Button variant="secondary" className="h-8 px-2" title={t('admin.users.editQuota')} aria-label={t('admin.users.editQuota')} onClick={() => setQuotaUser(user)}>
+                      <Gauge className="w-4 h-4" />
+                    </Button>
                     <Button variant="secondary" className="h-8 px-2" onClick={() => setEditingUser(user)}>
                       <Edit className="w-4 h-4" />
                     </Button>
@@ -125,6 +134,7 @@ export function AdminUsersPage() {
           setEditingUser(null);
         }}
       />
+      <UserQuotaModal user={quotaUser} onClose={() => setQuotaUser(null)} />
       <ConfirmDialog
         isOpen={!!deactivateUser}
         title={t('confirm.title')}
@@ -152,15 +162,12 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
     defaultValues: {
       role: 'user',
       status: 'active',
-      quota_cpu: 1,
-      quota_ram_mb: 512,
-      quota_disk_mb: 1024,
     },
   });
 
   useEffect(() => {
     if (user) {
-      reset({ ...user, password: '' });
+      reset({ username: user.username, email: user.email, role: user.role, status: user.status, password: '' });
     } else {
       reset({
         username: '',
@@ -168,9 +175,6 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
         password: '',
         role: 'user',
         status: 'active',
-        quota_cpu: 1,
-        quota_ram_mb: 512,
-        quota_disk_mb: 1024,
       });
     }
   }, [user, reset]);
@@ -221,22 +225,74 @@ function AdminUserModal({ isOpen, user, onClose }: { isOpen: boolean; user: Admi
               <option value="deactivated">{t('status.deactivated')}</option>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="quota_cpu">{t('admin.users.cpuQuota')}</Label>
-            <Input id="quota_cpu" type="number" step="0.1" {...register('quota_cpu', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="quota_ram_mb">{t('admin.users.ramQuotaMb')}</Label>
-            <Input id="quota_ram_mb" type="number" {...register('quota_ram_mb', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="quota_disk_mb">{t('admin.users.diskQuotaMb')}</Label>
-            <Input id="quota_disk_mb" type="number" {...register('quota_disk_mb', { valueAsNumber: true })} />
-          </div>
         </div>
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
           <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" isLoading={createMutation.isPending || updateMutation.isPending}>{t('common.save')}</Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/** Edits a user's quota through the quota routes; reset returns them to the default. */
+function UserQuotaModal({ user, onClose }: { user: AdminUser | null; onClose: () => void }) {
+  const t = useT();
+  const setQuota = useSetAdminUserQuota();
+  const resetQuota = useResetAdminUserQuota();
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<UserQuotaForm>({
+    resolver: zodResolver(userQuotaSchema(t)),
+  });
+
+  useEffect(() => {
+    if (user) {
+      reset({ quota_cpu: user.quota_cpu, quota_ram_mb: user.quota_ram_mb, quota_disk_mb: user.quota_disk_mb });
+    }
+  }, [user, reset]);
+
+  const onSubmit = (data: UserQuotaForm) => {
+    if (user) {
+      setQuota.mutate({ id: user.user_id, data }, { onSuccess: onClose });
+    }
+  };
+  const firstError = errors.quota_cpu?.message || errors.quota_ram_mb?.message || errors.quota_disk_mb?.message;
+
+  return (
+    <Modal isOpen={!!user} onClose={onClose} title={t('admin.users.quotaTitle', { name: user?.username || '' })} className="max-w-xl">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {user?.quota_custom ? t('admin.users.quotaIsCustom') : t('admin.users.quotaIsDefault')} {t('admin.users.quotaHint')}
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="quota_cpu">{t('admin.users.cpuQuota')}</Label>
+            <Input id="quota_cpu" type="number" step="0.001" {...register('quota_cpu', { valueAsNumber: true })} error={!!errors.quota_cpu} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="quota_ram_mb">{t('admin.users.ramQuotaMb')}</Label>
+            <Input id="quota_ram_mb" type="number" {...register('quota_ram_mb', { valueAsNumber: true })} error={!!errors.quota_ram_mb} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="quota_disk_mb">{t('admin.users.diskQuotaMb')}</Label>
+            <Input id="quota_disk_mb" type="number" {...register('quota_disk_mb', { valueAsNumber: true })} error={!!errors.quota_disk_mb} />
+          </div>
+        </div>
+        {firstError && <p className="text-sm text-red-600 dark:text-red-400">{firstError}</p>}
+        <div className="flex justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!user?.quota_custom}
+            isLoading={resetQuota.isPending}
+            onClick={() => user && resetQuota.mutate(user.user_id, { onSuccess: onClose })}
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            {t('admin.users.resetQuota')}
+          </Button>
+          <div className="flex gap-3">
+            <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+            <Button type="submit" isLoading={setQuota.isPending}>{t('common.save')}</Button>
+          </div>
         </div>
       </form>
     </Modal>
