@@ -39,7 +39,6 @@ func newUserHandlerHarness(t *testing.T) userHandlerHarness {
 	h.router.GET("/users/:id", userHandler.GetUser)
 	h.router.POST("/users", userHandler.CreateUser)
 	h.router.PUT("/users/:id", userHandler.UpdateUser)
-	h.router.DELETE("/users/:id", userHandler.DeactivateUser)
 	h.router.POST("/users/:id/activate", userHandler.ReactivateUser)
 	h.router.PUT("/users/:id/quota", userHandler.SetUserQuota)
 	h.router.DELETE("/users/:id/quota", userHandler.ResetUserQuota)
@@ -74,9 +73,6 @@ func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NotContains(t, resp.Body.String(), "quota")
 
-	h.users.EXPECT().DeactivateUser(mock.Anything, userID).Return(user, nil)
-	resp = perform(h.router, http.MethodDelete, "/users/"+userID, ``, nil)
-	require.Equal(t, http.StatusOK, resp.Code)
 	h.users.EXPECT().ReactivateUser(mock.Anything, userID).Return(user, nil)
 	resp = perform(h.router, http.MethodPost, "/users/"+userID+"/activate", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)

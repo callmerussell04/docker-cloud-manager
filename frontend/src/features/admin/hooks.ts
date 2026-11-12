@@ -107,11 +107,17 @@ export function useDeactivateAdminUser() {
 
   return useMutation({
     mutationFn: deactivateAdminUserFn,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
-      addToast(t('admin.users.deactivated'), 'success');
+      if (data.workloads.remaining > 0) {
+        addToast(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
+        return;
+      }
+      addToast(t('admin.users.deactivatedWorkloadsStopped'), 'success');
     },
     onError: (error: unknown) => {
+      // The account may be deactivated even though its workloads were not stopped.
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
       addToast(getApiErrorMessage(error, t('admin.users.deactivateFailed'), t).message, 'error');
     },
   });

@@ -33,6 +33,7 @@ type ContainerStore interface {
 	SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error
 	QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error
 	GetRunning(ctx context.Context) ([]model.Container, error)
+	ListReservingByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error)
 	HasActiveOperation(ctx context.Context, resourceType string, resourceID uuid.UUID) (bool, error)
 	GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error)
 	ClaimPendingOperation(ctx context.Context, id uuid.UUID, maxAttempts int) (model.ResourceOperation, bool, error)
@@ -96,6 +97,9 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	})
 	t.Run("reservation rule", func(t *testing.T) {
 		testReservationRule(t, newStore(t))
+	})
+	t.Run("reserving containers of one owner", func(t *testing.T) {
+		testReservingContainersByOwner(t, newStore(t))
 	})
 }
 
@@ -685,6 +689,38 @@ func testReservationRule(t *testing.T, store ContainerStore) {
 	none, err := store.GetUserReservedMemory(ctx, uuid.New())
 	require.NoError(t, err)
 	require.Zero(t, none)
+}
+
+func testReservingContainersByOwner(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	var want []model.Container
+	for _, status := range containerStatuses {
+		for _, desired := range containerStatuses {
+			c := contractContainer(ownerID, status)
+			c.DesiredStatus = desired
+			require.NoError(t, store.Save(ctx, c))
+			if slices.Contains(reservingDesiredStatuses[status], desired) {
+				want = append(want, model.Container{
+					ID: c.ID, OwnerID: c.OwnerID, DockerID: c.DockerID, Status: c.Status, DesiredStatus: c.DesiredStatus,
+				})
+			}
+		}
+	}
+	other := contractContainer(uuid.New(), model.ContainerStatusRunning)
+	require.NoError(t, store.Save(ctx, other))
+	slices.SortFunc(want, func(a, b model.Container) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+
+	// The reservation rule decides the rows, ordered by ID, carrying what a
+	// stop needs; another owner's running container is not among them.
+	got, err := store.ListReservingByOwner(ctx, ownerID)
+	require.NoError(t, err)
+	require.Len(t, got, 22)
+	require.Equal(t, want, got)
+
+	none, err := store.ListReservingByOwner(ctx, uuid.New())
+	require.NoError(t, err)
+	require.Empty(t, none)
 }
 
 // publishOutbox leases and publishes every pending outbox record.

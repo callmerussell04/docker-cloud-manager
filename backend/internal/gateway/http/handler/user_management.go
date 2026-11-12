@@ -19,8 +19,12 @@ import (
 type UserDirectory interface {
 	CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error)
 	UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error)
-	DeactivateUser(ctx context.Context, userID string) (model.AdminUser, error)
 	ReactivateUser(ctx context.Context, userID string) (model.AdminUser, error)
+}
+
+// UserDeactivator deactivates a user in SSO and stops their workloads in Core.
+type UserDeactivator interface {
+	DeactivateUser(ctx context.Context, userID string) (model.UserDeactivation, error)
 }
 
 // AdminUserService combines SSO's users with Core's quotas.
@@ -32,19 +36,21 @@ type AdminUserService interface {
 }
 
 type UserManagementDeps struct {
-	Users      UserDirectory
-	AdminUsers AdminUserService
-	Audit      AuditRecorder
+	Users        UserDirectory
+	AdminUsers   AdminUserService
+	Deactivation UserDeactivator
+	Audit        AuditRecorder
 }
 
 type UserManagementHandler struct {
-	users      UserDirectory
-	adminUsers AdminUserService
-	audit      AuditRecorder
+	users        UserDirectory
+	adminUsers   AdminUserService
+	deactivation UserDeactivator
+	audit        AuditRecorder
 }
 
 func NewUserManagementHandler(deps UserManagementDeps) *UserManagementHandler {
-	return &UserManagementHandler{users: deps.Users, adminUsers: deps.AdminUsers, audit: deps.Audit}
+	return &UserManagementHandler{users: deps.Users, adminUsers: deps.AdminUsers, deactivation: deps.Deactivation, audit: deps.Audit}
 }
 
 func (h *UserManagementHandler) ListUsers(c *gin.Context) {
@@ -132,17 +138,43 @@ func (h *UserManagementHandler) UpdateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, accountToDTO(user))
 }
 
+// DeactivateUser deactivates the user in SSO, then stops their workloads in
+// Core. A Core failure is 503 for an account already deactivated; repeating
+// the request is safe.
 func (h *UserManagementHandler) DeactivateUser(c *gin.Context) {
 	userID, ok := pathUUID(c, "id")
 	if !ok {
 		return
 	}
-	user, err := h.users.DeactivateUser(c.Request.Context(), userID)
+	deactivation, err := h.deactivation.DeactivateUser(c.Request.Context(), userID)
+	outcome, errorCode := auditOutcome(err)
+	details := "{}"
+	if err == nil {
+		workloads := deactivation.Workloads
+		details = auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailStoppedContainers:   auditlog.IntDetail(workloads.StoppedContainers),
+			auditlog.DetailCanceledBuilds:      auditlog.IntDetail(workloads.CanceledBuilds),
+			auditlog.DetailCanceledDeployments: auditlog.IntDetail(workloads.CanceledDeployments),
+			auditlog.DetailRemainingWorkloads:  auditlog.IntDetail(workloads.Remaining()),
+		})
+	}
+	recordAudit(c, h.audit, auditInput{
+		Action:       auditlog.ActionUserAdminDeactivate,
+		ResourceType: auditlog.ResourceUser,
+		ResourceID:   userID,
+		OwnerID:      userID,
+		Outcome:      outcome,
+		ErrorCode:    errorCode,
+		DetailsJSON:  details,
+	})
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, accountToDTO(user))
+	c.JSON(http.StatusOK, dto.AdminUserDeactivationDTO{
+		AdminUserAccountDTO: accountToDTO(deactivation.User),
+		Workloads:           workloadsToDTO(deactivation.Workloads),
+	})
 }
 
 func (h *UserManagementHandler) ReactivateUser(c *gin.Context) {
@@ -278,6 +310,15 @@ func accountToDTO(user model.AdminUser) dto.AdminUserAccountDTO {
 		Email:    user.Email,
 		Role:     user.Role,
 		Status:   user.Status,
+	}
+}
+
+func workloadsToDTO(workloads model.WorkloadSuspension) dto.WorkloadSuspensionDTO {
+	return dto.WorkloadSuspensionDTO{
+		StoppedContainers:   workloads.StoppedContainers,
+		CanceledBuilds:      workloads.CanceledBuilds,
+		CanceledDeployments: workloads.CanceledDeployments,
+		Remaining:           workloads.Remaining(),
 	}
 }
 

@@ -314,6 +314,37 @@ func (r *ContainerRepository) GetRunning(ctx context.Context) ([]model.Container
 	return containers, rows.Err()
 }
 
+// ListReservingByOwner returns the identity, Docker container and statuses of
+// every container of ownerID that reserves capacity, ordered by ID: not
+// missing, and status or desired status running, as the reservation sums.
+func (r *ContainerRepository) ListReservingByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Container, error) {
+	query := `
+		SELECT id, owner_id, docker_id, status, desired_status
+		FROM containers
+		WHERE owner_id = $1 AND status != $3 AND (status = $2 OR desired_status = $2)
+		ORDER BY id
+	`
+	rows, err := r.db.Query(ctx, query, ownerID, model.ContainerStatusRunning, model.ContainerStatusMissing)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var containers []model.Container
+	for rows.Next() {
+		var c model.Container
+		var dockerID *string
+		if err := rows.Scan(&c.ID, &c.OwnerID, &dockerID, &c.Status, &c.DesiredStatus); err != nil {
+			return nil, err
+		}
+		if dockerID != nil {
+			c.DockerID = *dockerID
+		}
+		containers = append(containers, c)
+	}
+	return containers, rows.Err()
+}
+
 // ListRunningWritersOfVolume lists the running containers that mount
 // volumeID writable.
 func (r *ContainerRepository) ListRunningWritersOfVolume(ctx context.Context, volumeID uuid.UUID) ([]model.Container, error) {

@@ -142,6 +142,7 @@ type CoreGRPCRegistration struct {
 	Stats      coregrpc.StatsLogic
 	Reports    coregrpc.ReportLogic
 	Quotas     coregrpc.QuotaLogic
+	Workloads  coregrpc.WorkloadLogic
 	Users      coregrpc.UserDirectory
 }
 
@@ -191,6 +192,9 @@ func NewCoreGRPCConn(t *testing.T, reg CoreGRPCRegistration, clientOptions ...gr
 	}
 	if reg.Quotas != nil {
 		coregrpc.RegisterQuotaAPI(server, reg.Quotas)
+	}
+	if reg.Workloads != nil {
+		coregrpc.RegisterWorkloadAPI(server, reg.Workloads)
 	}
 	go func() {
 		_ = server.Serve(listener)

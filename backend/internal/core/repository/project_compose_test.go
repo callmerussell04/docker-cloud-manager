@@ -273,3 +273,38 @@ func TestProjectRepositoryFailsActiveDeployments(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, priorError, *project.ErrorMessage, "an already failed project keeps its error")
 }
+
+func TestProjectRepositoryListsAnOwnersCancelableComposeJobs(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewProjectRepository(db)
+	ownerID := uuid.New()
+	create := func(owner uuid.UUID, name string) composeJobRow {
+		row := composeJobRow{projectID: uuid.New(), jobID: uuid.New(), outboxID: uuid.New()}
+		require.NoError(t, repo.CreateWithComposeDeploymentJob(ctx,
+			model.Project{ID: row.projectID, OwnerID: owner, Name: name, Status: model.ProjectStatusBuilding},
+			model.ComposeDeploymentJob{ID: row.jobID, ProjectID: row.projectID, OwnerID: owner, SourceType: model.ComposeSourceTypeUpload, SourceObjectKey: "compose-sources/" + name + ".zip"},
+			model.ComposeDeploymentOutbox{ID: row.outboxID, JobID: row.jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)},
+		))
+		return row
+	}
+	queued := create(ownerID, "queued")
+	running := create(ownerID, "running")
+	startComposeJob(t, repo, running, model.ComposeDeploymentStageCreating)
+	canceling := create(ownerID, "canceling")
+	startComposeJob(t, repo, canceling, "")
+	require.NoError(t, repo.RequestComposeDeploymentCancel(ctx, canceling.projectID))
+	succeeded := create(ownerID, "succeeded")
+	startComposeJob(t, repo, succeeded, model.ComposeDeploymentStageStarting)
+	require.NoError(t, repo.CompleteComposeDeploymentJob(ctx, succeeded.jobID, model.ComposeDeploymentStatusSucceeded, nil))
+	create(uuid.New(), "other")
+
+	jobs, err := repo.ListCancelableComposeDeploymentJobsByOwner(ctx, ownerID)
+
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{queued.jobID, running.jobID}, jobIDs(jobs),
+		"the owner's queued and running jobs; one already canceling or finished is not cancelable")
+	for _, job := range jobs {
+		require.Equal(t, ownerID, job.OwnerID)
+	}
+}

@@ -101,6 +101,13 @@ export function getServerErrorMessage(message?: string, t?: TFunction) {
 function getDetailedServerErrorMessage(message?: string, t?: TFunction) {
   if (!message || !isSafeUserMessage(message)) return undefined;
 
+  // Gateway's answer when SSO deactivated the account but Core could not stop
+  // its workloads. An SSO outage is also 503, so the message, not the status,
+  // tells them apart.
+  if (/^the account is deactivated, but its workloads could not be stopped/i.test(message)) {
+    return t ? t('apiError.workloadsNotStopped') : message;
+  }
+
   const subdomainInUse = /^subdomain\s+(.+?)\s+is already in use$/i.exec(message);
   if (subdomainInUse) {
     return t ? t('apiError.subdomainInUse', { subdomain: subdomainInUse[1] }) : message;

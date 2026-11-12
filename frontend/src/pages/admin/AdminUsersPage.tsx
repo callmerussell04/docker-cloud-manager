@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Edit, Gauge, Plus, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
+import { Edit, Gauge, Plus, PowerOff, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -37,6 +37,8 @@ export function AdminUsersPage() {
 
   const { data, isFetching, refetch } = useAdminUsers(page, limit);
   const deactivateMutation = useDeactivateAdminUser();
+  // Deactivating an already deactivated user stops the workloads that remain.
+  const stopWorkloadsOnly = deactivateUser?.status === 'deactivated';
   const reactivateMutation = useReactivateAdminUser();
 
   const users = data?.items || [];
@@ -111,9 +113,21 @@ export function AdminUsersPage() {
                         <UserX className="w-4 h-4" />
                       </Button>
                     ) : (
-                      <Button variant="secondary" className="h-8 px-2" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate(user.user_id)}>
-                        <RotateCcw className="w-4 h-4" />
-                      </Button>
+                      <>
+                        <Button
+                          variant="danger"
+                          className="h-8 px-2"
+                          title={t('admin.users.stopWorkloads')}
+                          aria-label={t('admin.users.stopWorkloads')}
+                          disabled={deactivateMutation.isPending}
+                          onClick={() => setDeactivateUser(user)}
+                        >
+                          <PowerOff className="w-4 h-4" />
+                        </Button>
+                        <Button variant="secondary" className="h-8 px-2" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate(user.user_id)}>
+                          <RotateCcw className="w-4 h-4" />
+                        </Button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -138,8 +152,12 @@ export function AdminUsersPage() {
       <ConfirmDialog
         isOpen={!!deactivateUser}
         title={t('confirm.title')}
-        message={t('admin.users.deactivateConfirm', { name: deactivateUser?.username || '' })}
-        confirmLabel={t('admin.users.deactivate')}
+        message={
+          stopWorkloadsOnly
+            ? t('admin.users.stopWorkloadsConfirm', { name: deactivateUser?.username || '' })
+            : t('admin.users.deactivateConfirm', { name: deactivateUser?.username || '' })
+        }
+        confirmLabel={stopWorkloadsOnly ? t('admin.users.stopWorkloads') : t('admin.users.deactivate')}
         isLoading={deactivateMutation.isPending}
         onCancel={() => setDeactivateUser(null)}
         onConfirm={() => {

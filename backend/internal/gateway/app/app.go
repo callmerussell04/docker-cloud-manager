@@ -57,9 +57,10 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 		AuthHandler: handler.NewAuthHandler(clients.ssoClient, cfg.Cookie, cfg.Router.AuthRedirect),
 		CoreHandler: handler.NewCoreHandler(clients.coreClient),
 		UserHandler: handler.NewUserManagementHandler(handler.UserManagementDeps{
-			Users:      clients.ssoClient,
-			AdminUsers: service.NewAdminUsers(clients.ssoClient, clients.coreClient),
-			Audit:      clients.coreClient,
+			Users:        clients.ssoClient,
+			AdminUsers:   service.NewAdminUsers(clients.ssoClient, clients.coreClient),
+			Deactivation: service.NewUserDeactivation(clients.ssoClient, clients.coreClient),
+			Audit:        clients.coreClient,
 		}),
 		HealthHandler:               healthHandler,
 		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(telemetryTickets),

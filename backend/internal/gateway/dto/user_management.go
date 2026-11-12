@@ -29,6 +29,21 @@ type AdminUserAccountDTO struct {
 	Status   string `json:"status"`
 }
 
+// AdminUserDeactivationDTO is a deactivated user and what happened to their
+// workloads. Remaining counts the workloads not yet stopped or canceled;
+// repeating the deactivation handles them.
+type AdminUserDeactivationDTO struct {
+	AdminUserAccountDTO
+	Workloads WorkloadSuspensionDTO `json:"workloads"`
+}
+
+type WorkloadSuspensionDTO struct {
+	StoppedContainers   int `json:"stopped_containers"`
+	CanceledBuilds      int `json:"canceled_builds"`
+	CanceledDeployments int `json:"canceled_deployments"`
+	Remaining           int `json:"remaining"`
+}
+
 type CreateUserRequest struct {
 	Username string `json:"username" binding:"required"`
 	Email    string `json:"email" binding:"required,email"`

@@ -266,6 +266,35 @@ func (r *ProjectRepository) RequestComposeDeploymentCancel(ctx context.Context, 
 	return nil
 }
 
+// ListCancelableComposeDeploymentJobsByOwner returns ownerID's queued and
+// running deployment jobs, oldest first. A canceling job is already being
+// canceled and is not listed.
+func (r *ProjectRepository) ListCancelableComposeDeploymentJobsByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.ComposeDeploymentJob, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, project_id, owner_id, source_type, source_object_key, compose_file,
+			status, attempts, cancel_requested, error_message, request_id,
+			stage, plan_json, resource_map_json,
+			created_at, updated_at, started_at, finished_at
+		FROM compose_deployment_jobs
+		WHERE owner_id = $1 AND status IN ($2, $3)
+		ORDER BY created_at
+	`, ownerID, model.ComposeDeploymentStatusQueued, model.ComposeDeploymentStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	jobs := make([]model.ComposeDeploymentJob, 0)
+	for rows.Next() {
+		job, err := scanComposeDeploymentJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}
+
 func (r *ProjectRepository) CountActiveComposeDeploymentsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error) {
 	var count int
 	err := r.db.QueryRow(ctx, `

@@ -288,6 +288,19 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	coregrpc.RegisterSystemAPI(gRPCServer, systemService)
 	coregrpc.RegisterReportAPI(gRPCServer, reportService)
 	coregrpc.RegisterQuotaAPI(gRPCServer, userQuotas)
+	workloadSuspension, err := service.NewWorkloadSuspension(service.WorkloadSuspensionDeps{
+		Containers:         contRepo,
+		Builds:             buildRepo,
+		BuildCanceler:      buildService,
+		Deployments:        projRepo,
+		DeploymentCanceler: orchestrator,
+		Logger:             logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	coregrpc.RegisterWorkloadAPI(gRPCServer, workloadSuspension)
 
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, projService, cfg.ConfigManager, logger)

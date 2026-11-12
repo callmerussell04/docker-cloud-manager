@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { AdminUser, AdminUserAccount, AdminUserForm, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
+import type { AdminUser, AdminUserAccount, AdminUserDeactivation, AdminUserForm, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
 import type { AdminContainerData, ContainerStats } from '@/features/containers/types';
 import type { AdminVolumeData } from '@/features/volumes/types';
 import type { AdminImageData, AdminBuildData } from '@/features/images/types';
@@ -81,8 +81,9 @@ export const updateAdminUserFn = async ({ id, data }: { id: string; data: AdminU
   return response.data;
 };
 
-export const deactivateAdminUserFn = async (id: string): Promise<AdminUserAccount> => {
-  const response = await privateApi.delete<AdminUserAccount>(`/admin/users/${id}`);
+/** Deactivates the user and stops their workloads. Repeating it stops the workloads that remain. */
+export const deactivateAdminUserFn = async (id: string): Promise<AdminUserDeactivation> => {
+  const response = await privateApi.delete<AdminUserDeactivation>(`/admin/users/${id}`);
   return response.data;
 };
 

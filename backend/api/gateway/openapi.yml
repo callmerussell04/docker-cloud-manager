@@ -1110,21 +1110,35 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
     delete:
-      summary: Deactivate a user
+      summary: Deactivate a user and stop their workloads
+      description: |
+        Deactivates the user in SSO, then has Core stop their workloads: a
+        stop is queued for every container that is running or meant to run
+        (its `last_error` then reads `stopped by the platform: the account
+        that owns this container was deactivated` until its next start), and
+        their pending and running builds and active Compose deployments are
+        canceled. Containers, volumes, images and projects are kept;
+        reactivation starts nothing. A container with an operation in
+        progress, or a workload that could not be stopped, is counted in
+        `workloads.remaining`. Repeating the request is safe and handles what
+        remains. When Core cannot be reached the account is still
+        deactivated and the answer is `503`.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/IdParam'
       responses:
         '200':
-          description: User deactivated
+          description: User deactivated and their workloads stopped, or `workloads.remaining` still to stop
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUserAccount'
+                $ref: '#/components/schemas/AdminUserDeactivation'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /admin/users/{id}/activate:
     post:
@@ -1897,6 +1911,28 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+
+    AdminUserDeactivation:
+      description: The deactivated user and what happened to their workloads.
+      allOf:
+        - $ref: '#/components/schemas/AdminUserAccount'
+        - type: object
+          required: [workloads]
+          properties:
+            workloads:
+              type: object
+              required: [stopped_containers, canceled_builds, canceled_deployments, remaining]
+              properties:
+                stopped_containers:
+                  type: integer
+                  description: Containers a stop was queued for.
+                canceled_builds:
+                  type: integer
+                canceled_deployments:
+                  type: integer
+                remaining:
+                  type: integer
+                  description: Workloads not yet stopped or canceled, because another operation was in progress or the attempt failed. Repeat the deactivation to handle them.
 
     PaginatedAdminUsers:
       type: object

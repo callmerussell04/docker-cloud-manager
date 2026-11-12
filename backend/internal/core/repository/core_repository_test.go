@@ -361,3 +361,38 @@ func countRowsWhere(t *testing.T, db *pgxpool.Pool, table, where string, args ..
 	require.NoError(t, db.QueryRow(context.Background(), `SELECT COUNT(*) FROM `+table+` WHERE `+where, args...).Scan(&count))
 	return count
 }
+
+func TestBuildRepositoryListsAnOwnersActiveBuilds(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	repo := repository.NewBuildRepository(db, db)
+	ownerID := uuid.New()
+	queue := func(owner uuid.UUID, status string) uuid.UUID {
+		imageID, buildID := uuid.New(), uuid.New()
+		require.NoError(t, repo.CreateQueuedBuild(ctx,
+			model.Image{ID: imageID, OwnerID: owner, Tag: "repo/" + buildID.String()[:8] + ":latest"},
+			model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, LogFilePath: "build-logs/x.log"},
+			model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
+		))
+		if status != model.BuildStatusPending {
+			require.NoError(t, repo.UpdateStatus(ctx, buildID, status))
+		}
+		return buildID
+	}
+	pending := queue(ownerID, model.BuildStatusPending)
+	running := queue(ownerID, model.BuildStatusRunning)
+	for _, status := range []string{model.BuildStatusSuccess, model.BuildStatusFailed, model.BuildStatusCanceled, model.BuildStatusFailedResourceExhausted} {
+		queue(ownerID, status)
+	}
+	queue(uuid.New(), model.BuildStatusRunning)
+
+	builds, err := repo.ListActiveByOwner(ctx, ownerID)
+
+	require.NoError(t, err)
+	ids := make([]uuid.UUID, 0, len(builds))
+	for _, build := range builds {
+		require.Equal(t, ownerID, build.OwnerID)
+		ids = append(ids, build.ID)
+	}
+	require.ElementsMatch(t, []uuid.UUID{pending, running}, ids, "only the owner's pending and running builds are active")
+}

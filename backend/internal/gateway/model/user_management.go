@@ -59,3 +59,26 @@ type UpdateUserInput struct {
 	Role     string
 	Status   string
 }
+
+// WorkloadSuspension is what Core did to a deactivated user's workloads.
+// Skipped containers had another operation in progress; failed workloads
+// could not be stopped or canceled this time.
+type WorkloadSuspension struct {
+	StoppedContainers   int
+	SkippedContainers   int
+	CanceledBuilds      int
+	CanceledDeployments int
+	Failed              int
+}
+
+// Remaining is how many workloads repeating the deactivation would still
+// stop or cancel.
+func (s WorkloadSuspension) Remaining() int {
+	return s.SkippedContainers + s.Failed
+}
+
+// UserDeactivation is a deactivated user and what happened to their workloads.
+type UserDeactivation struct {
+	User      AdminUser
+	Workloads WorkloadSuspension
+}

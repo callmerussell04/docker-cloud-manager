@@ -91,6 +91,7 @@ type ContainerStoreFaults struct {
 	UpdateDockerIDRoutingAndGeneration             Fault
 	QueueContainerOperation                        Fault
 	GetRunning                                     Fault
+	ListReservingByOwner                           Fault
 	HasActiveOperation                             Fault
 	GetOperationByID                               Fault
 	ClaimPendingOperation                          Fault
@@ -398,6 +399,32 @@ func (f *ContainerStoreFake) GetRunning(context.Context) ([]model.Container, err
 	return running, nil
 }
 
+// ListReservingByOwner returns the identity, Docker container and statuses of
+// every container of ownerID that reserves capacity, ordered by ID. The rule
+// is the reservation sums': not missing, and status or desired status running.
+func (f *ContainerStoreFake) ListReservingByOwner(_ context.Context, ownerID uuid.UUID) ([]model.Container, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.ListReservingByOwner.take(); err != nil {
+		return nil, err
+	}
+	var reserving []model.Container
+	for _, c := range f.containers {
+		if c.OwnerID != ownerID || !reservesCapacity(c) {
+			continue
+		}
+		reserving = append(reserving, model.Container{
+			ID:            c.ID,
+			OwnerID:       c.OwnerID,
+			DockerID:      c.DockerID,
+			Status:        c.Status,
+			DesiredStatus: c.DesiredStatus,
+		})
+	}
+	slices.SortFunc(reserving, func(a, b model.Container) int { return bytes.Compare(a.ID[:], b.ID[:]) })
+	return reserving, nil
+}
+
 func (f *ContainerStoreFake) HasActiveOperation(_ context.Context, resourceType string, resourceID uuid.UUID) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -633,14 +660,20 @@ func (f *ContainerStoreFake) sumReserved(fault *Fault, ownerID *uuid.UUID, amoun
 		if ownerID != nil && c.OwnerID != *ownerID {
 			continue
 		}
-		if c.Status == model.ContainerStatusMissing {
-			continue
-		}
-		if c.Status == model.ContainerStatusRunning || c.DesiredStatus == model.ContainerStatusRunning {
+		if reservesCapacity(c) {
 			total += amount(c)
 		}
 	}
 	return total, nil
+}
+
+// reservesCapacity is the reservation rule: a container that is not missing
+// and whose status or desired status is running.
+func reservesCapacity(c model.Container) bool {
+	if c.Status == model.ContainerStatusMissing {
+		return false
+	}
+	return c.Status == model.ContainerStatusRunning || c.DesiredStatus == model.ContainerStatusRunning
 }
 
 // outboxLeaseTimeout is how long a publishing lease holds before the record

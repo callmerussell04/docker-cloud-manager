@@ -61,6 +61,17 @@ service QuotaAPI {
   rpc ResetUserQuota (UserQuotaActionRequest) returns (UserQuotaData);
 }
 
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+service WorkloadAPI {
+  // SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+  // data: it queues a stop for each container that is running or meant to
+  // run, and cancels their pending and running builds and active Compose
+  // deployments. A container with an operation in progress is skipped.
+  // Calling it again does what remains and nothing twice.
+  rpc SuspendUserWorkloads (SuspendUserWorkloadsRequest) returns (SuspendUserWorkloadsResponse);
+}
+
 service StatsAPI {
   rpc GetUserStats (Empty) returns (UserStatsResponse);
   rpc GetSystemMonitoring (Empty) returns (SystemMonitoringResponse);
@@ -102,6 +113,20 @@ message SetUserQuotaRequest {
 
 message UserQuotaActionRequest {
   string user_id = 1;
+}
+
+message SuspendUserWorkloadsRequest {
+  string user_id = 1;
+}
+
+message SuspendUserWorkloadsResponse {
+  int32 stopped_containers = 1;
+  // Containers left running because another operation was in progress.
+  int32 skipped_containers = 2;
+  int32 canceled_builds = 3;
+  int32 canceled_deployments = 4;
+  // Workloads that could not be stopped or canceled this time.
+  int32 failed = 5;
 }
 
 message UserStatsResponse {

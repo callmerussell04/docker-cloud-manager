@@ -296,6 +296,16 @@ type securityHarness struct {
 // router's recovery middleware answers it with 500.
 func newSecurityHarness(t *testing.T, logger *slog.Logger) *securityHarness {
 	t.Helper()
+	return newSecurityHarnessWithUsers(t, logger, handler.UserManagementDeps{
+		Users: unreachableUserDirectory{}, AdminUsers: unreachableAdminUsers{},
+		Deactivation: unreachableUserDeactivator{}, Audit: unreachableCoreService{},
+	})
+}
+
+// newSecurityHarnessWithUsers is newSecurityHarness with users serving the
+// user-management routes.
+func newSecurityHarnessWithUsers(t *testing.T, logger *slog.Logger, users handler.UserManagementDeps) *securityHarness {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -326,7 +336,7 @@ func newSecurityHarness(t *testing.T, logger *slog.Logger) *securityHarness {
 	h.router, err = gatewayhttp.NewRouter(cfg, gatewayhttp.RouterDeps{
 		AuthHandler:                 handler.NewAuthHandler(h.auth, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{securityOrigin}}),
 		CoreHandler:                 handler.NewCoreHandler(unreachableCoreService{}),
-		UserHandler:                 handler.NewUserManagementHandler(handler.UserManagementDeps{Users: unreachableUserDirectory{}, AdminUsers: unreachableAdminUsers{}, Audit: unreachableCoreService{}}),
+		UserHandler:                 handler.NewUserManagementHandler(users),
 		HealthHandler:               handler.NewHealthHandler(nil),
 		TelemetryTicketHandler:      handler.NewTelemetryTicketHandler(tickets),
 		CoreHTTPProxy:               coreProxy,
@@ -482,3 +492,5 @@ type unreachableCoreService struct{ handler.CoreService }
 type unreachableUserDirectory struct{ handler.UserDirectory }
 
 type unreachableAdminUsers struct{ handler.AdminUserService }
+
+type unreachableUserDeactivator struct{ handler.UserDeactivator }

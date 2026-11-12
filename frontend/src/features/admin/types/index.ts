@@ -19,6 +19,18 @@ export interface UserQuota {
 
 export interface AdminUser extends AdminUserAccount, UserQuota {}
 
+/** What deactivation did to the user's workloads. remaining counts those not yet stopped or canceled. */
+export interface WorkloadSuspension {
+  stopped_containers: number;
+  canceled_builds: number;
+  canceled_deployments: number;
+  remaining: number;
+}
+
+export interface AdminUserDeactivation extends AdminUserAccount {
+  workloads: WorkloadSuspension;
+}
+
 export interface SystemConfig {
   base_domain: string;
   default_memory_reservation_bytes: number;

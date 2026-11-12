@@ -1555,6 +1555,124 @@ var QuotaAPI_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	WorkloadAPI_SuspendUserWorkloads_FullMethodName = "/core.WorkloadAPI/SuspendUserWorkloads"
+)
+
+// WorkloadAPIClient is the client API for WorkloadAPI service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+type WorkloadAPIClient interface {
+	// SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+	// data: it queues a stop for each container that is running or meant to
+	// run, and cancels their pending and running builds and active Compose
+	// deployments. A container with an operation in progress is skipped.
+	// Calling it again does what remains and nothing twice.
+	SuspendUserWorkloads(ctx context.Context, in *SuspendUserWorkloadsRequest, opts ...grpc.CallOption) (*SuspendUserWorkloadsResponse, error)
+}
+
+type workloadAPIClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewWorkloadAPIClient(cc grpc.ClientConnInterface) WorkloadAPIClient {
+	return &workloadAPIClient{cc}
+}
+
+func (c *workloadAPIClient) SuspendUserWorkloads(ctx context.Context, in *SuspendUserWorkloadsRequest, opts ...grpc.CallOption) (*SuspendUserWorkloadsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SuspendUserWorkloadsResponse)
+	err := c.cc.Invoke(ctx, WorkloadAPI_SuspendUserWorkloads_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WorkloadAPIServer is the server API for WorkloadAPI service.
+// All implementations must embed UnimplementedWorkloadAPIServer
+// for forward compatibility.
+//
+// WorkloadAPI acts on all of one user's workloads. Every call needs admin
+// scope.
+type WorkloadAPIServer interface {
+	// SuspendUserWorkloads stops a deactivated user's workloads and keeps their
+	// data: it queues a stop for each container that is running or meant to
+	// run, and cancels their pending and running builds and active Compose
+	// deployments. A container with an operation in progress is skipped.
+	// Calling it again does what remains and nothing twice.
+	SuspendUserWorkloads(context.Context, *SuspendUserWorkloadsRequest) (*SuspendUserWorkloadsResponse, error)
+	mustEmbedUnimplementedWorkloadAPIServer()
+}
+
+// UnimplementedWorkloadAPIServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedWorkloadAPIServer struct{}
+
+func (UnimplementedWorkloadAPIServer) SuspendUserWorkloads(context.Context, *SuspendUserWorkloadsRequest) (*SuspendUserWorkloadsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SuspendUserWorkloads not implemented")
+}
+func (UnimplementedWorkloadAPIServer) mustEmbedUnimplementedWorkloadAPIServer() {}
+func (UnimplementedWorkloadAPIServer) testEmbeddedByValue()                     {}
+
+// UnsafeWorkloadAPIServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to WorkloadAPIServer will
+// result in compilation errors.
+type UnsafeWorkloadAPIServer interface {
+	mustEmbedUnimplementedWorkloadAPIServer()
+}
+
+func RegisterWorkloadAPIServer(s grpc.ServiceRegistrar, srv WorkloadAPIServer) {
+	// If the following call panics, it indicates UnimplementedWorkloadAPIServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&WorkloadAPI_ServiceDesc, srv)
+}
+
+func _WorkloadAPI_SuspendUserWorkloads_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SuspendUserWorkloadsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkloadAPIServer).SuspendUserWorkloads(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkloadAPI_SuspendUserWorkloads_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkloadAPIServer).SuspendUserWorkloads(ctx, req.(*SuspendUserWorkloadsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// WorkloadAPI_ServiceDesc is the grpc.ServiceDesc for WorkloadAPI service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var WorkloadAPI_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "core.WorkloadAPI",
+	HandlerType: (*WorkloadAPIServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "SuspendUserWorkloads",
+			Handler:    _WorkloadAPI_SuspendUserWorkloads_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "api/core/core.proto",
+}
+
+const (
 	StatsAPI_GetUserStats_FullMethodName        = "/core.StatsAPI/GetUserStats"
 	StatsAPI_GetSystemMonitoring_FullMethodName = "/core.StatsAPI/GetSystemMonitoring"
 )

@@ -310,6 +310,30 @@ func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.U
 	return count, err
 }
 
+// ListActiveByOwner returns ownerID's pending and running builds, oldest first.
+func (r *BuildRepository) ListActiveByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		FROM builds
+		WHERE owner_id = $1 AND status IN ($2, $3)
+		ORDER BY created_at
+	`, ownerID, model.BuildStatusPending, model.BuildStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	builds := make([]model.Build, 0)
+	for rows.Next() {
+		build, err := scanBuild(rows)
+		if err != nil {
+			return nil, err
+		}
+		builds = append(builds, build)
+	}
+	return builds, rows.Err()
+}
+
 func (r *BuildRepository) CountActive(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRow(ctx, `

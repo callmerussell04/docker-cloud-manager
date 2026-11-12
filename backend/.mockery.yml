@@ -87,6 +87,10 @@ packages:
       VolumeUsageContainerRepo: {}
       VolumeUsageDockerAPI: {}
       VolumeUsageRepo: {}
+      WorkloadSuspensionBuildCanceler: {}
+      WorkloadSuspensionBuildRepository: {}
+      WorkloadSuspensionDeploymentCanceler: {}
+      WorkloadSuspensionDeploymentRepository: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose:
     config:
       dir: internal/testutil/mocks/core/service/compose

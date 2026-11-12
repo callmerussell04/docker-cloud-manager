@@ -72,4 +72,8 @@ const (
 	DetailQuotaCPU             = "quota_cpu"
 	DetailQuotaRAMMB           = "quota_ram_mb"
 	DetailQuotaDiskMB          = "quota_disk_mb"
+	DetailStoppedContainers    = "stopped_containers"
+	DetailCanceledBuilds       = "canceled_builds"
+	DetailCanceledDeployments  = "canceled_deployments"
+	DetailRemainingWorkloads   = "remaining_workloads"
 )
