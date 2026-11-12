@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	corehttp "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/http"
@@ -285,31 +286,38 @@ func TestOpenTerminalWebSocketBridge(t *testing.T) {
 		require.Equal(t, 7, *event.ExitCode)
 	})
 
+	// The session deadline runs on synctest's fake clock: it fires once every
+	// goroutine is blocked, a minute of session time in no real time. The idle
+	// timeout is longer, so only the maximum duration can end the session.
 	t.Run("timeout sends safe error", func(t *testing.T) {
-		service := corehttpmocks.NewMockStreamUseCases(t)
-		session := coremodelmocks.NewMockTerminalSession(t)
-		router := newStreamRouter(service)
-		server := newMemoryServer(t, router)
-		releaseRead := make(chan struct{})
+		synctest.Test(t, func(t *testing.T) {
+			service := corehttpmocks.NewMockStreamUseCases(t)
+			session := coremodelmocks.NewMockTerminalSession(t)
+			router := newStreamRouter(service)
+			server := newMemoryServer(t, router)
+			releaseRead := make(chan struct{})
 
-		service.EXPECT().
-			OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
-			Return(session, model.StreamConfig{TerminalIdleTimeout: time.Second, TerminalMaxDuration: 20 * time.Millisecond}, nil).
-			Once()
-		session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
-			<-releaseRead
-			return 0, io.EOF
-		}).Maybe()
-		session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
+			service.EXPECT().
+				OpenTerminal(mock.Anything, streamContainerID, model.TerminalOptions{Rows: 24, Cols: 80}).
+				Return(session, model.StreamConfig{TerminalIdleTimeout: time.Hour, TerminalMaxDuration: time.Minute}, nil).
+				Once()
+			session.EXPECT().Read(mock.Anything).RunAndReturn(func([]byte) (int, error) {
+				<-releaseRead
+				return 0, io.EOF
+			}).Maybe()
+			session.EXPECT().Close().Run(func() { closeOnce(releaseRead) }).Return(nil).Maybe()
 
-		conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
-		defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
-		requireReady(t, conn)
+			conn := dialTerminal(t, server, "/api/v1/containers/"+streamContainerPath+"/terminal")
+			defer func() { _ = conn.Close() }() // test teardown; the server may already have closed
+			requireReady(t, conn)
+			opened := time.Now()
 
-		var event wsEvent
-		require.NoError(t, conn.ReadJSON(&event))
-		require.Equal(t, "error", event.Type)
-		require.Equal(t, "terminal session timed out", event.Error)
+			var event wsEvent
+			require.NoError(t, conn.ReadJSON(&event))
+			require.Equal(t, "error", event.Type)
+			require.Equal(t, "terminal session timed out", event.Error)
+			require.Equal(t, time.Minute, time.Since(opened), "the session ends at its maximum duration")
+		})
 	})
 }
 
