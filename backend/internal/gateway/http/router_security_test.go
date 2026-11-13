@@ -354,7 +354,15 @@ func newSecurityHarnessWithUsers(t *testing.T, logger *slog.Logger, users handle
 // serve records the response through a writer that supports CloseNotify,
 // which the reverse proxies need and httptest.ResponseRecorder lacks.
 func (h *securityHarness) serve(method, path string, headers map[string]string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, nil)
+	return h.serveBody(method, path, "", headers)
+}
+
+func (h *securityHarness) serveBody(method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, reader)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}

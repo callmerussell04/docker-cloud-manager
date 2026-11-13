@@ -82,3 +82,12 @@ type UserDeactivation struct {
 	User      AdminUser
 	Workloads WorkloadSuspension
 }
+
+// UserUpdate is an updated user. An update that leaves the account
+// deactivated also stops the user's workloads: Deactivated is then true and
+// Workloads says what happened to them.
+type UserUpdate struct {
+	User        AdminUser
+	Deactivated bool
+	Workloads   WorkloadSuspension
+}

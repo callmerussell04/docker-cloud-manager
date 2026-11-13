@@ -90,11 +90,20 @@ export function useUpdateAdminUser() {
 
   return useMutation({
     mutationFn: updateAdminUserFn,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
-      addToast(t('admin.users.updated'), 'success');
+      // An update that deactivates the account also stops its workloads.
+      if (!data.workloads) {
+        addToast(t('admin.users.updated'), 'success');
+      } else if (data.workloads.remaining > 0) {
+        addToast(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
+      } else {
+        addToast(t('admin.users.deactivatedWorkloadsStopped'), 'success');
+      }
     },
     onError: (error: unknown) => {
+      // The account may be saved as deactivated even though its workloads were not stopped.
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.users.all });
       addToast(getApiErrorMessage(error, t('admin.users.updateFailed'), t).message, 'error');
     },
   });

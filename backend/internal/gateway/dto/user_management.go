@@ -37,6 +37,13 @@ type AdminUserDeactivationDTO struct {
 	Workloads WorkloadSuspensionDTO `json:"workloads"`
 }
 
+// AdminUserUpdateDTO is an updated user. Workloads is present only when the
+// update left the account deactivated, which stops the user's workloads.
+type AdminUserUpdateDTO struct {
+	AdminUserAccountDTO
+	Workloads *WorkloadSuspensionDTO `json:"workloads,omitempty"`
+}
+
 type WorkloadSuspensionDTO struct {
 	StoppedContainers   int `json:"stopped_containers"`
 	CanceledBuilds      int `json:"canceled_builds"`

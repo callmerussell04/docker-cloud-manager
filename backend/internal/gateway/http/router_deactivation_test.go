@@ -53,6 +53,15 @@ func (s fakeDeactivationSSO) DeactivateUser(_ context.Context, userID string) (m
 	return model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.test", Role: "user", Status: "deactivated"}, nil
 }
 
+// UpdateUser saves the requested status as SSO does.
+func (s fakeDeactivationSSO) UpdateUser(_ context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error) {
+	s.calls.add("sso.UpdateUser")
+	if s.err != nil {
+		return model.AdminUser{}, s.err
+	}
+	return model.AdminUser{UserID: userID, Username: input.Username, Email: input.Email, Role: input.Role, Status: input.Status}, nil
+}
+
 // fakeWorkloadCore suspends workloads as Core does, or fails with err, and
 // records audit events.
 type fakeWorkloadCore struct {
@@ -159,6 +168,103 @@ func TestRouterDeactivatesAUserInSSOThenStopsTheirWorkloadsInCore(t *testing.T) 
 			} else {
 				require.Equal(t, auditlog.OutcomeFailure, audit.Outcome)
 			}
+		})
+	}
+}
+
+// The edit form can set a user's status, so an update that leaves the account
+// deactivated is a deactivation too: it stops the user's workloads and is
+// audited as one. Any other update reaches SSO only.
+func TestRouterStopsWorkloadsWhenAnUpdateDeactivatesAUser(t *testing.T) {
+	user := uuid.NewString()
+	account := func(status string) string {
+		return `"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"` + status + `"`
+	}
+	tests := []struct {
+		name       string
+		status     string
+		ssoErr     error
+		suspension model.WorkloadSuspension
+		coreErr    error
+		wantStatus int
+		wantCalls  []string
+		wantBody   string
+		wantError  string
+		wantAudit  string
+	}{
+		{
+			name:       "update leaves the account active",
+			status:     "active",
+			wantStatus: http.StatusOK,
+			wantCalls:  []string{"sso.UpdateUser"},
+			wantBody:   `{` + account("active") + `}`,
+		},
+		{
+			name:       "update deactivates the account",
+			status:     "deactivated",
+			suspension: model.WorkloadSuspension{StoppedContainers: 2, CanceledBuilds: 1, SkippedContainers: 1},
+			wantStatus: http.StatusOK,
+			wantCalls:  []string{"sso.UpdateUser", "core.SuspendUserWorkloads"},
+			wantBody: `{` + account("deactivated") + `,
+				"workloads":{"stopped_containers":2,"canceled_builds":1,"canceled_deployments":0,"remaining":1}}`,
+			wantAudit: auditlog.OutcomeSuccess,
+		},
+		{
+			name:       "core fails after the account is deactivated",
+			status:     "deactivated",
+			coreErr:    errors.New("core: connection refused"),
+			wantStatus: http.StatusServiceUnavailable,
+			wantCalls:  []string{"sso.UpdateUser", "core.SuspendUserWorkloads"},
+			wantError:  "the account is deactivated, but its workloads could not be stopped; repeat the request to stop them",
+			wantAudit:  auditlog.OutcomeFailure,
+		},
+		{
+			name:       "sso refuses the update",
+			status:     "deactivated",
+			ssoErr:     apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin"),
+			wantStatus: http.StatusConflict,
+			wantCalls:  []string{"sso.UpdateUser"},
+			wantError:  "cannot deactivate or demote the last active admin",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := &deactivationCalls{}
+			core := fakeWorkloadCore{calls: calls, result: tc.suspension, err: tc.coreErr}
+			h := newSecurityHarnessWithUsers(t, nil, handler.UserManagementDeps{
+				Users:        unreachableUserDirectory{},
+				AdminUsers:   unreachableAdminUsers{},
+				Deactivation: service.NewUserDeactivation(fakeDeactivationSSO{calls: calls, err: tc.ssoErr}, core),
+				Audit:        core,
+			})
+			token := "Bearer admin-" + uuid.NewString()
+			h.verifier.grant(token, accessIdentity("admin", func(p string) bool { return p == permissions.UsersAdminUpdate }))
+
+			rec := h.serveBody(http.MethodPut, "/api/v1/admin/users/"+user,
+				`{"username":"alice","email":"alice@example.test","role":"user","status":"`+tc.status+`"}`,
+				map[string]string{"Authorization": token, "Content-Type": "application/json"})
+
+			require.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
+			require.Equal(t, tc.wantCalls, calls.calls(), "SSO is called first, and Core only for an account SSO left deactivated")
+			if tc.wantBody != "" {
+				require.JSONEq(t, tc.wantBody, rec.Body.String())
+			}
+			if tc.wantError != "" {
+				var body struct {
+					Error string `json:"error"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				require.Equal(t, tc.wantError, body.Error)
+				require.NotContains(t, rec.Body.String(), "connection refused")
+			}
+			if tc.wantAudit == "" {
+				require.Empty(t, calls.audits, "only a deactivation is audited as one")
+				return
+			}
+			require.Len(t, calls.audits, 1)
+			require.Equal(t, auditlog.ActionUserAdminDeactivate, calls.audits[0].Action)
+			require.Equal(t, user, calls.audits[0].ResourceID)
+			require.Equal(t, tc.wantAudit, calls.audits[0].Outcome)
 		})
 	}
 }

@@ -20,6 +20,7 @@ import (
 type userHandlerHarness struct {
 	router     *gin.Engine
 	users      *gatewayhandlermocks.MockUserDirectory
+	accounts   *gatewayhandlermocks.MockUserDeactivator
 	adminUsers *gatewayhandlermocks.MockAdminUserService
 	audit      *gatewayhandlermocks.MockAuditRecorder
 }
@@ -29,10 +30,11 @@ func newUserHandlerHarness(t *testing.T) userHandlerHarness {
 	gin.SetMode(gin.TestMode)
 	h := userHandlerHarness{
 		users:      gatewayhandlermocks.NewMockUserDirectory(t),
+		accounts:   gatewayhandlermocks.NewMockUserDeactivator(t),
 		adminUsers: gatewayhandlermocks.NewMockAdminUserService(t),
 		audit:      gatewayhandlermocks.NewMockAuditRecorder(t),
 	}
-	userHandler := handler.NewUserManagementHandler(handler.UserManagementDeps{Users: h.users, AdminUsers: h.adminUsers, Audit: h.audit})
+	userHandler := handler.NewUserManagementHandler(handler.UserManagementDeps{Users: h.users, AdminUsers: h.adminUsers, Deactivation: h.accounts, Audit: h.audit})
 	h.router = gin.New()
 	h.router.Use(withScope(accessscope.WithAdminScope(context.Background(), adminActorID, "root", "admin")))
 	h.router.GET("/users", userHandler.ListUsers)
@@ -68,10 +70,11 @@ func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 	require.NotContains(t, resp.Body.String(), "quota")
 
-	h.users.EXPECT().UpdateUser(mock.Anything, userID, model.UpdateUserInput{Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: "admin", Status: "active"}).Return(user, nil)
+	h.accounts.EXPECT().UpdateUser(mock.Anything, userID, model.UpdateUserInput{Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: "admin", Status: "active"}).Return(model.UserUpdate{User: user}, nil)
 	resp = perform(h.router, http.MethodPut, "/users/"+userID, `{"username":"alice2","email":"alice2@example.com","password":"newsecret","role":"admin","status":"active"}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NotContains(t, resp.Body.String(), "quota")
+	require.NotContains(t, resp.Body.String(), "workloads", "an update that leaves the account active stops nothing")
 
 	h.users.EXPECT().ReactivateUser(mock.Anything, userID).Return(user, nil)
 	resp = perform(h.router, http.MethodPost, "/users/"+userID+"/activate", ``, nil)

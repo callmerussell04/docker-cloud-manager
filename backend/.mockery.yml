@@ -182,6 +182,7 @@ packages:
       ReadinessService: {}
       TelemetryTicketConsumer: {}
       TelemetryTicketIssuer: {}
+      UserDeactivator: {}
       UserDirectory: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/service:
     config:

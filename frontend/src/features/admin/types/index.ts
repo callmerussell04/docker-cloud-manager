@@ -31,6 +31,11 @@ export interface AdminUserDeactivation extends AdminUserAccount {
   workloads: WorkloadSuspension;
 }
 
+/** An updated user. workloads is present only when the update left the account deactivated. */
+export interface AdminUserUpdate extends AdminUserAccount {
+  workloads?: WorkloadSuspension;
+}
+
 export interface SystemConfig {
   base_domain: string;
   default_memory_reservation_bytes: number;

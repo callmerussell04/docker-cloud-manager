@@ -15,16 +15,18 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
 
-// UserDirectory changes users' accounts in SSO.
+// UserDirectory changes users' accounts in SSO in ways that never deactivate
+// them.
 type UserDirectory interface {
 	CreateUser(ctx context.Context, input model.CreateUserInput) (model.AdminUser, error)
-	UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.AdminUser, error)
 	ReactivateUser(ctx context.Context, userID string) (model.AdminUser, error)
 }
 
-// UserDeactivator deactivates a user in SSO and stops their workloads in Core.
+// UserDeactivator makes the account changes that can deactivate a user in
+// SSO, and stops a deactivated user's workloads in Core.
 type UserDeactivator interface {
 	DeactivateUser(ctx context.Context, userID string) (model.UserDeactivation, error)
+	UpdateUser(ctx context.Context, userID string, input model.UpdateUserInput) (model.UserUpdate, error)
 }
 
 // AdminUserService combines SSO's users with Core's quotas.
@@ -109,6 +111,9 @@ func (h *UserManagementHandler) CreateUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, accountToDTO(user))
 }
 
+// UpdateUser saves the account. An update that leaves it deactivated is a
+// deactivation: it stops the user's workloads, is audited and answers as
+// DeactivateUser does, including 503 when Core could not stop them.
 func (h *UserManagementHandler) UpdateUser(c *gin.Context) {
 	userID, ok := pathUUID(c, "id")
 	if !ok {
@@ -124,33 +129,34 @@ func (h *UserManagementHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	user, err := h.users.UpdateUser(c.Request.Context(), userID, model.UpdateUserInput{
+	update, err := h.deactivation.UpdateUser(c.Request.Context(), userID, model.UpdateUserInput{
 		Username: req.Username,
 		Email:    req.Email,
 		Password: req.Password,
 		Role:     req.Role,
 		Status:   req.Status,
 	})
+	if update.Deactivated {
+		h.recordDeactivation(c, userID, update.Workloads, err)
+	}
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, accountToDTO(user))
+	resp := dto.AdminUserUpdateDTO{AdminUserAccountDTO: accountToDTO(update.User)}
+	if update.Deactivated {
+		workloads := workloadsToDTO(update.Workloads)
+		resp.Workloads = &workloads
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
-// DeactivateUser deactivates the user in SSO, then stops their workloads in
-// Core. A Core failure is 503 for an account already deactivated; repeating
-// the request is safe.
-func (h *UserManagementHandler) DeactivateUser(c *gin.Context) {
-	userID, ok := pathUUID(c, "id")
-	if !ok {
-		return
-	}
-	deactivation, err := h.deactivation.DeactivateUser(c.Request.Context(), userID)
+// recordDeactivation audits a deactivation and, when it succeeded, what
+// happened to the user's workloads.
+func (h *UserManagementHandler) recordDeactivation(c *gin.Context, userID string, workloads model.WorkloadSuspension, err error) {
 	outcome, errorCode := auditOutcome(err)
 	details := "{}"
 	if err == nil {
-		workloads := deactivation.Workloads
 		details = auditlog.SafeDetailsJSON(map[string]string{
 			auditlog.DetailStoppedContainers:   auditlog.IntDetail(workloads.StoppedContainers),
 			auditlog.DetailCanceledBuilds:      auditlog.IntDetail(workloads.CanceledBuilds),
@@ -167,6 +173,18 @@ func (h *UserManagementHandler) DeactivateUser(c *gin.Context) {
 		ErrorCode:    errorCode,
 		DetailsJSON:  details,
 	})
+}
+
+// DeactivateUser deactivates the user in SSO, then stops their workloads in
+// Core. A Core failure is 503 for an account already deactivated; repeating
+// the request is safe.
+func (h *UserManagementHandler) DeactivateUser(c *gin.Context) {
+	userID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	deactivation, err := h.deactivation.DeactivateUser(c.Request.Context(), userID)
+	h.recordDeactivation(c, userID, deactivation.Workloads, err)
 	if err != nil {
 		httpresponse.Respond(c, httpresponse.Status(err), err)
 		return

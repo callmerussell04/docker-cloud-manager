@@ -1087,6 +1087,14 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
     put:
       summary: Update a user as admin
+      description: |
+        Saves the account in SSO. An update that leaves `status` as
+        `deactivated` is a deactivation: Core then stops the user's
+        workloads exactly as `DELETE /admin/users/{id}` does, the answer
+        carries `workloads`, and it is audited as a deactivation. When Core
+        cannot be reached the account is still saved as deactivated and the
+        answer is `503`; repeating the request is safe. Any other update
+        answers without `workloads` and stops nothing.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -1098,17 +1106,19 @@ paths:
               $ref: '#/components/schemas/UpdateAdminUserRequest'
       responses:
         '200':
-          description: User updated
+          description: User updated; with `workloads` when the update left the account deactivated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AdminUserAccount'
+                $ref: '#/components/schemas/AdminUserUpdate'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
       summary: Deactivate a user and stop their workloads
       description: |
@@ -1920,19 +1930,32 @@ components:
           required: [workloads]
           properties:
             workloads:
-              type: object
-              required: [stopped_containers, canceled_builds, canceled_deployments, remaining]
-              properties:
-                stopped_containers:
-                  type: integer
-                  description: Containers a stop was queued for.
-                canceled_builds:
-                  type: integer
-                canceled_deployments:
-                  type: integer
-                remaining:
-                  type: integer
-                  description: Workloads not yet stopped or canceled, because another operation was in progress or the attempt failed. Repeat the deactivation to handle them.
+              $ref: '#/components/schemas/WorkloadSuspension'
+
+    AdminUserUpdate:
+      description: The updated user. `workloads` is present only when the update left the account deactivated.
+      allOf:
+        - $ref: '#/components/schemas/AdminUserAccount'
+        - type: object
+          properties:
+            workloads:
+              $ref: '#/components/schemas/WorkloadSuspension'
+
+    WorkloadSuspension:
+      description: What deactivation did to the user's workloads.
+      type: object
+      required: [stopped_containers, canceled_builds, canceled_deployments, remaining]
+      properties:
+        stopped_containers:
+          type: integer
+          description: Containers a stop was queued for.
+        canceled_builds:
+          type: integer
+        canceled_deployments:
+          type: integer
+        remaining:
+          type: integer
+          description: Workloads not yet stopped or canceled, because another operation was in progress or the attempt failed. Repeat the deactivation to handle them.
 
     PaginatedAdminUsers:
       type: object

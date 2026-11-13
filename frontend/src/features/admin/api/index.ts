@@ -1,5 +1,5 @@
 import { privateApi } from '@/api/axios';
-import type { AdminUser, AdminUserAccount, AdminUserDeactivation, AdminUserForm, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
+import type { AdminUser, AdminUserAccount, AdminUserDeactivation, AdminUserForm, AdminUserUpdate, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
 import type { AdminContainerData, ContainerStats } from '@/features/containers/types';
 import type { AdminVolumeData } from '@/features/volumes/types';
 import type { AdminImageData, AdminBuildData } from '@/features/images/types';
@@ -76,8 +76,9 @@ export const createAdminUserFn = async (data: AdminUserForm): Promise<AdminUserA
   return response.data;
 };
 
-export const updateAdminUserFn = async ({ id, data }: { id: string; data: AdminUserForm }): Promise<AdminUserAccount> => {
-  const response = await privateApi.put<AdminUserAccount>(`/admin/users/${id}`, data);
+/** Saves the account. Setting the status to deactivated also stops the user's workloads. */
+export const updateAdminUserFn = async ({ id, data }: { id: string; data: AdminUserForm }): Promise<AdminUserUpdate> => {
+  const response = await privateApi.put<AdminUserUpdate>(`/admin/users/${id}`, data);
   return response.data;
 };
 
