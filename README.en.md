@@ -82,8 +82,8 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | **Gateway** | HTTP edge/API gateway, request authentication, authorization, and proxying to Core, including log and terminal streams |
-| **SSO** | Users, roles, tokens, permissions, quotas, and OIDC identity binding |
-| **Core** | Docker orchestration, resource state, admission control, Compose, builds, container logs and browser terminals, reports, and audit |
+| **SSO** | Users, roles, tokens, permissions, and OIDC identity binding |
+| **Core** | Docker orchestration, resource state, user quotas, admission control, Compose, builds, container logs and browser terminals, reports, and audit |
 | **Builder** | RabbitMQ worker that builds custom images with Kaniko |
 | **Frontend** | React SPA for the user and administration panels |
 
