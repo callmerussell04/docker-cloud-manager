@@ -75,9 +75,8 @@ type BuildNetworkAdmission interface {
 
 const defaultBuildCancelPollInterval = 2 * time.Second
 
-// refusedClaimRetryDelay is how long a Builder holds a delivery whose claim
-// Core refused because max_concurrent_builds builds already run, so the
-// message does not spin through the queue while every slot is taken.
+// refusedClaimRetryDelay is how long a Builder waits before it claims again
+// a build Core refused because max_concurrent_builds builds already run.
 const refusedClaimRetryDelay = 5 * time.Second
 
 // buildCleanupTimeout bounds cleanup that must outlive the build's own context.
@@ -287,14 +286,11 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	if err := s.networkAdmission.ValidateBuildNetwork(ctx, cfg.BuildNetworkName); err != nil {
 		return fmt.Errorf("admit build network: %w", err)
 	}
-	claim, started, status, err := s.coreClient.StartBuildRecord(ctx, msg.BuildID)
+	claim, started, status, err := s.claimBuild(ctx, msg.BuildID)
 	if err != nil {
 		return err
 	}
 	if !started {
-		if status == buildStatusPending {
-			return s.waitAfterRefusedClaim(ctx, msg.BuildID)
-		}
 		s.logger.InfoContext(ctx, "build queue message skipped", "build_id", msg.BuildID, "status", status)
 		if isTerminalBuildStatus(status) {
 			cleanupCtx, cancel := cleanupContext(ctx)
@@ -376,18 +372,30 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	return nil
 }
 
-// waitAfterRefusedClaim holds a delivery Core left pending because the
-// running-build cap is reached, then returns it as retryable. Shutdown ends
-// the wait early.
-func (s *BuilderService) waitAfterRefusedClaim(ctx context.Context, buildID string) error {
-	s.logger.InfoContext(ctx, "build claim refused: running builds are at max_concurrent_builds", "build_id", buildID)
-	timer := time.NewTimer(refusedClaimRetryDelay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return apperrors.New(apperrors.ErrUnavailable, "build slots are all in use")
+// claimBuild claims the build from Core. While Core refuses the claim because
+// max_concurrent_builds builds already run (unclaimed and still pending), it
+// keeps the delivery and claims again every refusedClaimRetryDelay. Returning
+// a refused delivery to the queue instead would count against the queue's
+// delivery limit, and a build that only waits for a slot would be
+// dead-lettered. Shutdown ends the wait with the context error.
+func (s *BuilderService) claimBuild(ctx context.Context, buildID string) (model.BuildClaim, bool, model.BuildStatus, error) {
+	refused := false
+	for {
+		claim, started, status, err := s.coreClient.StartBuildRecord(ctx, buildID)
+		if err != nil || started || status != buildStatusPending {
+			return claim, started, status, err
+		}
+		if !refused {
+			refused = true
+			s.logger.InfoContext(ctx, "build claim refused: running builds are at max_concurrent_builds; waiting for a slot", "build_id", buildID)
+		}
+		timer := time.NewTimer(refusedClaimRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return model.BuildClaim{}, false, status, ctx.Err()
+		case <-timer.C:
+		}
 	}
 }
 

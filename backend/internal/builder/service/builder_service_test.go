@@ -1012,13 +1012,20 @@ func TestBuilderServiceQueuedBuildReceivesFullExecutionBudget(t *testing.T) {
 }
 
 // Core refuses a claim while max_concurrent_builds builds run across every
-// Builder, answering unclaimed and still pending. The Builder waits before
-// returning the delivery so the message does not spin through the queue.
-func TestBuilderServiceWaitsBeforeReleasingARefusedClaim(t *testing.T) {
+// Builder, answering unclaimed and still pending. The Builder keeps the
+// delivery and claims again, however long the slots stay taken: a delivery
+// returned to the queue each time would reach the queue's delivery limit and
+// be dead-lettered.
+func TestBuilderServiceKeepsARefusedClaimUntilASlotIsFree(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		h := newBuilderHarness(t, testBuilderRuntimeConfig())
+		cfg := testBuilderRuntimeConfig()
+		h := newBuilderHarness(t, cfg)
 		msg := testBuildMessage()
-		h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "pending", nil).Once()
+		// More refusals than RabbitMQ's default quorum delivery limit of 20.
+		const refusals = 30
+		h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "pending", nil).Times(refusals)
+		h.core.EXPECT().StartBuildRecord(mock.Anything, msg.BuildID).Return(model.BuildClaim{}, false, "canceled", nil).Once()
+		h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil).Once()
 		start := time.Now()
 		done := make(chan error, 1)
 
@@ -1030,12 +1037,8 @@ func TestBuilderServiceWaitsBeforeReleasingARefusedClaim(t *testing.T) {
 		default:
 		}
 
-		err := <-done
-		require.ErrorIs(t, err, apperrors.ErrUnavailable, "the delivery stays retryable")
-		require.Positive(t, time.Since(start))
-		_, journaled, loadErr := h.results.Load(context.Background(), msg.BuildID)
-		require.NoError(t, loadErr)
-		require.False(t, journaled)
+		require.NoError(t, <-done, "the delivery is settled once, by the claim that was answered")
+		require.Equal(t, refusals*5*time.Second, time.Since(start), "one wait of five seconds per refusal")
 	})
 }
 
