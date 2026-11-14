@@ -25,14 +25,14 @@ func NewImageRepository(db *pgxpool.Pool) *ImageRepository {
 
 func (r *ImageRepository) Save(ctx context.Context, img model.Image) error {
 	query := `
-		INSERT INTO images (id, owner_id, tag, registry_tag, digest, size_mb, metadata, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO images (id, owner_id, tag, registry_tag, digest, size_mb, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	status := img.Status
 	if status == "" {
 		status = model.ImageStatusAvailable
 	}
-	_, err := r.db.Exec(ctx, query, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.Digest, img.SizeMB, img.Metadata, status)
+	_, err := r.db.Exec(ctx, query, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.Digest, img.SizeMB, status)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -87,7 +87,7 @@ func (r *ImageRepository) ListAvailableInRepository(ctx context.Context, reposit
 	query := `
 		SELECT ` + imageColumns + `
 		FROM images
-		WHERE status = $1 AND lower(owner_id::text || '_' || split_part(tag, ':', 1)) = $2
+		WHERE status = $1 AND repository = $2
 		ORDER BY created_at
 	`
 	rows, err := r.db.Query(ctx, query, model.ImageStatusAvailable, repository)
@@ -380,13 +380,13 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 	return commitTx(ctx, tx, "mark build failed and delete image")
 }
 
-const imageColumns = `id, owner_id, tag, registry_tag, digest, size_mb, metadata, status, last_observed_at, last_error, created_at`
+const imageColumns = `id, owner_id, tag, registry_tag, digest, size_mb, status, last_observed_at, last_error, created_at`
 
 func scanImage(s scanner) (model.Image, error) {
 	var img model.Image
 	var lastObservedAt *time.Time
 	var lastError *string
-	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.RegistryTag, &img.Digest, &img.SizeMB, &img.Metadata, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
+	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.RegistryTag, &img.Digest, &img.SizeMB, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
 		return model.Image{}, err
 	}
 	img.LastObservedAt = lastObservedAt

@@ -19,7 +19,6 @@ type Image struct {
 	// available; nil for images made available before it was recorded.
 	Digest         *string
 	SizeMB         int
-	Metadata       []byte
 	Status         string
 	LastObservedAt *time.Time
 	LastError      *string
