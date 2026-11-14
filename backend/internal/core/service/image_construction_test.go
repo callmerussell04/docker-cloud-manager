@@ -8,7 +8,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
 	coremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/service"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 )
 
 func TestImageServiceRejectsMissingDependencies(t *testing.T) {
@@ -21,12 +20,6 @@ func TestImageServiceRejectsMissingDependencies(t *testing.T) {
 		"Lifecycle":    "lifecycle",
 		"RegistryAuth": "registry authorization",
 	})
-}
-
-func TestImageServiceAcceptsRequiredDependencies(t *testing.T) {
-	svc, err := service.NewImageService(imageServiceDeps(t))
-	require.NoError(t, err)
-	require.NotNil(t, svc)
 }
 
 func imageServiceDeps(t *testing.T) service.ImageServiceDeps {

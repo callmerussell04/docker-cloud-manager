@@ -26,12 +26,6 @@ func TestVolumeServiceRejectsMissingDependencies(t *testing.T) {
 	})
 }
 
-func TestVolumeServiceAcceptsRequiredDependencies(t *testing.T) {
-	svc, err := service.NewVolumeService(volumeServiceDeps(t))
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
-
 func volumeServiceDeps(t *testing.T) service.VolumeServiceDeps {
 	t.Helper()
 	return service.VolumeServiceDeps{

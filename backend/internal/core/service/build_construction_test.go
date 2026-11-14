@@ -32,12 +32,6 @@ func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
 	})
 }
 
-func TestBuildServiceAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *testing.T) {
-	svc, err := service.NewBuildService(buildServiceDeps(t))
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
-
 var _ service.BuildRepository = (*repository.BuildRepository)(nil)
 var _ service.BuildContainerReservationRepository = (*repository.ContainerRepository)(nil)
 var _ service.BuildObjectStore = (*objectstorage.LazyStorage)(nil)

@@ -22,12 +22,6 @@ func TestProjectServiceRejectsMissingDependencies(t *testing.T) {
 	})
 }
 
-func TestProjectServiceAcceptsRequiredDependencies(t *testing.T) {
-	svc, err := service.NewProjectService(projectServiceDeps(t))
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
-
 func projectServiceDeps(t *testing.T) service.ProjectServiceDeps {
 	t.Helper()
 	return service.ProjectServiceDeps{

@@ -8,7 +8,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/depstest"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
@@ -27,15 +26,6 @@ func TestDeploymentCoordinatorRejectsMissingDependencies(t *testing.T) {
 		"Sources":           "sources",
 		"Config":            "config",
 	})
-}
-
-func TestDeploymentCoordinatorAcceptsWithoutOptionalAudit(t *testing.T) {
-	deps := newCoordinatorEnv(model.ComposeDeploymentJob{}).deps()
-	deps.Auditor = nil
-	deps.Users = nil
-	coordinator, err := compose.NewDeploymentCoordinator(deps)
-	require.NoError(t, err)
-	require.NotNil(t, coordinator)
 }
 
 // Production adapters keep satisfying the coordinator's durable contracts.

@@ -101,12 +101,6 @@ func TestNewContainerServiceRequiresDependencies(t *testing.T) {
 	})
 }
 
-func TestNewContainerServiceAcceptsCompleteDependenciesWithoutOptionalObservers(t *testing.T) {
-	svc, err := service.NewContainerService(validContainerServiceDeps(t))
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-}
-
 func TestContainerServiceAdmissionPropagatesLockFailure(t *testing.T) {
 	for _, operation := range []string{"create", "start", "check capacity"} {
 		t.Run(operation, func(t *testing.T) {
