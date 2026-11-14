@@ -99,7 +99,9 @@ type HostMetricsProvider interface {
 type ContainerImageRepository interface {
 	containerImageDiskRepository
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
-	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
+	// FindByOwnerAndTag returns the owner's record for a normalized tag: the
+	// available one whenever it exists, else a building one, else any other.
+	FindByOwnerAndTag(ctx context.Context, ownerID uuid.UUID, tag string) (model.Image, bool, error)
 }
 
 type containerImageDiskRepository interface {

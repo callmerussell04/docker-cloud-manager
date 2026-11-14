@@ -282,7 +282,7 @@ func TestDeactivationStopRecordsItsReasonUntilTheNextStart(t *testing.T) {
 	docker.EXPECT().StopContainer(mock.Anything, c.DockerID, mock.Anything).Return(nil).Once()
 	images := coremocks.NewContainerImageRepository(t)
 	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil).Maybe()
-	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).Return(0, nil).Maybe()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{

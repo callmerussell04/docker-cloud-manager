@@ -40,6 +40,9 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:1.2.3", RegistryTag: imageID.String()}, nil)
+	// The image itself is listed with its own digest; it shares with no one.
+	sameDigest := "sha256:abc"
+	repo.ImageRepository.EXPECT().ListAvailableInRepository(mock.Anything, ownerID.String()+"_demo").Return([]model.Image{{ID: imageID, Digest: &sameDigest, Status: model.ImageStatusAvailable}}, nil)
 	var registryRepo, registryTag, deletedDigest string
 	registry.EXPECT().
 		GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", imageID.String()).
@@ -134,6 +137,7 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			require.NoError(t, err)
 			cause := apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", context.DeadlineExceeded)
 			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest", Status: model.ImageStatusDeleting}, nil)
+			repo.noOtherAvailableImages()
 			repoName := ownerID.String() + "_demo"
 			if phase == "lookup" {
 				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "", cause).Once()
@@ -358,6 +362,12 @@ type imageRepoMock struct {
 	*coremocks.ImageRepository
 }
 
+// noOtherAvailableImages makes the image's repository hold no other
+// available image, so its manifest is shared with none.
+func (m *imageRepoMock) noOtherAvailableImages() {
+	m.ImageRepository.EXPECT().ListAvailableInRepository(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+}
+
 func newImageRepoMock(t *testing.T) *imageRepoMock {
 	t.Helper()
 	return &imageRepoMock{
@@ -412,4 +422,62 @@ func (f *imageLifecycleFake) CompleteOperation(ctx context.Context, id uuid.UUID
 func (f *imageLifecycleFake) RequeueOperation(ctx context.Context, id uuid.UUID, cause error) error {
 	f.op.Status = model.OperationStatusPending
 	return nil
+}
+
+// Image deletion keeps a manifest another available image of the repository
+// uses: the deletion finishes without deleting it. An available row without
+// a recorded digest has it resolved and recorded first, and a failed
+// resolution requeues the deletion.
+func TestImageServiceDeleteKeepsAManifestAnotherImageShares(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		twinDigest *string
+		resolveErr error
+		requeued   bool
+	}{
+		{name: "recorded shared digest", twinDigest: new("sha256:shared")},
+		{name: "unrecorded shared digest"},
+		{name: "failed resolution", resolveErr: apperrors.ErrUnavailable, requeued: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ownerID, imageID, twinID, operationID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+			repo := newImageRepoMock(t)
+			registry := coremocks.NewImageRegistryAPI(t)
+			dockerAPI := coremocks.NewImageDockerAPI(t)
+			lifecycle := newImageLifecycleFake(operationID, imageID, ownerID)
+			svc, err := service.NewImageService(service.ImageServiceDeps{
+				Repository:   repo,
+				Docker:       dockerAPI,
+				Registry:     registry,
+				Containers:   coremocks.NewImageContainerRepository(t),
+				Config:       testConfig(),
+				Lifecycle:    lifecycle,
+				RegistryAuth: unlockedRepositoryFence(t),
+			})
+			require.NoError(t, err)
+			repoName := ownerID.String() + "_demo"
+			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:v1", RegistryTag: imageID.String(), Status: model.ImageStatusDeleting}, nil)
+			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, imageID.String()).Return(int64(0), "sha256:shared", nil).Once()
+			repo.ImageRepository.EXPECT().ListAvailableInRepository(mock.Anything, repoName).Return([]model.Image{{ID: twinID, OwnerID: ownerID, Tag: "demo:v2", RegistryTag: twinID.String(), Digest: tc.twinDigest, Status: model.ImageStatusAvailable}}, nil).Once()
+			if tc.twinDigest == nil {
+				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, twinID.String()).Return(int64(0), "sha256:shared", tc.resolveErr).Once()
+				if tc.resolveErr == nil {
+					repo.ImageRepository.EXPECT().RecordDigest(mock.Anything, twinID, "sha256:shared").Return(nil).Once()
+				}
+			}
+			if !tc.requeued {
+				dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Once()
+				repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil).Once()
+			}
+
+			err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
+			if tc.requeued {
+				require.ErrorIs(t, err, apperrors.ErrUnavailable)
+				require.Equal(t, model.OperationStatusPending, lifecycle.op.Status)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
+		})
+	}
 }

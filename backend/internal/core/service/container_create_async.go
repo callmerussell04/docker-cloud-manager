@@ -203,26 +203,32 @@ func (s *ContainerService) inspectQueuedCreateVolumes(ctx context.Context, mount
 	return nil
 }
 
+// resolveContainerCreateImage resolves a container's tag for the request-time
+// check and the queued create alike. An owned available image wins, so a
+// queued or running rebuild of the tag never blocks a create; a tag with only
+// a build in progress is a conflict; any other owned record is unavailable;
+// a tag the owner has no record for is a public image.
 func (s *ContainerService) resolveContainerCreateImage(ctx context.Context, c model.Container) (string, *model.Image, bool, error) {
 	if err := validation.ImageTag(c.ImageTag); err != nil {
 		return "", nil, false, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
 	baseName, version := parseImageTag(c.ImageTag)
 	normalizedInputTag := fmt.Sprintf("%s:%s", baseName, version)
-	userImages, _, err := s.imageRepo.List(ctx, model.ListOptions{OwnerID: &c.OwnerID})
+	img, found, err := s.imageRepo.FindByOwnerAndTag(ctx, c.OwnerID, normalizedInputTag)
 	if err != nil {
 		return "", nil, false, fmt.Errorf("resolve owned container image: %w", err)
 	}
-	for _, img := range userImages {
-		if img.Tag != normalizedInputTag {
-			continue
-		}
-		if img.Status != model.ImageStatusAvailable {
-			return "", nil, false, resourceUnavailableError("image")
-		}
-		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, img.RegistryTag), &img, true, nil
+	if !found {
+		return normalizedInputTag, nil, false, nil
 	}
-	return normalizedInputTag, nil, false, nil
+	switch img.Status {
+	case model.ImageStatusAvailable:
+		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, img.RegistryTag), &img, true, nil
+	case model.ImageStatusBuilding:
+		return "", nil, false, apperrors.New(apperrors.ErrConflict, "image is still being built")
+	default:
+		return "", nil, false, resourceUnavailableError("image")
+	}
 }
 
 func (s *ContainerService) queuedCreateRuntimeSpec(c model.Container, mounts []model.VolumeMountParams, actualImageTag, networkName string) (model.ContainerRuntimeSpec, error) {

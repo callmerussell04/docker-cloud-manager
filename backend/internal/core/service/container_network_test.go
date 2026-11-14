@@ -148,7 +148,7 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	repo.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(1024*1024*1024), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
-	imageRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 0, nil)
+	imageRepo.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil)
 	return repo, newTestContainerService(t, service.ContainerServiceDeps{
 		Repository:   repo,
 		Images:       imageRepo,

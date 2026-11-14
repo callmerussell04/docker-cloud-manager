@@ -532,3 +532,66 @@ func TestBuildServiceGetBuildStatusIsASystemRead(t *testing.T) {
 		})
 	}
 }
+
+// Deleting an active Compose build cancels it through the cancellation path,
+// cascading to its deployment, before the build row and its log go.
+func TestBuildServiceDeleteActiveBuildCancelsItFirst(t *testing.T) {
+	buildID, imageID, ownerID, projectID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	repo := newBuildRepository(t)
+	imageRepo := coremocks.NewBuildImageRepository(t)
+	auth := coremocks.NewBuildRegistryAuthorizer(t)
+	objects := coremocks.NewBuildObjectStore(t)
+	deployments := coremocks.NewBuildDeploymentCanceler(t)
+	svc := newTestBuildService(t, service.BuildServiceDeps{
+		Repository:   repo,
+		Images:       imageRepo,
+		Registry:     coremocks.NewImageRegistryAPI(t),
+		Quotas:       testQuotas(t, nil, nil),
+		ObjectStore:  objects,
+		Deployments:  deployments,
+		RegistryAuth: auth,
+	})
+	running := model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, ProjectID: &projectID, Status: model.BuildStatusRunning, LogFilePath: "build-logs/log.txt"}
+	canceled := running
+	canceled.Status = model.BuildStatusCanceled
+
+	first := repo.EXPECT().GetByID(mock.Anything, buildID).Return(running, nil).Once()
+	repo.EXPECT().GetByID(mock.Anything, buildID).Return(canceled, nil).NotBefore(first)
+	auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagDelete).Return(nil)
+	markCanceled := imageRepo.EXPECT().MarkBuildFailedAndDeleteImageTx(mock.Anything, buildID, imageID, model.BuildStatusCanceled).Return(nil).Once()
+	cascade := deployments.EXPECT().CancelDeploymentForBuild(mock.Anything, projectID, buildID).Return(nil).Once()
+	repo.EXPECT().Delete(mock.Anything, buildID).Return(nil).Once().NotBefore(markCanceled, cascade)
+	objects.EXPECT().DeleteObject(mock.Anything, "build-logs/log.txt").Return(nil).Once()
+
+	require.NoError(t, svc.DeleteBuild(accessscope.WithUserScope(context.Background(), ownerID, "", ""), buildID))
+}
+
+// A cancellation that fails fails the delete and removes nothing.
+func TestBuildServiceDeleteActiveBuildKeepsItWhenCancellationFails(t *testing.T) {
+	for _, step := range []string{"revoke", "status"} {
+		t.Run(step, func(t *testing.T) {
+			buildID, imageID, ownerID := uuid.New(), uuid.New(), uuid.New()
+			repo := newBuildRepository(t)
+			imageRepo := coremocks.NewBuildImageRepository(t)
+			auth := coremocks.NewBuildRegistryAuthorizer(t)
+			svc := newTestBuildService(t, service.BuildServiceDeps{
+				Repository:   repo,
+				Images:       imageRepo,
+				Registry:     coremocks.NewImageRegistryAPI(t),
+				Quotas:       testQuotas(t, nil, nil),
+				ObjectStore:  coremocks.NewBuildObjectStore(t),
+				RegistryAuth: auth,
+			})
+			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, ArchiveObjectKey: "a", LogFilePath: "l"}, nil).Once()
+			if step == "revoke" {
+				auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagDelete).Return(errTestDatabase).Once()
+			} else {
+				auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagDelete).Return(nil).Once()
+				imageRepo.EXPECT().MarkBuildFailedAndDeleteImageTx(mock.Anything, buildID, imageID, model.BuildStatusCanceled).Return(errTestDatabase).Once()
+			}
+
+			err := svc.DeleteBuild(accessscope.WithUserScope(context.Background(), ownerID, "", ""), buildID)
+			require.ErrorIs(t, err, errTestDatabase)
+		})
+	}
+}

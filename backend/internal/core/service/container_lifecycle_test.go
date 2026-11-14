@@ -130,7 +130,7 @@ func TestQueuedContainerLifecycleOutcomes(t *testing.T) {
 				cfg = lifecycleConfig(0)
 			}
 			images := newContainerImageRepository(t)
-			images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+			images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
 				Repository: store,
 				Images:     images,
@@ -600,7 +600,7 @@ func TestQueuedCreateCanceledByDeleteKeepsTheCancellation(t *testing.T) {
 	}).Once()
 	docker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Once()
 	images := newContainerImageRepository(t)
-	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	cfg := lifecycleConfig(24)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: store,
@@ -635,7 +635,7 @@ func TestQueuedCreateLeavesOperationRunningWhenItsFenceCannotBeRead(t *testing.T
 		return name, nil
 	}).Once()
 	images := newContainerImageRepository(t)
-	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	cfg := lifecycleConfig(24)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
 		Repository: store,

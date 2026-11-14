@@ -697,10 +697,17 @@ func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID)
 	if model.IsBuildTerminalStatus(b.Status) {
 		return nil
 	}
+	return s.cancelBuild(ctx, b)
+}
+
+// cancelBuild runs the cancellation path for an active build: Registry
+// revocation with tag deletion, the canceled status and image row removal in
+// one transaction, staged archive cleanup and the Compose cascade.
+func (s *BuildService) cancelBuild(ctx context.Context, b model.Build) error {
 	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
 		return err
 	}
-	s.logger.WarnContext(ctx, "build record cancelled", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
+	s.logger.WarnContext(ctx, "build record cancelled", "build_id", b.ID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, b.ID, b.ImageID, model.BuildStatusCanceled); err != nil {
 		return err
 	}
@@ -921,6 +928,18 @@ func (s *BuildService) DeleteBuild(ctx context.Context, buildID uuid.UUID) error
 	}
 	if err := accessscope.RequireOwnerAccess(ctx, b.OwnerID); err != nil {
 		return err
+	}
+	if !model.IsBuildTerminalStatus(b.Status) {
+		// An active build is canceled first, so its building image row never
+		// outlives it and its tag stays usable. A failed cancellation deletes
+		// nothing. The build is read again because a completion may have
+		// landed first; its status decides what happens to the pushed tag.
+		if err := s.cancelBuild(ctx, b); err != nil {
+			return err
+		}
+		if b, err = s.repo.GetByID(ctx, buildID); err != nil {
+			return err
+		}
 	}
 	if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.PushedTagDisposition(b.Status)); err != nil {
 		return err

@@ -170,11 +170,115 @@ func TestRegistryCleanupSeparatesAbsentManifestFromUpstreamFailure(t *testing.T)
 	}
 }
 
+// newCleanupWorker builds a cleanup worker whose repositories hold no other
+// available image, so no manifest is shared.
 func newCleanupWorker(t *testing.T, repo *coremocks.RegistryCleanupRepository, registry *coremocks.ImageRegistryAPI, logger *slog.Logger) *service.RegistryCleanupWorker {
 	t.Helper()
-	worker, err := service.NewRegistryCleanupWorker(service.RegistryCleanupWorkerDeps{Repository: repo, Registry: registry, Config: cleanupConfig, Logger: logger})
+	images := coremocks.NewManifestSharingRepository(t)
+	images.EXPECT().ListAvailableInRepository(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	return newCleanupWorkerWithImages(t, repo, images, registry, logger)
+}
+
+func newCleanupWorkerWithImages(t *testing.T, repo *coremocks.RegistryCleanupRepository, images *coremocks.ManifestSharingRepository, registry *coremocks.ImageRegistryAPI, logger *slog.Logger) *service.RegistryCleanupWorker {
+	t.Helper()
+	worker, err := service.NewRegistryCleanupWorker(service.RegistryCleanupWorkerDeps{Repository: repo, Images: images, Registry: registry, Config: cleanupConfig, Logger: logger})
 	require.NoError(t, err)
 	return worker
+}
+
+// The Registry deletes a manifest by digest, removing every tag on it, so a
+// cleanup job deletes its manifest only when no available image of the
+// repository uses the same digest. An available row without a recorded
+// digest has it resolved and recorded first; a failed resolution postpones
+// the job.
+func TestRegistryCleanupKeepsAManifestAnAvailableImageShares(t *testing.T) {
+	digest := func(s string) *string { return &s }
+	tests := []struct {
+		name      string
+		available []model.Image
+		resolve   map[string]error // Registry tags resolved for rows without a digest
+		resolved  map[string]string
+		recorded  map[string]string // registry tag -> digest recorded
+		deletes   bool
+		complete  bool
+	}{
+		{name: "shared recorded digest completes without deleting",
+			available: []model.Image{{RegistryTag: "other", Digest: digest("sha256:other")}, {RegistryTag: "twin", Digest: digest("sha256:job")}},
+			complete:  true},
+		{name: "different digests delete",
+			available: []model.Image{{RegistryTag: "other", Digest: digest("sha256:other")}},
+			deletes:   true, complete: true},
+		{name: "unrecorded shared digest is recorded and keeps the manifest",
+			available: []model.Image{{RegistryTag: "legacy"}},
+			resolve:   map[string]error{"legacy": nil}, resolved: map[string]string{"legacy": "sha256:job"},
+			recorded: map[string]string{"legacy": "sha256:job"}, complete: true},
+		{name: "unrecorded different digest is recorded and the manifest deleted",
+			available: []model.Image{{RegistryTag: "legacy"}},
+			resolve:   map[string]error{"legacy": nil}, resolved: map[string]string{"legacy": "sha256:legacy"},
+			recorded: map[string]string{"legacy": "sha256:legacy"}, deletes: true, complete: true},
+		{name: "unrecorded row with no manifest shares nothing",
+			available: []model.Image{{RegistryTag: "gone"}},
+			resolve:   map[string]error{"gone": apperrors.ErrNotFound},
+			deletes:   true, complete: true},
+		{name: "failed resolution postpones the job",
+			available: []model.Image{{RegistryTag: "legacy"}},
+			resolve:   map[string]error{"legacy": apperrors.ErrUnavailable}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				repo := coremocks.NewRegistryCleanupRepository(t)
+				images := coremocks.NewManifestSharingRepository(t)
+				registry := coremocks.NewImageRegistryAPI(t)
+				job := model.RegistryCleanup{ID: uuid.New(), Repository: "owner_app", Tag: "v1"}
+				for i := range tc.available {
+					tc.available[i].ID = uuid.New()
+					tc.available[i].Status = model.ImageStatusAvailable
+				}
+				repo.EXPECT().PendingRegistryCleanup(mock.Anything).Return([]model.RegistryCleanup{job}, nil).Once()
+				repo.EXPECT().PendingRegistryCleanup(mock.Anything).Return(nil, nil).Maybe()
+				repo.EXPECT().LockRegistryRepository(mock.Anything, job.Repository).Return(func() {}, nil).Once()
+				repo.EXPECT().RegistryCleanupFacts(mock.Anything, job, service.RegistryCleanupDelay).Return(model.RegistryCleanupFacts{}, nil).Once()
+				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, job.Repository, job.Tag).Return(10, "sha256:job", nil).Once()
+				images.EXPECT().ListAvailableInRepository(mock.Anything, job.Repository).Return(tc.available, nil).Once()
+				for tag, err := range tc.resolve {
+					registry.EXPECT().GetImageSizeAndDigest(mock.Anything, job.Repository, tag).Return(10, tc.resolved[tag], err).Once()
+				}
+				for _, img := range tc.available {
+					if d, ok := tc.recorded[img.RegistryTag]; ok {
+						images.EXPECT().RecordDigest(mock.Anything, img.ID, d).Return(nil).Once()
+					}
+				}
+				if tc.deletes {
+					registry.EXPECT().DeleteManifest(mock.Anything, job.Repository, "sha256:job").Return(nil).Once()
+				}
+				if tc.complete {
+					repo.EXPECT().CompleteRegistryCleanup(mock.Anything, job.ID).Return(nil).Once()
+				}
+
+				var logs bytes.Buffer
+				worker := newCleanupWorkerWithImages(t, repo, images, registry, slog.New(slog.NewJSONHandler(&logs, nil)))
+				ctx, cancel := context.WithCancel(context.Background())
+				var wg sync.WaitGroup
+				wg.Go(func() { worker.Run(ctx) })
+				time.Sleep(6 * time.Second)
+				synctest.Wait()
+				cancel()
+				wg.Wait()
+				var failures int
+				for _, entry := range decodeLogs(t, &logs) {
+					if entry["level"] == "ERROR" {
+						failures++
+					}
+				}
+				if tc.complete {
+					require.Zero(t, failures)
+				} else {
+					require.Equal(t, 1, failures, "the postponed job is logged and stays queued")
+				}
+			})
+		})
+	}
 }
 
 func TestRegistryCleanupDecidesJobsFromLockedFacts(t *testing.T) {
@@ -216,12 +320,14 @@ func TestRegistryCleanupWorkerRejectsMissingDependencies(t *testing.T) {
 	valid := func(t *testing.T) service.RegistryCleanupWorkerDeps {
 		return service.RegistryCleanupWorkerDeps{
 			Repository: coremocks.NewRegistryCleanupRepository(t),
+			Images:     coremocks.NewManifestSharingRepository(t),
 			Registry:   coremocks.NewImageRegistryAPI(t),
 			Config:     cleanupConfig,
 		}
 	}
 	depstest.RequireRejectsMissing(t, valid, service.NewRegistryCleanupWorker, map[string]string{
 		"Repository": "repository",
+		"Images":     "images",
 		"Registry":   "registry",
 		"Config":     "config",
 	})

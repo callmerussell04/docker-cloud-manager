@@ -29,6 +29,7 @@ type RegistryCleanupConfigProvider interface {
 // for removal once their issued tokens can no longer write.
 type RegistryCleanupWorker struct {
 	repo     RegistryCleanupRepository
+	images   ManifestSharingRepository
 	registry ImageRegistryAPI
 	cfg      RegistryCleanupConfigProvider
 	logger   *slog.Logger
@@ -38,9 +39,11 @@ type RegistryCleanupWorker struct {
 // API is built after RegistryAuthorization, whose trusted tokens it uses.
 type RegistryCleanupWorkerDeps struct {
 	Repository RegistryCleanupRepository
-	Registry   ImageRegistryAPI
-	Config     RegistryCleanupConfigProvider
-	Logger     *slog.Logger
+	// Images keeps a manifest that another available image shares.
+	Images   ManifestSharingRepository
+	Registry ImageRegistryAPI
+	Config   RegistryCleanupConfigProvider
+	Logger   *slog.Logger
 }
 
 func NewRegistryCleanupWorker(deps RegistryCleanupWorkerDeps) (*RegistryCleanupWorker, error) {
@@ -48,7 +51,7 @@ func NewRegistryCleanupWorker(deps RegistryCleanupWorkerDeps) (*RegistryCleanupW
 		name  string
 		value any
 	}{
-		{"repository", deps.Repository}, {"registry", deps.Registry}, {"config", deps.Config},
+		{"repository", deps.Repository}, {"images", deps.Images}, {"registry", deps.Registry}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
@@ -57,6 +60,7 @@ func NewRegistryCleanupWorker(deps RegistryCleanupWorkerDeps) (*RegistryCleanupW
 	}
 	return &RegistryCleanupWorker{
 		repo:     deps.Repository,
+		images:   deps.Images,
 		registry: deps.Registry,
 		cfg:      deps.Config,
 		logger:   logging.WithComponent(deps.Logger, "registry_cleanup_worker"),
@@ -107,7 +111,8 @@ func (w *RegistryCleanupWorker) cleanupJob(ctx context.Context, job model.Regist
 	case model.RegistryCleanupPending:
 		return nil
 	case model.RegistryCleanupReady:
-		if err := deleteTaggedManifest(ctx, w.registry, job.Repository, job.Tag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+		// A cleanup job belongs to no available image, so none is excluded.
+		if err := deleteUnsharedManifest(ctx, w.registry, w.images, job.Repository, job.Tag, uuid.Nil); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			return fmt.Errorf("delete registry manifest: %w", err)
 		}
 	}

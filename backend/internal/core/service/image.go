@@ -17,9 +17,19 @@ import (
 
 type ImageRepository interface {
 	imageStateRepository
+	ManifestSharingRepository
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
+}
+
+// ManifestSharingRepository reads which available images of a Registry
+// repository use a manifest. The Registry deletes a manifest by digest,
+// removing every tag that points to it, so a manifest another available image
+// uses is never deleted.
+type ManifestSharingRepository interface {
+	ListAvailableInRepository(ctx context.Context, repository string) ([]model.Image, error)
+	RecordDigest(ctx context.Context, id uuid.UUID, digest string) error
 }
 
 type imageStateRepository interface {
@@ -169,7 +179,7 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	baseName, _ := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	if err := s.deleteRegistryManifest(ctx, repoName, img.RegistryTag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.deleteRegistryManifest(ctx, imageID, repoName, img.RegistryTag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		writeCtx, cancel := detachedContainerStateContext(ctx)
 		defer cancel()
 		if requeueErr := s.lifecycle.RequeueOperation(writeCtx, operationID, err); requeueErr != nil {
@@ -214,7 +224,7 @@ func (s *ImageService) completeImageOperation(ctx context.Context, operationID u
 // before Docker and database cleanup, and the lookup and delete share the
 // Registry lock budget, so a stalled Registry blocks admission for at most that
 // budget. ErrNotFound means the manifest is already absent.
-func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, registryTag string) error {
+func (s *ImageService) deleteRegistryManifest(ctx context.Context, imageID uuid.UUID, repoName, registryTag string) error {
 	unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
 	if err != nil {
 		return err
@@ -222,7 +232,7 @@ func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, reg
 	defer unlock()
 	lockedCtx, cancel := context.WithTimeout(ctx, registryLockBudget(s.cfg.Get()))
 	defer cancel()
-	return deleteTaggedManifest(lockedCtx, s.registryAPI, repoName, registryTag)
+	return deleteUnsharedManifest(lockedCtx, s.registryAPI, s.repo, repoName, registryTag, imageID)
 }
 
 // registryLockBudget bounds Registry work done while holding a repository
@@ -232,18 +242,73 @@ func registryLockBudget(cfg config.SystemConfig) time.Duration {
 	return max(time.Duration(cfg.RegistryCleanupJobTimeoutSeconds)*time.Second, time.Second)
 }
 
-// deleteTaggedManifest resolves the tag's manifest digest and deletes the
-// manifest. ErrNotFound means the manifest is already absent; any other error
-// is an upstream failure the caller retries.
-func deleteTaggedManifest(ctx context.Context, registry ImageRegistryAPI, repository, tag string) error {
-	_, digest, err := registry.GetImageSizeAndDigest(ctx, repository, tag)
+// deleteUnsharedManifest resolves the manifest digest under tag and deletes
+// the manifest unless another available image of the repository (any but
+// exclude) uses the same digest; a shared manifest is kept and the caller
+// completes without deleting it. An available row with no recorded digest has
+// its digest resolved and recorded first, and a failed resolution is returned
+// so the caller retries. ErrNotFound means the manifest under tag is already
+// absent; any other error is an upstream failure the caller retries.
+func deleteUnsharedManifest(ctx context.Context, registry ImageRegistryAPI, images ManifestSharingRepository, repository, tag string, exclude uuid.UUID) error {
+	digest, err := manifestDigest(ctx, registry, repository, tag)
 	if err != nil {
 		return err
 	}
-	if digest == "" {
-		return apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
+	shared, err := manifestShared(ctx, registry, images, repository, digest, exclude)
+	if err != nil {
+		return err
+	}
+	if shared {
+		return nil
 	}
 	return registry.DeleteManifest(ctx, repository, digest)
+}
+
+// manifestShared reports whether an available image of the repository other
+// than exclude uses digest.
+func manifestShared(ctx context.Context, registry ImageRegistryAPI, images ManifestSharingRepository, repository, digest string, exclude uuid.UUID) (bool, error) {
+	available, err := images.ListAvailableInRepository(ctx, repository)
+	if err != nil {
+		return false, fmt.Errorf("list available images of registry repository: %w", err)
+	}
+	for _, img := range available {
+		if img.ID == exclude {
+			continue
+		}
+		recorded := ""
+		if img.Digest != nil {
+			recorded = *img.Digest
+		} else {
+			resolved, err := manifestDigest(ctx, registry, repository, img.RegistryTag)
+			if errors.Is(err, apperrors.ErrNotFound) {
+				// Nothing is pushed under that tag, so it shares nothing.
+				continue
+			}
+			if err != nil {
+				return false, fmt.Errorf("resolve digest of an available image: %w", err)
+			}
+			if err := images.RecordDigest(ctx, img.ID, resolved); err != nil {
+				return false, fmt.Errorf("record digest of an available image: %w", err)
+			}
+			recorded = resolved
+		}
+		if recorded == digest {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// manifestDigest resolves the digest of the manifest under tag.
+func manifestDigest(ctx context.Context, registry ImageRegistryAPI, repository, tag string) (string, error) {
+	_, digest, err := registry.GetImageSizeAndDigest(ctx, repository, tag)
+	if err != nil {
+		return "", err
+	}
+	if digest == "" {
+		return "", apperrors.New(apperrors.ErrUnavailable, "registry manifest digest is missing")
+	}
+	return digest, nil
 }
 
 // failQueuedImageDelete marks the image and its operation failed and returns

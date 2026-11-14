@@ -272,9 +272,7 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	repo.EXPECT().GetTotalSystemReservedMemory(mock.Anything).Return(int64(0), nil)
 	repo.EXPECT().GetTotalSystemReservedCPU(mock.Anything).Return(int64(0), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
-	imageRepo.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool {
-		return opts.OwnerID != nil && *opts.OwnerID == ownerID
-	})).Return(nil, 0, nil)
+	imageRepo.EXPECT().FindByOwnerAndTag(mock.Anything, ownerID, mock.Anything).Return(model.Image{}, false, nil)
 	repo.EXPECT().SaveWithMountsOperationAndOutbox(mock.Anything, mock.MatchedBy(func(c model.Container) bool {
 		return c.TTLDeadline == nil
 	}), mock.Anything, mock.AnythingOfType("model.ResourceOperation"), mock.AnythingOfType("model.ContainerLifecycleOutbox"), false, false).Run(func(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) {

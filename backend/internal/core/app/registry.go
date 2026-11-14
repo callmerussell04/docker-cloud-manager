@@ -28,7 +28,7 @@ type registryComponents struct {
 	edge    *http.Server
 }
 
-func newRegistryComponents(cfg config.Registry, grants *repository.RegistryGrantRepository, users service.UserInfoProvider, runtime *config.Manager, logger *slog.Logger) (registryComponents, error) {
+func newRegistryComponents(cfg config.Registry, grants *repository.RegistryGrantRepository, images *repository.ImageRepository, users service.UserInfoProvider, runtime *config.Manager, logger *slog.Logger) (registryComponents, error) {
 	client, err := registry.TLSClient(cfg.CAFile)
 	if err != nil {
 		return registryComponents{}, err
@@ -48,7 +48,7 @@ func newRegistryComponents(cfg config.Registry, grants *repository.RegistryGrant
 		return registryComponents{}, err
 	}
 	cleanup, err := service.NewRegistryCleanupWorker(service.RegistryCleanupWorkerDeps{
-		Repository: grants, Registry: adapter, Config: runtime, Logger: logger,
+		Repository: grants, Images: images, Registry: adapter, Config: runtime, Logger: logger,
 	})
 	if err != nil {
 		return registryComponents{}, err

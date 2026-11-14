@@ -92,7 +92,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, fmt.Errorf("sso conn fail: %w", err)
 	}
 	ssoClient := client.NewSSOClient(ssoConn)
-	registry, err := newRegistryComponents(cfg.Registry, repository.NewRegistryGrantRepository(db, lockDB), ssoClient, cfg.ConfigManager, logger)
+	imgRepo := repository.NewImageRepository(db)
+	registry, err := newRegistryComponents(cfg.Registry, repository.NewRegistryGrantRepository(db, lockDB), imgRepo, ssoClient, cfg.ConfigManager, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,6 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	imgRepo := repository.NewImageRepository(db)
 	buildRepo := repository.NewBuildRepository(db, lockDB)
 	projRepo := repository.NewProjectRepository(db)
 	stagedRepo := repository.NewStagedObjectRepository(db)

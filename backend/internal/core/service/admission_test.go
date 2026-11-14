@@ -348,7 +348,7 @@ func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID
 	t.Helper()
 	images := coremocks.NewContainerImageRepository(t)
 	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
-	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).Return(w.activeBuilds, nil).Maybe()
 	volumes := coremocks.NewContainerVolumeRepository(t)
@@ -560,7 +560,7 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 			}
 			return 0, nil
 		})
-		images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+		images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 		static := coretest.StaticConfig{Config: cfg}
 		svc := newTestContainerService(t, service.ContainerServiceDeps{
 			Repository:  store,

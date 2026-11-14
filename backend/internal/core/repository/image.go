@@ -58,6 +58,62 @@ func (r *ImageRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Imag
 	return img, nil
 }
 
+// FindByOwnerAndTag returns the owner's image record for a normalized tag in
+// one lookup: the available row whenever one exists, else a building row,
+// else the newest row in any other status. It reports false when the owner
+// has no row for the tag.
+func (r *ImageRepository) FindByOwnerAndTag(ctx context.Context, ownerID uuid.UUID, tag string) (model.Image, bool, error) {
+	query := `
+		SELECT ` + imageColumns + `
+		FROM images
+		WHERE owner_id = $1 AND tag = $2
+		ORDER BY CASE status WHEN $3 THEN 0 WHEN $4 THEN 1 ELSE 2 END, created_at DESC
+		LIMIT 1
+	`
+	img, err := scanImage(r.db.QueryRow(ctx, query, ownerID, tag, model.ImageStatusAvailable, model.ImageStatusBuilding))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return model.Image{}, false, nil
+	}
+	if err != nil {
+		return model.Image{}, false, wrapOp("image find by owner and tag", err)
+	}
+	return img, true, nil
+}
+
+// ListAvailableInRepository returns the available images whose Registry
+// repository is repository, by the same name policy as Registry
+// authorization.
+func (r *ImageRepository) ListAvailableInRepository(ctx context.Context, repository string) ([]model.Image, error) {
+	query := `
+		SELECT ` + imageColumns + `
+		FROM images
+		WHERE status = $1 AND lower(owner_id::text || '_' || split_part(tag, ':', 1)) = $2
+		ORDER BY created_at
+	`
+	rows, err := r.db.Query(ctx, query, model.ImageStatusAvailable, repository)
+	if err != nil {
+		return nil, wrapOp("image list available in repository", err)
+	}
+	defer rows.Close()
+	var images []model.Image
+	for rows.Next() {
+		img, err := scanImage(rows)
+		if err != nil {
+			return nil, wrapOp("image list available in repository", err)
+		}
+		images = append(images, img)
+	}
+	return images, wrapOp("image list available in repository", rows.Err())
+}
+
+// RecordDigest records the manifest digest of an image that has none. A
+// recorded digest is never replaced, and a row deleted meanwhile is not an
+// error.
+func (r *ImageRepository) RecordDigest(ctx context.Context, id uuid.UUID, digest string) error {
+	_, err := r.db.Exec(ctx, `UPDATE images SET digest = $2 WHERE id = $1 AND digest IS NULL`, id, digest)
+	return wrapOp("image record digest", err)
+}
+
 func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error) {
 	var args []any
 	where := ""

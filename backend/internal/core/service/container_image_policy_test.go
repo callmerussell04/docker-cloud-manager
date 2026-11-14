@@ -77,19 +77,20 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 			workerRepo.EXPECT().GetOperationByID(mock.Anything, opID).Return(op, nil).Maybe()
 			docker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil).Maybe()
 			if !tc.rejected {
-				var owned []model.Image
+				normalized := tc.image
+				switch normalized {
+				case "nginx", "docker.io/library/nginx":
+					normalized += ":latest"
+				}
+				var owned model.Image
 				if tc.custom {
-					ownedTag := tc.image
-					if ownedTag == "nginx" {
-						ownedTag = "nginx:latest"
-					}
-					owned = []model.Image{{OwnerID: owner, Tag: ownedTag, RegistryTag: tc.registryTag, Status: model.ImageStatusAvailable}}
+					owned = model.Image{OwnerID: owner, Tag: normalized, RegistryTag: tc.registryTag, Status: model.ImageStatusAvailable}
 				}
 				var lookupErr error
 				if tc.lookupError {
 					lookupErr = apperrors.ErrUnavailable
 				}
-				images.EXPECT().List(mock.Anything, mock.MatchedBy(func(opts model.ListOptions) bool { return opts.OwnerID != nil && *opts.OwnerID == owner })).Return(owned, len(owned), lookupErr).Once()
+				images.EXPECT().FindByOwnerAndTag(mock.Anything, owner, normalized).Return(owned, tc.custom, lookupErr).Once()
 			}
 			if tc.rejected || tc.lookupError {
 				workerRepo.EXPECT().MarkStatusError(mock.Anything, id, model.ContainerStatusError, mock.Anything).Return(nil)
@@ -142,7 +143,7 @@ func TestQueuedContainerCreateRemovesPulledPublicImageAfterFailure(t *testing.T)
 	workerRepo.EXPECT().MarkStatusError(mock.Anything, id, model.ContainerStatusError, mock.Anything).Return(nil)
 	workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusFailed, mock.Anything).Return(nil)
 	workerRepo.EXPECT().CountByOwnerID(mock.Anything, owner).Return(1, nil).Maybe()
-	images.EXPECT().List(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	docker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil)
 	docker.EXPECT().ImageExists(mock.Anything, "nginx:latest").Return(false, nil)
 	docker.EXPECT().PullImage(mock.Anything, "nginx:latest").Return(nil).Once()
@@ -163,4 +164,110 @@ func handleQueuedCreate(svc *service.ContainerService, operationID, containerID 
 		ContainerID: containerID.String(),
 		Operation:   model.OperationCreate,
 	})
+}
+
+// While a tag is rebuilt, container create resolves it to the image that is
+// still available under it; a tag with only a build in progress is a
+// conflict, and any other record keeps the unavailable error. The request-time
+// check and the queued create share this resolution.
+func TestContainerCreateResolvesATagUnderRebuild(t *testing.T) {
+	owner := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	availableID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	for _, tc := range []struct {
+		name        string
+		record      model.Image
+		found       bool
+		wantMessage string
+		pull        string
+	}{
+		{
+			name:   "available row beside a newer build",
+			record: model.Image{ID: availableID, OwnerID: owner, Tag: "app:latest", RegistryTag: availableID.String(), Status: model.ImageStatusAvailable},
+			found:  true,
+			pull:   "registry.internal:5000/11111111-1111-1111-1111-111111111111_app:" + availableID.String(),
+		},
+		{
+			name:        "only a build in progress",
+			record:      model.Image{ID: uuid.New(), OwnerID: owner, Tag: "app:latest", Status: model.ImageStatusBuilding},
+			found:       true,
+			wantMessage: "image is still being built",
+		},
+		{
+			name:        "missing record",
+			record:      model.Image{ID: uuid.New(), OwnerID: owner, Tag: "app:latest", Status: model.ImageStatusMissing},
+			found:       true,
+			wantMessage: "image is missing in Docker and can only be deleted",
+		},
+		{
+			name:        "error record",
+			record:      model.Image{ID: uuid.New(), OwnerID: owner, Tag: "app:latest", Status: model.ImageStatusError},
+			found:       true,
+			wantMessage: "image is missing in Docker and can only be deleted",
+		},
+	} {
+		t.Run(tc.name+"/request", func(t *testing.T) {
+			images := newContainerImageRepository(t)
+			images.EXPECT().FindByOwnerAndTag(mock.Anything, owner, "app:latest").Return(tc.record, tc.found, nil).Once()
+			w := roomyAdmissionWorld()
+			config := w.config()
+			config.RegistryPublicURL = "registry.internal:5000"
+			cfg := coretest.StaticConfig{Config: config}
+			svc := newTestContainerService(t, service.ContainerServiceDeps{
+				Repository:  newContainerStore(),
+				Images:      images,
+				Metrics:     admissionHostMetrics(t),
+				DiskMetrics: admissionDiskMetrics(t, w),
+				Config:      cfg,
+				Quotas:      w.quotas(t, owner, cfg),
+				Logger:      slog.New(slog.DiscardHandler),
+			})
+			id, err := svc.Create(accessscope.WithUserScope(context.Background(), owner, "", ""), model.ContainerCreateParams{Name: "web", ImageTag: "app"})
+			if tc.wantMessage == "" {
+				require.NoError(t, err)
+				require.NotEqual(t, uuid.Nil, id)
+				return
+			}
+			require.ErrorIs(t, err, apperrors.ErrConflict)
+			require.Equal(t, tc.wantMessage, apperrors.SafeMessage(err))
+			require.Equal(t, uuid.Nil, id)
+		})
+		t.Run(tc.name+"/queued", func(t *testing.T) {
+			workerRepo := newContainerRepository(t)
+			images := newContainerImageRepository(t)
+			images.EXPECT().FindByOwnerAndTag(mock.Anything, owner, "app:latest").Return(tc.record, tc.found, nil).Once()
+			docker := coremocks.NewContainerDockerAPI(t)
+			config := containerCreateConfig()
+			config.RegistryPublicURL = "registry.internal:5000"
+			svc := newTestContainerService(t, service.ContainerServiceDeps{
+				Repository: workerRepo,
+				Images:     images,
+				Docker:     docker,
+				Config:     coretest.StaticConfig{Config: config},
+				Logger:     slog.Default(),
+			})
+			id, opID := uuid.New(), uuid.New()
+			op := model.ResourceOperation{ID: opID, ResourceID: id, ResourceType: model.ResourceTypeContainer, Operation: model.OperationCreate, Status: model.OperationStatusRunning}
+			workerRepo.EXPECT().ClaimPendingOperation(mock.Anything, opID, mock.Anything).Return(op, true, nil)
+			workerRepo.EXPECT().UpdateStatus(mock.Anything, id, model.ContainerStatusCreating).Return(nil)
+			workerRepo.EXPECT().GetByID(mock.Anything, id).Return(model.Container{ID: id, OwnerID: owner, Name: "web", ImageTag: "app:latest"}, nil)
+			workerRepo.EXPECT().GetMountsByContainerID(mock.Anything, id).Return(nil, nil).Maybe()
+			workerRepo.EXPECT().GetOperationByID(mock.Anything, opID).Return(op, nil).Maybe()
+			workerRepo.EXPECT().CountByOwnerID(mock.Anything, owner).Return(1, nil).Maybe()
+			docker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil)
+			if tc.wantMessage == "" {
+				docker.EXPECT().PullImage(mock.Anything, tc.pull).Return(nil).Once()
+				docker.EXPECT().CreateContainer(mock.Anything, mock.MatchedBy(func(spec model.ContainerRuntimeSpec) bool { return spec.ImageName == tc.pull })).Return("docker-id", nil)
+				workerRepo.EXPECT().UpdateDockerIDAndStatus(mock.Anything, id, "docker-id", model.ContainerStatusCreated).Return(nil)
+				workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusDone, nil).Return(nil)
+				require.NoError(t, handleQueuedCreate(svc, opID, id))
+				return
+			}
+			docker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
+			workerRepo.EXPECT().MarkStatusError(mock.Anything, id, model.ContainerStatusError, mock.Anything).Return(nil)
+			workerRepo.EXPECT().CompleteOperation(mock.Anything, opID, model.OperationStatusFailed, mock.Anything).Return(nil)
+			err := handleQueuedCreate(svc, opID, id)
+			require.ErrorIs(t, err, apperrors.ErrConflict)
+			require.Equal(t, tc.wantMessage, apperrors.SafeMessage(err))
+		})
+	}
 }

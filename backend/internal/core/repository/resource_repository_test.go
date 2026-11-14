@@ -320,3 +320,91 @@ func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
 	require.Len(t, listedBuilds, 1)
 	require.True(t, listedBuilds[0].StartedAt.IsZero())
 }
+
+// Container create resolves a tag with one lookup that prefers the available
+// row, so a queued or running rebuild of the tag never hides it.
+func TestImageRepositoryFindByOwnerAndTagPrefersTheAvailableRow(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	imageRepo := repository.NewImageRepository(db)
+	ownerID := uuid.New()
+	save := func(tag, status string) model.Image {
+		t.Helper()
+		img := model.Image{ID: uuid.New(), OwnerID: ownerID, Tag: tag, Status: status}
+		img.RegistryTag = img.ID.String()
+		require.NoError(t, imageRepo.Save(ctx, img))
+		return img
+	}
+
+	available := save("app:latest", model.ImageStatusAvailable)
+	save("app:latest", model.ImageStatusBuilding)
+	building := save("queued:v1", model.ImageStatusBuilding)
+	save("broken:v1", model.ImageStatusMissing)
+	broken := save("broken:v1", model.ImageStatusBuilding)
+	missing := save("gone:v1", model.ImageStatusMissing)
+	// Another owner's available row never answers for this owner.
+	require.NoError(t, imageRepo.Save(ctx, model.Image{ID: uuid.New(), OwnerID: uuid.New(), RegistryTag: "x", Tag: "other:v1", Status: model.ImageStatusAvailable}))
+
+	for _, tc := range []struct {
+		tag    string
+		wantID uuid.UUID
+		found  bool
+	}{
+		{tag: "app:latest", wantID: available.ID, found: true},
+		{tag: "queued:v1", wantID: building.ID, found: true},
+		{tag: "broken:v1", wantID: broken.ID, found: true},
+		{tag: "gone:v1", wantID: missing.ID, found: true},
+		{tag: "other:v1"},
+		{tag: "nginx:latest"},
+	} {
+		t.Run(tc.tag, func(t *testing.T) {
+			img, found, err := imageRepo.FindByOwnerAndTag(ctx, ownerID, tc.tag)
+			require.NoError(t, err)
+			require.Equal(t, tc.found, found)
+			if found {
+				require.Equal(t, tc.wantID, img.ID)
+				require.Equal(t, tc.wantID.String(), img.RegistryTag)
+			}
+		})
+	}
+}
+
+// The shared-manifest check lists the available images of one Registry
+// repository and records a missing digest once, never replacing one.
+func TestImageRepositoryListsAvailableImagesOfARepositoryAndRecordsDigests(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	imageRepo := repository.NewImageRepository(db)
+	ownerID := uuid.New()
+	save := func(owner uuid.UUID, tag, status string, digest *string) model.Image {
+		t.Helper()
+		img := model.Image{ID: uuid.New(), OwnerID: owner, Tag: tag, Status: status, Digest: digest}
+		img.RegistryTag = img.ID.String()
+		require.NoError(t, imageRepo.Save(ctx, img))
+		return img
+	}
+	recorded := "sha256:recorded"
+	v1 := save(ownerID, "app:v1", model.ImageStatusAvailable, &recorded)
+	v2 := save(ownerID, "app:v2", model.ImageStatusAvailable, nil)
+	save(ownerID, "app:v3", model.ImageStatusBuilding, nil)
+	save(ownerID, "other:v1", model.ImageStatusAvailable, nil)
+	save(uuid.New(), "app:v1", model.ImageStatusAvailable, nil)
+
+	listed, err := imageRepo.ListAvailableInRepository(ctx, ownerID.String()+"_app")
+	require.NoError(t, err)
+	var ids []uuid.UUID
+	for _, img := range listed {
+		ids = append(ids, img.ID)
+	}
+	require.ElementsMatch(t, []uuid.UUID{v1.ID, v2.ID}, ids)
+
+	require.NoError(t, imageRepo.RecordDigest(ctx, v2.ID, "sha256:resolved"))
+	require.NoError(t, imageRepo.RecordDigest(ctx, v1.ID, "sha256:other"))
+	require.NoError(t, imageRepo.RecordDigest(ctx, uuid.New(), "sha256:gone"))
+	got, err := imageRepo.GetByID(ctx, v2.ID)
+	require.NoError(t, err)
+	require.Equal(t, "sha256:resolved", *got.Digest)
+	got, err = imageRepo.GetByID(ctx, v1.ID)
+	require.NoError(t, err)
+	require.Equal(t, recorded, *got.Digest, "a recorded digest is never replaced")
+}

@@ -49,6 +49,7 @@ packages:
       ImageRegistryAPI: {}
       ImageRepository: {}
       ImageRepositoryFencer: {}
+      ManifestSharingRepository: {}
       OutboxPublisher: {}
       ProjectContainerLifecycle: {}
       ProjectDeploymentCanceler: {}
