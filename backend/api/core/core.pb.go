@@ -4109,6 +4109,7 @@ type SystemConfigData struct {
 	DefaultUserQuotaCpu                  float64                `protobuf:"fixed64,97,opt,name=default_user_quota_cpu,json=defaultUserQuotaCpu,proto3" json:"default_user_quota_cpu,omitempty"`
 	DefaultUserQuotaRamMb                int64                  `protobuf:"varint,98,opt,name=default_user_quota_ram_mb,json=defaultUserQuotaRamMb,proto3" json:"default_user_quota_ram_mb,omitempty"`
 	DefaultUserQuotaDiskMb               int64                  `protobuf:"varint,99,opt,name=default_user_quota_disk_mb,json=defaultUserQuotaDiskMb,proto3" json:"default_user_quota_disk_mb,omitempty"`
+	RegistryGcMaxDurationSeconds         int64                  `protobuf:"varint,100,opt,name=registry_gc_max_duration_seconds,json=registryGcMaxDurationSeconds,proto3" json:"registry_gc_max_duration_seconds,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4780,6 +4781,13 @@ func (x *SystemConfigData) GetDefaultUserQuotaDiskMb() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetRegistryGcMaxDurationSeconds() int64 {
+	if x != nil {
+		return x.RegistryGcMaxDurationSeconds
+	}
+	return 0
+}
+
 type BuilderRuntimeConfigData struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
 	BuildMemoryBytes               int64                  `protobuf:"varint,1,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
@@ -5369,7 +5377,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xc9-\n" +
+	"totalCount\"\x91.\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5464,7 +5472,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x17volume_size_enforcement\x18` \x01(\bR\x15volumeSizeEnforcement\x123\n" +
 	"\x16default_user_quota_cpu\x18a \x01(\x01R\x13defaultUserQuotaCpu\x128\n" +
 	"\x19default_user_quota_ram_mb\x18b \x01(\x03R\x15defaultUserQuotaRamMb\x12:\n" +
-	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMbJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMb\x12F\n" +
+	" registry_gc_max_duration_seconds\x18d \x01(\x03R\x1cregistryGcMaxDurationSecondsJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

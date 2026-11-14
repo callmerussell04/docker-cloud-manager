@@ -159,6 +159,8 @@ func TestValidateSystemConfigRequiresPositiveRegistryCleanupTiming(t *testing.T)
 		{name: "negative interval", apply: func(c *config.SystemConfig) { c.RegistryCleanupIntervalSeconds = -1 }},
 		{name: "zero job timeout", apply: func(c *config.SystemConfig) { c.RegistryCleanupJobTimeoutSeconds = 0 }},
 		{name: "negative job timeout", apply: func(c *config.SystemConfig) { c.RegistryCleanupJobTimeoutSeconds = -1 }},
+		{name: "zero gc max duration", apply: func(c *config.SystemConfig) { c.RegistryGCMaxDurationSeconds = 0 }},
+		{name: "negative gc max duration", apply: func(c *config.SystemConfig) { c.RegistryGCMaxDurationSeconds = -1 }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -242,6 +244,7 @@ func validSystemConfig() config.SystemConfig {
 		VolumeUsageScanEntryBudget:           50000,
 		RegistryCleanupIntervalSeconds:       5,
 		RegistryCleanupJobTimeoutSeconds:     20,
+		RegistryGCMaxDurationSeconds:         900,
 		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
 		MemoryPressureIntervalSeconds:        10,
 		MemoryBoostMultiplier:                8,

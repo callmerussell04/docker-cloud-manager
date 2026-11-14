@@ -99,9 +99,12 @@ type SystemConfig struct {
 	VolumeUsageScanEntryBudget           int   `json:"volume_usage_scan_entry_budget"`
 	RegistryCleanupIntervalSeconds       int64 `json:"registry_cleanup_interval_seconds"`
 	RegistryCleanupJobTimeoutSeconds     int64 `json:"registry_cleanup_job_timeout_seconds"`
-	HostMinFreeDiskBytes                 int64 `json:"host_min_free_disk_bytes"`
-	MemoryPressureMinFreeBytes           int64 `json:"memory_pressure_min_free_bytes"`
-	MemoryPressureIntervalSeconds        int64 `json:"memory_pressure_interval_seconds"`
+	// RegistryGCMaxDurationSeconds is the Registry garbage collection lease:
+	// no build is claimed until collection finishes or the lease expires.
+	RegistryGCMaxDurationSeconds  int64 `json:"registry_gc_max_duration_seconds"`
+	HostMinFreeDiskBytes          int64 `json:"host_min_free_disk_bytes"`
+	MemoryPressureMinFreeBytes    int64 `json:"memory_pressure_min_free_bytes"`
+	MemoryPressureIntervalSeconds int64 `json:"memory_pressure_interval_seconds"`
 	// MemoryBoostMultiplier times the memory reservation is the boost
 	// ceiling a running container's limit may be raised to. At or below
 	// MaxBurstMultiplier it turns memory boost off.

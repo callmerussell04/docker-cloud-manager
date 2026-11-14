@@ -3,6 +3,7 @@ package docker_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/google/uuid"
@@ -469,4 +470,46 @@ func TestAdapterCheckVolumeSizeSupport(t *testing.T) {
 			require.Equal(t, "1", removes[0].Query.Get("force"))
 		})
 	}
+}
+
+// Registry garbage collection runs as a detached exec in the Registry
+// container, deleting untagged manifests; its state is read back by exec ID.
+func TestAdapterStartsAndInspectsRegistryGarbageCollect(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"/containers/registry/exec": dockertest.Created(`{"Id":"exec-id"}`),
+		"/exec/exec-id/start":       dockertest.OK(``),
+		"/exec/exec-id/json":        dockertest.OK(`{"ID":"exec-id","Running":false,"ExitCode":3}`),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	execID, err := adapter.StartRegistryGarbageCollect(context.Background(), "registry")
+	require.NoError(t, err)
+	require.Equal(t, "exec-id", execID)
+	execs := daemon.Requests("/containers/registry/exec")
+	require.Len(t, execs, 1)
+	var exec struct{ Cmd []string }
+	require.NoError(t, json.Unmarshal(execs[0].Body, &exec))
+	require.Equal(t, []string{"/bin/registry", "garbage-collect", "/etc/docker/registry/config.yml", "--delete-untagged=true"}, exec.Cmd)
+	require.Len(t, daemon.Requests("/exec/exec-id/start"), 1)
+
+	running, exitCode, err := adapter.InspectRegistryGarbageCollect(context.Background(), execID)
+	require.NoError(t, err)
+	require.False(t, running)
+	require.Equal(t, 3, exitCode)
+}
+
+// An exec the daemon no longer knows, as after a Registry restart, is not
+// found rather than an upstream failure, so the GC worker can stop waiting.
+func TestAdapterInspectRegistryGarbageCollectReportsAGoneExecAsNotFound(t *testing.T) {
+	dockertest.Serve(t, map[string]dockertest.Response{
+		"/exec/exec-id/json": dockertest.Error(http.StatusNotFound, "No such exec instance: exec-id"),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	_, _, err = adapter.InspectRegistryGarbageCollect(context.Background(), "exec-id")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }

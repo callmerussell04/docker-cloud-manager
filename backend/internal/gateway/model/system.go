@@ -68,6 +68,7 @@ type SystemConfig struct {
 	VolumeUsageScanEntryBudget           int
 	RegistryCleanupIntervalSeconds       int64
 	RegistryCleanupJobTimeoutSeconds     int64
+	RegistryGCMaxDurationSeconds         int64
 	HostMinFreeDiskBytes                 int64
 	MemoryPressureMinFreeBytes           int64
 	MemoryPressureIntervalSeconds        int64

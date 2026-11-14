@@ -84,3 +84,14 @@ func PushedTagDisposition(status string) RegistryTagDisposition {
 	}
 	return RegistryTagDelete
 }
+
+// RegistryGCAttempt is the outcome of one try to take the Registry garbage
+// collection lease.
+type RegistryGCAttempt struct {
+	// Acquired: no build runs, and none is claimed until the lease is released
+	// or expires.
+	Acquired bool
+	// Draining: new claims are refused until the running builds finish, because
+	// collection is overdue.
+	Draining bool
+}

@@ -138,3 +138,32 @@ func TestCoreMigration0019BackfillsRegistryTags(t *testing.T) {
 	require.NoError(t, m.Migrate(18))
 	require.NoError(t, m.Migrate(19))
 }
+
+// Migration 0020 creates the one Registry GC state row, free and not
+// draining; the table holds no second row, and down removes it.
+func TestCoreMigration0020CreatesTheRegistryGCStateRow(t *testing.T) {
+	m, db := dbtest.NewCoreMigration(t)
+	ctx := context.Background()
+	requireSingleton := func() {
+		t.Helper()
+		var rows int
+		var leaseFree, notDraining, completedSet bool
+		require.NoError(t, db.QueryRow(ctx, `SELECT count(*) OVER (), lease_until IS NULL, draining_since IS NULL, last_completed_at IS NOT NULL FROM registry_gc_state`).Scan(&rows, &leaseFree, &notDraining, &completedSet))
+		require.Equal(t, 1, rows)
+		require.True(t, leaseFree)
+		require.True(t, notDraining)
+		require.True(t, completedSet)
+	}
+	require.NoError(t, m.Migrate(20))
+	requireSingleton()
+	_, err := db.Exec(ctx, `INSERT INTO registry_gc_state (id) VALUES (FALSE)`)
+	require.Error(t, err, "the state row is a singleton")
+
+	require.NoError(t, m.Migrate(19))
+	var exists bool
+	require.NoError(t, db.QueryRow(ctx, `SELECT to_regclass('registry_gc_state') IS NOT NULL`).Scan(&exists))
+	require.False(t, exists)
+
+	require.NoError(t, m.Migrate(20))
+	requireSingleton()
+}

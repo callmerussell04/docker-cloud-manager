@@ -38,9 +38,11 @@ const buildClaimLockKey = "dcm:build-claims"
 // comes from the shared imageref policy.
 //
 // A pending build is not claimed while maxRunning builds already run, however
-// many Builders ask: it stays pending and is returned unclaimed. The claim lock
-// makes that check atomic with the transition. It is waited for in the query
-// pool because its holders are other claims only, and a claim holds it just for
+// many Builders ask: it stays pending and is returned unclaimed. It is refused
+// the same way while the Registry garbage collection lease is live or draining
+// is set. The claim lock makes both checks atomic with the transition. It is
+// waited for in the query pool because its holders are other claims and the
+// short GC lease attempt only, and a claim holds it just for
 // its own statements, never for Registry, Docker or timer work; the repository
 // lock is still only tried, after the cap passes.
 func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, hash []byte, lifetime time.Duration, maxRunning int) (model.Build, bool, error) {
@@ -64,11 +66,16 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, buildClaimLockKey); err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
+	// Registry garbage collection takes its lease under the same lock, so a
+	// live lease or draining refuses the claim as a full cap does.
 	var running int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM builds WHERE status='running'`).Scan(&running); err != nil {
+	var gcHolds bool
+	err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM builds WHERE status='running'),
+ EXISTS(SELECT 1 FROM registry_gc_state WHERE lease_until>clock_timestamp() OR draining_since IS NOT NULL)`).Scan(&running, &gcHolds)
+	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
-	if running >= maxRunning {
+	if running >= maxRunning || gcHolds {
 		return b, false, nil
 	}
 	var tag, registryTag string

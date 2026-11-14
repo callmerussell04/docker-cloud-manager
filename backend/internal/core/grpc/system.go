@@ -96,6 +96,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		VolumeUsageScanEntryBudget:           int32(cfg.VolumeUsageScanEntryBudget),
 		RegistryCleanupIntervalSeconds:       cfg.RegistryCleanupIntervalSeconds,
 		RegistryCleanupJobTimeoutSeconds:     cfg.RegistryCleanupJobTimeoutSeconds,
+		RegistryGcMaxDurationSeconds:         cfg.RegistryGCMaxDurationSeconds,
 		HostMinFreeDiskBytes:                 cfg.HostMinFreeDiskBytes,
 		MemoryPressureMinFreeBytes:           cfg.MemoryPressureMinFreeBytes,
 		MemoryPressureIntervalSeconds:        cfg.MemoryPressureIntervalSeconds,
@@ -195,6 +196,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.VolumeUsageScanEntryBudget = int(req.GetVolumeUsageScanEntryBudget())
 	newCfg.RegistryCleanupIntervalSeconds = req.GetRegistryCleanupIntervalSeconds()
 	newCfg.RegistryCleanupJobTimeoutSeconds = req.GetRegistryCleanupJobTimeoutSeconds()
+	newCfg.RegistryGCMaxDurationSeconds = req.GetRegistryGcMaxDurationSeconds()
 	newCfg.HostMinFreeDiskBytes = req.GetHostMinFreeDiskBytes()
 	newCfg.MemoryPressureMinFreeBytes = req.GetMemoryPressureMinFreeBytes()
 	newCfg.MemoryPressureIntervalSeconds = req.GetMemoryPressureIntervalSeconds()

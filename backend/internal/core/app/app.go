@@ -305,7 +305,14 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	ttlWorker := service.NewTTLWorker(contRepo, cfg.ConfigManager, logger)
 	eventWorker := service.NewEventWorker(contRepo, volRepo, dockerAdapter, projService, cfg.ConfigManager, logger)
-	gcWorker := service.NewGCWorker(dockerAdapter, buildService, buildRepo, stagedRepo, objectStore, cfg.ConfigManager, logger)
+	gcWorker, err := service.NewGCWorker(service.GCWorkerDeps{
+		Docker: dockerAdapter, Images: buildService, Builds: buildRepo, RegistryGC: repository.NewRegistryGCRepository(db),
+		StagedObjects: stagedRepo, Objects: objectStore, Config: cfg.ConfigManager, Logger: logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	volumeUsageWorker := service.NewVolumeUsageWorker(volRepo, contRepo, dockerAdapter, cfg.ConfigManager, logger)
 	memoryPressureWorker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
 		Repository:   contRepo,

@@ -668,6 +668,8 @@ export const en: Record<keyof typeof ru, string> = {
   'admin.settings.field.registry_cleanup_interval_seconds.hint': 'Pause between checks for deleted or failed build images to remove from the registry. Failed removals are retried on later checks.',
   'admin.settings.field.registry_cleanup_job_timeout_seconds.label': 'Registry cleanup timeout per image',
   'admin.settings.field.registry_cleanup_job_timeout_seconds.hint': 'Maximum time to remove one image from the registry before it is retried on a later check.',
+  'admin.settings.field.registry_gc_max_duration_seconds.label': 'Registry garbage collection time budget',
+  'admin.settings.field.registry_gc_max_duration_seconds.hint': 'New builds wait while registry garbage collection runs. If it runs longer than this, builds keep waiting and an error is logged.',
   'admin.settings.field.build_outbox_interval_seconds.label': 'Build queue send interval',
   'admin.settings.field.build_outbox_interval_seconds.hint': 'How often queued image build tasks are sent for processing.',
   'admin.settings.field.build_outbox_batch_size.label': 'Build tasks per pass',

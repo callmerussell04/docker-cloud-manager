@@ -91,6 +91,7 @@ func SystemConfig() config.SystemConfig {
 		VolumeUsageScanEntryBudget:           50000,
 		RegistryCleanupIntervalSeconds:       5,
 		RegistryCleanupJobTimeoutSeconds:     20,
+		RegistryGCMaxDurationSeconds:         900,
 		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
 		MemoryPressureIntervalSeconds:        10,
 		MemoryBoostMultiplier:                8,

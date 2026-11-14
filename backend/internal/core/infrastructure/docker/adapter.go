@@ -621,7 +621,11 @@ func (a *Adapter) PruneSystem(ctx context.Context) error {
 	return err
 }
 
-func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContainerName string) error {
+// StartRegistryGarbageCollect starts Registry garbage collection as a detached
+// exec in the Registry container and returns its exec ID. It does not wait:
+// the caller polls InspectRegistryGarbageCollect, so it can hold its lease and
+// stop waiting on cancellation.
+func (a *Adapter) StartRegistryGarbageCollect(ctx context.Context, registryContainerName string) (string, error) {
 	execConfig := container.ExecOptions{
 		Cmd: []string{
 			"/bin/registry",
@@ -632,36 +636,28 @@ func (a *Adapter) RunRegistryGarbageCollect(ctx context.Context, registryContain
 		AttachStdout: false,
 		AttachStderr: false,
 	}
-
 	execID, err := a.cli.ContainerExecCreate(ctx, registryContainerName, execConfig)
 	if err != nil {
-		return err
+		return "", fmt.Errorf("create registry gc exec: %w", err)
 	}
+	if err := a.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{Detach: true}); err != nil {
+		return "", fmt.Errorf("start registry gc exec: %w", err)
+	}
+	return execID.ID, nil
+}
 
-	err = a.cli.ContainerExecStart(ctx, execID.ID, container.ExecStartOptions{})
+// InspectRegistryGarbageCollect reports whether the garbage collection exec
+// still runs and, once it has ended, its exit code. An exec the daemon no
+// longer knows, as after a Registry restart, is apperrors.ErrNotFound.
+func (a *Adapter) InspectRegistryGarbageCollect(ctx context.Context, execID string) (bool, int, error) {
+	inspect, err := a.cli.ContainerExecInspect(ctx, execID)
+	if cerrdefs.IsNotFound(err) {
+		return false, 0, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), fmt.Errorf("inspect registry gc exec: %w", err))
+	}
 	if err != nil {
-		return err
+		return false, 0, fmt.Errorf("inspect registry gc exec: %w", err)
 	}
-
-	// Ждем завершения выполнения команды
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			inspect, err := a.cli.ContainerExecInspect(ctx, execID.ID)
-			if err != nil {
-				return err
-			}
-			if !inspect.Running {
-				if inspect.ExitCode != 0 {
-					return errors.New("registry gc exited with non-zero code")
-				}
-				return nil
-			}
-			time.Sleep(500 * time.Millisecond)
-		}
-	}
+	return inspect.Running, inspect.ExitCode, nil
 }
 
 func (a *Adapter) RemoveNetwork(ctx context.Context, networkName string) error {

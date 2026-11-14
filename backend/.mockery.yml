@@ -36,8 +36,11 @@ packages:
       EventContainerRepo: {}
       EventDockerAPI: {}
       EventVolumeRepo: {}
+      GCBuildRepo: {}
       GCConfigProvider: {}
       GCDockerAPI: {}
+      GCImageService: {}
+      GCRegistryGate: {}
       HostDiskMetricsProvider: {}
       HostMetricsProvider: {}
       MemoryPressureBuildStopper: {}

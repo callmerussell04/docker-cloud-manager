@@ -182,6 +182,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.RegistryCleanupIntervalSeconds <= 0 || cfg.RegistryCleanupJobTimeoutSeconds <= 0 {
 		return fmt.Errorf("registry cleanup interval and job timeout must be positive")
 	}
+	if cfg.RegistryGCMaxDurationSeconds <= 0 {
+		return fmt.Errorf("registry gc max duration must be positive")
+	}
 	if cfg.GitCloneTimeoutSeconds <= 0 || cfg.GitMaxRepositoryBytes <= 0 {
 		return fmt.Errorf("git source limits must be positive")
 	}

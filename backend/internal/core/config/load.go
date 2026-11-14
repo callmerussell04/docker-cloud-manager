@@ -213,6 +213,7 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		VolumeUsageScanEntryBudget:           envconfig.Int(lookup, "VOLUME_USAGE_SCAN_ENTRY_BUDGET", 50000),
 		RegistryCleanupIntervalSeconds:       envconfig.Int64(lookup, "REGISTRY_CLEANUP_INTERVAL_SECONDS", 5),
 		RegistryCleanupJobTimeoutSeconds:     envconfig.Int64(lookup, "REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS", 20),
+		RegistryGCMaxDurationSeconds:         envconfig.Int64(lookup, "REGISTRY_GC_MAX_DURATION_SECONDS", 900),
 		HostMinFreeDiskBytes:                 envconfig.Int64(lookup, "HOST_MIN_FREE_DISK_BYTES", 1024*1024*1024),
 		MemoryPressureMinFreeBytes:           envconfig.Int64(lookup, "MEMORY_PRESSURE_MIN_FREE_BYTES", 512*1024*1024),
 		MemoryPressureIntervalSeconds:        envconfig.Int64(lookup, "MEMORY_PRESSURE_INTERVAL_SECONDS", 10),

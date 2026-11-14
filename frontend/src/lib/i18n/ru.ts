@@ -666,6 +666,8 @@ export const ru = {
   'admin.settings.field.registry_cleanup_interval_seconds.hint': 'Пауза между проверками образов удаленных или неудачных сборок, которые нужно удалить из реестра. Неудачные удаления повторяются при следующих проверках.',
   'admin.settings.field.registry_cleanup_job_timeout_seconds.label': 'Лимит времени очистки одного образа',
   'admin.settings.field.registry_cleanup_job_timeout_seconds.hint': 'Сколько времени дается на удаление одного образа из реестра, прежде чем попытка будет повторена при следующей проверке.',
+  'admin.settings.field.registry_gc_max_duration_seconds.label': 'Лимит времени сборки мусора реестра',
+  'admin.settings.field.registry_gc_max_duration_seconds.hint': 'Пока идет сборка мусора реестра, новые сборки ждут. Если она длится дольше этого времени, сборки продолжают ждать, а в журнал записывается ошибка.',
   'admin.settings.field.build_outbox_interval_seconds.label': 'Интервал отправки задач сборки',
   'admin.settings.field.build_outbox_interval_seconds.hint': 'Как часто задачи сборки образов из очереди отправляются на выполнение.',
   'admin.settings.field.build_outbox_batch_size.label': 'Задач сборки за проход',

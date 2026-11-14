@@ -110,14 +110,21 @@ func runBuildGC(t *testing.T, builds *service.BuildService, repo service.GCBuild
 	defer cancel()
 	docker := coremocks.NewGCDockerAPI(t)
 	docker.EXPECT().PruneSystem(mock.Anything).Return(nil).Once()
-	// The second config read happens after the build cleanup pass.
+	// The second config read, by the Registry GC attempt, happens after the
+	// build cleanup pass; with no Registry container no lease is taken.
 	cfg := coremocks.NewGCConfigProvider(t)
 	snapshot := coretest.IntegrationConfig()
 	snapshot.RegistryContainerName = ""
 	snapshot.StaleBuildTimeoutMinutes = 30
 	cfg.EXPECT().Get().Return(snapshot).Once()
 	cfg.EXPECT().Get().Run(cancel).Return(snapshot).Once()
-	service.NewGCWorker(docker, builds, repo, nil, nil, cfg, coretest.DiscardLogger()).Run(ctx)
+	cfg.EXPECT().Get().Return(snapshot).Maybe()
+	worker, err := service.NewGCWorker(service.GCWorkerDeps{
+		Docker: docker, Images: builds, Builds: repo, RegistryGC: coremocks.NewGCRegistryGate(t),
+		Config: cfg, Logger: coretest.DiscardLogger(),
+	})
+	require.NoError(t, err)
+	worker.Run(ctx)
 }
 
 func TestBuildTimeoutPreservesCanceledAndTerminalState(t *testing.T) {

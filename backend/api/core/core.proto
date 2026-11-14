@@ -630,6 +630,7 @@ message SystemConfigData {
   double default_user_quota_cpu = 97;
   int64 default_user_quota_ram_mb = 98;
   int64 default_user_quota_disk_mb = 99;
+  int64 registry_gc_max_duration_seconds = 100;
 }
 
 message BuilderRuntimeConfigData {
