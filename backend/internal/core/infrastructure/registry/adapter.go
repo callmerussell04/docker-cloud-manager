@@ -64,6 +64,11 @@ func (a *Adapter) GetImageSizeAndDigest(ctx context.Context, repo, tag string) (
 
 	var manifest manifestResponse
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+		// A body cut short by the caller's deadline or cancellation can
+		// surface as a bare unexpected EOF; the caller's context is the cause.
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return 0, "", requestError("registry manifest lookup failed", errors.Join(ctxErr, err))
+		}
 		return 0, "", requestError("registry manifest response is invalid", err)
 	}
 
