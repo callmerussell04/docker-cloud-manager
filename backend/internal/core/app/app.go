@@ -361,6 +361,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
+	retentionWorker := service.NewRetentionWorker(repository.NewRetentionRepository(db), logger)
 
 	startWorkers(ctx, wg,
 		func(ctx context.Context) {
@@ -375,6 +376,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		composeCoordinator.Run,
 		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,
+		retentionWorker.Run,
 	)
 	startWorkers(ctx, wg, outboxWorkers(outboxPublisher, buildRepo, projRepo, contRepo, resourceLifecycleRepo, cfg.ConfigManager, logger)...)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)
