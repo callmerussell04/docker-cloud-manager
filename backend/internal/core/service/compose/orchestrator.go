@@ -659,17 +659,9 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, so
 		return preparedDeploymentSource{}, nil, err
 	}
 
-	composeFile, err := selectComposeFile(repoDir, source.ComposeFile)
+	composeFile, composeYAML, err := readGitComposeFile(repoDir, source.ComposeFile)
 	if err != nil {
 		cleanup()
-		return preparedDeploymentSource{}, nil, err
-	}
-	composeYAML, err := os.ReadFile(filepath.Join(repoDir, composeFile))
-	if err != nil {
-		cleanup()
-		if errors.Is(err, os.ErrNotExist) {
-			return preparedDeploymentSource{}, nil, apperrors.New(apperrors.ErrBadRequest, "compose file not found in git repository")
-		}
 		return preparedDeploymentSource{}, nil, err
 	}
 	sourceObjectKey := composeSourceObjectKey(uuid.New().String(), "source.zip")
@@ -735,34 +727,108 @@ func (o *Orchestrator) stageGitSource(ctx context.Context, ownerID uuid.UUID, so
 	}, cleanup, nil
 }
 
-func selectComposeFile(repoDir, requested string) (string, error) {
+const regularComposeFileMessage = "compose file must be a regular file"
+
+// readGitComposeFile selects the Compose file of a Git checkout and reads it
+// through a handle rooted at the checkout, so no path resolves outside it. The
+// file and every parent directory inside the checkout must be real entries,
+// not symlinks, and the file must be a regular file within the Compose file
+// cap. Messages never echo the requested path.
+func readGitComposeFile(repoDir, requested string) (string, []byte, error) {
+	root, err := os.OpenRoot(repoDir)
+	if err != nil {
+		return "", nil, fmt.Errorf("open git checkout: %w", err)
+	}
+	defer func() {
+		_ = root.Close() // read-only handle; a close error cannot lose data
+	}()
+
+	name, info, err := selectGitComposeFile(root, requested)
+	if err != nil {
+		return "", nil, err
+	}
+	if info.Size() > maxComposeYAMLBytes {
+		return "", nil, apperrors.New(apperrors.ErrBadRequest, "compose file exceeds configured size limit")
+	}
+	f, err := root.Open(filepath.FromSlash(name))
+	if err != nil {
+		return "", nil, fmt.Errorf("open git compose file: %w", err)
+	}
+	defer func() {
+		_ = f.Close() // read-only file; a close error cannot lose data
+	}()
+	opened, err := f.Stat()
+	if err != nil {
+		return "", nil, fmt.Errorf("stat git compose file: %w", err)
+	}
+	if !os.SameFile(info, opened) {
+		return "", nil, apperrors.New(apperrors.ErrBadRequest, regularComposeFileMessage)
+	}
+	data, err := readLimitedComposeYAML(f)
+	if err != nil {
+		return "", nil, err
+	}
+	return name, data, nil
+}
+
+func selectGitComposeFile(root *os.Root, requested string) (string, os.FileInfo, error) {
 	if requested != "" {
 		clean, err := gitsource.CleanRelativePath(requested)
 		if err != nil {
-			return "", fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
+			return "", nil, fmt.Errorf("%w: invalid compose file path: %v", apperrors.ErrBadRequest, err)
 		}
-		info, err := os.Stat(filepath.Join(repoDir, clean))
+		info, err := lstatInCheckout(root, clean)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return "", apperrors.New(apperrors.ErrBadRequest, "compose file not found in git repository")
+				return "", nil, apperrors.New(apperrors.ErrBadRequest, "compose file not found in git repository")
 			}
-			return "", err
+			return "", nil, err
 		}
 		if info.IsDir() {
-			return "", apperrors.New(apperrors.ErrBadRequest, "compose file path points to a directory")
+			return "", nil, apperrors.New(apperrors.ErrBadRequest, "compose file path points to a directory")
 		}
-		return clean, nil
+		if !info.Mode().IsRegular() {
+			return "", nil, apperrors.New(apperrors.ErrBadRequest, regularComposeFileMessage)
+		}
+		return clean, info, nil
 	}
 	for _, candidate := range []string{"docker-compose.yml", "docker-compose.yaml"} {
-		info, err := os.Stat(filepath.Join(repoDir, candidate))
-		if err == nil && !info.IsDir() {
-			return candidate, nil
+		info, err := root.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", err
+		if err != nil {
+			return "", nil, err
+		}
+		if info.IsDir() {
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return "", nil, apperrors.New(apperrors.ErrBadRequest, regularComposeFileMessage)
+		}
+		return candidate, info, nil
+	}
+	return "", nil, apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in git repository")
+}
+
+// lstatInCheckout stats a slash-separated path without following a symlink at
+// any component. A symlinked parent is a bad request; a parent that is not a
+// directory means the file does not exist.
+func lstatInCheckout(root *os.Root, name string) (os.FileInfo, error) {
+	parts := strings.Split(name, "/")
+	for i := 1; i < len(parts); i++ {
+		info, err := root.Lstat(filepath.Join(parts[:i]...))
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, apperrors.New(apperrors.ErrBadRequest, regularComposeFileMessage)
+		}
+		if !info.IsDir() {
+			return nil, os.ErrNotExist
 		}
 	}
-	return "", apperrors.New(apperrors.ErrBadRequest, "docker-compose.yml not found in git repository")
+	return root.Lstat(filepath.FromSlash(name))
 }
 
 func (o *Orchestrator) HandleDeploymentMessage(ctx context.Context, msg queue.DeploymentMessage) error {
