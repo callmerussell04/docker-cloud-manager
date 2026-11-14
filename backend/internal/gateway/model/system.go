@@ -37,6 +37,7 @@ type SystemConfig struct {
 	MaxUnpackedSizeBytes                 int64
 	MaxBuildLogSizeBytes                 int64
 	BuildCancelPollIntervalSeconds       int64
+	BuildMaxDiskBytes                    int64
 	TtlWorkerIntervalSeconds             int64
 	GcWorkerIntervalMinutes              int64
 	StaleBuildTimeoutMinutes             int64

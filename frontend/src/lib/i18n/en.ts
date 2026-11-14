@@ -596,6 +596,8 @@ export const en: Record<keyof typeof ru, string> = {
   'admin.settings.field.image_builds_enabled.hint': 'Allows users to build custom images from archives or Git sources. Compose projects that need builds also require this to be enabled.',
   'admin.settings.field.build_memory_bytes.label': 'Build memory',
   'admin.settings.field.build_memory_bytes.hint': 'RAM limit for each image build. Increase it for heavy builds; lower it to protect the server.',
+  'admin.settings.field.build_max_disk_bytes.label': 'Build disk limit',
+  'admin.settings.field.build_max_disk_bytes.hint': 'Disk one image build may write. Every build that can run at once holds this much of the server disk when new builds are admitted. At least 64 MiB.',
   'admin.settings.field.build_cpu_quota.label': 'Build CPU limit',
   'admin.settings.field.build_cpu_quota.hint': 'CPU time limit for image builds. Together with CPU period, it controls how much CPU a build can use.',
   'admin.settings.field.build_cpu_period.label': 'Build CPU period',

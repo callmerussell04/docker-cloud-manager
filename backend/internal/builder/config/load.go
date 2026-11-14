@@ -58,6 +58,7 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 			MaxUnpackedSizeBytes:      envconfig.Int64(lookup, "MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
 			MaxBuildLogSizeBytes:      envconfig.Int64(lookup, "MAX_BUILD_LOG_SIZE_BYTES", envconfig.Int64(lookup, "MAX_LOG_SIZE_BYTES", 5*1024*1024)),
 			BuildCancelPollInterval:   time.Duration(envconfig.Int(lookup, "BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2)) * time.Second,
+			BuildMaxDiskBytes:         envconfig.Int64(lookup, "BUILD_MAX_DISK_BYTES", 10<<30),
 		},
 	}
 	if err := required.Err(); err != nil {

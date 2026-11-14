@@ -15,7 +15,9 @@ type admissionRequest struct {
 	memoryBytes   int64
 	cpuMillicores int64
 	// builds is how many image builds the request queues. A build asks for no
-	// memoryBytes or cpuMillicores of its own: it takes a build slot.
+	// memoryBytes, cpuMillicores or diskWriteBytes of its own: it takes a
+	// build slot, and every occupied slot then holds its memory, CPU and
+	// BuildMaxDiskBytes of disk.
 	builds int64
 	// chargesUser reports whether the memory and CPU count against the
 	// owner's quotas. Builds reserve host capacity only.
@@ -91,8 +93,8 @@ func (v admissionVerdict) err() error {
 
 // checkAdmission decides whether req fits ledger. It checks, in order, user
 // memory, user CPU, user disk, host memory including builds, host CPU
-// including builds, and the host disk floor, and rejects at the first limit
-// exceeded.
+// including builds, and the host disk floor including the disk of build slots
+// for a build request, and rejects at the first limit exceeded.
 func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) admissionVerdict {
 	memory, cpu := max(req.memoryBytes, 0), max(req.cpuMillicores, 0)
 	if req.chargesUser {
@@ -126,7 +128,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		}
 	}
 	if ledger.diskFloorCounted {
-		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0)
+		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - buildSlotDiskBytes(ledger, req, cfg)
 		if remaining < cfg.HostMinFreeDiskBytes {
 			return admissionVerdict{limit: limitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
 		}
@@ -294,6 +296,16 @@ func hostCPUPool(logicalCPUs, reservedSystemCPUMillicores int64, overcommitFacto
 // builds queued behind those reserve nothing until a slot frees.
 func reservedBuildSlots(activeBuilds int64, cfg config.SystemConfig) int64 {
 	return max(min(activeBuilds, int64(cfg.MaxConcurrentBuilds)), 0)
+}
+
+// buildSlotDiskBytes is the disk a build request projects onto the host: every
+// build slot, its own included, may write BuildMaxDiskBytes. Work that queues
+// no build projects none.
+func buildSlotDiskBytes(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) int64 {
+	if req.builds <= 0 {
+		return 0
+	}
+	return reservedBuildSlots(ledger.activeBuilds+req.builds, cfg) * max(cfg.BuildMaxDiskBytes, 0)
 }
 
 func buildCPUMillicores(cfg config.SystemConfig) int64 {

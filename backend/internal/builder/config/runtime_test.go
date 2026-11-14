@@ -47,6 +47,7 @@ func TestRuntimeManagerRefreshUpdatesRuntimeFieldsAndPreservesLocalFields(t *tes
 	require.Equal(t, defaults.StoragePath, got.StoragePath)
 	require.Equal(t, defaults.RegistryURL, got.RegistryURL)
 	require.Equal(t, defaults.BuildCancelPollInterval, got.BuildCancelPollInterval)
+	require.Equal(t, defaults.BuildMaxDiskBytes, got.BuildMaxDiskBytes, "a snapshot without a build disk cap keeps the previous one")
 	require.Equal(t, int64(2048), got.BuildMemoryBytes)
 	require.Equal(t, int64(200000), got.BuildCPUQuota)
 	require.Equal(t, "remote_net", got.BuildNetworkName)
@@ -89,5 +90,6 @@ func defaultBuilderConfig() config.BuilderConfig {
 		MaxUnpackedSizeBytes:      500,
 		MaxBuildLogSizeBytes:      600,
 		BuildCancelPollInterval:   2 * time.Second,
+		BuildMaxDiskBytes:         64 << 20,
 	}
 }

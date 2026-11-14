@@ -46,6 +46,7 @@ func TestCoreClientMapsBuilderConfigAndBuildRecordRPCs(t *testing.T) {
 	require.Equal(t, int64(700), cfg.MaxUnpackedSizeBytes)
 	require.Equal(t, int64(800), cfg.MaxBuildLogSizeBytes)
 	require.Equal(t, 4*time.Second, cfg.BuildCancelPollInterval)
+	require.Equal(t, int64(900), cfg.BuildMaxDiskBytes)
 
 	imageID, started, buildStatus, err := coreClient.StartBuildRecord(userCtx, "build-id")
 	require.NoError(t, err)
@@ -174,5 +175,6 @@ func (s *systemServer) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.E
 		MaxUnpackedSizeBytes:           700,
 		MaxBuildLogSizeBytes:           800,
 		BuildCancelPollIntervalSeconds: 4,
+		BuildMaxDiskBytes:              900,
 	}, nil
 }

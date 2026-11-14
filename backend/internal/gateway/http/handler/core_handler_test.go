@@ -149,7 +149,7 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	resp = perform(router, http.MethodDelete, "/projects/"+projectID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test", DefaultVolumeSizeBytes: 1073741824, VolumeSizeEnforcement: true, DefaultUserQuotaCPU: 1.5, DefaultUserQuotaRAMMB: 3072, DefaultUserQuotaDiskMB: 6144, RegistryGCMaxDurationSeconds: 1200}, nil)
+	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test", DefaultVolumeSizeBytes: 1073741824, VolumeSizeEnforcement: true, DefaultUserQuotaCPU: 1.5, DefaultUserQuotaRAMMB: 3072, DefaultUserQuotaDiskMB: 6144, RegistryGCMaxDurationSeconds: 1200, BuildMaxDiskBytes: 3221225472}, nil)
 	resp = perform(router, http.MethodGet, "/admin/config", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), "example.test")
@@ -159,10 +159,11 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	require.Contains(t, resp.Body.String(), `"default_user_quota_ram_mb":3072`)
 	require.Contains(t, resp.Body.String(), `"default_user_quota_disk_mb":6144`)
 	require.Contains(t, resp.Body.String(), `"registry_gc_max_duration_seconds":1200`)
+	require.Contains(t, resp.Body.String(), `"build_max_disk_bytes":3221225472`)
 	var updatedConfig model.SystemConfig
 	svc.EXPECT().UpdateSystemConfig(mock.Anything, mock.AnythingOfType("model.SystemConfig")).
 		Run(func(_ context.Context, cfg model.SystemConfig) { updatedConfig = cfg }).Return(nil)
-	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"example.test","default_volume_size_bytes":2097152,"volume_size_enforcement":true,"default_user_quota_cpu":2.5,"default_user_quota_ram_mb":4096,"default_user_quota_disk_mb":10240,"registry_gc_max_duration_seconds":600}`, nil)
+	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"example.test","default_volume_size_bytes":2097152,"volume_size_enforcement":true,"default_user_quota_cpu":2.5,"default_user_quota_ram_mb":4096,"default_user_quota_disk_mb":10240,"registry_gc_max_duration_seconds":600,"build_max_disk_bytes":5368709120}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.EqualValues(t, 2097152, updatedConfig.DefaultVolumeSizeBytes)
 	require.True(t, updatedConfig.VolumeSizeEnforcement)
@@ -170,6 +171,7 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	require.Equal(t, int64(4096), updatedConfig.DefaultUserQuotaRAMMB)
 	require.Equal(t, int64(10240), updatedConfig.DefaultUserQuotaDiskMB)
 	require.Equal(t, int64(600), updatedConfig.RegistryGCMaxDurationSeconds)
+	require.Equal(t, int64(5368709120), updatedConfig.BuildMaxDiskBytes)
 
 	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
 	resp = perform(router, http.MethodGet, "/stats", ``, nil)

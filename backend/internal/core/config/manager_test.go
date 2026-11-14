@@ -46,6 +46,9 @@ func TestManagerBackfillsLegacyConfig(t *testing.T) {
 	if cfg.ContainerPidsLimit != 256 || cfg.BuildPidsLimit != 512 {
 		t.Fatalf("runtime limits were not backfilled: %+v", cfg)
 	}
+	if cfg.BuildMaxDiskBytes != 10<<30 {
+		t.Fatalf("BuildMaxDiskBytes = %d, want the 10 GiB default", cfg.BuildMaxDiskBytes)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -150,6 +153,33 @@ func TestValidateSystemConfigBoundsVolumeUsageAccounting(t *testing.T) {
 	}
 }
 
+func TestValidateSystemConfigBoundsBuildMaxDisk(t *testing.T) {
+	tests := []struct {
+		name  string
+		bytes int64
+		valid bool
+	}{
+		{name: "default", bytes: 10 << 30, valid: true},
+		{name: "minimum", bytes: 64 << 20, valid: true},
+		{name: "below minimum", bytes: 64<<20 - 1},
+		{name: "zero", bytes: 0},
+		{name: "negative", bytes: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			cfg.BuildMaxDiskBytes = tt.bytes
+			err := config.ValidateSystemConfig(cfg)
+			if tt.valid && err != nil {
+				t.Fatalf("ValidateSystemConfig() error = %v", err)
+			}
+			if !tt.valid && err == nil {
+				t.Fatal("ValidateSystemConfig() returned nil error")
+			}
+		})
+	}
+}
+
 func TestValidateSystemConfigRequiresPositiveRegistryCleanupTiming(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -216,6 +246,7 @@ func validSystemConfig() config.SystemConfig {
 		MaxUnpackedSizeBytes:                 500 * 1024 * 1024,
 		MaxBuildLogSizeBytes:                 5 * 1024 * 1024,
 		BuildCancelPollIntervalSeconds:       2,
+		BuildMaxDiskBytes:                    10 << 30,
 		TTLWorkerIntervalSeconds:             60,
 		GCWorkerIntervalMinutes:              60,
 		StaleBuildTimeoutMinutes:             30,

@@ -37,6 +37,7 @@ type SystemConfigDTO struct {
 	MaxUnpackedSizeBytes                 int64    `json:"max_unpacked_size_bytes"`
 	MaxBuildLogSizeBytes                 int64    `json:"max_build_log_size_bytes"`
 	BuildCancelPollIntervalSeconds       int64    `json:"build_cancel_poll_interval_seconds"`
+	BuildMaxDiskBytes                    int64    `json:"build_max_disk_bytes"`
 	TtlWorkerIntervalSeconds             int64    `json:"ttl_worker_interval_seconds"`
 	GcWorkerIntervalMinutes              int64    `json:"gc_worker_interval_minutes"`
 	StaleBuildTimeoutMinutes             int64    `json:"stale_build_timeout_minutes"`

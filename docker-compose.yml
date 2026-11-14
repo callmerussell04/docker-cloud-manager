@@ -42,6 +42,7 @@ x-build-runtime-env: &build-runtime-env
   MAX_UNPACKED_SIZE_BYTES: "${MAX_UNPACKED_SIZE_BYTES:-524288000}"
   MAX_BUILD_LOG_SIZE_BYTES: "${MAX_BUILD_LOG_SIZE_BYTES:-5242880}"
   BUILD_CANCEL_POLL_INTERVAL_SECONDS: "${BUILD_CANCEL_POLL_INTERVAL_SECONDS:-2}"
+  BUILD_MAX_DISK_BYTES: "${BUILD_MAX_DISK_BYTES:-10737418240}"
 
 x-traefik-common-labels: &traefik-common-labels
   traefik.enable: "true"

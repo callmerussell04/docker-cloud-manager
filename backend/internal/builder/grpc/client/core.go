@@ -44,6 +44,7 @@ func (c *CoreClient) GetBuilderConfig(ctx context.Context) (config.BuilderConfig
 		MaxUnpackedSizeBytes:      resp.GetMaxUnpackedSizeBytes(),
 		MaxBuildLogSizeBytes:      resp.GetMaxBuildLogSizeBytes(),
 		BuildCancelPollInterval:   time.Duration(resp.GetBuildCancelPollIntervalSeconds()) * time.Second,
+		BuildMaxDiskBytes:         resp.GetBuildMaxDiskBytes(),
 	}, nil
 }
 

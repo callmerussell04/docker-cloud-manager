@@ -73,6 +73,7 @@ const sections: Array<{
     fields: [
       { name: 'image_builds_enabled', labelKey: 'admin.settings.field.image_builds_enabled.label', hintKey: 'admin.settings.field.image_builds_enabled.hint', type: 'boolean' },
       { name: 'build_memory_bytes', labelKey: 'admin.settings.field.build_memory_bytes.label', hintKey: 'admin.settings.field.build_memory_bytes.hint', type: 'bytes' },
+      { name: 'build_max_disk_bytes', labelKey: 'admin.settings.field.build_max_disk_bytes.label', hintKey: 'admin.settings.field.build_max_disk_bytes.hint', type: 'bytes' },
       { name: 'build_cpu_quota', labelKey: 'admin.settings.field.build_cpu_quota.label', hintKey: 'admin.settings.field.build_cpu_quota.hint', type: 'number' },
       { name: 'build_cpu_period', labelKey: 'admin.settings.field.build_cpu_period.label', hintKey: 'admin.settings.field.build_cpu_period.hint', type: 'number' },
       { name: 'build_memory_swap_multiplier', labelKey: 'admin.settings.field.build_memory_swap_multiplier.label', hintKey: 'admin.settings.field.build_memory_swap_multiplier.hint', type: 'float' },

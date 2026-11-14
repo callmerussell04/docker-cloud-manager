@@ -73,6 +73,7 @@ export interface SystemConfig {
   max_unpacked_size_bytes: number;
   max_build_log_size_bytes: number;
   build_cancel_poll_interval_seconds: number;
+  build_max_disk_bytes: number;
   ttl_worker_interval_seconds: number;
   gc_worker_interval_minutes: number;
   stale_build_timeout_minutes: number;
@@ -207,6 +208,7 @@ export const systemConfigSchema = z.object({
   max_unpacked_size_bytes: z.number().min(1),
   max_build_log_size_bytes: z.number().min(1),
   build_cancel_poll_interval_seconds: z.number().min(1),
+  build_max_disk_bytes: z.number().min(64 * 1024 * 1024),
   ttl_worker_interval_seconds: z.number().min(1),
   gc_worker_interval_minutes: z.number().min(1),
   stale_build_timeout_minutes: z.number().min(1),

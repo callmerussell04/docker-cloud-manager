@@ -2834,6 +2834,11 @@ components:
         build_cancel_poll_interval_seconds:
           type: integer
           format: int64
+        build_max_disk_bytes:
+          type: integer
+          format: int64
+          minimum: 67108864
+          description: Disk one build may write. Each build slot holds it against the host disk floor.
         compose_build_poll_interval_seconds:
           type: integer
           format: int64

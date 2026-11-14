@@ -182,6 +182,7 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		MaxUnpackedSizeBytes:                 envconfig.Int64(lookup, "MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
 		MaxBuildLogSizeBytes:                 envconfig.Int64(lookup, "MAX_BUILD_LOG_SIZE_BYTES", 5*1024*1024),
 		BuildCancelPollIntervalSeconds:       envconfig.Int64(lookup, "BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2),
+		BuildMaxDiskBytes:                    envconfig.Int64(lookup, "BUILD_MAX_DISK_BYTES", DefaultBuildMaxDiskBytes),
 		TTLWorkerIntervalSeconds:             envconfig.Int64(lookup, "TTL_WORKER_INTERVAL_SECONDS", 60),
 		GCWorkerIntervalMinutes:              envconfig.Int64(lookup, "GC_WORKER_INTERVAL_MINUTES", 60),
 		StaleBuildTimeoutMinutes:             envconfig.Int64(lookup, "STALE_BUILD_TIMEOUT_MINUTES", 30),

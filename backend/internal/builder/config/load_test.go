@@ -50,6 +50,7 @@ func TestLoadDefaults(t *testing.T) {
 		MaxUnpackedSizeBytes:      500 << 20,
 		MaxBuildLogSizeBytes:      5 << 20,
 		BuildCancelPollInterval:   2 * time.Second,
+		BuildMaxDiskBytes:         10 << 30,
 	}, cfg.Builder)
 }
 

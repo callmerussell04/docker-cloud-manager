@@ -4110,6 +4110,7 @@ type SystemConfigData struct {
 	DefaultUserQuotaRamMb                int64                  `protobuf:"varint,98,opt,name=default_user_quota_ram_mb,json=defaultUserQuotaRamMb,proto3" json:"default_user_quota_ram_mb,omitempty"`
 	DefaultUserQuotaDiskMb               int64                  `protobuf:"varint,99,opt,name=default_user_quota_disk_mb,json=defaultUserQuotaDiskMb,proto3" json:"default_user_quota_disk_mb,omitempty"`
 	RegistryGcMaxDurationSeconds         int64                  `protobuf:"varint,100,opt,name=registry_gc_max_duration_seconds,json=registryGcMaxDurationSeconds,proto3" json:"registry_gc_max_duration_seconds,omitempty"`
+	BuildMaxDiskBytes                    int64                  `protobuf:"varint,101,opt,name=build_max_disk_bytes,json=buildMaxDiskBytes,proto3" json:"build_max_disk_bytes,omitempty"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -4788,6 +4789,13 @@ func (x *SystemConfigData) GetRegistryGcMaxDurationSeconds() int64 {
 	return 0
 }
 
+func (x *SystemConfigData) GetBuildMaxDiskBytes() int64 {
+	if x != nil {
+		return x.BuildMaxDiskBytes
+	}
+	return 0
+}
+
 type BuilderRuntimeConfigData struct {
 	state                          protoimpl.MessageState `protogen:"open.v1"`
 	BuildMemoryBytes               int64                  `protobuf:"varint,1,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
@@ -4802,6 +4810,7 @@ type BuilderRuntimeConfigData struct {
 	MaxUnpackedSizeBytes           int64                  `protobuf:"varint,10,opt,name=max_unpacked_size_bytes,json=maxUnpackedSizeBytes,proto3" json:"max_unpacked_size_bytes,omitempty"`
 	MaxBuildLogSizeBytes           int64                  `protobuf:"varint,11,opt,name=max_build_log_size_bytes,json=maxBuildLogSizeBytes,proto3" json:"max_build_log_size_bytes,omitempty"`
 	BuildCancelPollIntervalSeconds int64                  `protobuf:"varint,12,opt,name=build_cancel_poll_interval_seconds,json=buildCancelPollIntervalSeconds,proto3" json:"build_cancel_poll_interval_seconds,omitempty"`
+	BuildMaxDiskBytes              int64                  `protobuf:"varint,13,opt,name=build_max_disk_bytes,json=buildMaxDiskBytes,proto3" json:"build_max_disk_bytes,omitempty"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
@@ -4916,6 +4925,13 @@ func (x *BuilderRuntimeConfigData) GetMaxBuildLogSizeBytes() int64 {
 func (x *BuilderRuntimeConfigData) GetBuildCancelPollIntervalSeconds() int64 {
 	if x != nil {
 		return x.BuildCancelPollIntervalSeconds
+	}
+	return 0
+}
+
+func (x *BuilderRuntimeConfigData) GetBuildMaxDiskBytes() int64 {
+	if x != nil {
+		return x.BuildMaxDiskBytes
 	}
 	return 0
 }
@@ -5377,7 +5393,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\x91.\n" +
+	"totalCount\"\xc2.\n" +
 	"\x10SystemConfigData\x12\x1f\n" +
 	"\vbase_domain\x18\x01 \x01(\tR\n" +
 	"baseDomain\x12G\n" +
@@ -5473,7 +5489,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x16default_user_quota_cpu\x18a \x01(\x01R\x13defaultUserQuotaCpu\x128\n" +
 	"\x19default_user_quota_ram_mb\x18b \x01(\x03R\x15defaultUserQuotaRamMb\x12:\n" +
 	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMb\x12F\n" +
-	" registry_gc_max_duration_seconds\x18d \x01(\x03R\x1cregistryGcMaxDurationSecondsJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xfa\x04\n" +
+	" registry_gc_max_duration_seconds\x18d \x01(\x03R\x1cregistryGcMaxDurationSeconds\x12/\n" +
+	"\x14build_max_disk_bytes\x18e \x01(\x03R\x11buildMaxDiskBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xab\x05\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +
@@ -5487,7 +5504,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x17max_unpacked_size_bytes\x18\n" +
 	" \x01(\x03R\x14maxUnpackedSizeBytes\x126\n" +
 	"\x18max_build_log_size_bytes\x18\v \x01(\x03R\x14maxBuildLogSizeBytes\x12J\n" +
-	"\"build_cancel_poll_interval_seconds\x18\f \x01(\x03R\x1ebuildCancelPollIntervalSeconds\"\xae\x02\n" +
+	"\"build_cancel_poll_interval_seconds\x18\f \x01(\x03R\x1ebuildCancelPollIntervalSeconds\x12/\n" +
+	"\x14build_max_disk_bytes\x18\r \x01(\x03R\x11buildMaxDiskBytes\"\xae\x02\n" +
 	"\x16ContainerStatsResponse\x12%\n" +
 	"\x0ecpu_percentage\x18\x01 \x01(\x01R\rcpuPercentage\x12,\n" +
 	"\x12memory_usage_bytes\x18\x02 \x01(\x03R\x10memoryUsageBytes\x12,\n" +

@@ -594,6 +594,8 @@ export const ru = {
   'admin.settings.field.image_builds_enabled.hint': 'Разрешает пользователям собирать свои образы из архивов или Git-источников. Compose-проекты, где образ собирается из Dockerfile, тоже требуют включенных сборок.',
   'admin.settings.field.build_memory_bytes.label': 'Память сборки',
   'admin.settings.field.build_memory_bytes.hint': 'Лимит RAM для одной сборки образа. Увеличивайте для тяжелых сборок, уменьшайте для защиты сервера.',
+  'admin.settings.field.build_max_disk_bytes.label': 'Лимит диска сборки',
+  'admin.settings.field.build_max_disk_bytes.hint': 'Сколько данных на диск может записать одна сборка образа. Каждая сборка, которая может выполняться одновременно с другими, удерживает этот объем диска сервера при допуске новых сборок. Не меньше 64 MiB.',
   'admin.settings.field.build_cpu_quota.label': 'CPU-лимит сборки',
   'admin.settings.field.build_cpu_quota.hint': 'Лимит CPU-времени для сборок образов. Вместе с окном CPU-лимита задает, сколько процессора может использовать сборка.',
   'admin.settings.field.build_cpu_period.label': 'Окно CPU-лимита сборки',

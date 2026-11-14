@@ -15,6 +15,10 @@ const (
 	// MaxUserQuotaCPU bounds a CPU quota in cores, so its millicores stay an
 	// exact int64.
 	MaxUserQuotaCPU = 1_000_000.0
+	// DefaultBuildMaxDiskBytes and MinBuildMaxDiskBytes are the default and
+	// the smallest disk one build may write.
+	DefaultBuildMaxDiskBytes = int64(10 << 30)
+	MinBuildMaxDiskBytes     = int64(64 << 20)
 )
 
 // CPUMillicores converts a CPU quota in cores to the whole millicores that
@@ -67,6 +71,9 @@ type SystemConfig struct {
 	MaxUnpackedSizeBytes           int64   `json:"max_unpacked_size_bytes"`
 	MaxBuildLogSizeBytes           int64   `json:"max_build_log_size_bytes"`
 	BuildCancelPollIntervalSeconds int64   `json:"build_cancel_poll_interval_seconds"`
+	// BuildMaxDiskBytes is the disk one build may write. Each build slot
+	// holds it against the host disk floor.
+	BuildMaxDiskBytes int64 `json:"build_max_disk_bytes"`
 
 	TTLWorkerIntervalSeconds             int64 `json:"ttl_worker_interval_seconds"`
 	GCWorkerIntervalMinutes              int64 `json:"gc_worker_interval_minutes"`

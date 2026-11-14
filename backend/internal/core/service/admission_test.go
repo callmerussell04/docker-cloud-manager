@@ -29,8 +29,9 @@ const admissionMiB = int64(1 << 20)
 // 2000m, with no overcommit and nothing held back for the system. Every entry
 // point asks for 256 MiB and 250m: container create, container start, project
 // start, and build creation through BuildMemoryBytes and the build CPU quota.
-// Builder runs up to four builds at once unless a case narrows it. A volume
-// create asks for the default 64 MiB size and no memory or CPU.
+// Builder runs up to four builds at once unless a case narrows it, and each
+// build slot also holds buildMaxDiskBytes of disk against the 1 GiB disk
+// floor. A volume create asks for the default 64 MiB size and no memory or CPU.
 //
 // The owner's quota is quotaRAMMB, quotaCPU and quotaDiskMB. With customQuota
 // it is a custom quota in Core's store and the defaults are one millicore and
@@ -47,6 +48,7 @@ type admissionWorld struct {
 	otherMemory, otherCPU int64
 	activeBuilds          int
 	maxConcurrentBuilds   int
+	buildMaxDiskBytes     int64
 	diskFreeBytes         int64
 }
 
@@ -60,6 +62,7 @@ func roomyAdmissionWorld() admissionWorld {
 		diskFreeBytes: 10 << 30,
 
 		maxConcurrentBuilds: 4,
+		buildMaxDiskBytes:   1 << 30,
 	}
 }
 
@@ -75,6 +78,7 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.BuildMemoryBytes = 256 * admissionMiB
 	cfg.BuildCPUQuota, cfg.BuildCPUPeriod = 25000, 100000
 	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
+	cfg.BuildMaxDiskBytes = w.buildMaxDiskBytes
 	cfg.HostMinFreeDiskBytes = 1 << 30
 	cfg.DefaultVolumeSizeBytes = 64 * admissionMiB
 	cfg.DefaultUserQuotaCPU, cfg.DefaultUserQuotaRAMMB, cfg.DefaultUserQuotaDiskMB = w.quotaCPU, w.quotaRAMMB, w.quotaDiskMB
@@ -211,6 +215,42 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			name:  "disk floor",
 			world: func(w *admissionWorld) { w.diskFreeBytes = 512 * admissionMiB },
 			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
+		},
+		{
+			// Two running builds and the new one may each write 3 GiB: 9 of
+			// the 10 GiB free leaves exactly the 1 GiB floor.
+			name: "build slots fill the disk down to the floor",
+			world: func(w *admissionWorld) {
+				w.activeBuilds = 2
+				w.buildMaxDiskBytes = 3 << 30
+			},
+		},
+		{
+			// 12 GiB for three slots goes below the floor, so a build is
+			// rejected; other work writes nothing of its own and fits.
+			name: "disk floor held by build slots",
+			world: func(w *admissionWorld) {
+				w.activeBuilds = 2
+				w.buildMaxDiskBytes = 4 << 30
+			},
+			wantBuild: apperrors.ErrHostExhausted,
+		},
+		{
+			// One build runs at a time, so the new build waits behind it and
+			// asks for no disk beyond that one slot's 4 GiB.
+			name: "builds queued behind the concurrency limit hold no disk",
+			world: func(w *admissionWorld) {
+				w.activeBuilds = 6
+				w.maxConcurrentBuilds = 1
+				w.buildMaxDiskBytes = 4 << 30
+			},
+		},
+		{
+			name: "a build bigger than the free disk above the floor",
+			world: func(w *admissionWorld) {
+				w.buildMaxDiskBytes = 9<<30 + 1
+			},
+			wantBuild: apperrors.ErrHostExhausted,
 		},
 		{
 			name: "user disk is checked before host memory",

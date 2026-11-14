@@ -213,6 +213,7 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	initial.VolumeSizeEnforcement = true
 	initial.DefaultUserQuotaCPU, initial.DefaultUserQuotaRAMMB, initial.DefaultUserQuotaDiskMB = 1.5, 3072, 6144
 	initial.RegistryGCMaxDurationSeconds = 1200
+	initial.BuildMaxDiskBytes = 3 << 30
 	logic := coregrpcmocks.NewMockSystemLogic(t)
 	var updated config.SystemConfig
 	logic.EXPECT().GetConfig(mock.Anything).Return(initial)
@@ -241,6 +242,11 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	require.Equal(t, int64(3072), got.GetDefaultUserQuotaRamMb())
 	require.Equal(t, int64(6144), got.GetDefaultUserQuotaDiskMb())
 	require.Equal(t, int64(1200), got.GetRegistryGcMaxDurationSeconds())
+	require.Equal(t, int64(3<<30), got.GetBuildMaxDiskBytes())
+
+	builderCfg, err := client.GetBuilderRuntimeConfig(systemScopeContext(), &coreapi.Empty{})
+	require.NoError(t, err)
+	require.Equal(t, int64(3<<30), builderCfg.GetBuildMaxDiskBytes(), "Builder receives the build disk cap")
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{
 		BaseDomain:                    "example.test",
@@ -253,6 +259,7 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 		DefaultUserQuotaRamMb:         4096,
 		DefaultUserQuotaDiskMb:        10240,
 		RegistryGcMaxDurationSeconds:  600,
+		BuildMaxDiskBytes:             5 << 30,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "example.test", updated.BaseDomain)
@@ -262,6 +269,7 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 	require.Equal(t, int64(4096), updated.DefaultUserQuotaRAMMB)
 	require.Equal(t, int64(10240), updated.DefaultUserQuotaDiskMB)
 	require.Equal(t, int64(600), updated.RegistryGCMaxDurationSeconds)
+	require.Equal(t, int64(5<<30), updated.BuildMaxDiskBytes)
 
 	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))

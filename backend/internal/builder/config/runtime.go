@@ -51,6 +51,9 @@ func (m *RuntimeManager) Refresh(ctx context.Context) BuilderConfig {
 	if cfg.BuildCancelPollInterval <= 0 {
 		cfg.BuildCancelPollInterval = m.cfg.BuildCancelPollInterval
 	}
+	if cfg.BuildMaxDiskBytes <= 0 {
+		cfg.BuildMaxDiskBytes = m.cfg.BuildMaxDiskBytes
+	}
 	m.cfg = cfg
 	m.mu.Unlock()
 	return cfg

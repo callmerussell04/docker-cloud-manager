@@ -115,6 +115,9 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxUploadSizeBytes <= 0 || cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
 		return fmt.Errorf("build size limits must be positive")
 	}
+	if cfg.BuildMaxDiskBytes < MinBuildMaxDiskBytes {
+		return fmt.Errorf("build max disk must be at least %d MiB", MinBuildMaxDiskBytes>>20)
+	}
 	if cfg.BuildCancelPollIntervalSeconds <= 0 {
 		return fmt.Errorf("build cancel poll interval must be positive")
 	}

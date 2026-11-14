@@ -631,6 +631,7 @@ message SystemConfigData {
   int64 default_user_quota_ram_mb = 98;
   int64 default_user_quota_disk_mb = 99;
   int64 registry_gc_max_duration_seconds = 100;
+  int64 build_max_disk_bytes = 101;
 }
 
 message BuilderRuntimeConfigData {
@@ -646,6 +647,7 @@ message BuilderRuntimeConfigData {
   int64 max_unpacked_size_bytes = 10;
   int64 max_build_log_size_bytes = 11;
   int64 build_cancel_poll_interval_seconds = 12;
+  int64 build_max_disk_bytes = 13;
 }
 
 message ContainerStatsResponse {

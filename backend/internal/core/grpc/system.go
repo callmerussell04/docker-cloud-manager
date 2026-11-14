@@ -65,6 +65,7 @@ func (h *SystemHandler) GetConfig(ctx context.Context, _ *coreapi.Empty) (*corea
 		MaxUnpackedSizeBytes:                 cfg.MaxUnpackedSizeBytes,
 		MaxBuildLogSizeBytes:                 cfg.MaxBuildLogSizeBytes,
 		BuildCancelPollIntervalSeconds:       cfg.BuildCancelPollIntervalSeconds,
+		BuildMaxDiskBytes:                    cfg.BuildMaxDiskBytes,
 		TtlWorkerIntervalSeconds:             cfg.TTLWorkerIntervalSeconds,
 		GcWorkerIntervalMinutes:              cfg.GCWorkerIntervalMinutes,
 		StaleBuildTimeoutMinutes:             cfg.StaleBuildTimeoutMinutes,
@@ -165,6 +166,7 @@ func (h *SystemHandler) UpdateConfig(ctx context.Context, req *coreapi.SystemCon
 	newCfg.MaxUnpackedSizeBytes = req.GetMaxUnpackedSizeBytes()
 	newCfg.MaxBuildLogSizeBytes = req.GetMaxBuildLogSizeBytes()
 	newCfg.BuildCancelPollIntervalSeconds = req.GetBuildCancelPollIntervalSeconds()
+	newCfg.BuildMaxDiskBytes = req.GetBuildMaxDiskBytes()
 	newCfg.TTLWorkerIntervalSeconds = req.GetTtlWorkerIntervalSeconds()
 	newCfg.GCWorkerIntervalMinutes = req.GetGcWorkerIntervalMinutes()
 	newCfg.StaleBuildTimeoutMinutes = req.GetStaleBuildTimeoutMinutes()
@@ -246,5 +248,6 @@ func (h *SystemHandler) GetBuilderRuntimeConfig(ctx context.Context, _ *coreapi.
 		MaxUnpackedSizeBytes:           cfg.MaxUnpackedSizeBytes,
 		MaxBuildLogSizeBytes:           cfg.MaxBuildLogSizeBytes,
 		BuildCancelPollIntervalSeconds: cfg.BuildCancelPollIntervalSeconds,
+		BuildMaxDiskBytes:              cfg.BuildMaxDiskBytes,
 	}, nil
 }

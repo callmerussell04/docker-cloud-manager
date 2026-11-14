@@ -63,6 +63,7 @@ func SystemConfig() config.SystemConfig {
 		MaxUnpackedSizeBytes:                 500 * 1024 * 1024,
 		MaxBuildLogSizeBytes:                 5 * 1024 * 1024,
 		BuildCancelPollIntervalSeconds:       2,
+		BuildMaxDiskBytes:                    10 << 30,
 		TTLWorkerIntervalSeconds:             60,
 		GCWorkerIntervalMinutes:              60,
 		StaleBuildTimeoutMinutes:             30,
