@@ -129,7 +129,7 @@ func imagesToDTO(items []model.Image) []dto.ImageDTO {
 		result = append(result, dto.ImageDTO{
 			ID:            item.ID,
 			Tag:           item.Tag,
-			SizeMB:        item.SizeMB,
+			SizeBytes:     item.SizeBytes,
 			Status:        item.Status,
 			LastError:     item.LastError,
 			CreatedAt:     item.CreatedAt,
@@ -146,7 +146,7 @@ func imagesToUserDTO(items []model.Image) []dto.UserImageDTO {
 		result = append(result, dto.UserImageDTO{
 			ID:        item.ID,
 			Tag:       item.Tag,
-			SizeMB:    item.SizeMB,
+			SizeBytes: item.SizeBytes,
 			Status:    item.Status,
 			LastError: item.LastError,
 			CreatedAt: item.CreatedAt,

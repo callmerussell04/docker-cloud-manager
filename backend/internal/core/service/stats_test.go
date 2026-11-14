@@ -73,7 +73,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	volRepo.EXPECT().GetTotalUsedVolumeBytes(ctx).Return(int64(512), nil)
 	volRepo.EXPECT().GetTotalVolumeSizeBytes(ctx).Return(int64(3<<30), nil)
 	volRepo.EXPECT().CountAll(ctx).Return(4, nil)
-	imgRepo.EXPECT().GetTotalUsedDiskSpace(ctx).Return(int64(2), nil)
+	imgRepo.EXPECT().GetTotalImageBytes(ctx).Return(int64(2<<20), nil)
 	imgRepo.EXPECT().CountAll(ctx).Return(5, nil)
 	// Three builds are active, but only the two Builder can run hold memory.
 	buildRepo.EXPECT().CountActive(ctx).Return(3, nil)

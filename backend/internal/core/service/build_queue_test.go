@@ -35,7 +35,7 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	var queuedBuild model.Build
 	var queuedOutbox model.BuildQueueOutbox
 
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().
 		CreateQueuedBuild(mock.Anything, mock.AnythingOfType("model.Image"), mock.AnythingOfType("model.Build"), mock.AnythingOfType("model.BuildQueueOutbox")).
 		Run(func(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) {
@@ -100,7 +100,7 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	staged.EXPECT().
 		UpdateBytes(mock.Anything, mock.AnythingOfType("string"), int64(len("archive"))).
 		Return(nil).Once()
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().
 		CreateQueuedBuild(mock.Anything, mock.AnythingOfType("model.Image"), mock.AnythingOfType("model.Build"), mock.AnythingOfType("model.BuildQueueOutbox")).
 		Run(func(ctx context.Context, img model.Image, build model.Build, outbox model.BuildQueueOutbox) {
@@ -140,9 +140,9 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 	ctx := accessscope.WithUserScope(context.Background(), uuid.New(), "", "")
 
 	repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{
-		ID:          buildID,
-		ImageID:     uuid.New(),
-		OwnerID:     ownerID,
+		ID:           buildID,
+		ImageID:      uuid.New(),
+		OwnerID:      ownerID,
 		LogObjectKey: "build-logs/source.log",
 	}, nil)
 
@@ -249,8 +249,8 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 	}, nil)
 	imageRepo.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "demo-app:latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo-app", imageID.String()).Return(int64(2*1024*1024), "digest", nil)
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
-	imageRepo.EXPECT().GetReplacementImageSizeMB(mock.Anything, ownerID, "demo-app:latest", imageID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetReplacementImageBytes(mock.Anything, ownerID, "demo-app:latest", imageID).Return(int64(0), nil)
 	imageRepo.EXPECT().
 		MarkBuildFailedAndDeleteImageTx(mock.Anything, buildID, imageID, model.BuildStatusFailedQuotaExceeded).
 		Run(func(ctx context.Context, gotBuildID, gotImageID uuid.UUID, status string) {

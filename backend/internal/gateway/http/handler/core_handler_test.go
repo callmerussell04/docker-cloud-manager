@@ -111,10 +111,12 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	projectID := uuid.NewString()
 	ownerID := uuid.NewString()
 
-	svc.EXPECT().ListImages(mock.Anything, 1, 20).Return(model.PaginatedImages{Images: []model.Image{{ID: imageID, OwnerID: ownerID, OwnerUsername: "alice", Tag: "demo:latest"}}, TotalCount: 1}, nil)
+	svc.EXPECT().ListImages(mock.Anything, 1, 20).Return(model.PaginatedImages{Images: []model.Image{{ID: imageID, OwnerID: ownerID, OwnerUsername: "alice", Tag: "demo:latest", SizeBytes: 2<<20 + 123}}, TotalCount: 1}, nil)
 	resp := perform(router, http.MethodGet, "/images", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NotContains(t, resp.Body.String(), "owner_id")
+	require.Contains(t, resp.Body.String(), `"size_bytes":2097275`, "an image reports its exact size")
+	require.NotContains(t, resp.Body.String(), "size_mb")
 
 	svc.EXPECT().DeleteImage(mock.Anything, imageID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/images/"+imageID, ``, nil)

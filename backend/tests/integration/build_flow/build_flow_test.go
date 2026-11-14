@@ -104,7 +104,7 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	completedImage, err := repos.Images.GetByID(ctx, build.ImageID)
 	require.NoError(t, err)
 	require.Equal(t, model.ImageStatusAvailable, completedImage.Status)
-	require.Equal(t, 2, completedImage.SizeMB)
+	require.EqualValues(t, 2<<20+123, completedImage.SizeBytes, "the size the Registry reports is stored unrounded")
 
 	activeBytes, err = repos.Staged.ActiveBytesByOwner(ctx, ownerID)
 	require.NoError(t, err)
@@ -270,7 +270,7 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 	registry := coremocks.NewImageRegistryAPI(t)
 	registry.EXPECT().
 		GetImageSizeAndDigest(mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
-		Return(int64(2<<20), "sha256:digest", nil).
+		Return(int64(2<<20+123), "sha256:digest", nil).
 		Maybe()
 	registry.EXPECT().DeleteManifest(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 	imageCache := coremocks.NewBuildImageCache(t)

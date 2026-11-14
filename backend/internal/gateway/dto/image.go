@@ -3,7 +3,7 @@ package dto
 type ImageDTO struct {
 	ID            string `json:"id"`
 	Tag           string `json:"tag"`
-	SizeMB        int32  `json:"size_mb"`
+	SizeBytes     int64  `json:"size_bytes"`
 	Status        string `json:"status"`
 	LastError     string `json:"last_error"`
 	CreatedAt     int64  `json:"created_at"`
@@ -14,7 +14,7 @@ type ImageDTO struct {
 type UserImageDTO struct {
 	ID        string `json:"id"`
 	Tag       string `json:"tag"`
-	SizeMB    int32  `json:"size_mb"`
+	SizeBytes int64  `json:"size_bytes"`
 	Status    string `json:"status"`
 	LastError string `json:"last_error"`
 	CreatedAt int64  `json:"created_at"`

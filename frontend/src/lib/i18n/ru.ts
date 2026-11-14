@@ -317,7 +317,7 @@ export const ru = {
   'containers.action.stop': 'stop',
   'containers.action.delete': 'delete',
   'images.title': 'Образы и Сборки',
-  'images.pageSize': 'На странице: {size} MB',
+  'images.pageSize': 'На странице: {size}',
   'images.build': 'Собрать',
   'images.myImages': 'Мои образы',
   'images.buildHistory': 'История сборок',

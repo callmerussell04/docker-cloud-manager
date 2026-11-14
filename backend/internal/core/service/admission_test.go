@@ -387,7 +387,7 @@ func admissionStore(t *testing.T, w admissionWorld, ownerID uuid.UUID) *containe
 func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID, store *containerStore, cfg service.ConfigManager) *service.ContainerService {
 	t.Helper()
 	images := coremocks.NewContainerImageRepository(t)
-	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
+	images.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(w.usedDiskMB<<20, nil).Maybe()
 	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).Return(w.activeBuilds, nil).Maybe()
@@ -412,7 +412,7 @@ func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID
 func admissionVolumeService(t *testing.T, w admissionWorld, ownerID uuid.UUID, store *containerStore, cfg service.ConfigManager) (*service.VolumeService, *volumeLifecycleFake) {
 	t.Helper()
 	images := coremocks.NewVolumeImageDiskRepository(t)
-	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
+	images.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(w.usedDiskMB<<20, nil).Maybe()
 	repo := newVolumeRepoMock(t)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
@@ -529,7 +529,7 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 	deps.DiskMetrics = admissionDiskMetrics(t, w)
 	deps.Quotas = w.quotas(t, ownerID, cfg)
 	images := coremocks.NewBuildImageRepository(t)
-	images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(w.usedDiskMB, nil).Maybe()
+	images.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(w.usedDiskMB<<20, nil).Maybe()
 	deps.Images = images
 	volumes := coremocks.NewBuildVolumeDiskRepository(t)
 	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
@@ -590,7 +590,7 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 		var mu sync.Mutex
 		ledgerReads := 0
 		images := coremocks.NewContainerImageRepository(t)
-		images.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (int64, error) {
+		images.EXPECT().GetUserImageBytes(mock.Anything, ownerID).RunAndReturn(func(context.Context, uuid.UUID) (int64, error) {
 			mu.Lock()
 			ledgerReads++
 			first := ledgerReads == 1

@@ -58,7 +58,7 @@ func TestReserveAppliesTheChosenQuotaRule(t *testing.T) {
 			require.NoError(t, err)
 			reserved := stagedsourcemocks.NewReservedDiskReader(t)
 			if scenario.rule == stagedsource.CountReservedAndStaged {
-				reserved.EXPECT().ReservedDiskMB(mock.Anything, owner).Return(scenario.reservedMB, nil).Once()
+				reserved.EXPECT().ReservedDiskBytes(mock.Anything, owner).Return(scenario.reservedMB<<20, nil).Once()
 			}
 			if !scenario.wantRejected {
 				repo.EXPECT().Reserve(mock.Anything, mock.Anything, cfg.MaxStagedSourceBytesPerUser).

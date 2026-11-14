@@ -106,9 +106,9 @@ func (e *rebuildEnv) succeed(t *testing.T, b claimedBuild) model.Image {
 	return img
 }
 
-func (e *rebuildEnv) reservedDiskMB(t *testing.T) int64 {
+func (e *rebuildEnv) reservedDiskBytes(t *testing.T) int64 {
 	t.Helper()
-	used, err := e.repos.Images.GetUserUsedDiskSpace(context.Background(), e.ownerID)
+	used, err := e.repos.Images.GetUserImageBytes(context.Background(), e.ownerID)
 	require.NoError(t, err)
 	return used
 }
@@ -200,7 +200,7 @@ func TestFailedRebuildLeavesTheAvailableImageUntouched(t *testing.T) {
 			available := e.succeed(t, first)
 			require.Equal(t, first.imageID.String(), available.RegistryTag)
 			require.NotNil(t, available.Digest)
-			reservedBefore := e.reservedDiskMB(t)
+			reservedBefore := e.reservedDiskBytes(t)
 
 			rebuild := e.claimAndPush(t, "app:latest", tc.sizeMB)
 			require.Equal(t, repositoryOf(first.destination)+":"+rebuild.imageID.String(), rebuild.destination)
@@ -213,7 +213,7 @@ func TestFailedRebuildLeavesTheAvailableImageUntouched(t *testing.T) {
 			after, err := e.repos.Images.GetByID(ctx, first.imageID)
 			require.NoError(t, err)
 			require.Equal(t, available, after)
-			require.Equal(t, reservedBefore, e.reservedDiskMB(t))
+			require.Equal(t, reservedBefore, e.reservedDiskBytes(t))
 
 			// Only the rebuild's manifest is deleted; the available image's
 			// manifest has no deletion expectation, so deleting it fails the test.
@@ -236,12 +236,12 @@ func TestSuccessfulRebuildReplacesTheAvailableImage(t *testing.T) {
 	e.docker.EXPECT().RemoveImage(mock.Anything, "registry-public.test:5000/"+first.destination, false).Return(apperrors.ErrResourceInUse).Once()
 	replacement := e.succeed(t, rebuild)
 	require.Equal(t, rebuild.imageID.String(), replacement.RegistryTag)
-	require.Equal(t, 20, replacement.SizeMB)
+	require.EqualValues(t, 20<<20, replacement.SizeBytes)
 	require.NotNil(t, replacement.Digest)
 	require.Equal(t, rebuild.digest, *replacement.Digest)
 	_, err := e.repos.Images.GetByID(ctx, first.imageID)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	require.Equal(t, int64(20), e.reservedDiskMB(t))
+	require.Equal(t, int64(20<<20), e.reservedDiskBytes(t))
 
 	jobs := cleanupJobs(t, e)
 	require.Equal(t, []model.RegistryCleanup{{ID: first.imageID, Repository: repositoryOf(first.destination), Tag: first.imageID.String()}}, jobs)

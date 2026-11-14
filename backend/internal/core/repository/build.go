@@ -61,9 +61,9 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		imgStatus = model.ImageStatusBuilding
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO images (id, owner_id, tag, registry_tag, size_mb, status)
+		INSERT INTO images (id, owner_id, tag, registry_tag, size_bytes, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
-	`, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.SizeMB, imgStatus); err != nil {
+	`, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.SizeBytes, imgStatus); err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			return apperrors.ErrAlreadyExists

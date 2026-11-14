@@ -17,8 +17,9 @@ type Image struct {
 	RegistryTag string
 	// Digest is the manifest digest recorded when a build makes the image
 	// available; nil for images made available before it was recorded.
-	Digest         *string
-	SizeMB         int
+	Digest *string
+	// SizeBytes is the image's size as the Registry reports it.
+	SizeBytes      int64
 	Status         string
 	LastObservedAt *time.Time
 	LastError      *string

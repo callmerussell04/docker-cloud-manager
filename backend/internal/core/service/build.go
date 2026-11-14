@@ -52,9 +52,9 @@ type BuildImageRepository interface {
 	Save(ctx context.Context, img model.Image) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Image, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
-	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int, digest *string) ([]model.Image, error)
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetReplacementImageBytes(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
+	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeBytes int64, digest *string) ([]model.Image, error)
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
@@ -234,8 +234,8 @@ func (s *BuildService) ensureImageBuildsEnabled() error {
 	return nil
 }
 
-func (s *BuildService) getUserReservedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	return reservedDiskMB(ctx, ownerID, s.imageRepo, s.volumeRepo)
+func (s *BuildService) getUserReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	return reservedDiskBytes(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
 // admitBuild checks the host memory and CPU one more build slot reserves and
@@ -639,7 +639,6 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		OwnerID:     ownerID,
 		Tag:         normalizedTag,
 		RegistryTag: imageID.String(),
-		SizeMB:      0,
 		Status:      model.ImageStatusBuilding,
 	}
 	build := model.Build{
@@ -649,7 +648,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		ProjectID:          input.ProjectID,
 		ProjectServiceName: input.ProjectServiceName,
 		Status:             model.BuildStatusPending,
-		LogObjectKey:        input.LogObjectKey,
+		LogObjectKey:       input.LogObjectKey,
 		ArchiveObjectKey:   input.ArchiveObjectKey,
 		CreatedAt:          now,
 	}
@@ -833,29 +832,21 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
 
-	sizeMB := int(sizeBytes / (1024 * 1024))
-	if sizeMB == 0 {
-		sizeMB = 1
-	}
-
 	quota, err := s.quotas.EffectiveUserQuota(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}
-	usedMB, err := s.getUserReservedDiskMB(ctx, img.OwnerID)
+	usedBytes, err := s.getUserReservedDiskBytes(ctx, img.OwnerID)
 	if err != nil {
 		return err
 	}
-	replacedMB, err := s.imageRepo.GetReplacementImageSizeMB(ctx, img.OwnerID, img.Tag, img.ID)
+	replacedBytes, err := s.imageRepo.GetReplacementImageBytes(ctx, img.OwnerID, img.Tag, img.ID)
 	if err != nil {
 		return err
 	}
-	usedMB -= replacedMB
-	if usedMB < 0 {
-		usedMB = 0
-	}
+	usedBytes = max(usedBytes-replacedBytes, 0)
 
-	if usedMB+int64(sizeMB) > quota.DiskMB {
+	if usedBytes+sizeBytes > quota.DiskBytes() {
 		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
 			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
 		}
@@ -864,7 +855,7 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		}
 		s.cleanupBuildArchive(ctx, b)
 		s.cancelDeploymentForBuild(ctx, b)
-		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
+		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 		return nil
 	}
 
@@ -872,13 +863,13 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if digest != "" {
 		recordedDigest = &digest
 	}
-	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB, recordedDigest)
+	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeBytes, recordedDigest)
 	if err != nil {
 		return err
 	}
 	s.removeReplacedImages(ctx, replaced)
 	s.cleanupBuildArchive(ctx, b)
-	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
+	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 	return nil
 }
 

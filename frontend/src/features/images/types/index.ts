@@ -4,7 +4,7 @@ import type { TFunction } from '@/lib/i18n';
 export interface ImageData {
   id: string;
   tag: string;
-  size_mb: number;
+  size_bytes: number;
   status: string;
   last_error: string;
   created_at: number;

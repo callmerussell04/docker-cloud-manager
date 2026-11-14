@@ -105,7 +105,7 @@ type ContainerImageRepository interface {
 }
 
 type containerImageDiskRepository interface {
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type containerVolumeInspector interface {

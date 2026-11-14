@@ -104,7 +104,7 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 		OwnerID:     ownerID,
 		Tag:         tag,
 		RegistryTag: "latest",
-		SizeMB:      12,
+		SizeBytes:   12,
 		Status:      model.ImageStatusAvailable,
 	}))
 
@@ -129,9 +129,9 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: payload},
 	))
 
-	sizeMB, err := imageRepo.GetReplacementImageSizeMB(ctx, ownerID, tag, newImageID)
+	replacedBytes, err := imageRepo.GetReplacementImageBytes(ctx, ownerID, tag, newImageID)
 	require.NoError(t, err)
-	require.Equal(t, int64(12), sizeMB)
+	require.Equal(t, int64(12), replacedBytes)
 
 	digest := "sha256:new"
 	replaced, err := imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, newImageID, model.BuildStatusSuccess, 20, &digest)
@@ -143,7 +143,7 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	newImage, err := imageRepo.GetByID(ctx, newImageID)
 	require.NoError(t, err)
 	require.Equal(t, model.ImageStatusAvailable, newImage.Status)
-	require.Equal(t, 20, newImage.SizeMB)
+	require.EqualValues(t, 20, newImage.SizeBytes)
 	require.Equal(t, newImageID.String(), newImage.RegistryTag)
 	require.NotNil(t, newImage.Digest)
 	require.Equal(t, "sha256:new", *newImage.Digest)

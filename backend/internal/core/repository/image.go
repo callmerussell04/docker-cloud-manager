@@ -25,14 +25,14 @@ func NewImageRepository(db *pgxpool.Pool) *ImageRepository {
 
 func (r *ImageRepository) Save(ctx context.Context, img model.Image) error {
 	query := `
-		INSERT INTO images (id, owner_id, tag, registry_tag, digest, size_mb, status)
+		INSERT INTO images (id, owner_id, tag, registry_tag, digest, size_bytes, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`
 	status := img.Status
 	if status == "" {
 		status = model.ImageStatusAvailable
 	}
-	_, err := r.db.Exec(ctx, query, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.Digest, img.SizeMB, status)
+	_, err := r.db.Exec(ctx, query, img.ID, img.OwnerID, img.Tag, img.RegistryTag, img.Digest, img.SizeBytes, status)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -176,9 +176,9 @@ func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeMB int) error {
-	query := `UPDATE images SET size_mb = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.Exec(ctx, query, sizeMB, id)
+func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeBytes int64) error {
+	query := `UPDATE images SET size_bytes = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
+	res, err := r.db.Exec(ctx, query, sizeBytes, id)
 	if err != nil {
 		return err
 	}
@@ -219,16 +219,20 @@ func (r *ImageRepository) MarkStatusError(ctx context.Context, id uuid.UUID, sta
 	return nil
 }
 
-func (r *ImageRepository) GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error) {
-	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE owner_id = $1 AND status != $2`
-	var usedMB int64
-	err := r.db.QueryRow(ctx, query, ownerID, model.ImageStatusDeleting).Scan(&usedMB)
-	return usedMB, err
+// GetUserImageBytes is the disk an owner's images use, in bytes. An image
+// being deleted no longer counts.
+func (r *ImageRepository) GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+	query := `SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM images WHERE owner_id = $1 AND status != $2`
+	var used int64
+	err := r.db.QueryRow(ctx, query, ownerID, model.ImageStatusDeleting).Scan(&used)
+	return used, err
 }
 
-func (r *ImageRepository) GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error) {
+// GetReplacementImageBytes is the size of the owner's other images under tag
+// that a successful build of replacementImageID replaces.
+func (r *ImageRepository) GetReplacementImageBytes(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error) {
 	query := `
-		SELECT COALESCE(SUM(size_mb), 0)
+		SELECT COALESCE(SUM(size_bytes), 0)::bigint
 		FROM images
 		WHERE owner_id = $1
 			AND tag = $2
@@ -236,16 +240,17 @@ func (r *ImageRepository) GetReplacementImageSizeMB(ctx context.Context, ownerID
 			AND status != $4
 			AND status != $5
 	`
-	var sizeMB int64
-	err := r.db.QueryRow(ctx, query, ownerID, tag, replacementImageID, model.ImageStatusBuilding, model.ImageStatusDeleting).Scan(&sizeMB)
-	return sizeMB, err
+	var size int64
+	err := r.db.QueryRow(ctx, query, ownerID, tag, replacementImageID, model.ImageStatusBuilding, model.ImageStatusDeleting).Scan(&size)
+	return size, err
 }
 
-func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, error) {
-	query := `SELECT COALESCE(SUM(size_mb), 0) FROM images WHERE status != $1`
-	var usedMB int64
-	err := r.db.QueryRow(ctx, query, model.ImageStatusDeleting).Scan(&usedMB)
-	return usedMB, err
+// GetTotalImageBytes is the disk all images use, in bytes.
+func (r *ImageRepository) GetTotalImageBytes(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(SUM(size_bytes), 0)::bigint FROM images WHERE status != $1`
+	var used int64
+	err := r.db.QueryRow(ctx, query, model.ImageStatusDeleting).Scan(&used)
+	return used, err
 }
 
 // UpdateBuildAndImageSizeTx records a build's terminal status and makes its
@@ -254,7 +259,7 @@ func (r *ImageRepository) GetTotalUsedDiskSpace(ctx context.Context) (int64, err
 // Registry cleanup job for each replaced row's repository and Registry tag, so
 // the replaced manifest cannot outlive its row. It returns the replaced rows; a
 // build that was already terminal changes nothing and replaces none.
-func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int, digest *string) ([]model.Image, error) {
+func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeBytes int64, digest *string) ([]model.Image, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, wrapOp("image update build and image size", err)
@@ -328,7 +333,7 @@ func (r *ImageRepository) UpdateBuildAndImageSizeTx(ctx context.Context, buildID
 		return nil, wrapOp("image update build and image size", err)
 	}
 
-	if _, err = tx.Exec(ctx, "UPDATE images SET size_mb = $1, status = $2, digest = $3, last_observed_at = NOW(), last_error = NULL WHERE id = $4", sizeMB, model.ImageStatusAvailable, digest, imageID); err != nil {
+	if _, err = tx.Exec(ctx, "UPDATE images SET size_bytes = $1, status = $2, digest = $3, last_observed_at = NOW(), last_error = NULL WHERE id = $4", sizeBytes, model.ImageStatusAvailable, digest, imageID); err != nil {
 		return nil, wrapOp("image update build and image size", err)
 	}
 
@@ -380,13 +385,13 @@ func (r *ImageRepository) MarkBuildFailedAndDeleteImageTx(ctx context.Context, b
 	return commitTx(ctx, tx, "mark build failed and delete image")
 }
 
-const imageColumns = `id, owner_id, tag, registry_tag, digest, size_mb, status, last_observed_at, last_error, created_at`
+const imageColumns = `id, owner_id, tag, registry_tag, digest, size_bytes, status, last_observed_at, last_error, created_at`
 
 func scanImage(s scanner) (model.Image, error) {
 	var img model.Image
 	var lastObservedAt *time.Time
 	var lastError *string
-	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.RegistryTag, &img.Digest, &img.SizeMB, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
+	if err := s.Scan(&img.ID, &img.OwnerID, &img.Tag, &img.RegistryTag, &img.Digest, &img.SizeBytes, &img.Status, &lastObservedAt, &lastError, &img.CreatedAt); err != nil {
 		return model.Image{}, err
 	}
 	img.LastObservedAt = lastObservedAt

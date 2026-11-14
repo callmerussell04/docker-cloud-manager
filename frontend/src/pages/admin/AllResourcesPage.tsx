@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Pagination } from '@/components/ui/Pagination';
 import { Badge } from '@/components/ui/Badge';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
@@ -386,7 +386,7 @@ export function AllResourcesPage() {
                         <div className="font-medium block truncate" title={img.tag}>{img.tag}</div>
                       </div>
                       <div className="min-w-0 text-sm">
-                        <Badge variant="info">{img.size_mb} MB</Badge>
+                        <Badge variant="info">{formatBytes(img.size_bytes)}</Badge>
                       </div>
                       <div className="min-w-0">
                         <Badge variant={statusVariant(img.status)}>{statusLabel(t, img.status)}</Badge>

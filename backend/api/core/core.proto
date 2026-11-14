@@ -402,14 +402,14 @@ message CompleteBuildRequest {
 message ImageData {
   string id = 1;
   string tag = 2;
-  int32 size_mb = 3;
-  reserved 4;
-  reserved "is_custom";
+  reserved 3, 4;
+  reserved "size_mb", "is_custom";
   int64 created_at = 5;
   string owner_id = 6;
   string owner_username = 7;
   string status = 8;
   string last_error = 9;
+  int64 size_bytes = 10;
 }
 
 message ImageListResponse {

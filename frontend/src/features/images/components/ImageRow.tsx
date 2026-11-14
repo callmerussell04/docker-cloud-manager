@@ -2,7 +2,7 @@ import { Trash2, Disc, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { type ImageData } from '../types';
 import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
 import { useDeleteImage } from '../hooks';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
@@ -34,7 +34,7 @@ export function ImageRow({ image }: ImageRowProps) {
       </div>
 
       <div className="min-w-0 text-sm">
-        <Badge variant="info">{image.size_mb} MB</Badge>
+        <Badge variant="info">{formatBytes(image.size_bytes)}</Badge>
       </div>
 
       <div className="min-w-0 text-sm">

@@ -296,7 +296,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		ID:        imageID,
 		OwnerID:   ownerID,
 		Tag:       "demo:latest",
-		SizeMB:    12,
+		SizeBytes: 12<<20 + 1,
 		Status:    model.ImageStatusAvailable,
 		CreatedAt: time.Unix(100, 0),
 	}}, 1, nil)
@@ -324,7 +324,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, images.Images, 1)
 	require.Equal(t, "alice", images.Images[0].OwnerUsername)
-	require.Equal(t, int32(12), images.Images[0].SizeMb)
+	require.Equal(t, int64(12<<20+1), images.Images[0].SizeBytes)
 
 	started, err := client.StartBuildRecord(systemCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)

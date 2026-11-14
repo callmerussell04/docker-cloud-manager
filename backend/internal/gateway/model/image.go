@@ -3,7 +3,7 @@ package model
 type Image struct {
 	ID            string
 	Tag           string
-	SizeMB        int32
+	SizeBytes     int64
 	Status        string
 	LastError     string
 	CreatedAt     int64

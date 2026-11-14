@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
@@ -41,9 +40,9 @@ type reservationLedger struct {
 	userReservedCPUMillicores int64
 
 	// userDiskCounted is false when no image repository counts disk usage.
-	userDiskCounted    bool
-	userDiskQuotaMB    int64
-	userReservedDiskMB int64
+	userDiskCounted       bool
+	userDiskQuotaBytes    int64
+	userReservedDiskBytes int64
 
 	systemReservedMemoryBytes   int64
 	systemReservedCPUMillicores int64
@@ -107,11 +106,11 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 	}
 	if ledger.userDiskCounted {
 		if req.userDiskBytes > 0 {
-			if projected := ledger.userReservedDiskMB + model.BytesToMBRoundedUp(req.userDiskBytes); projected > ledger.userDiskQuotaMB {
-				return admissionVerdict{limit: limitUserDisk, projected: projected, capacity: ledger.userDiskQuotaMB}
+			if projected := ledger.userReservedDiskBytes + req.userDiskBytes; projected > ledger.userDiskQuotaBytes {
+				return admissionVerdict{limit: limitUserDisk, projected: projected, capacity: ledger.userDiskQuotaBytes}
 			}
-		} else if ledger.userReservedDiskMB >= ledger.userDiskQuotaMB {
-			return admissionVerdict{limit: limitUserDisk, projected: ledger.userReservedDiskMB, capacity: ledger.userDiskQuotaMB}
+		} else if ledger.userReservedDiskBytes >= ledger.userDiskQuotaBytes {
+			return admissionVerdict{limit: limitUserDisk, projected: ledger.userReservedDiskBytes, capacity: ledger.userDiskQuotaBytes}
 		}
 	}
 	if ledger.hostCounted {
@@ -203,8 +202,8 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, cha
 	}
 	if s.images != nil {
 		ledger.userDiskCounted = true
-		ledger.userDiskQuotaMB = quota.DiskMB
-		if ledger.userReservedDiskMB, err = reservedDiskMB(ctx, ownerID, s.images, s.volumes); err != nil {
+		ledger.userDiskQuotaBytes = quota.DiskBytes()
+		if ledger.userReservedDiskBytes, err = reservedDiskBytes(ctx, ownerID, s.images, s.volumes); err != nil {
 			return ledger, err
 		}
 	}

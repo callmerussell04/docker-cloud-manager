@@ -30,7 +30,7 @@ func newContainerRepository(t *testing.T) *coremocks.ContainerRepository {
 func newContainerImageRepository(t *testing.T) *coremocks.ContainerImageRepository {
 	t.Helper()
 	repo := coremocks.NewContainerImageRepository(t)
-	repo.EXPECT().GetUserUsedDiskSpace(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
+	repo.EXPECT().GetUserImageBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 	return repo
 }
 

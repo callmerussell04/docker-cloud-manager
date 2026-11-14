@@ -44,7 +44,7 @@ type volumeDiskUsageRepository interface {
 }
 
 type volumeImageDiskRepository interface {
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type volumeStateRepository interface {

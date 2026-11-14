@@ -319,7 +319,7 @@ export const en: Record<keyof typeof ru, string> = {
   'containers.action.stop': 'stop',
   'containers.action.delete': 'delete',
   'images.title': 'Images and Builds',
-  'images.pageSize': 'On page: {size} MB',
+  'images.pageSize': 'On page: {size}',
   'images.build': 'Build',
   'images.myImages': 'My images',
   'images.buildHistory': 'Build history',

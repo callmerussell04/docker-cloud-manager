@@ -2837,12 +2837,12 @@ type ImageData struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Tag           string                 `protobuf:"bytes,2,opt,name=tag,proto3" json:"tag,omitempty"`
-	SizeMb        int32                  `protobuf:"varint,3,opt,name=size_mb,json=sizeMb,proto3" json:"size_mb,omitempty"`
 	CreatedAt     int64                  `protobuf:"varint,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	OwnerId       string                 `protobuf:"bytes,6,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername string                 `protobuf:"bytes,7,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
 	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
 	LastError     string                 `protobuf:"bytes,9,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	SizeBytes     int64                  `protobuf:"varint,10,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2891,13 +2891,6 @@ func (x *ImageData) GetTag() string {
 	return ""
 }
 
-func (x *ImageData) GetSizeMb() int32 {
-	if x != nil {
-		return x.SizeMb
-	}
-	return 0
-}
-
 func (x *ImageData) GetCreatedAt() int64 {
 	if x != nil {
 		return x.CreatedAt
@@ -2931,6 +2924,13 @@ func (x *ImageData) GetLastError() string {
 		return x.LastError
 	}
 	return ""
+}
+
+func (x *ImageData) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
 }
 
 type ImageListResponse struct {
@@ -5296,18 +5296,20 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\bbuild_id\x18\x01 \x01(\tR\abuildId\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
 	"\x06status\x18\x03 \x01(\tR\x06status\x12\x17\n" +
-	"\asize_mb\x18\x04 \x01(\x05R\x06sizeMb\"\xef\x01\n" +
+	"\asize_mb\x18\x04 \x01(\x05R\x06sizeMb\"\x84\x02\n" +
 	"\tImageData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
-	"\x03tag\x18\x02 \x01(\tR\x03tag\x12\x17\n" +
-	"\asize_mb\x18\x03 \x01(\x05R\x06sizeMb\x12\x1d\n" +
+	"\x03tag\x18\x02 \x01(\tR\x03tag\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\x03R\tcreatedAt\x12\x19\n" +
 	"\bowner_id\x18\x06 \x01(\tR\aownerId\x12%\n" +
 	"\x0eowner_username\x18\a \x01(\tR\rownerUsername\x12\x16\n" +
 	"\x06status\x18\b \x01(\tR\x06status\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\t \x01(\tR\tlastErrorJ\x04\b\x04\x10\x05R\tis_custom\"<\n" +
+	"last_error\x18\t \x01(\tR\tlastError\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\n" +
+	" \x01(\x03R\tsizeBytesJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\asize_mbR\tis_custom\"<\n" +
 	"\x11ImageListResponse\x12'\n" +
 	"\x06images\x18\x01 \x03(\v2\x0f.core.ImageDataR\x06images\"y\n" +
 	"\x13CreateVolumeRequest\x12\x12\n" +

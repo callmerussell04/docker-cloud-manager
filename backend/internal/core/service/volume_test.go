@@ -34,7 +34,7 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 		ImageRepo:  imageRepo})
 	var saved model.Volume
 
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
 
@@ -82,7 +82,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			params:      model.VolumeCreateParams{Name: "data"},
 			diskQuotaMB: 1024,
 			setup: func(repo *volumeRepoMock, imageRepo *coremocks.VolumeImageDiskRepository) {
-				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+				imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
 			},
@@ -94,7 +94,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 			params:      model.VolumeCreateParams{Name: "data"},
 			diskQuotaMB: 1,
 			setup: func(repo *volumeRepoMock, imageRepo *coremocks.VolumeImageDiskRepository) {
-				imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+				imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
 			wantErr: apperrors.ErrQuotaExceeded,
@@ -155,7 +155,7 @@ func TestVolumeServiceCreateReservesItsSize(t *testing.T) {
 				return func() { held = false }, nil
 			}).Once()
 			lifecycle.onCreate = func() { require.True(t, held, "the volume is queued under the owner capacity lock") }
-			imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(tc.imagesMB, nil)
+			imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(tc.imagesMB<<20, nil)
 			repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(tc.volumesBytes, nil)
 			repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
@@ -371,7 +371,7 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 		DiskMetrics:  metrics,
 		HostDiskPath: "/host"})
 
-	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
+	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
 

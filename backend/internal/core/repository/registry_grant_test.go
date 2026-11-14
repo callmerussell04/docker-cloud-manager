@@ -218,7 +218,7 @@ func TestRegistryGrantClaimAndCleanupFactsUseTheRowsRegistryTag(t *testing.T) {
 	owner := uuid.New()
 	repo := owner.String() + "_app"
 	legacyID := uuid.New()
-	require.NoError(t, images.Save(ctx, model.Image{ID: legacyID, OwnerID: owner, Tag: "app:latest", RegistryTag: "latest", SizeMB: 1, Status: model.ImageStatusAvailable}))
+	require.NoError(t, images.Save(ctx, model.Image{ID: legacyID, OwnerID: owner, Tag: "app:latest", RegistryTag: "latest", SizeBytes: 1 << 20, Status: model.ImageStatusAvailable}))
 
 	imageID, buildID := uuid.New(), uuid.New()
 	require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "app:latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))

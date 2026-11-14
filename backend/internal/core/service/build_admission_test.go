@@ -54,7 +54,7 @@ func TestBuildServiceAdmission(t *testing.T) {
 					owner := uuid.New()
 					deps.Quotas = testQuotas(t, deps.Config, map[uuid.UUID]model.UserQuota{owner: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}})
 					images := coremocks.NewBuildImageRepository(t)
-					images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Maybe()
+					images.EXPECT().GetUserImageBytes(mock.Anything, owner).Return(int64(0), nil).Maybe()
 					deps.Images = images
 					repo := coremocks.NewBuildRepository(t)
 					deps.Repository = repo
@@ -129,7 +129,7 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 			images := coremocks.NewBuildImageRepository(t)
 			staged := coremocks.NewStagedObjectRepository(t)
 			if scenario.statErr == nil {
-				images.EXPECT().GetUserUsedDiskSpace(mock.Anything, owner).Return(int64(0), nil).Once()
+				images.EXPECT().GetUserImageBytes(mock.Anything, owner).Return(int64(0), nil).Once()
 				staged.EXPECT().ActiveBytesByOwner(mock.Anything, owner).Return(int64(0), nil).Once()
 			}
 			if scenario.statErr == nil && scenario.quotaDiskMB > 1 {

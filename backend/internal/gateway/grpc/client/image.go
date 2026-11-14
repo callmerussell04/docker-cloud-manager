@@ -37,7 +37,7 @@ func imagesFromProto(items []*coreapi.ImageData) []model.Image {
 		result = append(result, model.Image{
 			ID:            item.GetId(),
 			Tag:           item.GetTag(),
-			SizeMB:        item.GetSizeMb(),
+			SizeBytes:     item.GetSizeBytes(),
 			Status:        item.GetStatus(),
 			LastError:     item.GetLastError(),
 			CreatedAt:     item.GetCreatedAt(),

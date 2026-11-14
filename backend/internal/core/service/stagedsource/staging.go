@@ -6,6 +6,7 @@ package stagedsource
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
@@ -43,7 +44,7 @@ type QuotaProvider interface {
 
 // ReservedDiskReader reads the disk an owner already reserves, in MB.
 type ReservedDiskReader interface {
-	ReservedDiskMB(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	ReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 // HostDiskMetrics reads host disk usage for the disk floor.
@@ -56,8 +57,8 @@ type ConfigProvider interface {
 	Get() config.SystemConfig
 }
 
-// unlimitedDiskQuotaMB is the disk quota when no quota provider is wired.
-const unlimitedDiskQuotaMB = 1<<62 - 1
+// unlimitedDiskQuotaBytes is the disk quota when no quota provider is wired.
+const unlimitedDiskQuotaBytes = math.MaxInt64
 
 // Deps are the capabilities staging needs. A nil Repository turns staging off:
 // nothing is reserved, resized or released and no quota is checked. A nil
@@ -128,17 +129,17 @@ func (s *Staging) Reserve(ctx context.Context, r Reservation) error {
 // checkDiskQuota is the one staged disk quota check. Each rule keeps the read
 // order its caller has always used.
 func (s *Staging) checkDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64, rule QuotaRule) error {
-	var quotaMB, usedMB, stagedBytes int64
+	var quotaBytes, usedBytes, stagedBytes int64
 	var err error
 	switch rule {
 	case CountReservedAndStaged:
 		if s.reservedDisk == nil {
 			return errors.New("staged source: reserved disk reader is required to count reserved disk")
 		}
-		if quotaMB, err = s.diskQuotaMB(ctx, ownerID); err != nil {
+		if quotaBytes, err = s.diskQuotaBytes(ctx, ownerID); err != nil {
 			return err
 		}
-		if usedMB, err = s.reservedDisk.ReservedDiskMB(ctx, ownerID); err != nil {
+		if usedBytes, err = s.reservedDisk.ReservedDiskBytes(ctx, ownerID); err != nil {
 			return err
 		}
 		if stagedBytes, err = s.repo.ActiveBytesByOwner(ctx, ownerID); err != nil {
@@ -148,28 +149,28 @@ func (s *Staging) checkDiskQuota(ctx context.Context, ownerID uuid.UUID, incomin
 		if stagedBytes, err = s.repo.ActiveBytesByOwner(ctx, ownerID); err != nil {
 			return err
 		}
-		if quotaMB, err = s.diskQuotaMB(ctx, ownerID); err != nil {
+		if quotaBytes, err = s.diskQuotaBytes(ctx, ownerID); err != nil {
 			return err
 		}
 	default:
 		return errors.New("staged source: unknown disk quota rule")
 	}
-	if usedMB+model.BytesToMBRoundedUp(stagedBytes+incomingBytes) > quotaMB {
+	if usedBytes+stagedBytes+incomingBytes > quotaBytes {
 		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
 	}
 	return nil
 }
 
-// diskQuotaMB is the one place staging reads the owner's disk quota.
-func (s *Staging) diskQuotaMB(ctx context.Context, ownerID uuid.UUID) (int64, error) {
+// diskQuotaBytes is the one place staging reads the owner's disk quota.
+func (s *Staging) diskQuotaBytes(ctx context.Context, ownerID uuid.UUID) (int64, error) {
 	if s.quotas == nil {
-		return unlimitedDiskQuotaMB, nil
+		return unlimitedDiskQuotaBytes, nil
 	}
 	quota, err := s.quotas.EffectiveUserQuota(ctx, ownerID)
 	if err != nil {
 		return 0, err
 	}
-	return quota.DiskMB, nil
+	return quota.DiskBytes(), nil
 }
 
 // Resize records the stored size of a staged object, once the upload knows it.

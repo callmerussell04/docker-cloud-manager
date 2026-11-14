@@ -9,7 +9,7 @@ import { BuildRow } from '@/features/images/components/BuildRow';
 import { CreateBuildModal } from '@/features/images/components/CreateBuildModal';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import { type BuildData } from '@/features/images/types';
-import { cn } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import { tableLayouts } from '@/components/ui/tableLayouts';
 import { useT } from '@/lib/i18n';
 import { useBuildAvailability, useBuilds, useImages } from '@/features/images/hooks';
@@ -43,7 +43,7 @@ export function ImagesPage() {
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
   const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()));
 
-  const totalSizeMB = images.reduce((sum, img) => sum + img.size_mb, 0);
+  const totalSizeBytes = images.reduce((sum, img) => sum + img.size_bytes, 0);
 
   const handleTabChange = (tab: Tab) => {
     setActiveTab(tab);
@@ -66,7 +66,7 @@ export function ImagesPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{t('images.title')}</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            {t('images.pageSize', { size: totalSizeMB })}
+            {t('images.pageSize', { size: formatBytes(totalSizeBytes) })}
           </p>
         </div>
         

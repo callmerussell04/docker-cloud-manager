@@ -30,8 +30,8 @@ type StatsVolumeRepository interface {
 }
 
 type StatsImageRepository interface {
-	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
-	GetTotalUsedDiskSpace(ctx context.Context) (int64, error)
+	GetUserImageBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetTotalImageBytes(ctx context.Context) (int64, error)
 	List(ctx context.Context, opts model.ListOptions) ([]model.Image, int, error)
 	CountAll(ctx context.Context) (int, error)
 }
@@ -172,11 +172,11 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	}
 
 	stats.DiskQuotaMB = int(quota.DiskMB)
-	diskReserved, err := reservedDiskMB(ctx, ownerID, s.imgRepo, s.volRepo)
+	diskReserved, err := reservedDiskBytes(ctx, ownerID, s.imgRepo, s.volRepo)
 	if err != nil {
 		return model.UserStats{}, err
 	}
-	stats.DiskUsedMB = int(diskReserved)
+	stats.DiskUsedMB = int(model.BytesToMBRoundedUp(diskReserved))
 
 	_, imagesTotal, err := s.imgRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
 	if err != nil {
@@ -226,7 +226,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 	reservedBuildMemory := reservedBuildSlots(int64(activeBuilds), cfg) * cfg.BuildMemoryBytes
 	totalReservedMemory := reservedMemory + reservedBuildMemory
 
-	imageUsedMB, err := s.imgRepo.GetTotalUsedDiskSpace(ctx)
+	imageUsedBytes, err := s.imgRepo.GetTotalImageBytes(ctx)
 	if err != nil {
 		return model.SystemMonitoring{}, err
 	}
@@ -276,7 +276,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DCMBorrowedMemoryBytes:      s.borrowed.BorrowedMemoryBytes(),
 		RootfsQuotaStatus:           s.rootfsQuota.RootfsQuotaStatus(),
 		VolumeSizeMode:              s.volumeSize.VolumeSizeMode(),
-		DCMDiskUsedBytes:            imageUsedMB*bytesPerMB + volumeUsedBytes,
+		DCMDiskUsedBytes:            imageUsedBytes + volumeUsedBytes,
 		DCMReservedVolumeBytes:      reservedVolumeBytes,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
 		AdmissionStatus:             admissionStatus,

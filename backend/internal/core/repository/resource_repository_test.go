@@ -42,7 +42,7 @@ func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 	require.Empty(t, replaced)
 	img, err := imageRepo.GetByID(ctx, imageID)
 	require.NoError(t, err)
-	require.Equal(t, 42, img.SizeMB)
+	require.EqualValues(t, 42, img.SizeBytes)
 	require.Equal(t, model.ImageStatusAvailable, img.Status)
 	build, err := buildRepo.GetByID(ctx, buildID)
 	require.NoError(t, err)
