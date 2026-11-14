@@ -277,6 +277,7 @@ func (r *deploymentRepo) CompleteComposeDeploymentJob(_ context.Context, id uuid
 	}
 	r.job.Status = status
 	r.job.ErrorMessage = errorMsg
+	r.job.PlanJSON = nil
 	r.completedStatus = status
 	if errorMsg != nil {
 		r.completedMessage = *errorMsg

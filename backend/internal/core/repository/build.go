@@ -407,10 +407,13 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 	return items, nil
 }
 
+// MarkBuildOutboxPublished records the broker's confirmation and empties the
+// payload: it holds the build arguments, and a published row is never queued
+// again.
 func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.UUID) error {
 	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
-		SET status = $1, published_at = NOW(), updated_at = NOW(), last_error = NULL
+		SET status = $1, payload = '{}'::jsonb, published_at = NOW(), updated_at = NOW(), last_error = NULL
 		WHERE id = $2
 	`, model.BuildOutboxStatusPublished, id)
 	if err != nil {
@@ -423,6 +426,8 @@ func (r *BuildRepository) MarkBuildOutboxPublished(ctx context.Context, id uuid.
 	return nil
 }
 
+// MarkBuildOutboxDiscarded ends a row that must not be published and empties
+// its payload, as MarkBuildOutboxPublished does.
 func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
 	var lastError *string
 	if cause != nil {
@@ -430,7 +435,7 @@ func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.
 	}
 	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
-		SET status = $1, last_error = $2, updated_at = NOW()
+		SET status = $1, payload = '{}'::jsonb, last_error = $2, updated_at = NOW()
 		WHERE id = $3
 	`, model.BuildOutboxStatusDiscarded, lastError, id)
 	if err != nil {
@@ -458,6 +463,9 @@ func scanBuild(s scanner) (model.Build, error) {
 	return b, nil
 }
 
+// MarkBuildOutboxPending returns a leased row to the queue after a failed
+// publication. Only a publishing row qualifies: a published or discarded row
+// has no payload left to publish.
 func (r *BuildRepository) MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error {
 	var lastError *string
 	if cause != nil {
@@ -467,8 +475,8 @@ func (r *BuildRepository) MarkBuildOutboxPending(ctx context.Context, id uuid.UU
 	res, err := r.db.Exec(ctx, `
 		UPDATE build_queue_outbox
 		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE id = $3
-	`, model.BuildOutboxStatusPending, lastError, id)
+		WHERE id = $3 AND status = $4
+	`, model.BuildOutboxStatusPending, lastError, id, model.BuildOutboxStatusPublishing)
 	if err != nil {
 		return wrapOp("build mark build outbox pending", err)
 	}

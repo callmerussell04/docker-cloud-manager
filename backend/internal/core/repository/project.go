@@ -231,10 +231,13 @@ func (r *ProjectRepository) RequeueComposeDeploymentJob(ctx context.Context, id 
 	return nil
 }
 
+// CompleteComposeDeploymentJob ends a job with a terminal status and removes
+// its plan, which holds environment values and build arguments and is read
+// only while the job is active.
 func (r *ProjectRepository) CompleteComposeDeploymentJob(ctx context.Context, id uuid.UUID, status string, errorMsg *string) error {
 	res, err := r.db.Exec(ctx, `
 		UPDATE compose_deployment_jobs
-		SET status = $1, error_message = $2, finished_at = NOW(), updated_at = NOW()
+		SET status = $1, error_message = $2, plan_json = NULL, finished_at = NOW(), updated_at = NOW()
 		WHERE id = $3
 	`, status, errorMsg, id)
 	if err != nil {
