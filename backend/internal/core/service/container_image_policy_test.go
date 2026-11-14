@@ -271,3 +271,27 @@ func TestContainerCreateResolvesATagUnderRebuild(t *testing.T) {
 		})
 	}
 }
+
+func TestContainerCreateRejectsTwoMountsAtOnePath(t *testing.T) {
+	for _, tc := range []struct{ name, first, second string }{
+		{name: "same path", first: "/data", second: "/data"},
+		{name: "same path with a trailing slash", first: "/data", second: "/data/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// No store, volume or Docker call is expected: the request is refused before any of them.
+			svc := newTestContainerService(t, service.ContainerServiceDeps{HostDiskPath: "", Logger: slog.Default()})
+
+			id, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.ContainerCreateParams{
+				Name: "web", ImageTag: "nginx:latest",
+				VolumeMounts: []model.VolumeMountParams{
+					{VolumeID: uuid.New(), MountPath: tc.first},
+					{VolumeID: uuid.New(), MountPath: tc.second},
+				},
+			})
+
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			require.ErrorContains(t, err, "mount path is used more than once")
+			require.Equal(t, uuid.Nil, id)
+		})
+	}
+}

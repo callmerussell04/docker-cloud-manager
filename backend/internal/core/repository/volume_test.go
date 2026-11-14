@@ -171,3 +171,33 @@ func TestContainerRepositoryListsRunningWritersOfVolume(t *testing.T) {
 	require.Equal(t, "docker-"+writer.String()[:8], got[0].DockerID)
 	require.Equal(t, model.ContainerStatusRunning, got[0].Status)
 }
+
+func TestVolumeMountsAllowOneVolumePerContainerPath(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	containers := repository.NewContainerRepository(db, db)
+	volumes := repository.NewVolumeRepository(db)
+	ownerID, containerID := uuid.New(), uuid.New()
+	first, second := uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{first, second} {
+		require.NoError(t, volumes.Save(ctx, model.Volume{ID: id, OwnerID: ownerID, Name: "v" + id.String()[:8], DockerName: "vol_" + id.String(), SizeBytes: volumeTestMiB}))
+	}
+	container := model.Container{
+		ID: containerID, OwnerID: ownerID, Name: "web", ImageTag: "nginx:latest",
+		Status: model.ContainerStatusPending, DesiredStatus: model.ContainerStatusCreated, BaseMemoryReservation: 128, BaseCPUReservation: 100,
+	}
+	operationID := uuid.New()
+
+	err := containers.SaveWithMountsOperationAndOutbox(ctx, container,
+		[]model.VolumeMount{
+			{ContainerID: containerID, VolumeID: first, MountPath: "/data"},
+			{ContainerID: containerID, VolumeID: second, MountPath: "/data"},
+		},
+		model.ResourceOperation{ID: operationID, ResourceType: model.ResourceTypeContainer, ResourceID: containerID, OwnerID: ownerID, Operation: model.OperationCreate, Status: model.OperationStatusPending},
+		model.ContainerLifecycleOutbox{ID: uuid.New(), OperationID: operationID, ContainerID: containerID, Exchange: "x", RoutingKey: "k", Payload: []byte(`{}`), Status: model.ContainerOutboxStatusPending},
+		false, false)
+
+	require.Error(t, err)
+	_, getErr := containers.GetByID(ctx, containerID)
+	require.ErrorIs(t, getErr, apperrors.ErrNotFound)
+}

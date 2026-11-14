@@ -2,6 +2,7 @@ package validation
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 
@@ -90,6 +91,21 @@ func ImageTag(tag string) error {
 		return invalid
 	}
 	return nil
+}
+
+// DuplicateMountPath reports whether two of the mount paths name the same
+// container path. Paths are compared after cleaning, as Docker compares mount
+// points, so "/data" and "/data/" are the same path.
+func DuplicateMountPath(paths []string) bool {
+	seen := make(map[string]struct{}, len(paths))
+	for _, p := range paths {
+		clean := path.Clean(p)
+		if _, ok := seen[clean]; ok {
+			return true
+		}
+		seen[clean] = struct{}{}
+	}
+	return false
 }
 
 func MountPath(path string) error {

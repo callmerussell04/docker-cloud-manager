@@ -212,6 +212,16 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if err := validation.DomainPrefix(params.DomainPrefix); err != nil {
 		return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
+	mountPaths := make([]string, 0, len(params.VolumeMounts))
+	for _, vm := range params.VolumeMounts {
+		if err := validation.MountPath(vm.MountPath); err != nil {
+			return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+		}
+		mountPaths = append(mountPaths, vm.MountPath)
+	}
+	if validation.DuplicateMountPath(mountPaths) {
+		return uuid.Nil, fmt.Errorf("%w: mount path is used more than once", apperrors.ErrBadRequest)
+	}
 	cfg := s.config.Get()
 	if validation.ForbiddenDomainPrefix(params.DomainPrefix, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns) {
 		return uuid.Nil, s.domainPrefixForbiddenError(params.DomainPrefix)
@@ -290,10 +300,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	var dbMounts []model.VolumeMount
 
 	for _, vm := range params.VolumeMounts {
-		if err := validation.MountPath(vm.MountPath); err != nil {
-			return uuid.Nil, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
-		}
-
 		vol, err := s.volumeRepo.GetByID(ctx, vm.VolumeID)
 		if err != nil {
 			return uuid.Nil, err

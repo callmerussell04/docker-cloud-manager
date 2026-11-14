@@ -779,3 +779,20 @@ func TestParserRejectionsNeverEchoRejectedInput(t *testing.T) {
 		})
 	}
 }
+
+// Compose keeps the last volume declared for a container path, so a service
+// can never reach container create with two mounts at one path.
+func TestParserKeepsTheLastVolumeDeclaredForAMountPath(t *testing.T) {
+	t.Parallel()
+	yaml := "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/srv/app\n      - cache:/srv/app/\nvolumes:\n  data: {}\n  cache: {}\n"
+
+	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", []byte(yaml), nil, "")
+
+	if err != nil {
+		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+	}
+	web := findComposeService(t, project.Services, "web")
+	if len(web.VolumeMounts) != 1 || web.VolumeMounts[0].VolumeName != "cache" || web.VolumeMounts[0].MountPath != "/srv/app" {
+		t.Fatalf("volume mounts = %+v, want only cache at /srv/app", web.VolumeMounts)
+	}
+}
