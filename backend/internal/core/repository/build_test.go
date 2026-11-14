@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
@@ -14,6 +13,73 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 )
+
+func queueTaggedBuild(t *testing.T, db *pgxpool.Pool, owner uuid.UUID, tag string) (buildID, imageID uuid.UUID) {
+	t.Helper()
+	buildID, imageID = uuid.New(), uuid.New()
+	require.NoError(t, repository.NewBuildRepository(db, db).CreateQueuedBuild(context.Background(),
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: tag},
+		model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending},
+		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "x", RoutingKey: "k", Payload: []byte(`{}`)}))
+	return buildID, imageID
+}
+
+func TestBuildKeepsItsTagAndImageWhileTheImageExists(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	owner := uuid.New()
+	buildID, imageID := queueTaggedBuild(t, db, owner, "app:v1")
+
+	build, err := repository.NewBuildRepository(db, db).GetByID(ctx, buildID)
+
+	require.NoError(t, err)
+	require.Equal(t, "app:v1", build.Tag)
+	require.Equal(t, imageID, build.ImageID)
+}
+
+func TestFailedBuildKeepsItsTagWithoutAnImage(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	builds := repository.NewBuildRepository(db, db)
+	owner := uuid.New()
+	buildID, imageID := queueTaggedBuild(t, db, owner, "app:v1")
+
+	require.NoError(t, repository.NewImageRepository(db).MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailed))
+
+	build, err := builds.GetByID(ctx, buildID)
+	require.NoError(t, err)
+	require.Equal(t, model.BuildStatusFailed, build.Status)
+	require.Equal(t, "app:v1", build.Tag)
+	require.Equal(t, uuid.Nil, build.ImageID, "the image record is gone, so the build names none")
+	listed, total, err := builds.List(ctx, model.ListOptions{OwnerID: &owner})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, "app:v1", listed[0].Tag)
+	require.Equal(t, uuid.Nil, listed[0].ImageID)
+}
+
+func TestRebuildLeavesTheOlderBuildWithItsTag(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	builds := repository.NewBuildRepository(db, db)
+	images := repository.NewImageRepository(db)
+	owner := uuid.New()
+	firstBuild, firstImage := queueTaggedBuild(t, db, owner, "app:v1")
+	_, err := images.UpdateBuildAndImageSizeTx(ctx, firstBuild, firstImage, model.BuildStatusSuccess, 10, nil)
+	require.NoError(t, err)
+	secondBuild, secondImage := queueTaggedBuild(t, db, owner, "app:v1")
+
+	_, err = images.UpdateBuildAndImageSizeTx(ctx, secondBuild, secondImage, model.BuildStatusSuccess, 12, nil)
+	require.NoError(t, err)
+
+	older, err := builds.GetByID(ctx, firstBuild)
+	require.NoError(t, err)
+	require.Equal(t, "app:v1", older.Tag)
+	require.Equal(t, uuid.Nil, older.ImageID, "its image record was replaced")
+	newer, err := builds.GetByID(ctx, secondBuild)
+	require.NoError(t, err)
+	require.Equal(t, secondImage, newer.ImageID)
+}
 
 const buildOutboxSecretPayload = `{"build_args": {"NPM_TOKEN": "s3cret"}, "build_id": "b"}`
 
@@ -86,37 +152,4 @@ func TestBuildOutboxPublishedRowNeverReturnsToPending(t *testing.T) {
 	entries, err := repo.LeasePendingBuildOutbox(ctx, 10)
 	require.NoError(t, err)
 	require.Empty(t, entries)
-}
-
-func TestComposeDeploymentPlanIsRemovedWhenTheJobEnds(t *testing.T) {
-	for _, status := range []string{
-		model.ComposeDeploymentStatusSucceeded,
-		model.ComposeDeploymentStatusFailed,
-		model.ComposeDeploymentStatusCanceled,
-	} {
-		t.Run(status, func(t *testing.T) {
-			ctx := context.Background()
-			db := dbtest.OpenCorePostgres(t)
-			repo := repository.NewProjectRepository(db)
-			ownerID, projectID, jobID := uuid.New(), uuid.New(), uuid.New()
-			require.NoError(t, repo.CreateWithComposeDeploymentJob(ctx,
-				model.Project{ID: projectID, OwnerID: ownerID, Name: "demo", Status: model.ProjectStatusBuilding},
-				model.ComposeDeploymentJob{ID: jobID, ProjectID: projectID, OwnerID: ownerID, SourceType: model.ComposeSourceTypeUpload, SourceObjectKey: "compose-sources/demo.zip", Status: model.ComposeDeploymentStatusQueued},
-				model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)}))
-			_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
-			require.NoError(t, err)
-			require.True(t, started)
-			resourceMap := []byte(`{"container_ids": {"web": "c1"}}`)
-			require.NoError(t, repo.SaveComposeDeploymentPlan(ctx, jobID, model.ComposeDeploymentStageCreating,
-				[]byte(`{"services": [{"env_vars": {"DB_PASSWORD": "s3cret"}}]}`), resourceMap))
-
-			require.NoError(t, repo.CompleteComposeDeploymentJob(ctx, jobID, status, nil))
-
-			job, err := repo.GetComposeDeploymentJob(ctx, jobID)
-			require.NoError(t, err)
-			require.Equal(t, status, job.Status)
-			require.Empty(t, job.PlanJSON, "the plan holds environment values and build arguments")
-			require.JSONEq(t, string(resourceMap), string(job.ResourceMapJSON), "the resource map holds only IDs and stays")
-		})
-	}
 }

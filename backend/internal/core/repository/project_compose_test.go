@@ -308,3 +308,36 @@ func TestProjectRepositoryListsAnOwnersCancelableComposeJobs(t *testing.T) {
 		require.Equal(t, ownerID, job.OwnerID)
 	}
 }
+
+func TestComposeDeploymentPlanIsRemovedWhenTheJobEnds(t *testing.T) {
+	for _, status := range []string{
+		model.ComposeDeploymentStatusSucceeded,
+		model.ComposeDeploymentStatusFailed,
+		model.ComposeDeploymentStatusCanceled,
+	} {
+		t.Run(status, func(t *testing.T) {
+			ctx := context.Background()
+			db := dbtest.OpenCorePostgres(t)
+			repo := repository.NewProjectRepository(db)
+			ownerID, projectID, jobID := uuid.New(), uuid.New(), uuid.New()
+			require.NoError(t, repo.CreateWithComposeDeploymentJob(ctx,
+				model.Project{ID: projectID, OwnerID: ownerID, Name: "demo", Status: model.ProjectStatusBuilding},
+				model.ComposeDeploymentJob{ID: jobID, ProjectID: projectID, OwnerID: ownerID, SourceType: model.ComposeSourceTypeUpload, SourceObjectKey: "compose-sources/demo.zip", Status: model.ComposeDeploymentStatusQueued},
+				model.ComposeDeploymentOutbox{ID: uuid.New(), JobID: jobID, Exchange: queue.ComposeExchangeName, RoutingKey: queue.ComposeRoutingKey, Payload: []byte(`{}`)}))
+			_, started, err := repo.StartComposeDeploymentJob(ctx, jobID)
+			require.NoError(t, err)
+			require.True(t, started)
+			resourceMap := []byte(`{"container_ids": {"web": "c1"}}`)
+			require.NoError(t, repo.SaveComposeDeploymentPlan(ctx, jobID, model.ComposeDeploymentStageCreating,
+				[]byte(`{"services": [{"env_vars": {"DB_PASSWORD": "s3cret"}}]}`), resourceMap))
+
+			require.NoError(t, repo.CompleteComposeDeploymentJob(ctx, jobID, status, nil))
+
+			job, err := repo.GetComposeDeploymentJob(ctx, jobID)
+			require.NoError(t, err)
+			require.Equal(t, status, job.Status)
+			require.Empty(t, job.PlanJSON, "the plan holds environment values and build arguments")
+			require.JSONEq(t, string(resourceMap), string(job.ResourceMapJSON), "the resource map holds only IDs and stays")
+		})
+	}
+}
