@@ -374,7 +374,7 @@ func TestAdapterCreateVolumeSendsTheSizeOnlyWhenAsked(t *testing.T) {
 			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
 
 			name, err := adapter.CreateVolume(context.Background(), model.VolumeRuntimeSpec{
-				VolumeName: "vol_owner_data", VolumeID: "volume-1", OwnerID: "owner-1", SizeBytes: tt.sizeBytes,
+				VolumeName: "vol_owner_data", VolumeID: "volume-1", OwnerID: "owner-1", Name: "data", SizeBytes: tt.sizeBytes,
 			})
 			require.NoError(t, err)
 			require.Equal(t, "vol_owner_data", name)
@@ -392,6 +392,8 @@ func TestAdapterCreateVolumeSendsTheSizeOnlyWhenAsked(t *testing.T) {
 			require.Equal(t, tt.wantDriver, sent.Driver)
 			require.Equal(t, tt.wantOpts, sent.DriverOpts)
 			require.Equal(t, "volume-1", sent.Labels["dcm.volume_id"])
+			require.Equal(t, "owner-1", sent.Labels["dcm.owner_id"])
+			require.Equal(t, "data", sent.Labels["dcm.volume_name"], "the host shows the user-facing name")
 		})
 	}
 }

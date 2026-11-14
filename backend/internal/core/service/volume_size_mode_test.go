@@ -105,9 +105,9 @@ func TestVolumesAreCreatedMeasuredWhenTheStartupCheckFails(t *testing.T) {
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository: repo, Docker: dockerAPI, Config: cfg, Lifecycle: lifecycle, SizeMode: enforcement,
 	})
-	repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, DockerName: "vol_data", SizeBytes: 1 << 30}, nil)
+	repo.EXPECT().GetByID(mock.Anything, volumeID).Return(model.Volume{ID: volumeID, OwnerID: ownerID, Name: "data", DockerName: "vol_data", SizeBytes: 1 << 30}, nil)
 	dockerAPI.EXPECT().CreateVolume(mock.Anything, mock.MatchedBy(func(spec model.VolumeRuntimeSpec) bool {
-		return spec.VolumeName == "vol_data" && spec.SizeBytes == 0
+		return spec.VolumeName == "vol_data" && spec.Name == "data" && spec.OwnerID == ownerID.String() && spec.SizeBytes == 0
 	})).Return("vol_data", nil).Once()
 	repo.EXPECT().MarkAvailable(mock.Anything, volumeID, false).Return(nil).Once()
 

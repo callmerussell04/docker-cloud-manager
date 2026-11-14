@@ -46,6 +46,9 @@ func TestVolumeServiceCreateValidatesQuotaAndCreatesDockerVolume(t *testing.T) {
 	require.Equal(t, ownerID, saved.OwnerID)
 	require.Equal(t, "data", saved.Name)
 	require.Equal(t, model.VolumeStatusCreating, saved.Status)
+	// The Docker name comes from the volume ID alone, so two owners' volumes of
+	// one name can never collide on the host.
+	require.Equal(t, "vol_"+volumeID.String(), saved.DockerName)
 }
 
 func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {

@@ -305,6 +305,7 @@ func (a *Adapter) CreateVolume(ctx context.Context, params model.VolumeRuntimeSp
 			"managed_by":        "docker-cloud-manager",
 			"dcm.resource_type": "volume",
 			"dcm.volume_id":     params.VolumeID,
+			"dcm.volume_name":   params.Name,
 			"dcm.owner_id":      params.OwnerID,
 			"dcm.project_id":    params.ProjectID,
 		},

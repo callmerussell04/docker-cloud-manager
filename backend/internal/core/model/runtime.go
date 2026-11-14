@@ -41,8 +41,10 @@ type ContainerRuntimeSpec struct {
 type VolumeRuntimeSpec struct {
 	VolumeName string
 	VolumeID   string
-	OwnerID    string
-	ProjectID  string
+	// Name is the user-facing volume name, recorded as a Docker label.
+	Name      string
+	OwnerID   string
+	ProjectID string
 	// SizeBytes, when positive, is given to Docker's local volume driver so
 	// the kernel refuses writes past it. Zero creates an unsized volume.
 	SizeBytes int64

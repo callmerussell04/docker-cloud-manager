@@ -198,7 +198,9 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 	}
 
 	volID := uuid.New()
-	dockerName := fmt.Sprintf("vol_%s_%s", ownerID.String()[:8], params.Name)
+	// The Docker name is unique on the host, so it comes from the volume ID,
+	// never from owner or user-facing name.
+	dockerName := "vol_" + volID.String()
 
 	vol := model.Volume{
 		ID:         volID,
@@ -385,6 +387,7 @@ func (s *VolumeService) executeQueuedVolumeCreate(ctx context.Context, operation
 	dockerParams := model.VolumeRuntimeSpec{
 		VolumeName: vol.DockerName,
 		VolumeID:   vol.ID.String(),
+		Name:       vol.Name,
 		OwnerID:    vol.OwnerID.String(),
 	}
 	if vol.ProjectID != nil {
