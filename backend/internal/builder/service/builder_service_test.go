@@ -487,6 +487,113 @@ func TestBuilderServiceCompletesResourceExhaustedWhenCoreStopsTheBuildBeforeKani
 	})
 }
 
+// Builder reads the build container's writable-layer size every 5 seconds.
+// Once it is above build_max_disk_bytes, Builder kills Kaniko, which exits
+// like a kernel OOM kill: the build ends failed_resource_exhausted with the
+// resource-exhausted log line, and Kaniko is removed.
+func TestBuilderServiceStopsABuildThatWritesMoreThanTheDiskCap(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := testBuilderRuntimeConfig()
+		cfg.BuildMaxDiskBytes = 1 << 30
+		h := newBuilderHarness(t, cfg)
+		msg := testBuildMessage()
+		logs, kaniko := io.Pipe()
+		started := time.Now()
+		var reads []time.Duration
+		killed := false
+
+		expectStarted(h, msg, msg.ImageID)
+		expectBuildPrepared(h, msg)
+		var params model.BuildRuntimeSpec
+		h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.AnythingOfType("model.BuildRuntimeSpec")).
+			RunAndReturn(func(_ context.Context, got model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
+				params = got
+				return "container-id", logs, nil
+			})
+		h.docker.EXPECT().BuildDiskUsage(mock.Anything, "container-id").
+			RunAndReturn(func(context.Context, string) (int64, error) {
+				reads = append(reads, time.Since(started))
+				if len(reads) == 1 {
+					return 1 << 30, nil
+				}
+				return 1<<30 + 1, nil
+			})
+		h.docker.EXPECT().KillBuildContainer(mock.Anything, "container-id").
+			RunAndReturn(func(context.Context, string) error {
+				killed = true
+				_ = kaniko.Close() // Kaniko's output ends when it is killed
+				return nil
+			}).Once()
+		h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).
+			RunAndReturn(func(_ string, reader io.Reader, _ int64) (string, error) {
+				_, err := io.ReadAll(reader)
+				return "/tmp/build.log", err
+			})
+		h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").
+			RunAndReturn(func(context.Context, string) error {
+				require.True(t, killed, "Kaniko runs until it is killed")
+				return fmt.Errorf("build container was killed: %w", apperrors.ErrResourceExhausted)
+			})
+		h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+		h.logs.EXPECT().WriteSystemLog(mock.Anything, msg.BuildID, "Build failed because server resources were exhausted.", int64(5<<20)).Return(nil).Once()
+		expectLogUpload(h, msg, 2)
+		h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("failed_resource_exhausted"), 0).Return(nil)
+		h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+
+		require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+		require.Equal(t, []time.Duration{5 * time.Second, 10 * time.Second}, reads, "one read every 5 seconds until the cap is passed")
+		require.Equal(t, int64(1<<30), params.MaxDiskBytes, "Docker is asked to cap the root filesystem at the setting")
+	})
+}
+
+// A size read that fails is logged and the build goes on; a build that stays
+// at or under the cap runs to success untouched.
+func TestBuilderServiceKeepsABuildUnderTheDiskCapRunning(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := testBuilderRuntimeConfig()
+		cfg.BuildMaxDiskBytes = 1 << 30
+		h := newBuilderHarness(t, cfg)
+		msg := testBuildMessage()
+		logs, kaniko := io.Pipe()
+		reads := 0
+
+		expectStarted(h, msg, msg.ImageID)
+		expectBuildPrepared(h, msg)
+		h.docker.EXPECT().RunBuildContainer(mock.Anything, mock.AnythingOfType("model.BuildRuntimeSpec")).
+			RunAndReturn(func(context.Context, model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
+				go func() {
+					time.Sleep(12 * time.Second)
+					_ = kaniko.Close() // Kaniko finishes on its own
+				}()
+				return "container-id", logs, nil
+			})
+		h.docker.EXPECT().BuildDiskUsage(mock.Anything, "container-id").
+			RunAndReturn(func(context.Context, string) (int64, error) {
+				reads++
+				if reads == 1 {
+					return 0, errors.New("docker unavailable")
+				}
+				return 1 << 30, nil
+			})
+		h.logs.EXPECT().SaveLogs(msg.BuildID, mock.Anything, int64(5<<20)).
+			RunAndReturn(func(_ string, reader io.Reader, _ int64) (string, error) {
+				_, err := io.ReadAll(reader)
+				return "/tmp/build.log", err
+			})
+		h.docker.EXPECT().WaitForBuild(mock.Anything, "container-id").Return(nil)
+		h.docker.EXPECT().CleanBuildContainer(mock.Anything, "container-id").Return(nil).Once()
+		expectLogUpload(h, msg, 1)
+		h.core.EXPECT().CompleteBuildRecord(mock.Anything, msg.BuildID, msg.ImageID, model.BuildStatus("success"), 0).Return(nil)
+		h.objects.EXPECT().DeleteObject(mock.Anything, msg.ArchiveObjectKey).Return(nil)
+
+		require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
+		require.Equal(t, 2, reads, "reads at 5 and 10 seconds; the build ends at 12")
+		failures := h.logEntries(t, "failed to read build disk usage")
+		require.Len(t, failures, 1)
+		require.Equal(t, msg.BuildID, failures[0]["build_id"])
+	})
+}
+
 func TestBuilderServiceHandleBuildMessageCompletesTimeout(t *testing.T) {
 	for name, waitResult := range waitResultsAfterTheBuildContextEnds {
 		t.Run(name, func(t *testing.T) { testCompletesTimeout(t, waitResult) })

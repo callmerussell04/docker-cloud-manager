@@ -72,7 +72,8 @@ type SystemConfig struct {
 	MaxBuildLogSizeBytes           int64   `json:"max_build_log_size_bytes"`
 	BuildCancelPollIntervalSeconds int64   `json:"build_cancel_poll_interval_seconds"`
 	// BuildMaxDiskBytes is the disk one build may write. Each build slot
-	// holds it against the host disk floor.
+	// holds it against the host disk floor, and Builder stops a build that
+	// writes more.
 	BuildMaxDiskBytes int64 `json:"build_max_disk_bytes"`
 
 	TTLWorkerIntervalSeconds             int64 `json:"ttl_worker_interval_seconds"`

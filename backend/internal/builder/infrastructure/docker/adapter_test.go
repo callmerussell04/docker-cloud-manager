@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"os"
@@ -415,4 +416,187 @@ func TestAdapterCleanupOrphanBuildContainersRemovesOnlyItsOwnInstances(t *testin
 func TestNewAdapterRequiresAnInstanceID(t *testing.T) {
 	_, err := builderdocker.NewAdapter(builderdocker.Config{})
 	require.ErrorContains(t, err, "instance ID is required")
+}
+
+// buildContainerRoutes answers every call RunBuildContainer makes after the
+// container create, which each case scripts itself.
+func buildContainerRoutes(create dockertest.Response) map[string]dockertest.Response {
+	return map[string]dockertest.Response{
+		"/images/kaniko/json":                 dockertest.OK(`{"Id":"kaniko"}`),
+		"/containers/create":                  create,
+		"/containers/build-container/archive": dockertest.OK(""),
+		"/containers/build-container/start":   dockertest.NoContent(),
+		"/containers/build-container/logs":    dockertest.OK(""),
+	}
+}
+
+func runCappedBuild(t *testing.T, adapter *builderdocker.Adapter, maxDiskBytes int64) error {
+	t.Helper()
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "Dockerfile"), []byte("FROM scratch\n"), 0o600))
+	_, logs, err := adapter.RunBuildContainer(context.Background(), model.BuildRuntimeSpec{
+		RegistryUsername: "builder",
+		RegistryPassword: "password",
+		WorkspaceDir:     workspace,
+		DestinationTag:   "registry:5000/owner_image:latest",
+		KanikoImage:      "kaniko",
+		Dockerfile:       "Dockerfile",
+		NetworkName:      "build_net",
+		MaxDiskBytes:     maxDiskBytes,
+	})
+	if err == nil {
+		_, _ = io.ReadAll(logs) // drain the fake's empty log stream
+		_ = logs.Close()        // test cleanup; close failure is not actionable
+	}
+	return err
+}
+
+// storageSize returns the root filesystem size a container create asked for,
+// or "" when it asked for none.
+func storageSize(t *testing.T, request dockertest.Request) string {
+	t.Helper()
+	var spec struct {
+		HostConfig struct{ StorageOpt map[string]string }
+	}
+	require.NoError(t, json.Unmarshal(request.Body, &spec))
+	return spec.HostConfig.StorageOpt["size"]
+}
+
+// The build container's root filesystem is capped at build_max_disk_bytes
+// where Docker can enforce it. Where it cannot, Docker refuses the option: as
+// an invalid parameter, or, as Docker 28's overlay2 driver does without xfs
+// project quotas, as a server error naming --storage-opt. Builder then creates
+// the container without the cap, warns once, and never sends the option again
+// in this process; the disk watch is the cap there.
+func TestAdapterRunBuildContainerCapsTheRootFilesystem(t *testing.T) {
+	const refusedOverlay = "--storage-opt is supported only for overlay over xfs with 'pquota' mount option"
+	created := dockertest.Created(`{"Id":"build-container"}`)
+	for _, tt := range []struct {
+		name         string
+		maxDiskBytes int64
+		create       dockertest.Response
+		// wantSizes is the size each create request asks for over two builds.
+		wantSizes   []string
+		wantErr     bool
+		wantWarning int
+	}{
+		{
+			name:         "the cap is sent",
+			maxDiskBytes: 1 << 30,
+			create:       created,
+			wantSizes:    []string{"1073741824", "1073741824"},
+		},
+		{
+			name:      "no cap asks for none",
+			create:    created,
+			wantSizes: []string{"", ""},
+		},
+		{
+			name:         "refused as an invalid parameter",
+			maxDiskBytes: 1 << 30,
+			create:       dockertest.Sequence(dockertest.Error(http.StatusBadRequest, "invalid storage option"), created),
+			wantSizes:    []string{"1073741824", "", ""},
+			wantWarning:  1,
+		},
+		{
+			name:         "refused by a storage driver without project quotas",
+			maxDiskBytes: 1 << 30,
+			create:       dockertest.Sequence(dockertest.Error(http.StatusInternalServerError, refusedOverlay), created),
+			wantSizes:    []string{"1073741824", "", ""},
+			wantWarning:  1,
+		},
+		{
+			// The create fails without the cap too, so the cap was not what
+			// Docker refused: the build fails and the cap is still sent.
+			name:         "an invalid parameter that is not the cap",
+			maxDiskBytes: 1 << 30,
+			create: dockertest.Sequence(
+				dockertest.Error(http.StatusBadRequest, "invalid CPU period"),
+				dockertest.Error(http.StatusBadRequest, "invalid CPU period"),
+				created,
+			),
+			wantSizes: []string{"1073741824", "", "1073741824"},
+			wantErr:   true,
+		},
+		{
+			name:         "another create failure is not a refusal",
+			maxDiskBytes: 1 << 30,
+			create:       dockertest.Sequence(dockertest.Error(http.StatusInternalServerError, "no space left on device"), created),
+			wantSizes:    []string{"1073741824", "1073741824"},
+			wantErr:      true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, buildContainerRoutes(tt.create))
+			var output bytes.Buffer
+			adapter := newAdapter(t, builderdocker.Config{
+				RegistryCAFile: dockertest.RegistryCAFile(t),
+				Logger:         slog.New(slog.NewJSONHandler(&output, nil)),
+			})
+
+			firstErr := runCappedBuild(t, adapter, tt.maxDiskBytes)
+			secondErr := runCappedBuild(t, adapter, tt.maxDiskBytes)
+
+			if tt.wantErr {
+				require.Error(t, firstErr)
+			} else {
+				require.NoError(t, firstErr)
+			}
+			require.NoError(t, secondErr)
+			var sizes []string
+			for _, request := range daemon.Requests("/containers/create") {
+				sizes = append(sizes, storageSize(t, request))
+			}
+			require.Equal(t, tt.wantSizes, sizes)
+			require.Equal(t, tt.wantWarning, strings.Count(output.String(), `"level":"WARN"`), output.String())
+		})
+	}
+}
+
+// The disk watch reads the writable layer's size, which Docker reports only
+// when asked for it.
+func TestAdapterBuildDiskUsageReadsTheWritableLayer(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		inspect string
+		want    int64
+		wantErr bool
+	}{
+		{name: "size reported", inspect: `{"Id":"build-container","SizeRw":12345}`, want: 12345},
+		{name: "size missing", inspect: `{"Id":"build-container"}`, wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			daemon := dockertest.Serve(t, map[string]dockertest.Response{
+				"/containers/build-container/json": dockertest.OK(tt.inspect),
+			})
+			adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
+
+			got, err := adapter.BuildDiskUsage(context.Background(), "build-container")
+
+			inspected := daemon.Requests("/containers/build-container/json")
+			require.Len(t, inspected, 1)
+			require.Equal(t, "1", inspected[0].Query.Get("size"))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// Killing a build sends SIGKILL, so the container exits 137 and WaitForBuild
+// reports it as resource exhaustion, as for a kernel OOM kill.
+func TestAdapterKillBuildContainerSendsSIGKILL(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"POST /containers/build-container/kill": dockertest.NoContent(),
+	})
+	adapter := newAdapter(t, builderdocker.Config{RegistryCAFile: dockertest.RegistryCAFile(t)})
+
+	require.NoError(t, adapter.KillBuildContainer(context.Background(), "build-container"))
+
+	killed := daemon.Requests("/containers/build-container/kill")
+	require.Len(t, killed, 1)
+	require.Equal(t, "SIGKILL", killed[0].Query.Get("signal"))
 }

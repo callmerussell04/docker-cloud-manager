@@ -38,6 +38,12 @@ type DockerAPI interface {
 	RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error)
 	WaitForBuild(ctx context.Context, containerID string) error
 	CleanBuildContainer(ctx context.Context, containerID string) error
+	// BuildDiskUsage reads how many bytes a build container has written to
+	// its writable layer.
+	BuildDiskUsage(ctx context.Context, containerID string) (int64, error)
+	// KillBuildContainer sends SIGKILL to a running build container, so it
+	// exits like a container the kernel's OOM killer stopped.
+	KillBuildContainer(ctx context.Context, containerID string) error
 }
 
 type LogManager interface {
@@ -575,6 +581,7 @@ func (s *BuilderService) processBuild(ctx context.Context, cancel context.Cancel
 						PidsLimit:            cfg.BuildPidsLimit,
 						BuildArgs:            job.BuildArgs,
 						NetworkName:          cfg.BuildNetworkName,
+						MaxDiskBytes:         cfg.BuildMaxDiskBytes,
 					}
 
 					status = s.runBuildContainer(ctx, logger, cfg, params, destinationTag, job)
@@ -643,6 +650,10 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 			logger.WarnContext(ctx, "failed to remove build container", "container_id", containerID, "error", err)
 		}
 	}()
+	// Deferred after the removal, so the watch has stopped before Kaniko is
+	// removed.
+	stopDiskWatch := s.watchBuildDisk(ctx, logger, containerID, params.MaxDiskBytes)
+	defer stopDiskWatch()
 
 	sanitizedLogs := newBuildLogSanitizer(logStream, buildLogSanitizerOptions{
 		MaxBytes:       cfg.MaxBuildLogSizeBytes,
@@ -679,6 +690,59 @@ func (s *BuilderService) runBuildContainer(ctx context.Context, logger *slog.Log
 		return buildStatusFailed
 	default:
 		return buildStatusFailedInternal
+	}
+}
+
+// buildDiskCheckInterval is how often Builder reads a running build
+// container's writable-layer size.
+const buildDiskCheckInterval = 5 * time.Second
+
+// watchBuildDisk reads the build container's writable-layer size every
+// buildDiskCheckInterval and kills Kaniko once it is above maxDiskBytes. The
+// killed container exits like one the kernel's OOM killer stopped, so
+// WaitForBuild reports resource exhaustion and the build ends
+// failed_resource_exhausted through that path. A failed read or kill is
+// logged and retried at the next tick. The returned function stops the watch
+// and waits for it; a cap of zero watches nothing.
+func (s *BuilderService) watchBuildDisk(ctx context.Context, logger *slog.Logger, containerID string, maxDiskBytes int64) (stop func()) {
+	if maxDiskBytes <= 0 {
+		return func() {}
+	}
+	watchCtx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		ticker := time.NewTicker(buildDiskCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticker.C:
+			}
+			used, err := s.dockerAPI.BuildDiskUsage(watchCtx, containerID)
+			if err != nil {
+				if watchCtx.Err() == nil {
+					logger.WarnContext(ctx, "failed to read build disk usage", "container_id", containerID, "error", err)
+				}
+				continue
+			}
+			if used <= maxDiskBytes {
+				continue
+			}
+			logger.WarnContext(ctx, "build wrote more than the build disk cap; stopping it",
+				"container_id", containerID, "disk_bytes", used, "max_disk_bytes", maxDiskBytes)
+			if err := s.dockerAPI.KillBuildContainer(watchCtx, containerID); err != nil {
+				if watchCtx.Err() == nil {
+					logger.WarnContext(ctx, "failed to stop build over the build disk cap", "container_id", containerID, "error", err)
+				}
+				continue
+			}
+			return
+		}
+	})
+	return func() {
+		cancel()
+		wg.Wait()
 	}
 }
 

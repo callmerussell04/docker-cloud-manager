@@ -17,6 +17,9 @@ type BuildRuntimeSpec struct {
 	PidsLimit            int64
 	BuildArgs            map[string]string
 	NetworkName          string
+	// MaxDiskBytes is the root filesystem size Docker is asked to cap the
+	// build container at. Zero asks for no cap.
+	MaxDiskBytes int64
 }
 
 // BuildClaim carries per-attempt authority only on Core's trusted response.

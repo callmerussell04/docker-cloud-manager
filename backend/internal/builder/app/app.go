@@ -70,7 +70,7 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 
 	extractor := archive.NewExtractor()
 
-	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true, InstanceID: cfg.InstanceID, CgroupParent: cfg.TenantCgroupParent})
+	dockerAdapter, err := docker.NewAdapter(docker.Config{RegistryCAFile: cfg.RegistryCAFile, RequireNetworkPolicy: true, InstanceID: cfg.InstanceID, CgroupParent: cfg.TenantCgroupParent, Logger: logging.WithComponent(logger, "builder_docker")})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker adapter: %w", err)
 	}

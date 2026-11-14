@@ -10,13 +10,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/image"
@@ -45,6 +49,10 @@ type Adapter struct {
 	managedBy            string
 	instanceID           string
 	cgroupParent         string
+	logger               *slog.Logger
+	// rootfsSizeRefused records that Docker refused a root filesystem size
+	// cap, so it is not asked for again in this process.
+	rootfsSizeRefused atomic.Bool
 }
 
 type Config struct {
@@ -60,6 +68,8 @@ type Config struct {
 	// CgroupParent is the cgroup Docker places build containers under. Empty
 	// keeps Docker's default parent.
 	CgroupParent string
+	// Logger receives the adapter's warnings. Nil selects slog.Default.
+	Logger *slog.Logger
 }
 
 func NewAdapter(cfg Config) (*Adapter, error) {
@@ -85,7 +95,11 @@ func NewAdapter(cfg Config) (*Adapter, error) {
 	if managedBy == "" {
 		managedBy = defaultManagedBy
 	}
-	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy, managedBy: managedBy, instanceID: cfg.InstanceID, cgroupParent: strings.TrimSpace(cfg.CgroupParent)}, nil
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Adapter{cli: cli, registryCA: ca, requireNetworkPolicy: cfg.RequireNetworkPolicy, managedBy: managedBy, instanceID: cfg.InstanceID, cgroupParent: strings.TrimSpace(cfg.CgroupParent), logger: logger}, nil
 }
 
 func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRuntimeSpec) (string, io.ReadCloser, error) {
@@ -151,7 +165,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	// 2. Настраиваем контейнер Kaniko
 	pidsLimit := params.PidsLimit
 	memorySwap := int64(float64(params.MemoryBytes) * params.MemorySwapMultiplier)
-	resp, err := a.cli.ContainerCreate(ctx, &container.Config{
+	containerConfig := &container.Config{
 		Image: kanikoImage,
 		Env:   []string{"HTTP_PROXY=" + buildEgressProxyURL, "HTTPS_PROXY=" + buildEgressProxyURL, "NO_PROXY=" + authority},
 		Cmd:   cmd,
@@ -162,7 +176,8 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 			"dcm.owner_id":      params.OwnerID,
 			instanceLabel:       a.instanceID,
 		},
-	}, &container.HostConfig{
+	}
+	hostConfig := &container.HostConfig{
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
 		Resources: container.Resources{
@@ -173,12 +188,13 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 			CPUPeriod:    params.CPUPeriod,
 			PidsLimit:    &pidsLimit,
 		},
-	}, &network.NetworkingConfig{
+	}
+	networkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {},
 		},
-	}, nil, "")
-
+	}
+	resp, err := a.createBuildContainer(ctx, containerConfig, hostConfig, networkingConfig, params.MaxDiskBytes)
 	if err != nil {
 		return "", nil, err
 	}
@@ -266,6 +282,61 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	}()
 
 	return resp.ID, pr, nil
+}
+
+// createBuildContainer creates the build container with its root filesystem
+// capped at maxDiskBytes, unless the cap is zero or Docker has refused it
+// before. Docker refuses it where the storage driver cannot enforce it: as an
+// invalid parameter, or as Docker 28's overlay2 driver does without xfs
+// project quotas, as a server error naming --storage-opt. The container is
+// then created without the cap. Only when that create succeeds was the cap
+// what Docker refused: one warning is logged and the cap is not asked for
+// again in this process; Builder's disk watch caps the build there. When it
+// fails too, the failure was another problem, which is returned, and the cap
+// is still asked for next time.
+func (a *Adapter) createBuildContainer(ctx context.Context, cfg *container.Config, hostConfig *container.HostConfig, networking *network.NetworkingConfig, maxDiskBytes int64) (container.CreateResponse, error) {
+	if maxDiskBytes <= 0 || a.rootfsSizeRefused.Load() {
+		return a.cli.ContainerCreate(ctx, cfg, hostConfig, networking, nil, "")
+	}
+	capped := *hostConfig
+	capped.StorageOpt = map[string]string{"size": strconv.FormatInt(maxDiskBytes, 10)}
+	resp, err := a.cli.ContainerCreate(ctx, cfg, &capped, networking, nil, "")
+	if err == nil || !isRootfsSizeRefusal(err) {
+		return resp, err
+	}
+	resp, retryErr := a.cli.ContainerCreate(ctx, cfg, hostConfig, networking, nil, "")
+	if retryErr != nil {
+		return resp, retryErr
+	}
+	if a.rootfsSizeRefused.CompareAndSwap(false, true) {
+		a.logger.WarnContext(ctx, "docker cannot cap the build container root filesystem; build disk is capped by the disk watch only", "error", err)
+	}
+	return resp, nil
+}
+
+// isRootfsSizeRefusal reports whether a container create failed in a way the
+// daemon uses to refuse the root filesystem size option.
+func isRootfsSizeRefusal(err error) bool {
+	return cerrdefs.IsInvalidArgument(err) || strings.Contains(err.Error(), "storage-opt")
+}
+
+// BuildDiskUsage reads the size of the build container's writable layer,
+// which Docker computes only when asked for it.
+func (a *Adapter) BuildDiskUsage(ctx context.Context, containerID string) (int64, error) {
+	info, _, err := a.cli.ContainerInspectWithRaw(ctx, containerID, true)
+	if err != nil {
+		return 0, err
+	}
+	if info.SizeRw == nil {
+		return 0, errors.New("docker reported no writable layer size for the build container")
+	}
+	return *info.SizeRw, nil
+}
+
+// KillBuildContainer sends SIGKILL, so the container exits with
+// killedExitCode as after a kernel OOM kill.
+func (a *Adapter) KillBuildContainer(ctx context.Context, containerID string) error {
+	return a.cli.ContainerKill(ctx, containerID, "SIGKILL")
 }
 
 // killedExitCode is a container's exit code after SIGKILL: the kernel's OOM

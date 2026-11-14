@@ -22,6 +22,34 @@ const apiVersion = "1.47"
 type Response struct {
 	Status int
 	Body   string
+	// sequence, when set, answers successive calls in turn; see Sequence.
+	sequence *sequence
+}
+
+// sequence hands out its responses in order and repeats the last one.
+type sequence struct {
+	mu        sync.Mutex
+	responses []Response
+	next      int
+}
+
+func (s *sequence) take() Response {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	response := s.responses[s.next]
+	if s.next < len(s.responses)-1 {
+		s.next++
+	}
+	return response
+}
+
+// Sequence answers the first call to its route with the first response, the
+// second with the second, and every later call with the last one.
+func Sequence(responses ...Response) Response {
+	if len(responses) == 0 {
+		panic("dockertest: Sequence needs at least one response")
+	}
+	return Response{sequence: &sequence{responses: responses}}
 }
 
 // OK answers 200 with body.
@@ -97,6 +125,9 @@ func (d *Daemon) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		response, found = d.prefixRoute(r.Method + " " + path)
+	}
+	if found && response.sequence != nil {
+		response = response.sequence.take()
 	}
 	if !found || response.Status == 0 {
 		d.t.Errorf("unexpected Docker API call %s %s", r.Method, path)
