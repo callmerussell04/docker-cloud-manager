@@ -262,6 +262,8 @@ func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, 
 }
 
 func (s *AuthService) EnsureBootstrapAdmin(ctx context.Context, cfg BootstrapAdminConfig) error {
+	cfg.Username = normalizeIdentity(cfg.Username)
+	cfg.Email = normalizeIdentity(cfg.Email)
 	existing, err := s.repo.GetUserByUsername(ctx, cfg.Username)
 	if err == nil {
 		if existing.Role == model.RoleAdmin {
@@ -316,8 +318,8 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 
 	user := model.User{
 		ID:           uuid.New(),
-		Username:     username,
-		Email:        email,
+		Username:     normalizeIdentity(username),
+		Email:        normalizeIdentity(email),
 		PasswordHash: string(hash),
 		Role:         model.RoleUser,
 		Status:       model.StatusActive,
@@ -340,7 +342,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (mod
 		return model.Tokens{}, apperrors.ErrNotFound
 	}
 
-	user, err := s.repo.GetUserByUsername(ctx, username)
+	user, err := s.repo.GetUserByUsername(ctx, normalizeIdentity(username))
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return model.Tokens{}, apperrors.ErrInvalidCredentials
@@ -632,8 +634,8 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 
 	user := model.User{
 		ID:           uuid.New(),
-		Username:     input.Username,
-		Email:        input.Email,
+		Username:     normalizeIdentity(input.Username),
+		Email:        normalizeIdentity(input.Email),
 		PasswordHash: string(hash),
 		Role:         input.Role,
 		Status:       input.Status,
@@ -661,8 +663,8 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 		return model.User{}, err
 	}
 
-	user.Username = input.Username
-	user.Email = input.Email
+	user.Username = normalizeIdentity(input.Username)
+	user.Email = normalizeIdentity(input.Email)
 	user.Role = input.Role
 	user.Status = input.Status
 	if input.Password != "" {
@@ -759,6 +761,12 @@ func secureStringEqual(a, b string) bool {
 	aHash := sha256.Sum256([]byte(a))
 	bHash := sha256.Sum256([]byte(b))
 	return subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1
+}
+
+// normalizeIdentity is the stored form of a username or an email: trimmed and
+// lowercased, so identities that differ only by case are one identity.
+func normalizeIdentity(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func normalizeExternalUsername(username, preferredUsername, subject string) string {

@@ -60,7 +60,7 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
-		WHERE username = $1
+		WHERE lower(username) = lower($1)
 	`
 
 	var user model.User
@@ -81,7 +81,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (mode
 		SELECT id, username, email, password_hash, role, status,
 		       auth_source, external_provider, external_subject, external_username, last_login_at
 		FROM users
-		WHERE email = $1
+		WHERE lower(email) = lower($1)
 	`
 
 	var user model.User

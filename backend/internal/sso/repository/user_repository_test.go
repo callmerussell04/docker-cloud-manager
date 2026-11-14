@@ -129,3 +129,31 @@ func user(username, role, status string) model.User {
 		AuthSource:   model.AuthSourceLocal,
 	}
 }
+
+func TestUserRepositoryTreatsUsernamesAndEmailsAsCaseInsensitive(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenSSOPostgres(t)
+	repo := repository.NewUserRepository(db)
+	alice := user("alice", model.RoleUser, model.StatusActive)
+	require.NoError(t, repo.SaveUser(ctx, alice))
+
+	sameName := user("Alice", model.RoleUser, model.StatusActive)
+	sameName.Email = "other@example.com"
+	require.ErrorIs(t, repo.SaveUser(ctx, sameName), apperrors.ErrAlreadyExists)
+
+	sameEmail := user("bob", model.RoleUser, model.StatusActive)
+	sameEmail.Email = "ALICE@Example.com"
+	require.ErrorIs(t, repo.SaveUser(ctx, sameEmail), apperrors.ErrAlreadyExists)
+
+	byUsername, err := repo.GetUserByUsername(ctx, "ALICE")
+	require.NoError(t, err)
+	require.Equal(t, alice.ID, byUsername.ID)
+	byEmail, err := repo.GetUserByEmail(ctx, "Alice@EXAMPLE.com")
+	require.NoError(t, err)
+	require.Equal(t, alice.ID, byEmail.ID)
+
+	bob := user("bob", model.RoleUser, model.StatusActive)
+	require.NoError(t, repo.SaveUser(ctx, bob))
+	bob.Username = "ALICE"
+	require.ErrorIs(t, repo.UpdateUser(ctx, bob), apperrors.ErrAlreadyExists)
+}

@@ -438,3 +438,46 @@ func TestLoginPreservesSafeLookupTimeoutClassification(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthServiceStoresAndLooksUpIdentityInLowercase(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("register", func(t *testing.T) {
+		repo := ssomocks.NewUserRepository(t)
+		svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
+		var saved model.User
+		repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).
+			Run(func(_ context.Context, user model.User) { saved = user }).Return(nil)
+
+		_, err := svc.Register(ctx, " Alice ", " Alice@Example.COM ", "secret123")
+
+		require.NoError(t, err)
+		require.Equal(t, "alice", saved.Username)
+		require.Equal(t, "alice@example.com", saved.Email)
+	})
+
+	t.Run("administrator create", func(t *testing.T) {
+		repo := ssomocks.NewUserRepository(t)
+		svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
+		repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Return(nil)
+
+		created, err := svc.CreateUser(ctx, service.CreateUserInput{
+			Username: "Bob", Email: "Bob@Example.com", Password: "secret123", Role: model.RoleUser, Status: model.StatusActive,
+		})
+
+		require.NoError(t, err)
+		require.Equal(t, "bob", created.Username)
+		require.Equal(t, "bob@example.com", created.Email)
+	})
+
+	t.Run("login in any case", func(t *testing.T) {
+		repo := ssomocks.NewUserRepository(t)
+		svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
+		// Only the lowercase name is looked up; an unknown user is an invalid credential.
+		repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(model.User{}, apperrors.ErrNotFound)
+
+		_, err := svc.Login(ctx, " ALICE", "secret123")
+
+		require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
+	})
+}
