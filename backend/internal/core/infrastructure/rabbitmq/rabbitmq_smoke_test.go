@@ -86,7 +86,7 @@ func TestRabbitMQBuildOutboxWorkerPublishesAndMarksPublished(t *testing.T) {
 	payload := mustJSON(t, buildqueue.ImageBuildMessage{BuildID: buildID.String(), ImageID: imageID.String(), OwnerID: ownerID.String(), Tag: "demo:latest"})
 	require.NoError(t, repos.Builds.CreateQueuedBuild(ctx,
 		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusBuilding},
-		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, LogFilePath: "logs", ArchiveObjectKey: "archive"},
+		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, LogObjectKey: "logs", ArchiveObjectKey: "archive"},
 		model.BuildQueueOutbox{ID: outboxID, BuildID: buildID, Exchange: topology.Build.Exchange, RoutingKey: topology.Build.RoutingKey, Payload: payload},
 	))
 

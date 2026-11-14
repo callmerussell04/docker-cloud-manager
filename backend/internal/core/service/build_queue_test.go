@@ -49,7 +49,7 @@ func TestBuildServiceCreateBuildJobCreatesOutboxPayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, buildID, queuedBuild.ID)
 	require.Equal(t, imageID, queuedImage.ID)
-	require.Equal(t, "build-logs/source.log", queuedBuild.LogFilePath)
+	require.Equal(t, "build-logs/source.log", queuedBuild.LogObjectKey)
 	require.Equal(t, "build-archives/source.zip", queuedBuild.ArchiveObjectKey)
 
 	var msg buildqueue.ImageBuildMessage
@@ -121,7 +121,7 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	require.Equal(t, result.BuildID, queuedBuild.ID)
 	require.Len(t, uploaded, 1)
 	require.Equal(t, uploaded[0], queuedBuild.ArchiveObjectKey)
-	require.NotEmpty(t, queuedBuild.LogFilePath)
+	require.NotEmpty(t, queuedBuild.LogObjectKey)
 }
 
 func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing.T) {
@@ -143,7 +143,7 @@ func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing
 		ID:          buildID,
 		ImageID:     uuid.New(),
 		OwnerID:     ownerID,
-		LogFilePath: "build-logs/source.log",
+		LogObjectKey: "build-logs/source.log",
 	}, nil)
 
 	_, err := svc.OpenBuildLogs(ctx, buildID)
@@ -551,7 +551,7 @@ func TestBuildServiceDeleteActiveBuildCancelsItFirst(t *testing.T) {
 		Deployments:  deployments,
 		RegistryAuth: auth,
 	})
-	running := model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, ProjectID: &projectID, Status: model.BuildStatusRunning, LogFilePath: "build-logs/log.txt"}
+	running := model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, ProjectID: &projectID, Status: model.BuildStatusRunning, LogObjectKey: "build-logs/log.txt"}
 	canceled := running
 	canceled.Status = model.BuildStatusCanceled
 
@@ -582,7 +582,7 @@ func TestBuildServiceDeleteActiveBuildKeepsItWhenCancellationFails(t *testing.T)
 				ObjectStore:  coremocks.NewBuildObjectStore(t),
 				RegistryAuth: auth,
 			})
-			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, ArchiveObjectKey: "a", LogFilePath: "l"}, nil).Once()
+			repo.EXPECT().GetByID(mock.Anything, buildID).Return(model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, ArchiveObjectKey: "a", LogObjectKey: "l"}, nil).Once()
 			if step == "revoke" {
 				auth.EXPECT().RevokeBuild(mock.Anything, buildID, model.RegistryTagDelete).Return(errTestDatabase).Once()
 			} else {

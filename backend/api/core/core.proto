@@ -470,7 +470,7 @@ message BuildData {
   string status = 3;
   int64 started_at = 4;
   int64 finished_at = 5;
-  string log_file_path = 6;
+  string log_object_key = 6;
   string owner_id = 7;
   string owner_username = 8;
   string project_id = 9;

@@ -3347,7 +3347,7 @@ type BuildData struct {
 	Status             string                 `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	StartedAt          int64                  `protobuf:"varint,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	FinishedAt         int64                  `protobuf:"varint,5,opt,name=finished_at,json=finishedAt,proto3" json:"finished_at,omitempty"`
-	LogFilePath        string                 `protobuf:"bytes,6,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
+	LogObjectKey       string                 `protobuf:"bytes,6,opt,name=log_object_key,json=logObjectKey,proto3" json:"log_object_key,omitempty"`
 	OwnerId            string                 `protobuf:"bytes,7,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
 	OwnerUsername      string                 `protobuf:"bytes,8,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
 	ProjectId          string                 `protobuf:"bytes,9,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
@@ -3422,9 +3422,9 @@ func (x *BuildData) GetFinishedAt() int64 {
 	return 0
 }
 
-func (x *BuildData) GetLogFilePath() string {
+func (x *BuildData) GetLogObjectKey() string {
 	if x != nil {
-		return x.LogFilePath
+		return x.LogObjectKey
 	}
 	return ""
 }
@@ -5331,7 +5331,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xe4\x02\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xe6\x02\n" +
 	"\tBuildData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
@@ -5339,8 +5339,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"started_at\x18\x04 \x01(\x03R\tstartedAt\x12\x1f\n" +
 	"\vfinished_at\x18\x05 \x01(\x03R\n" +
-	"finishedAt\x12\"\n" +
-	"\rlog_file_path\x18\x06 \x01(\tR\vlogFilePath\x12\x19\n" +
+	"finishedAt\x12$\n" +
+	"\x0elog_object_key\x18\x06 \x01(\tR\flogObjectKey\x12\x19\n" +
 	"\bowner_id\x18\a \x01(\tR\aownerId\x12%\n" +
 	"\x0eowner_username\x18\b \x01(\tR\rownerUsername\x12\x1d\n" +
 	"\n" +

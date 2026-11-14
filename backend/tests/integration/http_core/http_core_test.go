@@ -49,7 +49,7 @@ func TestCoreHTTPBuildAndComposeUploadsPersistToDatabase(t *testing.T) {
 
 	var buildID uuid.UUID
 	var logObjectKey string
-	require.NoError(t, f.Repos.DB.QueryRow(context.Background(), `SELECT id, log_file_path FROM builds LIMIT 1`).Scan(&buildID, &logObjectKey))
+	require.NoError(t, f.Repos.DB.QueryRow(context.Background(), `SELECT id, log_object_key FROM builds LIMIT 1`).Scan(&buildID, &logObjectKey))
 	f.Objects.Put(logObjectKey, []byte("build logs\n"))
 	req = coretest.InternalHTTPRequest(http.MethodGet, "/api/v1/builds/"+buildID.String()+"/logs", coretest.GatewayCredential, scope, nil, "")
 	resp = coretest.PerformHTTP(router, req)

@@ -570,10 +570,10 @@ func (s *BuildService) OpenBuildLogs(ctx context.Context, buildID uuid.UUID) (io
 	if err != nil {
 		return nil, err
 	}
-	if build.LogFilePath == "" {
+	if build.LogObjectKey == "" {
 		return nil, apperrors.ErrNotFound
 	}
-	return s.objectStore.OpenObject(ctx, build.LogFilePath)
+	return s.objectStore.OpenObject(ctx, build.LogObjectKey)
 }
 
 func (s *BuildService) buildConfig() config.SystemConfig {
@@ -649,7 +649,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		ProjectID:          input.ProjectID,
 		ProjectServiceName: input.ProjectServiceName,
 		Status:             model.BuildStatusPending,
-		LogFilePath:        input.LogObjectKey,
+		LogObjectKey:        input.LogObjectKey,
 		ArchiveObjectKey:   input.ArchiveObjectKey,
 		CreatedAt:          now,
 	}
@@ -982,12 +982,12 @@ func normalizeFailedBuildStatus(status string) string {
 }
 
 func (s *BuildService) cleanupBuildLog(ctx context.Context, build model.Build) {
-	if s.objectStore == nil || build.LogFilePath == "" {
+	if s.objectStore == nil || build.LogObjectKey == "" {
 		return
 	}
 	cleanupCtx, cancel := cleanupctx.Detached(ctx)
 	defer cancel()
-	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogFilePath); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.objectStore.DeleteObject(cleanupCtx, build.LogObjectKey); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		s.logger.WarnContext(cleanupCtx, "failed to delete build log object", "build_id", build.ID, "error", err)
 	}
 }

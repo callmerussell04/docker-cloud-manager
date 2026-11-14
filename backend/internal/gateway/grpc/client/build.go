@@ -68,7 +68,7 @@ func buildFromProto(item *coreapi.BuildData) model.Build {
 		CreatedAt:          item.GetCreatedAt(),
 		StartedAt:          item.GetStartedAt(),
 		FinishedAt:         item.GetFinishedAt(),
-		LogFilePath:        item.GetLogFilePath(),
+		LogObjectKey:        item.GetLogObjectKey(),
 		OwnerID:            item.GetOwnerId(),
 		OwnerUsername:      item.GetOwnerUsername(),
 	}

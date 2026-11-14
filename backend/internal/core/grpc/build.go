@@ -187,7 +187,7 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 		CreatedAt:          b.CreatedAt.Unix(),
 		StartedAt:          startedAt,
 		FinishedAt:         finishedAt,
-		LogFilePath:        b.LogFilePath,
+		LogObjectKey:        b.LogObjectKey,
 		OwnerId:            b.OwnerID.String(),
 		OwnerUsername:      ownerUsername,
 		ProjectId:          projectID,

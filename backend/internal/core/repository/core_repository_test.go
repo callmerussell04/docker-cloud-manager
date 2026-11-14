@@ -49,7 +49,7 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 			ImageID:          imageID,
 			OwnerID:          ownerID,
 			Status:           model.BuildStatusPending,
-			LogFilePath:      "build-logs/demo.log",
+			LogObjectKey:      "build-logs/demo.log",
 			ArchiveObjectKey: "build-archives/demo.zip",
 			StartedAt:        time.Now(),
 		},
@@ -122,7 +122,7 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 			ImageID:          newImageID,
 			OwnerID:          ownerID,
 			Status:           model.BuildStatusPending,
-			LogFilePath:      "build-logs/replacement.log",
+			LogObjectKey:      "build-logs/replacement.log",
 			ArchiveObjectKey: "build-archives/replacement.zip",
 			StartedAt:        time.Now(),
 		},
@@ -387,7 +387,7 @@ func TestBuildRepositoryListsAnOwnersActiveBuilds(t *testing.T) {
 		imageID, buildID := uuid.New(), uuid.New()
 		require.NoError(t, repo.CreateQueuedBuild(ctx,
 			model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "repo/" + buildID.String()[:8] + ":latest"},
-			model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, LogFilePath: "build-logs/x.log"},
+			model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, LogObjectKey: "build-logs/x.log"},
 			model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
 		))
 		if status != model.BuildStatusPending {

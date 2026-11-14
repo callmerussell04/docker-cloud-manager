@@ -9,7 +9,7 @@ type BuildDTO struct {
 	CreatedAt          int64  `json:"created_at"`
 	StartedAt          int64  `json:"started_at"`
 	FinishedAt         int64  `json:"finished_at"`
-	LogFilePath        string `json:"log_file_path"`
+	LogObjectKey        string `json:"log_object_key"`
 	OwnerID            string `json:"owner_id"`
 	OwnerUsername      string `json:"owner_username"`
 }

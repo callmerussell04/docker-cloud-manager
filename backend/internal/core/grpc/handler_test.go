@@ -288,7 +288,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		ImageID:     imageID,
 		OwnerID:     ownerID,
 		Status:      model.BuildStatusRunning,
-		LogFilePath: "build-logs/demo.log",
+		LogObjectKey: "build-logs/demo.log",
 		StartedAt:   time.Unix(150, 0),
 		FinishedAt:  &finishedAt,
 	}
@@ -333,7 +333,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 
 	buildResp, err := client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
-	require.Equal(t, "build-logs/demo.log", buildResp.LogFilePath)
+	require.Equal(t, "build-logs/demo.log", buildResp.LogObjectKey)
 	require.Equal(t, finishedAt.Unix(), buildResp.FinishedAt)
 
 	_, err = client.CompleteBuildRecord(systemCtx, &coreapi.CompleteBuildRequest{BuildId: buildID.String(), ImageId: imageID.String(), Status: model.BuildStatusSuccess, SizeMb: 20})

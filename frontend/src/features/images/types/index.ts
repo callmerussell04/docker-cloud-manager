@@ -27,7 +27,7 @@ export interface BuildData {
 }
 
 export interface AdminBuildData extends BuildData {
-  log_file_path: string;
+  log_object_key: string;
   owner_id?: string;
   owner_username?: string;
 }

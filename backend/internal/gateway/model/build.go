@@ -9,7 +9,7 @@ type Build struct {
 	CreatedAt          int64
 	StartedAt          int64
 	FinishedAt         int64
-	LogFilePath        string
+	LogObjectKey        string
 	OwnerID            string
 	OwnerUsername      string
 }

@@ -167,7 +167,7 @@ func buildsToDTO(items []model.Build) []dto.BuildDTO {
 			CreatedAt:          item.CreatedAt,
 			StartedAt:          item.StartedAt,
 			FinishedAt:         item.FinishedAt,
-			LogFilePath:        item.LogFilePath,
+			LogObjectKey:        item.LogObjectKey,
 			OwnerID:            item.OwnerID,
 			OwnerUsername:      item.OwnerUsername,
 		})

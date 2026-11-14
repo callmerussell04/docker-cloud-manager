@@ -120,10 +120,10 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	resp = perform(router, http.MethodDelete, "/images/"+imageID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().ListBuilds(mock.Anything, 1, 20).Return(model.PaginatedBuilds{Builds: []model.Build{{ID: buildID, LogFilePath: "build-logs/demo.log", OwnerID: ownerID}}, TotalCount: 1}, nil)
+	svc.EXPECT().ListBuilds(mock.Anything, 1, 20).Return(model.PaginatedBuilds{Builds: []model.Build{{ID: buildID, LogObjectKey: "build-logs/demo.log", OwnerID: ownerID}}, TotalCount: 1}, nil)
 	resp = perform(router, http.MethodGet, "/builds", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	require.NotContains(t, resp.Body.String(), "log_file_path")
+	require.NotContains(t, resp.Body.String(), "log_object_key")
 
 	svc.EXPECT().CancelBuildRecord(mock.Anything, buildID).Return(nil)
 	resp = perform(router, http.MethodPost, "/builds/"+buildID+"/cancel", ``, nil)

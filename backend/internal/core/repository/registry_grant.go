@@ -53,7 +53,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	defer tx.Rollback(ctx)
 	// A build that is no longer pending returns its persisted state. Its image
 	// row may already be gone, as canceled and failed builds delete it.
-	b, err := scanBuild(tx.QueryRow(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
+	b, err := scanBuild(tx.QueryRow(ctx, `SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at FROM builds WHERE id=$1 FOR UPDATE`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Build{}, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build", err))
 	}

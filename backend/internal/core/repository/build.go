@@ -25,7 +25,7 @@ func NewBuildRepository(db, lockDB *pgxpool.Pool) *BuildRepository {
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at)
+		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11)
 	`
 	finishedAt := b.FinishedAt
@@ -39,7 +39,7 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 		nullableUUID(b.ProjectID),
 		nullIfZero(b.ProjectServiceName),
 		b.Status,
-		b.LogFilePath,
+		b.LogObjectKey,
 		b.ArchiveObjectKey,
 		nullTimeIfZero(b.CreatedAt),
 		nullTimeIfZero(b.StartedAt),
@@ -72,7 +72,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 
 	finishedAt := build.FinishedAt
 	if _, err := tx.Exec(ctx, `
-			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at)
+			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11)
 		`,
 		build.ID,
@@ -81,7 +81,7 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		nullableUUID(build.ProjectID),
 		nullIfZero(build.ProjectServiceName),
 		build.Status,
-		build.LogFilePath,
+		build.LogObjectKey,
 		build.ArchiveObjectKey,
 		nullTimeIfZero(build.CreatedAt),
 		nullTimeIfZero(build.StartedAt),
@@ -131,7 +131,7 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 
 func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE image_id = $1
 		ORDER BY created_at DESC
@@ -151,7 +151,7 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 		var projectID *string
 		var projectServiceName *string
 
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
 			return nil, err
 		}
 		b.StartedAt = valueOrZero(startedAt)
@@ -165,7 +165,7 @@ func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) (
 
 func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE project_id = $1
 		ORDER BY created_at DESC
@@ -188,7 +188,7 @@ func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUI
 
 func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE id = $1
 	`
@@ -199,7 +199,7 @@ func (r *BuildRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Buil
 	var projectServiceName *string
 
 	err := r.db.QueryRow(ctx, query, id).Scan(
-		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt,
+		&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -229,7 +229,7 @@ func (r *BuildRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Time) ([]model.Build, error) {
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at
 		FROM builds
 		WHERE status = $1 AND started_at < $2
 	`
@@ -245,7 +245,7 @@ func (r *BuildRepository) GetStaleBuilds(ctx context.Context, threshold time.Tim
 		var startedAt *time.Time
 		var projectID *string
 		var projectServiceName *string
-		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt); err != nil {
+		if err := rows.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt); err != nil {
 			return nil, err
 		}
 		b.StartedAt = valueOrZero(startedAt)
@@ -269,7 +269,7 @@ func (r *BuildRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 	}
 
 	query := `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at
 		FROM builds` + where + ` ORDER BY created_at DESC`
 	if opts.Limit > 0 {
 		args = append(args, opts.Limit, opts.Offset)
@@ -313,7 +313,7 @@ func (r *BuildRepository) CountActiveByOwner(ctx context.Context, ownerID uuid.U
 // ListActiveByOwner returns ownerID's pending and running builds, oldest first.
 func (r *BuildRepository) ListActiveByOwner(ctx context.Context, ownerID uuid.UUID) ([]model.Build, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_file_path, archive_object_key, created_at, started_at, finished_at
+		SELECT id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at
 		FROM builds
 		WHERE owner_id = $1 AND status IN ($2, $3)
 		ORDER BY created_at
@@ -454,7 +454,7 @@ func scanBuild(s scanner) (model.Build, error) {
 	var startedAt *time.Time
 	var projectID *string
 	var projectServiceName *string
-	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogFilePath, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
+	if err := s.Scan(&b.ID, &b.ImageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt); err != nil {
 		return model.Build{}, err
 	}
 	b.FinishedAt = finishedAt

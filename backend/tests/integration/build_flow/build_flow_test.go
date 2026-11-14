@@ -89,7 +89,7 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, buildermodel.BuildStatus(model.BuildStatusRunning), polled)
 
-	objects[build.LogFilePath] = []byte("line1\nline2\n")
+	objects[build.LogObjectKey] = []byte("line1\nline2\n")
 	logs, err := builds.OpenBuildLogs(coretest.UserContext(ownerID), result.BuildID)
 	require.NoError(t, err)
 	body, err := io.ReadAll(logs)
@@ -114,7 +114,7 @@ func TestBuildArchiveFlowPersistsQueueAndReadsLogs(t *testing.T) {
 	_, err = repos.Builds.GetByID(ctx, result.BuildID)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 	require.NotContains(t, objects, build.ArchiveObjectKey)
-	require.NotContains(t, objects, build.LogFilePath)
+	require.NotContains(t, objects, build.LogObjectKey)
 }
 
 func TestBuildArchiveUploadFailureReleasesReservation(t *testing.T) {
@@ -177,7 +177,7 @@ func TestBuildFlowWithMinIOObjectStorage(t *testing.T) {
 	require.NoError(t, err)
 	build, err := repos.Builds.GetByID(context.Background(), result.BuildID)
 	require.NoError(t, err)
-	require.NoError(t, store.UploadStream(context.Background(), build.LogFilePath, strings.NewReader("logs"), int64(len("logs")), "text/plain"))
+	require.NoError(t, store.UploadStream(context.Background(), build.LogObjectKey, strings.NewReader("logs"), int64(len("logs")), "text/plain"))
 
 	logs, err := builds.OpenBuildLogs(coretest.UserContext(ownerID), result.BuildID)
 	require.NoError(t, err)

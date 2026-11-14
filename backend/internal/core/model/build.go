@@ -60,7 +60,7 @@ type Build struct {
 	ProjectServiceName string
 	OwnerUsername      string
 	Status             string
-	LogFilePath        string
+	LogObjectKey        string
 	ArchiveObjectKey   string
 	CreatedAt          time.Time
 	StartedAt          time.Time
