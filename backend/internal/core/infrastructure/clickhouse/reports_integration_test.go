@@ -139,8 +139,6 @@ func applyReportsMigrations(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	migrationsDir := filepath.Join("..", "..", "..", "..", "migrations", "reports")
 	for _, stmt := range []string{
-		`DROP TABLE IF EXISTS user_usage_daily`,
-		`DROP TABLE IF EXISTS audit_action_daily`,
 		`DROP TABLE IF EXISTS user_resource_usage_snapshots`,
 		`DROP TABLE IF EXISTS audit_events`,
 	} {

@@ -2,7 +2,6 @@ package dbtest_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -70,78 +69,13 @@ func schemaShape(t *testing.T, db *pgxpool.Pool) []string {
 	return shape
 }
 
-// Migration 0019 gives every image row the Registry tag it is served under:
-// an unclaimed build its own image ID, every other row the version it was
-// pushed under. It deletes building rows whose build no longer runs.
-func TestCoreMigration0019BackfillsRegistryTags(t *testing.T) {
-	m, db := dbtest.NewCoreMigration(t)
-	ctx := context.Background()
-	require.NoError(t, m.Migrate(18))
+// registryAccessMigration is the Core migration that creates the Registry
+// tables.
+const registryAccessMigration = 9
 
-	type row struct {
-		tag, imageStatus, buildStatus string
-	}
-	rows := map[string]row{
-		"available":            {tag: "app:v1", imageStatus: "available", buildStatus: "success"},
-		"available no build":   {tag: "app:v2", imageStatus: "available"},
-		"missing":              {tag: "app:v3", imageStatus: "missing"},
-		"pending build":        {tag: "app:v4", imageStatus: "building", buildStatus: "pending"},
-		"running build":        {tag: "app:v5", imageStatus: "building", buildStatus: "running"},
-		"orphan without build": {tag: "app:v6", imageStatus: "building"},
-		"orphan canceled":      {tag: "app:v7", imageStatus: "building", buildStatus: "canceled"},
-		"no version":           {tag: "bare", imageStatus: "available"},
-	}
-	ids := map[string]string{}
-	owner := "00000000-0000-0000-0000-000000000001"
-	for name, r := range rows {
-		var id string
-		require.NoError(t, db.QueryRow(ctx, `INSERT INTO images (owner_id, tag, size_mb, status) VALUES ($1, $2, 1, $3) RETURNING id::text`, owner, r.tag, r.imageStatus).Scan(&id))
-		ids[name] = id
-		if r.buildStatus != "" {
-			_, err := db.Exec(ctx, `INSERT INTO builds (image_id, owner_id, status, log_file_path) VALUES ($1, $2, $3, 'log')`, id, owner, r.buildStatus)
-			require.NoError(t, err)
-		}
-	}
-
-	require.NoError(t, m.Migrate(19))
-
-	registryTag := func(name string) (string, bool) {
-		var tag string
-		err := db.QueryRow(ctx, `SELECT registry_tag FROM images WHERE id = $1`, ids[name]).Scan(&tag)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", false
-		}
-		require.NoError(t, err)
-		return tag, true
-	}
-	want := map[string]string{
-		"available":          "v1",
-		"available no build": "v2",
-		"missing":            "v3",
-		"pending build":      ids["pending build"],
-		"running build":      "v5",
-		"no version":         "latest",
-	}
-	for name, tag := range want {
-		got, ok := registryTag(name)
-		require.True(t, ok, name)
-		require.Equal(t, tag, got, name)
-	}
-	for _, name := range []string{"orphan without build", "orphan canceled"} {
-		_, ok := registryTag(name)
-		require.False(t, ok, "%s is deleted", name)
-	}
-	var digests int
-	require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM images WHERE digest IS NOT NULL`).Scan(&digests))
-	require.Zero(t, digests)
-
-	require.NoError(t, m.Migrate(18))
-	require.NoError(t, m.Migrate(19))
-}
-
-// Migration 0020 creates the one Registry GC state row, free and not
+// The Registry migration creates the one Registry GC state row, free and not
 // draining; the table holds no second row, and down removes it.
-func TestCoreMigration0020CreatesTheRegistryGCStateRow(t *testing.T) {
+func TestCoreMigrationCreatesTheRegistryGCStateRow(t *testing.T) {
 	m, db := dbtest.NewCoreMigration(t)
 	ctx := context.Background()
 	requireSingleton := func() {
@@ -154,16 +88,16 @@ func TestCoreMigration0020CreatesTheRegistryGCStateRow(t *testing.T) {
 		require.True(t, notDraining)
 		require.True(t, completedSet)
 	}
-	require.NoError(t, m.Migrate(20))
+	require.NoError(t, m.Migrate(registryAccessMigration))
 	requireSingleton()
 	_, err := db.Exec(ctx, `INSERT INTO registry_gc_state (id) VALUES (FALSE)`)
 	require.Error(t, err, "the state row is a singleton")
 
-	require.NoError(t, m.Migrate(19))
+	require.NoError(t, m.Migrate(registryAccessMigration-1))
 	var exists bool
 	require.NoError(t, db.QueryRow(ctx, `SELECT to_regclass('registry_gc_state') IS NOT NULL`).Scan(&exists))
 	require.False(t, exists)
 
-	require.NoError(t, m.Migrate(20))
+	require.NoError(t, m.Migrate(registryAccessMigration))
 	requireSingleton()
 }

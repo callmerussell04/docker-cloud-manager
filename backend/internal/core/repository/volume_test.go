@@ -14,25 +14,6 @@ import (
 
 const volumeTestMiB = int64(1 << 20)
 
-// Volumes that existed before volume sizes get the default 256 MiB, measured
-// rather than kernel-enforced.
-func TestVolumeSizeMigrationGivesExistingVolumesTheDefault(t *testing.T) {
-	ctx := context.Background()
-	m, db := dbtest.NewCoreMigration(t)
-	require.NoError(t, m.Migrate(16))
-	volumeID := uuid.New()
-	_, err := db.Exec(ctx, `INSERT INTO volumes (id, owner_id, name, docker_name, status) VALUES ($1, $2, 'data', 'vol_data', 'available')`, volumeID, uuid.New())
-	require.NoError(t, err)
-
-	require.NoError(t, m.Migrate(17))
-
-	var sizeBytes int64
-	var enforced bool
-	require.NoError(t, db.QueryRow(ctx, `SELECT size_bytes, size_enforced FROM volumes WHERE id = $1`, volumeID).Scan(&sizeBytes, &enforced))
-	require.EqualValues(t, 256<<20, sizeBytes)
-	require.False(t, enforced)
-}
-
 func TestVolumeRepositoryKeepsSizeAndEnforcedFlag(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

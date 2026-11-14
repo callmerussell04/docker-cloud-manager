@@ -208,7 +208,7 @@ func TestRegistryGrantConcurrentClaimsTakeTheLastSlotOnce(t *testing.T) {
 // A claim pushes to the image row's own Registry tag, and cleanup treats a tag
 // as available only when an available row's Registry tag is that tag: a
 // rebuild's tag is never shielded by the image available under the same user
-// tag, and an available image built before migration 0019 keeps its version tag.
+// tag, and an available image built before per-record Registry tags keeps its version tag.
 func TestRegistryGrantClaimAndCleanupFactsUseTheRowsRegistryTag(t *testing.T) {
 	db := dbtest.OpenCorePostgres(t)
 	ctx := context.Background()

@@ -97,7 +97,7 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	buildID := uuid.New()
 	tag := "demo:latest"
 
-	// The replaced image was built before migration 0019: its Registry tag is
+	// The replaced image was built before per-record Registry tags: its Registry tag is
 	// its user tag's version.
 	require.NoError(t, imageRepo.Save(ctx, model.Image{
 		ID:          oldImageID,

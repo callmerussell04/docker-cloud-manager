@@ -2,37 +2,48 @@ CREATE TABLE containers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id UUID NOT NULL,
     project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
-    docker_id VARCHAR(64) UNIQUE,
     name VARCHAR(100) NOT NULL,
     image_tag VARCHAR(150) NOT NULL,
-    internal_port INTEGER,
-    domain_prefix VARCHAR(255) DEFAULT '',
-    status VARCHAR(20) NOT NULL,
-    desired_status VARCHAR(20) NOT NULL DEFAULT 'created',
-    ttl_deadline TIMESTAMP WITH TIME ZONE,
-    env_vars JSONB,
-    base_memory_reservation BIGINT NOT NULL CHECK (base_memory_reservation >= 0),
-    last_observed_at TIMESTAMP WITH TIME ZONE,
-    last_error TEXT,
-    last_exit_code INTEGER,
+    -- The Docker runtime of the recorded generation; NULL until it is created.
+    docker_id VARCHAR(64) UNIQUE,
     docker_generation INTEGER NOT NULL DEFAULT 1 CHECK (docker_generation > 0),
-    network_alias VARCHAR(100) DEFAULT '',
+    status VARCHAR(20) NOT NULL CHECK (status IN (
+        'pending', 'creating', 'created', 'starting', 'running', 'stopping',
+        'exited', 'exposing', 'error', 'missing', 'deleting', 'reconciling')),
+    desired_status VARCHAR(20) NOT NULL DEFAULT 'created' CHECK (desired_status IN (
+        'pending', 'creating', 'created', 'starting', 'running', 'stopping',
+        'exited', 'exposing', 'error', 'missing', 'deleting', 'reconciling')),
+    -- Reservations: memory in bytes, CPU in millicores.
+    base_memory_reservation BIGINT NOT NULL CHECK (base_memory_reservation >= 0),
+    base_cpu_millicores BIGINT NOT NULL DEFAULT 250 CHECK (base_cpu_millicores >= 0),
+    -- Exposure: an empty prefix means the container is not exposed.
+    domain_prefix VARCHAR(255) NOT NULL DEFAULT '',
+    internal_port INTEGER CHECK (internal_port BETWEEN 0 AND 65535),
+    network_alias VARCHAR(100) NOT NULL DEFAULT '',
+    env_vars JSONB,
     command JSONB,
     entrypoint JSONB,
-    restart_policy VARCHAR(32) DEFAULT '',
+    restart_policy VARCHAR(32) NOT NULL DEFAULT '',
     healthcheck JSONB,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    ttl_deadline TIMESTAMPTZ,
+    last_observed_at TIMESTAMPTZ,
+    last_error TEXT,
+    last_exit_code INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX idx_containers_owner_name_unique
+    ON containers (owner_id, name);
 
 CREATE UNIQUE INDEX idx_containers_domain_prefix
     ON containers (domain_prefix)
     WHERE domain_prefix != '';
 
-CREATE INDEX idx_containers_owner_id_image_tag
-    ON containers (owner_id, image_tag);
-
 CREATE INDEX idx_containers_owner_created_at
     ON containers (owner_id, created_at DESC);
+
+CREATE INDEX idx_containers_owner_id_image_tag
+    ON containers (owner_id, image_tag);
 
 CREATE INDEX idx_containers_project_id
     ON containers (project_id)
@@ -40,7 +51,3 @@ CREATE INDEX idx_containers_project_id
 
 CREATE INDEX idx_containers_status
     ON containers (status);
-
-CREATE INDEX idx_containers_desired_status
-    ON containers (desired_status);
-
