@@ -120,10 +120,13 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	resp = perform(router, http.MethodDelete, "/images/"+imageID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().ListBuilds(mock.Anything, 1, 20).Return(model.PaginatedBuilds{Builds: []model.Build{{ID: buildID, LogObjectKey: "build-logs/demo.log", OwnerID: ownerID}}, TotalCount: 1}, nil)
+	svc.EXPECT().ListBuilds(mock.Anything, 1, 20).Return(model.PaginatedBuilds{Builds: []model.Build{{ID: buildID, Tag: "app:v1", LogObjectKey: "build-logs/demo.log", OwnerID: ownerID}}, TotalCount: 1}, nil)
 	resp = perform(router, http.MethodGet, "/builds", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NotContains(t, resp.Body.String(), "log_object_key")
+	// A build whose image record is gone still names its tag, and no image.
+	require.Contains(t, resp.Body.String(), `"tag":"app:v1"`)
+	require.NotContains(t, resp.Body.String(), "image_id")
 
 	svc.EXPECT().CancelBuildRecord(mock.Anything, buildID).Return(nil)
 	resp = perform(router, http.MethodPost, "/builds/"+buildID+"/cancel", ``, nil)

@@ -54,13 +54,16 @@ func IsBuildFailedStatus(status string) bool {
 type Build struct {
 	RegistryCredential RegistryCredential
 	ID                 uuid.UUID
-	ImageID            uuid.UUID
+	// ImageID is uuid.Nil once the build's image record has been deleted.
+	ImageID uuid.UUID
+	// Tag is the normalized user tag the build was queued for.
+	Tag                string
 	OwnerID            uuid.UUID
 	ProjectID          *uuid.UUID
 	ProjectServiceName string
 	OwnerUsername      string
 	Status             string
-	LogObjectKey        string
+	LogObjectKey       string
 	ArchiveObjectKey   string
 	CreatedAt          time.Time
 	StartedAt          time.Time

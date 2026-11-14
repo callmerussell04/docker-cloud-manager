@@ -57,7 +57,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.builds.grid, tableLayouts.builds.minWidth)}>
       <div className="min-w-0">
-        <h3 className="font-semibold text-sm truncate" title={build.id}>{build.id}</h3>
+        <h3 className="font-semibold text-sm truncate" title={build.id}>{build.tag || build.id}</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400">{t('images.buildId')}</p>
       </div>
 

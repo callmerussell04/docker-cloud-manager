@@ -284,13 +284,13 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	buildLogic := coregrpcmocks.NewMockBuildLogic(t)
 	users := coregrpcmocks.NewMockUserDirectory(t)
 	build := model.Build{
-		ID:          buildID,
-		ImageID:     imageID,
-		OwnerID:     ownerID,
-		Status:      model.BuildStatusRunning,
+		ID:           buildID,
+		ImageID:      imageID,
+		OwnerID:      ownerID,
+		Status:       model.BuildStatusRunning,
 		LogObjectKey: "build-logs/demo.log",
-		StartedAt:   time.Unix(150, 0),
-		FinishedAt:  &finishedAt,
+		StartedAt:    time.Unix(150, 0),
+		FinishedAt:   &finishedAt,
 	}
 	imageLogic.EXPECT().List(mock.Anything, 10, 0).Return([]model.Image{{
 		ID:        imageID,

@@ -476,6 +476,9 @@ message BuildData {
   string project_id = 9;
   string project_service_name = 10;
   int64 created_at = 11;
+  // The user tag the build was queued for. image_id is empty once the
+  // build's image record has been deleted.
+  string tag = 12;
 }
 
 message BuildListResponse {

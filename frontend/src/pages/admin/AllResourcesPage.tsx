@@ -428,7 +428,7 @@ export function AllResourcesPage() {
                         <div className="min-w-0">
                           <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
                         </div>
-                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id}>{build.image_id}</div>
+                        <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id || build.tag}>{build.tag || build.image_id || '-'}</div>
                         <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username || build.owner_id}>{t('admin.resources.userLabel', { value: build.owner_username || build.owner_id || 'unknown' })}</div>
                         <div className="min-w-0 text-xs text-slate-500 truncate" title={formatDateTime(build.started_at, locale)}>{formatDateTime(build.started_at, locale)}</div>
                         <div className="min-w-0 text-sm text-slate-600 dark:text-slate-300">

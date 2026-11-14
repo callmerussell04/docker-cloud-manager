@@ -3353,8 +3353,11 @@ type BuildData struct {
 	ProjectId          string                 `protobuf:"bytes,9,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
 	ProjectServiceName string                 `protobuf:"bytes,10,opt,name=project_service_name,json=projectServiceName,proto3" json:"project_service_name,omitempty"`
 	CreatedAt          int64                  `protobuf:"varint,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// The user tag the build was queued for. image_id is empty once the
+	// build's image record has been deleted.
+	Tag           string `protobuf:"bytes,12,opt,name=tag,proto3" json:"tag,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BuildData) Reset() {
@@ -3462,6 +3465,13 @@ func (x *BuildData) GetCreatedAt() int64 {
 		return x.CreatedAt
 	}
 	return 0
+}
+
+func (x *BuildData) GetTag() string {
+	if x != nil {
+		return x.Tag
+	}
+	return ""
 }
 
 type BuildListResponse struct {
@@ -5331,7 +5341,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12VolumeListResponse\x12*\n" +
 	"\avolumes\x18\x01 \x03(\v2\x10.core.VolumeDataR\avolumes\"?\n" +
 	"\x12BuildActionRequest\x12\x19\n" +
-	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xe6\x02\n" +
+	"\bbuild_id\x18\x02 \x01(\tR\abuildIdJ\x04\b\x01\x10\x02R\bowner_id\"\xf8\x02\n" +
 	"\tBuildData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x19\n" +
 	"\bimage_id\x18\x02 \x01(\tR\aimageId\x12\x16\n" +
@@ -5348,7 +5358,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x14project_service_name\x18\n" +
 	" \x01(\tR\x12projectServiceName\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\v \x01(\x03R\tcreatedAt\"<\n" +
+	"created_at\x18\v \x01(\x03R\tcreatedAt\x12\x10\n" +
+	"\x03tag\x18\f \x01(\tR\x03tag\"<\n" +
 	"\x11BuildListResponse\x12'\n" +
 	"\x06builds\x18\x01 \x03(\v2\x0f.core.BuildDataR\x06builds\"\xee\x01\n" +
 	"\vProjectData\x12\x0e\n" +

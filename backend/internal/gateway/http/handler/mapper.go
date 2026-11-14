@@ -161,13 +161,14 @@ func buildsToDTO(items []model.Build) []dto.BuildDTO {
 		result = append(result, dto.BuildDTO{
 			ID:                 item.ID,
 			ImageID:            item.ImageID,
+			Tag:                item.Tag,
 			ProjectID:          item.ProjectID,
 			ProjectServiceName: item.ProjectServiceName,
 			Status:             item.Status,
 			CreatedAt:          item.CreatedAt,
 			StartedAt:          item.StartedAt,
 			FinishedAt:         item.FinishedAt,
-			LogObjectKey:        item.LogObjectKey,
+			LogObjectKey:       item.LogObjectKey,
 			OwnerID:            item.OwnerID,
 			OwnerUsername:      item.OwnerUsername,
 		})
@@ -181,6 +182,7 @@ func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
 		result = append(result, dto.UserBuildDTO{
 			ID:                 item.ID,
 			ImageID:            item.ImageID,
+			Tag:                item.Tag,
 			ProjectID:          item.ProjectID,
 			ProjectServiceName: item.ProjectServiceName,
 			Status:             item.Status,

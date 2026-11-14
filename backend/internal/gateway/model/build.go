@@ -3,13 +3,14 @@ package model
 type Build struct {
 	ID                 string
 	ImageID            string
+	Tag                string
 	ProjectID          string
 	ProjectServiceName string
 	Status             string
 	CreatedAt          int64
 	StartedAt          int64
 	FinishedAt         int64
-	LogObjectKey        string
+	LogObjectKey       string
 	OwnerID            string
 	OwnerUsername      string
 }

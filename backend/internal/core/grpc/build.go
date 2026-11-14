@@ -180,14 +180,20 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 	if b.ProjectID != nil {
 		projectID = b.ProjectID.String()
 	}
+	// A build whose image record was deleted names no image.
+	imageID := ""
+	if b.ImageID != uuid.Nil {
+		imageID = b.ImageID.String()
+	}
 	return &coreapi.BuildData{
 		Id:                 b.ID.String(),
-		ImageId:            b.ImageID.String(),
+		ImageId:            imageID,
+		Tag:                b.Tag,
 		Status:             b.Status,
 		CreatedAt:          b.CreatedAt.Unix(),
 		StartedAt:          startedAt,
 		FinishedAt:         finishedAt,
-		LogObjectKey:        b.LogObjectKey,
+		LogObjectKey:       b.LogObjectKey,
 		OwnerId:            b.OwnerID.String(),
 		OwnerUsername:      ownerUsername,
 		ProjectId:          projectID,

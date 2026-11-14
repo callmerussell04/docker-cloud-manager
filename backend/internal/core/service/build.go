@@ -784,7 +784,10 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 	if err != nil {
 		return err
 	}
-	if b.ImageID != imageID {
+	// A build that already ended without an image (failed or canceled) has
+	// no image reference left to compare.
+	imageGone := b.ImageID == uuid.Nil && model.IsBuildTerminalStatus(b.Status)
+	if b.ImageID != imageID && !imageGone {
 		return apperrors.ErrForbidden
 	}
 	// A redelivered success after cancellation or failure still queues cleanup

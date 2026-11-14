@@ -62,13 +62,14 @@ func buildFromProto(item *coreapi.BuildData) model.Build {
 	return model.Build{
 		ID:                 item.GetId(),
 		ImageID:            item.GetImageId(),
+		Tag:                item.GetTag(),
 		ProjectID:          item.GetProjectId(),
 		ProjectServiceName: item.GetProjectServiceName(),
 		Status:             item.GetStatus(),
 		CreatedAt:          item.GetCreatedAt(),
 		StartedAt:          item.GetStartedAt(),
 		FinishedAt:         item.GetFinishedAt(),
-		LogObjectKey:        item.GetLogObjectKey(),
+		LogObjectKey:       item.GetLogObjectKey(),
 		OwnerID:            item.GetOwnerId(),
 		OwnerUsername:      item.GetOwnerUsername(),
 	}

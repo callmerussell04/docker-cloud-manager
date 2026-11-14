@@ -17,7 +17,10 @@ export interface AdminImageData extends ImageData {
 
 export interface BuildData {
   id: string;
-  image_id: string;
+  // Absent once the build's image record has been deleted.
+  image_id?: string;
+  // The tag the build was queued for.
+  tag?: string;
   project_id?: string;
   project_service_name?: string;
   status: string;
