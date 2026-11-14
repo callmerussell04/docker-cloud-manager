@@ -167,6 +167,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Repository:    buildRepo,
 		Images:        imgRepo,
 		Registry:      registry.adapter,
+		Docker:        dockerAdapter,
 		Quotas:        userQuotas,
 		Logger:        logger,
 		RegistryAuth:  registry.auth,

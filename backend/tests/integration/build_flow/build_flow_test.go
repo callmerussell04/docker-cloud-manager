@@ -273,12 +273,15 @@ func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, own
 		Return(int64(2<<20), "sha256:digest", nil).
 		Maybe()
 	registry.EXPECT().DeleteManifest(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	imageCache := coremocks.NewBuildImageCache(t)
+	imageCache.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Maybe()
 
 	svc, err := service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
 		RegistryAuth:  repos.RegistryAuthorization(t),
 		Images:        repos.Images,
 		Registry:      registry,
+		Docker:        imageCache,
 		Quotas:        repos.UserQuotas(t, cfg),
 		Logger:        coretest.DiscardLogger(),
 		Containers:    repos.Containers,

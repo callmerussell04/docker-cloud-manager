@@ -144,7 +144,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	ownerA, ownerB := uuid.New(), uuid.New()
 	seed := func(owner uuid.UUID, tag, dockerfile, source string) (model.Build, string, string) {
 		imageID, buildID := uuid.New(), uuid.New()
-		require.NoError(t, buildRepo.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: tag}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		require.NoError(t, buildRepo.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: tag}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 		claim, started, err := auth.ClaimBuild(ctx, buildID, 10*time.Minute, 10)
 		require.NoError(t, err)
 		require.True(t, started)
@@ -166,7 +166,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 		require.NoError(t, adapter.WaitForBuild(ctx, id), "executor output: %s", output)
 		base := strings.Split(tag, ":")[0]
 		repo := strings.ToLower(owner.String() + "_" + base)
-		_, digest, err := metadata.GetImageSizeAndDigest(ctx, repo, "latest")
+		_, digest, err := metadata.GetImageSizeAndDigest(ctx, repo, imageID.String())
 		require.NoError(t, err)
 		return claim, repo, digest
 	}
@@ -184,10 +184,11 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	require.NoError(t, err)
 	uploadPath := uploadURL.RequestURI()
 	require.NoError(t, auth.RevokeBuild(ctx, b.ID, model.RegistryTagKeep))
-	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, b.ID, b.ImageID, model.BuildStatusSuccess, 1))
+	_, err = imageRepo.UpdateBuildAndImageSizeTx(ctx, b.ID, b.ImageID, model.BuildStatusSuccess, 1, &bDigest)
+	require.NoError(t, err)
 	// Daemon gets a separate exact-repository pull identity. Loopback addresses
 	// are Docker's test-only implicit insecure registries; no host CA is changed.
-	pullImageName := strings.TrimPrefix(backendURL, "https://") + "/" + bRepo + ":latest"
+	pullImageName := strings.TrimPrefix(backendURL, "https://") + "/" + bRepo + ":" + b.ImageID.String()
 	puller, err := coredocker.NewAdapter(coredocker.WithPullAuthorization(func(ctx context.Context, name string) (string, error) {
 		credential, err := auth.PullCredential(ctx, bRepo)
 		if err != nil {
@@ -204,7 +205,8 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 
 	aBase, aBaseRepo, _ := seed(ownerA, "base:latest", "FROM scratch\nCOPY payload /base\n", "")
 	require.NoError(t, auth.RevokeBuild(ctx, aBase.ID, model.RegistryTagKeep))
-	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, aBase.ID, aBase.ImageID, model.BuildStatusSuccess, 1))
+	_, err = imageRepo.UpdateBuildAndImageSizeTx(ctx, aBase.ID, aBase.ImageID, model.BuildStatusSuccess, 1, nil)
+	require.NoError(t, err)
 	_, file, _, _ := runtime.Caller(0)
 	probePath := filepath.Join(t.TempDir(), "probe")
 	compile := exec.CommandContext(ctx, "go", "build", "-o", probePath, filepath.Join(filepath.Dir(file), "testdata/registry-probe/main.go"))
@@ -213,8 +215,8 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	require.NoError(t, err, "compile probe: %s", compileOutput)
 	aRepo := strings.ToLower(ownerA.String() + "_destination")
 	args, _ := json.Marshal([]string{"/probe", authority, aRepo, bRepo, bDigest, uploadPath})
-	a, _, _ := seed(ownerA, "destination:latest", "FROM "+authority+"/"+aBaseRepo+":latest\nCOPY payload /probe\nRUN "+string(args)+"\n", probePath)
-	_, after, err := metadata.GetImageSizeAndDigest(ctx, bRepo, "latest")
+	a, _, _ := seed(ownerA, "destination:latest", "FROM "+authority+"/"+aBaseRepo+":"+aBase.ImageID.String()+"\nCOPY payload /probe\nRUN "+string(args)+"\n", probePath)
+	_, after, err := metadata.GetImageSizeAndDigest(ctx, bRepo, b.ImageID.String())
 	require.NoError(t, err)
 	require.Equal(t, bDigest, after, "B must be unchanged")
 	require.NoError(t, auth.RevokeBuild(ctx, a.ID, model.RegistryTagDelete))
@@ -224,7 +226,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	// allowance must be rejected by the actual pinned Registry verifier.
 	expired, err := signer.SignRegistryToken(ctx, model.RegistryTokenGrant{Subject: "test", Service: service.RegistryService, IssuedAt: time.Now().Add(-4 * time.Minute), ExpiresAt: time.Now().Add(-2 * time.Minute), Access: []model.RegistryAccess{{Repository: bRepo, Actions: []string{"pull"}}}})
 	require.NoError(t, err)
-	request, _ = http.NewRequestWithContext(ctx, "GET", backendURL+"/v2/"+bRepo+"/manifests/latest", nil)
+	request, _ = http.NewRequestWithContext(ctx, "GET", backendURL+"/v2/"+bRepo+"/manifests/"+b.ImageID.String(), nil)
 	request.Header.Set("Authorization", "Bearer "+expired)
 	response, err = httpClient.Do(request)
 	require.NoError(t, err)
@@ -232,7 +234,7 @@ func TestDockerfileCannotAccessAnotherOwnersRegistry(t *testing.T) {
 	require.Equal(t, 401, response.StatusCode)
 	// Trusted cleanup succeeds independently of the revoked job credential.
 	require.NoError(t, metadata.DeleteManifest(ctx, bRepo, bDigest))
-	_, _, err = metadata.GetImageSizeAndDigest(ctx, bRepo, "latest")
+	_, _, err = metadata.GetImageSizeAndDigest(ctx, bRepo, b.ImageID.String())
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 

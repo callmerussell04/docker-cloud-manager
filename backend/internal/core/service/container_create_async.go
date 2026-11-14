@@ -220,7 +220,7 @@ func (s *ContainerService) resolveContainerCreateImage(ctx context.Context, c mo
 		if img.Status != model.ImageStatusAvailable {
 			return "", nil, false, resourceUnavailableError("image")
 		}
-		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, version), &img, true, nil
+		return customImageFullTag(s.config.Get().RegistryPublicURL, c.OwnerID, baseName, img.RegistryTag), &img, true, nil
 	}
 	return normalizedInputTag, nil, false, nil
 }

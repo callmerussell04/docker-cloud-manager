@@ -166,10 +166,10 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 		return errors.Join(err, s.completeImageOperation(ctx, operationID, model.OperationStatusFailed, err))
 	}
 
-	baseName, version := parseImageTag(img.Tag)
+	baseName, _ := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	if err := s.deleteRegistryManifest(ctx, repoName, version); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+	if err := s.deleteRegistryManifest(ctx, repoName, img.RegistryTag); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		writeCtx, cancel := detachedContainerStateContext(ctx)
 		defer cancel()
 		if requeueErr := s.lifecycle.RequeueOperation(writeCtx, operationID, err); requeueErr != nil {
@@ -179,7 +179,7 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 	}
 
 	// Удаление из локального кэша Docker Engine
-	fullTag := customImageFullTag(s.cfg.Get().RegistryPublicURL, img.OwnerID, baseName, version)
+	fullTag := customImageFullTag(s.cfg.Get().RegistryPublicURL, img.OwnerID, baseName, img.RegistryTag)
 	_ = s.dockerAPI.RemoveImage(ctx, fullTag, false) // best-effort local cache cleanup; the Registry tag is already gone
 
 	// Удаление записи из бд
@@ -214,7 +214,7 @@ func (s *ImageService) completeImageOperation(ctx context.Context, operationID u
 // before Docker and database cleanup, and the lookup and delete share the
 // Registry lock budget, so a stalled Registry blocks admission for at most that
 // budget. ErrNotFound means the manifest is already absent.
-func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, version string) error {
+func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, registryTag string) error {
 	unlock, err := s.registryAuth.FenceAndLockRepository(ctx, repoName)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func (s *ImageService) deleteRegistryManifest(ctx context.Context, repoName, ver
 	defer unlock()
 	lockedCtx, cancel := context.WithTimeout(ctx, registryLockBudget(s.cfg.Get()))
 	defer cancel()
-	return deleteTaggedManifest(lockedCtx, s.registryAPI, repoName, version)
+	return deleteTaggedManifest(lockedCtx, s.registryAPI, repoName, registryTag)
 }
 
 // registryLockBudget bounds Registry work done while holding a repository

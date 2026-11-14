@@ -121,7 +121,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 						require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 						require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
 					case "image delete":
-						require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
+						require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, RegistryTag: "latest", OwnerID: ownerID, Tag: "demo:latest"}))
 						require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
 					}
 					outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
@@ -211,7 +211,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 				require.NoError(t, err)
 				switch kind {
 				case "image delete":
-					require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
+					require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, RegistryTag: "latest", OwnerID: ownerID, Tag: "demo:latest"}))
 					require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
 				case "volume delete":
 					require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
@@ -359,7 +359,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 				require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: resourceID, OwnerID: ownerID, Name: "data", DockerName: "stable-volume", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
 				require.NoError(t, volumes.Delete(coretest.UserContext(ownerID), resourceID))
 			case "image delete":
-				require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, OwnerID: ownerID, Tag: "demo:latest"}))
+				require.NoError(t, repos.Images.Save(ctx, model.Image{ID: resourceID, RegistryTag: "latest", OwnerID: ownerID, Tag: "demo:latest"}))
 				require.NoError(t, images.Delete(coretest.UserContext(ownerID), resourceID))
 			}
 			outbox, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)

@@ -43,7 +43,7 @@ func TestBuildRepositoryCreateQueuedBuildPersistsTransaction(t *testing.T) {
 	require.NoError(t, err)
 
 	err = repo.CreateQueuedBuild(ctx,
-		model.Image{ID: imageID, OwnerID: ownerID, Tag: "repo/demo:latest"},
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "repo/demo:latest"},
 		model.Build{
 			ID:               buildID,
 			ImageID:          imageID,
@@ -97,12 +97,15 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	buildID := uuid.New()
 	tag := "demo:latest"
 
+	// The replaced image was built before migration 0019: its Registry tag is
+	// its user tag's version.
 	require.NoError(t, imageRepo.Save(ctx, model.Image{
-		ID:      oldImageID,
-		OwnerID: ownerID,
-		Tag:     tag,
-		SizeMB:  12,
-		Status:  model.ImageStatusAvailable,
+		ID:          oldImageID,
+		OwnerID:     ownerID,
+		Tag:         tag,
+		RegistryTag: "latest",
+		SizeMB:      12,
+		Status:      model.ImageStatusAvailable,
 	}))
 
 	payload, err := json.Marshal(buildqueue.ImageBuildMessage{
@@ -113,7 +116,7 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	})
 	require.NoError(t, err)
 	require.NoError(t, buildRepo.CreateQueuedBuild(ctx,
-		model.Image{ID: newImageID, OwnerID: ownerID, Tag: tag, Status: model.ImageStatusBuilding},
+		model.Image{ID: newImageID, RegistryTag: newImageID.String(), OwnerID: ownerID, Tag: tag, Status: model.ImageStatusBuilding},
 		model.Build{
 			ID:               buildID,
 			ImageID:          newImageID,
@@ -130,7 +133,10 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, int64(12), sizeMB)
 
-	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, newImageID, model.BuildStatusSuccess, 20))
+	digest := "sha256:new"
+	replaced, err := imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, newImageID, model.BuildStatusSuccess, 20, &digest)
+	require.NoError(t, err)
+	require.Equal(t, []model.Image{{ID: oldImageID, OwnerID: ownerID, Tag: tag, RegistryTag: "latest"}}, replaced)
 
 	_, err = imageRepo.GetByID(ctx, oldImageID)
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
@@ -138,6 +144,16 @@ func TestBuildRepositoryAllowsBuildingReplacementAndPromotesNewImage(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, model.ImageStatusAvailable, newImage.Status)
 	require.Equal(t, 20, newImage.SizeMB)
+	require.Equal(t, newImageID.String(), newImage.RegistryTag)
+	require.NotNil(t, newImage.Digest)
+	require.Equal(t, "sha256:new", *newImage.Digest)
+	// The replaced manifest is queued for cleanup in the same transaction.
+	require.Equal(t, 1, countRowsWhere(t, db, "registry_cleanup_jobs", "id = $1 AND owner_id = $2 AND repository = $3 AND tag = 'latest' AND not_before <= clock_timestamp()", oldImageID, ownerID, ownerID.String()+"_demo"))
+
+	// A redelivered completion changes nothing and replaces nothing.
+	replaced, err = imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, newImageID, model.BuildStatusSuccess, 20, &digest)
+	require.NoError(t, err)
+	require.Empty(t, replaced)
 	build, err := buildRepo.GetByID(ctx, buildID)
 	require.NoError(t, err)
 	require.Equal(t, model.BuildStatusSuccess, build.Status)
@@ -370,7 +386,7 @@ func TestBuildRepositoryListsAnOwnersActiveBuilds(t *testing.T) {
 	queue := func(owner uuid.UUID, status string) uuid.UUID {
 		imageID, buildID := uuid.New(), uuid.New()
 		require.NoError(t, repo.CreateQueuedBuild(ctx,
-			model.Image{ID: imageID, OwnerID: owner, Tag: "repo/" + buildID.String()[:8] + ":latest"},
+			model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "repo/" + buildID.String()[:8] + ":latest"},
 			model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, LogFilePath: "build-logs/x.log"},
 			model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
 		))

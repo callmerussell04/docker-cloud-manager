@@ -45,7 +45,7 @@ func queueBuild(t *testing.T, f *coretest.ComposeFixture, ownerID uuid.UUID, sta
 	ctx := context.Background()
 	imageID, buildID := uuid.New(), uuid.New()
 	require.NoError(t, f.Repos.Builds.CreateQueuedBuild(ctx,
-		model.Image{ID: imageID, OwnerID: ownerID, Tag: "app-" + buildID.String()[:8] + ":latest"},
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "app-" + buildID.String()[:8] + ":latest"},
 		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending, LogFilePath: "build-logs/x.log"},
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
 	))

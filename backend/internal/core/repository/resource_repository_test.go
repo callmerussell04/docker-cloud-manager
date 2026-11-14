@@ -32,12 +32,14 @@ func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 	payload, err := json.Marshal(buildqueue.ImageBuildMessage{BuildID: buildID.String(), ImageID: imageID.String(), OwnerID: ownerID.String()})
 	require.NoError(t, err)
 	require.NoError(t, buildRepo.CreateQueuedBuild(ctx,
-		model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"},
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "demo:latest"},
 		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusRunning, StartedAt: time.Now()},
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: payload},
 	))
 
-	require.NoError(t, imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, model.BuildStatusSuccess, 42))
+	replaced, err := imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, model.BuildStatusSuccess, 42, nil)
+	require.NoError(t, err)
+	require.Empty(t, replaced)
 	img, err := imageRepo.GetByID(ctx, imageID)
 	require.NoError(t, err)
 	require.Equal(t, 42, img.SizeMB)
@@ -55,7 +57,7 @@ func TestImageRepositoryListAndBuildTransactions(t *testing.T) {
 	secondImageID := uuid.New()
 	secondBuildID := uuid.New()
 	require.NoError(t, buildRepo.CreateQueuedBuild(ctx,
-		model.Image{ID: secondImageID, OwnerID: ownerID, Tag: "demo-failed:latest"},
+		model.Image{ID: secondImageID, RegistryTag: secondImageID.String(), OwnerID: ownerID, Tag: "demo-failed:latest"},
 		model.Build{ID: secondBuildID, ImageID: secondImageID, OwnerID: ownerID, Status: model.BuildStatusRunning, StartedAt: time.Now()},
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: secondBuildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: payload},
 	))
@@ -299,7 +301,7 @@ func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
 	builds := repository.NewBuildRepository(db, db)
 	imageID, buildID := uuid.New(), uuid.New()
 	require.NoError(t, builds.CreateQueuedBuild(ctx,
-		model.Image{ID: imageID, OwnerID: ownerID, Tag: "pending:latest"},
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "pending:latest"},
 		model.Build{ID: buildID, ImageID: imageID, OwnerID: ownerID, Status: model.BuildStatusPending},
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: buildqueue.ExchangeName, RoutingKey: buildqueue.RoutingKey, Payload: []byte(`{}`)},
 	))

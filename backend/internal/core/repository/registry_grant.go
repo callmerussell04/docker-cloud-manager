@@ -71,15 +71,17 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 	if running >= maxRunning {
 		return b, false, nil
 	}
-	var tag string
-	err = tx.QueryRow(ctx, `SELECT tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag)
+	var tag, registryTag string
+	err = tx.QueryRow(ctx, `SELECT tag, registry_tag FROM images WHERE id=$1 AND owner_id=$2`, b.ImageID, b.OwnerID).Scan(&tag, &registryTag)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return b, false, apperrors.Wrap(apperrors.ErrNotFound, apperrors.ErrNotFound.Error(), wrapOp("registry grant claim build image", err))
 	}
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
-	base, version := imageref.ParseTag(tag)
+	// The repository follows the user tag's name; the pushed tag is the image
+	// row's own Registry tag, so a rebuild never overwrites an available image.
+	base, _ := imageref.ParseTag(tag)
 	repository := imageref.CustomRepositoryName(b.OwnerID, base)
 	var locked bool
 	if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1, $2))`, repository, registryRepositoryLockSalt).Scan(&locked); err != nil {
@@ -89,7 +91,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return b, false, apperrors.ErrUnavailable
 	}
 
-	_, err = tx.Exec(ctx, `INSERT INTO registry_build_credentials(build_id,owner_id,repository,tag,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+$6*interval '1 second')`, b.ID, b.OwnerID, repository, version, hash, lifetime.Seconds())
+	_, err = tx.Exec(ctx, `INSERT INTO registry_build_credentials(build_id,owner_id,repository,tag,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+$6*interval '1 second')`, b.ID, b.OwnerID, repository, registryTag, hash, lifetime.Seconds())
 	if err != nil {
 		return b, false, wrapOp("registry grant claim build", err)
 	}
@@ -101,7 +103,7 @@ func (r *RegistryGrantRepository) ClaimBuild(ctx context.Context, id uuid.UUID, 
 		return b, false, err
 	}
 	b.Status = model.BuildStatusRunning
-	b.RegistryCredential.Destination = repository + ":" + version
+	b.RegistryCredential.Destination = repository + ":" + registryTag
 	return b, true, nil
 }
 
@@ -255,7 +257,7 @@ func (r *RegistryGrantRepository) RegistryCleanupFacts(ctx context.Context, job 
  EXISTS(SELECT 1 FROM builds b JOIN images i ON i.id=b.image_id
    WHERE b.status IN ('pending','running') AND lower(i.owner_id::text || '_' || split_part(i.tag,':',1))=$1),
  EXISTS(SELECT 1 FROM registry_build_credentials WHERE repository=$1 AND last_issued_at+$3*interval '1 second'>clock_timestamp()),
- EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND split_part(tag,':',2)=$2)`,
+ EXISTS(SELECT 1 FROM images WHERE status='available' AND lower(owner_id::text || '_' || split_part(tag,':',1))=$1 AND registry_tag=$2)`,
 		job.Repository, job.Tag, fence.Seconds()).Scan(&facts.PublisherActive, &facts.TokenMayWrite, &facts.TagAvailable)
 	return facts, wrapOp("registry grant cleanup facts", err)
 }

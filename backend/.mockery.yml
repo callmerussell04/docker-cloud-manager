@@ -15,6 +15,7 @@ packages:
       activeSystemBuildCounter: {}
       BuildContainerReservationRepository: {}
       BuildDeploymentCanceler: {}
+      BuildImageCache: {}
       BuildImageRepository: {}
       BuildObjectStore: {}
       BuildOutboxConfigProvider: {}

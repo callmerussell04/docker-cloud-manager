@@ -84,12 +84,16 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 	diskMetrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{TotalBytes: 1 << 41, FreeBytes: 1 << 40}, nil).Maybe()
 	f.Registry.EXPECT().GetImageSizeAndDigest(mock.Anything, mock.Anything, mock.Anything).Return(int64(1<<20), "sha256:digest", nil).Maybe()
 
+	imageCache := coremocks.NewBuildImageCache(t)
+	imageCache.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Maybe()
+
 	var err error
 	f.Builds, err = service.NewBuildService(service.BuildServiceDeps{
 		Repository:    repos.Builds,
 		RegistryAuth:  repos.RegistryAuthorization(t),
 		Images:        repos.Images,
 		Registry:      f.Registry,
+		Docker:        imageCache,
 		Quotas:        quotas,
 		Logger:        logger,
 		Containers:    repos.Containers,

@@ -44,7 +44,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			ctx := context.Background()
 			repos := coretest.OpenCoreRepositories(t)
 			ownerID, imageID := uuid.New(), uuid.New()
-			require.NoError(t, repos.Images.Save(ctx, model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}))
+			require.NoError(t, repos.Images.Save(ctx, model.Image{ID: imageID, RegistryTag: "latest", OwnerID: ownerID, Tag: "demo:latest"}))
 			var failedAttempt atomic.Bool
 			failedAttempt.Store(tc.retry)
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +302,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 	f := &fencedImageDeletion{repos: coretest.OpenCoreRepositories(t), ownerID: uuid.New(), imageID: uuid.New(), deletes: &atomic.Int32{}, onDelete: &atomic.Pointer[func(*http.Request)]{}}
 	f.grants = f.repos.Grants
 	f.lifecycle = repository.NewResourceLifecycleRepository(f.repos.DB)
-	require.NoError(t, f.repos.Images.Save(ctx, model.Image{ID: f.imageID, OwnerID: f.ownerID, Tag: "demo:latest"}))
+	require.NoError(t, f.repos.Images.Save(ctx, model.Image{ID: f.imageID, RegistryTag: "latest", OwnerID: f.ownerID, Tag: "demo:latest"}))
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -342,7 +342,7 @@ func (f *fencedImageDeletion) queueSibling(t *testing.T, tag string) uuid.UUID {
 	t.Helper()
 	imageID, buildID := uuid.New(), uuid.New()
 	require.NoError(t, f.repos.Builds.CreateQueuedBuild(context.Background(),
-		model.Image{ID: imageID, OwnerID: f.ownerID, Tag: tag},
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: f.ownerID, Tag: tag},
 		model.Build{ID: buildID, ImageID: imageID, OwnerID: f.ownerID, Status: model.BuildStatusPending, StartedAt: time.Now()},
 		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 	return buildID
@@ -409,7 +409,7 @@ func TestStalledRegistryReleasesAdmissionAfterLockBudget(t *testing.T) {
 	ctx := context.Background()
 	repos := coretest.OpenCoreRepositories(t)
 	ownerID, imageID := uuid.New(), uuid.New()
-	require.NoError(t, repos.Images.Save(ctx, model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}))
+	require.NoError(t, repos.Images.Save(ctx, model.Image{ID: imageID, RegistryTag: "latest", OwnerID: ownerID, Tag: "demo:latest"}))
 	stalled, release := make(chan struct{}), make(chan struct{})
 	var responded atomic.Bool
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

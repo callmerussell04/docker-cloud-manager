@@ -247,8 +247,8 @@ func TestBuildServiceCompleteBuildRecordQuotaFailureDoesNotReturnRetryableError(
 		Status:           model.BuildStatusRunning,
 		ArchiveObjectKey: "build-archives/source.zip",
 	}, nil)
-	imageRepo.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo-app:latest"}, nil)
-	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo-app", "latest").Return(int64(2*1024*1024), "digest", nil)
+	imageRepo.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: ownerID, Tag: "demo-app:latest"}, nil)
+	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo-app", imageID.String()).Return(int64(2*1024*1024), "digest", nil)
 	imageRepo.EXPECT().GetUserUsedDiskSpace(mock.Anything, ownerID).Return(int64(0), nil)
 	imageRepo.EXPECT().GetReplacementImageSizeMB(mock.Anything, ownerID, "demo-app:latest", imageID).Return(int64(0), nil)
 	imageRepo.EXPECT().

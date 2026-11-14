@@ -39,10 +39,10 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:1.2.3"}, nil)
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:1.2.3", RegistryTag: imageID.String()}, nil)
 	var registryRepo, registryTag, deletedDigest string
 	registry.EXPECT().
-		GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "1.2.3").
+		GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", imageID.String()).
 		Run(func(ctx context.Context, repoName, tag string) {
 			registryRepo = repoName
 			registryTag = tag
@@ -55,14 +55,14 @@ func TestImageServiceDeleteRemovesRegistryDockerAndRecord(t *testing.T) {
 		}).
 		Return(nil)
 	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.MatchedBy(func(tag string) bool {
-		return strings.HasSuffix(tag, "demo:1.2.3")
+		return strings.HasSuffix(tag, "_demo:"+imageID.String())
 	}), false).Return(nil)
 	repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(nil)
 
 	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
 	require.NoError(t, err)
 	require.Equal(t, ownerID.String()+"_demo", registryRepo)
-	require.Equal(t, "1.2.3", registryTag)
+	require.Equal(t, imageID.String(), registryTag, "the manifest is found by the record's Registry tag")
 	require.Equal(t, "sha256:abc", deletedDigest)
 	require.Equal(t, model.OperationStatusDone, lifecycle.op.Status)
 }
@@ -83,7 +83,7 @@ func TestImageServiceDeleteBlocksImageInUse(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest"}, nil)
 	containerRepo.EXPECT().IsImageInUse(mock.Anything, ownerID, "demo:latest").Return(true, nil)
 
 	err = svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), imageID)
@@ -106,7 +106,7 @@ func TestImageServiceDeleteRetainsStateAfterRegistryLookupFailure(t *testing.T) 
 	})
 	require.NoError(t, err)
 	cause := apperrors.Wrap(apperrors.ErrUnavailable, "registry lookup failed", errors.New("connection refused"))
-	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest", Status: model.ImageStatusDeleting}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", cause)
 
 	err = svc.ExecuteQueuedImageOperation(context.Background(), operationID, imageID)
@@ -133,7 +133,7 @@ func TestImageServiceDeleteRetriesAfterRegistryTimeout(t *testing.T) {
 			})
 			require.NoError(t, err)
 			cause := apperrors.Wrap(apperrors.ErrTimeout, "registry attempt timed out", context.DeadlineExceeded)
-			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest", Status: model.ImageStatusDeleting}, nil)
 			repoName := ownerID.String() + "_demo"
 			if phase == "lookup" {
 				registry.EXPECT().GetImageSizeAndDigest(mock.Anything, repoName, "latest").Return(int64(0), "", cause).Once()
@@ -182,7 +182,7 @@ func TestImageServiceDeleteBoundsRegistryWorkUnderRepositoryLock(t *testing.T) {
 			RegistryAuth: fence,
 		})
 		require.NoError(t, err)
-		repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", Status: model.ImageStatusDeleting}, nil)
+		repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest", Status: model.ImageStatusDeleting}, nil)
 		registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").
 			RunAndReturn(func(ctx context.Context, _, _ string) (int64, string, error) {
 				<-ctx.Done()
@@ -216,7 +216,7 @@ func TestImageServiceDeleteContinuesWhenRegistryDigestMissing(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
 	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.MatchedBy(func(tag string) bool {
 		return strings.HasSuffix(tag, "demo:latest")
@@ -249,7 +249,7 @@ func TestImageServiceDeleteMarksImageErrorOnRepositoryDeleteFailure(t *testing.T
 	})
 	require.NoError(t, err)
 
-	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
+	repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest"}, nil)
 	registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
 	dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.MatchedBy(func(tag string) bool {
 		return strings.HasSuffix(tag, "demo:latest")
@@ -294,7 +294,7 @@ func TestImageServiceDeleteReturnsTerminalStatusWriteFailure(t *testing.T) {
 				RegistryAuth: unlockedRepositoryFence(t),
 			})
 			require.NoError(t, err)
-			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest"}, nil)
+			repo.ImageRepository.EXPECT().GetByID(mock.Anything, imageID).Return(model.Image{ID: imageID, OwnerID: ownerID, Tag: "demo:latest", RegistryTag: "latest"}, nil)
 			registry.EXPECT().GetImageSizeAndDigest(mock.Anything, ownerID.String()+"_demo", "latest").Return(int64(0), "", apperrors.ErrNotFound)
 			dockerAPI.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil)
 			repo.ImageRepository.EXPECT().Delete(mock.Anything, imageID).Return(tt.deleteErr)

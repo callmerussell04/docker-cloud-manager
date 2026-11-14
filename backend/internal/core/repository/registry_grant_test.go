@@ -22,7 +22,7 @@ func TestRegistryGrantClaimIsExclusiveAndRevocationSurvivesRestart(t *testing.T)
 	builds := repository.NewBuildRepository(db, db)
 	grants := repository.NewRegistryGrantRepository(db, db)
 	owner, imageID, buildID := uuid.New(), uuid.New(), uuid.New()
-	require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: "destination:latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+	require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "destination:latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 	hashes := [][32]byte{sha256.Sum256([]byte("worker-one-secret")), sha256.Sum256([]byte("worker-two-secret"))}
 	type result struct {
 		worker  int
@@ -86,7 +86,7 @@ func TestRegistryCleanupCannotRaceReplacementClaim(t *testing.T) {
 	owner := uuid.New()
 	queue := func(tag string) uuid.UUID {
 		imageID, buildID := uuid.New(), uuid.New()
-		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: tag}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: tag}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, StartedAt: time.Now()}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 		return buildID
 	}
 	oldID := queue("replacement:latest")
@@ -131,7 +131,7 @@ func TestRegistryGrantClaimCapsRunningBuilds(t *testing.T) {
 	owner := uuid.New()
 	queue := func() uuid.UUID {
 		imageID, buildID := uuid.New(), uuid.New()
-		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: "capped-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "capped-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 		return buildID
 	}
 	claim := func(id uuid.UUID, maxRunning int) (model.Build, bool, error) {
@@ -171,7 +171,7 @@ func TestRegistryGrantConcurrentClaimsTakeTheLastSlotOnce(t *testing.T) {
 	ids := make([]uuid.UUID, 2)
 	for i := range ids {
 		imageID, buildID := uuid.New(), uuid.New()
-		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, OwnerID: owner, Tag: "race-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+		require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "race-" + buildID.String() + ":latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
 		ids[i] = buildID
 	}
 	for attempt := range 20 {
@@ -203,4 +203,40 @@ func TestRegistryGrantConcurrentClaimsTakeTheLastSlotOnce(t *testing.T) {
 		require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM builds WHERE status='running' AND id = ANY($1)`, ids).Scan(&running))
 		require.Equal(t, 1, running, "attempt %d", attempt)
 	}
+}
+
+// A claim pushes to the image row's own Registry tag, and cleanup treats a tag
+// as available only when an available row's Registry tag is that tag: a
+// rebuild's tag is never shielded by the image available under the same user
+// tag, and an available image built before migration 0019 keeps its version tag.
+func TestRegistryGrantClaimAndCleanupFactsUseTheRowsRegistryTag(t *testing.T) {
+	db := dbtest.OpenCorePostgres(t)
+	ctx := context.Background()
+	builds := repository.NewBuildRepository(db, db)
+	images := repository.NewImageRepository(db)
+	grants := repository.NewRegistryGrantRepository(db, db)
+	owner := uuid.New()
+	repo := owner.String() + "_app"
+	legacyID := uuid.New()
+	require.NoError(t, images.Save(ctx, model.Image{ID: legacyID, OwnerID: owner, Tag: "app:latest", RegistryTag: "latest", SizeMB: 1, Status: model.ImageStatusAvailable}))
+
+	imageID, buildID := uuid.New(), uuid.New()
+	require.NoError(t, builds.CreateQueuedBuild(ctx, model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "app:latest"}, model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending}, model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "test", RoutingKey: "test", Payload: []byte(`{}`)}))
+	hash := sha256.Sum256([]byte("rebuild-secret"))
+	claimed, started, err := grants.ClaimBuild(ctx, buildID, hash[:], time.Minute, 10)
+	require.NoError(t, err)
+	require.True(t, started)
+	require.Equal(t, repo+":"+imageID.String(), claimed.RegistryCredential.Destination)
+
+	require.NoError(t, grants.RevokeBuild(ctx, buildID, model.RegistryTagDelete, service.RegistryCleanupDelay))
+	require.NoError(t, images.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded))
+	_, err = db.Exec(ctx, `UPDATE registry_build_credentials SET last_issued_at=clock_timestamp()-interval '1 hour'`)
+	require.NoError(t, err)
+
+	rebuildFacts, err := grants.RegistryCleanupFacts(ctx, model.RegistryCleanup{ID: buildID, Repository: repo, Tag: imageID.String()}, service.RegistryCleanupDelay)
+	require.NoError(t, err)
+	require.Equal(t, model.RegistryCleanupFacts{}, rebuildFacts, "the rejected rebuild's own tag is deleted")
+	legacyFacts, err := grants.RegistryCleanupFacts(ctx, model.RegistryCleanup{ID: uuid.New(), Repository: repo, Tag: "latest"}, service.RegistryCleanupDelay)
+	require.NoError(t, err)
+	require.True(t, legacyFacts.TagAvailable, "the available image's Registry tag is kept")
 }

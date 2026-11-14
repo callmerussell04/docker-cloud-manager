@@ -38,13 +38,16 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 	owner := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	for _, tc := range []struct {
 		name, image, pull             string
+		registryTag                   string
 		custom, rejected, lookupError bool
 	}{
 		{name: "implicit Hub", image: "nginx", pull: "nginx:latest"},
 		{name: "namespaced Hub", image: "acme/app:v1", pull: "acme/app:v1"},
 		{name: "explicit Hub", image: "docker.io/library/nginx", pull: "docker.io/library/nginx:latest"},
-		{name: "owned custom", image: "nginx", pull: "registry.internal:5000/11111111-1111-1111-1111-111111111111_nginx:latest", custom: true},
-		{name: "explicit owned custom", image: "docker.io/acme/app:v1", pull: "registry.internal:5000/11111111-1111-1111-1111-111111111111_docker.io/acme/app:v1", custom: true},
+		// An owned image is pulled by its record's Registry tag: a version tag
+		// for an image built before per-record tags, its image ID otherwise.
+		{name: "owned custom", image: "nginx", registryTag: "latest", pull: "registry.internal:5000/11111111-1111-1111-1111-111111111111_nginx:latest", custom: true},
+		{name: "explicit owned custom", image: "docker.io/acme/app:v1", registryTag: "22222222-2222-2222-2222-222222222222", pull: "registry.internal:5000/11111111-1111-1111-1111-111111111111_docker.io/acme/app:22222222-2222-2222-2222-222222222222", custom: true},
 		{name: "lookup failure cannot select public fallback", image: "nginx", lookupError: true},
 		{name: "queued foreign host", image: "evil.example/app", rejected: true},
 		{name: "queued localhost", image: "localhost/app", rejected: true},
@@ -80,7 +83,7 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 					if ownedTag == "nginx" {
 						ownedTag = "nginx:latest"
 					}
-					owned = []model.Image{{OwnerID: owner, Tag: ownedTag, Status: model.ImageStatusAvailable}}
+					owned = []model.Image{{OwnerID: owner, Tag: ownedTag, RegistryTag: tc.registryTag, Status: model.ImageStatusAvailable}}
 				}
 				var lookupErr error
 				if tc.lookupError {

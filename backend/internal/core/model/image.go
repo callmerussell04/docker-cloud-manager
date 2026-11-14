@@ -7,10 +7,17 @@ import (
 )
 
 type Image struct {
-	ID             uuid.UUID
-	OwnerID        uuid.UUID
-	OwnerUsername  string
-	Tag            string
+	ID            uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	Tag           string
+	// RegistryTag is the tag this record's image is pushed and pulled under
+	// in its owner's Registry repository. A build's record uses its own ID,
+	// so a rebuild never overwrites the image available under Tag.
+	RegistryTag string
+	// Digest is the manifest digest recorded when a build makes the image
+	// available; nil for images made available before it was recorded.
+	Digest         *string
 	SizeMB         int
 	Metadata       []byte
 	Status         string

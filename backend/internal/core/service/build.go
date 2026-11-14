@@ -54,7 +54,7 @@ type BuildImageRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserUsedDiskSpace(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetReplacementImageSizeMB(ctx context.Context, ownerID uuid.UUID, tag string, replacementImageID uuid.UUID) (int64, error)
-	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int) error
+	UpdateBuildAndImageSizeTx(ctx context.Context, buildID, imageID uuid.UUID, status string, sizeMB int, digest *string) ([]model.Image, error)
 	MarkBuildFailedAndDeleteImageTx(ctx context.Context, buildID, imageID uuid.UUID, status string) error
 }
 
@@ -75,6 +75,12 @@ type BuildObjectStore interface {
 // manifests directly; revocation queues the fenced Registry cleanup.
 type BuildImageMetadataAPI interface {
 	GetImageSizeAndDigest(ctx context.Context, repo, tag string) (int64, string, error)
+}
+
+// BuildImageCache removes an image a successful rebuild replaced from the
+// Docker cache, best effort and without force.
+type BuildImageCache interface {
+	RemoveImage(ctx context.Context, imageID string, force bool) error
 }
 
 // BuildRegistryAuthorizer claims builds with a repository-scoped Registry
@@ -123,6 +129,7 @@ type BuildService struct {
 	imageRepo    BuildImageRepository
 	volumeRepo   BuildVolumeDiskRepository
 	registryAPI  BuildImageMetadataAPI
+	imageCache   BuildImageCache
 	quotas       UserQuotaProvider
 	cfg          BuildConfigProvider
 	objectStore  BuildObjectStore
@@ -140,9 +147,11 @@ type BuildService struct {
 // dependencies. ObjectStore and Deployments are optional; deployments may be
 // wired after construction to resolve the BuildService/Compose orchestrator cycle.
 type BuildServiceDeps struct {
-	Repository    BuildRepository
-	Images        BuildImageRepository
-	Registry      BuildImageMetadataAPI
+	Repository BuildRepository
+	Images     BuildImageRepository
+	Registry   BuildImageMetadataAPI
+	// Docker removes replaced images from the local cache.
+	Docker        BuildImageCache
 	Quotas        UserQuotaProvider
 	Logger        *slog.Logger
 	VolumeRepo    BuildVolumeDiskRepository
@@ -175,7 +184,8 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		value any
 	}{
 		{"repository", deps.Repository}, {"images", deps.Images},
-		{"registry", deps.Registry}, {"quotas", deps.Quotas},
+		{"registry", deps.Registry}, {"docker", deps.Docker},
+		{"quotas", deps.Quotas},
 		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
 		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
 		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
@@ -190,6 +200,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		repo:         deps.Repository,
 		imageRepo:    deps.Images,
 		registryAPI:  deps.Registry,
+		imageCache:   deps.Docker,
 		quotas:       deps.Quotas,
 		registryAuth: deps.RegistryAuth,
 		volumeRepo:   deps.VolumeRepo,
@@ -621,12 +632,15 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		return uuid.Nil, uuid.Nil, fmt.Errorf("failed to marshal build queue message: %w", err)
 	}
 
+	// The build pushes to a Registry tag of its own image record, so the image
+	// available under the same user tag is never overwritten.
 	img := model.Image{
-		ID:      imageID,
-		OwnerID: ownerID,
-		Tag:     normalizedTag,
-		SizeMB:  0,
-		Status:  model.ImageStatusBuilding,
+		ID:          imageID,
+		OwnerID:     ownerID,
+		Tag:         normalizedTag,
+		RegistryTag: imageID.String(),
+		SizeMB:      0,
+		Status:      model.ImageStatusBuilding,
 	}
 	build := model.Build{
 		ID:                 buildID,
@@ -797,10 +811,10 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return err
 	}
 
-	baseName, version := parseImageTag(img.Tag)
+	baseName, _ := parseImageTag(img.Tag)
 	repoName := customImageRepositoryName(img.OwnerID, baseName)
 
-	sizeBytes, _, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, version)
+	sizeBytes, digest, err := s.registryAPI.GetImageSizeAndDigest(ctx, repoName, img.RegistryTag)
 	if err != nil {
 		s.logger.WarnContext(ctx, "failed to fetch built image metadata", "build_id", buildID, "image_id", imageID, "error", err)
 		if revokeErr := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); revokeErr != nil {
@@ -844,12 +858,32 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return nil
 	}
 
-	if err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB); err != nil {
+	var recordedDigest *string
+	if digest != "" {
+		recordedDigest = &digest
+	}
+	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeMB, recordedDigest)
+	if err != nil {
 		return err
 	}
+	s.removeReplacedImages(ctx, replaced)
 	s.cleanupBuildArchive(ctx, b)
 	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_mb", sizeMB)
 	return nil
+}
+
+// removeReplacedImages removes the images a successful rebuild replaced from
+// the Docker cache. Their Registry manifests are already queued for cleanup.
+// Docker refuses an image a container still uses; that refusal is expected.
+func (s *BuildService) removeReplacedImages(ctx context.Context, replaced []model.Image) {
+	registryURL := s.buildConfig().RegistryPublicURL
+	for _, img := range replaced {
+		baseName, _ := parseImageTag(img.Tag)
+		reference := customImageFullTag(registryURL, img.OwnerID, baseName, img.RegistryTag)
+		if err := s.imageCache.RemoveImage(ctx, reference, false); err != nil {
+			s.logger.DebugContext(ctx, "replaced image left in docker cache", "image_id", img.ID, "error", err)
+		}
+	}
 }
 
 func (s *BuildService) GetBuild(ctx context.Context, buildID uuid.UUID) (model.Build, error) {
