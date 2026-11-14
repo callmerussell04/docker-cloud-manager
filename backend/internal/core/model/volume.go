@@ -7,9 +7,11 @@ import (
 )
 
 type Volume struct {
-	ID              uuid.UUID
-	OwnerID         uuid.UUID
-	OwnerUsername   string
+	ID            uuid.UUID
+	OwnerID       uuid.UUID
+	OwnerUsername string
+	// ProjectID is the volume's oldest project link, read from the link
+	// table. On create it names the project the volume is created in.
 	ProjectID       *uuid.UUID
 	Name            string
 	DockerName      string

@@ -18,8 +18,12 @@ type VolumeRepository struct {
 	db *pgxpool.Pool
 }
 
-const volumeColumns = `id, owner_id, project_id, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, size_bytes, size_enforced, created_at`
-const qualifiedVolumeColumns = `volumes.id, volumes.owner_id, volumes.project_id, volumes.name, volumes.docker_name, volumes.status, volumes.last_observed_at, volumes.last_error, volumes.used_bytes, volumes.usage_observed_at, volumes.size_bytes, volumes.size_enforced, volumes.created_at`
+// volumeProjectColumn is the project a volume reads as belonging to: its
+// oldest link in project_volumes, the only record of project membership.
+const volumeProjectColumn = `(SELECT pv.project_id FROM project_volumes pv WHERE pv.volume_id = volumes.id ORDER BY pv.created_at, pv.project_id LIMIT 1)`
+
+const volumeColumns = `id, owner_id, ` + volumeProjectColumn + `, name, docker_name, status, last_observed_at, last_error, used_bytes, usage_observed_at, size_bytes, size_enforced, created_at`
+const qualifiedVolumeColumns = `volumes.id, volumes.owner_id, ` + volumeProjectColumn + `, volumes.name, volumes.docker_name, volumes.status, volumes.last_observed_at, volumes.last_error, volumes.used_bytes, volumes.usage_observed_at, volumes.size_bytes, volumes.size_enforced, volumes.created_at`
 
 type scanner interface {
 	Scan(dest ...any) error
@@ -33,16 +37,25 @@ func (r *VolumeRepository) Save(ctx context.Context, vol model.Volume) error {
 	return insertVolume(ctx, r.db, vol)
 }
 
+// insertVolume stores a volume. vol.ProjectID, when set, is the project the
+// volume is created in and becomes its first project link.
 func insertVolume(ctx context.Context, db executor, vol model.Volume) error {
 	status := vol.Status
 	if status == "" {
 		status = model.VolumeStatusAvailable
 	}
 
+	// The volume and, for a volume created inside a project, its link row are
+	// written by one statement.
 	_, err := db.Exec(ctx, `
-		INSERT INTO volumes (id, owner_id, project_id, name, docker_name, status, size_bytes, size_enforced)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, vol.ID, vol.OwnerID, vol.ProjectID, vol.Name, vol.DockerName, status, vol.SizeBytes, vol.SizeEnforced)
+		WITH created AS (
+			INSERT INTO volumes (id, owner_id, name, docker_name, status, size_bytes, size_enforced)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id
+		)
+		INSERT INTO project_volumes (project_id, volume_id)
+		SELECT $8::uuid, id FROM created WHERE $8::uuid IS NOT NULL
+	`, vol.ID, vol.OwnerID, vol.Name, vol.DockerName, status, vol.SizeBytes, vol.SizeEnforced, vol.ProjectID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -55,15 +68,6 @@ func insertVolume(ctx context.Context, db executor, vol model.Volume) error {
 
 func insertVolumeTx(ctx context.Context, tx pgx.Tx, vol model.Volume) error {
 	return insertVolume(ctx, tx, vol)
-}
-
-func insertProjectVolumeLinkTx(ctx context.Context, tx pgx.Tx, projectID, volumeID uuid.UUID) error {
-	_, err := tx.Exec(ctx, `
-		INSERT INTO project_volumes (project_id, volume_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, projectID, volumeID)
-	return err
 }
 
 func (r *VolumeRepository) GetByID(ctx context.Context, id uuid.UUID) (model.Volume, error) {

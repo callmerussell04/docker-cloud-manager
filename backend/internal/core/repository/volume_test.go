@@ -201,3 +201,39 @@ func TestVolumeMountsAllowOneVolumePerContainerPath(t *testing.T) {
 	_, getErr := containers.GetByID(ctx, containerID)
 	require.ErrorIs(t, getErr, apperrors.ErrNotFound)
 }
+
+func TestVolumeProjectMembershipLivesOnlyInTheLinkTable(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	volumes := repository.NewVolumeRepository(db)
+	projects := repository.NewProjectRepository(db)
+	ownerID, first, second := uuid.New(), uuid.New(), uuid.New()
+	require.NoError(t, projects.Save(ctx, model.Project{ID: first, OwnerID: ownerID, Name: "first", Status: model.ProjectStatusRunning}))
+	require.NoError(t, projects.Save(ctx, model.Project{ID: second, OwnerID: ownerID, Name: "second", Status: model.ProjectStatusRunning}))
+	volumeID := uuid.New()
+
+	// A volume created inside a project belongs to it without a separate link call.
+	require.NoError(t, volumes.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &first, Name: "data", DockerName: "vol_data", SizeBytes: volumeTestMiB}))
+
+	inFirst, err := volumes.GetByProjectID(ctx, first)
+	require.NoError(t, err)
+	require.Len(t, inFirst, 1)
+	require.Equal(t, &first, inFirst[0].ProjectID)
+
+	// Reused by a second project, it survives the first project's deletion and
+	// then belongs to the second.
+	require.NoError(t, volumes.LinkProjectVolume(ctx, second, volumeID))
+	require.NoError(t, projects.Delete(ctx, first))
+	got, err := volumes.GetByID(ctx, volumeID)
+	require.NoError(t, err)
+	require.Equal(t, &second, got.ProjectID)
+
+	require.NoError(t, volumes.UnlinkProjectVolume(ctx, second, volumeID))
+	got, err = volumes.GetByID(ctx, volumeID)
+	require.NoError(t, err)
+	require.Nil(t, got.ProjectID, "a volume linked to no project names none")
+
+	var columns int
+	require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'volumes' AND column_name = 'project_id'`).Scan(&columns))
+	require.Zero(t, columns, "the volume row itself records no project")
+}

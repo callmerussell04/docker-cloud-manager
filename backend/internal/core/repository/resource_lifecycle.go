@@ -75,11 +75,6 @@ func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vo
 	if err := insertVolumeTx(ctx, tx, vol); err != nil {
 		return wrapOp("resource create queued volume", err)
 	}
-	if vol.ProjectID != nil {
-		if err := insertProjectVolumeLinkTx(ctx, tx, *vol.ProjectID, vol.ID); err != nil {
-			return wrapOp("resource create queued volume", err)
-		}
-	}
 	if err := insertResourceOperationTx(ctx, tx, op); err != nil {
 		return wrapOp("resource create queued volume", err)
 	}
