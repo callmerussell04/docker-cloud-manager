@@ -2278,8 +2278,10 @@ components:
           format: uuid
         tag:
           type: string
-        size_mb:
+        size_bytes:
           type: integer
+          format: int64
+          description: Image size in bytes, as the Registry reports it.
         status:
           type: string
         last_error:
@@ -2296,8 +2298,10 @@ components:
           format: uuid
         tag:
           type: string
-        size_mb:
+        size_bytes:
           type: integer
+          format: int64
+          description: Image size in bytes, as the Registry reports it.
         status:
           type: string
         last_error:
@@ -2354,6 +2358,10 @@ components:
         image_id:
           type: string
           format: uuid
+          description: Omitted once the build's image record has been deleted.
+        tag:
+          type: string
+          description: The image tag the build was queued for.
         project_id:
           type: string
           format: uuid
@@ -2382,6 +2390,10 @@ components:
         image_id:
           type: string
           format: uuid
+          description: Omitted once the build's image record has been deleted.
+        tag:
+          type: string
+          description: The image tag the build was queued for.
         project_id:
           type: string
           format: uuid
@@ -2400,7 +2412,7 @@ components:
         finished_at:
           type: integer
           format: int64
-        log_file_path:
+        log_object_key:
           type: string
         owner_id:
           type: string

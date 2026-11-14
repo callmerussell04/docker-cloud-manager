@@ -652,3 +652,30 @@ func adminScopeContext(adminID uuid.UUID) context.Context {
 func systemScopeContext() context.Context {
 	return accessscope.WithSystemScope(context.Background())
 }
+
+// A build that ended without an image (failed, canceled, or its image was
+// replaced or deleted) names no image on the wire, never the all-zero UUID.
+func TestBuildGRPCHandlerOmitsAMissingImageID(t *testing.T) {
+	ownerID, buildID := uuid.New(), uuid.New()
+	imageLogic := coregrpcmocks.NewMockImageLogic(t)
+	buildLogic := coregrpcmocks.NewMockBuildLogic(t)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	ended := model.Build{ID: buildID, OwnerID: ownerID, Tag: "app:v1", Status: model.BuildStatusFailed, CreatedAt: time.Unix(100, 0)}
+	buildLogic.EXPECT().StartBuildRecord(mock.Anything, buildID).Return(ended, false, nil)
+	buildLogic.EXPECT().GetBuild(mock.Anything, buildID).Return(ended, nil)
+	users.EXPECT().GetUsers(mock.Anything, mock.Anything).Return(map[uuid.UUID]model.UserInfo{}, nil).Maybe()
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterImageAPI(s, imageLogic, buildLogic, users)
+	})
+	client := coreapi.NewImageAPIClient(conn)
+
+	started, err := client.StartBuildRecord(systemScopeContext(), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.False(t, started.Started)
+	require.Empty(t, started.ImageId)
+
+	got, err := client.GetBuild(userScopeContext(ownerID), &coreapi.BuildActionRequest{BuildId: buildID.String()})
+	require.NoError(t, err)
+	require.Empty(t, got.ImageId)
+	require.Equal(t, "app:v1", got.Tag)
+}

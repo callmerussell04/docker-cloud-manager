@@ -42,7 +42,7 @@ func (h *ImageHandler) StartBuildRecord(ctx context.Context, req *coreapi.BuildA
 		RegistryPassword:    build.RegistryCredential.Password,
 		RegistryDestination: build.RegistryCredential.Destination,
 		Status:              build.Status,
-		ImageId:             build.ImageID.String(),
+		ImageId:             buildImageID(build),
 	}, nil
 }
 
@@ -180,14 +180,9 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 	if b.ProjectID != nil {
 		projectID = b.ProjectID.String()
 	}
-	// A build whose image record was deleted names no image.
-	imageID := ""
-	if b.ImageID != uuid.Nil {
-		imageID = b.ImageID.String()
-	}
 	return &coreapi.BuildData{
 		Id:                 b.ID.String(),
-		ImageId:            imageID,
+		ImageId:            buildImageID(b),
 		Tag:                b.Tag,
 		Status:             b.Status,
 		CreatedAt:          b.CreatedAt.Unix(),
@@ -199,4 +194,13 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 		ProjectId:          projectID,
 		ProjectServiceName: b.ProjectServiceName,
 	}
+}
+
+// buildImageID is a build's image ID on the wire: empty once the build's image
+// record has been deleted.
+func buildImageID(b model.Build) string {
+	if b.ImageID == uuid.Nil {
+		return ""
+	}
+	return b.ImageID.String()
 }

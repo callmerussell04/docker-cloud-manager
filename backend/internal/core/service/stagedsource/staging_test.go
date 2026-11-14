@@ -35,7 +35,7 @@ func TestReserveAppliesTheChosenQuotaRule(t *testing.T) {
 	}{
 		{name: "build within quota", rule: stagedsource.CountReservedAndStaged, reservedMB: 800, stagedBytes: 100 * mb, incomingBytes: 100 * mb},
 		{name: "build rejected by reserved plus staged", rule: stagedsource.CountReservedAndStaged, reservedMB: 900, stagedBytes: 100 * mb, incomingBytes: 100 * mb, wantRejected: true},
-		{name: "build rounds staged bytes up to whole MB", rule: stagedsource.CountReservedAndStaged, reservedMB: 1023, incomingBytes: mb + 1, wantRejected: true},
+		{name: "build rejected one byte over the quota", rule: stagedsource.CountReservedAndStaged, reservedMB: 1023, incomingBytes: mb + 1, wantRejected: true},
 		{name: "build within a custom quota above the default", rule: stagedsource.CountReservedAndStaged, reservedMB: 900, stagedBytes: 100 * mb, incomingBytes: 100 * mb, customDiskMB: 2048},
 		{name: "compose rejected by a custom quota below the default", rule: stagedsource.CountStagedOnly, stagedBytes: 400 * mb, incomingBytes: 200 * mb, customDiskMB: 512, wantRejected: true},
 		{name: "compose ignores reserved disk", rule: stagedsource.CountStagedOnly, reservedMB: 900, stagedBytes: 100 * mb, incomingBytes: 100 * mb},

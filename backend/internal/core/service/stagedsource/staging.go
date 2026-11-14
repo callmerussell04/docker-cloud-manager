@@ -42,7 +42,7 @@ type QuotaProvider interface {
 	EffectiveUserQuota(ctx context.Context, ownerID uuid.UUID) (model.UserQuota, error)
 }
 
-// ReservedDiskReader reads the disk an owner already reserves, in MB.
+// ReservedDiskReader reads the disk an owner already reserves, in bytes.
 type ReservedDiskReader interface {
 	ReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }

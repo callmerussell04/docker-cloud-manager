@@ -20,11 +20,6 @@ type UserImageDTO struct {
 	CreatedAt int64  `json:"created_at"`
 }
 
-type RegisterImageDTO struct {
-	Tag    string `json:"tag" binding:"required"`
-	SizeMB int    `json:"size_mb" binding:"required,min=1"`
-}
-
 type PaginatedImages struct {
 	Images     []ImageDTO `json:"images"`
 	TotalCount int32      `json:"total_count"`

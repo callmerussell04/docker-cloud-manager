@@ -517,7 +517,7 @@ func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Con
 			}
 			if _, err := tx.Exec(ctx, `
 				UPDATE compose_deployment_jobs
-				SET status = $1, error_message = $2, finished_at = NOW(), updated_at = NOW()
+				SET status = $1, error_message = $2, plan_json = NULL, finished_at = NOW(), updated_at = NOW()
 				WHERE id = $3
 			`, model.ComposeDeploymentStatusFailed, message, job.id); err != nil {
 				return wrapOp("project recover interrupted compose deployments", err)
