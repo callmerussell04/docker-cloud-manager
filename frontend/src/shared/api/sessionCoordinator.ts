@@ -1,6 +1,6 @@
 // SessionUnavailableError rejects requests while a refresh or logout result is
 // uncertain. It carries the i18n key; this module stays free of React and i18n
-// so the coordinator tests run directly under Node.
+// so its tests inject every dependency.
 export class SessionUnavailableError extends Error {
   readonly messageKey = 'auth.session.unavailable';
 
