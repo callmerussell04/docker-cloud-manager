@@ -3,9 +3,9 @@ import { Box, RefreshCcw } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
-import { useContainers } from '@/features/containers/hooks';
-import type { ContainerData } from '@/features/containers/types';
-import type { ProjectData } from '../types';
+import { useContainers } from '@/features/containers/queries';
+import type { ContainerData } from '@/features/containers/model';
+import type { ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';

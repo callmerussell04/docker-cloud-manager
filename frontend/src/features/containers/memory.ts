@@ -1,4 +1,4 @@
-import type { ContainerStats } from './types';
+import type { ContainerStats } from './model';
 
 // borrowedMemoryBytes is how far a container's current memory limit is above
 // its standard limit: memory lent from idle host capacity that the platform

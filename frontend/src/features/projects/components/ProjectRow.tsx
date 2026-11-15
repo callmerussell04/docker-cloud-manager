@@ -1,11 +1,11 @@
 import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ProjectData } from '../types';
-import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { type ProjectData } from '../model';
+import { projectTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../hooks';
+import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
@@ -51,7 +51,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
   const projectError = getServerErrorMessage(project.error_message || project.last_error, t);
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", tableLayouts.projects.grid, tableLayouts.projects.minWidth)}>
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", projectTableLayout.grid, projectTableLayout.minWidth)}>
       {project.status === 'failed' && (
         <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
       )}

@@ -1,9 +1,9 @@
 import { Trash2, HardDrive, AlertTriangle, Clock } from 'lucide-react';
-import { type VolumeData } from '../types';
-import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { type VolumeData } from '../model';
+import { volumeTableLayout } from './tableLayouts';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
-import { useDeleteVolume } from '../hooks';
+import { useDeleteVolume } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
@@ -26,7 +26,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   const isOverSize = volume.size_bytes > 0 && volume.used_bytes > volume.size_bytes;
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.volumes.grid, tableLayouts.volumes.minWidth)}>
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", volumeTableLayout.grid, volumeTableLayout.minWidth)}>
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <HardDrive className="w-5 h-5" />

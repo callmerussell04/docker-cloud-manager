@@ -5,9 +5,10 @@ import { Modal } from '@/shared/ui/Modal';
 import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
-import { type CreateVolumeForm, createVolumeSchema, type CreateVolumeDTO, MIB } from '../types';
+import { type CreateVolumeForm, createVolumeSchema } from '../schemas';
+import { type CreateVolumeDTO, MIB } from '../model';
 import { useT } from '@/shared/i18n';
-import { useCreateVolume } from '../hooks';
+import { useCreateVolume } from '../queries';
 
 interface CreateVolumeModalProps {
   isOpen: boolean;

@@ -7,10 +7,11 @@ import { Modal } from '@/shared/ui/Modal';
 import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
-import { exposeContainerSchema, type ContainerData } from '../types';
+import { exposeContainerSchema } from '../schemas';
+import type { ContainerData } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { useT } from '@/shared/i18n';
-import { useExposeContainer } from '../hooks';
+import { useExposeContainer } from '../queries';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;

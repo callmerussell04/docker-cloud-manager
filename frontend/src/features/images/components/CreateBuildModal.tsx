@@ -9,13 +9,13 @@ import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
 import { useToastStore } from '@/shared/ui/toastStore';
-import { type CreateBuildForm, createBuildSchema } from '../types';
+import { type CreateBuildForm, createBuildSchema } from '../schemas';
 import { formatBytes } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { FileDropzone } from '@/features/images/components/FileDropzone';
 import { KeyValueFieldArray } from '@/shared/ui/KeyValueFieldArray';
 import { SourceModeSwitch, type SourceMode } from '@/features/images/components/SourceModeSwitch';
-import { useBuildAvailability, useCreateBuild } from '../hooks';
+import { useBuildAvailability, useCreateBuild } from '../queries';
 
 interface CreateBuildModalProps {
   isOpen: boolean;

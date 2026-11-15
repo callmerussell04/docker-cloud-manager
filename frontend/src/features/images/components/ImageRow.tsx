@@ -1,10 +1,10 @@
 import { Trash2, Disc, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ImageData } from '../types';
-import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { type ImageData } from '../model';
+import { imageTableLayout } from './tableLayouts';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
-import { useDeleteImage } from '../hooks';
+import { useDeleteImage } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
@@ -23,7 +23,7 @@ export function ImageRow({ image }: ImageRowProps) {
   });
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.images.grid, tableLayouts.images.minWidth)}>
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", imageTableLayout.grid, imageTableLayout.minWidth)}>
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <Disc className="w-5 h-5" />

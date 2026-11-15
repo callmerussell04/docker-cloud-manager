@@ -3,10 +3,10 @@ import { useEffect, useRef } from 'react';
 
 import { Modal } from '@/shared/ui/Modal';
 import { Button } from '@/shared/ui/Button';
-import { type BuildData } from '../types';
+import { type BuildData } from '../model';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
-import { useBuildLogs } from '../hooks';
+import { useBuildLogs } from '../queries';
 
 interface BuildLogsModalProps {
   build: BuildData | null;

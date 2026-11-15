@@ -1,7 +1,8 @@
 import { Outlet } from 'react-router-dom';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { PageFallback } from './PageFallback';
 import { useT } from '@/shared/i18n';
 
 export function PageLayout() {
@@ -15,7 +16,9 @@ export function PageLayout() {
         <TopBar onMenuClick={() => setIsMobileNavOpen(true)} />
         <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
           <div className="max-w-7xl mx-auto space-y-6">
-            <Outlet />
+            <Suspense fallback={<PageFallback />}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>

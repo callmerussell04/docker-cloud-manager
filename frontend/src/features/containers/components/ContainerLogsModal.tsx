@@ -6,7 +6,7 @@ import { Input } from '@/shared/ui/Input';
 import { getLogsTicketFn } from '../api';
 import { API_URL } from '@/shared/lib/config';
 import { useToastStore } from '@/shared/ui/toastStore';
-import type { ContainerData } from '../types';
+import type { ContainerData } from '../model';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';

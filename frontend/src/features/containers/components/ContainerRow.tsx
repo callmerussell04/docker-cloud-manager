@@ -1,13 +1,13 @@
 import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ContainerData } from '../types';
+import { type ContainerData } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { Link } from 'react-router-dom';
-import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { containerTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { statusLabel, useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useContainerAction } from '../hooks';
+import { useContainerAction } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 import { ContainerTTLTimer } from './ContainerTTLTimer';
@@ -52,7 +52,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   };
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", tableLayouts.containers.grid, tableLayouts.containers.minWidth)}>
+    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", containerTableLayout.grid, containerTableLayout.minWidth)}>
       <div className="flex items-center gap-4 min-w-0 pr-4">
         <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
           <Box className="w-5 h-5" />

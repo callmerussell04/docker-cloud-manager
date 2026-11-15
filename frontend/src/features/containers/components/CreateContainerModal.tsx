@@ -8,12 +8,13 @@ import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { Select } from '@/shared/ui/Select';
-import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
+import { type CreateContainerForm, createContainerSchema } from '../schemas';
+import type { CreateContainerDTO } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { useT } from '@/shared/i18n';
-import { useImages } from '@/features/images/hooks';
-import { useVolumes } from '@/features/volumes/hooks';
-import { useCreateContainer } from '../hooks';
+import { useImages } from '@/features/images/queries';
+import { useVolumes } from '@/features/volumes/queries';
+import { useCreateContainer } from '../queries';
 import { KeyValueFieldArray } from '@/shared/ui/KeyValueFieldArray';
 
 interface CreateContainerModalProps {
