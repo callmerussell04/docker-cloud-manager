@@ -6,7 +6,7 @@ import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import type { UserUsageReportItem } from '../model';
 import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUsageReport, useUserUsageTimeline } from '../queries';
-import { useDebouncedValue, useNowSeconds, usePageOf } from '../hooks';
+import { useDebouncedValue, useNowSeconds, usePageOf } from '@/shared/lib/hooks';
 import { auditPageSize, numberValue, percentValue, rangeParams, ranges, userPageSize } from '../components/reportFormat';
 import { ReportMetricCard } from '../components/ReportMetricCard';
 import { UsageErrorBanner } from '../components/UsageErrorBanner';

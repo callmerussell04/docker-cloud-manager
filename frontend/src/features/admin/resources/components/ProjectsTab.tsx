@@ -8,10 +8,15 @@ import { cn } from '@/shared/lib/utils';
 import { useLocale, useT } from '@/shared/i18n';
 import { canCancelProject, isProjectBusy, projectStatusLabel } from '@/features/projects/model';
 import { useProjectAction, useProjects } from '@/features/projects/queries';
-import { adminProjectTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
 import { ResourceConfirmDialog, type ConfirmRequest } from './ResourceConfirmDialog';
+
+// Grid classes shared by this table's header and rows.
+const layout = {
+  minWidth: 'min-w-[1180px]',
+  grid: 'grid-cols-[minmax(240px,1.6fr)_minmax(150px,0.9fr)_minmax(240px,1.5fr)_minmax(190px,1.2fr)_minmax(220px,1.3fr)_11rem]',
+} as const;
 
 const pageSize = 20;
 

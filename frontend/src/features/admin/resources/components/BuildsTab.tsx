@@ -9,10 +9,15 @@ import { useLocale, useT } from '@/shared/i18n';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import { buildLogsAvailable, buildStatusLabel, isBuildActive, type AdminBuildData } from '@/features/images/model';
 import { useBuilds, useCancelBuild, useDeleteBuild } from '@/features/images/queries';
-import { adminBuildTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
 import { ResourceConfirmDialog, type ConfirmRequest } from './ResourceConfirmDialog';
+
+// Grid classes shared by this table's header and rows.
+const layout = {
+  minWidth: 'min-w-[1180px]',
+  grid: 'grid-cols-[minmax(180px,1.4fr)_minmax(130px,0.9fr)_minmax(130px,1fr)_minmax(180px,1.3fr)_minmax(170px,1.2fr)_minmax(100px,0.8fr)_10rem]',
+} as const;
 
 const pageSize = 20;
 

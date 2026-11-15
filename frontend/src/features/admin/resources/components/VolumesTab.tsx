@@ -3,15 +3,20 @@ import { AlertTriangle, HardDrive, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
 import { useLocale, useT } from '@/shared/i18n';
 import { volumeStatusLabel } from '@/features/volumes/model';
 import { useDeleteVolume, useVolumes } from '@/features/volumes/queries';
-import { adminVolumeTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
 import { ResourceConfirmDialog, type ConfirmRequest } from './ResourceConfirmDialog';
+
+// Grid classes shared by this table's header and rows.
+const layout = {
+  minWidth: 'min-w-[980px]',
+  grid: 'grid-cols-[minmax(280px,2fr)_minmax(120px,0.8fr)_minmax(190px,1.2fr)_minmax(220px,1.4fr)_4rem]',
+} as const;
 
 const pageSize = 20;
 
@@ -20,6 +25,7 @@ export function VolumesTab() {
   const locale = useLocale();
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const resourceError = (message?: string) => getServerErrorMessage(message, t);
   const { data, isFetching, isError, error, refetch } = useVolumes('all', page, pageSize);
   const deleteVolume = useDeleteVolume('all');
 
@@ -54,10 +60,10 @@ export function VolumesTab() {
             </div>
             <div className="min-w-0 text-sm">
               <Badge variant={statusVariant(v.status)}>{volumeStatusLabel(t, v.status)}</Badge>
-              {v.last_error && (
-                <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={v.last_error}>
+              {resourceError(v.last_error) && (
+                <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(v.last_error)}>
                   <AlertTriangle className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{v.last_error}</span>
+                  <span className="truncate">{resourceError(v.last_error)}</span>
                 </div>
               )}
             </div>

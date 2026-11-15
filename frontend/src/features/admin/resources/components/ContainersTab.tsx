@@ -12,10 +12,15 @@ import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTL
 import { useContainerModals } from '@/features/containers/components/useContainerModals';
 import { blockedContainerActions, containerBadgeVariant, containerStatusLabel } from '@/features/containers/model';
 import { useContainerAction, useContainers } from '@/features/containers/queries';
-import { adminContainerTableLayout as layout } from './tableLayouts';
 import { ownerName, resourceRowClass } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
 import { ResourceConfirmDialog, type ConfirmRequest } from './ResourceConfirmDialog';
+
+// Grid classes shared by this table's header and rows.
+const layout = {
+  minWidth: 'min-w-[1340px]',
+  grid: 'grid-cols-[minmax(260px,1.7fr)_minmax(150px,0.8fr)_minmax(240px,1.3fr)_minmax(260px,1.5fr)_19rem]',
+} as const;
 
 const pageSize = 20;
 

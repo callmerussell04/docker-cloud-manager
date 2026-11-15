@@ -14,6 +14,7 @@ import {
   borrowedMemoryBytes,
   containerBadgeVariant,
   containerStatusLabel,
+  type ContainerAction,
   type ContainerData,
 } from '../model';
 import { ContainerTTLTimer } from '../components/ContainerTTLTimer';
@@ -60,7 +61,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
   const blocked = blockedContainerActions(status);
   const isUserContainer = !!streamContainer && scope === 'own';
 
-  const handleContainerAction = (action: 'start' | 'stop' | 'delete') => {
+  const handleContainerAction = (action: ContainerAction) => {
     if (!streamContainer) return;
     if (action === 'delete') {
       setIsDeleteConfirmOpen(true);

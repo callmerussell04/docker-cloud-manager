@@ -3,15 +3,20 @@ import { AlertTriangle, Disc, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { useLocale, useT } from '@/shared/i18n';
 import { imageStatusLabel } from '@/features/images/model';
 import { useDeleteImage, useImages } from '@/features/images/queries';
-import { adminImageTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
 import { ResourceConfirmDialog, type ConfirmRequest } from './ResourceConfirmDialog';
+
+// Grid classes shared by this table's header and rows.
+const layout = {
+  minWidth: 'min-w-[1100px]',
+  grid: 'grid-cols-[minmax(280px,2fr)_7rem_minmax(130px,0.9fr)_minmax(190px,1.2fr)_minmax(220px,1.4fr)_4rem]',
+} as const;
 
 const pageSize = 20;
 
@@ -20,6 +25,7 @@ export function ImagesTab() {
   const locale = useLocale();
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const resourceError = (message?: string) => getServerErrorMessage(message, t);
   const { data, isFetching, isError, error, refetch } = useImages('all', page, pageSize);
   const deleteImage = useDeleteImage('all');
 
@@ -56,10 +62,10 @@ export function ImagesTab() {
             </div>
             <div className="min-w-0">
               <Badge variant={statusVariant(img.status)}>{imageStatusLabel(t, img.status)}</Badge>
-              {img.last_error && (
-                <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={img.last_error}>
+              {resourceError(img.last_error) && (
+                <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={resourceError(img.last_error)}>
                   <AlertTriangle className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{img.last_error}</span>
+                  <span className="truncate">{resourceError(img.last_error)}</span>
                 </div>
               )}
             </div>

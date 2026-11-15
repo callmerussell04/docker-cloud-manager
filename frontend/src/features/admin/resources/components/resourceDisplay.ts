@@ -1,7 +1,6 @@
 import { dateLocale } from '@/shared/i18n';
 import type { Locale } from '@/shared/lib/languageStore';
-
-export type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
+import type { BadgeVariant } from '@/shared/ui/Badge';
 
 // The row classes every all-users table shares; each table adds its grid.
 export const resourceRowClass = 'grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center';

@@ -39,7 +39,7 @@ const layerRules = [
     return {
       files: [`src/features/${feature}/**/*.{ts,tsx}`],
       rules: restrictImports([
-        { regex: '^@/app(/|$)', message: 'Features import nothing from the app layer.' },
+        { regex: folderImport(['app'], ''), message: 'Features import nothing from the app layer.' },
         { regex: folderImport(forbidden, 'features/'), message: `The ${feature} feature may not import this feature; see allowedFeatureImports in eslint.config.js.` },
       ]),
     }
