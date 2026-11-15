@@ -1,3 +1,5 @@
+import type { Scope } from '@/shared/api/scope';
+
 export interface ContainerData {
   id: string;
   project_id?: string;
@@ -18,6 +20,12 @@ export interface AdminContainerData extends ContainerData {
   owner_id?: string;
   owner_username?: string;
 }
+
+// ContainerOf is the container a list returns in a scope; the all-users view
+// adds the owner and the Docker ID.
+export type ContainerOf<S extends Scope> = S extends 'all' ? AdminContainerData : ContainerData;
+
+export type ContainerAction = 'start' | 'stop' | 'delete';
 
 export interface ContainerStats {
   cpu_percentage: number;

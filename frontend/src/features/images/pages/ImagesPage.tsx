@@ -31,10 +31,10 @@ export function ImagesPage() {
   const [buildsPage, setBuildsPage] = useState(1);
   const limit = 20;
 
-  const { data: imagesData, isLoading: isLoadingImages, isError: isImagesError, error: imagesError, refetch: refetchImages, isFetching: isFetchingImages } = useImages(imagesPage, limit);
+  const { data: imagesData, isLoading: isLoadingImages, isError: isImagesError, error: imagesError, refetch: refetchImages, isFetching: isFetchingImages } = useImages('own', imagesPage, limit);
   const images = imagesData?.items || [];
 
-  const { data: buildsData, isLoading: isLoadingBuilds, isError: isBuildsError, error: buildsError, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useBuilds(buildsPage, limit, activeTab === 'builds');
+  const { data: buildsData, isLoading: isLoadingBuilds, isError: isBuildsError, error: buildsError, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useBuilds('own', buildsPage, limit, { polling: activeTab === 'builds' });
   const builds = buildsData?.items || [];
 
   const { data: buildAvailability } = useBuildAvailability();
@@ -195,6 +195,7 @@ export function ImagesPage() {
 
       <BuildLogsModal 
         build={viewLogsBuild}
+        scope="own"
         onClose={() => setViewLogsBuild(null)}
       />
     </div>

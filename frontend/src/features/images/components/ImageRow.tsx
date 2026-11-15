@@ -16,7 +16,7 @@ export function ImageRow({ image }: ImageRowProps) {
   const t = useT();
   const locale = useLocale();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const deleteMutation = useDeleteImage();
+  const deleteMutation = useDeleteImage('own');
 
   const formattedDate = new Date(image.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'

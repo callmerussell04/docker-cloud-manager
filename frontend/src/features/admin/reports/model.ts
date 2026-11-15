@@ -119,3 +119,31 @@ export interface UserUsageFilters extends ReportRangeParams {
   page: number;
   limit: number;
 }
+
+// auditDetails returns the event details worth showing, in display order.
+export function auditDetails(event: AuditEvent) {
+  if (!event.details_json || event.details_json === '{}') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(event.details_json) as Record<string, unknown>;
+    const details: Array<[string, unknown]> = [
+      ['full_domain', parsed.full_domain],
+      ['domain_prefix', parsed.domain_prefix],
+      ['internal_port', parsed.internal_port],
+      ['container_name', parsed.container_name],
+      ['container_id', parsed.container_id],
+      ['project_name', parsed.project_name],
+      ['project_id', parsed.project_id],
+      ['compose_service', parsed.compose_service],
+      ['previous_domain_prefix', parsed.previous_domain_prefix],
+      ['previous_internal_port', parsed.previous_internal_port],
+      ['source_type', parsed.source_type],
+    ];
+    return details
+      .filter(([, value]) => value !== undefined && value !== null && String(value) !== '')
+      .map(([key, value]) => ({ key, value: String(value) }));
+  } catch {
+    return [{ key: 'details', value: event.details_json }];
+  }
+}

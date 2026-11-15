@@ -11,16 +11,17 @@ import { exposeContainerSchema } from '../schemas';
 import type { ContainerData } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { useT } from '@/shared/i18n';
-import { useExposeContainer } from '../queries';
+import { useExposeContainer, type ContainerMutationOptions } from '../queries';
 
 interface ExposeContainerModalProps {
   container: ContainerData | null;
   onClose: () => void;
+  mutationOptions?: ContainerMutationOptions;
 }
 
 type ExposeContainerFormValues = z.input<ReturnType<typeof exposeContainerSchema>>;
 
-export function ExposeContainerModal({ container, onClose }: ExposeContainerModalProps) {
+export function ExposeContainerModal({ container, onClose, mutationOptions }: ExposeContainerModalProps) {
   const t = useT();
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ExposeContainerFormValues>({
@@ -36,7 +37,7 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
     }
   }, [container, reset]);
 
-  const mutation = useExposeContainer();
+  const mutation = useExposeContainer(mutationOptions);
 
   const onSubmit = (data: ExposeContainerFormValues) => {
     if (!container) return;

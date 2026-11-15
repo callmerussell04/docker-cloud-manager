@@ -3,21 +3,22 @@ import { Terminal, Download } from 'lucide-react';
 import { Modal } from '@/shared/ui/Modal';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
-import { getLogsTicketFn } from '../api';
+import { containerStreamPath, getLogsTicketFn } from '../api';
 import { API_URL } from '@/shared/lib/config';
 import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../model';
+import type { Scope } from '@/shared/api/scope';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;
-  isAdmin?: boolean;
+  scope: Scope;
   onClose: () => void;
 }
 
-export function ContainerLogsModal({ container, isAdmin = false, onClose }: ContainerLogsModalProps) {
+export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsModalProps) {
   const [logs, setLogs] = useState<string[]>([]);
   const[tail, setTail] = useState('200');
   const [appliedTail, setAppliedTail] = useState('200');
@@ -41,11 +42,10 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         setLogs([]);
         setIsConnected(false);
         esRef.current?.close();
-        const { ticket } = await getLogsTicketFn(container.id, isAdmin);
+        const { ticket } = await getLogsTicketFn(scope, container.id);
         if (!isSubscribed) return;
 
-        const prefix = isAdmin ? '/admin' : '';
-        const url = new URL(`${API_URL}${prefix}/containers/${container.id}/logs/stream`);
+        const url = new URL(`${API_URL}${containerStreamPath(scope, container.id, 'logs')}`);
         url.searchParams.set('ticket', ticket);
         url.searchParams.set('tail', appliedTail);
         url.searchParams.set('timestamps', appliedTimestamps.toString());
@@ -90,7 +90,7 @@ export function ContainerLogsModal({ container, isAdmin = false, onClose }: Cont
         esRef.current.close();
       }
     };
-  }, [container, isAdmin, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose, tRef]);
+  }, [container, scope, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose, tRef]);
 
   useEffect(() => {
     if (follow && scrollRef.current) {

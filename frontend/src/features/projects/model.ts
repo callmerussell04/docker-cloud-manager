@@ -1,3 +1,5 @@
+import type { Scope } from '@/shared/api/scope';
+
 export interface ProjectData {
   id: string;
   name: string;
@@ -12,9 +14,28 @@ export interface AdminProjectData extends ProjectData {
   owner_username?: string;
 }
 
+// ProjectOf is the project a list returns in a scope; the all-users view adds
+// the owner.
+export type ProjectOf<S extends Scope> = S extends 'all' ? AdminProjectData : ProjectData;
+
+export type ProjectAction = 'start' | 'stop' | 'cancel' | 'delete';
+
 export interface CreateProjectGitPayload {
   project_name: string;
   repo_url: string;
   ref?: string;
   compose_file?: string;
+}
+
+const busyProjectStatuses = new Set(['pending', 'building', 'deploying', 'canceling', 'starting', 'stopping', 'deleting']);
+
+// isProjectBusy reports whether a project is in a transitional state: its
+// actions are blocked and its list keeps polling.
+export function isProjectBusy(status: string) {
+  return busyProjectStatuses.has(status);
+}
+
+// canCancelProject reports whether a project's deployment can be canceled.
+export function canCancelProject(status: string) {
+  return status === 'building' || status === 'deploying';
 }

@@ -1,3 +1,5 @@
+import type { Scope } from '@/shared/api/scope';
+
 export interface VolumeData {
   id: string;
   name: string;
@@ -15,6 +17,10 @@ export interface AdminVolumeData extends VolumeData {
   owner_id?: string;
   owner_username?: string;
 }
+
+// VolumeOf is the volume a list returns in a scope; the all-users view adds
+// the owner and the Docker volume name.
+export type VolumeOf<S extends Scope> = S extends 'all' ? AdminVolumeData : VolumeData;
 
 export const MIB = 1024 * 1024;
 

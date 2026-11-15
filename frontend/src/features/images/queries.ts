@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@/shared/api/queryKeys';
+import type { PageParams } from '@/shared/api/pagination';
+import type { Scope } from '@/shared/api/scope';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
@@ -14,42 +15,56 @@ import {
   getBuildsFn,
   getImagesFn,
 } from './api';
-import type { CreateBuildGitPayload } from './model';
+import { isBuildActive, type CreateBuildGitPayload } from './model';
 
-const activeBuildStatuses = new Set(['pending', 'running']);
+export const imageKeys = {
+  all: ['images'] as const,
+  lists: (scope: Scope) => [...imageKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...imageKeys.lists(scope), params] as const,
+  availability: ['images', 'buildAvailability'] as const,
+};
 
-export function useImages(page: number, limit: number, enabled = true) {
+export const buildKeys = {
+  all: ['builds'] as const,
+  lists: (scope: Scope) => [...buildKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...buildKeys.lists(scope), params] as const,
+  logs: (scope: Scope, id: string | undefined) => [...buildKeys.all, scope, 'logs', id] as const,
+};
+
+export function useImages<S extends Scope>(scope: S, page: number, limit: number, enabled = true) {
   return useQuery({
-    queryKey: queryKeys.images.list({ page, limit }),
-    queryFn: () => getImagesFn(page, limit),
+    queryKey: imageKeys.list(scope, { page, limit }),
+    queryFn: () => getImagesFn(scope, page, limit),
     enabled,
   });
 }
 
-export function useBuilds(page: number, limit: number, pollingEnabled: boolean) {
+// useBuilds polls while a build is pending or running, unless polling is off.
+export function useBuilds<S extends Scope>(scope: S, page: number, limit: number, { enabled = true, polling = true }: { enabled?: boolean; polling?: boolean } = {}) {
   return useQuery({
-    queryKey: queryKeys.builds.list({ page, limit }),
-    queryFn: () => getBuildsFn(page, limit),
+    queryKey: buildKeys.list(scope, { page, limit }),
+    queryFn: () => getBuildsFn(scope, page, limit),
+    enabled,
     refetchInterval: (query) => {
-      if (!pollingEnabled) return false;
+      if (!enabled || !polling) return false;
       const builds = query.state.data?.items || [];
-      return builds.some((build) => activeBuildStatuses.has(build.status)) ? 5000 : false;
+      return builds.some((build) => isBuildActive(build.status)) ? 5000 : false;
     },
   });
 }
 
 export function useBuildAvailability(enabled = true) {
   return useQuery({
-    queryKey: queryKeys.images.availability,
+    queryKey: imageKeys.availability,
     queryFn: getBuildAvailabilityFn,
     enabled,
   });
 }
 
-export function useBuildLogs(id: string | undefined, isAdmin: boolean, enabled: boolean, shouldPoll = false) {
+export function useBuildLogs(scope: Scope, id: string | undefined, enabled: boolean, shouldPoll = false) {
   return useQuery({
-    queryKey: queryKeys.builds.logs(id, isAdmin),
-    queryFn: () => getBuildLogsFn(id as string, isAdmin),
+    queryKey: buildKeys.logs(scope, id),
+    queryFn: () => getBuildLogsFn(scope, id as string),
     enabled,
     refetchInterval: shouldPoll ? 3000 : false,
     retry: false,
@@ -66,7 +81,7 @@ export function useCreateBuild() {
       payload instanceof FormData ? createBuildFn(payload) : createBuildFromGitFn(payload)
     ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.builds.all });
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
       addToast(t('images.buildStarted'), 'success');
     },
     onError: (error: unknown) => {
@@ -75,16 +90,16 @@ export function useCreateBuild() {
   });
 }
 
-export function useDeleteImage() {
+export function useDeleteImage(scope: Scope) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   return useMutation({
-    mutationFn: deleteImageFn,
+    mutationFn: (id: string) => deleteImageFn({ scope, id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.images.all });
-      addToast(t('images.deleted'), 'success');
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
+      addToast(t(scope === 'all' ? 'admin.resources.imageDeleted' : 'images.deleted'), 'success');
     },
     onError: (error: unknown) => {
       addToast(getApiErrorMessage(error, t('images.deleteFailed'), t).message, 'error');
@@ -92,16 +107,16 @@ export function useDeleteImage() {
   });
 }
 
-export function useDeleteBuild() {
+export function useDeleteBuild(scope: Scope) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   return useMutation({
-    mutationFn: deleteBuildFn,
+    mutationFn: (id: string) => deleteBuildFn({ scope, id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.builds.all });
-      addToast(t('images.buildRecordDeleted'), 'success');
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      addToast(t(scope === 'all' ? 'admin.resources.buildDeleted' : 'images.buildRecordDeleted'), 'success');
     },
     onError: (error: unknown) => {
       addToast(getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t).message, 'error');
@@ -109,15 +124,15 @@ export function useDeleteBuild() {
   });
 }
 
-export function useCancelBuild() {
+export function useCancelBuild(scope: Scope) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   return useMutation({
-    mutationFn: cancelBuildFn,
+    mutationFn: (id: string) => cancelBuildFn({ scope, id }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.builds.all });
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
       addToast(t('images.cancelBuildRequested'), 'success');
     },
     onError: (error: unknown) => {

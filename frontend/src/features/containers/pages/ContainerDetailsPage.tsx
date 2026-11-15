@@ -1,4 +1,5 @@
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
+import type { Scope } from '@/shared/api/scope';
 import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText, Play, Square, Globe, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -12,16 +13,19 @@ import { ContainerTerminalModal } from '@/features/containers/components/Contain
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
 import { statusLabel, useT } from '@/shared/i18n';
-import { useContainerAction, useContainerDetailsStats } from '@/features/containers/queries';
+import { useContainerAction, useContainerStats } from '@/features/containers/queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { borrowedMemoryBytes } from '@/features/containers/memory';
 
-export function ContainerDetailsPage() {
+interface ContainerDetailsPageProps {
+  scope: Scope;
+}
+
+export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const isAdminRoute = location.pathname.startsWith('/admin');
   
   const container = location.state?.container as ContainerData | undefined;
   const streamContainer: ContainerData | null = id ? {
@@ -43,8 +47,8 @@ export function ContainerDetailsPage() {
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
-  const { data: stats, isLoading } = useContainerDetailsStats(id, isAdminRoute, container);
-  const actionMutation = useContainerAction();
+  const { data: stats, isLoading } = useContainerStats(scope, id, container);
+  const actionMutation = useContainerAction(scope);
 
   const getStatusBadge = (status?: string) => {
     switch (status) {
@@ -70,7 +74,7 @@ export function ContainerDetailsPage() {
   const status = container?.status || streamContainer?.status || 'unknown';
   const isBusy = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
   const isDeleting = ['exposing', 'deleting'].includes(status);
-  const isUserContainer = !!streamContainer && !isAdminRoute;
+  const isUserContainer = !!streamContainer && scope === 'own';
 
   const handleContainerAction = (action: 'start' | 'stop' | 'delete') => {
     if (!streamContainer) return;
@@ -86,7 +90,7 @@ export function ContainerDetailsPage() {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link 
-            to={isAdminRoute ? '/admin/resources' : '/containers'} 
+            to={scope === 'all' ? '/admin/resources' : '/containers'} 
             className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -275,13 +279,13 @@ export function ContainerDetailsPage() {
 
       <ContainerLogsModal 
         container={logsContainer}
-        isAdmin={isAdminRoute}
+        scope={scope}
         onClose={() => setLogsContainer(null)}
       />
 
       <ContainerTerminalModal
         container={terminalContainer}
-        isAdmin={isAdminRoute}
+        scope={scope}
         onClose={() => setTerminalContainer(null)}
       />
 

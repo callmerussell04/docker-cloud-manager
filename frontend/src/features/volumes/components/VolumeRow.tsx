@@ -15,7 +15,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   const t = useT();
   const locale = useLocale();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const deleteMutation = useDeleteVolume();
+  const deleteMutation = useDeleteVolume('own');
 
   const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString(dateLocale(locale), {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'

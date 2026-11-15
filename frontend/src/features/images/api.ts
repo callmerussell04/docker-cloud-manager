@@ -1,31 +1,32 @@
 import { privateApi } from '@/shared/api/client';
-import type { ImageData, BuildData, BuildAvailability, CreateBuildGitPayload } from './model';
 import type { PaginatedResponse } from '@/shared/api/pagination';
+import { scopedPath, type Scope } from '@/shared/api/scope';
+import type { BuildAvailability, BuildOf, CreateBuildGitPayload, ImageOf } from './model';
 
-export const getImagesFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ImageData>> => {
-  const response = await privateApi.get<{ images: ImageData[]; total_count: number }>('/images', {
+export const getImagesFn = async <S extends Scope>(scope: S, page = 1, limit = 20): Promise<PaginatedResponse<ImageOf<S>>> => {
+  const response = await privateApi.get<{ images: ImageOf<S>[]; total_count: number }>(scopedPath(scope, '/images'), {
     params: { page, limit },
   });
   return { items: response.data.images || [], total_count: response.data.total_count || 0 };
 };
 
-export const deleteImageFn = async (id: string): Promise<void> => {
-  await privateApi.delete(`/images/${id}`);
+export const deleteImageFn = async ({ scope, id }: { scope: Scope; id: string }): Promise<void> => {
+  await privateApi.delete(scopedPath(scope, `/images/${id}`));
 };
 
-export const getBuildsFn = async (page = 1, limit = 20): Promise<PaginatedResponse<BuildData>> => {
-  const response = await privateApi.get<{ builds: BuildData[]; total_count: number }>('/builds', {
+export const getBuildsFn = async <S extends Scope>(scope: S, page = 1, limit = 20): Promise<PaginatedResponse<BuildOf<S>>> => {
+  const response = await privateApi.get<{ builds: BuildOf<S>[]; total_count: number }>(scopedPath(scope, '/builds'), {
     params: { page, limit },
   });
   return { items: response.data.builds || [], total_count: response.data.total_count || 0 };
 };
 
-export const deleteBuildFn = async (id: string): Promise<void> => {
-  await privateApi.delete(`/builds/${id}`);
+export const deleteBuildFn = async ({ scope, id }: { scope: Scope; id: string }): Promise<void> => {
+  await privateApi.delete(scopedPath(scope, `/builds/${id}`));
 };
 
-export const cancelBuildFn = async (id: string): Promise<void> => {
-  await privateApi.post(`/builds/${id}/cancel`);
+export const cancelBuildFn = async ({ scope, id }: { scope: Scope; id: string }): Promise<void> => {
+  await privateApi.post(scopedPath(scope, `/builds/${id}/cancel`));
 };
 
 export const getBuildAvailabilityFn = async (): Promise<BuildAvailability> => {
@@ -47,9 +48,8 @@ export const createBuildFromGitFn = async (payload: CreateBuildGitPayload): Prom
   return response.data;
 };
 
-export const getBuildLogsFn = async (id: string, isAdmin = false): Promise<string> => {
-  const prefix = isAdmin ? '/admin' : '';
-  const response = await privateApi.get(`${prefix}/builds/${id}/logs`, {
+export const getBuildLogsFn = async (scope: Scope, id: string): Promise<string> => {
+  const response = await privateApi.get(scopedPath(scope, `/builds/${id}/logs`), {
     responseType: 'text',
   });
   return response.data;

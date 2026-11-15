@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { queryKeys } from '@/shared/api/queryKeys';
 import { getAuthConfigFn } from './api';
+
+export const authKeys = {
+  config: ['auth', 'config'] as const,
+};
 
 export function useAuthConfig() {
   return useQuery({
-    queryKey: queryKeys.auth.config,
+    queryKey: authKeys.config,
     queryFn: getAuthConfigFn,
   });
 }

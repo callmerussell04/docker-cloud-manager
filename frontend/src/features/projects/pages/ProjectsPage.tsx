@@ -13,7 +13,7 @@ import { type ContainerData } from '@/features/containers/model';
 import { projectTableLayout } from '../components/tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
-import { useProjects } from '@/features/projects/queries';
+import { projectKeys, useProjects } from '@/features/projects/queries';
 import { useBuildAvailability } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -30,7 +30,7 @@ export function ProjectsPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useProjects(page, limit);
+  const { data, isLoading, isError, error, refetch, isFetching } = useProjects('own', page, limit);
   const projects = data?.items || [];
 
   const { data: buildAvailability } = useBuildAvailability();
@@ -142,15 +142,18 @@ export function ProjectsPage() {
       <ExposeContainerModal
         container={exposeContainer}
         onClose={() => setExposeContainer(null)}
+        mutationOptions={{ alsoInvalidate: [projectKeys.all] }}
       />
 
       <ContainerLogsModal
         container={logsContainer}
+        scope="own"
         onClose={() => setLogsContainer(null)}
       />
 
       <ContainerTerminalModal
         container={terminalContainer}
+        scope="own"
         onClose={() => setTerminalContainer(null)}
       />
     </div>

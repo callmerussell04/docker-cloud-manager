@@ -1,9 +1,10 @@
 import { privateApi } from '@/shared/api/client';
-import { type CreateProjectGitPayload, type ProjectData } from './model';
 import type { PaginatedResponse } from '@/shared/api/pagination';
+import { scopedPath, type Scope } from '@/shared/api/scope';
+import type { CreateProjectGitPayload, ProjectAction, ProjectOf } from './model';
 
-export const getProjectsFn = async (page = 1, limit = 20): Promise<PaginatedResponse<ProjectData>> => {
-  const response = await privateApi.get<{ projects: ProjectData[]; total_count: number }>('/projects', {
+export const getProjectsFn = async <S extends Scope>(scope: S, page = 1, limit = 20): Promise<PaginatedResponse<ProjectOf<S>>> => {
+  const response = await privateApi.get<{ projects: ProjectOf<S>[]; total_count: number }>(scopedPath(scope, '/projects'), {
     params: { page, limit },
   });
   return { items: response.data.projects || [], total_count: response.data.total_count || 0 };
@@ -23,18 +24,10 @@ export const createProjectFromGitFn = async (payload: CreateProjectGitPayload): 
   return response.data;
 };
 
-export const startProjectFn = async (id: string): Promise<void> => {
-  await privateApi.post(`/projects/${id}/start`);
-};
-
-export const stopProjectFn = async (id: string): Promise<void> => {
-  await privateApi.post(`/projects/${id}/stop`);
-};
-
-export const cancelProjectFn = async (id: string): Promise<void> => {
-  await privateApi.post(`/projects/${id}/cancel`);
-};
-
-export const deleteProjectFn = async (id: string): Promise<void> => {
-  await privateApi.delete(`/projects/${id}`);
+export const actionProjectFn = async ({ scope, id, action }: { scope: Scope; id: string; action: ProjectAction }): Promise<void> => {
+  if (action === 'delete') {
+    await privateApi.delete(scopedPath(scope, `/projects/${id}`));
+  } else {
+    await privateApi.post(scopedPath(scope, `/projects/${id}/${action}`));
+  }
 };

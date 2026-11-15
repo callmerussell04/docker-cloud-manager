@@ -7,6 +7,7 @@ import { useContainers } from '@/features/containers/queries';
 import type { ContainerData } from '@/features/containers/model';
 import type { ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
+import { projectKeys } from '../queries';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 
@@ -17,6 +18,9 @@ interface ProjectWithContainersRowProps {
   onOpenTerminal: (container: ContainerData) => void;
 }
 
+// A container action can change its project's state, so it refreshes projects too.
+const projectContainerMutations = { alsoInvalidate: [projectKeys.all] };
+
 export function ProjectWithContainersRow({
   project,
   onExpose,
@@ -25,7 +29,7 @@ export function ProjectWithContainersRow({
 }: ProjectWithContainersRowProps) {
   const t = useT();
   const [isExpanded, setIsExpanded] = useState(true);
-  const { data, isLoading, isError, error, refetch, isFetching } = useContainers(1, 100, project.id, isExpanded);
+  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', 1, 100, { projectId: project.id, enabled: isExpanded });
   const containers = data?.items || [];
 
   return (
@@ -73,6 +77,7 @@ export function ProjectWithContainersRow({
                   onExpose={onExpose}
                   onViewLogs={onViewLogs}
                   onOpenTerminal={onOpenTerminal}
+                  mutationOptions={projectContainerMutations}
                 />
               ))}
             </div>

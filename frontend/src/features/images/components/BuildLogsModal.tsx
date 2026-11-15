@@ -4,21 +4,22 @@ import { useEffect, useRef } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { Button } from '@/shared/ui/Button';
 import { type BuildData } from '../model';
+import type { Scope } from '@/shared/api/scope';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { useBuildLogs } from '../queries';
 
 interface BuildLogsModalProps {
   build: BuildData | null;
-  isAdmin?: boolean;
+  scope: Scope;
   onClose: () => void;
 }
 
-export function BuildLogsModal({ build, isAdmin = false, onClose }: BuildLogsModalProps) {
+export function BuildLogsModal({ build, scope, onClose }: BuildLogsModalProps) {
   const scrollRef = useRef<HTMLPreElement>(null);
   const t = useT();
 
-  const { data: logs, error, isLoading, isError, refetch, isFetching } = useBuildLogs(build?.id, isAdmin, !!build, build?.status === 'running');
+  const { data: logs, error, isLoading, isError, refetch, isFetching } = useBuildLogs(scope, build?.id, !!build, build?.status === 'running');
 
   useEffect(() => {
     if (scrollRef.current) {

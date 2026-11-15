@@ -1,9 +1,4 @@
-// Grid classes shared by each table header and the row component that renders it.
-
-export const adminUserTableLayout = {
-  minWidth: 'min-w-[1080px]',
-  grid: 'grid-cols-[minmax(180px,1.5fr)_minmax(260px,2fr)_7rem_7rem_minmax(180px,1.5fr)_9rem]',
-} as const;
+// Grid classes shared by each all-users table header and its rows.
 
 export const adminContainerTableLayout = {
   minWidth: 'min-w-[1340px]',

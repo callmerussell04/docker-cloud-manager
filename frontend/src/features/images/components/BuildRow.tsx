@@ -1,6 +1,6 @@
 import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type BuildData } from '../model';
+import { buildLogsAvailable, isBuildActive, type BuildData } from '../model';
 import { buildTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
@@ -13,14 +13,12 @@ interface BuildRowProps {
   onViewLogs: (build: BuildData) => void;
 }
 
-const terminalBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
-
 export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const t = useT();
   const locale = useLocale();
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
-  const deleteMutation = useDeleteBuild();
-  const cancelMutation = useCancelBuild();
+  const deleteMutation = useDeleteBuild('own');
+  const cancelMutation = useCancelBuild('own');
 
   const getStatusDisplay = (status: string) => {
     switch (status) {
@@ -50,9 +48,9 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const display = getStatusDisplay(build.status);
   const startedDate = build.started_at ? new Date(build.started_at * 1000).toLocaleString(dateLocale(locale)) : '-';
   const duration = build.started_at && build.finished_at ? Math.max(0, build.finished_at - build.started_at) : null;
-  const canCancel = build.status === 'pending' || build.status === 'running';
+  const canCancel = isBuildActive(build.status);
   const canDelete = !canCancel;
-  const canViewLogs = terminalBuildStatuses.has(build.status);
+  const canViewLogs = buildLogsAvailable(build.status);
 
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", buildTableLayout.grid, buildTableLayout.minWidth)}>

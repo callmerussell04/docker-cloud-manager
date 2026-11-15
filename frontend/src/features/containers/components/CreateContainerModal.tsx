@@ -27,8 +27,8 @@ type CreateContainerValues = z.output<ReturnType<typeof createContainerSchema>>;
 export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalProps) {
   const t = useT();
 
-  const { data: imagesData } = useImages(1, 100, isOpen);
-  const { data: volumesData } = useVolumes(1, 100, isOpen);
+  const { data: imagesData } = useImages('own', 1, 100, isOpen);
+  const { data: volumesData } = useVolumes('own', 1, 100, isOpen);
   const images = isOpen ? imagesData?.items || [] : [];
   const volumes = isOpen ? volumesData?.items || [] : [];
 

@@ -1,28 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@/shared/api/queryKeys';
+import type { PageParams } from '@/shared/api/pagination';
+import type { Scope } from '@/shared/api/scope';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
-import { useT } from '@/shared/i18n';
-import {
-  cancelProjectFn,
-  createProjectFn,
-  createProjectFromGitFn,
-  deleteProjectFn,
-  getProjectsFn,
-  startProjectFn,
-  stopProjectFn,
-} from './api';
-import type { CreateProjectGitPayload } from './model';
+import { useT, type TranslationKey } from '@/shared/i18n';
+import { containerKeys } from '@/features/containers/queries';
+import { buildKeys } from '@/features/images/queries';
+import { actionProjectFn, createProjectFn, createProjectFromGitFn, getProjectsFn } from './api';
+import { isProjectBusy, type CreateProjectGitPayload, type ProjectAction } from './model';
 
-const activeProjectStatuses = new Set(['pending', 'building', 'deploying', 'canceling', 'starting', 'stopping', 'deleting']);
+export const projectKeys = {
+  all: ['projects'] as const,
+  lists: (scope: Scope) => [...projectKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams) => [...projectKeys.lists(scope), params] as const,
+};
 
-export function useProjects(page: number, limit: number) {
+// useProjects polls while a project is in a transitional state, unless
+// polling is off.
+export function useProjects<S extends Scope>(scope: S, page: number, limit: number, { enabled = true, polling = true }: { enabled?: boolean; polling?: boolean } = {}) {
   return useQuery({
-    queryKey: queryKeys.projects.list({ page, limit }),
-    queryFn: () => getProjectsFn(page, limit),
+    queryKey: projectKeys.list(scope, { page, limit }),
+    queryFn: () => getProjectsFn(scope, page, limit),
+    enabled,
     refetchInterval: (query) => {
+      if (!enabled || !polling) return false;
       const projects = query.state.data?.items || [];
-      return projects.some((project) => activeProjectStatuses.has(project.status)) ? 5000 : false;
+      return projects.some((project) => isProjectBusy(project.status)) ? 5000 : false;
     },
   });
 }
@@ -37,7 +40,7 @@ export function useCreateProject() {
       payload instanceof FormData ? createProjectFn(payload) : createProjectFromGitFn(payload)
     ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+      queryClient.invalidateQueries({ queryKey: projectKeys.all });
       addToast(t('projects.deployed'), 'success');
     },
     onError: (error: unknown) => {
@@ -46,37 +49,29 @@ export function useCreateProject() {
   });
 }
 
-function useProjectActionMutation(actionFn: (id: string) => Promise<void>, successKey: 'projects.deleted' | 'projects.startSent' | 'projects.stopSent' | 'projects.cancelRequested', errorKey: 'projects.deleteFailed' | 'projects.startFailed' | 'projects.stopFailed' | 'projects.cancelFailed') {
+const ownActionMessages: Record<ProjectAction, { success: TranslationKey; failure: TranslationKey }> = {
+  start: { success: 'projects.startSent', failure: 'projects.startFailed' },
+  stop: { success: 'projects.stopSent', failure: 'projects.stopFailed' },
+  cancel: { success: 'projects.cancelRequested', failure: 'projects.cancelFailed' },
+  delete: { success: 'projects.deleted', failure: 'projects.deleteFailed' },
+};
+
+export function useProjectAction(scope: Scope) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   return useMutation({
-    mutationFn: actionFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.builds.all });
-      addToast(t(successKey), 'success');
+    mutationFn: (variables: { id: string; action: ProjectAction }) => actionProjectFn({ scope, ...variables }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: projectKeys.all });
+      queryClient.invalidateQueries({ queryKey: containerKeys.all });
+      queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      addToast(t(scope === 'all' ? 'admin.resources.done' : ownActionMessages[variables.action].success), 'success');
     },
-    onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t(errorKey), t).message, 'error');
+    onError: (error: unknown, variables) => {
+      const fallback = scope === 'all' ? 'admin.resources.actionFailed' : ownActionMessages[variables.action].failure;
+      addToast(getApiErrorMessage(error, t(fallback), t).message, 'error');
     },
   });
-}
-
-export function useDeleteProject() {
-  return useProjectActionMutation(deleteProjectFn, 'projects.deleted', 'projects.deleteFailed');
-}
-
-export function useStartProject() {
-  return useProjectActionMutation(startProjectFn, 'projects.startSent', 'projects.startFailed');
-}
-
-export function useStopProject() {
-  return useProjectActionMutation(stopProjectFn, 'projects.stopSent', 'projects.stopFailed');
-}
-
-export function useCancelProject() {
-  return useProjectActionMutation(cancelProjectFn, 'projects.cancelRequested', 'projects.cancelFailed');
 }

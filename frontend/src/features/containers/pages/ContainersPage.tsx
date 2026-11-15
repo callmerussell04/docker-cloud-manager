@@ -28,7 +28,7 @@ export function ContainersPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useContainers(page, limit);
+  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', page, limit);
   const containers = data?.items || [];
 
   const filteredContainers = containers.filter(c => 
@@ -134,11 +134,13 @@ export function ContainersPage() {
 
       <ContainerLogsModal 
         container={logsContainer}
+        scope="own"
         onClose={() => setLogsContainer(null)}
       />
 
       <ContainerTerminalModal
         container={terminalContainer}
+        scope="own"
         onClose={() => setTerminalContainer(null)}
       />
     </div>

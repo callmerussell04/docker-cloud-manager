@@ -3,21 +3,22 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { Modal } from '@/shared/ui/Modal';
-import { getTerminalTicketFn } from '../api';
+import { containerStreamPath, getTerminalTicketFn } from '../api';
 import { WS_URL } from '@/shared/lib/config';
 import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../model';
+import type { Scope } from '@/shared/api/scope';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
 interface ContainerTerminalModalProps {
   container: ContainerData | null;
-  isAdmin?: boolean;
+  scope: Scope;
   onClose: () => void;
 }
 
-export function ContainerTerminalModal({ container, isAdmin = false, onClose }: ContainerTerminalModalProps) {
+export function ContainerTerminalModal({ container, scope, onClose }: ContainerTerminalModalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -50,11 +51,10 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
 
     const connect = async () => {
       try {
-        const { ticket } = await getTerminalTicketFn(container.id, isAdmin);
+        const { ticket } = await getTerminalTicketFn(scope, container.id);
         if (!isSubscribed) return;
 
-        const prefix = isAdmin ? '/admin' : '';
-        const url = new URL(`${WS_URL}${prefix}/containers/${container.id}/terminal`);
+        const url = new URL(`${WS_URL}${containerStreamPath(scope, container.id, 'terminal')}`);
         url.searchParams.set('ticket', ticket);
         url.searchParams.set('cols', term.cols.toString());
         url.searchParams.set('rows', term.rows.toString());
@@ -129,7 +129,7 @@ export function ContainerTerminalModal({ container, isAdmin = false, onClose }: 
       }
       term.dispose();
     };
-  }, [container, isAdmin, addToast, onClose, tRef]);
+  }, [container, scope, addToast, onClose, tRef]);
 
   if (!container) return null;
 

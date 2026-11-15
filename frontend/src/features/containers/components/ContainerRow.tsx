@@ -7,7 +7,7 @@ import { containerTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { statusLabel, useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useContainerAction } from '../queries';
+import { useContainerAction, type ContainerMutationOptions } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 import { ContainerTTLTimer } from './ContainerTTLTimer';
@@ -17,12 +17,13 @@ interface ContainerRowProps {
   onExpose: (container: ContainerData) => void;
   onViewLogs: (container: ContainerData) => void;
   onOpenTerminal: (container: ContainerData) => void;
+  mutationOptions?: ContainerMutationOptions;
 }
 
-export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }: ContainerRowProps) {
+export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, mutationOptions }: ContainerRowProps) {
   const t = useT();
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const actionMutation = useContainerAction();
+  const actionMutation = useContainerAction('own', mutationOptions);
   const containerError = getServerErrorMessage(container.last_error, t);
 
   const getStatusBadge = (status: string) => {

@@ -1,11 +1,11 @@
 import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ProjectData } from '../model';
+import { canCancelProject, isProjectBusy, type ProjectData } from '../model';
 import { projectTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../queries';
+import { useProjectAction } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
@@ -19,10 +19,11 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
   const t = useT();
   const locale = useLocale();
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
-  const deleteMutation = useDeleteProject();
-  const startMutation = useStartProject();
-  const stopMutation = useStopProject();
-  const cancelMutation = useCancelProject();
+  // One mutation per action, so a pending action disables only its own button.
+  const deleteMutation = useProjectAction('own');
+  const startMutation = useProjectAction('own');
+  const stopMutation = useProjectAction('own');
+  const cancelMutation = useProjectAction('own');
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -45,9 +46,9 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
   });
 
-  const isWorking = ['building', 'deploying', 'canceling', 'pending', 'starting', 'stopping', 'deleting'].includes(project.status);
+  const isWorking = isProjectBusy(project.status);
   const isCanceled = project.status === 'canceled';
-  const canCancel = project.status === 'building' || project.status === 'deploying';
+  const canCancel = canCancelProject(project.status);
   const projectError = getServerErrorMessage(project.error_message || project.last_error, t);
 
   return (
@@ -101,7 +102,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
 
       <div className="flex items-center gap-2 justify-end shrink-0">
         <button
-          onClick={() => startMutation.mutate(project.id)}
+          onClick={() => startMutation.mutate({ id: project.id, action: 'start' })}
           disabled={startMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'running'}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.start')}
@@ -110,7 +111,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
         </button>
 
         <button
-          onClick={() => stopMutation.mutate(project.id)}
+          onClick={() => stopMutation.mutate({ id: project.id, action: 'stop' })}
           disabled={stopMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'stopped'}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.stop')}
@@ -145,9 +146,9 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => {
             if (confirmAction === 'cancel') {
-              cancelMutation.mutate(project.id, { onSuccess: () => setConfirmAction(null) });
+              cancelMutation.mutate({ id: project.id, action: 'cancel' }, { onSuccess: () => setConfirmAction(null) });
             } else if (confirmAction === 'delete') {
-              deleteMutation.mutate(project.id, { onSuccess: () => setConfirmAction(null) });
+              deleteMutation.mutate({ id: project.id, action: 'delete' }, { onSuccess: () => setConfirmAction(null) });
             }
           }}
         />

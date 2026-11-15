@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { queryKeys } from '@/shared/api/queryKeys';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import type { PageParams } from '@/shared/api/pagination';
+import type { Scope } from '@/shared/api/scope';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
@@ -9,11 +10,23 @@ import {
   exposeContainerFn,
   getContainerStatsFn,
   getContainersFn,
-  getLogsTicketFn,
-  getTerminalTicketFn,
 } from './api';
-import { adminGetContainerStatsFn } from '@/features/admin/api';
-import type { ContainerData, ContainerStats } from './model';
+import type { ContainerAction, ContainerData } from './model';
+
+// Keys include the scope so that own and all-users data never share a cache
+// entry; invalidating containerKeys.all covers both scopes.
+export const containerKeys = {
+  all: ['containers'] as const,
+  lists: (scope: Scope) => [...containerKeys.all, scope, 'list'] as const,
+  list: (scope: Scope, params: PageParams & { projectId?: string }) => [...containerKeys.lists(scope), params] as const,
+  stats: (scope: Scope, id: string) => [...containerKeys.all, scope, 'stats', id] as const,
+};
+
+// Mutation options for a feature that shows data derived from containers. The
+// projects feature passes its keys here, because containers may not import it.
+export interface ContainerMutationOptions {
+  alsoInvalidate?: readonly QueryKey[];
+}
 
 const containerBusyStatuses = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting'];
 
@@ -24,46 +37,24 @@ function shouldPollContainers(containers: ContainerData[]) {
   ));
 }
 
-export function useContainers(page: number, limit: number, projectId?: string, enabled = true) {
+export function useContainers<S extends Scope>(scope: S, page: number, limit: number, { projectId, enabled = true }: { projectId?: string; enabled?: boolean } = {}) {
   return useQuery({
-    queryKey: queryKeys.containers.list({ page, limit, projectId }),
-    queryFn: () => getContainersFn(page, limit, projectId),
+    queryKey: containerKeys.list(scope, { page, limit, projectId }),
+    queryFn: () => getContainersFn(scope, page, limit, projectId),
     enabled,
     refetchInterval: (query) => {
       const containers = query.state.data?.items || [];
-      return shouldPollContainers(containers) ? 5000 : false;
+      return enabled && shouldPollContainers(containers) ? 5000 : false;
     },
   });
 }
 
-export function useContainerStats(
-  id: string | undefined,
-  isAdmin: boolean,
-  queryFn: () => Promise<ContainerStats>,
-  refetchInterval?: number | false,
-) {
+export function useContainerStats(scope: Scope, id: string | undefined, container?: ContainerData) {
   return useQuery({
-    queryKey: queryKeys.containers.stats(id || '', isAdmin),
-    queryFn,
+    queryKey: containerKeys.stats(scope, id || ''),
+    queryFn: () => getContainerStatsFn(scope, id as string),
     enabled: !!id,
-    refetchInterval,
-  });
-}
-
-export function useContainerDetailsStats(id: string | undefined, isAdmin: boolean, container?: ContainerData) {
-  return useContainerStats(
-    id,
-    isAdmin,
-    () => (isAdmin ? adminGetContainerStatsFn(id as string) : getContainerStatsFn(id as string)),
-    !container || container.status === 'running' ? 3000 : false,
-  );
-}
-
-export function useUserContainerStats(id: string | undefined) {
-  return useQuery({
-    queryKey: queryKeys.containers.stats(id || '', false),
-    queryFn: () => getContainerStatsFn(id as string),
-    enabled: !!id,
+    refetchInterval: !container || container.status === 'running' ? 3000 : false,
   });
 }
 
@@ -75,7 +66,7 @@ export function useCreateContainer() {
   return useMutation({
     mutationFn: createContainerFn,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
+      queryClient.invalidateQueries({ queryKey: containerKeys.all });
       addToast(t('containers.created'), 'success');
     },
     onError: (error: unknown) => {
@@ -84,26 +75,27 @@ export function useCreateContainer() {
   });
 }
 
-export function useContainerAction() {
+export function useContainerAction(scope: Scope, { alsoInvalidate = [] }: ContainerMutationOptions = {}) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   return useMutation({
-    mutationFn: actionContainerFn,
+    mutationFn: (variables: { id: string; action: ContainerAction }) => actionContainerFn({ scope, ...variables }),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.admin.containers.all });
-      addToast(t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
+      queryClient.invalidateQueries({ queryKey: containerKeys.all });
+      alsoInvalidate.forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
+      addToast(scope === 'all'
+        ? t('admin.resources.done')
+        : t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('containers.actionFailed'), t).message, 'error');
+      addToast(getApiErrorMessage(error, t(scope === 'all' ? 'admin.resources.actionFailed' : 'containers.actionFailed'), t).message, 'error');
     },
   });
 }
 
-export function useExposeContainer() {
+export function useExposeContainer({ alsoInvalidate = [] }: ContainerMutationOptions = {}) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -111,20 +103,12 @@ export function useExposeContainer() {
   return useMutation({
     mutationFn: exposeContainerFn,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.containers.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.projects.all });
+      queryClient.invalidateQueries({ queryKey: containerKeys.all });
+      alsoInvalidate.forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
       addToast(t('containers.routingUpdated'), 'success');
     },
     onError: (error: unknown) => {
       addToast(getApiErrorMessage(error, t('containers.routingUpdateFailed'), t).message, 'error');
     },
   });
-}
-
-export function useContainerLogsTicket(id: string, isAdmin = false) {
-  return getLogsTicketFn(id, isAdmin);
-}
-
-export function useContainerTerminalTicket(id: string, isAdmin = false) {
-  return getTerminalTicketFn(id, isAdmin);
 }

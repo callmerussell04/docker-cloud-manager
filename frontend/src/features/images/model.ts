@@ -1,3 +1,5 @@
+import type { Scope } from '@/shared/api/scope';
+
 export interface ImageData {
   id: string;
   tag: string;
@@ -32,6 +34,11 @@ export interface AdminBuildData extends BuildData {
   owner_username?: string;
 }
 
+// ImageOf and BuildOf are what a list returns in a scope; the all-users view
+// adds the owner.
+export type ImageOf<S extends Scope> = S extends 'all' ? AdminImageData : ImageData;
+export type BuildOf<S extends Scope> = S extends 'all' ? AdminBuildData : BuildData;
+
 export interface BuildAvailability {
   enabled: boolean;
   message: string;
@@ -46,4 +53,18 @@ export interface CreateBuildGitPayload {
   context?: string;
   dockerfile?: string;
   build_args?: Record<string, string>;
+}
+
+const activeBuildStatuses = new Set(['pending', 'running']);
+const finishedBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
+
+// isBuildActive reports whether a build is queued or running: it can be
+// canceled but not deleted, and its list keeps polling.
+export function isBuildActive(status: string) {
+  return activeBuildStatuses.has(status);
+}
+
+// buildLogsAvailable reports whether a build has finished and stored its log.
+export function buildLogsAvailable(status: string) {
+  return finishedBuildStatuses.has(status);
 }

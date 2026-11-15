@@ -21,7 +21,7 @@ export function VolumesPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useVolumes(page, limit);
+  const { data, isLoading, isError, error, refetch, isFetching } = useVolumes('own', page, limit);
   const volumes = data?.items || [];
 
   const filteredVolumes = volumes.filter(v => 
