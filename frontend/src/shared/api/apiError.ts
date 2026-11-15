@@ -92,6 +92,12 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
   return { message: fallback };
 }
 
+// isNotFoundError reports whether a request failed because the resource does
+// not exist, or is not the caller's to see.
+export function isNotFoundError(error: unknown) {
+  return axios.isAxiosError(error) && error.response?.status === 404;
+}
+
 export function getServerErrorMessage(message?: string, t?: TFunction) {
   if (!message || !isSafeUserMessage(message)) return undefined;
 

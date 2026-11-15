@@ -29,7 +29,7 @@ export function ContainersTab() {
   const [page, setPage] = useState(1);
   const { openLogs, openTerminal, modals } = useContainerModals('all');
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
-  const { data, isFetching, isError, error, refetch } = useContainers('all', page, pageSize);
+  const { data, isLoading, isFetching, isError, error, refetch } = useContainers('all', page, pageSize);
   const action = useContainerAction('all');
   const resourceError = (message?: string) => getServerErrorMessage(message, t);
 
@@ -46,6 +46,7 @@ export function ContainersTab() {
             <div className="flex justify-end">{t('admin.users.management')}</div>
           </>
         )}
+        isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('containers.loadFailed'), message: getApiErrorMessage(error, t('containers.loadFailed'), t).message, onRetry: () => refetch() } : null}
         empty={{ icon: <Box className="h-8 w-8" />, title: t('containers.emptyTitle'), description: t('containers.emptyDescription') }}

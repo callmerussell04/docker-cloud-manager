@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Box, RefreshCcw } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { useContainers } from '@/features/containers/queries';
 import type { ContainerData } from '@/features/containers/model';
-import type { ProjectData } from '../model';
+import { isProjectBusy, type ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
@@ -25,7 +25,21 @@ export function ProjectWithContainersRow({
 }: ProjectWithContainersRowProps) {
   const t = useT();
   const [isExpanded, setIsExpanded] = useState(true);
-  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', 1, 100, { projectId: project.id, enabled: isExpanded });
+  // A deploying, starting or stopping project changes its containers, so the
+  // list keeps refreshing even while it is still empty.
+  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', 1, 100, {
+    projectId: project.id,
+    enabled: isExpanded,
+    polling: isProjectBusy(project.status),
+  });
+
+  // Reaching a new status ends that polling, so read the result once more.
+  const lastStatus = useRef(project.status);
+  useEffect(() => {
+    if (lastStatus.current === project.status) return;
+    lastStatus.current = project.status;
+    if (isExpanded) void refetch();
+  }, [project.status, isExpanded, refetch]);
   const containers = data?.items || [];
 
   return (

@@ -5,6 +5,8 @@ import { Button } from '@/shared/ui/Button';
 import { Pagination } from '@/shared/ui/Pagination';
 import { Badge } from '@/shared/ui/Badge';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { getApiErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { userStatusLabel, type AdminUser } from '../model';
@@ -22,7 +24,7 @@ export function AdminUsersPage() {
   const limit = 20;
   const t = useT();
 
-  const { data, isFetching, refetch } = useAdminUsers(page, limit);
+  const { data, isLoading, isFetching, isError, error, refetch } = useAdminUsers(page, limit);
   const deactivateMutation = useDeactivateAdminUser();
   // Deactivating an already deactivated user stops the workloads that remain.
   const stopWorkloadsOnly = deactivateUser?.status === 'deactivated';
@@ -63,8 +65,17 @@ export function AdminUsersPage() {
               <div className="flex justify-end">{t('admin.users.management')}</div>
             </div>
 
-            {isFetching ? (
+            {isLoading ? (
               <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
+            ) : isError ? (
+              <div className="p-4">
+                <ErrorState
+                  title={t('admin.users.loadFailed')}
+                  message={getApiErrorMessage(error, t('admin.users.loadFailed'), t).message}
+                  onRetry={() => refetch()}
+                  isRetrying={isFetching}
+                />
+              </div>
             ) : users.length > 0 ? (
               users.map((user) => (
                 <div key={user.user_id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", userTableLayout.grid)}>

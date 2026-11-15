@@ -30,6 +30,12 @@ export interface CreateVolumeDTO {
   size_bytes?: number;
 }
 
+// isVolumeBusy reports whether a background worker is still creating or
+// deleting the volume; its list keeps polling while it is.
+export function isVolumeBusy(status: string) {
+  return status === 'creating' || status === 'deleting';
+}
+
 const statusKeys: Record<string, TranslationKey> = {
   available: 'status.available',
   creating: 'status.creating',

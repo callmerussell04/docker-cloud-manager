@@ -98,6 +98,13 @@ export function containerNeedsPolling(container: ContainerData) {
   return isContainerBusy(container.status) || (container.status === 'running' && !!container.ttl_deadline);
 }
 
+// containerNeedsWatching reports whether a page showing one container should
+// keep refreshing it: while it is busy, and while it runs, because a running
+// container can stop on its own.
+export function containerNeedsWatching(container: ContainerData) {
+  return isContainerBusy(container.status) || container.status === 'running';
+}
+
 export interface BlockedContainerActions {
   start: boolean;
   stop: boolean;

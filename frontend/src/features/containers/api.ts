@@ -22,6 +22,11 @@ export const getContainersFn = async <S extends Scope>(
   return { items: response.data.containers || [], total_count: response.data.total_count || 0 };
 };
 
+export const getContainerFn = async <S extends Scope>(scope: S, id: string): Promise<ContainerOf<S>> => {
+  const response = await privateApi.get<ContainerOf<S>>(scopedPath(scope, `/containers/${id}`));
+  return response.data;
+};
+
 export const createContainerFn = async (data: CreateContainerDTO): Promise<{ container_id: string }> => {
   const response = await privateApi.post('/containers', data);
   return response.data;

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerNeedsPolling, isContainerBusy, type ContainerData } from './model';
+import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerNeedsPolling, containerNeedsWatching, isContainerBusy, type ContainerData } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
   return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0 };
@@ -103,5 +103,19 @@ describe('borrowedMemoryBytes', () => {
   test('is zero when the standard limit is unknown', () => {
     expect(borrowedMemoryBytes(stats(768 * MiB, 0))).toBe(0);
     expect(borrowedMemoryBytes(undefined)).toBe(0);
+  });
+});
+
+describe('containerNeedsWatching', () => {
+  test.each([
+    ['running', true],
+    ['starting', true],
+    ['deleting', true],
+    ['reconciling', true],
+    ['exited', false],
+    ['created', false],
+    ['error', false],
+  ])('%s -> %s', (status, expected) => {
+    expect(containerNeedsWatching(container(status))).toBe(expected);
   });
 });

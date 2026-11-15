@@ -26,7 +26,7 @@ export function ImagesTab() {
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const resourceError = (message?: string) => getServerErrorMessage(message, t);
-  const { data, isFetching, isError, error, refetch } = useImages('all', page, pageSize);
+  const { data, isLoading, isFetching, isError, error, refetch } = useImages('all', page, pageSize);
   const deleteImage = useDeleteImage('all');
 
   return (
@@ -43,6 +43,7 @@ export function ImagesTab() {
             <div className="flex justify-end">{t('admin.users.management')}</div>
           </>
         )}
+        isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('images.loadFailed'), message: getApiErrorMessage(error, t('images.loadFailed'), t).message, onRetry: () => refetch() } : null}
         empty={{ icon: <Disc className="h-8 w-8" />, title: t('images.noImages'), description: t('images.noImagesDescription') }}

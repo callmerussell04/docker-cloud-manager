@@ -8,6 +8,8 @@ import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { formatBytes } from '@/shared/lib/utils';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { getApiErrorMessage, isNotFoundError } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import {
   blockedContainerActions,
@@ -19,7 +21,7 @@ import {
 } from '../model';
 import { ContainerTTLTimer } from '../components/ContainerTTLTimer';
 import { useContainerModals } from '../components/useContainerModals';
-import { useContainerAction, useContainerStats } from '../queries';
+import { useContainer, useContainerAction, useContainerStats } from '../queries';
 
 interface ContainerDetailsPageProps {
   scope: Scope;
@@ -33,26 +35,22 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  
-  const container = location.state?.container as ContainerData | undefined;
-  const streamContainer: ContainerData | null = id ? {
-    id,
-    name: container?.name || id,
-    image_tag: container?.image_tag || '',
-    internal_port: container?.internal_port || 0,
-    domain_prefix: container?.domain_prefix || '',
-    status: container?.status || 'unknown',
-    desired_status: container?.desired_status,
-    last_error: container?.last_error || '',
-    last_exit_code: container?.last_exit_code,
-    ttl_deadline: container?.ttl_deadline,
-    created_at: container?.created_at || 0,
-  } : null;
+
+  // The list passes the row it was opened from, which is shown until the
+  // container's current state arrives.
+  const snapshot = location.state?.container as ContainerData | undefined;
+  const containerQuery = useContainer(scope, id, snapshot);
+  // A container that is gone is not shown from the last answer that had it.
+  const container = isNotFoundError(containerQuery.error) ? undefined : containerQuery.data;
+  const running = container?.status === 'running';
 
   const { openLogs, openTerminal, openExpose, modals } = useContainerModals(scope);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
-  const { data: stats, isLoading } = useContainerStats(scope, id, container);
+  const statsQuery = useContainerStats(scope, id, running);
+  // Stats kept from an earlier run are not those of a stopped container.
+  const stats = running ? statsQuery.data : undefined;
+  const isLoading = container ? running && statsQuery.isLoading : containerQuery.isLoading;
   const actionMutation = useContainerAction(scope);
 
   const memPercent = stats?.memory_limit_bytes 
@@ -60,18 +58,39 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
     : 0;
   const standardLimit = stats?.memory_standard_limit_bytes || 0;
   const borrowedMemory = borrowedMemoryBytes(stats);
-  const status = container?.status || streamContainer?.status || 'unknown';
-  const blocked = blockedContainerActions(status);
-  const isUserContainer = !!streamContainer && scope === 'own';
+  const blocked = blockedContainerActions(container?.status ?? '');
+  const isUserContainer = !!container && scope === 'own';
 
   const handleContainerAction = (action: ContainerAction) => {
-    if (!streamContainer) return;
+    if (!container) return;
     if (action === 'delete') {
       setIsDeleteConfirmOpen(true);
       return;
     }
-    actionMutation.mutate({ id: streamContainer.id, action });
+    actionMutation.mutate({ id: container.id, action });
   };
+
+  if (!container && containerQuery.isError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Link
+            to={backTo}
+            className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+          <h1 className="text-3xl font-bold tracking-tight truncate">{snapshot?.name || id}</h1>
+        </div>
+        <ErrorState
+          title={t('containers.detailsLoadFailed')}
+          message={getApiErrorMessage(containerQuery.error, t('containers.detailsLoadFailed'), t).message}
+          onRetry={isNotFoundError(containerQuery.error) ? undefined : () => containerQuery.refetch()}
+          isRetrying={containerQuery.isFetching}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -86,7 +105,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
-              <Badge variant={containerBadgeVariant(container?.status ?? '')}>{containerStatusLabel(t, container?.status)}</Badge>
+              {container && <Badge variant={containerBadgeVariant(container.status)}>{containerStatusLabel(t, container.status)}</Badge>}
             </div>
             {container && (
               <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} className="mt-2" />
@@ -100,10 +119,10 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
           </div>
         </div>
 
-        {streamContainer && (
+        {container && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
-              onClick={() => openTerminal(streamContainer)}
+              onClick={() => openTerminal(container)}
               disabled={blocked.terminal}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               title={t('containers.terminal')}
@@ -112,7 +131,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
               <span className="hidden sm:inline font-medium text-sm">{t('containers.terminal')}</span>
             </button>
             <button
-              onClick={() => openLogs(streamContainer)}
+              onClick={() => openLogs(container)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
               title={t('containers.logs')}
             >
@@ -146,7 +165,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                   variant="secondary"
                   className="px-3"
                   disabled={blocked.expose || actionMutation.isPending}
-                  onClick={() => openExpose(streamContainer)}
+                  onClick={() => openExpose(container)}
                   title={t('containers.routingSettings')}
                 >
                   <Globe className="w-4 h-4 text-blue-500" />
@@ -167,7 +186,15 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
         )}
       </div>
 
-      {container?.status !== 'running' && (
+      {running && statsQuery.isError && (
+        <ErrorState
+          message={getApiErrorMessage(statsQuery.error, t('containers.statsLoadFailed'), t).message}
+          onRetry={() => statsQuery.refetch()}
+          isRetrying={statsQuery.isFetching}
+        />
+      )}
+
+      {container && !running && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 p-4 rounded-xl border border-yellow-200 dark:border-yellow-900/50 text-sm flex items-center gap-2">
           <Activity className="w-4 h-4" />
           {t('containers.statsOnlyRunning')}
@@ -270,15 +297,15 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
         title={t('confirm.title')}
-        message={t('containers.deleteConfirm', { name: streamContainer?.name || id || '' })}
+        message={t('containers.deleteConfirm', { name: container?.name || id || '' })}
         confirmLabel={t('common.delete')}
         isLoading={actionMutation.isPending}
         onCancel={() => setIsDeleteConfirmOpen(false)}
         onConfirm={() => {
-          if (!streamContainer) return;
+          if (!container) return;
           actionMutation.mutate(
-            { id: streamContainer.id, action: 'delete' },
-            { onSuccess: () => navigate('/containers') },
+            { id: container.id, action: 'delete' },
+            { onSuccess: () => navigate(backTo) },
           );
         }}
       />

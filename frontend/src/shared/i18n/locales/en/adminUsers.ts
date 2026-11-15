@@ -13,6 +13,7 @@ export const adminUsers: Record<keyof typeof ru, string> = {
   'admin.users.diskQuotaMb': 'Disk quota MB',
   'admin.users.deactivate': 'Deactivate',
   'admin.users.management': 'Management',
+  'admin.users.loadFailed': 'Failed to load users',
   'admin.users.notFound': 'No users found',
   'admin.users.deactivatedWorkloadsStopped': 'User deactivated and their workloads stopped',
   'admin.users.deactivatedWorkloadsRemain': 'User deactivated. Workloads still running or busy: {count}. Stop workloads again to finish.',

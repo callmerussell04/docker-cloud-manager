@@ -5,6 +5,7 @@ import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { createVolumeFn, deleteVolumeFn, getVolumesFn } from './api';
+import { isVolumeBusy } from './model';
 
 export const volumeKeys = {
   all: ['volumes'] as const,
@@ -17,6 +18,10 @@ export function useVolumes<S extends Scope>(scope: S, page: number, limit: numbe
     queryKey: volumeKeys.list(scope, { page, limit }),
     queryFn: () => getVolumesFn(scope, page, limit),
     enabled,
+    refetchInterval: (query) => {
+      const volumes = query.state.data?.items || [];
+      return enabled && volumes.some((volume) => isVolumeBusy(volume.status)) ? 5000 : false;
+    },
   });
 }
 

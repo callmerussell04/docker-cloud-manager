@@ -59,6 +59,12 @@ export interface CreateBuildGitPayload {
 const activeBuildStatuses = new Set(['pending', 'running']);
 const finishedBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
 
+// isImageBusy reports whether the image is still being built or deleted; its
+// list keeps polling while it is.
+export function isImageBusy(status: string) {
+  return status === 'building' || status === 'deleting';
+}
+
 // isBuildActive reports whether a build is queued or running: it can be
 // canceled but not deleted, and its list keeps polling.
 export function isBuildActive(status: string) {

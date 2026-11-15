@@ -9,6 +9,8 @@ import { cn } from '@/shared/lib/utils';
 interface ResourceTableProps {
   layout: { minWidth: string; grid: string };
   columns: ReactNode;
+  // isLoading is the first load of a page; a background refresh keeps the rows.
+  isLoading: boolean;
   isFetching: boolean;
   error: { title: string; message: string; onRetry: () => void } | null;
   empty: { icon: ReactNode; title: string; description: string };
@@ -24,6 +26,7 @@ interface ResourceTableProps {
 export function ResourceTable({
   layout,
   columns,
+  isLoading,
   isFetching,
   error,
   empty,
@@ -43,7 +46,7 @@ export function ResourceTable({
           </div>
 
           <div className="flex flex-col flex-1">
-            {isFetching ? (
+            {isLoading ? (
               <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
             ) : error ? (
               <div className="p-4">

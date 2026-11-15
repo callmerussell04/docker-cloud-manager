@@ -15,7 +15,7 @@ import {
   getBuildsFn,
   getImagesFn,
 } from './api';
-import { isBuildActive, type CreateBuildGitPayload } from './model';
+import { isBuildActive, isImageBusy, type CreateBuildGitPayload } from './model';
 
 export const imageKeys = {
   all: ['images'] as const,
@@ -36,6 +36,10 @@ export function useImages<S extends Scope>(scope: S, page: number, limit: number
     queryKey: imageKeys.list(scope, { page, limit }),
     queryFn: () => getImagesFn(scope, page, limit),
     enabled,
+    refetchInterval: (query) => {
+      const images = query.state.data?.items || [];
+      return enabled && images.some((image) => isImageBusy(image.status)) ? 5000 : false;
+    },
   });
 }
 
@@ -82,6 +86,8 @@ export function useCreateBuild() {
     ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
       addToast(t('images.buildStarted'), 'success');
     },
     onError: (error: unknown) => {
@@ -116,6 +122,8 @@ export function useDeleteBuild(scope: Scope) {
     mutationFn: (id: string) => deleteBuildFn({ scope, id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
       addToast(t(scope === 'all' ? 'admin.resources.buildDeleted' : 'images.buildRecordDeleted'), 'success');
     },
     onError: (error: unknown) => {
@@ -133,6 +141,8 @@ export function useCancelBuild(scope: Scope) {
     mutationFn: (id: string) => cancelBuildFn({ scope, id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A build has an image record from the moment it is queued.
+      queryClient.invalidateQueries({ queryKey: imageKeys.all });
       addToast(t('images.cancelBuildRequested'), 'success');
     },
     onError: (error: unknown) => {

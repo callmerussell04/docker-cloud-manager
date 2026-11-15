@@ -11,6 +11,7 @@ export const adminUsers = {
   'admin.users.diskQuotaMb': 'Квота диска, MB',
   'admin.users.deactivate': 'Деактивировать',
   'admin.users.management': 'Управление',
+  'admin.users.loadFailed': 'Не удалось загрузить пользователей',
   'admin.users.notFound': 'Пользователи не найдены',
   'admin.users.deactivatedWorkloadsStopped': 'Пользователь деактивирован, его нагрузки остановлены',
   'admin.users.deactivatedWorkloadsRemain': 'Пользователь деактивирован. Ещё работают или заняты нагрузки: {count}. Остановите нагрузки ещё раз.',

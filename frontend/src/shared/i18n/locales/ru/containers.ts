@@ -52,6 +52,8 @@ export const containers = {
   'containers.terminalError': 'Ошибка терминала',
   'containers.terminalTicketFailed': 'Не удалось получить тикет для терминала',
   'containers.terminalExitHint': 'Для выхода закройте окно или введите exit',
+  'containers.detailsLoadFailed': 'Не удалось загрузить контейнер',
+  'containers.statsLoadFailed': 'Не удалось загрузить статистику',
   'containers.statsOnlyRunning': 'Статистика доступна только для запущенных контейнеров.',
   'containers.cpu': 'Процессор (CPU)',
   'containers.memory': 'Оперативная память',

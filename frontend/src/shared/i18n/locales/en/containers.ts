@@ -54,6 +54,8 @@ export const containers: Record<keyof typeof ru, string> = {
   'containers.terminalError': 'Terminal error',
   'containers.terminalTicketFailed': 'Failed to get terminal ticket',
   'containers.terminalExitHint': 'Close the window or type exit to leave',
+  'containers.detailsLoadFailed': 'Failed to load the container',
+  'containers.statsLoadFailed': 'Failed to load statistics',
   'containers.statsOnlyRunning': 'Statistics are available only for running containers.',
   'containers.cpu': 'CPU',
   'containers.memory': 'Memory',

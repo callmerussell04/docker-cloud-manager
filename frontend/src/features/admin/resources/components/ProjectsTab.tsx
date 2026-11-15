@@ -26,7 +26,7 @@ export function ProjectsTab() {
   const [page, setPage] = useState(1);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   // The all-users list refreshes on demand and does not poll.
-  const { data, isFetching, isError, error, refetch } = useProjects('all', page, pageSize, { polling: false });
+  const { data, isLoading, isFetching, isError, error, refetch } = useProjects('all', page, pageSize, { polling: false });
   const action = useProjectAction('all');
   const resourceError = (message?: string) => getServerErrorMessage(message, t);
 
@@ -44,6 +44,7 @@ export function ProjectsTab() {
             <div className="flex justify-end">{t('admin.users.management')}</div>
           </>
         )}
+        isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('projects.loadFailed'), message: getApiErrorMessage(error, t('projects.loadFailed'), t).message, onRetry: () => refetch() } : null}
         empty={{ icon: <Layers className="h-8 w-8" />, title: t('projects.emptyTitle'), description: t('projects.emptyDescription') }}
