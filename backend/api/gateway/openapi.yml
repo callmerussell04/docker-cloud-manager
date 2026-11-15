@@ -2718,9 +2718,10 @@ components:
 
     SystemConfig:
       type: object
+      description: >-
+        The runtime settings. A read returns all of them and an update sends all of them back;
+        values fixed when Core starts are not part of this object.
       properties:
-        base_domain:
-          type: string
         default_memory_reservation_bytes:
           type: integer
           format: int64
@@ -2745,17 +2746,9 @@ components:
         max_cpu_burst_multiplier:
           type: integer
           format: int64
-        container_cpu_period:
-          type: integer
-          format: int64
-        default_cpu_shares:
-          type: integer
-          format: int64
         container_stop_timeout:
           type: integer
         max_log_size:
-          type: string
-        max_log_files:
           type: string
         container_disk_quota:
           type: string
@@ -2777,36 +2770,20 @@ components:
         container_pids_limit:
           type: integer
           format: int64
-        container_memory_swap_multiplier:
-          type: number
-          format: double
         image_builds_enabled:
           type: boolean
         build_memory_bytes:
           type: integer
           format: int64
-        build_cpu_quota:
+        build_cpu_millicores:
           type: integer
           format: int64
-        build_cpu_period:
-          type: integer
-          format: int64
-        build_memory_swap_multiplier:
-          type: number
-          format: double
-        build_pids_limit:
-          type: integer
-          format: int64
-        kaniko_image:
-          type: string
+          description: CPU of one build slot, in millicores; 1000 is one core.
         max_build_time_minutes:
           type: integer
           format: int64
         max_concurrent_builds:
           type: integer
-        max_upload_size_bytes:
-          type: integer
-          format: int64
         max_archive_size_bytes:
           type: integer
           format: int64
@@ -2816,43 +2793,6 @@ components:
         max_build_log_size_bytes:
           type: integer
           format: int64
-        ttl_worker_interval_seconds:
-          type: integer
-          format: int64
-        gc_worker_interval_minutes:
-          type: integer
-          format: int64
-        stale_build_timeout_minutes:
-          type: integer
-          format: int64
-        event_sync_interval_seconds:
-          type: integer
-          format: int64
-        event_reconnect_delay_seconds:
-          type: integer
-          format: int64
-        build_outbox_interval_seconds:
-          type: integer
-          format: int64
-        build_outbox_batch_size:
-          type: integer
-        reports_usage_snapshot_interval_seconds:
-          type: integer
-          format: int64
-        container_create_worker_count:
-          type: integer
-        container_create_max_attempts:
-          type: integer
-        container_create_timeout_minutes:
-          type: integer
-          format: int64
-        max_queued_container_creates_per_user:
-          type: integer
-        container_create_outbox_interval_seconds:
-          type: integer
-          format: int64
-        container_create_outbox_batch_size:
-          type: integer
         max_staged_source_bytes_per_user:
           type: integer
           format: int64
@@ -2864,58 +2804,20 @@ components:
         compose_pipeline_timeout_minutes:
           type: integer
           format: int64
-        compose_deploy_worker_count:
-          type: integer
-        compose_outbox_interval_seconds:
-          type: integer
-          format: int64
-        compose_outbox_batch_size:
-          type: integer
-        compose_deploy_max_attempts:
-          type: integer
         max_queued_compose_deploys_per_user:
           type: integer
-        build_cancel_poll_interval_seconds:
-          type: integer
-          format: int64
         build_max_disk_bytes:
           type: integer
           format: int64
           minimum: 67108864
           description: Disk one build may write. Each build slot holds it against the host disk floor, and Builder stops a build that writes more.
-        compose_build_poll_interval_seconds:
-          type: integer
-          format: int64
         compose_dependency_wait_timeout_minutes:
-          type: integer
-          format: int64
-        compose_coordinator_interval_seconds:
-          type: integer
-          format: int64
-        volume_usage_interval_seconds:
-          type: integer
-          format: int64
-        volume_usage_cycle_budget_seconds:
-          type: integer
-          format: int64
-        volume_usage_scan_entry_budget:
-          type: integer
-        registry_cleanup_interval_seconds:
-          type: integer
-          format: int64
-        registry_cleanup_job_timeout_seconds:
-          type: integer
-          format: int64
-        registry_gc_max_duration_seconds:
           type: integer
           format: int64
         host_min_free_disk_bytes:
           type: integer
           format: int64
         memory_pressure_min_free_bytes:
-          type: integer
-          format: int64
-        memory_pressure_interval_seconds:
           type: integer
           format: int64
         memory_boost_multiplier:
@@ -2970,12 +2872,6 @@ components:
         git_max_repository_bytes:
           type: integer
           format: int64
-        telemetry_max_log_tail_lines:
-          type: integer
-        telemetry_max_log_streams_per_user:
-          type: integer
-        telemetry_max_terminal_sessions_per_user:
-          type: integer
         telemetry_terminal_idle_timeout_seconds:
           type: integer
           format: int64
@@ -2986,10 +2882,3 @@ components:
           type: array
           items:
             type: string
-        telemetry_max_command_args:
-          type: integer
-        telemetry_max_command_arg_bytes:
-          type: integer
-        telemetry_ws_read_limit_bytes:
-          type: integer
-          format: int64

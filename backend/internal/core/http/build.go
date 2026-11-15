@@ -29,6 +29,10 @@ type BuildHandler struct {
 }
 
 const maxBuildFormFieldBytes = 1 << 20
+
+// buildFormOverheadBytes is what a build upload may carry beside its archive:
+// the four form fields at their individual limit, and the multipart framing.
+const buildFormOverheadBytes = 4*maxBuildFormFieldBytes + 64<<10
 const imageBuildsUnavailableMessage = "Image builds are currently unavailable. Use Docker Hub images."
 const gitSourcesUnavailableMessage = "Git sources are currently unavailable. Upload an archive instead."
 
@@ -37,7 +41,7 @@ func NewBuildHandler(builds BuildUseCases, cfg ConfigProvider) *BuildHandler {
 }
 
 func (h *BuildHandler) BuildImage(c *gin.Context) {
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().MaxUploadSizeBytes)
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, h.cfg.Get().MaxArchiveSizeBytes+buildFormOverheadBytes)
 
 	reader, err := c.Request.MultipartReader()
 	if err != nil {

@@ -63,7 +63,7 @@ func (e *coordinatorEnv) deps() compose.DeploymentCoordinatorDeps {
 		Docker:            e.docker,
 		Images:            e.images,
 		Sources:           e.sources,
-		Config:            coretest.StaticConfig{Config: config.SystemConfig{ComposeCoordinatorIntervalSeconds: 1}},
+		Config:            coretest.StaticConfig{Config: config.SystemConfig{Fixed: config.Fixed{ComposeCoordinatorIntervalSeconds: 1}}},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 }

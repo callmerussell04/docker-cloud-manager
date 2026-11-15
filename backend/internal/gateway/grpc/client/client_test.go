@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/fieldfill"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -171,13 +172,13 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 
 	config, err := coreClient.GetSystemConfig(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "example.test", config.BaseDomain)
+	require.Equal(t, "25m", config.MaxLogSize)
 	require.True(t, config.ImageBuildsEnabled)
 	require.EqualValues(t, 250, config.DefaultCPUReservationMillicores)
 	require.EqualValues(t, 1<<30, config.DefaultVolumeSizeBytes)
 	require.True(t, config.VolumeSizeEnforcement)
-	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), model.SystemConfig{BaseDomain: "updated.test", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500, DefaultVolumeSizeBytes: 2 << 30, VolumeSizeEnforcement: true}))
-	require.Equal(t, "updated.test", systemSrv.updated.BaseDomain)
+	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), model.SystemConfig{MaxLogSize: "50m", MaxContainersPerUser: 5, DefaultCPUReservationMillicores: 500, DefaultVolumeSizeBytes: 2 << 30, VolumeSizeEnforcement: true}))
+	require.Equal(t, "50m", systemSrv.updated.MaxLogSize)
 	require.Equal(t, int32(5), systemSrv.updated.MaxContainersPerUser)
 	require.EqualValues(t, 500, systemSrv.updated.DefaultCpuReservationMillicores)
 	require.EqualValues(t, 2<<30, systemSrv.updated.DefaultVolumeSizeBytes)
@@ -416,11 +417,16 @@ func (s *coreVolumeServer) ListVolumes(context.Context, *coreapi.PaginationReque
 
 type coreSystemServer struct {
 	coreapi.UnimplementedSystemAPIServer
+	// config, when set, is what GetConfig answers.
+	config  *coreapi.SystemConfigData
 	updated *coreapi.SystemConfigData
 }
 
 func (s *coreSystemServer) GetConfig(context.Context, *coreapi.Empty) (*coreapi.SystemConfigData, error) {
-	return &coreapi.SystemConfigData{BaseDomain: "example.test", ImageBuildsEnabled: true, DefaultCpuReservationMillicores: 250, DefaultVolumeSizeBytes: 1 << 30, VolumeSizeEnforcement: true}, nil
+	if s.config != nil {
+		return s.config, nil
+	}
+	return &coreapi.SystemConfigData{MaxLogSize: "25m", ImageBuildsEnabled: true, DefaultCpuReservationMillicores: 250, DefaultVolumeSizeBytes: 1 << 30, VolumeSizeEnforcement: true}, nil
 }
 
 func (s *coreSystemServer) UpdateConfig(_ context.Context, req *coreapi.SystemConfigData) (*coreapi.Empty, error) {
@@ -530,4 +536,27 @@ func TestCoreClientMapsUserQuotas(t *testing.T) {
 
 	_, err = coreClient.ResetUserQuota(ctx, "missing")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
+// Every runtime setting is mapped between Core's message and Gateway's model
+// in both directions.
+func TestCoreClientCarriesEveryRuntimeSetting(t *testing.T) {
+	systemSrv := &coreSystemServer{}
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterSystemAPIServer(server, systemSrv)
+	})
+	coreClient := client.NewCoreClient(conn)
+	var settings model.SystemConfig
+	fieldfill.Distinct(t, &settings)
+
+	require.NoError(t, coreClient.UpdateSystemConfig(context.Background(), settings))
+	fields := systemSrv.updated.ProtoReflect().Descriptor().Fields()
+	for i := range fields.Len() {
+		require.Truef(t, systemSrv.updated.ProtoReflect().Has(fields.Get(i)), "an update leaves %s unset", fields.Get(i).Name())
+	}
+
+	systemSrv.config = systemSrv.updated
+	got, err := coreClient.GetSystemConfig(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, settings, got)
 }

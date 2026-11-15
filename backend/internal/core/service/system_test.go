@@ -44,11 +44,11 @@ func TestSystemServiceGetAndUpdateConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg := svc.GetConfig(context.Background())
-	require.Equal(t, coretest.SystemConfig().BaseDomain, cfg.BaseDomain)
+	require.Equal(t, coretest.SystemConfig().MaxLogSize, cfg.MaxLogSize)
 
-	cfg.BaseDomain = "example.test"
+	cfg.MaxLogSize = "25m"
 	require.NoError(t, svc.UpdateConfig(context.Background(), cfg))
-	require.Equal(t, "example.test", svc.GetConfig(context.Background()).BaseDomain)
+	require.Equal(t, "25m", svc.GetConfig(context.Background()).MaxLogSize)
 }
 
 func TestSystemServiceRejectsInvalidConfig(t *testing.T) {
@@ -110,7 +110,7 @@ func TestSystemServiceChecksTheHostWhenVolumeSizeEnforcementTurnsOn(t *testing.T
 
 			update := svc.GetConfig(context.Background())
 			update.VolumeSizeEnforcement = tt.requested
-			update.BaseDomain = "updated.test"
+			update.MaxLogSize = "50m"
 			err = svc.UpdateConfig(context.Background(), update)
 
 			if tt.wantErrIs != nil {
@@ -124,7 +124,7 @@ func TestSystemServiceChecksTheHostWhenVolumeSizeEnforcementTurnsOn(t *testing.T
 			require.NoError(t, err)
 			got := svc.GetConfig(context.Background())
 			require.Equal(t, tt.wantSaved, got.VolumeSizeEnforcement)
-			require.Equal(t, "updated.test", got.BaseDomain)
+			require.Equal(t, "50m", got.MaxLogSize)
 		})
 	}
 }

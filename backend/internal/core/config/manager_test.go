@@ -74,13 +74,13 @@ func TestManagerRejectsInvalidUpdate(t *testing.T) {
 	}
 
 	cfg := validSystemConfig()
-	cfg.BuildPidsLimit = 0
+	cfg.ContainerPidsLimit = 0
 	if err := manager.Update(cfg); err == nil {
 		t.Fatal("Update() returned nil error for invalid config")
 	}
 
-	if got := manager.Get().BuildPidsLimit; got != validSystemConfig().BuildPidsLimit {
-		t.Fatalf("BuildPidsLimit after rejected update = %d", got)
+	if got := manager.Get().ContainerPidsLimit; got != validSystemConfig().ContainerPidsLimit {
+		t.Fatalf("ContainerPidsLimit after rejected update = %d", got)
 	}
 }
 
@@ -205,100 +205,102 @@ func TestValidateSystemConfigRequiresPositiveRegistryCleanupTiming(t *testing.T)
 
 func validSystemConfig() config.SystemConfig {
 	return config.SystemConfig{
-		BaseDomain:                           "localhost",
-		DefaultMemoryReservation:             256 * 1024 * 1024,
-		ReservedSystemMemory:                 0,
-		OvercommitFactor:                     1.5,
-		MaxBurstMultiplier:                   4,
-		DefaultCPUReservation:                250,
-		ReservedSystemCPU:                    0,
-		CPUOvercommitFactor:                  4,
-		MaxCPUBurstMultiplier:                4,
-		ContainerCPUPeriod:                   100000,
-		DefaultCPUShares:                     1024,
-		ContainerStopTimeout:                 10,
-		MaxLogSize:                           "10m",
-		MaxLogFiles:                          "3",
-		ContainerDiskQuota:                   "1G",
-		ReservedDomainPrefixes:               []string{"admin", "api"},
-		BlockedDomainPrefixPatterns:          []string{},
-		MaxVolumesPerUser:                    5,
-		MaxContainersPerUser:                 10,
-		RegistryAPIURL:                       "registry:5000",
-		RegistryPublicURL:                    "localhost:5000",
-		ContainerTTLHours:                    24,
-		ContainerPidsLimit:                   256,
-		ContainerMemorySwapMultiplier:        2,
-		ProxyNetworkName:                     "proxy_net",
-		RegistryContainerName:                "registry",
-		ImageBuildsEnabled:                   true,
-		BuildMemoryBytes:                     512 * 1024 * 1024,
-		BuildCPUQuota:                        100000,
-		BuildCPUPeriod:                       100000,
-		BuildMemorySwapMultiplier:            2,
-		BuildPidsLimit:                       512,
-		BuildNetworkName:                     "build_net",
-		KanikoImage:                          "gcr.io/kaniko-project/executor:latest",
-		MaxBuildTimeMinutes:                  10,
-		MaxConcurrentBuilds:                  2,
-		MaxUploadSizeBytes:                   50 << 20,
-		MaxArchiveSizeBytes:                  50 << 20,
-		MaxUnpackedSizeBytes:                 500 * 1024 * 1024,
-		MaxBuildLogSizeBytes:                 5 * 1024 * 1024,
-		BuildCancelPollIntervalSeconds:       2,
-		BuildMaxDiskBytes:                    10 << 30,
-		TTLWorkerIntervalSeconds:             60,
-		GCWorkerIntervalMinutes:              60,
-		StaleBuildTimeoutMinutes:             30,
-		EventSyncIntervalSeconds:             30,
-		EventReconnectDelaySeconds:           5,
-		BuildOutboxIntervalSeconds:           1,
-		BuildOutboxBatchSize:                 10,
-		ContainerCreateWorkerCount:           2,
-		ContainerCreateMaxAttempts:           3,
-		ContainerCreateTimeoutMinutes:        30,
-		MaxQueuedContainerCreatesPerUser:     5,
-		ContainerCreateOutboxIntervalSeconds: 1,
-		ContainerCreateOutboxBatchSize:       10,
-		ReportsUsageSnapshotIntervalSeconds:  config.DefaultReportsUsageSnapshotIntervalSeconds,
-		ComposeUploadMaxBytes:                100 << 20,
-		ComposePipelineTimeoutMinutes:        30,
-		ComposeDeployWorkerCount:             2,
-		ComposeOutboxIntervalSeconds:         1,
-		ComposeOutboxBatchSize:               10,
-		ComposeDeployMaxAttempts:             3,
-		ComposeBuildPollIntervalSeconds:      3,
-		ComposeDependencyWaitTimeoutMinutes:  5,
-		ComposeCoordinatorIntervalSeconds:    2,
-		VolumeUsageIntervalSeconds:           60,
-		VolumeUsageCycleBudgetSeconds:        15,
-		VolumeUsageScanEntryBudget:           50000,
-		RegistryCleanupIntervalSeconds:       5,
-		RegistryCleanupJobTimeoutSeconds:     20,
-		RegistryGCMaxDurationSeconds:         900,
-		MemoryPressureMinFreeBytes:           512 * 1024 * 1024,
-		MemoryPressureIntervalSeconds:        10,
-		MemoryBoostMultiplier:                8,
-		CPUBoostMultiplier:                   8,
-		BoostMinFreeMemoryBytes:              2 * 1024 * 1024 * 1024,
-		DefaultVolumeSizeBytes:               1 << 30,
-		DefaultUserQuotaCPU:                  1,
-		DefaultUserQuotaRAMMB:                2048,
-		DefaultUserQuotaDiskMB:               5120,
-		VolumeSizeEnforcement:                false,
-		GitSourcesEnabled:                    true,
-		GitAllowedHosts:                      []string{"github.com", "gitlab.com", "bitbucket.org"},
-		GitCloneTimeoutSeconds:               60,
-		GitMaxRepositoryBytes:                200 * 1024 * 1024,
-		TelemetryMaxLogTailLines:             1000,
-		TelemetryMaxLogStreamsPerUser:        5,
-		TelemetryMaxTerminalSessionsPerUser:  2,
-		TelemetryTerminalIdleTimeoutSeconds:  300,
-		TelemetryTerminalMaxDurationSeconds:  3600,
-		TelemetryAllowedExecCommands:         []string{"/bin/sh", "/bin/bash", "/busybox/sh"},
-		TelemetryMaxCommandArgs:              8,
-		TelemetryMaxCommandArgBytes:          128,
-		TelemetryWSReadLimitBytes:            4096,
+		DefaultMemoryReservation:            256 * 1024 * 1024,
+		ReservedSystemMemory:                0,
+		OvercommitFactor:                    1.5,
+		MaxBurstMultiplier:                  4,
+		DefaultCPUReservation:               250,
+		ReservedSystemCPU:                   0,
+		CPUOvercommitFactor:                 4,
+		MaxCPUBurstMultiplier:               4,
+		ContainerStopTimeout:                10,
+		MaxLogSize:                          "10m",
+		ContainerDiskQuota:                  "1G",
+		ReservedDomainPrefixes:              []string{"admin", "api"},
+		BlockedDomainPrefixPatterns:         []string{},
+		MaxVolumesPerUser:                   5,
+		MaxQueuedBuildsPerUser:              10,
+		MaxQueuedComposeDeploysPerUser:      5,
+		MaxContainersPerUser:                10,
+		ContainerTTLHours:                   24,
+		ContainerPidsLimit:                  256,
+		ImageBuildsEnabled:                  true,
+		BuildMemoryBytes:                    512 * 1024 * 1024,
+		BuildCPUMillicores:                  1000,
+		MaxBuildTimeMinutes:                 10,
+		MaxConcurrentBuilds:                 2,
+		MaxArchiveSizeBytes:                 50 << 20,
+		MaxUnpackedSizeBytes:                500 * 1024 * 1024,
+		MaxBuildLogSizeBytes:                5 * 1024 * 1024,
+		BuildMaxDiskBytes:                   10 << 30,
+		ComposeUploadMaxBytes:               100 << 20,
+		ComposePipelineTimeoutMinutes:       30,
+		ComposeDependencyWaitTimeoutMinutes: 5,
+		MemoryPressureMinFreeBytes:          512 * 1024 * 1024,
+		MemoryBoostMultiplier:               8,
+		CPUBoostMultiplier:                  8,
+		BoostMinFreeMemoryBytes:             2 * 1024 * 1024 * 1024,
+		DefaultVolumeSizeBytes:              1 << 30,
+		DefaultUserQuotaCPU:                 1,
+		DefaultUserQuotaRAMMB:               2048,
+		DefaultUserQuotaDiskMB:              5120,
+		VolumeSizeEnforcement:               false,
+		GitSourcesEnabled:                   true,
+		GitAllowedHosts:                     []string{"github.com", "gitlab.com", "bitbucket.org"},
+		GitCloneTimeoutSeconds:              60,
+		GitMaxRepositoryBytes:               200 * 1024 * 1024,
+		TelemetryTerminalIdleTimeoutSeconds: 300,
+		TelemetryTerminalMaxDurationSeconds: 3600,
+		TelemetryAllowedExecCommands:        []string{"/bin/sh", "/bin/bash", "/busybox/sh"},
+		Fixed: config.Fixed{
+			BaseDomain:                           "localhost",
+			ContainerCPUPeriod:                   100000,
+			DefaultCPUShares:                     1024,
+			MaxLogFiles:                          "3",
+			RegistryAPIURL:                       "registry:5000",
+			RegistryPublicURL:                    "localhost:5000",
+			ContainerMemorySwapMultiplier:        2,
+			ProxyNetworkName:                     "proxy_net",
+			RegistryContainerName:                "registry",
+			BuildCPUPeriod:                       100000,
+			BuildMemorySwapMultiplier:            2,
+			BuildPidsLimit:                       512,
+			BuildNetworkName:                     "build_net",
+			KanikoImage:                          "gcr.io/kaniko-project/executor:latest",
+			BuildCancelPollIntervalSeconds:       2,
+			TTLWorkerIntervalSeconds:             60,
+			GCWorkerIntervalMinutes:              60,
+			StaleBuildTimeoutMinutes:             30,
+			EventSyncIntervalSeconds:             30,
+			EventReconnectDelaySeconds:           5,
+			BuildOutboxIntervalSeconds:           1,
+			BuildOutboxBatchSize:                 10,
+			ContainerCreateWorkerCount:           2,
+			ContainerCreateMaxAttempts:           3,
+			ContainerCreateTimeoutMinutes:        30,
+			MaxQueuedContainerCreatesPerUser:     5,
+			ContainerCreateOutboxIntervalSeconds: 1,
+			ContainerCreateOutboxBatchSize:       10,
+			ReportsUsageSnapshotIntervalSeconds:  config.DefaultReportsUsageSnapshotIntervalSeconds,
+			ComposeDeployWorkerCount:             2,
+			ComposeOutboxIntervalSeconds:         1,
+			ComposeOutboxBatchSize:               10,
+			ComposeDeployMaxAttempts:             3,
+			ComposeCoordinatorIntervalSeconds:    2,
+			VolumeUsageIntervalSeconds:           60,
+			VolumeUsageCycleBudgetSeconds:        15,
+			VolumeUsageScanEntryBudget:           50000,
+			RegistryCleanupIntervalSeconds:       5,
+			RegistryCleanupJobTimeoutSeconds:     20,
+			RegistryGCMaxDurationSeconds:         900,
+			MemoryPressureIntervalSeconds:        10,
+			TelemetryMaxLogTailLines:             1000,
+			TelemetryMaxLogStreamsPerUser:        5,
+			TelemetryMaxTerminalSessionsPerUser:  2,
+			TelemetryMaxCommandArgs:              8,
+			TelemetryMaxCommandArgBytes:          128,
+			TelemetryWSReadLimitBytes:            4096,
+		},
 	}
 }
 
@@ -491,5 +493,134 @@ func TestNetworkNamesRemainBootstrapSettings(t *testing.T) {
 	cfg = manager.Get()
 	if cfg.ProxyNetworkName != "proxy_net" || cfg.BuildNetworkName != "build_net" {
 		t.Fatal("runtime update changed bootstrap network names")
+	}
+}
+
+// Startup values come from the environment at every start: a config file
+// written earlier does not override them, and an update cannot change them.
+func TestStartupValuesFollowTheEnvironmentNotTheFileOrAnUpdate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	initial := validSystemConfig()
+	initial.BaseDomain = "old.example.test"
+	initial.KanikoImage = "registry.example.test/kaniko:old"
+	initial.TTLWorkerIntervalSeconds = 11
+	initial.ContainerCreateWorkerCount = 7
+	if _, err := config.NewManager(path, initial); err != nil {
+		t.Fatal(err)
+	}
+
+	next := validSystemConfig()
+	next.BaseDomain = "new.example.test"
+	next.KanikoImage = "registry.example.test/kaniko:new"
+	next.TTLWorkerIntervalSeconds = 22
+	next.ContainerCreateWorkerCount = 3
+	manager, err := config.NewManager(path, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireStartupValues := func(when string) {
+		t.Helper()
+		got := manager.Get()
+		if got.BaseDomain != "new.example.test" || got.KanikoImage != "registry.example.test/kaniko:new" ||
+			got.TTLWorkerIntervalSeconds != 22 || got.ContainerCreateWorkerCount != 3 {
+			t.Fatalf("%s: startup values = %q, %q, %d, %d", when, got.BaseDomain, got.KanikoImage,
+				got.TTLWorkerIntervalSeconds, got.ContainerCreateWorkerCount)
+		}
+	}
+	requireStartupValues("after a restart over an older file")
+
+	update := manager.Get()
+	update.BaseDomain = "changed.example.test"
+	update.KanikoImage = "registry.example.test/kaniko:changed"
+	update.TTLWorkerIntervalSeconds = 33
+	update.ContainerCreateWorkerCount = 9
+	update.ContainerTTLHours = 48
+	if err := manager.Update(update); err != nil {
+		t.Fatal(err)
+	}
+	requireStartupValues("after an update")
+	if got := manager.Get().ContainerTTLHours; got != 48 {
+		t.Fatalf("ContainerTTLHours after the update = %d, want the runtime setting to change", got)
+	}
+}
+
+// The config file holds runtime settings only. Keys of an older file that are
+// no longer runtime settings have no effect and are dropped when it is rewritten.
+func TestConfigFileHoldsOnlyRuntimeSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{
+		"base_domain": "file.example.test",
+		"kaniko_image": "registry.example.test/kaniko:file",
+		"ttl_worker_interval_seconds": 999,
+		"build_cpu_period": 12345,
+		"build_cpu_quota": 12345,
+		"max_upload_size_bytes": 1,
+		"compose_build_poll_interval_seconds": 3,
+		"container_ttl_hours": 48
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := config.NewManager(path, validSystemConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Get()
+	if got.ContainerTTLHours != 48 {
+		t.Fatalf("ContainerTTLHours = %d, want the runtime setting read from the file", got.ContainerTTLHours)
+	}
+	if got.BaseDomain != "localhost" || got.TTLWorkerIntervalSeconds != 60 || got.BuildCPUPeriod != 100000 {
+		t.Fatalf("startup values were read from the file: %q, %d, %d", got.BaseDomain, got.TTLWorkerIntervalSeconds, got.BuildCPUPeriod)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"base_domain", "kaniko_image", "registry_api_url", "proxy_network_name",
+		"ttl_worker_interval_seconds", "build_cpu_period", "build_cpu_quota", "max_upload_size_bytes",
+		"compose_build_poll_interval_seconds", "container_create_worker_count", "telemetry_ws_read_limit_bytes",
+	} {
+		if _, ok := raw[key]; ok {
+			t.Errorf("config file holds %q, which is not a runtime setting", key)
+		}
+	}
+	for _, key := range []string{"container_ttl_hours", "build_cpu_millicores", "max_archive_size_bytes"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("config file lacks the runtime setting %q", key)
+		}
+	}
+}
+
+// Zero used to mean "blocked" for builds and "unlimited" for Compose
+// deployments; both limits now have to be a real limit.
+func TestValidateSystemConfigRequiresPositiveQueuedLimitsAndBuildCPU(t *testing.T) {
+	const marker = "7777"
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.SystemConfig)
+	}{
+		{name: "zero queued builds", apply: func(c *config.SystemConfig) { c.MaxQueuedBuildsPerUser = 0 }},
+		{name: "negative queued builds", apply: func(c *config.SystemConfig) { c.MaxQueuedBuildsPerUser = -7777 }},
+		{name: "zero queued compose deployments", apply: func(c *config.SystemConfig) { c.MaxQueuedComposeDeploysPerUser = 0 }},
+		{name: "negative queued compose deployments", apply: func(c *config.SystemConfig) { c.MaxQueuedComposeDeploysPerUser = -7777 }},
+		{name: "zero build cpu", apply: func(c *config.SystemConfig) { c.BuildCPUMillicores = 0 }},
+		{name: "negative build cpu", apply: func(c *config.SystemConfig) { c.BuildCPUMillicores = -7777 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.apply(&cfg)
+			err := config.ValidateSystemConfig(cfg)
+			if err == nil {
+				t.Fatal("ValidateSystemConfig() accepted the setting")
+			}
+			if strings.Contains(err.Error(), marker) {
+				t.Fatalf("ValidateSystemConfig() error %q echoes the rejected value", err)
+			}
+		})
 	}
 }

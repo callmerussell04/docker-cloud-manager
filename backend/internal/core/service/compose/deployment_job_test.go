@@ -589,9 +589,11 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 	cfg := coretest.StaticConfig{Config: config.SystemConfig{
 		ImageBuildsEnabled:                  true,
 		ComposeUploadMaxBytes:               1024 * 1024,
-		ComposeCoordinatorIntervalSeconds:   1,
 		ComposeDependencyWaitTimeoutMinutes: int64(dependencyWaitTimeout / time.Minute),
 		ComposePipelineTimeoutMinutes:       int64(pipelineTimeout / time.Minute),
+		Fixed: config.Fixed{
+			ComposeCoordinatorIntervalSeconds: 1,
+		},
 	}}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
 		Projects:          w.store,

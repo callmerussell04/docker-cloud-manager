@@ -121,7 +121,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 			return admissionVerdict{limit: limitHostMemory, projected: projected, capacity: pool}
 		}
 		pool = hostCPUPool(ledger.hostLogicalCPUs, cfg.ReservedSystemCPU, cfg.CPUOvercommitFactor)
-		projected = ledger.systemReservedCPUMillicores + builds*buildCPUMillicores(cfg) + cpu
+		projected = ledger.systemReservedCPUMillicores + builds*max(cfg.BuildCPUMillicores, 0) + cpu
 		if pool <= 0 || projected > pool {
 			return admissionVerdict{limit: limitHostCPU, projected: projected, capacity: pool}
 		}
@@ -305,11 +305,4 @@ func buildSlotDiskBytes(ledger reservationLedger, req admissionRequest, cfg conf
 		return 0
 	}
 	return reservedBuildSlots(ledger.activeBuilds+req.builds, cfg) * max(cfg.BuildMaxDiskBytes, 0)
-}
-
-func buildCPUMillicores(cfg config.SystemConfig) int64 {
-	if cfg.BuildCPUQuota <= 0 || cfg.BuildCPUPeriod <= 0 {
-		return 0
-	}
-	return cfg.BuildCPUQuota * 1000 / cfg.BuildCPUPeriod
 }

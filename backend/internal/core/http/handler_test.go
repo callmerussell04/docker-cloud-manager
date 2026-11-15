@@ -58,6 +58,55 @@ func TestBuildHandlerBuildImageAcceptsMultipartArchive(t *testing.T) {
 	require.Equal(t, "zip", archiveData)
 }
 
+// The upload cap follows the archive limit: an archive at the limit is read
+// whole with its form fields, and a request too large for any allowed archive
+// is cut off.
+func TestBuildHandlerCapsTheUploadAtTheArchiveLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const archiveLimit = 1 << 20
+	const formAllowance = 4<<20 + 64<<10
+	for _, tc := range []struct {
+		name         string
+		archiveBytes int
+		wantRead     bool
+	}{
+		{name: "an archive at the limit", archiveBytes: archiveLimit, wantRead: true},
+		{name: "a request beyond the limit and its form allowance", archiveBytes: archiveLimit + formAllowance + 1, wantRead: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			builds := corehttpmocks.NewMockBuildUseCases(t)
+			var read int
+			var readErr error
+			builds.EXPECT().
+				CreateBuildFromArchive(mock.Anything, mock.AnythingOfType("service.BuildArchiveInput")).
+				Run(func(_ context.Context, input service.BuildArchiveInput) {
+					data, err := io.ReadAll(input.Archive)
+					read, readErr = len(data), err
+				}).
+				Return(service.BuildInitResult{BuildID: uuid.New()}, nil)
+			cfg := httpTestConfig()
+			cfg.Config.MaxArchiveSizeBytes = archiveLimit
+			router := gin.New()
+			router.POST("/images/build", corehttp.NewBuildHandler(builds, cfg).BuildImage)
+			body, contentType := multipartBody(t, []formPart{
+				{name: "tag", value: "demo"},
+				{name: "build_args", value: `{"VERSION":"1"}`},
+				{name: "archive", fileName: "source.zip", value: strings.Repeat("z", tc.archiveBytes)},
+			})
+
+			perform(router, http.MethodPost, "/images/build", contentType, body)
+
+			if tc.wantRead {
+				require.NoError(t, readErr)
+				require.Equal(t, tc.archiveBytes, read)
+				return
+			}
+			require.Error(t, readErr)
+			require.Less(t, read, tc.archiveBytes)
+		})
+	}
+}
+
 func TestBuildHandlerBuildImageRejectsArchiveBeforeMetadataAndInvalidArgs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	tests := []struct {
@@ -196,7 +245,6 @@ func TestComposeHandlerRejectsInvalidUploadAndGitPayload(t *testing.T) {
 
 func httpTestConfig() coretest.StaticConfig {
 	return coretest.StaticConfig{Config: config.SystemConfig{
-		MaxUploadSizeBytes:    10 << 20,
 		ComposeUploadMaxBytes: 10 << 20,
 		ImageBuildsEnabled:    true,
 		GitSourcesEnabled:     true,

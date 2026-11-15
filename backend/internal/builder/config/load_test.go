@@ -93,3 +93,18 @@ func TestLoadReportsRequiredSettingsInOrderWithoutValues(t *testing.T) {
 		"BUILDER_INSTANCE_ID",
 	})
 }
+
+// Build CPU comes from the variable Core reads, in millicores, so one setting
+// configures both; the CPU quota is that share of the CPU period.
+func TestLoadReadsBuildCPUInMillicores(t *testing.T) {
+	values := requiredEnv()
+	values["BUILD_CPU_MILLICORES"] = "2500"
+	values["BUILD_CPU_PERIOD"] = "50000"
+	values["BUILD_CPU_QUOTA"] = "777"
+
+	cfg, err := config.Load(envtest.Lookup(values))
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(125000), cfg.Builder.BuildCPUQuota, "2.5 cores of a 50000 period")
+	assert.Equal(t, int64(50000), cfg.Builder.BuildCPUPeriod)
+}

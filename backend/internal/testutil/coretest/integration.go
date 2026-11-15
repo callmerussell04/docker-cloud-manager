@@ -60,7 +60,6 @@ func IntegrationConfig() config.SystemConfig {
 	cfg.HostMinFreeDiskBytes = 0
 	cfg.ContainerTTLHours = 0
 	cfg.ComposeUploadMaxBytes = 10 << 20
-	cfg.MaxUploadSizeBytes = 10 << 20
 	cfg.MaxArchiveSizeBytes = 10 << 20
 	cfg.GitSourcesEnabled = true
 	cfg.ImageBuildsEnabled = true

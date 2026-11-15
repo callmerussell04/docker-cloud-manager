@@ -198,7 +198,7 @@ func TestRouterAuthBoundariesAndUploadProxyChain(t *testing.T) {
 	deps.verifier.EXPECT().
 		CheckPermission(mock.Anything, "Bearer admin", permissions.SystemConfigRead).
 		Return(model.AuthUser{UserID: userID, Username: "admin", Role: "admin"}, nil)
-	deps.core.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test"}, nil)
+	deps.core.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{MaxLogSize: "10m"}, nil)
 	resp = routerRequest(router, http.MethodGet, "/api/v1/admin/config", "", map[string]string{"Authorization": "Bearer admin"})
 	require.Equal(t, http.StatusOK, resp.Code)
 

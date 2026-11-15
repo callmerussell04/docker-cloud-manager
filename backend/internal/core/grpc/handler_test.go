@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/fieldfill"
 	coregrpcmocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/core/grpc"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -274,23 +275,23 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
-	initial := coretest.SystemConfig()
-	initial.VolumeSizeEnforcement = true
-	initial.DefaultUserQuotaCPU, initial.DefaultUserQuotaRAMMB, initial.DefaultUserQuotaDiskMB = 1.5, 3072, 6144
-	initial.RegistryGCMaxDurationSeconds = 1200
-	initial.BuildMaxDiskBytes = 3 << 30
+// Every runtime setting crosses the SystemAPI in both directions, and nothing
+// of the fixed part does: a read fills every field of the message, and an
+// update carrying that message onto a snapshot with other settings yields the
+// settings that were read and the fixed part of that snapshot.
+func TestSystemGRPCHandlerCarriesEveryRuntimeSetting(t *testing.T) {
+	var stored config.SystemConfig
+	fieldfill.Distinct(t, &stored)
+	stored.Fixed = coretest.SystemConfig().Fixed
+	current := stored
 	logic := coregrpcmocks.NewMockSystemLogic(t)
+	logic.EXPECT().GetConfig(mock.Anything).RunAndReturn(func(context.Context) config.SystemConfig { return current })
 	var updated config.SystemConfig
-	logic.EXPECT().GetConfig(mock.Anything).Return(initial)
 	logic.EXPECT().
 		UpdateConfig(mock.Anything, mock.AnythingOfType("config.SystemConfig")).
-		Run(func(ctx context.Context, cfg config.SystemConfig) {
-			updated = cfg
-		}).
+		Run(func(_ context.Context, cfg config.SystemConfig) { updated = cfg }).
 		Return(nil).
 		Once()
-	logic.EXPECT().UpdateConfig(mock.Anything, mock.AnythingOfType("config.SystemConfig")).Return(apperrors.ErrBadRequest).Once()
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterSystemAPI(s, logic)
 	})
@@ -299,45 +300,43 @@ func TestSystemGRPCHandlerMapsConfigAndErrors(t *testing.T) {
 
 	got, err := client.GetConfig(ctx, &coreapi.Empty{})
 	require.NoError(t, err)
-	require.Equal(t, initial.BaseDomain, got.BaseDomain)
-	require.Equal(t, initial.BuildPidsLimit, got.BuildPidsLimit)
-	require.Equal(t, int32(initial.MaxContainersPerUser), got.MaxContainersPerUser)
-	require.Equal(t, initial.DefaultVolumeSizeBytes, got.DefaultVolumeSizeBytes)
-	require.True(t, got.GetVolumeSizeEnforcement())
-	require.Equal(t, 1.5, got.GetDefaultUserQuotaCpu())
-	require.Equal(t, int64(3072), got.GetDefaultUserQuotaRamMb())
-	require.Equal(t, int64(6144), got.GetDefaultUserQuotaDiskMb())
-	require.Equal(t, int64(1200), got.GetRegistryGcMaxDurationSeconds())
-	require.Equal(t, int64(3<<30), got.GetBuildMaxDiskBytes())
+	fields := got.ProtoReflect().Descriptor().Fields()
+	for i := range fields.Len() {
+		require.Truef(t, got.ProtoReflect().Has(fields.Get(i)), "a read leaves %s unset", fields.Get(i).Name())
+	}
+
+	otherFixed := stored.Fixed
+	otherFixed.BaseDomain = "other.example.test"
+	otherFixed.TTLWorkerIntervalSeconds = 77
+	current = config.SystemConfig{Fixed: otherFixed}
+	_, err = client.UpdateConfig(ctx, got)
+	require.NoError(t, err)
+	want := stored
+	want.Fixed = otherFixed
+	require.Equal(t, want, updated)
+}
+
+func TestSystemGRPCHandlerMapsBuilderConfigAndErrors(t *testing.T) {
+	initial := coretest.SystemConfig()
+	initial.BuildMaxDiskBytes = 3 << 30
+	initial.BuildCPUMillicores = 2500
+	initial.BuildCPUPeriod = 50000
+	logic := coregrpcmocks.NewMockSystemLogic(t)
+	logic.EXPECT().GetConfig(mock.Anything).Return(initial)
+	logic.EXPECT().UpdateConfig(mock.Anything, mock.AnythingOfType("config.SystemConfig")).Return(apperrors.ErrBadRequest).Once()
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterSystemAPI(s, logic)
+	})
+	client := coreapi.NewSystemAPIClient(conn)
 
 	builderCfg, err := client.GetBuilderRuntimeConfig(systemScopeContext(), &coreapi.Empty{})
 	require.NoError(t, err)
 	require.Equal(t, int64(3<<30), builderCfg.GetBuildMaxDiskBytes(), "Builder receives the build disk cap")
+	require.Equal(t, int64(125000), builderCfg.GetBuildCpuQuota(), "2.5 cores of a 50000 period")
+	require.Equal(t, int64(50000), builderCfg.GetBuildCpuPeriod())
+	require.Equal(t, initial.KanikoImage, builderCfg.GetKanikoImage())
 
-	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{
-		BaseDomain:                    "example.test",
-		DefaultMemoryReservationBytes: initial.DefaultMemoryReservation,
-		BuildPidsLimit:                initial.BuildPidsLimit,
-		MaxContainersPerUser:          int32(initial.MaxContainersPerUser),
-		DefaultVolumeSizeBytes:        256 << 20,
-		VolumeSizeEnforcement:         true,
-		DefaultUserQuotaCpu:           2.5,
-		DefaultUserQuotaRamMb:         4096,
-		DefaultUserQuotaDiskMb:        10240,
-		RegistryGcMaxDurationSeconds:  600,
-		BuildMaxDiskBytes:             5 << 30,
-	})
-	require.NoError(t, err)
-	require.Equal(t, "example.test", updated.BaseDomain)
-	require.EqualValues(t, 256<<20, updated.DefaultVolumeSizeBytes)
-	require.True(t, updated.VolumeSizeEnforcement)
-	require.Equal(t, 2.5, updated.DefaultUserQuotaCPU)
-	require.Equal(t, int64(4096), updated.DefaultUserQuotaRAMMB)
-	require.Equal(t, int64(10240), updated.DefaultUserQuotaDiskMB)
-	require.Equal(t, int64(600), updated.RegistryGCMaxDurationSeconds)
-	require.Equal(t, int64(5<<30), updated.BuildMaxDiskBytes)
-
-	_, err = client.UpdateConfig(ctx, &coreapi.SystemConfigData{})
+	_, err = client.UpdateConfig(adminScopeContext(uuid.New()), &coreapi.SystemConfigData{})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 

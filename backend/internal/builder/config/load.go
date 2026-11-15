@@ -31,6 +31,10 @@ type Bootstrap struct {
 func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 	required := envconfig.NewRequired(lookup)
 	storagePath := envconfig.String(lookup, "BUILD_STORAGE_PATH", "/tmp/builds")
+	// Core reads the same two variables, so Builder starts with the CPU limit
+	// Core will send it.
+	buildCPUPeriod := envconfig.Int64(lookup, "BUILD_CPU_PERIOD", 100000)
+	buildCPUMillicores := envconfig.Int64(lookup, "BUILD_CPU_MILLICORES", 1000)
 
 	cfg := Bootstrap{
 		CoreTarget:     required.Get("CORE_GRPC_TARGET"),
@@ -44,8 +48,8 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
 		Builder: BuilderConfig{
 			BuildMemoryBytes:          envconfig.Int64(lookup, "BUILD_MEMORY_BYTES", 512*1024*1024),
-			BuildCPUQuota:             envconfig.Int64(lookup, "BUILD_CPU_QUOTA", 100000),
-			BuildCPUPeriod:            envconfig.Int64(lookup, "BUILD_CPU_PERIOD", 100000),
+			BuildCPUQuota:             buildCPUMillicores * buildCPUPeriod / 1000,
+			BuildCPUPeriod:            buildCPUPeriod,
 			BuildMemorySwapMultiplier: envconfig.Float64(lookup, "BUILD_MEMORY_SWAP_MULTIPLIER", 2),
 			BuildPidsLimit:            envconfig.Int64(lookup, "BUILD_PIDS_LIMIT", 512),
 			LogsDirPath:               envconfig.String(lookup, "BUILD_LOGS_PATH", "/tmp/build_logs"),

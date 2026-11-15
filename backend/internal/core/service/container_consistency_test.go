@@ -188,7 +188,7 @@ func TestTTLWorkerQueuesStopOperation(t *testing.T) {
 			}},
 			queuedCh: make(chan queuedContainerOperation, 1),
 		}
-		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 24, TTLWorkerIntervalSeconds: 1}}
+		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 24, Fixed: config.Fixed{TTLWorkerIntervalSeconds: 1}}}
 		stop := startInBubble(t, service.NewTTLWorker(repo, cfg, slog.Default()).Run)
 		defer stop()
 
@@ -211,7 +211,7 @@ func TestTTLWorkerQueuesStopOperation(t *testing.T) {
 func TestTTLWorkerSkipsExpirationWhenTTLDisabled(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		repo := &ttlWorkerRepoFake{queuedCh: make(chan queuedContainerOperation, 1)}
-		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 0, TTLWorkerIntervalSeconds: 1}}
+		cfg := coretest.StaticConfig{Config: config.SystemConfig{ContainerTTLHours: 0, Fixed: config.Fixed{TTLWorkerIntervalSeconds: 1}}}
 		stop := startInBubble(t, service.NewTTLWorker(repo, cfg, slog.Default()).Run)
 
 		time.Sleep(10 * time.Second)
@@ -436,36 +436,38 @@ func (r *recordingAuditRecorder) RecordAuditEvent(ctx context.Context, event mod
 // testSystemConfig is the runtime config Core service tests start from.
 func testSystemConfig() config.SystemConfig {
 	return config.SystemConfig{
-		ReservedSystemMemory:                 0,
-		OvercommitFactor:                     1.5,
-		MaxBurstMultiplier:                   4,
-		DefaultCPUReservation:                250,
-		ReservedSystemCPU:                    0,
-		CPUOvercommitFactor:                  4,
-		MaxCPUBurstMultiplier:                4,
-		ContainerCPUPeriod:                   100000,
-		DefaultCPUShares:                     1024,
-		ContainerStopTimeout:                 1,
-		BaseDomain:                           "example.test",
-		ContainerPidsLimit:                   256,
-		ContainerMemorySwapMultiplier:        2,
-		ProxyNetworkName:                     "proxy_net",
-		EventSyncIntervalSeconds:             30,
-		EventReconnectDelaySeconds:           5,
-		BuildOutboxIntervalSeconds:           1,
-		BuildOutboxBatchSize:                 10,
-		ContainerCreateWorkerCount:           2,
-		ContainerCreateMaxAttempts:           3,
-		ContainerCreateTimeoutMinutes:        30,
-		MaxQueuedContainerCreatesPerUser:     5,
-		ContainerCreateOutboxIntervalSeconds: 1,
-		ContainerCreateOutboxBatchSize:       10,
-		MaxContainersPerUser:                 10,
-		MaxVolumesPerUser:                    10,
-		ImageBuildsEnabled:                   true,
-		GitSourcesEnabled:                    true,
-		ComposeDependencyWaitTimeoutMinutes:  1,
-		ComposeCoordinatorIntervalSeconds:    2,
+		ReservedSystemMemory:                0,
+		OvercommitFactor:                    1.5,
+		MaxBurstMultiplier:                  4,
+		DefaultCPUReservation:               250,
+		ReservedSystemCPU:                   0,
+		CPUOvercommitFactor:                 4,
+		MaxCPUBurstMultiplier:               4,
+		ContainerStopTimeout:                1,
+		ContainerPidsLimit:                  256,
+		MaxContainersPerUser:                10,
+		MaxVolumesPerUser:                   10,
+		ImageBuildsEnabled:                  true,
+		GitSourcesEnabled:                   true,
+		ComposeDependencyWaitTimeoutMinutes: 1,
+		Fixed: config.Fixed{
+			ContainerCPUPeriod:                   100000,
+			DefaultCPUShares:                     1024,
+			BaseDomain:                           "example.test",
+			ContainerMemorySwapMultiplier:        2,
+			ProxyNetworkName:                     "proxy_net",
+			EventSyncIntervalSeconds:             30,
+			EventReconnectDelaySeconds:           5,
+			BuildOutboxIntervalSeconds:           1,
+			BuildOutboxBatchSize:                 10,
+			ContainerCreateWorkerCount:           2,
+			ContainerCreateMaxAttempts:           3,
+			ContainerCreateTimeoutMinutes:        30,
+			MaxQueuedContainerCreatesPerUser:     5,
+			ContainerCreateOutboxIntervalSeconds: 1,
+			ContainerCreateOutboxBatchSize:       10,
+			ComposeCoordinatorIntervalSeconds:    2,
+		},
 	}
 }
 

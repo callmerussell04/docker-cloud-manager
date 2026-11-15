@@ -895,7 +895,7 @@ func boostTestConfig() config.SystemConfig {
 	cfg.DefaultCPUReservation = 250
 	cfg.MaxCPUBurstMultiplier = 4
 	cfg.ContainerCPUPeriod = oneCore
-	cfg.BuildCPUQuota = oneCore
+	cfg.BuildCPUMillicores = 1000
 	cfg.BuildCPUPeriod = oneCore
 	// CPU boost is off unless a test turns it on.
 	cfg.CPUBoostMultiplier = 1

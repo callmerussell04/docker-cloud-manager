@@ -4027,102 +4027,58 @@ func (x *PaginatedProjectResponse) GetTotalCount() int32 {
 }
 
 type SystemConfigData struct {
-	state                                protoimpl.MessageState `protogen:"open.v1"`
-	BaseDomain                           string                 `protobuf:"bytes,1,opt,name=base_domain,json=baseDomain,proto3" json:"base_domain,omitempty"`
-	DefaultMemoryReservationBytes        int64                  `protobuf:"varint,2,opt,name=default_memory_reservation_bytes,json=defaultMemoryReservationBytes,proto3" json:"default_memory_reservation_bytes,omitempty"`
-	ReservedSystemMemoryBytes            int64                  `protobuf:"varint,3,opt,name=reserved_system_memory_bytes,json=reservedSystemMemoryBytes,proto3" json:"reserved_system_memory_bytes,omitempty"`
-	OvercommitFactor                     float64                `protobuf:"fixed64,4,opt,name=overcommit_factor,json=overcommitFactor,proto3" json:"overcommit_factor,omitempty"`
-	MaxBurstMultiplier                   int64                  `protobuf:"varint,5,opt,name=max_burst_multiplier,json=maxBurstMultiplier,proto3" json:"max_burst_multiplier,omitempty"`
-	DefaultCpuShares                     int64                  `protobuf:"varint,6,opt,name=default_cpu_shares,json=defaultCpuShares,proto3" json:"default_cpu_shares,omitempty"`
-	ContainerStopTimeout                 int32                  `protobuf:"varint,9,opt,name=container_stop_timeout,json=containerStopTimeout,proto3" json:"container_stop_timeout,omitempty"`
-	MaxLogSize                           string                 `protobuf:"bytes,10,opt,name=max_log_size,json=maxLogSize,proto3" json:"max_log_size,omitempty"`
-	MaxLogFiles                          string                 `protobuf:"bytes,11,opt,name=max_log_files,json=maxLogFiles,proto3" json:"max_log_files,omitempty"`
-	ContainerDiskQuota                   string                 `protobuf:"bytes,12,opt,name=container_disk_quota,json=containerDiskQuota,proto3" json:"container_disk_quota,omitempty"`
-	MaxVolumesPerUser                    int32                  `protobuf:"varint,13,opt,name=max_volumes_per_user,json=maxVolumesPerUser,proto3" json:"max_volumes_per_user,omitempty"`
-	MaxContainersPerUser                 int32                  `protobuf:"varint,14,opt,name=max_containers_per_user,json=maxContainersPerUser,proto3" json:"max_containers_per_user,omitempty"`
-	ContainerTtlHours                    int64                  `protobuf:"varint,17,opt,name=container_ttl_hours,json=containerTtlHours,proto3" json:"container_ttl_hours,omitempty"`
-	ContainerPidsLimit                   int64                  `protobuf:"varint,18,opt,name=container_pids_limit,json=containerPidsLimit,proto3" json:"container_pids_limit,omitempty"`
-	ContainerMemorySwapMultiplier        float64                `protobuf:"fixed64,19,opt,name=container_memory_swap_multiplier,json=containerMemorySwapMultiplier,proto3" json:"container_memory_swap_multiplier,omitempty"`
-	BuildMemoryBytes                     int64                  `protobuf:"varint,22,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
-	BuildCpuQuota                        int64                  `protobuf:"varint,23,opt,name=build_cpu_quota,json=buildCpuQuota,proto3" json:"build_cpu_quota,omitempty"`
-	BuildCpuPeriod                       int64                  `protobuf:"varint,24,opt,name=build_cpu_period,json=buildCpuPeriod,proto3" json:"build_cpu_period,omitempty"`
-	BuildMemorySwapMultiplier            float64                `protobuf:"fixed64,25,opt,name=build_memory_swap_multiplier,json=buildMemorySwapMultiplier,proto3" json:"build_memory_swap_multiplier,omitempty"`
-	BuildPidsLimit                       int64                  `protobuf:"varint,26,opt,name=build_pids_limit,json=buildPidsLimit,proto3" json:"build_pids_limit,omitempty"`
-	KanikoImage                          string                 `protobuf:"bytes,28,opt,name=kaniko_image,json=kanikoImage,proto3" json:"kaniko_image,omitempty"`
-	MaxBuildTimeMinutes                  int64                  `protobuf:"varint,29,opt,name=max_build_time_minutes,json=maxBuildTimeMinutes,proto3" json:"max_build_time_minutes,omitempty"`
-	MaxConcurrentBuilds                  int32                  `protobuf:"varint,30,opt,name=max_concurrent_builds,json=maxConcurrentBuilds,proto3" json:"max_concurrent_builds,omitempty"`
-	MaxUploadSizeBytes                   int64                  `protobuf:"varint,31,opt,name=max_upload_size_bytes,json=maxUploadSizeBytes,proto3" json:"max_upload_size_bytes,omitempty"`
-	MaxArchiveSizeBytes                  int64                  `protobuf:"varint,32,opt,name=max_archive_size_bytes,json=maxArchiveSizeBytes,proto3" json:"max_archive_size_bytes,omitempty"`
-	MaxUnpackedSizeBytes                 int64                  `protobuf:"varint,33,opt,name=max_unpacked_size_bytes,json=maxUnpackedSizeBytes,proto3" json:"max_unpacked_size_bytes,omitempty"`
-	MaxBuildLogSizeBytes                 int64                  `protobuf:"varint,34,opt,name=max_build_log_size_bytes,json=maxBuildLogSizeBytes,proto3" json:"max_build_log_size_bytes,omitempty"`
-	TtlWorkerIntervalSeconds             int64                  `protobuf:"varint,35,opt,name=ttl_worker_interval_seconds,json=ttlWorkerIntervalSeconds,proto3" json:"ttl_worker_interval_seconds,omitempty"`
-	GcWorkerIntervalMinutes              int64                  `protobuf:"varint,36,opt,name=gc_worker_interval_minutes,json=gcWorkerIntervalMinutes,proto3" json:"gc_worker_interval_minutes,omitempty"`
-	StaleBuildTimeoutMinutes             int64                  `protobuf:"varint,37,opt,name=stale_build_timeout_minutes,json=staleBuildTimeoutMinutes,proto3" json:"stale_build_timeout_minutes,omitempty"`
-	EventSyncIntervalSeconds             int64                  `protobuf:"varint,38,opt,name=event_sync_interval_seconds,json=eventSyncIntervalSeconds,proto3" json:"event_sync_interval_seconds,omitempty"`
-	EventReconnectDelaySeconds           int64                  `protobuf:"varint,39,opt,name=event_reconnect_delay_seconds,json=eventReconnectDelaySeconds,proto3" json:"event_reconnect_delay_seconds,omitempty"`
-	BuildOutboxIntervalSeconds           int64                  `protobuf:"varint,40,opt,name=build_outbox_interval_seconds,json=buildOutboxIntervalSeconds,proto3" json:"build_outbox_interval_seconds,omitempty"`
-	BuildOutboxBatchSize                 int32                  `protobuf:"varint,41,opt,name=build_outbox_batch_size,json=buildOutboxBatchSize,proto3" json:"build_outbox_batch_size,omitempty"`
-	ComposeUploadMaxBytes                int64                  `protobuf:"varint,42,opt,name=compose_upload_max_bytes,json=composeUploadMaxBytes,proto3" json:"compose_upload_max_bytes,omitempty"`
-	ComposePipelineTimeoutMinutes        int64                  `protobuf:"varint,43,opt,name=compose_pipeline_timeout_minutes,json=composePipelineTimeoutMinutes,proto3" json:"compose_pipeline_timeout_minutes,omitempty"`
-	ComposeDeployWorkerCount             int32                  `protobuf:"varint,44,opt,name=compose_deploy_worker_count,json=composeDeployWorkerCount,proto3" json:"compose_deploy_worker_count,omitempty"`
-	ComposeBuildPollIntervalSeconds      int64                  `protobuf:"varint,45,opt,name=compose_build_poll_interval_seconds,json=composeBuildPollIntervalSeconds,proto3" json:"compose_build_poll_interval_seconds,omitempty"`
-	ComposeDependencyWaitTimeoutMinutes  int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
-	ReservedDomainPrefixes               []string               `protobuf:"bytes,48,rep,name=reserved_domain_prefixes,json=reservedDomainPrefixes,proto3" json:"reserved_domain_prefixes,omitempty"`
-	TelemetryMaxLogTailLines             int32                  `protobuf:"varint,49,opt,name=telemetry_max_log_tail_lines,json=telemetryMaxLogTailLines,proto3" json:"telemetry_max_log_tail_lines,omitempty"`
-	TelemetryMaxLogStreamsPerUser        int32                  `protobuf:"varint,50,opt,name=telemetry_max_log_streams_per_user,json=telemetryMaxLogStreamsPerUser,proto3" json:"telemetry_max_log_streams_per_user,omitempty"`
-	TelemetryMaxTerminalSessionsPerUser  int32                  `protobuf:"varint,51,opt,name=telemetry_max_terminal_sessions_per_user,json=telemetryMaxTerminalSessionsPerUser,proto3" json:"telemetry_max_terminal_sessions_per_user,omitempty"`
-	TelemetryTerminalIdleTimeoutSeconds  int64                  `protobuf:"varint,52,opt,name=telemetry_terminal_idle_timeout_seconds,json=telemetryTerminalIdleTimeoutSeconds,proto3" json:"telemetry_terminal_idle_timeout_seconds,omitempty"`
-	TelemetryTerminalMaxDurationSeconds  int64                  `protobuf:"varint,53,opt,name=telemetry_terminal_max_duration_seconds,json=telemetryTerminalMaxDurationSeconds,proto3" json:"telemetry_terminal_max_duration_seconds,omitempty"`
-	TelemetryAllowedExecCommands         []string               `protobuf:"bytes,54,rep,name=telemetry_allowed_exec_commands,json=telemetryAllowedExecCommands,proto3" json:"telemetry_allowed_exec_commands,omitempty"`
-	TelemetryMaxCommandArgs              int32                  `protobuf:"varint,55,opt,name=telemetry_max_command_args,json=telemetryMaxCommandArgs,proto3" json:"telemetry_max_command_args,omitempty"`
-	TelemetryMaxCommandArgBytes          int32                  `protobuf:"varint,56,opt,name=telemetry_max_command_arg_bytes,json=telemetryMaxCommandArgBytes,proto3" json:"telemetry_max_command_arg_bytes,omitempty"`
-	TelemetryWsReadLimitBytes            int64                  `protobuf:"varint,57,opt,name=telemetry_ws_read_limit_bytes,json=telemetryWsReadLimitBytes,proto3" json:"telemetry_ws_read_limit_bytes,omitempty"`
-	ImageBuildsEnabled                   bool                   `protobuf:"varint,58,opt,name=image_builds_enabled,json=imageBuildsEnabled,proto3" json:"image_builds_enabled,omitempty"`
-	BuildCancelPollIntervalSeconds       int64                  `protobuf:"varint,59,opt,name=build_cancel_poll_interval_seconds,json=buildCancelPollIntervalSeconds,proto3" json:"build_cancel_poll_interval_seconds,omitempty"`
-	GitSourcesEnabled                    bool                   `protobuf:"varint,60,opt,name=git_sources_enabled,json=gitSourcesEnabled,proto3" json:"git_sources_enabled,omitempty"`
-	GitAllowedHosts                      []string               `protobuf:"bytes,61,rep,name=git_allowed_hosts,json=gitAllowedHosts,proto3" json:"git_allowed_hosts,omitempty"`
-	GitCloneTimeoutSeconds               int64                  `protobuf:"varint,62,opt,name=git_clone_timeout_seconds,json=gitCloneTimeoutSeconds,proto3" json:"git_clone_timeout_seconds,omitempty"`
-	GitMaxRepositoryBytes                int64                  `protobuf:"varint,63,opt,name=git_max_repository_bytes,json=gitMaxRepositoryBytes,proto3" json:"git_max_repository_bytes,omitempty"`
-	ComposeOutboxIntervalSeconds         int64                  `protobuf:"varint,64,opt,name=compose_outbox_interval_seconds,json=composeOutboxIntervalSeconds,proto3" json:"compose_outbox_interval_seconds,omitempty"`
-	ComposeOutboxBatchSize               int32                  `protobuf:"varint,65,opt,name=compose_outbox_batch_size,json=composeOutboxBatchSize,proto3" json:"compose_outbox_batch_size,omitempty"`
-	ComposeDeployMaxAttempts             int32                  `protobuf:"varint,66,opt,name=compose_deploy_max_attempts,json=composeDeployMaxAttempts,proto3" json:"compose_deploy_max_attempts,omitempty"`
-	ReportsUsageSnapshotIntervalSeconds  int64                  `protobuf:"varint,67,opt,name=reports_usage_snapshot_interval_seconds,json=reportsUsageSnapshotIntervalSeconds,proto3" json:"reports_usage_snapshot_interval_seconds,omitempty"`
-	ContainerCreateWorkerCount           int32                  `protobuf:"varint,68,opt,name=container_create_worker_count,json=containerCreateWorkerCount,proto3" json:"container_create_worker_count,omitempty"`
-	ContainerCreateMaxAttempts           int32                  `protobuf:"varint,69,opt,name=container_create_max_attempts,json=containerCreateMaxAttempts,proto3" json:"container_create_max_attempts,omitempty"`
-	ContainerCreateTimeoutMinutes        int64                  `protobuf:"varint,70,opt,name=container_create_timeout_minutes,json=containerCreateTimeoutMinutes,proto3" json:"container_create_timeout_minutes,omitempty"`
-	MaxQueuedContainerCreatesPerUser     int32                  `protobuf:"varint,71,opt,name=max_queued_container_creates_per_user,json=maxQueuedContainerCreatesPerUser,proto3" json:"max_queued_container_creates_per_user,omitempty"`
-	ContainerCreateOutboxIntervalSeconds int64                  `protobuf:"varint,72,opt,name=container_create_outbox_interval_seconds,json=containerCreateOutboxIntervalSeconds,proto3" json:"container_create_outbox_interval_seconds,omitempty"`
-	ContainerCreateOutboxBatchSize       int32                  `protobuf:"varint,73,opt,name=container_create_outbox_batch_size,json=containerCreateOutboxBatchSize,proto3" json:"container_create_outbox_batch_size,omitempty"`
-	MaxStagedSourceBytesPerUser          int64                  `protobuf:"varint,74,opt,name=max_staged_source_bytes_per_user,json=maxStagedSourceBytesPerUser,proto3" json:"max_staged_source_bytes_per_user,omitempty"`
-	MaxQueuedBuildsPerUser               int32                  `protobuf:"varint,75,opt,name=max_queued_builds_per_user,json=maxQueuedBuildsPerUser,proto3" json:"max_queued_builds_per_user,omitempty"`
-	MaxQueuedComposeDeploysPerUser       int32                  `protobuf:"varint,76,opt,name=max_queued_compose_deploys_per_user,json=maxQueuedComposeDeploysPerUser,proto3" json:"max_queued_compose_deploys_per_user,omitempty"`
-	ComposeCoordinatorIntervalSeconds    int64                  `protobuf:"varint,77,opt,name=compose_coordinator_interval_seconds,json=composeCoordinatorIntervalSeconds,proto3" json:"compose_coordinator_interval_seconds,omitempty"`
-	HostMinFreeDiskBytes                 int64                  `protobuf:"varint,78,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
-	DefaultCpuReservationMillicores      int64                  `protobuf:"varint,79,opt,name=default_cpu_reservation_millicores,json=defaultCpuReservationMillicores,proto3" json:"default_cpu_reservation_millicores,omitempty"`
-	ReservedSystemCpuMillicores          int64                  `protobuf:"varint,80,opt,name=reserved_system_cpu_millicores,json=reservedSystemCpuMillicores,proto3" json:"reserved_system_cpu_millicores,omitempty"`
-	CpuOvercommitFactor                  float64                `protobuf:"fixed64,81,opt,name=cpu_overcommit_factor,json=cpuOvercommitFactor,proto3" json:"cpu_overcommit_factor,omitempty"`
-	MaxCpuBurstMultiplier                int64                  `protobuf:"varint,82,opt,name=max_cpu_burst_multiplier,json=maxCpuBurstMultiplier,proto3" json:"max_cpu_burst_multiplier,omitempty"`
-	ContainerCpuPeriod                   int64                  `protobuf:"varint,83,opt,name=container_cpu_period,json=containerCpuPeriod,proto3" json:"container_cpu_period,omitempty"`
-	BlockedDomainPrefixPatterns          []string               `protobuf:"bytes,84,rep,name=blocked_domain_prefix_patterns,json=blockedDomainPrefixPatterns,proto3" json:"blocked_domain_prefix_patterns,omitempty"`
-	VolumeUsageIntervalSeconds           int64                  `protobuf:"varint,85,opt,name=volume_usage_interval_seconds,json=volumeUsageIntervalSeconds,proto3" json:"volume_usage_interval_seconds,omitempty"`
-	VolumeUsageCycleBudgetSeconds        int64                  `protobuf:"varint,86,opt,name=volume_usage_cycle_budget_seconds,json=volumeUsageCycleBudgetSeconds,proto3" json:"volume_usage_cycle_budget_seconds,omitempty"`
-	VolumeUsageScanEntryBudget           int32                  `protobuf:"varint,87,opt,name=volume_usage_scan_entry_budget,json=volumeUsageScanEntryBudget,proto3" json:"volume_usage_scan_entry_budget,omitempty"`
-	RegistryCleanupIntervalSeconds       int64                  `protobuf:"varint,88,opt,name=registry_cleanup_interval_seconds,json=registryCleanupIntervalSeconds,proto3" json:"registry_cleanup_interval_seconds,omitempty"`
-	RegistryCleanupJobTimeoutSeconds     int64                  `protobuf:"varint,89,opt,name=registry_cleanup_job_timeout_seconds,json=registryCleanupJobTimeoutSeconds,proto3" json:"registry_cleanup_job_timeout_seconds,omitempty"`
-	MemoryPressureMinFreeBytes           int64                  `protobuf:"varint,90,opt,name=memory_pressure_min_free_bytes,json=memoryPressureMinFreeBytes,proto3" json:"memory_pressure_min_free_bytes,omitempty"`
-	MemoryPressureIntervalSeconds        int64                  `protobuf:"varint,91,opt,name=memory_pressure_interval_seconds,json=memoryPressureIntervalSeconds,proto3" json:"memory_pressure_interval_seconds,omitempty"`
-	MemoryBoostMultiplier                int64                  `protobuf:"varint,92,opt,name=memory_boost_multiplier,json=memoryBoostMultiplier,proto3" json:"memory_boost_multiplier,omitempty"`
-	CpuBoostMultiplier                   int64                  `protobuf:"varint,93,opt,name=cpu_boost_multiplier,json=cpuBoostMultiplier,proto3" json:"cpu_boost_multiplier,omitempty"`
-	BoostMinFreeMemoryBytes              int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
-	DefaultVolumeSizeBytes               int64                  `protobuf:"varint,95,opt,name=default_volume_size_bytes,json=defaultVolumeSizeBytes,proto3" json:"default_volume_size_bytes,omitempty"`
-	VolumeSizeEnforcement                bool                   `protobuf:"varint,96,opt,name=volume_size_enforcement,json=volumeSizeEnforcement,proto3" json:"volume_size_enforcement,omitempty"`
-	DefaultUserQuotaCpu                  float64                `protobuf:"fixed64,97,opt,name=default_user_quota_cpu,json=defaultUserQuotaCpu,proto3" json:"default_user_quota_cpu,omitempty"`
-	DefaultUserQuotaRamMb                int64                  `protobuf:"varint,98,opt,name=default_user_quota_ram_mb,json=defaultUserQuotaRamMb,proto3" json:"default_user_quota_ram_mb,omitempty"`
-	DefaultUserQuotaDiskMb               int64                  `protobuf:"varint,99,opt,name=default_user_quota_disk_mb,json=defaultUserQuotaDiskMb,proto3" json:"default_user_quota_disk_mb,omitempty"`
-	RegistryGcMaxDurationSeconds         int64                  `protobuf:"varint,100,opt,name=registry_gc_max_duration_seconds,json=registryGcMaxDurationSeconds,proto3" json:"registry_gc_max_duration_seconds,omitempty"`
-	BuildMaxDiskBytes                    int64                  `protobuf:"varint,101,opt,name=build_max_disk_bytes,json=buildMaxDiskBytes,proto3" json:"build_max_disk_bytes,omitempty"`
-	unknownFields                        protoimpl.UnknownFields
-	sizeCache                            protoimpl.SizeCache
+	state                               protoimpl.MessageState `protogen:"open.v1"`
+	DefaultMemoryReservationBytes       int64                  `protobuf:"varint,2,opt,name=default_memory_reservation_bytes,json=defaultMemoryReservationBytes,proto3" json:"default_memory_reservation_bytes,omitempty"`
+	ReservedSystemMemoryBytes           int64                  `protobuf:"varint,3,opt,name=reserved_system_memory_bytes,json=reservedSystemMemoryBytes,proto3" json:"reserved_system_memory_bytes,omitempty"`
+	OvercommitFactor                    float64                `protobuf:"fixed64,4,opt,name=overcommit_factor,json=overcommitFactor,proto3" json:"overcommit_factor,omitempty"`
+	MaxBurstMultiplier                  int64                  `protobuf:"varint,5,opt,name=max_burst_multiplier,json=maxBurstMultiplier,proto3" json:"max_burst_multiplier,omitempty"`
+	ContainerStopTimeout                int32                  `protobuf:"varint,9,opt,name=container_stop_timeout,json=containerStopTimeout,proto3" json:"container_stop_timeout,omitempty"`
+	MaxLogSize                          string                 `protobuf:"bytes,10,opt,name=max_log_size,json=maxLogSize,proto3" json:"max_log_size,omitempty"`
+	ContainerDiskQuota                  string                 `protobuf:"bytes,12,opt,name=container_disk_quota,json=containerDiskQuota,proto3" json:"container_disk_quota,omitempty"`
+	MaxVolumesPerUser                   int32                  `protobuf:"varint,13,opt,name=max_volumes_per_user,json=maxVolumesPerUser,proto3" json:"max_volumes_per_user,omitempty"`
+	MaxContainersPerUser                int32                  `protobuf:"varint,14,opt,name=max_containers_per_user,json=maxContainersPerUser,proto3" json:"max_containers_per_user,omitempty"`
+	ContainerTtlHours                   int64                  `protobuf:"varint,17,opt,name=container_ttl_hours,json=containerTtlHours,proto3" json:"container_ttl_hours,omitempty"`
+	ContainerPidsLimit                  int64                  `protobuf:"varint,18,opt,name=container_pids_limit,json=containerPidsLimit,proto3" json:"container_pids_limit,omitempty"`
+	BuildMemoryBytes                    int64                  `protobuf:"varint,22,opt,name=build_memory_bytes,json=buildMemoryBytes,proto3" json:"build_memory_bytes,omitempty"`
+	MaxBuildTimeMinutes                 int64                  `protobuf:"varint,29,opt,name=max_build_time_minutes,json=maxBuildTimeMinutes,proto3" json:"max_build_time_minutes,omitempty"`
+	MaxConcurrentBuilds                 int32                  `protobuf:"varint,30,opt,name=max_concurrent_builds,json=maxConcurrentBuilds,proto3" json:"max_concurrent_builds,omitempty"`
+	MaxArchiveSizeBytes                 int64                  `protobuf:"varint,32,opt,name=max_archive_size_bytes,json=maxArchiveSizeBytes,proto3" json:"max_archive_size_bytes,omitempty"`
+	MaxUnpackedSizeBytes                int64                  `protobuf:"varint,33,opt,name=max_unpacked_size_bytes,json=maxUnpackedSizeBytes,proto3" json:"max_unpacked_size_bytes,omitempty"`
+	MaxBuildLogSizeBytes                int64                  `protobuf:"varint,34,opt,name=max_build_log_size_bytes,json=maxBuildLogSizeBytes,proto3" json:"max_build_log_size_bytes,omitempty"`
+	ComposeUploadMaxBytes               int64                  `protobuf:"varint,42,opt,name=compose_upload_max_bytes,json=composeUploadMaxBytes,proto3" json:"compose_upload_max_bytes,omitempty"`
+	ComposePipelineTimeoutMinutes       int64                  `protobuf:"varint,43,opt,name=compose_pipeline_timeout_minutes,json=composePipelineTimeoutMinutes,proto3" json:"compose_pipeline_timeout_minutes,omitempty"`
+	ComposeDependencyWaitTimeoutMinutes int64                  `protobuf:"varint,46,opt,name=compose_dependency_wait_timeout_minutes,json=composeDependencyWaitTimeoutMinutes,proto3" json:"compose_dependency_wait_timeout_minutes,omitempty"`
+	ReservedDomainPrefixes              []string               `protobuf:"bytes,48,rep,name=reserved_domain_prefixes,json=reservedDomainPrefixes,proto3" json:"reserved_domain_prefixes,omitempty"`
+	TelemetryTerminalIdleTimeoutSeconds int64                  `protobuf:"varint,52,opt,name=telemetry_terminal_idle_timeout_seconds,json=telemetryTerminalIdleTimeoutSeconds,proto3" json:"telemetry_terminal_idle_timeout_seconds,omitempty"`
+	TelemetryTerminalMaxDurationSeconds int64                  `protobuf:"varint,53,opt,name=telemetry_terminal_max_duration_seconds,json=telemetryTerminalMaxDurationSeconds,proto3" json:"telemetry_terminal_max_duration_seconds,omitempty"`
+	TelemetryAllowedExecCommands        []string               `protobuf:"bytes,54,rep,name=telemetry_allowed_exec_commands,json=telemetryAllowedExecCommands,proto3" json:"telemetry_allowed_exec_commands,omitempty"`
+	ImageBuildsEnabled                  bool                   `protobuf:"varint,58,opt,name=image_builds_enabled,json=imageBuildsEnabled,proto3" json:"image_builds_enabled,omitempty"`
+	GitSourcesEnabled                   bool                   `protobuf:"varint,60,opt,name=git_sources_enabled,json=gitSourcesEnabled,proto3" json:"git_sources_enabled,omitempty"`
+	GitAllowedHosts                     []string               `protobuf:"bytes,61,rep,name=git_allowed_hosts,json=gitAllowedHosts,proto3" json:"git_allowed_hosts,omitempty"`
+	GitCloneTimeoutSeconds              int64                  `protobuf:"varint,62,opt,name=git_clone_timeout_seconds,json=gitCloneTimeoutSeconds,proto3" json:"git_clone_timeout_seconds,omitempty"`
+	GitMaxRepositoryBytes               int64                  `protobuf:"varint,63,opt,name=git_max_repository_bytes,json=gitMaxRepositoryBytes,proto3" json:"git_max_repository_bytes,omitempty"`
+	MaxStagedSourceBytesPerUser         int64                  `protobuf:"varint,74,opt,name=max_staged_source_bytes_per_user,json=maxStagedSourceBytesPerUser,proto3" json:"max_staged_source_bytes_per_user,omitempty"`
+	MaxQueuedBuildsPerUser              int32                  `protobuf:"varint,75,opt,name=max_queued_builds_per_user,json=maxQueuedBuildsPerUser,proto3" json:"max_queued_builds_per_user,omitempty"`
+	MaxQueuedComposeDeploysPerUser      int32                  `protobuf:"varint,76,opt,name=max_queued_compose_deploys_per_user,json=maxQueuedComposeDeploysPerUser,proto3" json:"max_queued_compose_deploys_per_user,omitempty"`
+	HostMinFreeDiskBytes                int64                  `protobuf:"varint,78,opt,name=host_min_free_disk_bytes,json=hostMinFreeDiskBytes,proto3" json:"host_min_free_disk_bytes,omitempty"`
+	DefaultCpuReservationMillicores     int64                  `protobuf:"varint,79,opt,name=default_cpu_reservation_millicores,json=defaultCpuReservationMillicores,proto3" json:"default_cpu_reservation_millicores,omitempty"`
+	ReservedSystemCpuMillicores         int64                  `protobuf:"varint,80,opt,name=reserved_system_cpu_millicores,json=reservedSystemCpuMillicores,proto3" json:"reserved_system_cpu_millicores,omitempty"`
+	CpuOvercommitFactor                 float64                `protobuf:"fixed64,81,opt,name=cpu_overcommit_factor,json=cpuOvercommitFactor,proto3" json:"cpu_overcommit_factor,omitempty"`
+	MaxCpuBurstMultiplier               int64                  `protobuf:"varint,82,opt,name=max_cpu_burst_multiplier,json=maxCpuBurstMultiplier,proto3" json:"max_cpu_burst_multiplier,omitempty"`
+	BlockedDomainPrefixPatterns         []string               `protobuf:"bytes,84,rep,name=blocked_domain_prefix_patterns,json=blockedDomainPrefixPatterns,proto3" json:"blocked_domain_prefix_patterns,omitempty"`
+	MemoryPressureMinFreeBytes          int64                  `protobuf:"varint,90,opt,name=memory_pressure_min_free_bytes,json=memoryPressureMinFreeBytes,proto3" json:"memory_pressure_min_free_bytes,omitempty"`
+	MemoryBoostMultiplier               int64                  `protobuf:"varint,92,opt,name=memory_boost_multiplier,json=memoryBoostMultiplier,proto3" json:"memory_boost_multiplier,omitempty"`
+	CpuBoostMultiplier                  int64                  `protobuf:"varint,93,opt,name=cpu_boost_multiplier,json=cpuBoostMultiplier,proto3" json:"cpu_boost_multiplier,omitempty"`
+	BoostMinFreeMemoryBytes             int64                  `protobuf:"varint,94,opt,name=boost_min_free_memory_bytes,json=boostMinFreeMemoryBytes,proto3" json:"boost_min_free_memory_bytes,omitempty"`
+	DefaultVolumeSizeBytes              int64                  `protobuf:"varint,95,opt,name=default_volume_size_bytes,json=defaultVolumeSizeBytes,proto3" json:"default_volume_size_bytes,omitempty"`
+	VolumeSizeEnforcement               bool                   `protobuf:"varint,96,opt,name=volume_size_enforcement,json=volumeSizeEnforcement,proto3" json:"volume_size_enforcement,omitempty"`
+	DefaultUserQuotaCpu                 float64                `protobuf:"fixed64,97,opt,name=default_user_quota_cpu,json=defaultUserQuotaCpu,proto3" json:"default_user_quota_cpu,omitempty"`
+	DefaultUserQuotaRamMb               int64                  `protobuf:"varint,98,opt,name=default_user_quota_ram_mb,json=defaultUserQuotaRamMb,proto3" json:"default_user_quota_ram_mb,omitempty"`
+	DefaultUserQuotaDiskMb              int64                  `protobuf:"varint,99,opt,name=default_user_quota_disk_mb,json=defaultUserQuotaDiskMb,proto3" json:"default_user_quota_disk_mb,omitempty"`
+	BuildMaxDiskBytes                   int64                  `protobuf:"varint,101,opt,name=build_max_disk_bytes,json=buildMaxDiskBytes,proto3" json:"build_max_disk_bytes,omitempty"`
+	BuildCpuMillicores                  int64                  `protobuf:"varint,102,opt,name=build_cpu_millicores,json=buildCpuMillicores,proto3" json:"build_cpu_millicores,omitempty"`
+	unknownFields                       protoimpl.UnknownFields
+	sizeCache                           protoimpl.SizeCache
 }
 
 func (x *SystemConfigData) Reset() {
@@ -4155,13 +4111,6 @@ func (*SystemConfigData) Descriptor() ([]byte, []int) {
 	return file_api_core_core_proto_rawDescGZIP(), []int{54}
 }
 
-func (x *SystemConfigData) GetBaseDomain() string {
-	if x != nil {
-		return x.BaseDomain
-	}
-	return ""
-}
-
 func (x *SystemConfigData) GetDefaultMemoryReservationBytes() int64 {
 	if x != nil {
 		return x.DefaultMemoryReservationBytes
@@ -4190,13 +4139,6 @@ func (x *SystemConfigData) GetMaxBurstMultiplier() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetDefaultCpuShares() int64 {
-	if x != nil {
-		return x.DefaultCpuShares
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetContainerStopTimeout() int32 {
 	if x != nil {
 		return x.ContainerStopTimeout
@@ -4207,13 +4149,6 @@ func (x *SystemConfigData) GetContainerStopTimeout() int32 {
 func (x *SystemConfigData) GetMaxLogSize() string {
 	if x != nil {
 		return x.MaxLogSize
-	}
-	return ""
-}
-
-func (x *SystemConfigData) GetMaxLogFiles() string {
-	if x != nil {
-		return x.MaxLogFiles
 	}
 	return ""
 }
@@ -4253,53 +4188,11 @@ func (x *SystemConfigData) GetContainerPidsLimit() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetContainerMemorySwapMultiplier() float64 {
-	if x != nil {
-		return x.ContainerMemorySwapMultiplier
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetBuildMemoryBytes() int64 {
 	if x != nil {
 		return x.BuildMemoryBytes
 	}
 	return 0
-}
-
-func (x *SystemConfigData) GetBuildCpuQuota() int64 {
-	if x != nil {
-		return x.BuildCpuQuota
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetBuildCpuPeriod() int64 {
-	if x != nil {
-		return x.BuildCpuPeriod
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetBuildMemorySwapMultiplier() float64 {
-	if x != nil {
-		return x.BuildMemorySwapMultiplier
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetBuildPidsLimit() int64 {
-	if x != nil {
-		return x.BuildPidsLimit
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetKanikoImage() string {
-	if x != nil {
-		return x.KanikoImage
-	}
-	return ""
 }
 
 func (x *SystemConfigData) GetMaxBuildTimeMinutes() int64 {
@@ -4312,13 +4205,6 @@ func (x *SystemConfigData) GetMaxBuildTimeMinutes() int64 {
 func (x *SystemConfigData) GetMaxConcurrentBuilds() int32 {
 	if x != nil {
 		return x.MaxConcurrentBuilds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetMaxUploadSizeBytes() int64 {
-	if x != nil {
-		return x.MaxUploadSizeBytes
 	}
 	return 0
 }
@@ -4344,55 +4230,6 @@ func (x *SystemConfigData) GetMaxBuildLogSizeBytes() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetTtlWorkerIntervalSeconds() int64 {
-	if x != nil {
-		return x.TtlWorkerIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetGcWorkerIntervalMinutes() int64 {
-	if x != nil {
-		return x.GcWorkerIntervalMinutes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetStaleBuildTimeoutMinutes() int64 {
-	if x != nil {
-		return x.StaleBuildTimeoutMinutes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetEventSyncIntervalSeconds() int64 {
-	if x != nil {
-		return x.EventSyncIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetEventReconnectDelaySeconds() int64 {
-	if x != nil {
-		return x.EventReconnectDelaySeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetBuildOutboxIntervalSeconds() int64 {
-	if x != nil {
-		return x.BuildOutboxIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetBuildOutboxBatchSize() int32 {
-	if x != nil {
-		return x.BuildOutboxBatchSize
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetComposeUploadMaxBytes() int64 {
 	if x != nil {
 		return x.ComposeUploadMaxBytes
@@ -4403,20 +4240,6 @@ func (x *SystemConfigData) GetComposeUploadMaxBytes() int64 {
 func (x *SystemConfigData) GetComposePipelineTimeoutMinutes() int64 {
 	if x != nil {
 		return x.ComposePipelineTimeoutMinutes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeDeployWorkerCount() int32 {
-	if x != nil {
-		return x.ComposeDeployWorkerCount
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeBuildPollIntervalSeconds() int64 {
-	if x != nil {
-		return x.ComposeBuildPollIntervalSeconds
 	}
 	return 0
 }
@@ -4433,27 +4256,6 @@ func (x *SystemConfigData) GetReservedDomainPrefixes() []string {
 		return x.ReservedDomainPrefixes
 	}
 	return nil
-}
-
-func (x *SystemConfigData) GetTelemetryMaxLogTailLines() int32 {
-	if x != nil {
-		return x.TelemetryMaxLogTailLines
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetTelemetryMaxLogStreamsPerUser() int32 {
-	if x != nil {
-		return x.TelemetryMaxLogStreamsPerUser
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetTelemetryMaxTerminalSessionsPerUser() int32 {
-	if x != nil {
-		return x.TelemetryMaxTerminalSessionsPerUser
-	}
-	return 0
 }
 
 func (x *SystemConfigData) GetTelemetryTerminalIdleTimeoutSeconds() int64 {
@@ -4477,39 +4279,11 @@ func (x *SystemConfigData) GetTelemetryAllowedExecCommands() []string {
 	return nil
 }
 
-func (x *SystemConfigData) GetTelemetryMaxCommandArgs() int32 {
-	if x != nil {
-		return x.TelemetryMaxCommandArgs
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetTelemetryMaxCommandArgBytes() int32 {
-	if x != nil {
-		return x.TelemetryMaxCommandArgBytes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetTelemetryWsReadLimitBytes() int64 {
-	if x != nil {
-		return x.TelemetryWsReadLimitBytes
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetImageBuildsEnabled() bool {
 	if x != nil {
 		return x.ImageBuildsEnabled
 	}
 	return false
-}
-
-func (x *SystemConfigData) GetBuildCancelPollIntervalSeconds() int64 {
-	if x != nil {
-		return x.BuildCancelPollIntervalSeconds
-	}
-	return 0
 }
 
 func (x *SystemConfigData) GetGitSourcesEnabled() bool {
@@ -4540,76 +4314,6 @@ func (x *SystemConfigData) GetGitMaxRepositoryBytes() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetComposeOutboxIntervalSeconds() int64 {
-	if x != nil {
-		return x.ComposeOutboxIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeOutboxBatchSize() int32 {
-	if x != nil {
-		return x.ComposeOutboxBatchSize
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeDeployMaxAttempts() int32 {
-	if x != nil {
-		return x.ComposeDeployMaxAttempts
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetReportsUsageSnapshotIntervalSeconds() int64 {
-	if x != nil {
-		return x.ReportsUsageSnapshotIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetContainerCreateWorkerCount() int32 {
-	if x != nil {
-		return x.ContainerCreateWorkerCount
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetContainerCreateMaxAttempts() int32 {
-	if x != nil {
-		return x.ContainerCreateMaxAttempts
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetContainerCreateTimeoutMinutes() int64 {
-	if x != nil {
-		return x.ContainerCreateTimeoutMinutes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetMaxQueuedContainerCreatesPerUser() int32 {
-	if x != nil {
-		return x.MaxQueuedContainerCreatesPerUser
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetContainerCreateOutboxIntervalSeconds() int64 {
-	if x != nil {
-		return x.ContainerCreateOutboxIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetContainerCreateOutboxBatchSize() int32 {
-	if x != nil {
-		return x.ContainerCreateOutboxBatchSize
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetMaxStagedSourceBytesPerUser() int64 {
 	if x != nil {
 		return x.MaxStagedSourceBytesPerUser
@@ -4627,13 +4331,6 @@ func (x *SystemConfigData) GetMaxQueuedBuildsPerUser() int32 {
 func (x *SystemConfigData) GetMaxQueuedComposeDeploysPerUser() int32 {
 	if x != nil {
 		return x.MaxQueuedComposeDeploysPerUser
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetComposeCoordinatorIntervalSeconds() int64 {
-	if x != nil {
-		return x.ComposeCoordinatorIntervalSeconds
 	}
 	return 0
 }
@@ -4673,13 +4370,6 @@ func (x *SystemConfigData) GetMaxCpuBurstMultiplier() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetContainerCpuPeriod() int64 {
-	if x != nil {
-		return x.ContainerCpuPeriod
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetBlockedDomainPrefixPatterns() []string {
 	if x != nil {
 		return x.BlockedDomainPrefixPatterns
@@ -4687,51 +4377,9 @@ func (x *SystemConfigData) GetBlockedDomainPrefixPatterns() []string {
 	return nil
 }
 
-func (x *SystemConfigData) GetVolumeUsageIntervalSeconds() int64 {
-	if x != nil {
-		return x.VolumeUsageIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetVolumeUsageCycleBudgetSeconds() int64 {
-	if x != nil {
-		return x.VolumeUsageCycleBudgetSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetVolumeUsageScanEntryBudget() int32 {
-	if x != nil {
-		return x.VolumeUsageScanEntryBudget
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetRegistryCleanupIntervalSeconds() int64 {
-	if x != nil {
-		return x.RegistryCleanupIntervalSeconds
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetRegistryCleanupJobTimeoutSeconds() int64 {
-	if x != nil {
-		return x.RegistryCleanupJobTimeoutSeconds
-	}
-	return 0
-}
-
 func (x *SystemConfigData) GetMemoryPressureMinFreeBytes() int64 {
 	if x != nil {
 		return x.MemoryPressureMinFreeBytes
-	}
-	return 0
-}
-
-func (x *SystemConfigData) GetMemoryPressureIntervalSeconds() int64 {
-	if x != nil {
-		return x.MemoryPressureIntervalSeconds
 	}
 	return 0
 }
@@ -4792,16 +4440,16 @@ func (x *SystemConfigData) GetDefaultUserQuotaDiskMb() int64 {
 	return 0
 }
 
-func (x *SystemConfigData) GetRegistryGcMaxDurationSeconds() int64 {
+func (x *SystemConfigData) GetBuildMaxDiskBytes() int64 {
 	if x != nil {
-		return x.RegistryGcMaxDurationSeconds
+		return x.BuildMaxDiskBytes
 	}
 	return 0
 }
 
-func (x *SystemConfigData) GetBuildMaxDiskBytes() int64 {
+func (x *SystemConfigData) GetBuildCpuMillicores() int64 {
 	if x != nil {
-		return x.BuildMaxDiskBytes
+		return x.BuildCpuMillicores
 	}
 	return 0
 }
@@ -5406,94 +5054,49 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x18PaginatedProjectResponse\x12-\n" +
 	"\bprojects\x18\x01 \x03(\v2\x11.core.ProjectDataR\bprojects\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x05R\n" +
-	"totalCount\"\xc2.\n" +
-	"\x10SystemConfigData\x12\x1f\n" +
-	"\vbase_domain\x18\x01 \x01(\tR\n" +
-	"baseDomain\x12G\n" +
+	"totalCount\"\xe5$\n" +
+	"\x10SystemConfigData\x12G\n" +
 	" default_memory_reservation_bytes\x18\x02 \x01(\x03R\x1ddefaultMemoryReservationBytes\x12?\n" +
 	"\x1creserved_system_memory_bytes\x18\x03 \x01(\x03R\x19reservedSystemMemoryBytes\x12+\n" +
 	"\x11overcommit_factor\x18\x04 \x01(\x01R\x10overcommitFactor\x120\n" +
-	"\x14max_burst_multiplier\x18\x05 \x01(\x03R\x12maxBurstMultiplier\x12,\n" +
-	"\x12default_cpu_shares\x18\x06 \x01(\x03R\x10defaultCpuShares\x124\n" +
+	"\x14max_burst_multiplier\x18\x05 \x01(\x03R\x12maxBurstMultiplier\x124\n" +
 	"\x16container_stop_timeout\x18\t \x01(\x05R\x14containerStopTimeout\x12 \n" +
 	"\fmax_log_size\x18\n" +
 	" \x01(\tR\n" +
-	"maxLogSize\x12\"\n" +
-	"\rmax_log_files\x18\v \x01(\tR\vmaxLogFiles\x120\n" +
+	"maxLogSize\x120\n" +
 	"\x14container_disk_quota\x18\f \x01(\tR\x12containerDiskQuota\x12/\n" +
 	"\x14max_volumes_per_user\x18\r \x01(\x05R\x11maxVolumesPerUser\x125\n" +
 	"\x17max_containers_per_user\x18\x0e \x01(\x05R\x14maxContainersPerUser\x12.\n" +
 	"\x13container_ttl_hours\x18\x11 \x01(\x03R\x11containerTtlHours\x120\n" +
-	"\x14container_pids_limit\x18\x12 \x01(\x03R\x12containerPidsLimit\x12G\n" +
-	" container_memory_swap_multiplier\x18\x13 \x01(\x01R\x1dcontainerMemorySwapMultiplier\x12,\n" +
-	"\x12build_memory_bytes\x18\x16 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
-	"\x0fbuild_cpu_quota\x18\x17 \x01(\x03R\rbuildCpuQuota\x12(\n" +
-	"\x10build_cpu_period\x18\x18 \x01(\x03R\x0ebuildCpuPeriod\x12?\n" +
-	"\x1cbuild_memory_swap_multiplier\x18\x19 \x01(\x01R\x19buildMemorySwapMultiplier\x12(\n" +
-	"\x10build_pids_limit\x18\x1a \x01(\x03R\x0ebuildPidsLimit\x12!\n" +
-	"\fkaniko_image\x18\x1c \x01(\tR\vkanikoImage\x123\n" +
+	"\x14container_pids_limit\x18\x12 \x01(\x03R\x12containerPidsLimit\x12,\n" +
+	"\x12build_memory_bytes\x18\x16 \x01(\x03R\x10buildMemoryBytes\x123\n" +
 	"\x16max_build_time_minutes\x18\x1d \x01(\x03R\x13maxBuildTimeMinutes\x122\n" +
-	"\x15max_concurrent_builds\x18\x1e \x01(\x05R\x13maxConcurrentBuilds\x121\n" +
-	"\x15max_upload_size_bytes\x18\x1f \x01(\x03R\x12maxUploadSizeBytes\x123\n" +
+	"\x15max_concurrent_builds\x18\x1e \x01(\x05R\x13maxConcurrentBuilds\x123\n" +
 	"\x16max_archive_size_bytes\x18  \x01(\x03R\x13maxArchiveSizeBytes\x125\n" +
 	"\x17max_unpacked_size_bytes\x18! \x01(\x03R\x14maxUnpackedSizeBytes\x126\n" +
-	"\x18max_build_log_size_bytes\x18\" \x01(\x03R\x14maxBuildLogSizeBytes\x12=\n" +
-	"\x1bttl_worker_interval_seconds\x18# \x01(\x03R\x18ttlWorkerIntervalSeconds\x12;\n" +
-	"\x1agc_worker_interval_minutes\x18$ \x01(\x03R\x17gcWorkerIntervalMinutes\x12=\n" +
-	"\x1bstale_build_timeout_minutes\x18% \x01(\x03R\x18staleBuildTimeoutMinutes\x12=\n" +
-	"\x1bevent_sync_interval_seconds\x18& \x01(\x03R\x18eventSyncIntervalSeconds\x12A\n" +
-	"\x1devent_reconnect_delay_seconds\x18' \x01(\x03R\x1aeventReconnectDelaySeconds\x12A\n" +
-	"\x1dbuild_outbox_interval_seconds\x18( \x01(\x03R\x1abuildOutboxIntervalSeconds\x125\n" +
-	"\x17build_outbox_batch_size\x18) \x01(\x05R\x14buildOutboxBatchSize\x127\n" +
+	"\x18max_build_log_size_bytes\x18\" \x01(\x03R\x14maxBuildLogSizeBytes\x127\n" +
 	"\x18compose_upload_max_bytes\x18* \x01(\x03R\x15composeUploadMaxBytes\x12G\n" +
-	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12=\n" +
-	"\x1bcompose_deploy_worker_count\x18, \x01(\x05R\x18composeDeployWorkerCount\x12L\n" +
-	"#compose_build_poll_interval_seconds\x18- \x01(\x03R\x1fcomposeBuildPollIntervalSeconds\x12T\n" +
+	" compose_pipeline_timeout_minutes\x18+ \x01(\x03R\x1dcomposePipelineTimeoutMinutes\x12T\n" +
 	"'compose_dependency_wait_timeout_minutes\x18. \x01(\x03R#composeDependencyWaitTimeoutMinutes\x128\n" +
-	"\x18reserved_domain_prefixes\x180 \x03(\tR\x16reservedDomainPrefixes\x12>\n" +
-	"\x1ctelemetry_max_log_tail_lines\x181 \x01(\x05R\x18telemetryMaxLogTailLines\x12I\n" +
-	"\"telemetry_max_log_streams_per_user\x182 \x01(\x05R\x1dtelemetryMaxLogStreamsPerUser\x12U\n" +
-	"(telemetry_max_terminal_sessions_per_user\x183 \x01(\x05R#telemetryMaxTerminalSessionsPerUser\x12T\n" +
+	"\x18reserved_domain_prefixes\x180 \x03(\tR\x16reservedDomainPrefixes\x12T\n" +
 	"'telemetry_terminal_idle_timeout_seconds\x184 \x01(\x03R#telemetryTerminalIdleTimeoutSeconds\x12T\n" +
 	"'telemetry_terminal_max_duration_seconds\x185 \x01(\x03R#telemetryTerminalMaxDurationSeconds\x12E\n" +
-	"\x1ftelemetry_allowed_exec_commands\x186 \x03(\tR\x1ctelemetryAllowedExecCommands\x12;\n" +
-	"\x1atelemetry_max_command_args\x187 \x01(\x05R\x17telemetryMaxCommandArgs\x12D\n" +
-	"\x1ftelemetry_max_command_arg_bytes\x188 \x01(\x05R\x1btelemetryMaxCommandArgBytes\x12@\n" +
-	"\x1dtelemetry_ws_read_limit_bytes\x189 \x01(\x03R\x19telemetryWsReadLimitBytes\x120\n" +
-	"\x14image_builds_enabled\x18: \x01(\bR\x12imageBuildsEnabled\x12J\n" +
-	"\"build_cancel_poll_interval_seconds\x18; \x01(\x03R\x1ebuildCancelPollIntervalSeconds\x12.\n" +
+	"\x1ftelemetry_allowed_exec_commands\x186 \x03(\tR\x1ctelemetryAllowedExecCommands\x120\n" +
+	"\x14image_builds_enabled\x18: \x01(\bR\x12imageBuildsEnabled\x12.\n" +
 	"\x13git_sources_enabled\x18< \x01(\bR\x11gitSourcesEnabled\x12*\n" +
 	"\x11git_allowed_hosts\x18= \x03(\tR\x0fgitAllowedHosts\x129\n" +
 	"\x19git_clone_timeout_seconds\x18> \x01(\x03R\x16gitCloneTimeoutSeconds\x127\n" +
 	"\x18git_max_repository_bytes\x18? \x01(\x03R\x15gitMaxRepositoryBytes\x12E\n" +
-	"\x1fcompose_outbox_interval_seconds\x18@ \x01(\x03R\x1ccomposeOutboxIntervalSeconds\x129\n" +
-	"\x19compose_outbox_batch_size\x18A \x01(\x05R\x16composeOutboxBatchSize\x12=\n" +
-	"\x1bcompose_deploy_max_attempts\x18B \x01(\x05R\x18composeDeployMaxAttempts\x12T\n" +
-	"'reports_usage_snapshot_interval_seconds\x18C \x01(\x03R#reportsUsageSnapshotIntervalSeconds\x12A\n" +
-	"\x1dcontainer_create_worker_count\x18D \x01(\x05R\x1acontainerCreateWorkerCount\x12A\n" +
-	"\x1dcontainer_create_max_attempts\x18E \x01(\x05R\x1acontainerCreateMaxAttempts\x12G\n" +
-	" container_create_timeout_minutes\x18F \x01(\x03R\x1dcontainerCreateTimeoutMinutes\x12O\n" +
-	"%max_queued_container_creates_per_user\x18G \x01(\x05R maxQueuedContainerCreatesPerUser\x12V\n" +
-	"(container_create_outbox_interval_seconds\x18H \x01(\x03R$containerCreateOutboxIntervalSeconds\x12J\n" +
-	"\"container_create_outbox_batch_size\x18I \x01(\x05R\x1econtainerCreateOutboxBatchSize\x12E\n" +
 	" max_staged_source_bytes_per_user\x18J \x01(\x03R\x1bmaxStagedSourceBytesPerUser\x12:\n" +
 	"\x1amax_queued_builds_per_user\x18K \x01(\x05R\x16maxQueuedBuildsPerUser\x12K\n" +
-	"#max_queued_compose_deploys_per_user\x18L \x01(\x05R\x1emaxQueuedComposeDeploysPerUser\x12O\n" +
-	"$compose_coordinator_interval_seconds\x18M \x01(\x03R!composeCoordinatorIntervalSeconds\x126\n" +
+	"#max_queued_compose_deploys_per_user\x18L \x01(\x05R\x1emaxQueuedComposeDeploysPerUser\x126\n" +
 	"\x18host_min_free_disk_bytes\x18N \x01(\x03R\x14hostMinFreeDiskBytes\x12K\n" +
 	"\"default_cpu_reservation_millicores\x18O \x01(\x03R\x1fdefaultCpuReservationMillicores\x12C\n" +
 	"\x1ereserved_system_cpu_millicores\x18P \x01(\x03R\x1breservedSystemCpuMillicores\x122\n" +
 	"\x15cpu_overcommit_factor\x18Q \x01(\x01R\x13cpuOvercommitFactor\x127\n" +
-	"\x18max_cpu_burst_multiplier\x18R \x01(\x03R\x15maxCpuBurstMultiplier\x120\n" +
-	"\x14container_cpu_period\x18S \x01(\x03R\x12containerCpuPeriod\x12C\n" +
-	"\x1eblocked_domain_prefix_patterns\x18T \x03(\tR\x1bblockedDomainPrefixPatterns\x12A\n" +
-	"\x1dvolume_usage_interval_seconds\x18U \x01(\x03R\x1avolumeUsageIntervalSeconds\x12H\n" +
-	"!volume_usage_cycle_budget_seconds\x18V \x01(\x03R\x1dvolumeUsageCycleBudgetSeconds\x12B\n" +
-	"\x1evolume_usage_scan_entry_budget\x18W \x01(\x05R\x1avolumeUsageScanEntryBudget\x12I\n" +
-	"!registry_cleanup_interval_seconds\x18X \x01(\x03R\x1eregistryCleanupIntervalSeconds\x12N\n" +
-	"$registry_cleanup_job_timeout_seconds\x18Y \x01(\x03R registryCleanupJobTimeoutSeconds\x12B\n" +
-	"\x1ememory_pressure_min_free_bytes\x18Z \x01(\x03R\x1amemoryPressureMinFreeBytes\x12G\n" +
-	" memory_pressure_interval_seconds\x18[ \x01(\x03R\x1dmemoryPressureIntervalSeconds\x126\n" +
+	"\x18max_cpu_burst_multiplier\x18R \x01(\x03R\x15maxCpuBurstMultiplier\x12C\n" +
+	"\x1eblocked_domain_prefix_patterns\x18T \x03(\tR\x1bblockedDomainPrefixPatterns\x12B\n" +
+	"\x1ememory_pressure_min_free_bytes\x18Z \x01(\x03R\x1amemoryPressureMinFreeBytes\x126\n" +
 	"\x17memory_boost_multiplier\x18\\ \x01(\x03R\x15memoryBoostMultiplier\x120\n" +
 	"\x14cpu_boost_multiplier\x18] \x01(\x03R\x12cpuBoostMultiplier\x12<\n" +
 	"\x1bboost_min_free_memory_bytes\x18^ \x01(\x03R\x17boostMinFreeMemoryBytes\x129\n" +
@@ -5501,9 +5104,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x17volume_size_enforcement\x18` \x01(\bR\x15volumeSizeEnforcement\x123\n" +
 	"\x16default_user_quota_cpu\x18a \x01(\x01R\x13defaultUserQuotaCpu\x128\n" +
 	"\x19default_user_quota_ram_mb\x18b \x01(\x03R\x15defaultUserQuotaRamMb\x12:\n" +
-	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMb\x12F\n" +
-	" registry_gc_max_duration_seconds\x18d \x01(\x03R\x1cregistryGcMaxDurationSeconds\x12/\n" +
-	"\x14build_max_disk_bytes\x18e \x01(\x03R\x11buildMaxDiskBytesJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x1b\x10\x1cJ\x04\b/\x100R\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_name\"\xab\x05\n" +
+	"\x1adefault_user_quota_disk_mb\x18c \x01(\x03R\x16defaultUserQuotaDiskMb\x12/\n" +
+	"\x14build_max_disk_bytes\x18e \x01(\x03R\x11buildMaxDiskBytes\x120\n" +
+	"\x14build_cpu_millicores\x18f \x01(\x03R\x12buildCpuMillicoresJ\x04\b\x01\x10\x02J\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\v\x10\fJ\x04\b\x0f\x10\x10J\x04\b\x10\x10\x11J\x04\b\x13\x10\x14J\x04\b\x14\x10\x15J\x04\b\x15\x10\x16J\x04\b\x17\x10\x18J\x04\b\x18\x10\x19J\x04\b\x19\x10\x1aJ\x04\b\x1a\x10\x1bJ\x04\b\x1b\x10\x1cJ\x04\b\x1c\x10\x1dJ\x04\b\x1f\x10 J\x04\b#\x10$J\x04\b$\x10%J\x04\b%\x10&J\x04\b&\x10'J\x04\b'\x10(J\x04\b(\x10)J\x04\b)\x10*J\x04\b,\x10-J\x04\b-\x10.J\x04\b/\x100J\x04\b1\x102J\x04\b2\x103J\x04\b3\x104J\x04\b7\x108J\x04\b8\x109J\x04\b9\x10:J\x04\b;\x10<J\x04\b@\x10AJ\x04\bA\x10BJ\x04\bB\x10CJ\x04\bC\x10DJ\x04\bD\x10EJ\x04\bE\x10FJ\x04\bF\x10GJ\x04\bG\x10HJ\x04\bH\x10IJ\x04\bI\x10JJ\x04\bM\x10NJ\x04\bS\x10TJ\x04\bU\x10VJ\x04\bV\x10WJ\x04\bW\x10XJ\x04\bX\x10YJ\x04\bY\x10ZJ\x04\b[\x10\\J\x04\bd\x10eR\x14high_load_cpu_sharesR\x19high_load_container_countR\x10registry_api_urlR\x13registry_public_urlR\x12proxy_network_nameR\x17registry_container_nameR\x12build_network_nameR\vbase_domainR\x12default_cpu_sharesR\rmax_log_filesR container_memory_swap_multiplierR\x0fbuild_cpu_quotaR\x10build_cpu_periodR\x1cbuild_memory_swap_multiplierR\x10build_pids_limitR\fkaniko_imageR\x15max_upload_size_bytesR\x1bttl_worker_interval_secondsR\x1agc_worker_interval_minutesR\x1bstale_build_timeout_minutesR\x1bevent_sync_interval_secondsR\x1devent_reconnect_delay_secondsR\x1dbuild_outbox_interval_secondsR\x17build_outbox_batch_sizeR\x1bcompose_deploy_worker_countR#compose_build_poll_interval_secondsR\x1ctelemetry_max_log_tail_linesR\"telemetry_max_log_streams_per_userR(telemetry_max_terminal_sessions_per_userR\x1atelemetry_max_command_argsR\x1ftelemetry_max_command_arg_bytesR\x1dtelemetry_ws_read_limit_bytesR\"build_cancel_poll_interval_secondsR\x1fcompose_outbox_interval_secondsR\x19compose_outbox_batch_sizeR\x1bcompose_deploy_max_attemptsR'reports_usage_snapshot_interval_secondsR\x1dcontainer_create_worker_countR\x1dcontainer_create_max_attemptsR container_create_timeout_minutesR%max_queued_container_creates_per_userR(container_create_outbox_interval_secondsR\"container_create_outbox_batch_sizeR$compose_coordinator_interval_secondsR\x14container_cpu_periodR\x1dvolume_usage_interval_secondsR!volume_usage_cycle_budget_secondsR\x1evolume_usage_scan_entry_budgetR!registry_cleanup_interval_secondsR$registry_cleanup_job_timeout_secondsR memory_pressure_interval_secondsR registry_gc_max_duration_seconds\"\xab\x05\n" +
 	"\x18BuilderRuntimeConfigData\x12,\n" +
 	"\x12build_memory_bytes\x18\x01 \x01(\x03R\x10buildMemoryBytes\x12&\n" +
 	"\x0fbuild_cpu_quota\x18\x02 \x01(\x03R\rbuildCpuQuota\x12(\n" +

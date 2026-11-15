@@ -76,7 +76,7 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.ReservedSystemMemory, cfg.ReservedSystemCPU = 0, 0
 	cfg.OvercommitFactor, cfg.CPUOvercommitFactor = 1, 1
 	cfg.BuildMemoryBytes = 256 * admissionMiB
-	cfg.BuildCPUQuota, cfg.BuildCPUPeriod = 25000, 100000
+	cfg.BuildCPUMillicores, cfg.BuildCPUPeriod = 250, 100000
 	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
 	cfg.BuildMaxDiskBytes = w.buildMaxDiskBytes
 	cfg.HostMinFreeDiskBytes = 1 << 30

@@ -64,10 +64,12 @@ func newVolumeUsageFixture(t *testing.T) *volumeUsageFixture {
 	f := &volumeUsageFixture{
 		start: time.Now(),
 		cfg: config.SystemConfig{
-			EventSyncIntervalSeconds:      5,
-			VolumeUsageIntervalSeconds:    60,
-			VolumeUsageCycleBudgetSeconds: 15,
-			VolumeUsageScanEntryBudget:    100,
+			Fixed: config.Fixed{
+				EventSyncIntervalSeconds:      5,
+				VolumeUsageIntervalSeconds:    60,
+				VolumeUsageCycleBudgetSeconds: 15,
+				VolumeUsageScanEntryBudget:    100,
+			},
 		},
 		disks:   map[string]*fakeVolumeDisk{},
 		writers: map[uuid.UUID][]model.Container{},

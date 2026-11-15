@@ -172,8 +172,23 @@ func (w *GCWorker) runPrune(ctx context.Context) bool {
 	return w.collectRegistryGarbage(ctx)
 }
 
+// staleBuildHeadroom is what a build gets beyond its time budget, to finalize
+// and deliver its result, before the GC pass may fail it as stale.
+const staleBuildHeadroom = 10 * time.Minute
+
+// staleBuildAge is how long ago a build must have started, or a staged source
+// been reserved, for the GC pass to treat it as stale: the configured
+// threshold, and never less than the build time budget plus headroom, so a
+// raised budget cannot make the pass fail a build Builder is still running.
+func staleBuildAge(cfg config.SystemConfig) time.Duration {
+	return max(
+		time.Duration(cfg.StaleBuildTimeoutMinutes)*time.Minute,
+		time.Duration(cfg.MaxBuildTimeMinutes)*time.Minute+staleBuildHeadroom,
+	)
+}
+
 func (w *GCWorker) failStaleBuilds(ctx context.Context) {
-	threshold := time.Now().Add(-time.Duration(w.cfg.Get().StaleBuildTimeoutMinutes) * time.Minute)
+	threshold := time.Now().Add(-staleBuildAge(w.cfg.Get()))
 	staleBuilds, err := w.buildRepo.GetStaleBuilds(ctx, threshold)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch stale builds", "error", err)
@@ -316,7 +331,7 @@ func (w *GCWorker) cleanupStaleStagedObjects(ctx context.Context) {
 	if w.stagedRepo == nil || w.objectStore == nil {
 		return
 	}
-	cutoff := time.Now().Add(-time.Duration(w.cfg.Get().StaleBuildTimeoutMinutes) * time.Minute)
+	cutoff := time.Now().Add(-staleBuildAge(w.cfg.Get()))
 	items, err := w.stagedRepo.ListStaleActive(ctx, cutoff, 100)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to fetch stale staged object reservations", "error", err)

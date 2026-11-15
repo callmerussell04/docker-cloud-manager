@@ -481,15 +481,17 @@ func newService(t *testing.T, targets *streamsmocks.ContainerTargets, docker *st
 // systemConfig is the runtime configuration whose stream settings are cfg.
 func systemConfig(cfg model.StreamConfig) config.SystemConfig {
 	return config.SystemConfig{
-		TelemetryMaxLogTailLines:            cfg.MaxLogTailLines,
-		TelemetryMaxLogStreamsPerUser:       cfg.MaxLogStreamsPerUser,
-		TelemetryMaxTerminalSessionsPerUser: cfg.MaxTerminalSessionsPerUser,
 		TelemetryTerminalIdleTimeoutSeconds: int64(cfg.TerminalIdleTimeout / time.Second),
 		TelemetryTerminalMaxDurationSeconds: int64(cfg.TerminalMaxDuration / time.Second),
 		TelemetryAllowedExecCommands:        cfg.AllowedExecCommands,
-		TelemetryMaxCommandArgs:             cfg.MaxCommandArgs,
-		TelemetryMaxCommandArgBytes:         cfg.MaxCommandArgBytes,
-		TelemetryWSReadLimitBytes:           cfg.WSReadLimitBytes,
+		Fixed: config.Fixed{
+			TelemetryMaxLogTailLines:            cfg.MaxLogTailLines,
+			TelemetryMaxLogStreamsPerUser:       cfg.MaxLogStreamsPerUser,
+			TelemetryMaxTerminalSessionsPerUser: cfg.MaxTerminalSessionsPerUser,
+			TelemetryMaxCommandArgs:             cfg.MaxCommandArgs,
+			TelemetryMaxCommandArgBytes:         cfg.MaxCommandArgBytes,
+			TelemetryWSReadLimitBytes:           cfg.WSReadLimitBytes,
+		},
 	}
 }
 

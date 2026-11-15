@@ -52,6 +52,9 @@ type gcFixture struct {
 	gcStarts     []time.Duration
 	prunes       []time.Duration
 	staleFetches []time.Duration
+	// staleAges is how long before each pass a build had to start to be
+	// fetched as stale.
+	staleAges []time.Duration
 }
 
 // The lease is the default budget, 15 minutes; the drain policy is one day.
@@ -105,8 +108,11 @@ func (f *gcFixture) expect() {
 		f.record(&f.prunes)
 		return nil
 	})
-	f.builds.EXPECT().GetStaleBuilds(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, time.Time) ([]model.Build, error) {
+	f.builds.EXPECT().GetStaleBuilds(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, startedBefore time.Time) ([]model.Build, error) {
 		f.record(&f.staleFetches)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.staleAges = append(f.staleAges, time.Since(startedBefore))
 		return nil, nil
 	})
 	f.gate.EXPECT().TryAcquireLease(mock.Anything, lease, gcTestDrainAfter).RunAndReturn(func(context.Context, time.Duration, time.Duration) (model.RegistryGCAttempt, error) {
@@ -193,6 +199,36 @@ func TestNewGCWorkerRejectsMissingDependencies(t *testing.T) {
 // the lease is taken it runs, and its observed end releases the lease as a
 // completed collection. An overdue collection drains first, then runs the same
 // way.
+// A build is stale only after it has outlived its time budget: the configured
+// threshold never fails a build that Builder may still be running.
+func TestGCWorkerFailsBuildsOnlyAfterTheirTimeBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		staleMinutes   int64
+		maxBuildMinute int64
+		wantAge        time.Duration
+	}{
+		{name: "the threshold is above the budget", staleMinutes: 30, maxBuildMinute: 10, wantAge: 30 * time.Minute},
+		{name: "the budget was raised above the threshold", staleMinutes: 30, maxBuildMinute: 45, wantAge: 55 * time.Minute},
+		{name: "the budget equals the threshold", staleMinutes: 30, maxBuildMinute: 30, wantAge: 40 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				f := newGCFixture(t)
+				f.cfg.StaleBuildTimeoutMinutes = tc.staleMinutes
+				f.cfg.MaxBuildTimeMinutes = tc.maxBuildMinute
+
+				f.runFor(t, 61*time.Minute)
+
+				require.NotEmpty(t, f.staleAges)
+				for _, age := range f.staleAges {
+					require.Equal(t, tc.wantAge, age)
+				}
+			})
+		})
+	}
+}
+
 func TestGCWorkerRetriesRegistryGCEveryMinuteUntilNoBuildRuns(t *testing.T) {
 	tests := []struct {
 		name    string

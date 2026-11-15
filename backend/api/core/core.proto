@@ -539,93 +539,72 @@ message PaginatedProjectResponse {
 }
 
 message SystemConfigData {
-  reserved 7, 8, 15, 16, 20, 21, 27;
-  reserved "high_load_cpu_shares", "high_load_container_count", "registry_api_url", "registry_public_url", "proxy_network_name", "registry_container_name", "build_network_name";
+  // Fields of settings that are no longer runtime settings stay reserved.
+  reserved
+    1, 6, 7, 8, 11, 15, 16, 19, 20, 21, 23, 24, 25, 26, 27, 28, 31, 35, 36, 37, 38, 39, 40, 41, 44,
+    45, 47, 49, 50, 51, 55, 56, 57, 59, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 77, 83, 85, 86, 87,
+    88, 89, 91, 100;
+  reserved
+    "high_load_cpu_shares", "high_load_container_count", "registry_api_url", "registry_public_url",
+    "proxy_network_name", "registry_container_name", "build_network_name", "base_domain",
+    "default_cpu_shares", "max_log_files", "container_memory_swap_multiplier", "build_cpu_quota",
+    "build_cpu_period", "build_memory_swap_multiplier", "build_pids_limit", "kaniko_image",
+    "max_upload_size_bytes", "ttl_worker_interval_seconds", "gc_worker_interval_minutes",
+    "stale_build_timeout_minutes", "event_sync_interval_seconds", "event_reconnect_delay_seconds",
+    "build_outbox_interval_seconds", "build_outbox_batch_size", "compose_deploy_worker_count",
+    "compose_build_poll_interval_seconds", "telemetry_max_log_tail_lines",
+    "telemetry_max_log_streams_per_user", "telemetry_max_terminal_sessions_per_user",
+    "telemetry_max_command_args", "telemetry_max_command_arg_bytes", "telemetry_ws_read_limit_bytes",
+    "build_cancel_poll_interval_seconds", "compose_outbox_interval_seconds",
+    "compose_outbox_batch_size", "compose_deploy_max_attempts",
+    "reports_usage_snapshot_interval_seconds", "container_create_worker_count",
+    "container_create_max_attempts", "container_create_timeout_minutes",
+    "max_queued_container_creates_per_user", "container_create_outbox_interval_seconds",
+    "container_create_outbox_batch_size", "compose_coordinator_interval_seconds",
+    "container_cpu_period", "volume_usage_interval_seconds", "volume_usage_cycle_budget_seconds",
+    "volume_usage_scan_entry_budget", "registry_cleanup_interval_seconds",
+    "registry_cleanup_job_timeout_seconds", "memory_pressure_interval_seconds",
+    "registry_gc_max_duration_seconds";
 
-  string base_domain = 1;
   int64 default_memory_reservation_bytes = 2;
   int64 reserved_system_memory_bytes = 3;
   double overcommit_factor = 4;
   int64 max_burst_multiplier = 5;
-  int64 default_cpu_shares = 6;
   int32 container_stop_timeout = 9;
   string max_log_size = 10;
-  string max_log_files = 11;
   string container_disk_quota = 12;
   int32 max_volumes_per_user = 13;
   int32 max_containers_per_user = 14;
   int64 container_ttl_hours = 17;
   int64 container_pids_limit = 18;
-  double container_memory_swap_multiplier = 19;
   int64 build_memory_bytes = 22;
-  int64 build_cpu_quota = 23;
-  int64 build_cpu_period = 24;
-  double build_memory_swap_multiplier = 25;
-  int64 build_pids_limit = 26;
-  string kaniko_image = 28;
   int64 max_build_time_minutes = 29;
   int32 max_concurrent_builds = 30;
-  int64 max_upload_size_bytes = 31;
   int64 max_archive_size_bytes = 32;
   int64 max_unpacked_size_bytes = 33;
   int64 max_build_log_size_bytes = 34;
-  int64 ttl_worker_interval_seconds = 35;
-  int64 gc_worker_interval_minutes = 36;
-  int64 stale_build_timeout_minutes = 37;
-  int64 event_sync_interval_seconds = 38;
-  int64 event_reconnect_delay_seconds = 39;
-  int64 build_outbox_interval_seconds = 40;
-  int32 build_outbox_batch_size = 41;
   int64 compose_upload_max_bytes = 42;
   int64 compose_pipeline_timeout_minutes = 43;
-  int32 compose_deploy_worker_count = 44;
-  int64 compose_build_poll_interval_seconds = 45;
   int64 compose_dependency_wait_timeout_minutes = 46;
-  reserved 47;
   repeated string reserved_domain_prefixes = 48;
-  int32 telemetry_max_log_tail_lines = 49;
-  int32 telemetry_max_log_streams_per_user = 50;
-  int32 telemetry_max_terminal_sessions_per_user = 51;
   int64 telemetry_terminal_idle_timeout_seconds = 52;
   int64 telemetry_terminal_max_duration_seconds = 53;
   repeated string telemetry_allowed_exec_commands = 54;
-  int32 telemetry_max_command_args = 55;
-  int32 telemetry_max_command_arg_bytes = 56;
-  int64 telemetry_ws_read_limit_bytes = 57;
   bool image_builds_enabled = 58;
-  int64 build_cancel_poll_interval_seconds = 59;
   bool git_sources_enabled = 60;
   repeated string git_allowed_hosts = 61;
   int64 git_clone_timeout_seconds = 62;
   int64 git_max_repository_bytes = 63;
-  int64 compose_outbox_interval_seconds = 64;
-  int32 compose_outbox_batch_size = 65;
-  int32 compose_deploy_max_attempts = 66;
-  int64 reports_usage_snapshot_interval_seconds = 67;
-  int32 container_create_worker_count = 68;
-  int32 container_create_max_attempts = 69;
-  int64 container_create_timeout_minutes = 70;
-  int32 max_queued_container_creates_per_user = 71;
-  int64 container_create_outbox_interval_seconds = 72;
-  int32 container_create_outbox_batch_size = 73;
   int64 max_staged_source_bytes_per_user = 74;
   int32 max_queued_builds_per_user = 75;
   int32 max_queued_compose_deploys_per_user = 76;
-  int64 compose_coordinator_interval_seconds = 77;
   int64 host_min_free_disk_bytes = 78;
   int64 default_cpu_reservation_millicores = 79;
   int64 reserved_system_cpu_millicores = 80;
   double cpu_overcommit_factor = 81;
   int64 max_cpu_burst_multiplier = 82;
-  int64 container_cpu_period = 83;
   repeated string blocked_domain_prefix_patterns = 84;
-  int64 volume_usage_interval_seconds = 85;
-  int64 volume_usage_cycle_budget_seconds = 86;
-  int32 volume_usage_scan_entry_budget = 87;
-  int64 registry_cleanup_interval_seconds = 88;
-  int64 registry_cleanup_job_timeout_seconds = 89;
   int64 memory_pressure_min_free_bytes = 90;
-  int64 memory_pressure_interval_seconds = 91;
   int64 memory_boost_multiplier = 92;
   int64 cpu_boost_multiplier = 93;
   int64 boost_min_free_memory_bytes = 94;
@@ -634,8 +613,8 @@ message SystemConfigData {
   double default_user_quota_cpu = 97;
   int64 default_user_quota_ram_mb = 98;
   int64 default_user_quota_disk_mb = 99;
-  int64 registry_gc_max_duration_seconds = 100;
   int64 build_max_disk_bytes = 101;
+  int64 build_cpu_millicores = 102;
 }
 
 message BuilderRuntimeConfigData {

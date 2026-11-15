@@ -9,6 +9,9 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
 
+// ValidateSystemConfig checks a whole snapshot: the runtime settings an update
+// may change and the fixed part read at startup. Its messages reach the client
+// of a settings update, so none of them echoes a rejected value.
 func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BaseDomain == "" || strings.ContainsAny(cfg.BaseDomain, " `/\\") {
 		return fmt.Errorf("invalid base domain")
@@ -100,7 +103,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.RegistryContainerName == "" {
 		return fmt.Errorf("registry container name is required")
 	}
-	if cfg.BuildMemoryBytes <= 0 || cfg.BuildCPUQuota <= 0 || cfg.BuildCPUPeriod <= 0 || cfg.BuildPidsLimit <= 0 {
+	if cfg.BuildMemoryBytes <= 0 || cfg.BuildCPUMillicores <= 0 || cfg.BuildCPUPeriod <= 0 || cfg.BuildPidsLimit <= 0 {
 		return fmt.Errorf("build resource limits must be positive")
 	}
 	if cfg.BuildMemorySwapMultiplier < 1 || cfg.BuildMemorySwapMultiplier > 10 {
@@ -112,7 +115,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxBuildTimeMinutes <= 0 || cfg.MaxConcurrentBuilds <= 0 {
 		return fmt.Errorf("build time and concurrency must be positive")
 	}
-	if cfg.MaxUploadSizeBytes <= 0 || cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
+	if cfg.MaxArchiveSizeBytes <= 0 || cfg.MaxUnpackedSizeBytes <= 0 || cfg.MaxBuildLogSizeBytes <= 0 {
 		return fmt.Errorf("build size limits must be positive")
 	}
 	if cfg.BuildMaxDiskBytes < MinBuildMaxDiskBytes {
@@ -139,7 +142,10 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ReportsUsageSnapshotIntervalSeconds < MinReportsUsageSnapshotIntervalSeconds || cfg.ReportsUsageSnapshotIntervalSeconds > MaxReportsUsageSnapshotIntervalSeconds {
 		return fmt.Errorf("reports usage snapshot interval must be between %d and %d seconds", MinReportsUsageSnapshotIntervalSeconds, MaxReportsUsageSnapshotIntervalSeconds)
 	}
-	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.MaxQueuedBuildsPerUser < 0 || cfg.MaxQueuedComposeDeploysPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 || cfg.MemoryPressureMinFreeBytes < 0 {
+	if cfg.MaxQueuedBuildsPerUser <= 0 || cfg.MaxQueuedComposeDeploysPerUser <= 0 {
+		return fmt.Errorf("queued builds and compose deployments per user must be positive")
+	}
+	if cfg.MaxStagedSourceBytesPerUser < 0 || cfg.HostMinFreeDiskBytes < 0 || cfg.MemoryPressureMinFreeBytes < 0 {
 		return fmt.Errorf("resource safety limits must not be negative")
 	}
 	if cfg.MemoryPressureIntervalSeconds <= 0 {
@@ -170,8 +176,8 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.ComposeDeployWorkerCount <= 0 || cfg.ComposeOutboxIntervalSeconds <= 0 || cfg.ComposeOutboxBatchSize <= 0 || cfg.ComposeDeployMaxAttempts <= 0 {
 		return fmt.Errorf("compose queue and worker settings must be positive")
 	}
-	if cfg.ComposeBuildPollIntervalSeconds <= 0 || cfg.ComposeDependencyWaitTimeoutMinutes <= 0 {
-		return fmt.Errorf("compose polling settings must be positive")
+	if cfg.ComposeDependencyWaitTimeoutMinutes <= 0 {
+		return fmt.Errorf("compose dependency wait timeout must be positive")
 	}
 	if cfg.ComposeCoordinatorIntervalSeconds <= 0 {
 		return fmt.Errorf("compose coordinator interval must be positive")

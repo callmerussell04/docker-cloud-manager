@@ -163,7 +163,7 @@ func TestReportServiceGetUserUsageTimelineUsesConfiguredBucketInterval(t *testin
 }
 
 func testReportConfig() coretest.StaticConfig {
-	return coretest.StaticConfig{Config: coreconfig.SystemConfig{ReportsUsageSnapshotIntervalSeconds: 300}}
+	return coretest.StaticConfig{Config: coreconfig.SystemConfig{Fixed: coreconfig.Fixed{ReportsUsageSnapshotIntervalSeconds: 300}}}
 }
 
 func discardLogger() *slog.Logger {

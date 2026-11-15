@@ -13,8 +13,9 @@ type Settings struct {
 	// Bootstrap holds secrets, DSNs, service targets, ports and storage settings.
 	// They come only from the environment and never become runtime configuration.
 	Bootstrap Bootstrap
-	// Runtime seeds the Manager's defaults; admins change it through /admin/config.
-	// The Manager keeps its Registry and network name fields pinned to these values.
+	// Runtime seeds the Manager: its runtime settings are the defaults of a new
+	// config file, which admins then change through /admin/config, and its Fixed
+	// part is what every snapshot carries until Core restarts.
 	Runtime SystemConfig
 }
 
@@ -138,106 +139,126 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 	return Settings{Bootstrap: bootstrap, Runtime: loadRuntime(lookup, baseDomain)}, nil
 }
 
-// loadRuntime reads the defaults a new runtime config file starts from.
+// loadRuntime reads the runtime settings a new config file starts from, and
+// the fixed part every snapshot carries.
 func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 	return SystemConfig{
-		BaseDomain:                           baseDomain,
-		DefaultMemoryReservation:             envconfig.Int64(lookup, "DEFAULT_MEMORY_RESERVATION_BYTES", 256*1024*1024), // 256 MB
-		ReservedSystemMemory:                 envconfig.Int64(lookup, "RESERVED_SYSTEM_MEMORY_BYTES", 2*1024*1024*1024),  // 2 GB
-		OvercommitFactor:                     envconfig.Float64(lookup, "OVERCOMMIT_FACTOR", 1),
-		MaxBurstMultiplier:                   envconfig.Int64(lookup, "MAX_BURST_MULTIPLIER", 4),
-		DefaultCPUReservation:                envconfig.Int64(lookup, "DEFAULT_CPU_RESERVATION_MILLICORES", 250),
-		ReservedSystemCPU:                    envconfig.Int64(lookup, "RESERVED_SYSTEM_CPU_MILLICORES", 500),
-		CPUOvercommitFactor:                  envconfig.Float64(lookup, "CPU_OVERCOMMIT_FACTOR", 4),
-		MaxCPUBurstMultiplier:                envconfig.Int64(lookup, "MAX_CPU_BURST_MULTIPLIER", 4),
-		ContainerCPUPeriod:                   envconfig.Int64(lookup, "CONTAINER_CPU_PERIOD", 100000),
-		DefaultCPUShares:                     envconfig.Int64(lookup, "DEFAULT_CPU_SHARES", 1024),
-		ContainerStopTimeout:                 envconfig.Int(lookup, "CONTAINER_STOP_TIMEOUT", 10),
-		MaxLogSize:                           envconfig.String(lookup, "MAX_LOG_SIZE", "10m"),
-		MaxLogFiles:                          envconfig.String(lookup, "MAX_LOG_FILES", "3"),
-		ContainerDiskQuota:                   envconfig.String(lookup, "CONTAINER_DISK_QUOTA", "1G"),
-		ReservedDomainPrefixes:               envconfig.NonEmptyCSV(lookup, "RESERVED_DOMAIN_PREFIXES", []string{"api", "admin", "gateway", "sso", "core", "builder", "traefik", "registry"}),
-		BlockedDomainPrefixPatterns:          []string{},
-		MaxVolumesPerUser:                    envconfig.Int(lookup, "MAX_VOLUMES_PER_USER", 5),
-		MaxContainersPerUser:                 envconfig.Int(lookup, "MAX_CONTAINERS_PER_USER", 10),
-		RegistryAPIURL:                       envconfig.String(lookup, "REGISTRY_API_URL", "https://registry-backend:5000"),
-		RegistryPublicURL:                    envconfig.String(lookup, "REGISTRY_PUBLIC_URL", "registry:5000"),
-		ContainerTTLHours:                    envconfig.Int64(lookup, "CONTAINER_TTL_HOURS", 24),
-		ContainerPidsLimit:                   envconfig.Int64(lookup, "CONTAINER_PIDS_LIMIT", 256),
-		ContainerMemorySwapMultiplier:        envconfig.Float64(lookup, "CONTAINER_MEMORY_SWAP_MULTIPLIER", 2),
-		ProxyNetworkName:                     envconfig.String(lookup, "PROXY_NETWORK_NAME", "proxy_net"),
-		RegistryContainerName:                envconfig.String(lookup, "REGISTRY_CONTAINER_NAME", "registry"),
-		ImageBuildsEnabled:                   envconfig.Bool(lookup, "IMAGE_BUILDS_ENABLED", true),
-		BuildMemoryBytes:                     envconfig.Int64(lookup, "BUILD_MEMORY_BYTES", 512*1024*1024),
-		BuildCPUQuota:                        envconfig.Int64(lookup, "BUILD_CPU_QUOTA", 100000),
-		BuildCPUPeriod:                       envconfig.Int64(lookup, "BUILD_CPU_PERIOD", 100000),
-		BuildMemorySwapMultiplier:            envconfig.Float64(lookup, "BUILD_MEMORY_SWAP_MULTIPLIER", 2),
-		BuildPidsLimit:                       envconfig.Int64(lookup, "BUILD_PIDS_LIMIT", 512),
-		BuildNetworkName:                     envconfig.String(lookup, "BUILD_NETWORK_NAME", "build_net"),
-		KanikoImage:                          envconfig.String(lookup, "KANIKO_IMAGE", imageref.DefaultKaniko),
-		MaxBuildTimeMinutes:                  envconfig.Int64(lookup, "MAX_BUILD_TIME_MINUTES", 10),
-		MaxConcurrentBuilds:                  envconfig.Int(lookup, "MAX_CONCURRENT_BUILDS", 2),
-		MaxUploadSizeBytes:                   envconfig.Int64(lookup, "MAX_UPLOAD_SIZE_BYTES", 50<<20),
-		MaxArchiveSizeBytes:                  envconfig.Int64(lookup, "MAX_ARCHIVE_SIZE_BYTES", 50<<20),
-		MaxUnpackedSizeBytes:                 envconfig.Int64(lookup, "MAX_UNPACKED_SIZE_BYTES", 500*1024*1024),
-		MaxBuildLogSizeBytes:                 envconfig.Int64(lookup, "MAX_BUILD_LOG_SIZE_BYTES", 5*1024*1024),
-		BuildCancelPollIntervalSeconds:       envconfig.Int64(lookup, "BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2),
-		BuildMaxDiskBytes:                    envconfig.Int64(lookup, "BUILD_MAX_DISK_BYTES", DefaultBuildMaxDiskBytes),
-		TTLWorkerIntervalSeconds:             envconfig.Int64(lookup, "TTL_WORKER_INTERVAL_SECONDS", 60),
-		GCWorkerIntervalMinutes:              envconfig.Int64(lookup, "GC_WORKER_INTERVAL_MINUTES", 60),
-		StaleBuildTimeoutMinutes:             envconfig.Int64(lookup, "STALE_BUILD_TIMEOUT_MINUTES", 30),
-		EventSyncIntervalSeconds:             envconfig.Int64(lookup, "EVENT_SYNC_INTERVAL_SECONDS", 30),
-		EventReconnectDelaySeconds:           envconfig.Int64(lookup, "EVENT_RECONNECT_DELAY_SECONDS", 5),
-		BuildOutboxIntervalSeconds:           envconfig.Int64(lookup, "BUILD_OUTBOX_INTERVAL_SECONDS", 1),
-		BuildOutboxBatchSize:                 envconfig.Int(lookup, "BUILD_OUTBOX_BATCH_SIZE", 10),
+		ReservedSystemMemory: envconfig.Int64(lookup, "RESERVED_SYSTEM_MEMORY_BYTES", 2<<30),
+		OvercommitFactor:     envconfig.Float64(lookup, "OVERCOMMIT_FACTOR", 1),
+		ReservedSystemCPU:    envconfig.Int64(lookup, "RESERVED_SYSTEM_CPU_MILLICORES", 500),
+		CPUOvercommitFactor:  envconfig.Float64(lookup, "CPU_OVERCOMMIT_FACTOR", 4),
+		HostMinFreeDiskBytes: envconfig.Int64(lookup, "HOST_MIN_FREE_DISK_BYTES", 1<<30),
+
+		DefaultMemoryReservation:   envconfig.Int64(lookup, "DEFAULT_MEMORY_RESERVATION_BYTES", 256<<20),
+		MaxBurstMultiplier:         envconfig.Int64(lookup, "MAX_BURST_MULTIPLIER", 4),
+		DefaultCPUReservation:      envconfig.Int64(lookup, "DEFAULT_CPU_RESERVATION_MILLICORES", 250),
+		MaxCPUBurstMultiplier:      envconfig.Int64(lookup, "MAX_CPU_BURST_MULTIPLIER", 4),
+		MemoryPressureMinFreeBytes: envconfig.Int64(lookup, "MEMORY_PRESSURE_MIN_FREE_BYTES", 512<<20),
+		MemoryBoostMultiplier:      envconfig.Int64(lookup, "MEMORY_BOOST_MULTIPLIER", 8),
+		CPUBoostMultiplier:         envconfig.Int64(lookup, "CPU_BOOST_MULTIPLIER", 8),
+		BoostMinFreeMemoryBytes:    envconfig.Int64(lookup, "BOOST_MIN_FREE_MEMORY_BYTES", 2<<30),
+
+		ContainerTTLHours:      envconfig.Int64(lookup, "CONTAINER_TTL_HOURS", 24),
+		ContainerStopTimeout:   envconfig.Int(lookup, "CONTAINER_STOP_TIMEOUT", 10),
+		ContainerPidsLimit:     envconfig.Int64(lookup, "CONTAINER_PIDS_LIMIT", 256),
+		ContainerDiskQuota:     envconfig.String(lookup, "CONTAINER_DISK_QUOTA", "1G"),
+		MaxLogSize:             envconfig.String(lookup, "MAX_LOG_SIZE", "10m"),
+		DefaultVolumeSizeBytes: envconfig.Int64(lookup, "DEFAULT_VOLUME_SIZE_BYTES", 256<<20),
+		VolumeSizeEnforcement:  envconfig.Bool(lookup, "VOLUME_SIZE_ENFORCEMENT", false),
+
+		DefaultUserQuotaCPU:            envconfig.Float64(lookup, "DEFAULT_USER_QUOTA_CPU", 1),
+		DefaultUserQuotaRAMMB:          envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_RAM_MB", 2048),
+		DefaultUserQuotaDiskMB:         envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_DISK_MB", 5120),
+		MaxContainersPerUser:           envconfig.Int(lookup, "MAX_CONTAINERS_PER_USER", 10),
+		MaxVolumesPerUser:              envconfig.Int(lookup, "MAX_VOLUMES_PER_USER", 5),
+		MaxQueuedBuildsPerUser:         envconfig.Int(lookup, "MAX_QUEUED_BUILDS_PER_USER", 10),
+		MaxQueuedComposeDeploysPerUser: envconfig.Int(lookup, "MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER", 5),
+		MaxStagedSourceBytesPerUser:    envconfig.Int64(lookup, "MAX_STAGED_SOURCE_BYTES_PER_USER", 1<<30),
+
+		ImageBuildsEnabled:   envconfig.Bool(lookup, "IMAGE_BUILDS_ENABLED", true),
+		MaxConcurrentBuilds:  envconfig.Int(lookup, "MAX_CONCURRENT_BUILDS", 2),
+		BuildMemoryBytes:     envconfig.Int64(lookup, "BUILD_MEMORY_BYTES", 512<<20),
+		BuildCPUMillicores:   envconfig.Int64(lookup, "BUILD_CPU_MILLICORES", 1000),
+		BuildMaxDiskBytes:    envconfig.Int64(lookup, "BUILD_MAX_DISK_BYTES", DefaultBuildMaxDiskBytes),
+		MaxBuildTimeMinutes:  envconfig.Int64(lookup, "MAX_BUILD_TIME_MINUTES", 10),
+		MaxBuildLogSizeBytes: envconfig.Int64(lookup, "MAX_BUILD_LOG_SIZE_BYTES", 5<<20),
+		MaxArchiveSizeBytes:  envconfig.Int64(lookup, "MAX_ARCHIVE_SIZE_BYTES", 50<<20),
+		MaxUnpackedSizeBytes: envconfig.Int64(lookup, "MAX_UNPACKED_SIZE_BYTES", 500<<20),
+
+		GitSourcesEnabled:      envconfig.Bool(lookup, "GIT_SOURCES_ENABLED", true),
+		GitAllowedHosts:        envconfig.NonEmptyCSV(lookup, "GIT_ALLOWED_HOSTS", []string{"github.com", "gitlab.com", "bitbucket.org"}),
+		GitCloneTimeoutSeconds: envconfig.Int64(lookup, "GIT_CLONE_TIMEOUT_SECONDS", 60),
+		GitMaxRepositoryBytes:  envconfig.Int64(lookup, "GIT_MAX_REPOSITORY_BYTES", 200<<20),
+
+		ComposeUploadMaxBytes:               envconfig.Int64(lookup, "COMPOSE_UPLOAD_MAX_BYTES", 100<<20),
+		ComposePipelineTimeoutMinutes:       envconfig.Int64(lookup, "COMPOSE_PIPELINE_TIMEOUT_MINUTES", 30),
+		ComposeDependencyWaitTimeoutMinutes: envconfig.Int64(lookup, "COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES", 5),
+
+		ReservedDomainPrefixes:      envconfig.NonEmptyCSV(lookup, "RESERVED_DOMAIN_PREFIXES", []string{"api", "admin", "gateway", "sso", "core", "builder", "traefik", "registry"}),
+		BlockedDomainPrefixPatterns: []string{},
+
+		TelemetryAllowedExecCommands:        envconfig.NonEmptyCSV(lookup, "TELEMETRY_ALLOWED_EXEC_COMMANDS", []string{"/bin/sh", "/bin/bash", "/busybox/sh"}),
+		TelemetryTerminalIdleTimeoutSeconds: envconfig.Int64(lookup, "TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS", 300),
+		TelemetryTerminalMaxDurationSeconds: envconfig.Int64(lookup, "TELEMETRY_TERMINAL_MAX_DURATION_SECONDS", 3600),
+
+		Fixed: loadFixed(lookup, baseDomain),
+	}
+}
+
+// loadFixed reads the part of the snapshot that only a restart changes.
+func loadFixed(lookup envconfig.Lookup, baseDomain string) Fixed {
+	return Fixed{
+		BaseDomain:            baseDomain,
+		RegistryAPIURL:        envconfig.String(lookup, "REGISTRY_API_URL", "https://registry-backend:5000"),
+		RegistryPublicURL:     envconfig.String(lookup, "REGISTRY_PUBLIC_URL", "registry:5000"),
+		RegistryContainerName: envconfig.String(lookup, "REGISTRY_CONTAINER_NAME", "registry"),
+		ProxyNetworkName:      envconfig.String(lookup, "PROXY_NETWORK_NAME", "proxy_net"),
+		BuildNetworkName:      envconfig.String(lookup, "BUILD_NETWORK_NAME", "build_net"),
+		KanikoImage:           envconfig.String(lookup, "KANIKO_IMAGE", imageref.DefaultKaniko),
+
+		ContainerCPUPeriod:               envconfig.Int64(lookup, "CONTAINER_CPU_PERIOD", 100000),
+		DefaultCPUShares:                 envconfig.Int64(lookup, "DEFAULT_CPU_SHARES", 1024),
+		ContainerMemorySwapMultiplier:    envconfig.Float64(lookup, "CONTAINER_MEMORY_SWAP_MULTIPLIER", 2),
+		MaxLogFiles:                      envconfig.String(lookup, "MAX_LOG_FILES", "3"),
+		MaxQueuedContainerCreatesPerUser: envconfig.Int(lookup, "MAX_QUEUED_CONTAINER_CREATES_PER_USER", 5),
+
+		BuildCPUPeriod:                 envconfig.Int64(lookup, "BUILD_CPU_PERIOD", 100000),
+		BuildMemorySwapMultiplier:      envconfig.Float64(lookup, "BUILD_MEMORY_SWAP_MULTIPLIER", 2),
+		BuildPidsLimit:                 envconfig.Int64(lookup, "BUILD_PIDS_LIMIT", 512),
+		BuildCancelPollIntervalSeconds: envconfig.Int64(lookup, "BUILD_CANCEL_POLL_INTERVAL_SECONDS", 2),
+
 		ContainerCreateWorkerCount:           envconfig.Int(lookup, "CONTAINER_CREATE_WORKER_COUNT", 2),
 		ContainerCreateMaxAttempts:           envconfig.Int(lookup, "CONTAINER_CREATE_MAX_ATTEMPTS", 3),
 		ContainerCreateTimeoutMinutes:        envconfig.Int64(lookup, "CONTAINER_CREATE_TIMEOUT_MINUTES", 30),
-		MaxQueuedContainerCreatesPerUser:     envconfig.Int(lookup, "MAX_QUEUED_CONTAINER_CREATES_PER_USER", 5),
 		ContainerCreateOutboxIntervalSeconds: envconfig.Int64(lookup, "CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS", 1),
 		ContainerCreateOutboxBatchSize:       envconfig.Int(lookup, "CONTAINER_CREATE_OUTBOX_BATCH_SIZE", 10),
-		ReportsUsageSnapshotIntervalSeconds:  envconfig.Int64(lookup, "REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS", DefaultReportsUsageSnapshotIntervalSeconds),
-		MaxStagedSourceBytesPerUser:          envconfig.Int64(lookup, "MAX_STAGED_SOURCE_BYTES_PER_USER", 1024*1024*1024),
-		MaxQueuedBuildsPerUser:               envconfig.Int(lookup, "MAX_QUEUED_BUILDS_PER_USER", 10),
-		ComposeUploadMaxBytes:                envconfig.Int64(lookup, "COMPOSE_UPLOAD_MAX_BYTES", 100<<20),
-		ComposePipelineTimeoutMinutes:        envconfig.Int64(lookup, "COMPOSE_PIPELINE_TIMEOUT_MINUTES", 30),
+		BuildOutboxIntervalSeconds:           envconfig.Int64(lookup, "BUILD_OUTBOX_INTERVAL_SECONDS", 1),
+		BuildOutboxBatchSize:                 envconfig.Int(lookup, "BUILD_OUTBOX_BATCH_SIZE", 10),
 		ComposeDeployWorkerCount:             envconfig.Int(lookup, "COMPOSE_DEPLOY_WORKER_COUNT", 2),
+		ComposeDeployMaxAttempts:             envconfig.Int(lookup, "COMPOSE_DEPLOY_MAX_ATTEMPTS", 3),
 		ComposeOutboxIntervalSeconds:         envconfig.Int64(lookup, "COMPOSE_OUTBOX_INTERVAL_SECONDS", 1),
 		ComposeOutboxBatchSize:               envconfig.Int(lookup, "COMPOSE_OUTBOX_BATCH_SIZE", 10),
-		ComposeDeployMaxAttempts:             envconfig.Int(lookup, "COMPOSE_DEPLOY_MAX_ATTEMPTS", 3),
-		MaxQueuedComposeDeploysPerUser:       envconfig.Int(lookup, "MAX_QUEUED_COMPOSE_DEPLOYS_PER_USER", 5),
-		ComposeBuildPollIntervalSeconds:      envconfig.Int64(lookup, "COMPOSE_BUILD_POLL_INTERVAL_SECONDS", 3),
-		ComposeDependencyWaitTimeoutMinutes:  envconfig.Int64(lookup, "COMPOSE_DEPENDENCY_WAIT_TIMEOUT_MINUTES", 5),
 		ComposeCoordinatorIntervalSeconds:    envconfig.Int64(lookup, "COMPOSE_COORDINATOR_INTERVAL_SECONDS", 2),
-		VolumeUsageIntervalSeconds:           envconfig.Int64(lookup, "VOLUME_USAGE_INTERVAL_SECONDS", 60),
-		VolumeUsageCycleBudgetSeconds:        envconfig.Int64(lookup, "VOLUME_USAGE_CYCLE_BUDGET_SECONDS", 15),
-		VolumeUsageScanEntryBudget:           envconfig.Int(lookup, "VOLUME_USAGE_SCAN_ENTRY_BUDGET", 50000),
-		RegistryCleanupIntervalSeconds:       envconfig.Int64(lookup, "REGISTRY_CLEANUP_INTERVAL_SECONDS", 5),
-		RegistryCleanupJobTimeoutSeconds:     envconfig.Int64(lookup, "REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS", 20),
-		RegistryGCMaxDurationSeconds:         envconfig.Int64(lookup, "REGISTRY_GC_MAX_DURATION_SECONDS", 900),
-		HostMinFreeDiskBytes:                 envconfig.Int64(lookup, "HOST_MIN_FREE_DISK_BYTES", 1024*1024*1024),
-		MemoryPressureMinFreeBytes:           envconfig.Int64(lookup, "MEMORY_PRESSURE_MIN_FREE_BYTES", 512*1024*1024),
-		MemoryPressureIntervalSeconds:        envconfig.Int64(lookup, "MEMORY_PRESSURE_INTERVAL_SECONDS", 10),
-		MemoryBoostMultiplier:                envconfig.Int64(lookup, "MEMORY_BOOST_MULTIPLIER", 8),
-		CPUBoostMultiplier:                   envconfig.Int64(lookup, "CPU_BOOST_MULTIPLIER", 8),
-		BoostMinFreeMemoryBytes:              envconfig.Int64(lookup, "BOOST_MIN_FREE_MEMORY_BYTES", 2*1024*1024*1024),
-		DefaultVolumeSizeBytes:               envconfig.Int64(lookup, "DEFAULT_VOLUME_SIZE_BYTES", 256*1024*1024),
-		VolumeSizeEnforcement:                envconfig.Bool(lookup, "VOLUME_SIZE_ENFORCEMENT", false),
-		DefaultUserQuotaCPU:                  envconfig.Float64(lookup, "DEFAULT_USER_QUOTA_CPU", 1),
-		DefaultUserQuotaRAMMB:                envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_RAM_MB", 2048),
-		DefaultUserQuotaDiskMB:               envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_DISK_MB", 5120),
-		GitSourcesEnabled:                    envconfig.Bool(lookup, "GIT_SOURCES_ENABLED", true),
-		GitAllowedHosts:                      envconfig.NonEmptyCSV(lookup, "GIT_ALLOWED_HOSTS", []string{"github.com", "gitlab.com", "bitbucket.org"}),
-		GitCloneTimeoutSeconds:               envconfig.Int64(lookup, "GIT_CLONE_TIMEOUT_SECONDS", 60),
-		GitMaxRepositoryBytes:                envconfig.Int64(lookup, "GIT_MAX_REPOSITORY_BYTES", 200*1024*1024),
-		TelemetryMaxLogTailLines:             envconfig.Int(lookup, "TELEMETRY_MAX_LOG_TAIL_LINES", 1000),
-		TelemetryMaxLogStreamsPerUser:        envconfig.Int(lookup, "TELEMETRY_MAX_LOG_STREAMS_PER_USER", 5),
-		TelemetryMaxTerminalSessionsPerUser:  envconfig.Int(lookup, "TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER", 2),
-		TelemetryTerminalIdleTimeoutSeconds:  envconfig.Int64(lookup, "TELEMETRY_TERMINAL_IDLE_TIMEOUT_SECONDS", 300),
-		TelemetryTerminalMaxDurationSeconds:  envconfig.Int64(lookup, "TELEMETRY_TERMINAL_MAX_DURATION_SECONDS", 3600),
-		TelemetryAllowedExecCommands:         envconfig.NonEmptyCSV(lookup, "TELEMETRY_ALLOWED_EXEC_COMMANDS", []string{"/bin/sh", "/bin/bash", "/busybox/sh"}),
-		TelemetryMaxCommandArgs:              envconfig.Int(lookup, "TELEMETRY_MAX_COMMAND_ARGS", 8),
-		TelemetryMaxCommandArgBytes:          envconfig.Int(lookup, "TELEMETRY_MAX_COMMAND_ARG_BYTES", 128),
-		TelemetryWSReadLimitBytes:            envconfig.Int64(lookup, "TELEMETRY_WS_READ_LIMIT_BYTES", 4096),
+
+		TTLWorkerIntervalSeconds:            envconfig.Int64(lookup, "TTL_WORKER_INTERVAL_SECONDS", 60),
+		EventSyncIntervalSeconds:            envconfig.Int64(lookup, "EVENT_SYNC_INTERVAL_SECONDS", 30),
+		EventReconnectDelaySeconds:          envconfig.Int64(lookup, "EVENT_RECONNECT_DELAY_SECONDS", 5),
+		GCWorkerIntervalMinutes:             envconfig.Int64(lookup, "GC_WORKER_INTERVAL_MINUTES", 60),
+		StaleBuildTimeoutMinutes:            envconfig.Int64(lookup, "STALE_BUILD_TIMEOUT_MINUTES", 30),
+		RegistryCleanupIntervalSeconds:      envconfig.Int64(lookup, "REGISTRY_CLEANUP_INTERVAL_SECONDS", 5),
+		RegistryCleanupJobTimeoutSeconds:    envconfig.Int64(lookup, "REGISTRY_CLEANUP_JOB_TIMEOUT_SECONDS", 20),
+		RegistryGCMaxDurationSeconds:        envconfig.Int64(lookup, "REGISTRY_GC_MAX_DURATION_SECONDS", 900),
+		VolumeUsageIntervalSeconds:          envconfig.Int64(lookup, "VOLUME_USAGE_INTERVAL_SECONDS", 60),
+		VolumeUsageCycleBudgetSeconds:       envconfig.Int64(lookup, "VOLUME_USAGE_CYCLE_BUDGET_SECONDS", 15),
+		VolumeUsageScanEntryBudget:          envconfig.Int(lookup, "VOLUME_USAGE_SCAN_ENTRY_BUDGET", 50000),
+		MemoryPressureIntervalSeconds:       envconfig.Int64(lookup, "MEMORY_PRESSURE_INTERVAL_SECONDS", 10),
+		ReportsUsageSnapshotIntervalSeconds: envconfig.Int64(lookup, "REPORTS_USAGE_SNAPSHOT_INTERVAL_SECONDS", DefaultReportsUsageSnapshotIntervalSeconds),
+
+		TelemetryMaxLogTailLines:            envconfig.Int(lookup, "TELEMETRY_MAX_LOG_TAIL_LINES", 1000),
+		TelemetryMaxLogStreamsPerUser:       envconfig.Int(lookup, "TELEMETRY_MAX_LOG_STREAMS_PER_USER", 5),
+		TelemetryMaxTerminalSessionsPerUser: envconfig.Int(lookup, "TELEMETRY_MAX_TERMINAL_SESSIONS_PER_USER", 2),
+		TelemetryMaxCommandArgs:             envconfig.Int(lookup, "TELEMETRY_MAX_COMMAND_ARGS", 8),
+		TelemetryMaxCommandArgBytes:         envconfig.Int(lookup, "TELEMETRY_MAX_COMMAND_ARG_BYTES", 128),
+		TelemetryWSReadLimitBytes:           envconfig.Int64(lookup, "TELEMETRY_WS_READ_LIMIT_BYTES", 4096),
 	}
 }

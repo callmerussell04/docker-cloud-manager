@@ -230,8 +230,8 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 			standardLimit: cfg.BuildMemoryBytes,
 			ceiling:       cfg.BuildMemoryBytes * cfg.MemoryBoostMultiplier,
 
-			cpuStandardQuota: cfg.BuildCPUQuota,
-			cpuCeiling:       cfg.BuildCPUQuota * cfg.CPUBoostMultiplier,
+			cpuStandardQuota: cfg.BuildCPUQuota(),
+			cpuCeiling:       cfg.BuildCPUQuota() * cfg.CPUBoostMultiplier,
 			cpuPeriod:        cfg.BuildCPUPeriod,
 		}
 		if !w.measure(ctx, &workload, next) {

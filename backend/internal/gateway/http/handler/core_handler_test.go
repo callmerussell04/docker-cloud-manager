@@ -3,15 +3,18 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/fieldfill"
 	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/gateway/http/handler"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -170,28 +173,26 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	resp = perform(router, http.MethodDelete, "/projects/"+projectID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{BaseDomain: "example.test", DefaultVolumeSizeBytes: 1073741824, VolumeSizeEnforcement: true, DefaultUserQuotaCPU: 1.5, DefaultUserQuotaRAMMB: 3072, DefaultUserQuotaDiskMB: 6144, RegistryGCMaxDurationSeconds: 1200, BuildMaxDiskBytes: 3221225472}, nil)
+	svc.EXPECT().GetSystemConfig(mock.Anything).Return(model.SystemConfig{MaxLogSize: "25m", DefaultVolumeSizeBytes: 1073741824, VolumeSizeEnforcement: true, DefaultUserQuotaCPU: 1.5, DefaultUserQuotaRAMMB: 3072, DefaultUserQuotaDiskMB: 6144, BuildMaxDiskBytes: 3221225472}, nil)
 	resp = perform(router, http.MethodGet, "/admin/config", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	require.Contains(t, resp.Body.String(), "example.test")
+	require.Contains(t, resp.Body.String(), `"max_log_size":"25m"`)
 	require.Contains(t, resp.Body.String(), `"default_volume_size_bytes":1073741824`)
 	require.Contains(t, resp.Body.String(), `"volume_size_enforcement":true`)
 	require.Contains(t, resp.Body.String(), `"default_user_quota_cpu":1.5`)
 	require.Contains(t, resp.Body.String(), `"default_user_quota_ram_mb":3072`)
 	require.Contains(t, resp.Body.String(), `"default_user_quota_disk_mb":6144`)
-	require.Contains(t, resp.Body.String(), `"registry_gc_max_duration_seconds":1200`)
 	require.Contains(t, resp.Body.String(), `"build_max_disk_bytes":3221225472`)
 	var updatedConfig model.SystemConfig
 	svc.EXPECT().UpdateSystemConfig(mock.Anything, mock.AnythingOfType("model.SystemConfig")).
 		Run(func(_ context.Context, cfg model.SystemConfig) { updatedConfig = cfg }).Return(nil)
-	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"example.test","default_volume_size_bytes":2097152,"volume_size_enforcement":true,"default_user_quota_cpu":2.5,"default_user_quota_ram_mb":4096,"default_user_quota_disk_mb":10240,"registry_gc_max_duration_seconds":600,"build_max_disk_bytes":5368709120}`, nil)
+	resp = perform(router, http.MethodPut, "/admin/config", `{"base_domain":"ignored.example.test","default_volume_size_bytes":2097152,"volume_size_enforcement":true,"default_user_quota_cpu":2.5,"default_user_quota_ram_mb":4096,"default_user_quota_disk_mb":10240,"build_max_disk_bytes":5368709120}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.EqualValues(t, 2097152, updatedConfig.DefaultVolumeSizeBytes)
 	require.True(t, updatedConfig.VolumeSizeEnforcement)
 	require.Equal(t, 2.5, updatedConfig.DefaultUserQuotaCPU)
 	require.Equal(t, int64(4096), updatedConfig.DefaultUserQuotaRAMMB)
 	require.Equal(t, int64(10240), updatedConfig.DefaultUserQuotaDiskMB)
-	require.Equal(t, int64(600), updatedConfig.RegistryGCMaxDurationSeconds)
 	require.Equal(t, int64(5368709120), updatedConfig.BuildMaxDiskBytes)
 
 	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
@@ -307,4 +308,28 @@ func coreRouter(svc *gatewayhandlermocks.MockCoreService) *gin.Engine {
 	router.GET("/admin/reports/audit-events", h.ListAuditEvents)
 	router.POST("/admin/reports/usage-snapshots/refresh", h.RefreshUsageSnapshots)
 	return router
+}
+
+// Every runtime setting is mapped between Gateway's model and the HTTP body in
+// both directions: what a read returns can be sent back unchanged.
+func TestCoreHandlerCarriesEveryRuntimeSetting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newCoreServiceMock(t)
+	router := coreRouter(svc)
+	var settings model.SystemConfig
+	fieldfill.Distinct(t, &settings)
+
+	svc.EXPECT().GetSystemConfig(mock.Anything).Return(settings, nil)
+	resp := perform(router, http.MethodGet, "/admin/config", ``, nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var body map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+	require.Len(t, body, reflect.TypeFor[model.SystemConfig]().NumField(), "a read returns one key per runtime setting")
+
+	var updated model.SystemConfig
+	svc.EXPECT().UpdateSystemConfig(mock.Anything, mock.AnythingOfType("model.SystemConfig")).
+		Run(func(_ context.Context, cfg model.SystemConfig) { updated = cfg }).Return(nil)
+	resp = perform(router, http.MethodPut, "/admin/config", resp.Body.String(), nil)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, settings, updated)
 }
