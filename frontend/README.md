@@ -1,73 +1,33 @@
-# React + TypeScript + Vite
+# Docker Cloud Manager frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The web interface of Docker Cloud Manager (DCM), a self-hosted PaaS for one server. Users run containers, build images, manage volumes and deploy Compose projects; administrators manage users, quotas, runtime settings, monitoring, reports and every user's resources.
 
-Currently, two official plugins are available:
+Built with React, TypeScript and Vite; TanStack Query for server state, Zustand for client state, react-hook-form with Zod for forms, Tailwind CSS for styling, xterm.js for the browser terminal and Recharts for charts.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Commands
 
-## React Compiler
+Run from this directory:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Development server |
+| `npm run build` | Type-check and production build |
+| `npm run lint` | ESLint, including the import-boundary rules |
+| `npm test` | Vitest |
 
-## Expanding the ESLint configuration
+The build reads two variables at build time, both required: `VITE_API_URL` (the Gateway API base URL, for example `http://localhost/api/v1`) and `VITE_BASE_DOMAIN` (the domain user services are published under). Set them in `.env` for local development; the Docker image takes them as build arguments.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Structure
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+  app/        composition root: entry point, providers, router, route guards, page layout
+  features/   one folder per domain: auth, dashboard, containers, images, volumes, projects, admin
+  shared/     code with no domain knowledge: api, ui, i18n, lib
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Imports go app → features → shared. Features import one another only in the directions listed in `eslint.config.js` (admin → auth and the resource features; projects → containers and images; containers → images and volumes), and nothing imports admin. `npm run lint` fails on any other import.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+A feature keeps its API functions in `api.ts`, its queries, mutations and query keys in `queries.ts`, its form schemas in `schemas.ts`, its wire types and domain rules in `model.ts`, and its `components/` and `pages/` beside them. Resource features take a scope, `own` or `all`, which selects the user or the admin endpoints. Admin is split into `users`, `settings`, `monitoring`, `reports` and `resources`, each laid out the same way.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Tests sit beside the code they test as `*.test.ts`.
