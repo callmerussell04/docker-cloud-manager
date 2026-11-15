@@ -7,15 +7,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { formatBytes } from '@/shared/lib/utils';
-import type { ContainerData } from '@/features/containers/model';
-import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
-import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
-import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
-import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
-import { statusLabel, useT } from '@/shared/i18n';
-import { useContainerAction, useContainerStats } from '@/features/containers/queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
-import { borrowedMemoryBytes } from '@/features/containers/memory';
+import { useT } from '@/shared/i18n';
+import {
+  blockedContainerActions,
+  borrowedMemoryBytes,
+  containerBadgeVariant,
+  containerStatusLabel,
+  type ContainerData,
+} from '../model';
+import { ContainerTTLTimer } from '../components/ContainerTTLTimer';
+import { useContainerModals } from '../components/useContainerModals';
+import { useContainerAction, useContainerStats } from '../queries';
 
 interface ContainerDetailsPageProps {
   scope: Scope;
@@ -42,29 +45,11 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
     created_at: container?.created_at || 0,
   } : null;
 
-  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
-  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
-  const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
+  const { openLogs, openTerminal, openExpose, modals } = useContainerModals(scope);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const { data: stats, isLoading } = useContainerStats(scope, id, container);
   const actionMutation = useContainerAction(scope);
-
-  const getStatusBadge = (status?: string) => {
-    switch (status) {
-      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
-      case 'exited': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-      case 'stopping': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'exposing': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'missing': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
-      case 'reconciling': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'error': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
-      default: return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-    }
-  };
 
   const memPercent = stats?.memory_limit_bytes 
     ? (stats.memory_usage_bytes / stats.memory_limit_bytes) * 100 
@@ -72,8 +57,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
   const standardLimit = stats?.memory_standard_limit_bytes || 0;
   const borrowedMemory = borrowedMemoryBytes(stats);
   const status = container?.status || streamContainer?.status || 'unknown';
-  const isBusy = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(status);
-  const isDeleting = ['exposing', 'deleting'].includes(status);
+  const blocked = blockedContainerActions(status);
   const isUserContainer = !!streamContainer && scope === 'own';
 
   const handleContainerAction = (action: 'start' | 'stop' | 'delete') => {
@@ -98,7 +82,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
-              {getStatusBadge(container?.status)}
+              <Badge variant={containerBadgeVariant(container?.status ?? '')}>{containerStatusLabel(t, container?.status)}</Badge>
             </div>
             {container && (
               <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} className="mt-2" />
@@ -115,8 +99,8 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
         {streamContainer && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button
-              onClick={() => setTerminalContainer(streamContainer)}
-              disabled={status !== 'running'}
+              onClick={() => openTerminal(streamContainer)}
+              disabled={blocked.terminal}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               title={t('containers.terminal')}
             >
@@ -124,7 +108,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
               <span className="hidden sm:inline font-medium text-sm">{t('containers.terminal')}</span>
             </button>
             <button
-              onClick={() => setLogsContainer(streamContainer)}
+              onClick={() => openLogs(streamContainer)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
               title={t('containers.logs')}
             >
@@ -137,7 +121,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
                 <Button
                   variant="secondary"
                   className="px-3"
-                  disabled={status === 'running' || isBusy || actionMutation.isPending}
+                  disabled={blocked.start || actionMutation.isPending}
                   onClick={() => handleContainerAction('start')}
                   title={t('containers.start')}
                 >
@@ -147,7 +131,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
                 <Button
                   variant="secondary"
                   className="px-3"
-                  disabled={status !== 'running' || actionMutation.isPending}
+                  disabled={blocked.stop || actionMutation.isPending}
                   onClick={() => handleContainerAction('stop')}
                   title={t('containers.stop')}
                 >
@@ -157,8 +141,8 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
                 <Button
                   variant="secondary"
                   className="px-3"
-                  disabled={isBusy || actionMutation.isPending}
-                  onClick={() => setExposeContainer(streamContainer)}
+                  disabled={blocked.expose || actionMutation.isPending}
+                  onClick={() => openExpose(streamContainer)}
                   title={t('containers.routingSettings')}
                 >
                   <Globe className="w-4 h-4 text-blue-500" />
@@ -167,7 +151,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
                 <Button
                   variant="danger"
                   className="px-3"
-                  disabled={isDeleting || actionMutation.isPending}
+                  disabled={blocked.delete || actionMutation.isPending}
                   onClick={() => handleContainerAction('delete')}
                   title={t('common.delete')}
                 >
@@ -277,22 +261,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
         </Card>
       </div>
 
-      <ContainerLogsModal 
-        container={logsContainer}
-        scope={scope}
-        onClose={() => setLogsContainer(null)}
-      />
-
-      <ContainerTerminalModal
-        container={terminalContainer}
-        scope={scope}
-        onClose={() => setTerminalContainer(null)}
-      />
-
-      <ExposeContainerModal
-        container={exposeContainer}
-        onClose={() => setExposeContainer(null)}
-      />
+      {modals}
 
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}

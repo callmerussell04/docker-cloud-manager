@@ -1,9 +1,9 @@
 import { Trash2, Disc, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ImageData } from '../model';
+import { imageStatusLabel, type ImageData } from '../model';
 import { imageTableLayout } from './tableLayouts';
 import { cn, formatBytes } from '@/shared/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { useDeleteImage } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
@@ -39,7 +39,7 @@ export function ImageRow({ image }: ImageRowProps) {
 
       <div className="min-w-0 text-sm">
         <Badge variant={image.status === 'available' ? 'success' : image.status === 'error' || image.status === 'missing' ? 'error' : 'default'}>
-          {statusLabel(t, image.status)}
+          {imageStatusLabel(t, image.status)}
         </Badge>
       </div>
 

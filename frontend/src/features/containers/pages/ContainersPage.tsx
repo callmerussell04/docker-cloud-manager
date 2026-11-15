@@ -5,10 +5,7 @@ import { Button } from '@/shared/ui/Button';
 import { Pagination } from '@/shared/ui/Pagination';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
-import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
-import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
-import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
-import { type ContainerData } from '@/features/containers/model';
+import { useContainerModals } from '@/features/containers/components/useContainerModals';
 import { containerTableLayout } from '../components/tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
@@ -21,9 +18,7 @@ import { getApiErrorMessage } from '@/shared/api/apiError';
 export function ContainersPage() {
   const t = useT();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
-  const[logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
-  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
+  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -99,9 +94,9 @@ export function ContainersPage() {
                   <ContainerRow 
                     key={container.id} 
                     container={container} 
-                    onExpose={setExposeContainer}
-                    onViewLogs={setLogsContainer}
-                    onOpenTerminal={setTerminalContainer}
+                    onExpose={openExpose}
+                    onViewLogs={openLogs}
+                    onOpenTerminal={openTerminal}
                   />
                 ))
               ) : (
@@ -127,22 +122,7 @@ export function ContainersPage() {
         onClose={() => setIsCreateModalOpen(false)} 
       />
 
-      <ExposeContainerModal 
-        container={exposeContainer} 
-        onClose={() => setExposeContainer(null)} 
-      />
-
-      <ContainerLogsModal 
-        container={logsContainer}
-        scope="own"
-        onClose={() => setLogsContainer(null)}
-      />
-
-      <ContainerTerminalModal
-        container={terminalContainer}
-        scope="own"
-        onClose={() => setTerminalContainer(null)}
-      />
+      {modals}
     </div>
   );
 }

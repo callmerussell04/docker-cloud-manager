@@ -1,4 +1,5 @@
 import type { Scope } from '@/shared/api/scope';
+import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface ImageData {
   id: string;
@@ -67,4 +68,32 @@ export function isBuildActive(status: string) {
 // buildLogsAvailable reports whether a build has finished and stored its log.
 export function buildLogsAvailable(status: string) {
   return finishedBuildStatuses.has(status);
+}
+
+const imageStatusKeys: Record<string, TranslationKey> = {
+  available: 'status.available',
+  building: 'status.building',
+  deleting: 'status.deleting',
+  error: 'status.error',
+  missing: 'status.missing',
+};
+
+const buildStatusKeys: Record<string, TranslationKey> = {
+  pending: 'status.pending',
+  running: 'status.running',
+  success: 'status.success',
+  failed: 'status.failed',
+  failed_timeout: 'status.failedTimeout',
+  failed_quota_exceeded: 'status.failedQuotaExceeded',
+  failed_resource_exhausted: 'status.failedResourceExhausted',
+  failed_internal: 'status.failedInternal',
+  canceled: 'status.canceled',
+};
+
+export function imageStatusLabel(t: TFunction, status?: string) {
+  return labelFor(t, imageStatusKeys, status);
+}
+
+export function buildStatusLabel(t: TFunction, status?: string) {
+  return labelFor(t, buildStatusKeys, status);
 }

@@ -6,14 +6,11 @@ import { Pagination } from '@/shared/ui/Pagination';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
 import { ProjectWithContainersRow } from '@/features/projects/components/ProjectWithContainersRow';
 import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
-import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
-import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
-import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
-import { type ContainerData } from '@/features/containers/model';
+import { useContainerModals } from '@/features/containers/components/useContainerModals';
 import { projectTableLayout } from '../components/tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
-import { projectKeys, useProjects } from '@/features/projects/queries';
+import { containerMutationsInProjects, useProjects } from '@/features/projects/queries';
 import { useBuildAvailability } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -23,9 +20,7 @@ import { getApiErrorMessage } from '@/shared/api/apiError';
 export function ProjectsPage() {
   const t = useT();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
-  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
-  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
+  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own', containerMutationsInProjects);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -110,9 +105,9 @@ export function ProjectsPage() {
                   <ProjectWithContainersRow
                     key={project.id}
                     project={project}
-                    onExpose={setExposeContainer}
-                    onViewLogs={setLogsContainer}
-                    onOpenTerminal={setTerminalContainer}
+                    onExpose={openExpose}
+                    onViewLogs={openLogs}
+                    onOpenTerminal={openTerminal}
                   />
                 ))
               ) : (
@@ -139,23 +134,7 @@ export function ProjectsPage() {
         buildAvailability={buildAvailability}
       />
 
-      <ExposeContainerModal
-        container={exposeContainer}
-        onClose={() => setExposeContainer(null)}
-        mutationOptions={{ alsoInvalidate: [projectKeys.all] }}
-      />
-
-      <ContainerLogsModal
-        container={logsContainer}
-        scope="own"
-        onClose={() => setLogsContainer(null)}
-      />
-
-      <ContainerTerminalModal
-        container={terminalContainer}
-        scope="own"
-        onClose={() => setTerminalContainer(null)}
-      />
+      {modals}
     </div>
   );
 }

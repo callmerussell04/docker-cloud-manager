@@ -5,9 +5,9 @@ import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
-import { statusLabel, useLocale, useT } from '@/shared/i18n';
+import { useLocale, useT } from '@/shared/i18n';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
-import { buildLogsAvailable, isBuildActive, type AdminBuildData } from '@/features/images/model';
+import { buildLogsAvailable, buildStatusLabel, isBuildActive, type AdminBuildData } from '@/features/images/model';
 import { useBuilds, useCancelBuild, useDeleteBuild } from '@/features/images/queries';
 import { adminBuildTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
@@ -65,7 +65,7 @@ export function BuildsTab() {
                 <div className="font-medium block truncate font-mono" title={build.id}>{build.id}</div>
               </div>
               <div className="min-w-0">
-                <Badge variant={statusVariant(build.status)}>{statusLabel(t, build.status)}</Badge>
+                <Badge variant={statusVariant(build.status)}>{buildStatusLabel(t, build.status)}</Badge>
               </div>
               <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.image_id || build.tag}>{build.tag || build.image_id || '-'}</div>
               <div className="min-w-0 text-xs font-mono text-slate-500 truncate" title={build.owner_username || build.owner_id}>{t('admin.resources.userLabel', { value: ownerName(build) })}</div>

@@ -1,4 +1,5 @@
 import type { Scope } from '@/shared/api/scope';
+import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface VolumeData {
   id: string;
@@ -27,4 +28,16 @@ export const MIB = 1024 * 1024;
 export interface CreateVolumeDTO {
   name: string;
   size_bytes?: number;
+}
+
+const statusKeys: Record<string, TranslationKey> = {
+  available: 'status.available',
+  creating: 'status.creating',
+  deleting: 'status.deleting',
+  error: 'status.error',
+  missing: 'status.missing',
+};
+
+export function volumeStatusLabel(t: TFunction, status?: string) {
+  return labelFor(t, statusKeys, status);
 }

@@ -5,8 +5,8 @@ import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
-import { statusLabel, useLocale, useT } from '@/shared/i18n';
-import { canCancelProject, isProjectBusy } from '@/features/projects/model';
+import { useLocale, useT } from '@/shared/i18n';
+import { canCancelProject, isProjectBusy, projectStatusLabel } from '@/features/projects/model';
 import { useProjectAction, useProjects } from '@/features/projects/queries';
 import { adminProjectTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
@@ -60,7 +60,7 @@ export function ProjectsTab() {
               </div>
               <div className="min-w-0">
                 <Badge variant={statusVariant(p.status)}>
-                  {statusLabel(t, p.status)}
+                  {projectStatusLabel(t, p.status)}
                 </Badge>
               </div>
               <div className="min-w-0 flex items-center">

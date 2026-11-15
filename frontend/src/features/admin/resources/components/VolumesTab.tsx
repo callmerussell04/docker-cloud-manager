@@ -5,7 +5,8 @@ import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
-import { statusLabel, useLocale, useT } from '@/shared/i18n';
+import { useLocale, useT } from '@/shared/i18n';
+import { volumeStatusLabel } from '@/features/volumes/model';
 import { useDeleteVolume, useVolumes } from '@/features/volumes/queries';
 import { adminVolumeTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
@@ -52,7 +53,7 @@ export function VolumesTab() {
               <div className="text-xs text-slate-500 block truncate font-mono">{v.id}</div>
             </div>
             <div className="min-w-0 text-sm">
-              <Badge variant={statusVariant(v.status)}>{statusLabel(t, v.status)}</Badge>
+              <Badge variant={statusVariant(v.status)}>{volumeStatusLabel(t, v.status)}</Badge>
               {v.last_error && (
                 <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={v.last_error}>
                   <AlertTriangle className="h-3 w-3 shrink-0" />

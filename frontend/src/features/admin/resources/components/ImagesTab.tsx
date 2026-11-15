@@ -5,7 +5,8 @@ import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { cn, formatBytes } from '@/shared/lib/utils';
-import { statusLabel, useLocale, useT } from '@/shared/i18n';
+import { useLocale, useT } from '@/shared/i18n';
+import { imageStatusLabel } from '@/features/images/model';
 import { useDeleteImage, useImages } from '@/features/images/queries';
 import { adminImageTableLayout as layout } from './tableLayouts';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
@@ -54,7 +55,7 @@ export function ImagesTab() {
               <Badge variant="info">{formatBytes(img.size_bytes)}</Badge>
             </div>
             <div className="min-w-0">
-              <Badge variant={statusVariant(img.status)}>{statusLabel(t, img.status)}</Badge>
+              <Badge variant={statusVariant(img.status)}>{imageStatusLabel(t, img.status)}</Badge>
               {img.last_error && (
                 <div className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400" title={img.last_error}>
                   <AlertTriangle className="h-3 w-3 shrink-0" />

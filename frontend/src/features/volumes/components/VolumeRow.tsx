@@ -1,8 +1,8 @@
 import { Trash2, HardDrive, AlertTriangle, Clock } from 'lucide-react';
-import { type VolumeData } from '../model';
+import { volumeStatusLabel, type VolumeData } from '../model';
 import { volumeTableLayout } from './tableLayouts';
 import { cn, formatBytes } from '@/shared/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { useDeleteVolume } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
@@ -38,7 +38,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
 
       <div className="min-w-0 text-sm">
         <span className={isMissing ? 'text-red-600 dark:text-red-400' : 'text-slate-600 dark:text-slate-300'}>
-          {statusLabel(t, volume.status)}
+          {volumeStatusLabel(t, volume.status)}
         </span>
       </div>
 

@@ -1,4 +1,5 @@
 import type { Scope } from '@/shared/api/scope';
+import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface ProjectData {
   id: string;
@@ -38,4 +39,22 @@ export function isProjectBusy(status: string) {
 // canCancelProject reports whether a project's deployment can be canceled.
 export function canCancelProject(status: string) {
   return status === 'building' || status === 'deploying';
+}
+
+const statusKeys: Record<string, TranslationKey> = {
+  pending: 'status.pending',
+  building: 'status.building',
+  deploying: 'status.deploying',
+  running: 'status.running',
+  starting: 'status.starting',
+  stopping: 'status.stopping',
+  stopped: 'status.stopped',
+  canceling: 'status.canceling',
+  canceled: 'status.canceled',
+  deleting: 'status.deleting',
+  failed: 'status.failed',
+};
+
+export function projectStatusLabel(t: TFunction, status?: string) {
+  return labelFor(t, statusKeys, status);
 }

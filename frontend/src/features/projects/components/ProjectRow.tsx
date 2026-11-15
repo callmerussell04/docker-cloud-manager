@@ -1,9 +1,9 @@
 import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { canCancelProject, isProjectBusy, type ProjectData } from '../model';
+import { canCancelProject, isProjectBusy, projectStatusLabel, type ProjectData } from '../model';
 import { projectTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
 import { useProjectAction } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
@@ -27,17 +27,17 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
-      case 'stopped': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
-      case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
-      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
-      case 'canceled': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
-      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{statusLabel(t, status)}</Badge>;
-      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'pending': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'failed': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
+      case 'running': return <Badge variant="success">{projectStatusLabel(t, status)}</Badge>;
+      case 'stopped': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
+      case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
+      case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
+      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
+      case 'canceled': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
+      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
+      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
+      case 'deleting': return <Badge variant="warning">{projectStatusLabel(t, status)}</Badge>;
+      case 'pending': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
+      case 'failed': return <Badge variant="error">{projectStatusLabel(t, status)}</Badge>;
       default: return <Badge variant="default">{status}</Badge>;
     }
   };

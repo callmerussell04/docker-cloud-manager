@@ -1,9 +1,9 @@
 import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { buildLogsAvailable, isBuildActive, type BuildData } from '../model';
+import { buildLogsAvailable, buildStatusLabel, isBuildActive, type BuildData } from '../model';
 import { buildTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { useCancelBuild, useDeleteBuild } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
@@ -23,23 +23,23 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
   const getStatusDisplay = (status: string) => {
     switch (status) {
       case 'success': 
-        return { icon: <CheckCircle2 className="w-4 h-4" />, variant: 'success' as const, label: statusLabel(t, status) };
+        return { icon: <CheckCircle2 className="w-4 h-4" />, variant: 'success' as const, label: buildStatusLabel(t, status) };
       case 'running': 
         return { icon: <Loader2 className="w-4 h-4 animate-spin" />, variant: 'info' as const, label: t('status.runningBuild') };
       case 'pending': 
-        return { icon: <Clock className="w-4 h-4" />, variant: 'warning' as const, label: statusLabel(t, status) };
+        return { icon: <Clock className="w-4 h-4" />, variant: 'warning' as const, label: buildStatusLabel(t, status) };
       case 'failed': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: buildStatusLabel(t, status) };
       case 'failed_timeout': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: buildStatusLabel(t, status) };
       case 'failed_quota_exceeded': 
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: buildStatusLabel(t, status) };
       case 'failed_resource_exhausted':
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: buildStatusLabel(t, status) };
       case 'failed_internal':
-        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: statusLabel(t, status) };
+        return { icon: <AlertCircle className="w-4 h-4" />, variant: 'error' as const, label: buildStatusLabel(t, status) };
       case 'canceled':
-        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: statusLabel(t, status) };
+        return { icon: <XCircle className="w-4 h-4" />, variant: 'default' as const, label: buildStatusLabel(t, status) };
       default: 
         return { icon: <Info className="w-4 h-4" />, variant: 'default' as const, label: status };
     }

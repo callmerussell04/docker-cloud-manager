@@ -1,11 +1,11 @@
 import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
 import { Badge } from '@/shared/ui/Badge';
-import { type ContainerData } from '../model';
+import { blockedContainerActions, containerBadgeVariant, containerStatusLabel, type ContainerData } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { Link } from 'react-router-dom';
 import { containerTableLayout } from './tableLayouts';
 import { cn } from '@/shared/lib/utils';
-import { statusLabel, useT } from '@/shared/i18n';
+import { useT } from '@/shared/i18n';
 import { getServerErrorMessage } from '@/shared/api/apiError';
 import { useContainerAction, type ContainerMutationOptions } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
@@ -26,23 +26,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
   const actionMutation = useContainerAction('own', mutationOptions);
   const containerError = getServerErrorMessage(container.last_error, t);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'running': return <Badge variant="success">{statusLabel(t, status)}</Badge>;
-      case 'pending': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-      case 'exited': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'creating': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'starting': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-      case 'stopping': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'exposing': return <Badge variant="info">{statusLabel(t, status)}</Badge>;
-      case 'created': return <Badge variant="default">{statusLabel(t, status)}</Badge>;
-      case 'deleting': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'missing': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
-      case 'reconciling': return <Badge variant="warning">{statusLabel(t, status)}</Badge>;
-      case 'error': return <Badge variant="error">{statusLabel(t, status)}</Badge>;
-      default: return <Badge variant="info">{status}</Badge>;
-    }
-  };
+  const blocked = blockedContainerActions(container.status);
 
   const handleAction = (action: 'start' | 'stop' | 'delete') => {
     if (action === 'delete') {
@@ -69,7 +53,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
       </div>
 
       <div className="min-w-0 shrink-0">
-        {getStatusBadge(container.status)}
+        <Badge variant={containerBadgeVariant(container.status)}>{containerStatusLabel(t, container.status)}</Badge>
         <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} />
         {containerError && (
           <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={containerError}>
@@ -112,7 +96,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
 
         <button
           onClick={() => onOpenTerminal(container)}
-          disabled={container.status !== 'running'}
+          disabled={blocked.terminal}
           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           title={t('containers.terminal')}
         >
@@ -131,7 +115,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
 
         <button
           onClick={() => handleAction('start')}
-          disabled={['running', 'pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
+          disabled={blocked.start || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.start')}
         >
@@ -140,7 +124,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
         
         <button
           onClick={() => handleAction('stop')}
-          disabled={container.status !== 'running' || actionMutation.isPending}
+          disabled={blocked.stop || actionMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.stop')}
         >
@@ -149,7 +133,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
 
         <button
           onClick={() => onExpose(container)}
-          disabled={['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting', 'missing', 'reconciling'].includes(container.status) || actionMutation.isPending}
+          disabled={blocked.expose || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
           title={t('containers.routingSettings')}
         >
@@ -158,7 +142,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal, 
 
         <button
           onClick={() => handleAction('delete')}
-          disabled={['exposing', 'deleting'].includes(container.status) || actionMutation.isPending}
+          disabled={blocked.delete || actionMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
           title={t('common.delete')}
         >

@@ -1,3 +1,4 @@
+import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 export interface AdminUserAccount {
   user_id: string;
   username: string;
@@ -31,4 +32,13 @@ export interface AdminUserDeactivation extends AdminUserAccount {
 /** An updated user. workloads is present only when the update left the account deactivated. */
 export interface AdminUserUpdate extends AdminUserAccount {
   workloads?: WorkloadSuspension;
+}
+
+const statusKeys: Record<string, TranslationKey> = {
+  active: 'status.active',
+  deactivated: 'status.deactivated',
+};
+
+export function userStatusLabel(t: TFunction, status?: string) {
+  return labelFor(t, statusKeys, status);
 }

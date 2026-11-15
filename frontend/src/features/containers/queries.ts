@@ -11,7 +11,7 @@ import {
   getContainerStatsFn,
   getContainersFn,
 } from './api';
-import type { ContainerAction, ContainerData } from './model';
+import { containerNeedsPolling, type ContainerAction, type ContainerData } from './model';
 
 // Keys include the scope so that own and all-users data never share a cache
 // entry; invalidating containerKeys.all covers both scopes.
@@ -28,15 +28,6 @@ export interface ContainerMutationOptions {
   alsoInvalidate?: readonly QueryKey[];
 }
 
-const containerBusyStatuses = ['pending', 'creating', 'starting', 'stopping', 'exposing', 'deleting'];
-
-function shouldPollContainers(containers: ContainerData[]) {
-  return containers.some((container) => (
-    containerBusyStatuses.includes(container.status) ||
-    (container.status === 'running' && !!container.ttl_deadline)
-  ));
-}
-
 export function useContainers<S extends Scope>(scope: S, page: number, limit: number, { projectId, enabled = true }: { projectId?: string; enabled?: boolean } = {}) {
   return useQuery({
     queryKey: containerKeys.list(scope, { page, limit, projectId }),
@@ -44,7 +35,7 @@ export function useContainers<S extends Scope>(scope: S, page: number, limit: nu
     enabled,
     refetchInterval: (query) => {
       const containers = query.state.data?.items || [];
-      return enabled && shouldPollContainers(containers) ? 5000 : false;
+      return enabled && containers.some(containerNeedsPolling) ? 5000 : false;
     },
   });
 }

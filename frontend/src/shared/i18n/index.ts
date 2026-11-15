@@ -46,59 +46,9 @@ export function dateLocale(locale: Locale) {
   return locale === 'ru' ? 'ru-RU' : 'en-US';
 }
 
-export function statusLabel(t: TFunction, status?: string) {
-  switch (status) {
-    case 'running':
-      return t('status.running');
-    case 'exited':
-      return t('status.exited');
-    case 'stopped':
-      return t('status.stopped');
-    case 'created':
-      return t('status.created');
-    case 'creating':
-      return t('status.creating');
-    case 'starting':
-      return t('status.starting');
-    case 'stopping':
-      return t('status.stopping');
-    case 'deleting':
-      return t('status.deleting');
-    case 'missing':
-      return t('status.missing');
-    case 'reconciling':
-      return t('status.reconciling');
-    case 'error':
-      return t('status.error');
-    case 'available':
-      return t('status.available');
-    case 'pending':
-      return t('status.pending');
-    case 'success':
-      return t('status.success');
-    case 'failed':
-      return t('status.failed');
-    case 'failed_timeout':
-      return t('status.failedTimeout');
-    case 'failed_quota_exceeded':
-      return t('status.failedQuotaExceeded');
-    case 'failed_resource_exhausted':
-      return t('status.failedResourceExhausted');
-    case 'failed_internal':
-      return t('status.failedInternal');
-    case 'canceled':
-      return t('status.canceled');
-    case 'canceling':
-      return t('status.canceling');
-    case 'building':
-      return t('status.building');
-    case 'deploying':
-      return t('status.deploying');
-    case 'active':
-      return t('status.active');
-    case 'deactivated':
-      return t('status.deactivated');
-    default:
-      return status || t('status.unknown');
-  }
+// labelFor translates a value through a map of known values to keys, such as
+// a feature's statuses, and shows an unknown value as it is.
+export function labelFor(t: TFunction, keys: Readonly<Record<string, TranslationKey>>, value?: string) {
+  const key = value ? keys[value] : undefined;
+  return key ? t(key) : value || t('status.unknown');
 }

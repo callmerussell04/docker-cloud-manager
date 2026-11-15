@@ -1,8 +1,10 @@
 import { type HTMLAttributes, forwardRef } from 'react';
 import { cn } from '@/shared/lib/utils';
 
+export type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';
+
 interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
-  variant?: 'default' | 'success' | 'warning' | 'error' | 'info';
+  variant?: BadgeVariant;
 }
 
 export const Badge = forwardRef<HTMLDivElement, BadgeProps>(

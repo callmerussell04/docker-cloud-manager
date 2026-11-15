@@ -15,6 +15,10 @@ export const projectKeys = {
   list: (scope: Scope, params: PageParams) => [...projectKeys.lists(scope), params] as const,
 };
 
+// Container changes made inside a project can change the project's state, so
+// container mutations shown in the projects page refresh projects too.
+export const containerMutationsInProjects = { alsoInvalidate: [projectKeys.all] };
+
 // useProjects polls while a project is in a transitional state, unless
 // polling is off.
 export function useProjects<S extends Scope>(scope: S, page: number, limit: number, { enabled = true, polling = true }: { enabled?: boolean; polling?: boolean } = {}) {

@@ -6,8 +6,8 @@ import { Pagination } from '@/shared/ui/Pagination';
 import { Badge } from '@/shared/ui/Badge';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { cn } from '@/shared/lib/utils';
-import { statusLabel, useT } from '@/shared/i18n';
-import type { AdminUser } from '../model';
+import { useT } from '@/shared/i18n';
+import { userStatusLabel, type AdminUser } from '../model';
 import { userTableLayout } from '../components/tableLayout';
 import { UserFormModal } from '../components/UserFormModal';
 import { UserQuotaModal } from '../components/UserQuotaModal';
@@ -74,7 +74,7 @@ export function AdminUsersPage() {
                     <div className="text-xs font-mono text-slate-500 truncate">{user.user_id}</div>
                   </div>
                   <div><Badge variant={user.role === 'admin' ? 'error' : 'default'}>{user.role}</Badge></div>
-                  <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{statusLabel(t, user.status)}</Badge></div>
+                  <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{userStatusLabel(t, user.status)}</Badge></div>
                   <div className="text-xs text-slate-500 space-y-1">
                     <Badge variant={user.quota_custom ? 'warning' : 'default'}>
                       {user.quota_custom ? t('admin.users.quotaCustom') : t('admin.users.quotaDefault')}
