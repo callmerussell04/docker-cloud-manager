@@ -1,95 +1,184 @@
+/** The runtime settings, as `/admin/config` returns and accepts them. */
 export interface SystemConfig {
-  base_domain: string;
-  default_memory_reservation_bytes: number;
-  reserved_system_memory_bytes: number;
-  overcommit_factor: number;
-  max_burst_multiplier: number;
-  default_cpu_reservation_millicores: number;
-  reserved_system_cpu_millicores: number;
-  cpu_overcommit_factor: number;
-  max_cpu_burst_multiplier: number;
-  container_cpu_period: number;
-  default_cpu_shares: number;
-  container_stop_timeout: number;
-  max_log_size: string;
-  max_log_files: string;
-  container_disk_quota: string;
-  reserved_domain_prefixes: string[];
-  blocked_domain_prefix_patterns: string[];
-  max_volumes_per_user: number;
-  max_containers_per_user: number;
-  container_ttl_hours: number;
-  container_pids_limit: number;
-  container_memory_swap_multiplier: number;
-  image_builds_enabled: boolean;
-  build_memory_bytes: number;
-  build_cpu_quota: number;
-  build_cpu_period: number;
-  build_memory_swap_multiplier: number;
-  build_pids_limit: number;
-  kaniko_image: string;
-  max_build_time_minutes: number;
-  max_concurrent_builds: number;
-  max_upload_size_bytes: number;
-  max_archive_size_bytes: number;
-  max_unpacked_size_bytes: number;
-  max_build_log_size_bytes: number;
-  build_cancel_poll_interval_seconds: number;
-  build_max_disk_bytes: number;
-  ttl_worker_interval_seconds: number;
-  gc_worker_interval_minutes: number;
-  stale_build_timeout_minutes: number;
-  event_sync_interval_seconds: number;
-  event_reconnect_delay_seconds: number;
-  volume_usage_interval_seconds: number;
-  volume_usage_cycle_budget_seconds: number;
-  volume_usage_scan_entry_budget: number;
-  registry_cleanup_interval_seconds: number;
-  registry_cleanup_job_timeout_seconds: number;
-  registry_gc_max_duration_seconds: number;
-  build_outbox_interval_seconds: number;
-  build_outbox_batch_size: number;
-  reports_usage_snapshot_interval_seconds: number;
-  container_create_worker_count: number;
-  container_create_max_attempts: number;
-  container_create_timeout_minutes: number;
-  max_queued_container_creates_per_user: number;
-  container_create_outbox_interval_seconds: number;
-  container_create_outbox_batch_size: number;
-  max_staged_source_bytes_per_user: number;
-  max_queued_builds_per_user: number;
-  compose_upload_max_bytes: number;
-  compose_pipeline_timeout_minutes: number;
-  compose_build_poll_interval_seconds: number;
-  compose_dependency_wait_timeout_minutes: number;
-  compose_deploy_worker_count: number;
-  compose_outbox_interval_seconds: number;
-  compose_outbox_batch_size: number;
-  compose_deploy_max_attempts: number;
-  max_queued_compose_deploys_per_user: number;
-  compose_coordinator_interval_seconds: number;
-  host_min_free_disk_bytes: number;
-  memory_pressure_min_free_bytes: number;
-  memory_pressure_interval_seconds: number;
-  memory_boost_multiplier: number;
-  cpu_boost_multiplier: number;
-  boost_min_free_memory_bytes: number;
-  default_volume_size_bytes: number;
-  volume_size_enforcement: boolean;
   default_user_quota_cpu: number;
   default_user_quota_ram_mb: number;
   default_user_quota_disk_mb: number;
+  max_containers_per_user: number;
+  max_volumes_per_user: number;
+  max_queued_builds_per_user: number;
+  max_queued_compose_deploys_per_user: number;
+  max_staged_source_bytes_per_user: number;
+
+  default_memory_reservation_bytes: number;
+  max_burst_multiplier: number;
+  memory_boost_multiplier: number;
+  boost_min_free_memory_bytes: number;
+  memory_pressure_min_free_bytes: number;
+  reserved_system_memory_bytes: number;
+  overcommit_factor: number;
+
+  default_cpu_reservation_millicores: number;
+  max_cpu_burst_multiplier: number;
+  cpu_boost_multiplier: number;
+  reserved_system_cpu_millicores: number;
+  cpu_overcommit_factor: number;
+
+  container_disk_quota: string;
+  max_log_size: string;
+  default_volume_size_bytes: number;
+  volume_size_enforcement: boolean;
+  host_min_free_disk_bytes: number;
+
+  container_ttl_hours: number;
+  container_stop_timeout: number;
+  container_pids_limit: number;
+
+  image_builds_enabled: boolean;
+  max_concurrent_builds: number;
+  build_memory_bytes: number;
+  build_cpu_millicores: number;
+  build_max_disk_bytes: number;
+  max_build_time_minutes: number;
+  max_build_log_size_bytes: number;
+  max_archive_size_bytes: number;
+  max_unpacked_size_bytes: number;
+
   git_sources_enabled: boolean;
   git_allowed_hosts: string[];
   git_clone_timeout_seconds: number;
   git_max_repository_bytes: number;
-  telemetry_max_log_tail_lines: number;
-  telemetry_max_log_streams_per_user: number;
-  telemetry_max_terminal_sessions_per_user: number;
+
+  compose_upload_max_bytes: number;
+  compose_pipeline_timeout_minutes: number;
+  compose_dependency_wait_timeout_minutes: number;
+
+  reserved_domain_prefixes: string[];
+  blocked_domain_prefix_patterns: string[];
+
+  telemetry_allowed_exec_commands: string[];
   telemetry_terminal_idle_timeout_seconds: number;
   telemetry_terminal_max_duration_seconds: number;
-  telemetry_allowed_exec_commands: string[];
-  telemetry_max_command_args: number;
-  telemetry_max_command_arg_bytes: number;
-  telemetry_ws_read_limit_bytes: number;
+}
+
+export type SettingName = keyof SystemConfig;
+
+export const byteUnits = [
+  { label: 'Bytes', multiplier: 1 },
+  { label: 'KB', multiplier: 1024 },
+  { label: 'MB', multiplier: 1024 ** 2 },
+  { label: 'GB', multiplier: 1024 ** 3 },
+] as const;
+
+export type ByteUnit = (typeof byteUnits)[number]['label'];
+
+function multiplierOf(unit: ByteUnit) {
+  return byteUnits.find((item) => item.label === unit)?.multiplier ?? 1;
+}
+
+/** The largest unit that shows the size as a whole number. Zero is shown in MB. */
+export function byteUnitFor(bytes: number): ByteUnit {
+  if (bytes === 0) return 'MB';
+  for (const unit of ['GB', 'MB', 'KB'] as const) {
+    if (bytes >= multiplierOf(unit) && bytes % multiplierOf(unit) === 0) return unit;
+  }
+  return 'Bytes';
+}
+
+export function bytesToUnit(bytes: number, unit: ByteUnit) {
+  return bytes / multiplierOf(unit);
+}
+
+export function unitToBytes(value: number, unit: ByteUnit) {
+  return Math.round(value * multiplierOf(unit));
+}
+
+/** A size for reading, in the unit of its magnitude with up to two decimals. Zero is shown in MB. */
+export function formatBytes(bytes: number) {
+  const unit = bytes === 0
+    ? 'MB'
+    : ([...byteUnits].reverse().find((item) => bytes >= item.multiplier)?.label ?? 'Bytes');
+  return `${Number(bytesToUnit(bytes, unit).toFixed(2))} ${unit}`;
+}
+
+export function millicoresToCores(millicores: number) {
+  return millicores / 1000;
+}
+
+export function coresToMillicores(cores: number) {
+  return Math.round(cores * 1000);
+}
+
+/**
+ * Whether boost can raise limits: `on`; `off` when the boost multiplier is not
+ * above the limit multiplier; `pressureOff` when a zero memory pressure floor
+ * turns the worker that does both memory and CPU boost off.
+ */
+export type BoostState = 'on' | 'off' | 'pressureOff';
+
+function boostState(limitMultiplier: number, boostMultiplier: number, pressureFloorBytes: number): BoostState {
+  if (pressureFloorBytes <= 0) return 'pressureOff';
+  return boostMultiplier > limitMultiplier ? 'on' : 'off';
+}
+
+function allNumbers(values: Array<number | undefined>): values is number[] {
+  return values.every((value) => typeof value === 'number' && Number.isFinite(value));
+}
+
+export interface MemorySummary {
+  reservationBytes: number;
+  standardLimitBytes: number;
+  boostCeilingBytes: number;
+  boost: BoostState;
+}
+
+/** What a container with the default reservation gets; null while a value is missing. */
+export function memorySummary(
+  settings: Partial<Pick<SystemConfig,
+    'default_memory_reservation_bytes' | 'max_burst_multiplier' | 'memory_boost_multiplier' | 'memory_pressure_min_free_bytes'>>,
+): MemorySummary | null {
+  const values = [
+    settings.default_memory_reservation_bytes,
+    settings.max_burst_multiplier,
+    settings.memory_boost_multiplier,
+    settings.memory_pressure_min_free_bytes,
+  ];
+  if (!allNumbers(values)) return null;
+  const [reservation, limitMultiplier, boostMultiplier, pressureFloor] = values;
+  const boost = boostState(limitMultiplier, boostMultiplier, pressureFloor);
+  const standardLimitBytes = reservation * limitMultiplier;
+  return {
+    reservationBytes: reservation,
+    standardLimitBytes,
+    boostCeilingBytes: boost === 'on' ? reservation * boostMultiplier : standardLimitBytes,
+    boost,
+  };
+}
+
+export interface CPUSummary {
+  reservationCores: number;
+  standardLimitCores: number;
+  boostCeilingCores: number;
+  boost: BoostState;
+}
+
+export function cpuSummary(
+  settings: Partial<Pick<SystemConfig,
+    'default_cpu_reservation_millicores' | 'max_cpu_burst_multiplier' | 'cpu_boost_multiplier' | 'memory_pressure_min_free_bytes'>>,
+): CPUSummary | null {
+  const values = [
+    settings.default_cpu_reservation_millicores,
+    settings.max_cpu_burst_multiplier,
+    settings.cpu_boost_multiplier,
+    settings.memory_pressure_min_free_bytes,
+  ];
+  if (!allNumbers(values)) return null;
+  const [reservation, limitMultiplier, boostMultiplier, pressureFloor] = values;
+  const boost = boostState(limitMultiplier, boostMultiplier, pressureFloor);
+  const standardLimitCores = millicoresToCores(reservation * limitMultiplier);
+  return {
+    reservationCores: millicoresToCores(reservation),
+    standardLimitCores,
+    boostCeilingCores: boost === 'on' ? millicoresToCores(reservation * boostMultiplier) : standardLimitCores,
+    boost,
+  };
 }

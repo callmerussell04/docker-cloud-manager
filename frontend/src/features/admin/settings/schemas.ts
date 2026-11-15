@@ -1,104 +1,99 @@
 import { z } from 'zod';
 
-const stringListSchema = z
-  .array(z.string().trim())
-  .nullish()
-  .transform((items) => (items ?? []).filter(Boolean));
+import { sections, type ListItemKind, type SettingDef } from './catalogue';
+import type { SettingName, SystemConfig } from './model';
 
-export const systemConfigSchema = z.object({
-  base_domain: z.string().min(1),
-  default_memory_reservation_bytes: z.number().min(1),
-  reserved_system_memory_bytes: z.number().min(0),
-  overcommit_factor: z.number().positive().max(10),
-  max_burst_multiplier: z.number().min(1),
-  default_cpu_reservation_millicores: z.number().min(1),
-  reserved_system_cpu_millicores: z.number().min(0),
-  cpu_overcommit_factor: z.number().positive().max(10),
-  max_cpu_burst_multiplier: z.number().min(1),
-  container_cpu_period: z.number().min(1),
-  default_cpu_shares: z.number().min(2),
-  container_stop_timeout: z.number().min(1),
-  max_log_size: z.string().min(1),
-  max_log_files: z.string().min(1),
-  container_disk_quota: z.string().min(1),
-  reserved_domain_prefixes: stringListSchema,
-  blocked_domain_prefix_patterns: stringListSchema,
-  max_volumes_per_user: z.number().min(1),
-  max_containers_per_user: z.number().min(1),
-  container_ttl_hours: z.number().min(0),
-  container_pids_limit: z.number().min(1),
-  container_memory_swap_multiplier: z.number().min(1),
-  image_builds_enabled: z.boolean(),
-  build_memory_bytes: z.number().min(1),
-  build_cpu_quota: z.number().min(1),
-  build_cpu_period: z.number().min(1),
-  build_memory_swap_multiplier: z.number().min(1),
-  build_pids_limit: z.number().min(1),
-  kaniko_image: z.string().min(1),
-  max_build_time_minutes: z.number().min(1),
-  max_concurrent_builds: z.number().min(1),
-  max_upload_size_bytes: z.number().min(1),
-  max_archive_size_bytes: z.number().min(1),
-  max_unpacked_size_bytes: z.number().min(1),
-  max_build_log_size_bytes: z.number().min(1),
-  build_cancel_poll_interval_seconds: z.number().min(1),
-  build_max_disk_bytes: z.number().min(64 * 1024 * 1024),
-  ttl_worker_interval_seconds: z.number().min(1),
-  gc_worker_interval_minutes: z.number().min(1),
-  stale_build_timeout_minutes: z.number().min(1),
-  event_sync_interval_seconds: z.number().min(1),
-  event_reconnect_delay_seconds: z.number().min(1),
-  volume_usage_interval_seconds: z.number().min(1),
-  volume_usage_cycle_budget_seconds: z.number().min(1),
-  volume_usage_scan_entry_budget: z.number().min(1).max(10000000),
-  registry_cleanup_interval_seconds: z.number().min(1),
-  registry_cleanup_job_timeout_seconds: z.number().min(1),
-  registry_gc_max_duration_seconds: z.number().min(1),
-  build_outbox_interval_seconds: z.number().min(1),
-  build_outbox_batch_size: z.number().min(1),
-  reports_usage_snapshot_interval_seconds: z.number().min(60).max(86400),
-  container_create_worker_count: z.number().min(1),
-  container_create_max_attempts: z.number().min(1),
-  container_create_timeout_minutes: z.number().min(1),
-  max_queued_container_creates_per_user: z.number().min(0),
-  container_create_outbox_interval_seconds: z.number().min(1),
-  container_create_outbox_batch_size: z.number().min(1),
-  max_staged_source_bytes_per_user: z.number().min(0),
-  max_queued_builds_per_user: z.number().min(0),
-  compose_upload_max_bytes: z.number().min(1),
-  compose_pipeline_timeout_minutes: z.number().min(1),
-  compose_build_poll_interval_seconds: z.number().min(1),
-  compose_dependency_wait_timeout_minutes: z.number().min(1),
-  compose_deploy_worker_count: z.number().min(1),
-  compose_outbox_interval_seconds: z.number().min(1),
-  compose_outbox_batch_size: z.number().min(1),
-  compose_deploy_max_attempts: z.number().min(1),
-  max_queued_compose_deploys_per_user: z.number().min(0),
-  compose_coordinator_interval_seconds: z.number().min(1),
-  host_min_free_disk_bytes: z.number().min(0),
-  memory_pressure_min_free_bytes: z.number().min(0),
-  memory_pressure_interval_seconds: z.number().min(1),
-  memory_boost_multiplier: z.number().int().min(1).max(64),
-  cpu_boost_multiplier: z.number().int().min(1).max(64),
-  boost_min_free_memory_bytes: z.number().min(0),
-  default_volume_size_bytes: z.number().min(1024 * 1024),
-  volume_size_enforcement: z.boolean(),
-  default_user_quota_cpu: z.number().min(0.001).max(1_000_000),
-  default_user_quota_ram_mb: z.number().int().min(1),
-  default_user_quota_disk_mb: z.number().int().min(1),
-  git_sources_enabled: z.boolean(),
-  git_allowed_hosts: stringListSchema,
-  git_clone_timeout_seconds: z.number().min(1),
-  git_max_repository_bytes: z.number().min(1),
-  telemetry_max_log_tail_lines: z.number().min(1),
-  telemetry_max_log_streams_per_user: z.number().min(1),
-  telemetry_max_terminal_sessions_per_user: z.number().min(1),
-  telemetry_terminal_idle_timeout_seconds: z.number().min(1),
-  telemetry_terminal_max_duration_seconds: z.number().min(1),
-  telemetry_allowed_exec_commands: stringListSchema,
-  telemetry_max_command_args: z.number().min(0),
-  telemetry_max_command_arg_bytes: z.number().min(1),
-  telemetry_ws_read_limit_bytes: z.number().min(1),
-});
+/**
+ * Why a value is refused. The page turns a code into a sentence with the
+ * setting's range, in the unit the setting is shown in.
+ */
+export type SettingErrorCode =
+  | 'required' | 'integer' | 'range' | 'size' | 'listRequired' | 'listItem' | 'listUnique' | 'boostFloor';
 
-export type SystemConfigForm = z.input<typeof systemConfigSchema>;
+const code = (message: SettingErrorCode) => ({ message });
+
+// The format Core accepts for Docker sizes.
+const dockerSize = /^[1-9][0-9]*[kKmMgG]$/;
+
+// The same checks Core makes on each entry of a list. A pattern is checked
+// with the browser's regular expressions, which accept a little more than
+// Core's; Core has the last word.
+const listItemRules: Record<ListItemKind, { valid: (item: string) => boolean; key: (item: string) => string }> = {
+  prefix: {
+    valid: (item) => /^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$/.test(item),
+    key: (item) => item.toLowerCase(),
+  },
+  pattern: {
+    valid: (item) => {
+      try {
+        new RegExp(`^(?:${item})$`);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    key: (item) => item,
+  },
+  host: {
+    // No scheme, port, path or spaces, and no dot at either end.
+    valid: (item) => !/[\s:/\\\0]/.test(item) && !item.startsWith('.') && !item.endsWith('.'),
+    key: (item) => item.toLowerCase(),
+  },
+  command: {
+    valid: (item) => !/[\0\r\n]/.test(item),
+    key: (item) => item,
+  },
+};
+
+function listSchema(setting: SettingDef) {
+  const rules = setting.item ? listItemRules[setting.item] : undefined;
+  const list = z.array(z.string().min(1, code('listItem')));
+  return (setting.required ? list.min(1, code('listRequired')) : list).superRefine((items, context) => {
+    if (!rules) return;
+    if (!items.every(rules.valid)) {
+      context.addIssue({ code: 'custom', ...code('listItem') });
+    } else if (new Set(items.map(rules.key)).size !== items.length) {
+      context.addIssue({ code: 'custom', ...code('listUnique') });
+    }
+  });
+}
+
+function numberSchema(setting: SettingDef) {
+  let schema = z.number(code('required'));
+  if (setting.kind !== 'decimal') schema = schema.int(code('integer'));
+  if (setting.min !== undefined) {
+    schema = setting.aboveMin ? schema.gt(setting.min, code('range')) : schema.min(setting.min, code('range'));
+  }
+  if (setting.max !== undefined) schema = schema.max(setting.max, code('range'));
+  return schema;
+}
+
+function settingSchema(setting: SettingDef) {
+  switch (setting.kind) {
+    case 'toggle':
+      return z.boolean(code('required'));
+    case 'size':
+      return z.string(code('required')).regex(dockerSize, code('size'));
+    case 'list':
+      return listSchema(setting);
+    default:
+      return numberSchema(setting);
+  }
+}
+
+const shape = Object.fromEntries(
+  sections.flatMap((section) => section.settings.map((setting) => [setting.name, settingSchema(setting)])),
+) as unknown as Record<SettingName, z.ZodType>;
+
+// The same rules Core applies to an update, so the page refuses what the
+// server would. Each setting's own rule comes from the catalogue; the two
+// rules below span settings.
+export const systemConfigSchema = z.object(shape).superRefine((value, context) => {
+  const settings = value as SystemConfig;
+  if (settings.boost_min_free_memory_bytes < settings.memory_pressure_min_free_bytes) {
+    context.addIssue({ code: 'custom', path: ['boost_min_free_memory_bytes'], ...code('boostFloor') });
+  }
+  if (settings.git_sources_enabled && settings.git_allowed_hosts.length === 0) {
+    context.addIssue({ code: 'custom', path: ['git_allowed_hosts'], ...code('listRequired') });
+  }
+}) as unknown as z.ZodType<SystemConfig, SystemConfig>;

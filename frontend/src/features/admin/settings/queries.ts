@@ -22,7 +22,10 @@ export function useUpdateSystemConfig() {
 
   return useMutation({
     mutationFn: updateSystemConfigFn,
-    onSuccess: () => {
+    onSuccess: (_, saved) => {
+      // The saved values are the server's values now; showing them at once
+      // keeps the form from falling back to the previous read while it reloads.
+      queryClient.setQueryData(settingsKeys.systemConfig, saved);
       queryClient.invalidateQueries({ queryKey: settingsKeys.systemConfig });
       addToast(t('admin.settings.updated'), 'success');
     },
