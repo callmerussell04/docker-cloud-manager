@@ -20,4 +20,5 @@ export const validation: Record<keyof typeof ru, string> = {
   'validation.gitUrlRequired': 'Enter a Git repository URL',
   'validation.projectFileType': 'Only archives (.zip, .tar.gz) or .yml files are allowed',
   'validation.buildFileType': 'Only .zip, .tar, .tar.gz archives are allowed',
+  'validation.portRange': 'Enter a port from 1 to 65535',
 };

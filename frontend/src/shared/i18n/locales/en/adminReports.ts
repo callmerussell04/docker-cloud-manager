@@ -53,4 +53,5 @@ export const adminReports: Record<keyof typeof ru, string> = {
   'admin.reports.chart.reservedMemory': 'Reserved RAM',
   'admin.reports.chart.disk': 'Disk',
   'admin.reports.chart.cpu': 'CPU',
+  'admin.reports.refreshFailed': 'Failed to collect current usage',
 };

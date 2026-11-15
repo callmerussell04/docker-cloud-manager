@@ -148,6 +148,7 @@ const statusKeys: Record<string, TranslationKey> = {
   creating: 'status.creating',
   starting: 'status.starting',
   stopping: 'status.stopping',
+  exposing: 'status.exposing',
   deleting: 'status.deleting',
   missing: 'status.missing',
   reconciling: 'status.reconciling',

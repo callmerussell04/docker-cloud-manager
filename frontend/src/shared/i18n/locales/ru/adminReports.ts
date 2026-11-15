@@ -51,4 +51,5 @@ export const adminReports = {
   'admin.reports.chart.reservedMemory': 'Зарезервированная RAM',
   'admin.reports.chart.disk': 'Диск',
   'admin.reports.chart.cpu': 'CPU',
+  'admin.reports.refreshFailed': 'Не удалось собрать текущее использование',
 } as const;

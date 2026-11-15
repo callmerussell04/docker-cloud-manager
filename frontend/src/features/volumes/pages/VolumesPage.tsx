@@ -10,6 +10,7 @@ import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { useVolumes } from '@/features/volumes/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage } from '@/shared/api/apiError';
@@ -41,12 +42,9 @@ export function VolumesPage() {
             placeholder={t('common.search')}
             title={t('common.searchCurrentPage')}
             value={search}
-            onChange={(value) => {
-              setSearch(value);
-              setPage(1);
-            }}
+            onChange={setSearch}
           />
-          <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
+          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
@@ -90,6 +88,8 @@ export function VolumesPage() {
                 filteredVolumes.map((volume) => (
                   <VolumeRow key={volume.id} volume={volume} />
                 ))
+              ) : search && volumes.length > 0 ? (
+                <NoMatchesState />
               ) : (
                 <EmptyState
                   icon={<HardDrive className="h-8 w-8" />}

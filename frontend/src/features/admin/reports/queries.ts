@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query';
 import { getAuditEventsFn, getReportsOverviewFn, getUserUsageReportFn, getUserUsageTimelineFn, refreshUsageSnapshotsFn } from './api';
 import type { AuditFilters, ReportRangeParams, UserUsageFilters } from './model';
 
@@ -14,6 +14,7 @@ export function useReportsOverview(params: ReportRangeParams) {
   return useQuery({
     queryKey: reportKeys.overview(params),
     queryFn: () => getReportsOverviewFn(params),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -21,6 +22,7 @@ export function useUserUsageReport(params: UserUsageFilters) {
   return useQuery({
     queryKey: reportKeys.users(params),
     queryFn: () => getUserUsageReportFn(params),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -36,15 +38,12 @@ export function useAuditEvents(params: AuditFilters) {
   return useQuery({
     queryKey: reportKeys.audit(params),
     queryFn: () => getAuditEventsFn(params),
+    placeholderData: keepPreviousData,
   });
 }
 
+// The reports page moves its time window after a refresh, which reloads every
+// report; nothing is invalidated here.
 export function useRefreshUsageSnapshots() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: refreshUsageSnapshotsFn,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: reportKeys.all });
-    },
-  });
+  return useMutation({ mutationFn: refreshUsageSnapshotsFn });
 }

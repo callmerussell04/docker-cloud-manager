@@ -1,8 +1,8 @@
-import { useCallback, useState } from 'react';
+import { Suspense, useCallback, useState } from 'react';
 import type { Scope } from '@/shared/api/scope';
 import type { ContainerData } from '../model';
 import { ContainerLogsModal } from '../streams/ContainerLogsModal';
-import { ContainerTerminalModal } from '../streams/ContainerTerminalModal';
+import { LazyContainerTerminalModal } from '../streams/LazyContainerTerminalModal';
 import { ExposeContainerModal } from './ExposeContainerModal';
 
 // useContainerModals owns which container the logs, terminal and routing
@@ -20,7 +20,11 @@ export function useContainerModals(scope: Scope) {
   const modals = (
     <>
       <ContainerLogsModal container={logsContainer} scope={scope} onClose={closeLogs} />
-      <ContainerTerminalModal container={terminalContainer} scope={scope} onClose={closeTerminal} />
+      {terminalContainer && (
+        <Suspense fallback={null}>
+          <LazyContainerTerminalModal container={terminalContainer} scope={scope} onClose={closeTerminal} />
+        </Suspense>
+      )}
       {scope === 'own' && (
         <ExposeContainerModal container={exposeContainer} onClose={closeExpose} />
       )}

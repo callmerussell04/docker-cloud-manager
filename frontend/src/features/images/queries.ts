@@ -65,12 +65,11 @@ export function useBuildAvailability(enabled = true) {
   });
 }
 
-export function useBuildLogs(scope: Scope, id: string | undefined, enabled: boolean, shouldPoll = false) {
+export function useBuildLogs(scope: Scope, id: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: buildKeys.logs(scope, id),
     queryFn: () => getBuildLogsFn(scope, id as string),
     enabled,
-    refetchInterval: shouldPoll ? 3000 : false,
     retry: false,
   });
 }

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { BarChart3, Boxes, Cpu, Filter, HardDrive, MemoryStick, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
+import { useToastStore } from '@/shared/ui/toastStore';
+import { getApiErrorMessage } from '@/shared/api/apiError';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import type { UserUsageReportItem } from '../model';
@@ -14,8 +16,13 @@ import { UserUsageTable } from '../components/UserUsageTable';
 import { AuditEventsTable, type AuditFilterValues } from '../components/AuditEventsTable';
 import { UserUsageChartModal } from '../components/UserUsageChartModal';
 
+function currentSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
+
 export function AdminReportsPage() {
   const t = useT();
+  const addToast = useToastStore((state) => state.addToast);
   const locale = useLocale();
   const [rangeSeconds, setRangeSeconds] = useState(ranges[1].seconds);
   const [sort, setSort] = useState('disk');
@@ -24,7 +31,10 @@ export function AdminReportsPage() {
   const [auditFilters, setAuditFilters] = useState<AuditFilterValues>({ search: '', outcome: '', action: '', resourceType: '' });
   const debouncedUserSearch = useDebouncedValue(userSearch);
   const debouncedAuditSearch = useDebouncedValue(auditFilters.search);
-  const params = useMemo(() => rangeParams(rangeSeconds), [rangeSeconds]);
+  // The window ends when the range was chosen or usage was last refreshed,
+  // so a refresh moves it forward and shows what happened since.
+  const [windowEnd, setWindowEnd] = useState(currentSeconds);
+  const params = useMemo(() => rangeParams(rangeSeconds, windowEnd), [rangeSeconds, windowEnd]);
   const [userPage, setUserPage] = usePageOf([debouncedUserSearch, rangeSeconds, sort]);
   const [auditPage, setAuditPage] = usePageOf([debouncedAuditSearch, auditFilters.outcome, auditFilters.action, auditFilters.resourceType, rangeSeconds]);
 
@@ -52,13 +62,10 @@ export function AdminReportsPage() {
     : t('admin.reports.noUsageSnapshot');
 
   const refetchAll = () => {
+    // Moving the window changes every report's query key, which reloads them.
     refreshSnapshots.mutate(undefined, {
-      onSuccess: () => {
-        overview.refetch();
-        users.refetch();
-        timeline.refetch();
-        audit.refetch();
-      },
+      onSuccess: () => setWindowEnd(currentSeconds()),
+      onError: (error) => addToast(getApiErrorMessage(error, t('admin.reports.refreshFailed'), t).message, 'error'),
     });
   };
   const retryUsage = () => {
@@ -85,7 +92,10 @@ export function AdminReportsPage() {
               <button
                 key={range.seconds}
                 type="button"
-                onClick={() => setRangeSeconds(range.seconds)}
+                onClick={() => {
+                  setRangeSeconds(range.seconds);
+                  setWindowEnd(currentSeconds());
+                }}
                 className={`px-3 py-2 text-sm font-medium ${
                   rangeSeconds === range.seconds
                     ? 'bg-indigo-600 text-white'

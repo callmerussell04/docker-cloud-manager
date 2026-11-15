@@ -162,7 +162,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
                 <input type="checkbox" id={`ro-${index}`} {...register(`volume_mounts.${index}.is_readonly`)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
                 <Label htmlFor={`ro-${index}`} className="text-xs cursor-pointer">RO</Label>
               </div>
-              <Button type="button" variant="danger" onClick={() => removeVol(index)} className="px-3 h-10">
+              <Button title={t('common.delete')} aria-label={t('common.delete')} type="button" variant="danger" onClick={() => removeVol(index)} className="px-3 h-10">
                 <Trash2 className="w-4 h-4" />
               </Button>
             </div>

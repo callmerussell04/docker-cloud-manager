@@ -77,7 +77,7 @@ export function ImagesTab() {
               <div className="block truncate" title={img.owner_username || img.owner_id}>{t('admin.resources.userLabel', { value: ownerName(img) })}</div>
             </div>
             <div className="flex gap-2 justify-end shrink-0">
-              <Button
+              <Button title={t('common.delete')} aria-label={t('common.delete')}
                 variant="danger"
                 className="h-8 px-2"
                 disabled={deleteImage.isPending}

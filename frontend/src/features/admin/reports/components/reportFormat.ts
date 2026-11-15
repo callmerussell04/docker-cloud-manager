@@ -42,8 +42,8 @@ export const auditResourceTypes = ['container', 'volume', 'image', 'build', 'pro
 export const userPageSize = 10;
 export const auditPageSize = 20;
 
-export function rangeParams(seconds: number) {
-  const to = Math.floor(Date.now() / 1000);
+// rangeParams is the report window: `seconds` back from `to` (Unix seconds).
+export function rangeParams(seconds: number, to: number) {
   return { from: to - seconds, to };
 }
 

@@ -1,8 +1,9 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 import { ProtectedRoute } from './guards/ProtectedRoute';
 import { AdminRoute } from './guards/AdminRoute';
 import { PageFallback } from './layout/PageFallback';
+import { RouteError } from './layout/RouteError';
 
 // page loads a page module only when its route is first rendered. Each loader
 // imports the page module directly so that every page becomes its own chunk.
@@ -30,11 +31,22 @@ function standalone(element: ReactNode) {
   return <Suspense fallback={<PageFallback fullScreen />}>{element}</Suspense>;
 }
 
+// A page that fails keeps the layout around it: every page route shows
+// RouteError in its own place, and the outer routes show it full screen.
+function withPageErrors(routes: RouteObject[]): RouteObject[] {
+  return routes.map((route) => ({
+    ...route,
+    errorElement: <RouteError />,
+    children: route.children ? withPageErrors(route.children) : undefined,
+  } as RouteObject));
+}
+
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <ProtectedRoute />,
-    children: [
+    errorElement: <RouteError fullScreen />,
+    children: withPageErrors([
       { index: true, element: <DashboardPage /> },
       { path: 'containers', element: <ContainersPage /> },
       { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" /> },
@@ -53,9 +65,9 @@ export const router = createBrowserRouter([
           { path: 'containers/:id', element: <ContainerDetailsPage scope="all" backTo="/admin/resources" /> },
         ],
       },
-    ],
+    ]),
   },
-  { path: '/login', element: standalone(<LoginPage />) },
-  { path: '/auth/callback', element: standalone(<AuthCallbackPage />) },
-  { path: '/register', element: standalone(<RegisterPage />) },
+  { path: '/login', element: standalone(<LoginPage />), errorElement: <RouteError fullScreen /> },
+  { path: '/auth/callback', element: standalone(<AuthCallbackPage />), errorElement: <RouteError fullScreen /> },
+  { path: '/register', element: standalone(<RegisterPage />), errorElement: <RouteError fullScreen /> },
 ]);

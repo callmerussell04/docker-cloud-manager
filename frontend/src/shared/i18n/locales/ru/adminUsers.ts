@@ -18,6 +18,7 @@ export const adminUsers = {
   'admin.users.stopWorkloads': 'Остановить нагрузки',
   'admin.users.stopWorkloadsConfirm': 'Остановить оставшиеся нагрузки пользователя "{name}"? Данные сохранятся.',
   'admin.users.deactivateFailed': 'Не удалось деактивировать пользователя',
+  'admin.users.activate': 'Активировать',
   'admin.users.activated': 'Пользователь активирован',
   'admin.users.activateFailed': 'Не удалось активировать пользователя',
   'admin.users.created': 'Пользователь создан',

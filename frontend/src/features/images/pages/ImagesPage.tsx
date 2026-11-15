@@ -15,6 +15,7 @@ import { useT } from '@/shared/i18n';
 import { useBuildAvailability, useBuilds, useImages } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { TabSwitcher } from '@/shared/ui/TabSwitcher';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage } from '@/shared/api/apiError';
@@ -41,7 +42,7 @@ export function ImagesPage() {
   const isBuildDisabled = buildAvailability?.enabled === false;
 
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
-  const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()));
+  const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()) || (b.tag || '').toLowerCase().includes(search.toLowerCase()));
 
   const totalSizeBytes = images.reduce((sum, img) => sum + img.size_bytes, 0);
 
@@ -75,13 +76,9 @@ export function ImagesPage() {
             placeholder={t('common.search')}
             title={t('common.searchCurrentPage')}
             value={search}
-            onChange={(value) => {
-              setSearch(value);
-              setImagesPage(1);
-              setBuildsPage(1);
-            }}
+            onChange={setSearch}
           />
-          <Button variant="secondary" onClick={handleRefresh} isLoading={isFetching} className="px-3">
+          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={handleRefresh} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>
@@ -151,6 +148,8 @@ export function ImagesPage() {
                   filteredImages.map((image) => (
                     <ImageRow key={image.id} image={image} />
                   ))
+                ) : search && images.length > 0 ? (
+                  <NoMatchesState />
                 ) : (
                   <EmptyState
                     icon={<Layers className="h-8 w-8" />}
@@ -164,6 +163,8 @@ export function ImagesPage() {
                   filteredBuilds.map((build) => (
                     <BuildRow key={build.id} build={build} onViewLogs={setViewLogsBuild} />
                   ))
+                ) : search && builds.length > 0 ? (
+                  <NoMatchesState />
                 ) : (
                   <EmptyState
                     icon={<Hammer className="h-8 w-8" />}

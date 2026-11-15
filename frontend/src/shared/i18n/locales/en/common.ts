@@ -59,4 +59,11 @@ export const common: Record<keyof typeof ru, string> = {
   'connection.connected': 'Connected',
   'connection.disconnected': 'Disconnected',
   'pagination.summary': 'Showing {from} - {to} of {total}',
+  'common.noMatches': 'Nothing found',
+  'common.noMatchesDescription': 'No rows on this page of the list match the search.',
+  'pagination.previous': 'Previous page',
+  'pagination.next': 'Next page',
+  'error.pageTitle': 'Something went wrong',
+  'error.pageMessage': 'The page could not be shown. Reload it to try again.',
+  'error.reload': 'Reload',
 };

@@ -52,4 +52,5 @@ export const images = {
   'images.addArg': 'Добавить аргумент',
   'images.buildStarted': 'Сборка успешно инициирована',
   'images.buildStartFailed': 'Не удалось инициировать сборку',
+  'images.cancelBuild': 'Отменить сборку',
 } as const;

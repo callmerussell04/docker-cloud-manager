@@ -8,10 +8,11 @@ export function ToastContainer() {
   const t = useT();
 
   return (
-    <div className="fixed bottom-4 right-4 z-[200] flex w-[calc(100vw-2rem)] max-w-md flex-col gap-2 sm:w-full">
+    <div className="fixed bottom-4 right-4 z-[200] flex w-[calc(100vw-2rem)] max-w-md flex-col gap-2 sm:w-full" aria-live="polite">
       {toasts.map((toast) => (
         <div
           key={toast.id}
+          role={toast.type === 'error' ? 'alert' : 'status'}
           className={cn(
             "relative flex items-start gap-3 rounded-xl border px-4 py-3 pr-10 shadow-lg transition-all animate-in slide-in-from-right-5",
             toast.type === 'success' && "bg-green-50 border-green-200 text-green-900 dark:bg-green-950 dark:border-green-900 dark:text-green-100",

@@ -46,4 +46,5 @@ export const projects = {
   'projects.deployed': 'Проект успешно запущен. Сборка и развертывание происходят в фоне.',
   'projects.deployFailed': 'Не удалось развернуть проект',
   'projects.composeBuildUnavailable': 'Сборка образов сейчас недоступна. Compose-файлы с директивой build не будут приняты; используйте готовые Docker-образы или Compose без build.',
+  'projects.cancel': 'Отменить развёртывание',
 } as const;

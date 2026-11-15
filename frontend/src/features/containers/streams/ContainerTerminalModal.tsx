@@ -69,6 +69,7 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
         };
 
         ws.onmessage = (event) => {
+          if (!isSubscribed) return;
           if (typeof event.data === 'string') {
             try {
               const msg = JSON.parse(event.data);
@@ -89,6 +90,8 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
         };
 
         ws.onclose = () => {
+          // The terminal is disposed once the modal has closed.
+          if (!isSubscribed) return;
           setIsConnected(false);
           term.writeln('\r\n\x1b[33mDisconnected from terminal.\x1b[0m\r\n');
         };

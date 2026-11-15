@@ -89,15 +89,15 @@ export function BuildsTab() {
                 >
                   <ScrollText className="w-4 h-4" />
                 </Button>
-                <Button
+                <Button title={t('images.cancelBuild')} aria-label={t('images.cancelBuild')}
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={!canCancel || cancelBuild.isPending}
-                  onClick={() => setConfirm({ message: t('images.cancelBuildConfirm', { id: build.id }), run: () => cancelBuild.mutate(build.id), confirmLabel: t('projects.cancelRequested'), variant: 'secondary' })}
+                  onClick={() => setConfirm({ message: t('images.cancelBuildConfirm', { id: build.id }), run: () => cancelBuild.mutate(build.id), confirmLabel: t('images.cancelBuild'), variant: 'secondary' })}
                 >
                   <XCircle className="w-4 h-4 text-yellow-500" />
                 </Button>
-                <Button
+                <Button title={t('common.delete')} aria-label={t('common.delete')}
                   variant="danger"
                   className="h-8 px-2"
                   disabled={canCancel || deleteBuild.isPending}

@@ -3,6 +3,7 @@ import type { Control, FieldArrayPath, FieldValues, Path, UseFormRegister } from
 import { useFieldArray } from 'react-hook-form';
 import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
+import { useT } from '@/shared/i18n';
 
 interface KeyValueFieldArrayProps<T extends FieldValues> {
   control: Control<T>;
@@ -15,6 +16,7 @@ interface KeyValueFieldArrayProps<T extends FieldValues> {
 
 export function KeyValueFieldArray<T extends FieldValues>({ control, register, name, keyPlaceholder, valuePlaceholder, addLabel }: KeyValueFieldArrayProps<T>) {
   const { fields, append, remove } = useFieldArray({ control, name });
+  const t = useT();
 
   return (
     <>
@@ -26,7 +28,7 @@ export function KeyValueFieldArray<T extends FieldValues>({ control, register, n
           <div className="flex-1">
             <Input placeholder={valuePlaceholder} {...register(`${name}.${index}.value` as Path<T>)} />
           </div>
-          <Button type="button" variant="danger" onClick={() => remove(index)} className="px-3">
+          <Button title={t('common.delete')} aria-label={t('common.delete')} type="button" variant="danger" onClick={() => remove(index)} className="px-3">
             <Trash2 className="h-4 w-4" />
           </Button>
         </div>

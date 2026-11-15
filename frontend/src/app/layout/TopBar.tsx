@@ -47,7 +47,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <button
+        <button title={t('theme.switch')} aria-label={t('theme.switch')}
           onClick={toggleTheme}
           className="p-2.5 rounded-xl bg-white/50 dark:bg-slate-800/50 hover:bg-white/80 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-600/50 transition-colors text-slate-700 dark:text-slate-300"
         >

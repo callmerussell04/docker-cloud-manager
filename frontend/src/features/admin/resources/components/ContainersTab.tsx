@@ -99,7 +99,7 @@ export function ContainersTab() {
                 <div className="block truncate text-slate-400" title={c.docker_id}>{t('admin.resources.dockerIdLabel', { value: c.docker_id?.slice(0, 12) || 'N/A' })}</div>
               </div>
               <div className="flex gap-2 justify-end shrink-0">
-                <Link to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
+                <Link title={t('containers.stats')} aria-label={t('containers.stats')} to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
                   <Activity className="w-4 h-4" />
                 </Link>
 
@@ -112,7 +112,7 @@ export function ContainersTab() {
                   <Terminal className="w-4 h-4" />
                 </button>
 
-                <button
+                <button title={t('containers.logs')} aria-label={t('containers.logs')}
                   onClick={() => openLogs(c)}
                   className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
                 >
@@ -121,9 +121,9 @@ export function ContainersTab() {
 
                 <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
 
-                <Button variant="secondary" className="h-8 px-2" disabled={action.isPending || blocked.start} onClick={() => action.mutate({ id: c.id, action: 'start' })}><Play className="w-4 h-4 text-green-500" /></Button>
-                <Button variant="secondary" className="h-8 px-2" disabled={action.isPending || blocked.stop} onClick={() => action.mutate({ id: c.id, action: 'stop' })}><Square className="w-4 h-4 text-yellow-500" /></Button>
-                <Button
+                <Button title={t('containers.start')} aria-label={t('containers.start')} variant="secondary" className="h-8 px-2" disabled={action.isPending || blocked.start} onClick={() => action.mutate({ id: c.id, action: 'start' })}><Play className="w-4 h-4 text-green-500" /></Button>
+                <Button title={t('containers.stop')} aria-label={t('containers.stop')} variant="secondary" className="h-8 px-2" disabled={action.isPending || blocked.stop} onClick={() => action.mutate({ id: c.id, action: 'stop' })}><Square className="w-4 h-4 text-yellow-500" /></Button>
+                <Button title={t('common.delete')} aria-label={t('common.delete')}
                   variant="danger"
                   className="h-8 px-2"
                   disabled={action.isPending || blocked.delete}

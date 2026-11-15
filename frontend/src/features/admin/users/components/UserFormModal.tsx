@@ -27,7 +27,9 @@ export function UserFormModal({ isOpen, user, onClose }: { isOpen: boolean; user
     },
   });
 
+  // Reset on every opening, so a second "create" does not show the first one's values.
   useEffect(() => {
+    if (!isOpen) return;
     if (user) {
       reset({ username: user.username, email: user.email, role: user.role, status: user.status, password: '' });
     } else {
@@ -39,7 +41,7 @@ export function UserFormModal({ isOpen, user, onClose }: { isOpen: boolean; user
         status: 'active',
       });
     }
-  }, [user, reset]);
+  }, [isOpen, user, reset]);
 
   const createMutation = useCreateAdminUser();
   const updateMutation = useUpdateAdminUser();

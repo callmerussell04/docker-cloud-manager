@@ -13,6 +13,7 @@ import { useT } from '@/shared/i18n';
 import { useProjects } from '@/features/projects/queries';
 import { useBuildAvailability } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage } from '@/shared/api/apiError';
@@ -48,12 +49,9 @@ export function ProjectsPage() {
             placeholder={t('common.search')}
             title={t('common.searchCurrentPage')}
             value={search}
-            onChange={(value) => {
-              setSearch(value);
-              setPage(1);
-            }}
+            onChange={setSearch}
           />
-          <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
+          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
@@ -110,6 +108,8 @@ export function ProjectsPage() {
                     onOpenTerminal={openTerminal}
                   />
                 ))
+              ) : search && projects.length > 0 ? (
+                <NoMatchesState />
               ) : (
                 <EmptyState
                   icon={<Layers className="h-8 w-8" />}

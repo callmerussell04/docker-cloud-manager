@@ -11,7 +11,6 @@ import { Button } from '@/shared/ui/Button';
 import { AuthHeader } from '@/features/auth/components/AuthHeader';
 import { PasswordInput } from '@/shared/ui/PasswordInput';
 import { useToastStore } from '@/shared/ui/toastStore';
-import { useAuthStore } from '@/shared/api/sessionStore';
 import { loginFn } from '@/features/auth/api';
 import { type LoginData, createLoginSchema } from '@/features/auth/schemas';
 import { useAuthConfig } from '@/features/auth/queries';
@@ -22,7 +21,6 @@ import { API_URL } from '@/shared/lib/config';
 export function LoginPage() {
   const navigate = useNavigate();
   const addToast = useToastStore((state) => state.addToast);
-  const setAccessToken = useAuthStore((state) => state.setAccessToken);
   const t = useT();
   const { data: authConfig } = useAuthConfig();
   const localLoginEnabled = authConfig?.local_login_enabled ?? true;
@@ -39,12 +37,10 @@ export function LoginPage() {
 
   const mutation = useMutation({
     mutationFn: loginFn,
-    onSuccess: (data) => {
-      if (data.access_token) {
-        setAccessToken(data.access_token);
-        addToast(t('auth.login.success'), 'success');
-        navigate('/');
-      }
+    // loginFn has already handed the token to the session.
+    onSuccess: () => {
+      addToast(t('auth.login.success'), 'success');
+      navigate('/');
     },
     onError: (error: unknown) => {
       const { message } = getApiErrorMessage(error, t('auth.login.failed'), t);

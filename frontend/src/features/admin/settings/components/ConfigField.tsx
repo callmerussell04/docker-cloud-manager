@@ -284,7 +284,7 @@ function ListField({
             placeholder={field.placeholderKey ? t(field.placeholderKey) : t('admin.settings.addListItem')}
             error={!!error}
           />
-          <Button type="button" variant="secondary" onClick={() => addDraft(draft)} className="shrink-0 px-3">
+          <Button title={t('admin.settings.addListItem')} aria-label={t('admin.settings.addListItem')} type="button" variant="secondary" onClick={() => addDraft(draft)} className="shrink-0 px-3">
             <Plus className="h-4 w-4" />
           </Button>
         </div>

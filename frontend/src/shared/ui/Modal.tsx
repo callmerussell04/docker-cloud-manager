@@ -1,4 +1,4 @@
-import { type HTMLAttributes, useEffect } from 'react';
+import { type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
@@ -10,6 +10,8 @@ interface ModalProps extends HTMLAttributes<HTMLDivElement> {
   onClose: () => void;
   title?: string;
 }
+
+const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export function Modal({ isOpen, onClose, title, children, className, ...props }: ModalProps) {
   const t = useT();
@@ -39,10 +41,50 @@ export function Modal({ isOpen, onClose, title, children, className, ...props }:
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Focus moves into the dialog when it opens and returns to where it was
+  // when the dialog closes.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
+    return () => previous?.focus();
+  }, [isOpen]);
+
+  // Tab stays inside the dialog.
+  const keepFocusInside = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const dialog = dialogRef.current;
+    if (event.key !== 'Tab' || !dialog) return;
+    const focusable = dialog.querySelectorAll<HTMLElement>(focusableSelector);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || active === dialog)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      ref={dialogRef}
+      tabIndex={-1}
+      onKeyDown={keepFocusInside}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 outline-none"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <div 
         className="absolute inset-0 bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm animate-in fade-in"
         onClick={onClose}

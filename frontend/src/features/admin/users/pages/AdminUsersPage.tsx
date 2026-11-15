@@ -43,7 +43,7 @@ export function AdminUsersPage() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.users.subtitle')}</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
+          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
             <RefreshCcw className="w-4 h-4" />
           </Button>
           <Button onClick={() => setIsCreateOpen(true)}>
@@ -98,11 +98,11 @@ export function AdminUsersPage() {
                     <Button variant="secondary" className="h-8 px-2" title={t('admin.users.editQuota')} aria-label={t('admin.users.editQuota')} onClick={() => setQuotaUser(user)}>
                       <Gauge className="w-4 h-4" />
                     </Button>
-                    <Button variant="secondary" className="h-8 px-2" onClick={() => setEditingUser(user)}>
+                    <Button title={t('common.edit')} aria-label={t('common.edit')} variant="secondary" className="h-8 px-2" onClick={() => setEditingUser(user)}>
                       <Edit className="w-4 h-4" />
                     </Button>
                     {user.status === 'active' ? (
-                      <Button
+                      <Button title={t('admin.users.deactivate')} aria-label={t('admin.users.deactivate')}
                         variant="danger"
                         className="h-8 px-2"
                         disabled={deactivateMutation.isPending}
@@ -122,7 +122,7 @@ export function AdminUsersPage() {
                         >
                           <PowerOff className="w-4 h-4" />
                         </Button>
-                        <Button variant="secondary" className="h-8 px-2" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate(user.user_id)}>
+                        <Button title={t('admin.users.activate')} aria-label={t('admin.users.activate')} variant="secondary" className="h-8 px-2" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate(user.user_id)}>
                           <RotateCcw className="w-4 h-4" />
                         </Button>
                       </>

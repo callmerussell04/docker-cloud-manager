@@ -75,7 +75,7 @@ export function VolumesTab() {
               <div className="block truncate" title={v.owner_username || v.owner_id}>{t('admin.resources.userLabel', { value: ownerName(v) })}</div>
             </div>
             <div className="flex gap-2 justify-end shrink-0">
-              <Button
+              <Button title={t('common.delete')} aria-label={t('common.delete')}
                 variant="danger"
                 className="h-8 px-2"
                 disabled={deleteVolume.isPending}

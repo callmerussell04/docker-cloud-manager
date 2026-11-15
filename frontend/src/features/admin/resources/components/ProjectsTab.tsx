@@ -86,7 +86,7 @@ export function ProjectsTab() {
                 <div className="block truncate" title={p.owner_username || p.owner_id}>{t('admin.resources.userLabel', { value: ownerName(p) })}</div>
               </div>
               <div className="flex gap-2 justify-end shrink-0">
-                <Button
+                <Button title={t('containers.start')} aria-label={t('containers.start')}
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={action.isPending || isBusy || isCanceled || p.status === 'failed' || p.status === 'running'}
@@ -94,7 +94,7 @@ export function ProjectsTab() {
                 >
                   <Play className="w-4 h-4 text-green-500" />
                 </Button>
-                <Button
+                <Button title={t('containers.stop')} aria-label={t('containers.stop')}
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={action.isPending || isBusy || isCanceled || p.status === 'failed' || p.status === 'stopped'}
@@ -102,15 +102,15 @@ export function ProjectsTab() {
                 >
                   <Square className="w-4 h-4 text-yellow-500" />
                 </Button>
-                <Button
+                <Button title={t('projects.cancel')} aria-label={t('projects.cancel')}
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={action.isPending || !canCancelProject(p.status)}
-                  onClick={() => setConfirm({ message: t('projects.cancelConfirm', { name: p.name }), run: () => action.mutate({ id: p.id, action: 'cancel' }), confirmLabel: t('projects.cancelRequested'), variant: 'secondary' })}
+                  onClick={() => setConfirm({ message: t('projects.cancelConfirm', { name: p.name }), run: () => action.mutate({ id: p.id, action: 'cancel' }), confirmLabel: t('projects.cancel'), variant: 'secondary' })}
                 >
                   <XCircle className="w-4 h-4 text-orange-500" />
                 </Button>
-                <Button
+                <Button title={t('common.delete')} aria-label={t('common.delete')}
                   variant="danger"
                   className="h-8 px-2"
                   disabled={action.isPending || isBusy}

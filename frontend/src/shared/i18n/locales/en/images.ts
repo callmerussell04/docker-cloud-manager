@@ -54,4 +54,5 @@ export const images: Record<keyof typeof ru, string> = {
   'images.addArg': 'Add argument',
   'images.buildStarted': 'Build started',
   'images.buildStartFailed': 'Failed to start build',
+  'images.cancelBuild': 'Cancel build',
 };

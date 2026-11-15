@@ -74,7 +74,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-4">
-          <Link
+          <Link title={t('common.back')} aria-label={t('common.back')}
             to={backTo}
             className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
           >
@@ -96,7 +96,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link 
+          <Link title={t('common.back')} aria-label={t('common.back')} 
             to={backTo} 
             className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
           >

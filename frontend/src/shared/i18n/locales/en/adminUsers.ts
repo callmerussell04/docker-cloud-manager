@@ -20,6 +20,7 @@ export const adminUsers: Record<keyof typeof ru, string> = {
   'admin.users.stopWorkloads': 'Stop workloads',
   'admin.users.stopWorkloadsConfirm': 'Stop the remaining workloads of "{name}"? Their data is kept.',
   'admin.users.deactivateFailed': 'Failed to deactivate user',
+  'admin.users.activate': 'Activate',
   'admin.users.activated': 'User activated',
   'admin.users.activateFailed': 'Failed to activate user',
   'admin.users.created': 'User created',

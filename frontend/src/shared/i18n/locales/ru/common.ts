@@ -57,4 +57,11 @@ export const common = {
   'connection.connected': 'Подключено',
   'connection.disconnected': 'Отключено',
   'pagination.summary': 'Показано {from} — {to} из {total}',
+  'common.noMatches': 'Ничего не найдено',
+  'common.noMatchesDescription': 'На этой странице списка нет строк, подходящих под поиск.',
+  'pagination.previous': 'Предыдущая страница',
+  'pagination.next': 'Следующая страница',
+  'error.pageTitle': 'Что-то пошло не так',
+  'error.pageMessage': 'Не удалось показать страницу. Перезагрузите её, чтобы попробовать снова.',
+  'error.reload': 'Перезагрузить',
 } as const;

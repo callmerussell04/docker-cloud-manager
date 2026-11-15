@@ -88,7 +88,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('images.cancelBuildRequested')}
+          title={t('images.cancelBuild')}
         >
           <XCircle className="w-4 h-4" />
         </button>
@@ -105,7 +105,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           isOpen={confirmAction !== null}
           title={t('confirm.title')}
           message={confirmAction === 'cancel' ? t('images.cancelBuildConfirm', { id: build.id }) : t('images.deleteBuildConfirm', { id: build.id })}
-          confirmLabel={confirmAction === 'cancel' ? t('projects.cancelRequested') : t('common.delete')}
+          confirmLabel={confirmAction === 'cancel' ? t('images.cancelBuild') : t('common.delete')}
           isLoading={cancelMutation.isPending || deleteMutation.isPending}
           variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
           onCancel={() => setConfirmAction(null)}

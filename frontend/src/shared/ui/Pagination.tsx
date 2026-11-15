@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './Button';
 import { useT } from '@/shared/i18n';
@@ -12,6 +13,13 @@ interface PaginationProps {
 export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: PaginationProps) {
   const totalPages = Math.ceil(totalItems / pageSize);
   const t = useT();
+  const lastPage = Math.max(totalPages, 1);
+
+  // A page past the end, as after deleting the last row of the last page,
+  // returns to the last page that exists.
+  useEffect(() => {
+    if (currentPage > lastPage) onPageChange(lastPage);
+  }, [currentPage, lastPage, onPageChange]);
 
   if (totalPages <= 1) return null;
 
@@ -29,6 +37,8 @@ export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: 
           variant="secondary"
           className="p-2 h-9 w-9"
           disabled={currentPage === 1}
+          aria-label={t('pagination.previous')}
+          title={t('pagination.previous')}
           onClick={() => onPageChange(currentPage - 1)}
         >
           <ChevronLeft className="w-4 h-4" />
@@ -39,7 +49,9 @@ export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: 
         <Button
           variant="secondary"
           className="p-2 h-9 w-9"
-          disabled={currentPage === totalPages}
+          disabled={currentPage >= totalPages}
+          aria-label={t('pagination.next')}
+          title={t('pagination.next')}
           onClick={() => onPageChange(currentPage + 1)}
         >
           <ChevronRight className="w-4 h-4" />

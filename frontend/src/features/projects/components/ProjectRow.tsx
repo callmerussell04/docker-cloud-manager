@@ -123,7 +123,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
-          title={t('projects.cancelRequested')}
+          title={t('projects.cancel')}
         >
           <XCircle className="w-4 h-4" />
         </button>
@@ -140,7 +140,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           isOpen={confirmAction !== null}
           title={t('confirm.title')}
           message={confirmAction === 'cancel' ? t('projects.cancelConfirm', { name: project.name }) : t('projects.deleteConfirm', { name: project.name })}
-          confirmLabel={confirmAction === 'cancel' ? t('projects.cancelRequested') : t('common.delete')}
+          confirmLabel={confirmAction === 'cancel' ? t('projects.cancel') : t('common.delete')}
           isLoading={cancelMutation.isPending || deleteMutation.isPending}
           variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
           onCancel={() => setConfirmAction(null)}

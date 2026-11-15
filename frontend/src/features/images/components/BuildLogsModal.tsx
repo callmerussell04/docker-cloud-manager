@@ -19,7 +19,7 @@ export function BuildLogsModal({ build, scope, onClose }: BuildLogsModalProps) {
   const scrollRef = useRef<HTMLPreElement>(null);
   const t = useT();
 
-  const { data: logs, error, isLoading, isError, refetch, isFetching } = useBuildLogs(scope, build?.id, !!build, build?.status === 'running');
+  const { data: logs, error, isLoading, isError, refetch, isFetching } = useBuildLogs(scope, build?.id, !!build);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -38,7 +38,7 @@ export function BuildLogsModal({ build, scope, onClose }: BuildLogsModalProps) {
             <Terminal className="w-4 h-4" />
             <span className="text-xs font-mono">{build.id}.log</span>
           </div>
-          <Button variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-white" onClick={() => refetch()}>
+          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-white" onClick={() => refetch()}>
             <RefreshCcw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
         </div>

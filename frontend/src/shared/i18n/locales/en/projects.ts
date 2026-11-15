@@ -48,4 +48,5 @@ export const projects: Record<keyof typeof ru, string> = {
   'projects.deployed': 'Project started. Build and deployment continue in the background.',
   'projects.deployFailed': 'Failed to deploy project',
   'projects.composeBuildUnavailable': 'Image builds are currently unavailable. Compose files with a build directive will be rejected; use prebuilt Docker images or Compose without build.',
+  'projects.cancel': 'Cancel deployment',
 };

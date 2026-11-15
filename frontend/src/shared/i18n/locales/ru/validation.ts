@@ -18,4 +18,5 @@ export const validation = {
   'validation.gitUrlRequired': 'Укажите URL Git-репозитория',
   'validation.projectFileType': 'Допустимы только архивы (.zip, .tar.gz) или файлы .yml',
   'validation.buildFileType': 'Допустимы только архивы .zip, .tar, .tar.gz',
+  'validation.portRange': 'Укажите порт от 1 до 65535',
 } as const;

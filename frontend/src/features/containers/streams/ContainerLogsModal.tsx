@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal, Download } from 'lucide-react';
 import { Modal } from '@/shared/ui/Modal';
 import { Button } from '@/shared/ui/Button';
@@ -12,6 +12,9 @@ import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError
 import type { TFunction } from '@/shared/i18n';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
+
+// The most lines the modal keeps and the largest tail it asks for.
+const maxLogLines = 5000;
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;
@@ -37,6 +40,8 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
   useEffect(() => {
     if (!container) return;
     let isSubscribed = true;
+    let pending: string[] = [];
+    let flushFrame = 0;
 
     const connect = async () => {
       try {
@@ -57,8 +62,17 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
 
         es.onopen = () => setIsConnected(true);
 
+        // Lines arrive one event each; a burst, such as the tail a stream
+        // opens with, is added once per frame instead of once per line.
         es.addEventListener('log', (e) => {
-          setLogs((prev) => [...prev, e.data].slice(-5000));
+          pending.push(e.data);
+          if (flushFrame) return;
+          flushFrame = requestAnimationFrame(() => {
+            flushFrame = 0;
+            const lines = pending;
+            pending = [];
+            setLogs((prev) => prev.concat(lines).slice(-maxLogLines));
+          });
         });
 
         es.addEventListener('error', (event) => {
@@ -87,6 +101,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
 
     return () => {
       isSubscribed = false;
+      cancelAnimationFrame(flushFrame);
       if (esRef.current) {
         esRef.current.close();
       }
@@ -99,8 +114,10 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
     }
   },[logs, follow]);
 
+  const logText = useMemo(() => logs.join('\n'), [logs]);
+
   const downloadLogs = () => {
-    const blob = new Blob([logs.join('\n')], { type: 'text/plain' });
+    const blob = new Blob([logText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -112,7 +129,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
   };
 
   const applyOptions = () => {
-    const nextTail = Math.max(0, Math.min(5000, Number(tail) || 0)).toString();
+    const nextTail = Math.max(0, Math.min(maxLogLines, Number(tail) || 0)).toString();
     setTail(nextTail);
     setAppliedTail(nextTail);
     setAppliedTimestamps(timestamps);
@@ -161,7 +178,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
           </div>
           <pre ref={scrollRef} className="p-4 pt-12 h-full w-full overflow-auto text-[13px] font-mono text-slate-300 whitespace-pre-wrap break-words">
             {logs.length === 0 && isConnected && t('containers.logsWaiting')}
-            {logs.join('\n')}
+            {logText}
           </pre>
         </div>
       </div>
