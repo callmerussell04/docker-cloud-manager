@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
+import { queryRoots } from '@/shared/api/queryRoots';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
@@ -10,14 +11,10 @@ import { actionProjectFn, createProjectFn, createProjectFromGitFn, getProjectsFn
 import { isProjectBusy, type CreateProjectGitPayload, type ProjectAction } from './model';
 
 export const projectKeys = {
-  all: ['projects'] as const,
+  all: queryRoots.projects,
   lists: (scope: Scope) => [...projectKeys.all, scope, 'list'] as const,
   list: (scope: Scope, params: PageParams) => [...projectKeys.lists(scope), params] as const,
 };
-
-// Container changes made inside a project can change the project's state, so
-// container mutations shown in the projects page refresh projects too.
-export const containerMutationsInProjects = { alsoInvalidate: [projectKeys.all] };
 
 // useProjects polls while a project is in a transitional state, unless
 // polling is off.

@@ -37,7 +37,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'containers', element: <ContainersPage /> },
-      { path: 'containers/:id', element: <ContainerDetailsPage scope="own" /> },
+      { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" /> },
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesPage /> },
       { path: 'projects', element: <ProjectsPage /> },
@@ -50,7 +50,7 @@ export const router = createBrowserRouter([
           { path: 'reports', element: <AdminReportsPage /> },
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
-          { path: 'containers/:id', element: <ContainerDetailsPage scope="all" /> },
+          { path: 'containers/:id', element: <ContainerDetailsPage scope="all" backTo="/admin/resources" /> },
         ],
       },
     ],

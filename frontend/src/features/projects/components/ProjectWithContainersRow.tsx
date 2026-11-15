@@ -7,7 +7,6 @@ import { useContainers } from '@/features/containers/queries';
 import type { ContainerData } from '@/features/containers/model';
 import type { ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
-import { containerMutationsInProjects } from '../queries';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 
@@ -74,7 +73,6 @@ export function ProjectWithContainersRow({
                   onExpose={onExpose}
                   onViewLogs={onViewLogs}
                   onOpenTerminal={onOpenTerminal}
-                  mutationOptions={containerMutationsInProjects}
                 />
               ))}
             </div>

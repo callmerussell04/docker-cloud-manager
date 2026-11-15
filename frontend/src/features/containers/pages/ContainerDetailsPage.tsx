@@ -23,9 +23,12 @@ import { useContainerAction, useContainerStats } from '../queries';
 
 interface ContainerDetailsPageProps {
   scope: Scope;
+  // backTo is the list the back link returns to. The route supplies it, so
+  // this page does not know the admin area's URLs.
+  backTo: string;
 }
 
-export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
+export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProps) {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -75,7 +78,7 @@ export function ContainerDetailsPage({ scope }: ContainerDetailsPageProps) {
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Link 
-            to={scope === 'all' ? '/admin/resources' : '/containers'} 
+            to={backTo} 
             className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />

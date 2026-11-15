@@ -51,6 +51,7 @@ export const containers: Record<keyof typeof ru, string> = {
   'containers.logsWaiting': 'Waiting for logs...',
   'containers.logsStreamError': 'Log stream error',
   'containers.terminalTitle': 'Terminal: {name}',
+  'containers.terminalError': 'Terminal error',
   'containers.terminalTicketFailed': 'Failed to get terminal ticket',
   'containers.terminalExitHint': 'Close the window or type exit to leave',
   'containers.statsOnlyRunning': 'Statistics are available only for running containers.',

@@ -49,6 +49,7 @@ export const containers = {
   'containers.logsWaiting': 'Ожидание логов...',
   'containers.logsStreamError': 'Ошибка потока логов',
   'containers.terminalTitle': 'Терминал: {name}',
+  'containers.terminalError': 'Ошибка терминала',
   'containers.terminalTicketFailed': 'Не удалось получить тикет для терминала',
   'containers.terminalExitHint': 'Для выхода закройте окно или введите exit',
   'containers.statsOnlyRunning': 'Статистика доступна только для запущенных контейнеров.',

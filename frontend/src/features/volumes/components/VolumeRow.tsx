@@ -6,6 +6,7 @@ import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { useDeleteVolume } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
+import { getServerErrorMessage } from '@/shared/api/apiError';
 
 interface VolumeRowProps {
   volume: VolumeData;
@@ -15,6 +16,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   const t = useT();
   const locale = useLocale();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const lastError = getServerErrorMessage(volume.last_error, t);
   const deleteMutation = useDeleteVolume('own');
 
   const formattedDate = new Date(volume.created_at * 1000).toLocaleDateString(dateLocale(locale), {
@@ -56,10 +58,10 @@ export function VolumeRow({ volume }: VolumeRowProps) {
 
       <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
         {formattedDate}
-        {volume.last_error && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={volume.last_error}>
+        {lastError && (
+          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={lastError}>
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{volume.last_error}</span>
+            <span className="truncate">{lastError}</span>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
+import { queryRoots } from '@/shared/api/queryRoots';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
@@ -16,17 +17,11 @@ import { containerNeedsPolling, type ContainerAction, type ContainerData } from 
 // Keys include the scope so that own and all-users data never share a cache
 // entry; invalidating containerKeys.all covers both scopes.
 export const containerKeys = {
-  all: ['containers'] as const,
+  all: queryRoots.containers,
   lists: (scope: Scope) => [...containerKeys.all, scope, 'list'] as const,
   list: (scope: Scope, params: PageParams & { projectId?: string }) => [...containerKeys.lists(scope), params] as const,
   stats: (scope: Scope, id: string) => [...containerKeys.all, scope, 'stats', id] as const,
 };
-
-// Mutation options for a feature that shows data derived from containers. The
-// projects feature passes its keys here, because containers may not import it.
-export interface ContainerMutationOptions {
-  alsoInvalidate?: readonly QueryKey[];
-}
 
 export function useContainers<S extends Scope>(scope: S, page: number, limit: number, { projectId, enabled = true }: { projectId?: string; enabled?: boolean } = {}) {
   return useQuery({
@@ -66,7 +61,7 @@ export function useCreateContainer() {
   });
 }
 
-export function useContainerAction(scope: Scope, { alsoInvalidate = [] }: ContainerMutationOptions = {}) {
+export function useContainerAction(scope: Scope) {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -75,7 +70,8 @@ export function useContainerAction(scope: Scope, { alsoInvalidate = [] }: Contai
     mutationFn: (variables: { id: string; action: ContainerAction }) => actionContainerFn({ scope, ...variables }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
-      alsoInvalidate.forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
+      // A container's state is part of its project's state.
+      queryClient.invalidateQueries({ queryKey: queryRoots.projects });
       addToast(scope === 'all'
         ? t('admin.resources.done')
         : t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
@@ -86,7 +82,7 @@ export function useContainerAction(scope: Scope, { alsoInvalidate = [] }: Contai
   });
 }
 
-export function useExposeContainer({ alsoInvalidate = [] }: ContainerMutationOptions = {}) {
+export function useExposeContainer() {
   const queryClient = useQueryClient();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
@@ -95,7 +91,8 @@ export function useExposeContainer({ alsoInvalidate = [] }: ContainerMutationOpt
     mutationFn: exposeContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
-      alsoInvalidate.forEach((queryKey) => queryClient.invalidateQueries({ queryKey }));
+      // A container's state is part of its project's state.
+      queryClient.invalidateQueries({ queryKey: queryRoots.projects });
       addToast(t('containers.routingUpdated'), 'success');
     },
     onError: (error: unknown) => {

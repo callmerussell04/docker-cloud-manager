@@ -8,7 +8,8 @@ import { API_URL } from '@/shared/lib/config';
 import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../model';
 import type { Scope } from '@/shared/api/scope';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
+import type { TFunction } from '@/shared/i18n';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
@@ -61,7 +62,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
         });
 
         es.addEventListener('error', (event) => {
-          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, tRef.current('containers.logsStreamError')), 'error');
+          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, tRef.current('containers.logsStreamError'), tRef.current), 'error');
           es.close();
           setIsConnected(false);
         });
@@ -168,15 +169,18 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
   );
 }
 
-function getStreamErrorMessage(data: unknown, fallback: string) {
+// getStreamErrorMessage shows the stream's error only when it is safe for the
+// user to see, and the fallback otherwise.
+function getStreamErrorMessage(data: unknown, fallback: string, t: TFunction) {
   if (typeof data !== 'string' || !data) {
     return fallback;
   }
 
+  let message = data;
   try {
-    const parsed = JSON.parse(data) as { error?: string };
-    return parsed.error || data;
+    message = (JSON.parse(data) as { error?: string }).error || data;
   } catch {
-    return data;
+    // A plain-text event carries the message itself.
   }
+  return getServerErrorMessage(message, t) ?? fallback;
 }

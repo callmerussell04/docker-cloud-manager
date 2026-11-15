@@ -7,6 +7,7 @@ import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { useDeleteImage } from '../queries';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
+import { getServerErrorMessage } from '@/shared/api/apiError';
 
 interface ImageRowProps {
   image: ImageData;
@@ -16,6 +17,7 @@ export function ImageRow({ image }: ImageRowProps) {
   const t = useT();
   const locale = useLocale();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const lastError = getServerErrorMessage(image.last_error, t);
   const deleteMutation = useDeleteImage('own');
 
   const formattedDate = new Date(image.created_at * 1000).toLocaleDateString(dateLocale(locale), {
@@ -45,10 +47,10 @@ export function ImageRow({ image }: ImageRowProps) {
 
       <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
         {formattedDate}
-        {image.last_error && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={image.last_error}>
+        {lastError && (
+          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={lastError}>
             <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{image.last_error}</span>
+            <span className="truncate">{lastError}</span>
           </div>
         )}
       </div>

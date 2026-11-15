@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import type { Scope } from '@/shared/api/scope';
 import type { ContainerData } from '../model';
-import type { ContainerMutationOptions } from '../queries';
 import { ContainerLogsModal } from '../streams/ContainerLogsModal';
 import { ContainerTerminalModal } from '../streams/ContainerTerminalModal';
 import { ExposeContainerModal } from './ExposeContainerModal';
@@ -9,7 +8,7 @@ import { ExposeContainerModal } from './ExposeContainerModal';
 // useContainerModals owns which container the logs, terminal and routing
 // modals show, and renders them; place `modals` once in the page. Routing is
 // changed only on the user's own containers.
-export function useContainerModals(scope: Scope, mutationOptions?: ContainerMutationOptions) {
+export function useContainerModals(scope: Scope) {
   const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
   const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
@@ -23,7 +22,7 @@ export function useContainerModals(scope: Scope, mutationOptions?: ContainerMuta
       <ContainerLogsModal container={logsContainer} scope={scope} onClose={closeLogs} />
       <ContainerTerminalModal container={terminalContainer} scope={scope} onClose={closeTerminal} />
       {scope === 'own' && (
-        <ExposeContainerModal container={exposeContainer} onClose={closeExpose} mutationOptions={mutationOptions} />
+        <ExposeContainerModal container={exposeContainer} onClose={closeExpose} />
       )}
     </>
   );

@@ -8,7 +8,7 @@ import { WS_URL } from '@/shared/lib/config';
 import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../model';
 import type { Scope } from '@/shared/api/scope';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
@@ -75,7 +75,8 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
               if (msg.type === 'ready') {
                 term.focus();
               } else if (msg.type === 'error') {
-                term.writeln(`\r\n\x1b[31mError: ${msg.error}\x1b[0m\r\n`);
+                const error = getServerErrorMessage(msg.error, tRef.current) ?? tRef.current('containers.terminalError');
+                term.writeln(`\r\n\x1b[31m${error}\x1b[0m\r\n`);
               } else if (msg.type === 'exit') {
                 term.writeln(`\r\n\x1b[33mProcess exited with code ${msg.exit_code}\x1b[0m\r\n`);
               }

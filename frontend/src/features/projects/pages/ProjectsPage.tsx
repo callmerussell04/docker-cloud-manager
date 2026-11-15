@@ -10,7 +10,7 @@ import { useContainerModals } from '@/features/containers/components/useContaine
 import { projectTableLayout } from '../components/tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
-import { containerMutationsInProjects, useProjects } from '@/features/projects/queries';
+import { useProjects } from '@/features/projects/queries';
 import { useBuildAvailability } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -20,7 +20,7 @@ import { getApiErrorMessage } from '@/shared/api/apiError';
 export function ProjectsPage() {
   const t = useT();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own', containerMutationsInProjects);
+  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
