@@ -54,6 +54,7 @@ var adminRoutePermissions = []struct {
 	{method: http.MethodPut, route: "/api/v1/admin/users/:id/quota", permission: permissions.UsersAdminUpdate},
 	{method: http.MethodDelete, route: "/api/v1/admin/users/:id/quota", permission: permissions.UsersAdminUpdate},
 	{method: http.MethodGet, route: "/api/v1/admin/containers", permission: permissions.ContainersAdminList},
+	{method: http.MethodGet, route: "/api/v1/admin/containers/:id", permission: permissions.ContainersAdminList},
 	{method: http.MethodPost, route: "/api/v1/admin/containers/:id/action/:action", permission: permissions.ContainersAdminAction},
 	{method: http.MethodGet, route: "/api/v1/admin/containers/:id/stats", permission: permissions.ContainersAdminStats},
 	{method: http.MethodPost, route: "/api/v1/admin/containers/:id/logs/stream/ticket", permission: permissions.ContainersAdminLogs},

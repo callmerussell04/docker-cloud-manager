@@ -10,6 +10,7 @@ service ContainerAPI {
   rpc StopContainer (ContainerActionRequest) returns (Empty);
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
   rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
+  rpc GetContainer (ContainerActionRequest) returns (ContainerData);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
   // Removed with the Telemetry service; do not reuse: GetContainerRuntimeTarget

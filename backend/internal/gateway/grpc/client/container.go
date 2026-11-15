@@ -84,6 +84,14 @@ func (c *CoreClient) ListContainers(ctx context.Context, page, limit int, projec
 	}, nil
 }
 
+func (c *CoreClient) GetContainer(ctx context.Context, containerID string) (model.Container, error) {
+	resp, err := c.containerAPI.GetContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: containerID})
+	if err != nil {
+		return model.Container{}, grpcerrors.FromGRPC(err)
+	}
+	return containerFromProto(resp), nil
+}
+
 func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error) {
 	req := &coreapi.ContainerActionRequest{
 		ContainerId: containerID,
@@ -98,30 +106,34 @@ func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) 
 func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 	result := make([]model.Container, 0, len(items))
 	for _, item := range items {
-		var lastExitCode *int
-		if item.LastExitCode != nil {
-			value := int(item.GetLastExitCode())
-			lastExitCode = &value
-		}
-		result = append(result, model.Container{
-			ID:            item.GetId(),
-			DockerID:      item.GetDockerId(),
-			ProjectID:     item.GetProjectId(),
-			Name:          item.GetName(),
-			ImageTag:      item.GetImageTag(),
-			InternalPort:  item.GetInternalPort(),
-			DomainPrefix:  item.GetDomainPrefix(),
-			Status:        item.GetStatus(),
-			DesiredStatus: item.GetDesiredStatus(),
-			LastError:     item.GetLastError(),
-			LastExitCode:  lastExitCode,
-			TTLDeadline:   item.GetTtlDeadline(),
-			CreatedAt:     item.GetCreatedAt(),
-			OwnerID:       item.GetOwnerId(),
-			OwnerUsername: item.GetOwnerUsername(),
-		})
+		result = append(result, containerFromProto(item))
 	}
 	return result
+}
+
+func containerFromProto(item *coreapi.ContainerData) model.Container {
+	var lastExitCode *int
+	if item.LastExitCode != nil {
+		value := int(item.GetLastExitCode())
+		lastExitCode = &value
+	}
+	return model.Container{
+		ID:            item.GetId(),
+		DockerID:      item.GetDockerId(),
+		ProjectID:     item.GetProjectId(),
+		Name:          item.GetName(),
+		ImageTag:      item.GetImageTag(),
+		InternalPort:  item.GetInternalPort(),
+		DomainPrefix:  item.GetDomainPrefix(),
+		Status:        item.GetStatus(),
+		DesiredStatus: item.GetDesiredStatus(),
+		LastError:     item.GetLastError(),
+		LastExitCode:  lastExitCode,
+		TTLDeadline:   item.GetTtlDeadline(),
+		CreatedAt:     item.GetCreatedAt(),
+		OwnerID:       item.GetOwnerId(),
+		OwnerUsername: item.GetOwnerUsername(),
+	}
 }
 
 func containerStatsFromProto(data *coreapi.ContainerStatsResponse) model.ContainerStats {

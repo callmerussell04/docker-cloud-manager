@@ -155,6 +155,14 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, int32(10), containerSrv.limit)
 	require.Equal(t, "project-id", containerSrv.projectID)
 
+	container, err := coreClient.GetContainer(context.Background(), "container-id")
+	require.NoError(t, err)
+	require.Equal(t, "container-id", containerSrv.gotID)
+	require.Equal(t, "docker-id", container.DockerID)
+	require.Equal(t, "alice", container.OwnerUsername)
+	require.NotNil(t, container.LastExitCode)
+	require.Equal(t, 137, *container.LastExitCode)
+
 	stats, err := coreClient.GetContainerStats(context.Background(), "container-id")
 	require.NoError(t, err)
 	require.Equal(t, 12.5, stats.CPUPercentage)
@@ -337,6 +345,7 @@ type coreContainerServer struct {
 	create    *coreapi.CreateContainerRequest
 	createErr error
 	startedID string
+	gotID     string
 	page      int32
 	limit     int32
 	projectID string
@@ -376,6 +385,12 @@ func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.Pag
 		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice"}},
 		TotalCount: 1,
 	}, nil
+}
+
+func (s *coreContainerServer) GetContainer(_ context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerData, error) {
+	s.gotID = req.GetContainerId()
+	exitCode := int32(137)
+	return &coreapi.ContainerData{Id: req.GetContainerId(), DockerId: "docker-id", Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice"}, nil
 }
 
 func (s *coreContainerServer) GetContainerStats(context.Context, *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {

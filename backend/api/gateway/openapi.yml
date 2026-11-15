@@ -292,6 +292,22 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /containers/{id}:
+    get:
+      summary: Get one of the current user's containers
+      tags: [Containers]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The container
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserContainer'
+        '404':
+          description: No such container, or it belongs to another user
+
   /containers/{id}/action/{action}:
     post:
       summary: Perform action on a container (start, stop, delete)
@@ -1238,6 +1254,22 @@ paths:
                       $ref: '#/components/schemas/Container'
                   total_count:
                     type: integer
+
+  /admin/containers/{id}:
+    get:
+      summary: Admin get any container
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The container
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Container'
+        '404':
+          description: No such container
 
   /admin/containers/{id}/action/{action}:
     post:

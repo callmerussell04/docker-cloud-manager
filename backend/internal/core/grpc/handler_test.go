@@ -134,6 +134,72 @@ func TestContainerGRPCHandlerPreservesAlreadyExistsMessage(t *testing.T) {
 	require.Equal(t, "subdomain app.example.test is already in use", status.Convert(err).Message())
 }
 
+func TestContainerGRPCHandlerMapsGet(t *testing.T) {
+	ownerID := uuid.New()
+	projectID := uuid.New()
+	exitCode := 137
+	container := model.Container{
+		ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, DockerID: "docker-web", Name: "web",
+		ImageTag: "nginx:latest", InternalPort: 8080, DomainPrefix: "app",
+		Status: model.ContainerStatusExited, DesiredStatus: model.ContainerStatusExited, LastExitCode: &exitCode,
+	}
+	logic := coregrpcmocks.NewMockContainerLogic(t)
+	logic.EXPECT().Get(mock.Anything, container.ID).Return(container, nil)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterContainerAPI(s, logic, users)
+	})
+	client := coreapi.NewContainerAPIClient(conn)
+
+	got, err := client.GetContainer(userScopeContext(ownerID), &coreapi.ContainerActionRequest{ContainerId: container.ID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, container.ID.String(), got.GetId())
+	require.Equal(t, "docker-web", got.GetDockerId())
+	require.Equal(t, "web", got.GetName())
+	require.Equal(t, "nginx:latest", got.GetImageTag())
+	require.EqualValues(t, 8080, got.GetInternalPort())
+	require.Equal(t, "app", got.GetDomainPrefix())
+	require.Equal(t, model.ContainerStatusExited, got.GetStatus())
+	require.Equal(t, model.ContainerStatusExited, got.GetDesiredStatus())
+	require.Equal(t, ownerID.String(), got.GetOwnerId())
+	require.Equal(t, "alice", got.GetOwnerUsername())
+	require.Equal(t, projectID.String(), got.GetProjectId())
+	require.NotNil(t, got.LastExitCode)
+	require.EqualValues(t, 137, got.GetLastExitCode())
+}
+
+func TestContainerGRPCHandlerGetRejectsBadRequests(t *testing.T) {
+	containerID := uuid.New()
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		id       string
+		logicErr error
+		want     codes.Code
+	}{
+		{name: "malformed id", ctx: userScopeContext(uuid.New()), id: "not-a-uuid", want: codes.InvalidArgument},
+		{name: "system scope", ctx: systemScopeContext(), id: containerID.String(), want: codes.PermissionDenied},
+		{name: "not found", ctx: userScopeContext(uuid.New()), id: containerID.String(), logicErr: apperrors.ErrNotFound, want: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := coregrpcmocks.NewMockContainerLogic(t)
+			if tt.logicErr != nil {
+				logic.EXPECT().Get(mock.Anything, containerID).Return(model.Container{}, tt.logicErr)
+			}
+			conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+				coregrpc.RegisterContainerAPI(s, logic, nil)
+			})
+
+			_, err := coreapi.NewContainerAPIClient(conn).GetContainer(tt.ctx, &coreapi.ContainerActionRequest{ContainerId: tt.id})
+
+			require.Equal(t, tt.want, status.Code(err))
+		})
+	}
+}
+
 // The owner sees the current limit beside the standard one, so a borrowed
 // limit is visible.
 func TestContainerGRPCHandlerMapsStats(t *testing.T) {

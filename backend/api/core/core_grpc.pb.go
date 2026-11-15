@@ -24,6 +24,7 @@ const (
 	ContainerAPI_StopContainer_FullMethodName     = "/core.ContainerAPI/StopContainer"
 	ContainerAPI_DeleteContainer_FullMethodName   = "/core.ContainerAPI/DeleteContainer"
 	ContainerAPI_ListContainers_FullMethodName    = "/core.ContainerAPI/ListContainers"
+	ContainerAPI_GetContainer_FullMethodName      = "/core.ContainerAPI/GetContainer"
 	ContainerAPI_ExposeContainer_FullMethodName   = "/core.ContainerAPI/ExposeContainer"
 	ContainerAPI_GetContainerStats_FullMethodName = "/core.ContainerAPI/GetContainerStats"
 )
@@ -37,6 +38,7 @@ type ContainerAPIClient interface {
 	StopContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
+	GetContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerData, error)
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
 }
@@ -99,6 +101,16 @@ func (c *containerAPIClient) ListContainers(ctx context.Context, in *PaginationR
 	return out, nil
 }
 
+func (c *containerAPIClient) GetContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ContainerData)
+	err := c.cc.Invoke(ctx, ContainerAPI_GetContainer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *containerAPIClient) ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Empty)
@@ -128,6 +140,7 @@ type ContainerAPIServer interface {
 	StopContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
+	GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error)
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
 	mustEmbedUnimplementedContainerAPIServer()
@@ -154,6 +167,9 @@ func (UnimplementedContainerAPIServer) DeleteContainer(context.Context, *Contain
 }
 func (UnimplementedContainerAPIServer) ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListContainers not implemented")
+}
+func (UnimplementedContainerAPIServer) GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetContainer not implemented")
 }
 func (UnimplementedContainerAPIServer) ExposeContainer(context.Context, *ExposeRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExposeContainer not implemented")
@@ -272,6 +288,24 @@ func _ContainerAPI_ListContainers_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ContainerAPI_GetContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ContainerActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ContainerAPIServer).GetContainer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ContainerAPI_GetContainer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ContainerAPIServer).GetContainer(ctx, req.(*ContainerActionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ContainerAPI_ExposeContainer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ExposeRequest)
 	if err := dec(in); err != nil {
@@ -334,6 +368,10 @@ var ContainerAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListContainers",
 			Handler:    _ContainerAPI_ListContainers_Handler,
+		},
+		{
+			MethodName: "GetContainer",
+			Handler:    _ContainerAPI_GetContainer_Handler,
 		},
 		{
 			MethodName: "ExposeContainer",

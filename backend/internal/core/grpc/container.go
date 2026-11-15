@@ -19,6 +19,7 @@ type ContainerLogic interface {
 	Stop(ctx context.Context, containerID uuid.UUID) error
 	Delete(ctx context.Context, containerID uuid.UUID) error
 	List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error)
+	Get(ctx context.Context, containerID uuid.UUID) (model.Container, error)
 	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
 	Action(ctx context.Context, containerID uuid.UUID, action string) error
 	GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error)
@@ -150,42 +151,64 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 	var pbContainers []*coreapi.ContainerData
 	usernames := h.usernamesByOwner(ctx, containers)
 	for _, c := range containers {
-		var lastExitCode *int32
-		if c.LastExitCode != nil {
-			value := int32(*c.LastExitCode)
-			lastExitCode = &value
-		}
-		var ttlDeadline int64
-		if c.TTLDeadline != nil {
-			ttlDeadline = c.TTLDeadline.Unix()
-		}
-		var projectID string
-		if c.ProjectID != nil {
-			projectID = c.ProjectID.String()
-		}
-		pbContainers = append(pbContainers, &coreapi.ContainerData{
-			Id:            c.ID.String(),
-			DockerId:      c.DockerID,
-			Name:          c.Name,
-			ImageTag:      c.ImageTag,
-			InternalPort:  int32(c.InternalPort),
-			DomainPrefix:  c.DomainPrefix,
-			Status:        c.Status,
-			CreatedAt:     c.CreatedAt.Unix(),
-			OwnerId:       c.OwnerID.String(),
-			OwnerUsername: usernames[c.OwnerID],
-			DesiredStatus: c.DesiredStatus,
-			LastError:     stringValue(c.LastError),
-			LastExitCode:  lastExitCode,
-			TtlDeadline:   ttlDeadline,
-			ProjectId:     projectID,
-		})
+		pbContainers = append(pbContainers, containerToProto(c, usernames[c.OwnerID]))
 	}
 
 	return &coreapi.PaginatedContainerResponse{
 		Containers: pbContainers,
 		TotalCount: int32(total),
 	}, nil
+}
+
+func (h *ContainerHandler) GetContainer(ctx context.Context, req *coreapi.ContainerActionRequest) (*coreapi.ContainerData, error) {
+	if err := requireUserOrAdminScope(ctx); err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	containerID, err := uuid.Parse(req.GetContainerId())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid container_id format")
+	}
+
+	c, err := h.logic.Get(ctx, containerID)
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+
+	usernames := h.usernamesByOwner(ctx, []model.Container{c})
+	return containerToProto(c, usernames[c.OwnerID]), nil
+}
+
+func containerToProto(c model.Container, ownerUsername string) *coreapi.ContainerData {
+	var lastExitCode *int32
+	if c.LastExitCode != nil {
+		value := int32(*c.LastExitCode)
+		lastExitCode = &value
+	}
+	var ttlDeadline int64
+	if c.TTLDeadline != nil {
+		ttlDeadline = c.TTLDeadline.Unix()
+	}
+	var projectID string
+	if c.ProjectID != nil {
+		projectID = c.ProjectID.String()
+	}
+	return &coreapi.ContainerData{
+		Id:            c.ID.String(),
+		DockerId:      c.DockerID,
+		Name:          c.Name,
+		ImageTag:      c.ImageTag,
+		InternalPort:  int32(c.InternalPort),
+		DomainPrefix:  c.DomainPrefix,
+		Status:        c.Status,
+		CreatedAt:     c.CreatedAt.Unix(),
+		OwnerId:       c.OwnerID.String(),
+		OwnerUsername: ownerUsername,
+		DesiredStatus: c.DesiredStatus,
+		LastError:     stringValue(c.LastError),
+		LastExitCode:  lastExitCode,
+		TtlDeadline:   ttlDeadline,
+		ProjectId:     projectID,
+	}
 }
 
 func (h *ContainerHandler) ExposeContainer(ctx context.Context, req *coreapi.ExposeRequest) (*coreapi.Empty, error) {

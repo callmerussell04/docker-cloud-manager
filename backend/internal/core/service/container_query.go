@@ -39,6 +39,19 @@ func (s *ContainerService) refreshProjectStatus(ctx context.Context, projectID *
 	}
 }
 
+// Get returns one container the caller's scope may read. Another user's
+// container is reported as not found.
+func (s *ContainerService) Get(ctx context.Context, containerID uuid.UUID) (model.Container, error) {
+	c, err := s.repo.GetByID(ctx, containerID)
+	if err != nil {
+		return model.Container{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
+		return model.Container{}, err
+	}
+	return c, nil
+}
+
 func (s *ContainerService) GetStats(ctx context.Context, containerID uuid.UUID) (model.ContainerStats, error) {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {

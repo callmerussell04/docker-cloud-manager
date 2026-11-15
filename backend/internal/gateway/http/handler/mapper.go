@@ -31,46 +31,54 @@ func createVolumeInputFromDTO(req dto.CreateVolumeDTO) model.CreateVolumeInput {
 func containersToDTO(items []model.Container) []dto.ContainerDTO {
 	result := make([]dto.ContainerDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.ContainerDTO{
-			ID:            item.ID,
-			DockerID:      item.DockerID,
-			ProjectID:     item.ProjectID,
-			Name:          item.Name,
-			ImageTag:      item.ImageTag,
-			InternalPort:  item.InternalPort,
-			DomainPrefix:  item.DomainPrefix,
-			Status:        item.Status,
-			DesiredStatus: item.DesiredStatus,
-			LastError:     item.LastError,
-			LastExitCode:  item.LastExitCode,
-			TTLDeadline:   item.TTLDeadline,
-			CreatedAt:     item.CreatedAt,
-			OwnerID:       item.OwnerID,
-			OwnerUsername: item.OwnerUsername,
-		})
+		result = append(result, containerToDTO(item))
 	}
 	return result
+}
+
+func containerToDTO(item model.Container) dto.ContainerDTO {
+	return dto.ContainerDTO{
+		ID:            item.ID,
+		DockerID:      item.DockerID,
+		ProjectID:     item.ProjectID,
+		Name:          item.Name,
+		ImageTag:      item.ImageTag,
+		InternalPort:  item.InternalPort,
+		DomainPrefix:  item.DomainPrefix,
+		Status:        item.Status,
+		DesiredStatus: item.DesiredStatus,
+		LastError:     item.LastError,
+		LastExitCode:  item.LastExitCode,
+		TTLDeadline:   item.TTLDeadline,
+		CreatedAt:     item.CreatedAt,
+		OwnerID:       item.OwnerID,
+		OwnerUsername: item.OwnerUsername,
+	}
 }
 
 func containersToUserDTO(items []model.Container) []dto.UserContainerDTO {
 	result := make([]dto.UserContainerDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.UserContainerDTO{
-			ID:            item.ID,
-			ProjectID:     item.ProjectID,
-			Name:          item.Name,
-			ImageTag:      item.ImageTag,
-			InternalPort:  item.InternalPort,
-			DomainPrefix:  item.DomainPrefix,
-			Status:        item.Status,
-			DesiredStatus: item.DesiredStatus,
-			LastError:     item.LastError,
-			LastExitCode:  item.LastExitCode,
-			TTLDeadline:   item.TTLDeadline,
-			CreatedAt:     item.CreatedAt,
-		})
+		result = append(result, containerToUserDTO(item))
 	}
 	return result
+}
+
+func containerToUserDTO(item model.Container) dto.UserContainerDTO {
+	return dto.UserContainerDTO{
+		ID:            item.ID,
+		ProjectID:     item.ProjectID,
+		Name:          item.Name,
+		ImageTag:      item.ImageTag,
+		InternalPort:  item.InternalPort,
+		DomainPrefix:  item.DomainPrefix,
+		Status:        item.Status,
+		DesiredStatus: item.DesiredStatus,
+		LastError:     item.LastError,
+		LastExitCode:  item.LastExitCode,
+		TTLDeadline:   item.TTLDeadline,
+		CreatedAt:     item.CreatedAt,
+	}
 }
 
 func containerStatsToDTO(data model.ContainerStats) dto.ContainerStatsDTO {

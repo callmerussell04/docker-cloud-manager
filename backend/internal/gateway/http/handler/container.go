@@ -18,6 +18,7 @@ type ContainerService interface {
 	ActionContainer(ctx context.Context, containerID, action string) error
 	ExposeContainer(ctx context.Context, containerID, domainPrefix string, internalPort int) error
 	ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error)
+	GetContainer(ctx context.Context, containerID string) (model.Container, error)
 	GetContainerStats(ctx context.Context, containerID string) (model.ContainerStats, error)
 }
 
@@ -84,6 +85,33 @@ func (h *CoreHandler) listContainers(c *gin.Context, mapItems func([]model.Conta
 		"containers":  mapItems(resp.Containers),
 		"total_count": resp.TotalCount,
 	})
+}
+
+func (h *CoreHandler) GetContainer(c *gin.Context) {
+	h.writeContainer(c, func(item model.Container) any {
+		return containerToUserDTO(item)
+	})
+}
+
+func (h *CoreHandler) AdminGetContainer(c *gin.Context) {
+	h.writeContainer(c, func(item model.Container) any {
+		return containerToDTO(item)
+	})
+}
+
+func (h *CoreHandler) writeContainer(c *gin.Context, mapItem func(model.Container) any) {
+	containerID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	container, err := h.service.GetContainer(c.Request.Context(), containerID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, mapItem(container))
 }
 
 func (h *CoreHandler) ActionContainer(c *gin.Context) {

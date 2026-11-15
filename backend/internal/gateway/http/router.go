@@ -82,6 +82,7 @@ func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middlew
 	containers := protected.Group("/containers")
 	containers.POST("", deps.CoreHandler.CreateContainer)
 	containers.GET("", deps.CoreHandler.GetContainers)
+	containers.GET("/:id", deps.CoreHandler.GetContainer)
 	containers.POST("/:id/action/:action", deps.CoreHandler.ActionContainer)
 	containers.POST("/:id/expose", deps.CoreHandler.ExposeContainer)
 	containers.GET("/:id/stats", deps.CoreHandler.GetContainerStats)
@@ -144,6 +145,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.DELETE("/users/:id/quota", adminPermission(deps, permissions.UsersAdminUpdate), deps.UserHandler.ResetUserQuota)
 
 	admin.GET("/containers", adminPermission(deps, permissions.ContainersAdminList), deps.CoreHandler.ListAdminContainers)
+	admin.GET("/containers/:id", adminPermission(deps, permissions.ContainersAdminList), deps.CoreHandler.AdminGetContainer)
 	admin.POST("/containers/:id/action/:action", adminPermission(deps, permissions.ContainersAdminAction), deps.CoreHandler.AdminActionContainer)
 	admin.GET("/containers/:id/stats", adminPermission(deps, permissions.ContainersAdminStats), deps.CoreHandler.AdminGetContainerStats)
 	admin.POST("/containers/:id/logs/stream/ticket", adminPermission(deps, permissions.ContainersAdminLogs), deps.TelemetryTicketHandler.IssueLogsTicket(true))

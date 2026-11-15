@@ -5525,13 +5525,14 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12memory_limit_bytes\x18\x03 \x01(\x03R\x10memoryLimitBytes\x12(\n" +
 	"\x10network_rx_bytes\x18\x04 \x01(\x03R\x0enetworkRxBytes\x12(\n" +
 	"\x10network_tx_bytes\x18\x05 \x01(\x03R\x0enetworkTxBytes\x12=\n" +
-	"\x1bmemory_standard_limit_bytes\x18\x06 \x01(\x03R\x18memoryStandardLimitBytes2\xe8\x03\n" +
+	"\x1bmemory_standard_limit_bytes\x18\x06 \x01(\x03R\x18memoryStandardLimitBytes2\xab\x04\n" +
 	"\fContainerAPI\x12N\n" +
 	"\x0fCreateContainer\x12\x1c.core.CreateContainerRequest\x1a\x1d.core.CreateContainerResponse\x12;\n" +
 	"\x0eStartContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12:\n" +
 	"\rStopContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12<\n" +
 	"\x0fDeleteContainer\x12\x1c.core.ContainerActionRequest\x1a\v.core.Empty\x12K\n" +
-	"\x0eListContainers\x12\x17.core.PaginationRequest\x1a .core.PaginatedContainerResponse\x123\n" +
+	"\x0eListContainers\x12\x17.core.PaginationRequest\x1a .core.PaginatedContainerResponse\x12A\n" +
+	"\fGetContainer\x12\x1c.core.ContainerActionRequest\x1a\x13.core.ContainerData\x123\n" +
 	"\x0fExposeContainer\x12\x13.core.ExposeRequest\x1a\v.core.Empty\x12O\n" +
 	"\x11GetContainerStats\x12\x1c.core.ContainerActionRequest\x1a\x1c.core.ContainerStatsResponse2\xc8\x04\n" +
 	"\bImageAPI\x12C\n" +
@@ -5674,81 +5675,83 @@ var file_api_core_core_proto_depIdxs = []int32{
 	27, // 19: core.ContainerAPI.StopContainer:input_type -> core.ContainerActionRequest
 	27, // 20: core.ContainerAPI.DeleteContainer:input_type -> core.ContainerActionRequest
 	48, // 21: core.ContainerAPI.ListContainers:input_type -> core.PaginationRequest
-	28, // 22: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
-	27, // 23: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
-	48, // 24: core.ImageAPI.ListImages:input_type -> core.PaginationRequest
-	31, // 25: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
-	42, // 26: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
-	42, // 27: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
-	34, // 28: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
-	42, // 29: core.ImageAPI.GetBuildStatus:input_type -> core.BuildActionRequest
-	48, // 30: core.ImageAPI.ListBuilds:input_type -> core.PaginationRequest
-	42, // 31: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
-	42, // 32: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
-	37, // 33: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
-	39, // 34: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
-	48, // 35: core.VolumeAPI.ListVolumes:input_type -> core.PaginationRequest
-	48, // 36: core.ProjectAPI.ListProjects:input_type -> core.PaginationRequest
-	47, // 37: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
-	47, // 38: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
-	47, // 39: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
-	47, // 40: core.ProjectAPI.CancelProject:input_type -> core.ProjectActionRequest
-	9,  // 41: core.SystemAPI.GetConfig:input_type -> core.Empty
-	54, // 42: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
-	9,  // 43: core.SystemAPI.GetBuilderRuntimeConfig:input_type -> core.Empty
-	0,  // 44: core.QuotaAPI.GetUserQuotas:input_type -> core.GetUserQuotasRequest
-	3,  // 45: core.QuotaAPI.SetUserQuota:input_type -> core.SetUserQuotaRequest
-	4,  // 46: core.QuotaAPI.ResetUserQuota:input_type -> core.UserQuotaActionRequest
-	5,  // 47: core.WorkloadAPI.SuspendUserWorkloads:input_type -> core.SuspendUserWorkloadsRequest
-	9,  // 48: core.StatsAPI.GetUserStats:input_type -> core.Empty
-	9,  // 49: core.StatsAPI.GetSystemMonitoring:input_type -> core.Empty
-	10, // 50: core.ReportAPI.GetReportsOverview:input_type -> core.ReportRangeRequest
-	14, // 51: core.ReportAPI.ListUserUsageReport:input_type -> core.ListUserUsageReportRequest
-	17, // 52: core.ReportAPI.GetUserUsageTimeline:input_type -> core.GetUserUsageTimelineRequest
-	20, // 53: core.ReportAPI.ListAuditEvents:input_type -> core.ListAuditEventsRequest
-	21, // 54: core.ReportAPI.RecordAuditEvent:input_type -> core.AuditEventData
-	9,  // 55: core.ReportAPI.RefreshUsageSnapshots:input_type -> core.Empty
-	26, // 56: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
-	9,  // 57: core.ContainerAPI.StartContainer:output_type -> core.Empty
-	9,  // 58: core.ContainerAPI.StopContainer:output_type -> core.Empty
-	9,  // 59: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
-	49, // 60: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
-	9,  // 61: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
-	56, // 62: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
-	51, // 63: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
-	9,  // 64: core.ImageAPI.DeleteImage:output_type -> core.Empty
-	32, // 65: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
-	9,  // 66: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
-	9,  // 67: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
-	33, // 68: core.ImageAPI.GetBuildStatus:output_type -> core.BuildStatusResponse
-	52, // 69: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
-	43, // 70: core.ImageAPI.GetBuild:output_type -> core.BuildData
-	9,  // 71: core.ImageAPI.DeleteBuild:output_type -> core.Empty
-	38, // 72: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
-	9,  // 73: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
-	50, // 74: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
-	53, // 75: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
-	9,  // 76: core.ProjectAPI.DeleteProject:output_type -> core.Empty
-	9,  // 77: core.ProjectAPI.StartProject:output_type -> core.Empty
-	9,  // 78: core.ProjectAPI.StopProject:output_type -> core.Empty
-	9,  // 79: core.ProjectAPI.CancelProject:output_type -> core.Empty
-	54, // 80: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
-	9,  // 81: core.SystemAPI.UpdateConfig:output_type -> core.Empty
-	55, // 82: core.SystemAPI.GetBuilderRuntimeConfig:output_type -> core.BuilderRuntimeConfigData
-	2,  // 83: core.QuotaAPI.GetUserQuotas:output_type -> core.UserQuotasResponse
-	1,  // 84: core.QuotaAPI.SetUserQuota:output_type -> core.UserQuotaData
-	1,  // 85: core.QuotaAPI.ResetUserQuota:output_type -> core.UserQuotaData
-	6,  // 86: core.WorkloadAPI.SuspendUserWorkloads:output_type -> core.SuspendUserWorkloadsResponse
-	7,  // 87: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
-	8,  // 88: core.StatsAPI.GetSystemMonitoring:output_type -> core.SystemMonitoringResponse
-	12, // 89: core.ReportAPI.GetReportsOverview:output_type -> core.ReportsOverviewResponse
-	16, // 90: core.ReportAPI.ListUserUsageReport:output_type -> core.PaginatedUserUsageReportResponse
-	19, // 91: core.ReportAPI.GetUserUsageTimeline:output_type -> core.UserUsageTimelineResponse
-	22, // 92: core.ReportAPI.ListAuditEvents:output_type -> core.PaginatedAuditEventResponse
-	9,  // 93: core.ReportAPI.RecordAuditEvent:output_type -> core.Empty
-	13, // 94: core.ReportAPI.RefreshUsageSnapshots:output_type -> core.RefreshUsageSnapshotsResponse
-	56, // [56:95] is the sub-list for method output_type
-	17, // [17:56] is the sub-list for method input_type
+	27, // 22: core.ContainerAPI.GetContainer:input_type -> core.ContainerActionRequest
+	28, // 23: core.ContainerAPI.ExposeContainer:input_type -> core.ExposeRequest
+	27, // 24: core.ContainerAPI.GetContainerStats:input_type -> core.ContainerActionRequest
+	48, // 25: core.ImageAPI.ListImages:input_type -> core.PaginationRequest
+	31, // 26: core.ImageAPI.DeleteImage:input_type -> core.ImageActionRequest
+	42, // 27: core.ImageAPI.StartBuildRecord:input_type -> core.BuildActionRequest
+	42, // 28: core.ImageAPI.CancelBuildRecord:input_type -> core.BuildActionRequest
+	34, // 29: core.ImageAPI.CompleteBuildRecord:input_type -> core.CompleteBuildRequest
+	42, // 30: core.ImageAPI.GetBuildStatus:input_type -> core.BuildActionRequest
+	48, // 31: core.ImageAPI.ListBuilds:input_type -> core.PaginationRequest
+	42, // 32: core.ImageAPI.GetBuild:input_type -> core.BuildActionRequest
+	42, // 33: core.ImageAPI.DeleteBuild:input_type -> core.BuildActionRequest
+	37, // 34: core.VolumeAPI.CreateVolume:input_type -> core.CreateVolumeRequest
+	39, // 35: core.VolumeAPI.DeleteVolume:input_type -> core.VolumeActionRequest
+	48, // 36: core.VolumeAPI.ListVolumes:input_type -> core.PaginationRequest
+	48, // 37: core.ProjectAPI.ListProjects:input_type -> core.PaginationRequest
+	47, // 38: core.ProjectAPI.DeleteProject:input_type -> core.ProjectActionRequest
+	47, // 39: core.ProjectAPI.StartProject:input_type -> core.ProjectActionRequest
+	47, // 40: core.ProjectAPI.StopProject:input_type -> core.ProjectActionRequest
+	47, // 41: core.ProjectAPI.CancelProject:input_type -> core.ProjectActionRequest
+	9,  // 42: core.SystemAPI.GetConfig:input_type -> core.Empty
+	54, // 43: core.SystemAPI.UpdateConfig:input_type -> core.SystemConfigData
+	9,  // 44: core.SystemAPI.GetBuilderRuntimeConfig:input_type -> core.Empty
+	0,  // 45: core.QuotaAPI.GetUserQuotas:input_type -> core.GetUserQuotasRequest
+	3,  // 46: core.QuotaAPI.SetUserQuota:input_type -> core.SetUserQuotaRequest
+	4,  // 47: core.QuotaAPI.ResetUserQuota:input_type -> core.UserQuotaActionRequest
+	5,  // 48: core.WorkloadAPI.SuspendUserWorkloads:input_type -> core.SuspendUserWorkloadsRequest
+	9,  // 49: core.StatsAPI.GetUserStats:input_type -> core.Empty
+	9,  // 50: core.StatsAPI.GetSystemMonitoring:input_type -> core.Empty
+	10, // 51: core.ReportAPI.GetReportsOverview:input_type -> core.ReportRangeRequest
+	14, // 52: core.ReportAPI.ListUserUsageReport:input_type -> core.ListUserUsageReportRequest
+	17, // 53: core.ReportAPI.GetUserUsageTimeline:input_type -> core.GetUserUsageTimelineRequest
+	20, // 54: core.ReportAPI.ListAuditEvents:input_type -> core.ListAuditEventsRequest
+	21, // 55: core.ReportAPI.RecordAuditEvent:input_type -> core.AuditEventData
+	9,  // 56: core.ReportAPI.RefreshUsageSnapshots:input_type -> core.Empty
+	26, // 57: core.ContainerAPI.CreateContainer:output_type -> core.CreateContainerResponse
+	9,  // 58: core.ContainerAPI.StartContainer:output_type -> core.Empty
+	9,  // 59: core.ContainerAPI.StopContainer:output_type -> core.Empty
+	9,  // 60: core.ContainerAPI.DeleteContainer:output_type -> core.Empty
+	49, // 61: core.ContainerAPI.ListContainers:output_type -> core.PaginatedContainerResponse
+	29, // 62: core.ContainerAPI.GetContainer:output_type -> core.ContainerData
+	9,  // 63: core.ContainerAPI.ExposeContainer:output_type -> core.Empty
+	56, // 64: core.ContainerAPI.GetContainerStats:output_type -> core.ContainerStatsResponse
+	51, // 65: core.ImageAPI.ListImages:output_type -> core.PaginatedImageResponse
+	9,  // 66: core.ImageAPI.DeleteImage:output_type -> core.Empty
+	32, // 67: core.ImageAPI.StartBuildRecord:output_type -> core.StartBuildRecordResponse
+	9,  // 68: core.ImageAPI.CancelBuildRecord:output_type -> core.Empty
+	9,  // 69: core.ImageAPI.CompleteBuildRecord:output_type -> core.Empty
+	33, // 70: core.ImageAPI.GetBuildStatus:output_type -> core.BuildStatusResponse
+	52, // 71: core.ImageAPI.ListBuilds:output_type -> core.PaginatedBuildResponse
+	43, // 72: core.ImageAPI.GetBuild:output_type -> core.BuildData
+	9,  // 73: core.ImageAPI.DeleteBuild:output_type -> core.Empty
+	38, // 74: core.VolumeAPI.CreateVolume:output_type -> core.CreateVolumeResponse
+	9,  // 75: core.VolumeAPI.DeleteVolume:output_type -> core.Empty
+	50, // 76: core.VolumeAPI.ListVolumes:output_type -> core.PaginatedVolumeResponse
+	53, // 77: core.ProjectAPI.ListProjects:output_type -> core.PaginatedProjectResponse
+	9,  // 78: core.ProjectAPI.DeleteProject:output_type -> core.Empty
+	9,  // 79: core.ProjectAPI.StartProject:output_type -> core.Empty
+	9,  // 80: core.ProjectAPI.StopProject:output_type -> core.Empty
+	9,  // 81: core.ProjectAPI.CancelProject:output_type -> core.Empty
+	54, // 82: core.SystemAPI.GetConfig:output_type -> core.SystemConfigData
+	9,  // 83: core.SystemAPI.UpdateConfig:output_type -> core.Empty
+	55, // 84: core.SystemAPI.GetBuilderRuntimeConfig:output_type -> core.BuilderRuntimeConfigData
+	2,  // 85: core.QuotaAPI.GetUserQuotas:output_type -> core.UserQuotasResponse
+	1,  // 86: core.QuotaAPI.SetUserQuota:output_type -> core.UserQuotaData
+	1,  // 87: core.QuotaAPI.ResetUserQuota:output_type -> core.UserQuotaData
+	6,  // 88: core.WorkloadAPI.SuspendUserWorkloads:output_type -> core.SuspendUserWorkloadsResponse
+	7,  // 89: core.StatsAPI.GetUserStats:output_type -> core.UserStatsResponse
+	8,  // 90: core.StatsAPI.GetSystemMonitoring:output_type -> core.SystemMonitoringResponse
+	12, // 91: core.ReportAPI.GetReportsOverview:output_type -> core.ReportsOverviewResponse
+	16, // 92: core.ReportAPI.ListUserUsageReport:output_type -> core.PaginatedUserUsageReportResponse
+	19, // 93: core.ReportAPI.GetUserUsageTimeline:output_type -> core.UserUsageTimelineResponse
+	22, // 94: core.ReportAPI.ListAuditEvents:output_type -> core.PaginatedAuditEventResponse
+	9,  // 95: core.ReportAPI.RecordAuditEvent:output_type -> core.Empty
+	13, // 96: core.ReportAPI.RefreshUsageSnapshots:output_type -> core.RefreshUsageSnapshotsResponse
+	57, // [57:97] is the sub-list for method output_type
+	17, // [17:57] is the sub-list for method input_type
 	17, // [17:17] is the sub-list for extension type_name
 	17, // [17:17] is the sub-list for extension extendee
 	0,  // [0:17] is the sub-list for field type_name
