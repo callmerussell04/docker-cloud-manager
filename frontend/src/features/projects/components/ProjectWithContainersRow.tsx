@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import { Box, RefreshCcw } from 'lucide-react';
 
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/shared/ui/Button';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { useContainers } from '@/features/containers/hooks';
 import type { ContainerData } from '@/features/containers/types';
 import type { ProjectData } from '../types';
 import { ProjectRow } from './ProjectRow';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
 
 interface ProjectWithContainersRowProps {
   project: ProjectData;

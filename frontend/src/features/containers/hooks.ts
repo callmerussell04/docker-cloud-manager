@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/shared/api/queryKeys';
-import { useToastStore } from '@/store/toastStore';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT, type TranslationKey } from '@/lib/i18n';
+import { useToastStore } from '@/shared/ui/toastStore';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT, type TranslationKey } from '@/shared/i18n';
 import {
   actionContainerFn,
   createContainerFn,

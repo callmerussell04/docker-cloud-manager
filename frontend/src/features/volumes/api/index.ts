@@ -1,4 +1,4 @@
-import { privateApi } from '@/api/axios';
+import { privateApi } from '@/shared/api/client';
 import type { VolumeData, CreateVolumeDTO } from '../types';
 import type { PaginatedResponse } from '@/shared/api/pagination';
 

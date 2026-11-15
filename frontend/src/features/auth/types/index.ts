@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TFunction } from '@/lib/i18n';
+import type { TFunction } from '@/shared/i18n';
 
 export const createLoginSchema = (t: TFunction) => z.object({
   username: z.string().min(1, t('validation.usernameRequired')),

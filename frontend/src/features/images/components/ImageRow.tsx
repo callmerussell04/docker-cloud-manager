@@ -1,11 +1,11 @@
 import { Trash2, Disc, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { Badge } from '@/shared/ui/Badge';
 import { type ImageData } from '../types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn, formatBytes } from '@/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn, formatBytes } from '@/shared/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
 import { useDeleteImage } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
 interface ImageRowProps {

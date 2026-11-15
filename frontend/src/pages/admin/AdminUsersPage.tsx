@@ -3,18 +3,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Edit, Gauge, Plus, PowerOff, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
 
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Modal } from '@/components/ui/Modal';
-import { Pagination } from '@/components/ui/Pagination';
-import { Select } from '@/components/ui/Select';
-import { Badge } from '@/components/ui/Badge';
-import { useToastStore } from '@/store/toastStore';
+import { Button } from '@/shared/ui/Button';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Modal } from '@/shared/ui/Modal';
+import { Pagination } from '@/shared/ui/Pagination';
+import { Select } from '@/shared/ui/Select';
+import { Badge } from '@/shared/ui/Badge';
+import { useToastStore } from '@/shared/ui/toastStore';
 import { type AdminUser, type AdminUserForm, adminUserSchema, type UserQuotaForm, userQuotaSchema } from '@/features/admin/types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { statusLabel, useT } from '@/lib/i18n';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn } from '@/shared/lib/utils';
+import { statusLabel, useT } from '@/shared/i18n';
 import {
   useAdminUsers,
   useCreateAdminUser,
@@ -24,7 +24,7 @@ import {
   useSetAdminUserQuota,
   useUpdateAdminUser,
 } from '@/features/admin/hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);

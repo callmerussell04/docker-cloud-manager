@@ -3,19 +3,19 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, RefreshCcw, ShieldAlert, Box, HardDrive, Layers, Disc, Trash2, Square, Play, Activity, Terminal, ScrollText, Hammer, XCircle, Globe, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-import { Button } from '@/components/ui/Button';
-import { Pagination } from '@/components/ui/Pagination';
-import { Badge } from '@/components/ui/Badge';
-import { cn, formatBytes } from '@/lib/utils';
+import { Button } from '@/shared/ui/Button';
+import { Pagination } from '@/shared/ui/Pagination';
+import { Badge } from '@/shared/ui/Badge';
+import { cn, formatBytes } from '@/shared/lib/utils';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
 import { type AdminContainerData } from '@/features/containers/types';
 import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
 import type { AdminBuildData } from '@/features/images/types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
-import { getApiErrorMessage, getServerErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import {
   useAdminBuilds,
   useAdminCancelBuild,
@@ -30,12 +30,12 @@ import {
   useAdminVolumes,
 } from '@/features/admin/hooks';
 import { queryKeys } from '@/shared/api/queryKeys';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { TabSwitcher } from '@/components/common/TabSwitcher';
-import { BASE_DOMAIN } from '@/config';
-import type { Locale } from '@/store/languageStore';
-import { EmptyState } from '@/components/common/EmptyState';
-import { ErrorState } from '@/components/common/ErrorState';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { TabSwitcher } from '@/shared/ui/TabSwitcher';
+import { BASE_DOMAIN } from '@/shared/lib/config';
+import type { Locale } from '@/shared/lib/languageStore';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 type BadgeVariant = 'default' | 'success' | 'warning' | 'error' | 'info';

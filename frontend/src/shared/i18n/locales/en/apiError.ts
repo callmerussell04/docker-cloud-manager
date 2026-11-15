@@ -1,0 +1,26 @@
+import type { apiError as ru } from '../ru/apiError';
+
+export const apiError: Record<keyof typeof ru, string> = {
+  'apiError.noServerResponse': 'No response from server',
+  'apiError.serverUnavailable': 'Server is unavailable',
+  'apiError.subdomainInUse': 'Subdomain {subdomain} is already in use',
+  'apiError.subdomainUsedByServices': 'Subdomain {subdomain} is used by both services {first} and {second}',
+  'apiError.bad_request': 'Invalid request',
+  'apiError.not_found': 'Resource not found',
+  'apiError.already_exists': 'Resource already exists',
+  'apiError.invalid_credentials': 'Invalid username or password',
+  'apiError.invalid_token': 'Session is invalid',
+  'apiError.unauthorized': 'Login required',
+  'apiError.forbidden': 'Insufficient permissions',
+  'apiError.invalid_file_format': 'Invalid file format',
+  'apiError.limit_exceeded': 'Resource limit reached',
+  'apiError.quota_exceeded': 'Quota exceeded',
+  'apiError.resource_exhausted': 'Server resources are insufficient',
+  'apiError.host_exhausted': 'Host server is out of memory',
+  'apiError.resource_in_use': 'Resource is currently in use',
+  'apiError.conflict': 'Resource state conflict',
+  'apiError.timeout': 'Request timed out',
+  'apiError.unavailable': 'Service is temporarily unavailable',
+  'apiError.internal': 'Internal server error',
+  'apiError.workloadsNotStopped': 'The account is deactivated, but its workloads could not be stopped. Try again to stop them.',
+};

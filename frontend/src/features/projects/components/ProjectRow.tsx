@@ -1,12 +1,12 @@
 import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { Badge } from '@/shared/ui/Badge';
 import { type ProjectData } from '../types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
-import { getServerErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn } from '@/shared/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
+import { getServerErrorMessage } from '@/shared/api/apiError';
 import { useCancelProject, useDeleteProject, useStartProject, useStopProject } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
 interface ProjectRowProps {

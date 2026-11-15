@@ -1,4 +1,4 @@
-import { privateApi } from '@/api/axios';
+import { privateApi } from '@/shared/api/client';
 import type {
   AuditEventsResponse,
   AuditFilters,

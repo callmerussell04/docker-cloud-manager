@@ -1,10 +1,10 @@
 import { Activity, Box, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { formatBytes } from '@/lib/utils';
-import { Button } from '@/components/ui/Button';
-import { useT } from '@/lib/i18n';
-import { ErrorState } from '@/components/common/ErrorState';
-import { getApiErrorMessage } from '@/lib/apiError';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { formatBytes } from '@/shared/lib/utils';
+import { Button } from '@/shared/ui/Button';
+import { useT } from '@/shared/i18n';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useDashboardStats } from '@/features/dashboard/hooks';
 
 export function DashboardPage() {

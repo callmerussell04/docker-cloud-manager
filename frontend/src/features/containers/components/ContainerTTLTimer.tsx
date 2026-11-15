@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Clock3 } from 'lucide-react';
 
-import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
+import { useT } from '@/shared/i18n';
+import { cn } from '@/shared/lib/utils';
 
 interface ContainerTTLTimerProps {
   status: string;

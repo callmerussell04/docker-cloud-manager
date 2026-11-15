@@ -1,4 +1,4 @@
-import { privateApi } from '@/api/axios';
+import { privateApi } from '@/shared/api/client';
 import type { AdminUser, AdminUserAccount, AdminUserDeactivation, AdminUserForm, AdminUserUpdate, SystemConfig, SystemMonitoring, UserQuota, UserQuotaForm } from '../types';
 import type { AdminContainerData, ContainerStats } from '@/features/containers/types';
 import type { AdminVolumeData } from '@/features/volumes/types';

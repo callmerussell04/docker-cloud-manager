@@ -1,11 +1,11 @@
 import { RefreshCcw, Terminal } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
-import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
+import { Modal } from '@/shared/ui/Modal';
+import { Button } from '@/shared/ui/Button';
 import { type BuildData } from '../types';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
 import { useBuildLogs } from '../hooks';
 
 interface BuildLogsModalProps {

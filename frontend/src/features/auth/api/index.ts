@@ -1,4 +1,4 @@
-import { publicApi, logoutSession, acceptLogin } from '@/api/axios';
+import { publicApi, logoutSession, acceptLogin } from '@/shared/api/client';
 import type { LoginData, RegisterData, AuthResponse, AuthConfig } from '../types';
 
 export const loginFn = async (data: LoginData): Promise<AuthResponse> => {

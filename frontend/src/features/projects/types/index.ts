@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TFunction } from '@/lib/i18n';
+import type { TFunction } from '@/shared/i18n';
 
 export interface ProjectData {
   id: string;

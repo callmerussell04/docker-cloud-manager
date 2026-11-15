@@ -4,20 +4,20 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { KeyRound } from 'lucide-react';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { AuthHeader } from '@/components/common/AuthHeader';
-import { PasswordInput } from '@/components/common/PasswordInput';
-import { useToastStore } from '@/store/toastStore';
-import { useAuthStore } from '@/store/authStore';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { AuthHeader } from '@/features/auth/components/AuthHeader';
+import { PasswordInput } from '@/shared/ui/PasswordInput';
+import { useToastStore } from '@/shared/ui/toastStore';
+import { useAuthStore } from '@/shared/api/sessionStore';
 import { loginFn } from '@/features/auth/api';
 import { type LoginData, createLoginSchema } from '@/features/auth/types';
 import { useAuthConfig } from '@/features/auth/hooks';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
-import { API_URL } from '@/config';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { API_URL } from '@/shared/lib/config';
 
 export function LoginPage() {
   const navigate = useNavigate();

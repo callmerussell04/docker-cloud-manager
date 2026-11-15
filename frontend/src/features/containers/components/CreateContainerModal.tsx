@@ -3,18 +3,18 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2 } from 'lucide-react';
 
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { Modal } from '@/shared/ui/Modal';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { Select } from '@/shared/ui/Select';
 import { type CreateContainerForm, createContainerSchema, type CreateContainerDTO } from '../types';
-import { BASE_DOMAIN } from '@/config';
-import { useT } from '@/lib/i18n';
+import { BASE_DOMAIN } from '@/shared/lib/config';
+import { useT } from '@/shared/i18n';
 import { useImages } from '@/features/images/hooks';
 import { useVolumes } from '@/features/volumes/hooks';
 import { useCreateContainer } from '../hooks';
-import { KeyValueFieldArray } from '@/components/common/KeyValueFieldArray';
+import { KeyValueFieldArray } from '@/shared/ui/KeyValueFieldArray';
 
 interface CreateContainerModalProps {
   isOpen: boolean;

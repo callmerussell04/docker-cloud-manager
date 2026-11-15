@@ -1,9 +1,9 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { refreshSession } from '@/api/axios';
-import { useToastStore } from '@/store/toastStore';
-import { useT } from '@/lib/i18n';
+import { refreshSession } from '@/shared/api/client';
+import { useToastStore } from '@/shared/ui/toastStore';
+import { useT } from '@/shared/i18n';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();

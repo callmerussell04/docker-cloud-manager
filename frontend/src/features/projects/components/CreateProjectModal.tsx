@@ -3,18 +3,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, ChevronDown } from 'lucide-react';
 
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { WarningBanner } from '@/components/ui/WarningBanner';
-import { useToastStore } from '@/store/toastStore';
+import { Modal } from '@/shared/ui/Modal';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { WarningBanner } from '@/shared/ui/WarningBanner';
+import { useToastStore } from '@/shared/ui/toastStore';
 import { type CreateProjectForm, createProjectSchema } from '../types';
 import type { BuildAvailability } from '@/features/images/types';
-import { cn } from '@/lib/utils';
-import { useT } from '@/lib/i18n';
-import { FileDropzone } from '@/components/common/FileDropzone';
-import { SourceModeSwitch, type SourceMode } from '@/components/common/SourceModeSwitch';
+import { cn } from '@/shared/lib/utils';
+import { useT } from '@/shared/i18n';
+import { FileDropzone } from '@/features/images/components/FileDropzone';
+import { SourceModeSwitch, type SourceMode } from '@/features/images/components/SourceModeSwitch';
 import { useCreateProject } from '../hooks';
 
 interface CreateProjectModalProps {

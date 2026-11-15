@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { Plus, RefreshCcw, Box } from 'lucide-react';
 
-import { Button } from '@/components/ui/Button';
-import { Pagination } from '@/components/ui/Pagination';
+import { Button } from '@/shared/ui/Button';
+import { Pagination } from '@/shared/ui/Pagination';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { type ContainerData } from '@/features/containers/types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { useT } from '@/lib/i18n';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn } from '@/shared/lib/utils';
+import { useT } from '@/shared/i18n';
 import { useContainers } from '@/features/containers/hooks';
-import { SearchInput } from '@/components/common/SearchInput';
-import { EmptyState } from '@/components/common/EmptyState';
-import { ErrorState } from '@/components/common/ErrorState';
-import { getApiErrorMessage } from '@/lib/apiError';
+import { SearchInput } from '@/shared/ui/SearchInput';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { getApiErrorMessage } from '@/shared/api/apiError';
 
 export function ContainersPage() {
   const t = useT();

@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal, Download } from 'lucide-react';
-import { Modal } from '@/components/ui/Modal';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
+import { Modal } from '@/shared/ui/Modal';
+import { Button } from '@/shared/ui/Button';
+import { Input } from '@/shared/ui/Input';
 import { getLogsTicketFn } from '../api';
-import { API_URL } from '@/config';
-import { useToastStore } from '@/store/toastStore';
+import { API_URL } from '@/shared/lib/config';
+import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../types';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT, useTRef } from '@/lib/i18n';
-import { ConnectionStatus } from '@/components/common/ConnectionStatus';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT, useTRef } from '@/shared/i18n';
+import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
 interface ContainerLogsModalProps {
   container: ContainerData | null;

@@ -25,14 +25,14 @@ import {
   YAxis,
 } from 'recharts';
 
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Modal } from '@/components/ui/Modal';
-import { Pagination } from '@/components/ui/Pagination';
+import { Button } from '@/shared/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Modal } from '@/shared/ui/Modal';
+import { Pagination } from '@/shared/ui/Pagination';
 import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUsageReport, useUserUsageTimeline } from '@/features/reports/hooks';
 import type { AuditEvent, UserUsageReportItem } from '@/features/reports/types';
-import { dateLocale, useLocale, useT } from '@/lib/i18n';
-import { formatBytes } from '@/lib/utils';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
+import { formatBytes } from '@/shared/lib/utils';
 
 const ranges = [
   { label: '24h', seconds: 24 * 60 * 60 },

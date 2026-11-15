@@ -1,4 +1,4 @@
-import { privateApi } from '@/api/axios';
+import { privateApi } from '@/shared/api/client';
 import type { ContainerData, CreateContainerDTO, ExposeContainerDTO, ContainerStats, TelemetryTicketResponse } from '../types';
 import type { PaginatedResponse } from '@/shared/api/pagination';
 

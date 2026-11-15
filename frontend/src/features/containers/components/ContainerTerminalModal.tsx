@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { Modal } from '@/components/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
 import { getTerminalTicketFn } from '../api';
-import { WS_URL } from '@/config';
-import { useToastStore } from '@/store/toastStore';
+import { WS_URL } from '@/shared/lib/config';
+import { useToastStore } from '@/shared/ui/toastStore';
 import type { ContainerData } from '../types';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT, useTRef } from '@/lib/i18n';
-import { ConnectionStatus } from '@/components/common/ConnectionStatus';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT, useTRef } from '@/shared/i18n';
+import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
 interface ContainerTerminalModalProps {
   container: ContainerData | null;

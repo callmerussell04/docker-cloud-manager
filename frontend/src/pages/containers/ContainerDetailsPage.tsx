@@ -2,18 +2,18 @@ import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText, Play, Square, Globe, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { formatBytes } from '@/lib/utils';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Badge } from '@/shared/ui/Badge';
+import { Button } from '@/shared/ui/Button';
+import { formatBytes } from '@/shared/lib/utils';
 import type { ContainerData } from '@/features/containers/types';
 import { ContainerLogsModal } from '@/features/containers/components/ContainerLogsModal';
 import { ContainerTerminalModal } from '@/features/containers/components/ContainerTerminalModal';
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
 import { ExposeContainerModal } from '@/features/containers/components/ExposeContainerModal';
-import { statusLabel, useT } from '@/lib/i18n';
+import { statusLabel, useT } from '@/shared/i18n';
 import { useContainerAction, useContainerDetailsStats } from '@/features/containers/hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { borrowedMemoryBytes } from '@/features/containers/memory';
 
 export function ContainerDetailsPage() {

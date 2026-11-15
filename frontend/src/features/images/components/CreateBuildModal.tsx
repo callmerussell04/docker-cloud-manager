@@ -3,18 +3,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { WarningBanner } from '@/components/ui/WarningBanner';
-import { useToastStore } from '@/store/toastStore';
+import { Modal } from '@/shared/ui/Modal';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { WarningBanner } from '@/shared/ui/WarningBanner';
+import { useToastStore } from '@/shared/ui/toastStore';
 import { type CreateBuildForm, createBuildSchema } from '../types';
-import { formatBytes } from '@/lib/utils';
-import { useT } from '@/lib/i18n';
-import { FileDropzone } from '@/components/common/FileDropzone';
-import { KeyValueFieldArray } from '@/components/common/KeyValueFieldArray';
-import { SourceModeSwitch, type SourceMode } from '@/components/common/SourceModeSwitch';
+import { formatBytes } from '@/shared/lib/utils';
+import { useT } from '@/shared/i18n';
+import { FileDropzone } from '@/features/images/components/FileDropzone';
+import { KeyValueFieldArray } from '@/shared/ui/KeyValueFieldArray';
+import { SourceModeSwitch, type SourceMode } from '@/features/images/components/SourceModeSwitch';
 import { useBuildAvailability, useCreateBuild } from '../hooks';
 
 interface CreateBuildModalProps {

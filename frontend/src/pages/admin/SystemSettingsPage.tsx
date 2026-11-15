@@ -3,15 +3,15 @@ import { useForm, type UseFormRegister, type UseFormSetValue, type UseFormWatch 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, Plus, RefreshCcw, Save, Settings, X } from 'lucide-react';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { Select } from '@/shared/ui/Select';
 import { type SystemConfig, type SystemConfigForm, systemConfigSchema } from '@/features/admin/types';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { type TFunction, type TranslationKey, useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { type TFunction, type TranslationKey, useT } from '@/shared/i18n';
+import { cn } from '@/shared/lib/utils';
 import { useSystemConfig, useUpdateSystemConfig } from '@/features/admin/hooks';
 import { useAuthConfig } from '@/features/auth/hooks';
 import type { AuthConfig } from '@/features/auth/types';

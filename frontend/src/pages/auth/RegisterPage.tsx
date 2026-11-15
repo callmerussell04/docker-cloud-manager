@@ -2,17 +2,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
-import { AuthHeader } from '@/components/common/AuthHeader';
-import { PasswordInput } from '@/components/common/PasswordInput';
-import { useToastStore } from '@/store/toastStore';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
+import { AuthHeader } from '@/features/auth/components/AuthHeader';
+import { PasswordInput } from '@/shared/ui/PasswordInput';
+import { useToastStore } from '@/shared/ui/toastStore';
 import { registerFn } from '@/features/auth/api';
 import { type RegisterData, createRegisterSchema } from '@/features/auth/types';
-import { getApiErrorMessage } from '@/lib/apiError';
-import { useT } from '@/lib/i18n';
+import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
 
 export function RegisterPage() {
   const navigate = useNavigate();

@@ -3,13 +3,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
+import { Modal } from '@/shared/ui/Modal';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
 import { exposeContainerSchema, type ContainerData } from '../types';
-import { BASE_DOMAIN } from '@/config';
-import { useT } from '@/lib/i18n';
+import { BASE_DOMAIN } from '@/shared/lib/config';
+import { useT } from '@/shared/i18n';
 import { useExposeContainer } from '../hooks';
 
 interface ExposeContainerModalProps {

@@ -1,0 +1,25 @@
+import type { volumes as ru } from '../ru/volumes';
+
+export const volumes: Record<keyof typeof ru, string> = {
+  'volumes.title': 'Volumes',
+  'volumes.subtitle': 'Manage persistent storage',
+  'volumes.create': 'Create volume',
+  'volumes.name': 'Volume name',
+  'volumes.statusDate': 'Status / Date',
+  'volumes.emptyTitle': 'No volumes',
+  'volumes.emptyDescription': 'Create a volume to attach persistent storage to containers.',
+  'volumes.loadFailed': 'Failed to load volumes',
+  'volumes.created': 'Volume created',
+  'volumes.createFailed': 'Failed to create volume',
+  'volumes.deleted': 'Volume deleted',
+  'volumes.deleteFailed': 'Failed to delete volume',
+  'volumes.deleteConfirm': 'Delete volume "{name}"?',
+  'volumes.size': 'Size, MiB',
+  'volumes.sizeDefault': 'Default size',
+  'volumes.sizeHint': 'Reserved from your disk quota at creation and cannot be changed later. Leave empty for the default size.',
+  'volumes.sizeInvalid': 'Enter a whole number of MiB, at least 1',
+  'volumes.usage': 'Used / size',
+  'volumes.usageOfSize': '{used} of {size}',
+  'volumes.sizeMeasured': 'Checked periodically',
+  'volumes.sizeMeasuredHint': 'The size is checked periodically, so usage can briefly go past it. Containers that write to a volume grown beyond its size are stopped.',
+};

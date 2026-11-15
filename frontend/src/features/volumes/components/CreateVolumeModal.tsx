@@ -1,12 +1,12 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 
-import { Modal } from '@/components/ui/Modal';
-import { Input } from '@/components/ui/Input';
-import { Label } from '@/components/ui/Label';
-import { Button } from '@/components/ui/Button';
+import { Modal } from '@/shared/ui/Modal';
+import { Input } from '@/shared/ui/Input';
+import { Label } from '@/shared/ui/Label';
+import { Button } from '@/shared/ui/Button';
 import { type CreateVolumeForm, createVolumeSchema, type CreateVolumeDTO, MIB } from '../types';
-import { useT } from '@/lib/i18n';
+import { useT } from '@/shared/i18n';
 import { useCreateVolume } from '../hooks';
 
 interface CreateVolumeModalProps {

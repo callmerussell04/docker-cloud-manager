@@ -1,0 +1,26 @@
+import type { auth as ru } from '../ru/auth';
+
+export const auth: Record<keyof typeof ru, string> = {
+  'auth.session.unavailable': 'Session temporarily unavailable',
+  'auth.session.uncertain': 'The server could not confirm your session change. Actions are paused. Retrying may require signing in again if the previous request completed.',
+  'auth.session.retry': 'Retry refresh',
+  'auth.session.retryLogout': 'Retry logout',
+  'auth.session.signIn': 'Sign in again',
+  'auth.login.title': 'Welcome back',
+  'auth.login.subtitle': 'Enter your credentials to access the control panel',
+  'auth.login.submit': 'Log in',
+  'auth.login.keycloak': 'Continue with external SSO',
+  'auth.login.success': 'Logged in successfully',
+  'auth.login.failed': 'Failed to log in',
+  'auth.login.noAccount': 'No account?',
+  'auth.login.registerLink': 'Register',
+  'auth.callback.loading': 'Completing sign in...',
+  'auth.callback.failed': 'Failed to complete sign in',
+  'auth.register.title': 'Create account',
+  'auth.register.subtitle': 'Fill out the form below to register',
+  'auth.register.submit': 'Register',
+  'auth.register.success': 'Registration completed. You can now log in.',
+  'auth.register.failed': 'Failed to register',
+  'auth.register.hasAccount': 'Already have an account?',
+  'auth.register.loginLink': 'Log in',
+};

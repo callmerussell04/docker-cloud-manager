@@ -1,11 +1,11 @@
 import { Activity, AlertTriangle, Box, Cpu, Database, Disc, HardDrive, Layers, RefreshCcw, Server, type LucideIcon } from 'lucide-react';
 
-import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Badge } from '@/shared/ui/Badge';
+import { Button } from '@/shared/ui/Button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import type { RootfsQuotaStatus, SystemMonitoring, VolumeSizeMode } from '@/features/admin/types';
-import { dateLocale, useLocale, useT } from '@/lib/i18n';
-import { formatBytes } from '@/lib/utils';
+import { dateLocale, useLocale, useT } from '@/shared/i18n';
+import { formatBytes } from '@/shared/lib/utils';
 import { useSystemMonitoring } from '@/features/admin/hooks';
 
 function progressColor(percent: number) {

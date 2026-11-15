@@ -1,11 +1,11 @@
 import { Terminal, Trash2, Clock, CheckCircle2, AlertCircle, Loader2, Info, XCircle } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { Badge } from '@/shared/ui/Badge';
 import { type BuildData } from '../types';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { dateLocale, statusLabel, useLocale, useT } from '@/lib/i18n';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn } from '@/shared/lib/utils';
+import { dateLocale, statusLabel, useLocale, useT } from '@/shared/i18n';
 import { useCancelBuild, useDeleteBuild } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 
 interface BuildRowProps {

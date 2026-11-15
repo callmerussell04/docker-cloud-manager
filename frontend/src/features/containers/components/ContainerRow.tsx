@@ -1,14 +1,14 @@
 import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/components/ui/Badge';
+import { Badge } from '@/shared/ui/Badge';
 import { type ContainerData } from '../types';
-import { BASE_DOMAIN } from '@/config';
+import { BASE_DOMAIN } from '@/shared/lib/config';
 import { Link } from 'react-router-dom';
-import { tableLayouts } from '@/components/ui/tableLayouts';
-import { cn } from '@/lib/utils';
-import { statusLabel, useT } from '@/lib/i18n';
-import { getServerErrorMessage } from '@/lib/apiError';
+import { tableLayouts } from '@/shared/ui/tableLayouts';
+import { cn } from '@/shared/lib/utils';
+import { statusLabel, useT } from '@/shared/i18n';
+import { getServerErrorMessage } from '@/shared/api/apiError';
 import { useContainerAction } from '../hooks';
-import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
 import { ContainerTTLTimer } from './ContainerTTLTimer';
 
