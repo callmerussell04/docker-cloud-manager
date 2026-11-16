@@ -194,7 +194,7 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		return uuid.Nil, err
 	}
 	if count >= cfg.MaxVolumesPerUser {
-		return uuid.Nil, apperrors.ErrLimitExceeded
+		return uuid.Nil, apperrors.Exceeded(apperrors.LimitVolumesPerUser)
 	}
 
 	volID := uuid.New()

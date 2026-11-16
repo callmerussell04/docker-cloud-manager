@@ -5,6 +5,8 @@ import { SessionUnavailableError } from '@/shared/api/sessionCoordinator';
 export interface ApiErrorResponse {
   error?: string;
   error_code?: string;
+  // The limit a rejected request exceeded, when the server names one.
+  limit?: string;
   request_id?: string;
 }
 
@@ -32,6 +34,29 @@ const knownErrorCodes = new Set([
   'internal',
 ]);
 
+// The limits the backend names in a rejection (apperrors.Limit). Each has its
+// own message, `apiError.limit.<name>`.
+export const knownLimits = [
+  'user_memory',
+  'user_cpu',
+  'user_disk',
+  'host_memory',
+  'host_cpu',
+  'disk_floor',
+  'containers_per_user',
+  'volumes_per_user',
+  'queued_container_creates',
+  'queued_builds',
+  'queued_compose_deployments',
+  'staged_source_bytes',
+] as const;
+
+type Limit = (typeof knownLimits)[number];
+
+function normalizeLimit(limit?: string): Limit | undefined {
+  return knownLimits.find((known) => known === limit);
+}
+
 const legacyErrorCodeByMessage: Record<string, string> = {
   'bad request': 'bad_request',
   'not found': 'not_found',
@@ -42,9 +67,9 @@ const legacyErrorCodeByMessage: Record<string, string> = {
   forbidden: 'forbidden',
   'invalid file format, allowed: .zip, .tar, .tar.gz': 'invalid_file_format',
   'maximum number of resources reached': 'limit_exceeded',
-  'user memory quota exceeded': 'quota_exceeded',
+  'user quota exceeded': 'quota_exceeded',
   'server capacity reached, cannot allocate resources': 'resource_exhausted',
-  'host server is out of memory': 'host_exhausted',
+  'host capacity exhausted': 'host_exhausted',
   'resource is currently in use': 'resource_in_use',
   conflict: 'conflict',
   'request timed out': 'timeout',
@@ -61,7 +86,13 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
     const responseError = error.response?.data?.error;
     const responseErrorCode = error.response?.data?.error_code;
     const code = normalizeErrorCode(responseErrorCode) ?? normalizeLegacyError(responseError);
+    const limit = normalizeLimit(error.response?.data?.limit);
     const detailedServerMessage = getDetailedServerErrorMessage(responseError, t);
+
+    // A named limit says more than its error code, which several limits share.
+    if (limit && t) {
+      return { message: t(`apiError.limit.${limit}`) };
+    }
 
     if (detailedServerMessage) {
       return { message: detailedServerMessage };

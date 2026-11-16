@@ -1817,6 +1817,25 @@ components:
           type: string
         error_code:
           type: string
+        limit:
+          type: string
+          description: >-
+            The limit a rejected request exceeded. Present only when the
+            rejection names one; several limits share one error_code. Clients
+            must tolerate values added later.
+          enum:
+            - user_memory
+            - user_cpu
+            - user_disk
+            - host_memory
+            - host_cpu
+            - disk_floor
+            - containers_per_user
+            - volumes_per_user
+            - queued_container_creates
+            - queued_builds
+            - queued_compose_deployments
+            - staged_source_bytes
         request_id:
           type: string
 
@@ -2534,6 +2553,13 @@ components:
           type: integer
           format: int64
         ram_quota_bytes:
+          type: integer
+          format: int64
+        cpu_used_millicores:
+          type: integer
+          format: int64
+          description: CPU the user's containers reserve.
+        cpu_quota_millicores:
           type: integer
           format: int64
         disk_used_mb:

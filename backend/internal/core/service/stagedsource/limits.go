@@ -14,10 +14,10 @@ func (s *Staging) CheckHostDiskFloor(projectedWriteBytes int64) error {
 
 // CheckHostDiskFloor is the projected host disk floor check for staging, volume
 // create and container admission (the admission ledger reads the floor itself).
-// It returns ErrHostExhausted when the free bytes on path, less
-// projectedWriteBytes, fall below minFreeBytes. Without metrics or a positive
-// floor it checks nothing; an empty path means "/" and a negative write counts
-// as none.
+// It returns the disk floor rejection, a host-exhausted error, when the free
+// bytes on path, less projectedWriteBytes, fall below minFreeBytes. Without
+// metrics or a positive floor it checks nothing; an empty path means "/" and a
+// negative write counts as none.
 func CheckHostDiskFloor(metrics HostDiskMetrics, path string, minFreeBytes, projectedWriteBytes int64) error {
 	if metrics == nil || minFreeBytes <= 0 {
 		return nil
@@ -33,7 +33,7 @@ func CheckHostDiskFloor(metrics HostDiskMetrics, path string, minFreeBytes, proj
 		return err
 	}
 	if stats.FreeBytes-projectedWriteBytes < minFreeBytes {
-		return apperrors.ErrHostExhausted
+		return apperrors.Exceeded(apperrors.LimitDiskFloor)
 	}
 	return nil
 }

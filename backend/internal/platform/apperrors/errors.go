@@ -14,9 +14,9 @@ var (
 	ErrBadRequest         = errors.New("bad request")
 	ErrInternal           = errors.New("internal server error")
 	ErrResourceExhausted  = errors.New("server capacity reached, cannot allocate resources")
-	ErrQuotaExceeded      = errors.New("user memory quota exceeded")
+	ErrQuotaExceeded      = errors.New("user quota exceeded")
 	ErrLimitExceeded      = errors.New("maximum number of resources reached")
-	ErrHostExhausted      = errors.New("host server is out of memory")
+	ErrHostExhausted      = errors.New("host capacity exhausted")
 	ErrInvalidFileFormat  = errors.New("invalid file format, allowed: .zip, .tar, .tar.gz")
 	ErrConflict           = errors.New("conflict")
 	ErrResourceInUse      = errors.New("resource is currently in use")
@@ -28,6 +28,8 @@ type Error struct {
 	kind    error
 	message string
 	cause   error
+	// limit names the limit the request exceeded; see Exceeded.
+	limit Limit
 }
 
 func New(kind error, message string) error {

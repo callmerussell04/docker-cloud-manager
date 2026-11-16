@@ -61,6 +61,8 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 		// diskQuotaMB is the owner's custom disk quota.
 		diskQuotaMB int64
 		wantErr     error
+		// wantLimit is the limit a rejection names, if it names one.
+		wantLimit apperrors.Limit
 	}{
 		{
 			name:    "missing scope",
@@ -86,7 +88,8 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(5, nil)
 			},
-			wantErr: apperrors.ErrLimitExceeded,
+			wantErr:   apperrors.ErrLimitExceeded,
+			wantLimit: apperrors.LimitVolumesPerUser,
 		},
 		{
 			name:        "disk quota",
@@ -97,7 +100,8 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 				imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 				repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(2*1024*1024), nil)
 			},
-			wantErr: apperrors.ErrQuotaExceeded,
+			wantErr:   apperrors.ErrQuotaExceeded,
+			wantLimit: apperrors.LimitUserDisk,
 		},
 	}
 
@@ -116,6 +120,7 @@ func TestVolumeServiceCreateRejectsInvalidInputsAndLimits(t *testing.T) {
 				ImageRepo:  imageRepo})
 			_, err := svc.Create(tt.ctx, tt.params)
 			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, tt.wantLimit, apperrors.LimitOf(err))
 		})
 	}
 }

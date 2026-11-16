@@ -144,6 +144,7 @@ func TestContainerServiceCreateEnforcesQueuedCreateLimit(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.Create(accessscope.WithUserScope(context.Background(), owner, "", ""), model.ContainerCreateParams{Name: "web", ImageTag: "nginx"})
 	require.ErrorIs(t, err, apperrors.ErrLimitExceeded)
+	require.Equal(t, apperrors.LimitQueuedContainerCreates, apperrors.LimitOf(err))
 	require.True(t, released)
 }
 

@@ -33,10 +33,11 @@ func TestStartDeploymentAdmission(t *testing.T) {
 		countErr      error
 		capacityErr   error
 		wantErr       error
+		wantLimit     apperrors.Limit
 		checkCapacity bool
 	}{
 		{name: "admitted", queueLimit: 2, queued: 1, checkCapacity: true},
-		{name: "queue full", queueLimit: 2, queued: 2, wantErr: apperrors.ErrLimitExceeded},
+		{name: "queue full", queueLimit: 2, queued: 2, wantErr: apperrors.ErrLimitExceeded, wantLimit: apperrors.LimitQueuedComposeDeployments},
 		{name: "queue counter fails", queueLimit: 2, countErr: counterFailure, wantErr: counterFailure},
 		{name: "queue limit disabled", queueLimit: 0, checkCapacity: true},
 		{name: "capacity exceeded", queueLimit: 2, capacityErr: capacityExceeded, wantErr: capacityExceeded, checkCapacity: true},
@@ -76,7 +77,10 @@ func TestStartDeploymentAdmission(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, scenario.wantErr)
-			require.Equal(t, apperrors.SafeMessage(scenario.wantErr), apperrors.SafeMessage(err))
+			require.Equal(t, scenario.wantLimit, apperrors.LimitOf(err))
+			if scenario.wantLimit == "" {
+				require.Equal(t, apperrors.SafeMessage(scenario.wantErr), apperrors.SafeMessage(err))
+			}
 			require.Equal(t, uuid.Nil, projectID)
 			require.Empty(t, objects, "rejected deployments must delete their staged source")
 		})

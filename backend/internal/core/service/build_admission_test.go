@@ -87,6 +87,9 @@ func TestBuildServiceAdmission(t *testing.T) {
 						)
 					}
 					require.ErrorIs(t, err, scenario.wantErr)
+					if scenario.name == "queue full" {
+						require.Equal(t, apperrors.LimitQueuedBuilds, apperrors.LimitOf(err))
+					}
 					if scenario.wantErr == nil {
 						require.NotEqual(t, uuid.Nil, buildID)
 					} else {
@@ -103,7 +106,7 @@ func TestBuildServiceAdmission(t *testing.T) {
 func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 	const archiveKey = "build-archives/copied.zip"
 	const archiveSize = int64(5 << 20)
-	stagedFull := apperrors.New(apperrors.ErrQuotaExceeded, "staged source quota exceeded")
+	stagedFull := apperrors.Exceeded(apperrors.LimitStagedSourceBytes)
 	statFailure := errors.New("object storage unavailable")
 	scenarios := []struct {
 		name        string
@@ -112,10 +115,11 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 		reserveErr  error
 		wantErr     error
 		wantMessage string
+		wantLimit   apperrors.Limit
 	}{
 		{name: "reserves the stat size", quotaDiskMB: 1024},
-		{name: "staged quota exceeded", quotaDiskMB: 1024, reserveErr: stagedFull, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "staged source quota exceeded"},
-		{name: "disk quota exceeded", quotaDiskMB: 1, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "user disk quota exceeded"},
+		{name: "staged quota exceeded", quotaDiskMB: 1024, reserveErr: stagedFull, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "staged source quota exceeded", wantLimit: apperrors.LimitStagedSourceBytes},
+		{name: "disk quota exceeded", quotaDiskMB: 1, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "user disk quota exceeded", wantLimit: apperrors.LimitUserDisk},
 		{name: "stat fails", statErr: statFailure, wantErr: statFailure},
 	}
 	for _, scenario := range scenarios {
@@ -158,6 +162,7 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 				return
 			}
 			require.ErrorIs(t, err, scenario.wantErr)
+			require.Equal(t, scenario.wantLimit, apperrors.LimitOf(err))
 			if scenario.wantMessage != "" {
 				require.Equal(t, scenario.wantMessage, apperrors.SafeMessage(err))
 			}

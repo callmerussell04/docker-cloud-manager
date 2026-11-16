@@ -21,17 +21,18 @@ func TestStatsServiceGetUserStatsAggregatesUserResources(t *testing.T) {
 		name                     string
 		custom                   bool
 		wantRAMQuotaMB, wantDisk int64
+		wantCPUQuotaMillicores   int64
 	}{
-		{name: "custom quota", custom: true, wantRAMQuotaMB: 512, wantDisk: 100},
-		{name: "default quota", wantRAMQuotaMB: 768, wantDisk: 200},
+		{name: "custom quota", custom: true, wantRAMQuotaMB: 512, wantDisk: 100, wantCPUQuotaMillicores: 1000},
+		{name: "default quota", wantRAMQuotaMB: 768, wantDisk: 200, wantCPUQuotaMillicores: 1500},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			testUserStats(t, tc.custom, tc.wantRAMQuotaMB, tc.wantDisk)
+			testUserStats(t, tc.custom, tc.wantRAMQuotaMB, tc.wantDisk, tc.wantCPUQuotaMillicores)
 		})
 	}
 }
 
-func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB int64) {
+func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, wantCPUQuotaMillicores int64) {
 	t.Helper()
 	ownerID := uuid.New()
 	contRepo := coremocks.NewStatsContainerRepository(t)
@@ -43,12 +44,14 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB in
 
 	cfgValue := testSystemConfig()
 	cfgValue.DefaultUserQuotaRAMMB, cfgValue.DefaultUserQuotaDiskMB = 768, 200
+	cfgValue.DefaultUserQuotaCPU = 1.5
 	cfg := coretest.StaticConfig{Config: cfgValue}
 	customQuotas := map[uuid.UUID]model.UserQuota{}
 	if custom {
 		customQuotas[ownerID] = model.UserQuota{CPUMillicores: 1000, RAMMB: 512, DiskMB: 100}
 	}
 	contRepo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(256), nil)
+	contRepo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(750), nil)
 	contRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(3, nil)
 	contRepo.EXPECT().
 		List(mock.Anything, mock.AnythingOfType("model.ListOptions")).
@@ -78,6 +81,8 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB in
 	require.Equal(t, testSystemConfig().MaxContainersPerUser, stats.ContainersQuota)
 	require.EqualValues(t, 256, stats.RamUsedBytes)
 	require.Equal(t, wantRAMQuotaMB*1024*1024, stats.RamQuotaBytes)
+	require.EqualValues(t, 750, stats.CPUUsedMillicores)
+	require.Equal(t, wantCPUQuotaMillicores, stats.CPUQuotaMillicores)
 	require.Equal(t, 12, stats.DiskUsedMB)
 	require.Equal(t, int(wantDiskQuotaMB), stats.DiskQuotaMB)
 	require.Equal(t, 2, stats.VolumesTotal)

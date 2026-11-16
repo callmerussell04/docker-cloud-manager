@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/fieldfill"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -187,6 +188,8 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	userStats, err := coreClient.GetUserStats(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int32(3), userStats.ContainersTotal)
+	require.EqualValues(t, 750, userStats.CPUUsedMillicores)
+	require.EqualValues(t, 2000, userStats.CPUQuotaMillicores)
 	monitoring, err := coreClient.GetSystemMonitoring(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 42.5, monitoring.CPUPercent)
@@ -214,6 +217,21 @@ func TestCoreClientMapsGRPCErrorsToAppErrors(t *testing.T) {
 
 	_, err := coreClient.CreateContainer(context.Background(), model.CreateContainerInput{Name: "web"})
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+}
+
+// A rejection Core names by its limit reaches Gateway with its kind, its
+// message and the limit name.
+func TestCoreClientKeepsTheLimitCoreNamed(t *testing.T) {
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterContainerAPIServer(server, &coreContainerServer{createErr: grpcerrors.ToGRPC(apperrors.Exceeded(apperrors.LimitUserCPU))})
+	})
+	coreClient := client.NewCoreClient(conn)
+
+	_, err := coreClient.CreateContainer(context.Background(), model.CreateContainerInput{Name: "web"})
+
+	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
+	require.Equal(t, apperrors.LimitUserCPU, apperrors.LimitOf(err))
+	require.Equal(t, "user CPU quota exceeded", apperrors.SafeMessage(err))
 }
 
 func newGRPCConn(t *testing.T, register func(*grpc.Server)) *grpc.ClientConn {
@@ -439,7 +457,7 @@ type coreStatsServer struct {
 }
 
 func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreapi.UserStatsResponse, error) {
-	return &coreapi.UserStatsResponse{ContainersTotal: 3}, nil
+	return &coreapi.UserStatsResponse{ContainersTotal: 3, CpuUsedMillicores: 750, CpuQuotaMillicores: 2000}, nil
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {

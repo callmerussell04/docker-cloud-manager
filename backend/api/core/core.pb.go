@@ -434,8 +434,11 @@ type UserStatsResponse struct {
 	VolumesQuota      int32                  `protobuf:"varint,9,opt,name=volumes_quota,json=volumesQuota,proto3" json:"volumes_quota,omitempty"`
 	ImagesTotal       int32                  `protobuf:"varint,10,opt,name=images_total,json=imagesTotal,proto3" json:"images_total,omitempty"`
 	ProjectsTotal     int32                  `protobuf:"varint,11,opt,name=projects_total,json=projectsTotal,proto3" json:"projects_total,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// CPU the user's containers reserve, and the user's CPU quota.
+	CpuUsedMillicores  int64 `protobuf:"varint,12,opt,name=cpu_used_millicores,json=cpuUsedMillicores,proto3" json:"cpu_used_millicores,omitempty"`
+	CpuQuotaMillicores int64 `protobuf:"varint,13,opt,name=cpu_quota_millicores,json=cpuQuotaMillicores,proto3" json:"cpu_quota_millicores,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *UserStatsResponse) Reset() {
@@ -541,6 +544,20 @@ func (x *UserStatsResponse) GetImagesTotal() int32 {
 func (x *UserStatsResponse) GetProjectsTotal() int32 {
 	if x != nil {
 		return x.ProjectsTotal
+	}
+	return 0
+}
+
+func (x *UserStatsResponse) GetCpuUsedMillicores() int64 {
+	if x != nil {
+		return x.CpuUsedMillicores
+	}
+	return 0
+}
+
+func (x *UserStatsResponse) GetCpuQuotaMillicores() int64 {
+	if x != nil {
+		return x.CpuQuotaMillicores
 	}
 	return 0
 }
@@ -4708,7 +4725,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x12skipped_containers\x18\x02 \x01(\x05R\x11skippedContainers\x12'\n" +
 	"\x0fcanceled_builds\x18\x03 \x01(\x05R\x0ecanceledBuilds\x121\n" +
 	"\x14canceled_deployments\x18\x04 \x01(\x05R\x13canceledDeployments\x12\x16\n" +
-	"\x06failed\x18\x05 \x01(\x05R\x06failed\"\xc0\x03\n" +
+	"\x06failed\x18\x05 \x01(\x05R\x06failed\"\xa2\x04\n" +
 	"\x11UserStatsResponse\x12)\n" +
 	"\x10containers_total\x18\x01 \x01(\x05R\x0fcontainersTotal\x12-\n" +
 	"\x12containers_running\x18\x02 \x01(\x05R\x11containersRunning\x12)\n" +
@@ -4722,7 +4739,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rvolumes_quota\x18\t \x01(\x05R\fvolumesQuota\x12!\n" +
 	"\fimages_total\x18\n" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
-	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\"\xeb\t\n" +
+	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\x12.\n" +
+	"\x13cpu_used_millicores\x18\f \x01(\x03R\x11cpuUsedMillicores\x120\n" +
+	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\xeb\t\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +

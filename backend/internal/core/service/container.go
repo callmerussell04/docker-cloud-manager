@@ -244,7 +244,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		return uuid.Nil, err
 	}
 	if count >= cfg.MaxContainersPerUser {
-		return uuid.Nil, apperrors.ErrLimitExceeded
+		return uuid.Nil, apperrors.Exceeded(apperrors.LimitContainersPerUser)
 	}
 
 	if params.DomainPrefix != "" {
@@ -267,7 +267,7 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			return uuid.Nil, err
 		}
 		if queued >= cfg.MaxQueuedContainerCreatesPerUser {
-			return uuid.Nil, apperrors.ErrLimitExceeded
+			return uuid.Nil, apperrors.Exceeded(apperrors.LimitQueuedContainerCreates)
 		}
 	}
 

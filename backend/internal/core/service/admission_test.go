@@ -124,50 +124,64 @@ var admissionEntries = []admissionEntry{
 	{name: "volume create", volume: true, run: admitVolumeCreate},
 }
 
+// admissionLimitKinds is the error kind each admission limit answers with:
+// user limits are a quota rejection, host limits and the disk floor a host
+// one.
+var admissionLimitKinds = map[apperrors.Limit]error{
+	apperrors.LimitUserMemory: apperrors.ErrQuotaExceeded,
+	apperrors.LimitUserCPU:    apperrors.ErrQuotaExceeded,
+	apperrors.LimitUserDisk:   apperrors.ErrQuotaExceeded,
+	apperrors.LimitHostMemory: apperrors.ErrHostExhausted,
+	apperrors.LimitHostCPU:    apperrors.ErrHostExhausted,
+	apperrors.LimitDiskFloor:  apperrors.ErrHostExhausted,
+}
+
 // Every entry point admits memory and CPU through one check, in the order
 // user memory, user CPU, user disk, host memory including build slots, host
 // CPU including build slots, disk floor, so the same over-limit request is rejected
-// with the same error kind wherever it arrives. Each verdict holds whether the
-// owner's quota is the default quota or a custom quota in Core's store.
+// with the same error kind and the same limit name wherever it arrives. Each
+// verdict holds whether the owner's quota is the default quota or a custom
+// quota in Core's store.
 func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		world func(*admissionWorld)
-		// want is the error kind for requests charged to the user; wantBuild,
-		// for builds, is the same unless the limit is a user memory or CPU
-		// quota, which builds do not count against. wantVolume is for volume
-		// creates, which meet only the disk quota and the disk floor.
-		want, wantBuild, wantVolume error
+		// want is the limit that rejects requests charged to the user;
+		// wantBuild, for builds, is the same unless the limit is a user
+		// memory or CPU quota, which builds do not count against. wantVolume
+		// is for volume creates, which meet only the disk quota and the disk
+		// floor. An empty limit means the request is admitted.
+		want, wantBuild, wantVolume apperrors.Limit
 	}{
 		{name: "fits", world: func(*admissionWorld) {}},
 		{
 			name:  "user memory quota",
 			world: func(w *admissionWorld) { w.quotaRAMMB = 700 },
-			want:  apperrors.ErrQuotaExceeded,
+			want:  apperrors.LimitUserMemory,
 		},
 		{
 			name:  "user cpu quota",
 			world: func(w *admissionWorld) { w.quotaCPU = 0.6 },
-			want:  apperrors.ErrQuotaExceeded,
+			want:  apperrors.LimitUserCPU,
 		},
 		{
 			name:  "user disk quota",
 			world: func(w *admissionWorld) { w.usedDiskMB = 1024 },
-			want:  apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
+			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
 		},
 		{
 			// Measured usage is nothing, but the sizes the owner's volumes
 			// reserve fill the quota.
 			name:  "volume sizes fill the user disk quota",
 			world: func(w *admissionWorld) { w.reservedVolumeBytes = 1024 * admissionMiB },
-			want:  apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
+			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
 		},
 		{
 			// 1000 of 1024 MB leaves room for a container or a build, but
 			// not for a 64 MiB volume.
 			name:       "a volume needs room for its size",
 			world:      func(w *admissionWorld) { w.usedDiskMB = 1000 },
-			wantVolume: apperrors.ErrQuotaExceeded,
+			wantVolume: apperrors.LimitUserDisk,
 		},
 		{
 			name:  "a volume that fills the quota exactly",
@@ -176,7 +190,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "host memory",
 			world: func(w *admissionWorld) { w.otherMemory = 1400 * admissionMiB },
-			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+			want:  apperrors.LimitHostMemory, wantBuild: apperrors.LimitHostMemory,
 		},
 		{
 			name: "host memory held by active builds",
@@ -184,12 +198,12 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.otherMemory = 1000 * admissionMiB
 				w.activeBuilds = 2
 			},
-			want: apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+			want: apperrors.LimitHostMemory, wantBuild: apperrors.LimitHostMemory,
 		},
 		{
 			name:  "host cpu",
 			world: func(w *admissionWorld) { w.otherCPU = 1300 },
-			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+			want:  apperrors.LimitHostCPU, wantBuild: apperrors.LimitHostCPU,
 		},
 		{
 			name: "host cpu held by active builds",
@@ -197,7 +211,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.otherCPU = 800
 				w.activeBuilds = 2
 			},
-			want: apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted,
+			want: apperrors.LimitHostCPU, wantBuild: apperrors.LimitHostCPU,
 		},
 		{
 			// One build runs at a time, so the five queued behind it hold
@@ -214,7 +228,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "disk floor",
 			world: func(w *admissionWorld) { w.diskFreeBytes = 512 * admissionMiB },
-			want:  apperrors.ErrHostExhausted, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
+			want:  apperrors.LimitDiskFloor, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor,
 		},
 		{
 			// Two running builds and the new one may each write 3 GiB: 9 of
@@ -233,7 +247,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.activeBuilds = 2
 				w.buildMaxDiskBytes = 4 << 30
 			},
-			wantBuild: apperrors.ErrHostExhausted,
+			wantBuild: apperrors.LimitDiskFloor,
 		},
 		{
 			// One build runs at a time, so the new build waits behind it and
@@ -250,7 +264,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			world: func(w *admissionWorld) {
 				w.buildMaxDiskBytes = 9<<30 + 1
 			},
-			wantBuild: apperrors.ErrHostExhausted,
+			wantBuild: apperrors.LimitDiskFloor,
 		},
 		{
 			name: "user disk is checked before host memory",
@@ -258,7 +272,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.usedDiskMB = 1024
 				w.otherMemory = 1400 * admissionMiB
 			},
-			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrQuotaExceeded, wantVolume: apperrors.ErrQuotaExceeded,
+			want: apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
 		},
 		{
 			name: "user memory is checked before the disk floor",
@@ -266,7 +280,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.quotaRAMMB = 700
 				w.diskFreeBytes = 0
 			},
-			want: apperrors.ErrQuotaExceeded, wantBuild: apperrors.ErrHostExhausted, wantVolume: apperrors.ErrHostExhausted,
+			want: apperrors.LimitUserMemory, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor,
 		},
 	} {
 		for _, source := range []struct {
@@ -288,12 +302,13 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 
 					queued, err := entry.run(t, w)
 
-					if want == nil {
+					if want == "" {
 						require.NoError(t, err)
 						require.True(t, queued, "admitted work is queued")
 						return
 					}
-					require.ErrorIs(t, err, want)
+					require.ErrorIs(t, err, admissionLimitKinds[want])
+					require.Equal(t, want, apperrors.LimitOf(err), "the rejection names its limit")
 					require.False(t, queued, "rejected work is not queued")
 				})
 			}
@@ -636,6 +651,7 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 				continue
 			}
 			require.ErrorIs(t, err, apperrors.ErrLimitExceeded)
+			require.Equal(t, apperrors.LimitContainersPerUser, apperrors.LimitOf(err))
 		}
 		require.Equal(t, 1, admitted, "one create is admitted")
 		count, err := store.CountByOwnerID(context.Background(), ownerID)

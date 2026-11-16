@@ -348,6 +348,7 @@ func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
 		BytesReserved: 129,
 	}, 256)
 	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
+	require.Equal(t, apperrors.LimitStagedSourceBytes, apperrors.LimitOf(err))
 
 	require.NoError(t, repo.Release(ctx, "build-archives/demo.zip"))
 	used, err = repo.ActiveBytesByOwner(ctx, ownerID)

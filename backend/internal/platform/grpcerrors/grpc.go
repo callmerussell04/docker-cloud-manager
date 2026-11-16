@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,8 +35,26 @@ func Code(err error) codes.Code {
 	}
 }
 
+// LimitDomain is the error-info domain of the status detail that carries an
+// exceeded limit's name between DCM services.
+const LimitDomain = "docker-cloud-manager"
+
+// ToGRPC returns err as a gRPC status with its safe message. A rejection that
+// names its limit carries the name as an error-info detail, which FromGRPC
+// restores on the other side.
 func ToGRPC(err error) error {
-	return status.Error(Code(err), apperrors.SafeMessage(err))
+	st := status.New(Code(err), apperrors.SafeMessage(err))
+	limit := apperrors.LimitOf(err)
+	if limit == "" {
+		return st.Err()
+	}
+	detailed, detailErr := st.WithDetails(&errdetails.ErrorInfo{Domain: LimitDomain, Reason: string(limit)})
+	if detailErr != nil {
+		// The caller still gets the code and message, and maps the kind
+		// from the message as it does for an answer without a detail.
+		return st.Err()
+	}
+	return detailed.Err()
 }
 
 func FromGRPC(err error) error {
@@ -61,6 +80,9 @@ func FromGRPC(err error) error {
 	case codes.AlreadyExists:
 		return apperrors.New(apperrors.ErrAlreadyExists, message)
 	case codes.ResourceExhausted:
+		if limit := limitDetail(st); limit != "" {
+			return apperrors.Exceeded(limit)
+		}
 		return apperrors.New(resourceExhaustedKind(message), message)
 	case codes.FailedPrecondition, codes.Aborted:
 		return apperrors.New(conflictKind(message), message)
@@ -84,6 +106,23 @@ func unauthenticatedKind(message string) error {
 	}
 }
 
+// limitDetail is the limit an exhausted answer names in its error-info detail,
+// or "" when it carries none of DCM's limit names.
+func limitDetail(st *status.Status) apperrors.Limit {
+	for _, detail := range st.Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok || info.GetDomain() != LimitDomain {
+			continue
+		}
+		if limit := apperrors.Limit(info.GetReason()); limit.Known() {
+			return limit
+		}
+	}
+	return ""
+}
+
+// resourceExhaustedKind maps an exhausted answer without a limit name by its
+// message.
 func resourceExhaustedKind(message string) error {
 	switch {
 	case message == apperrors.ErrLimitExceeded.Error():

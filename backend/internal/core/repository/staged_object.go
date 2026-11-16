@@ -41,7 +41,7 @@ func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.
 			return wrapOp("staged object reserve", err)
 		}
 		if used+reservation.BytesReserved > maxBytesPerUser {
-			return apperrors.New(apperrors.ErrQuotaExceeded, "staged source quota exceeded")
+			return apperrors.Exceeded(apperrors.LimitStagedSourceBytes)
 		}
 	}
 

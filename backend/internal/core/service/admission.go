@@ -57,37 +57,24 @@ type reservationLedger struct {
 	diskFreeBytes    int64
 }
 
-// admissionLimit names the first limit a request exceeds.
-type admissionLimit string
-
-const (
-	limitUserMemory admissionLimit = "user_memory"
-	limitUserCPU    admissionLimit = "user_cpu"
-	limitUserDisk   admissionLimit = "user_disk"
-	limitHostMemory admissionLimit = "host_memory"
-	limitHostCPU    admissionLimit = "host_cpu"
-	limitDiskFloor  admissionLimit = "disk_floor"
-)
-
 // admissionVerdict is either admitted, with no limit, or rejected with the
-// first limit the request exceeds and the figures that exceeded it.
+// first limit the request exceeds and the figures that exceeded it. The limit
+// is one of the six admission limits of apperrors: user memory, CPU and disk,
+// host memory and CPU, and the disk floor.
 type admissionVerdict struct {
-	limit     admissionLimit
+	limit     apperrors.Limit
 	projected int64
 	capacity  int64
 }
 
+// err is nil for an admitted request, and otherwise the rejection that names
+// the limit: a quota error for a user limit, a host-exhausted error for a host
+// limit or the disk floor.
 func (v admissionVerdict) err() error {
-	switch v.limit {
-	case "":
+	if v.limit == "" {
 		return nil
-	case limitUserMemory, limitUserCPU:
-		return apperrors.ErrQuotaExceeded
-	case limitUserDisk:
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
-	default:
-		return apperrors.ErrHostExhausted
 	}
+	return apperrors.Exceeded(v.limit)
 }
 
 // checkAdmission decides whether req fits ledger. It checks, in order, user
@@ -98,19 +85,19 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 	memory, cpu := max(req.memoryBytes, 0), max(req.cpuMillicores, 0)
 	if req.chargesUser {
 		if projected := ledger.userReservedMemoryBytes + memory; projected > ledger.userMemoryQuotaBytes {
-			return admissionVerdict{limit: limitUserMemory, projected: projected, capacity: ledger.userMemoryQuotaBytes}
+			return admissionVerdict{limit: apperrors.LimitUserMemory, projected: projected, capacity: ledger.userMemoryQuotaBytes}
 		}
 		if projected := ledger.userReservedCPUMillicores + cpu; projected > ledger.userCPUQuotaMillicores {
-			return admissionVerdict{limit: limitUserCPU, projected: projected, capacity: ledger.userCPUQuotaMillicores}
+			return admissionVerdict{limit: apperrors.LimitUserCPU, projected: projected, capacity: ledger.userCPUQuotaMillicores}
 		}
 	}
 	if ledger.userDiskCounted {
 		if req.userDiskBytes > 0 {
 			if projected := ledger.userReservedDiskBytes + req.userDiskBytes; projected > ledger.userDiskQuotaBytes {
-				return admissionVerdict{limit: limitUserDisk, projected: projected, capacity: ledger.userDiskQuotaBytes}
+				return admissionVerdict{limit: apperrors.LimitUserDisk, projected: projected, capacity: ledger.userDiskQuotaBytes}
 			}
 		} else if ledger.userReservedDiskBytes >= ledger.userDiskQuotaBytes {
-			return admissionVerdict{limit: limitUserDisk, projected: ledger.userReservedDiskBytes, capacity: ledger.userDiskQuotaBytes}
+			return admissionVerdict{limit: apperrors.LimitUserDisk, projected: ledger.userReservedDiskBytes, capacity: ledger.userDiskQuotaBytes}
 		}
 	}
 	if ledger.hostCounted {
@@ -118,18 +105,18 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		builds := reservedBuildSlots(ledger.activeBuilds+max(req.builds, 0), cfg)
 		projected := ledger.systemReservedMemoryBytes + builds*cfg.BuildMemoryBytes + memory
 		if pool <= 0 || projected > pool {
-			return admissionVerdict{limit: limitHostMemory, projected: projected, capacity: pool}
+			return admissionVerdict{limit: apperrors.LimitHostMemory, projected: projected, capacity: pool}
 		}
 		pool = hostCPUPool(ledger.hostLogicalCPUs, cfg.ReservedSystemCPU, cfg.CPUOvercommitFactor)
 		projected = ledger.systemReservedCPUMillicores + builds*max(cfg.BuildCPUMillicores, 0) + cpu
 		if pool <= 0 || projected > pool {
-			return admissionVerdict{limit: limitHostCPU, projected: projected, capacity: pool}
+			return admissionVerdict{limit: apperrors.LimitHostCPU, projected: projected, capacity: pool}
 		}
 	}
 	if ledger.diskFloorCounted {
 		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - buildSlotDiskBytes(ledger, req, cfg)
 		if remaining < cfg.HostMinFreeDiskBytes {
-			return admissionVerdict{limit: limitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
+			return admissionVerdict{limit: apperrors.LimitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
 		}
 	}
 	return admissionVerdict{}
@@ -271,10 +258,10 @@ func ensureHostMemoryAdmission(totalMemoryBytes int64, cfg config.SystemConfig, 
 	}
 	pool := hostMemoryPool(totalMemoryBytes, cfg.ReservedSystemMemory, cfg.OvercommitFactor)
 	if pool <= 0 {
-		return apperrors.ErrHostExhausted
+		return apperrors.Exceeded(apperrors.LimitHostMemory)
 	}
 	if reservedMemoryBytes+requestedMemoryBytes > pool {
-		return apperrors.ErrHostExhausted
+		return apperrors.Exceeded(apperrors.LimitHostMemory)
 	}
 	return nil
 }

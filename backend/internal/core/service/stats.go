@@ -15,6 +15,7 @@ const bytesPerMB = 1024 * 1024
 
 type StatsContainerRepository interface {
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
@@ -153,6 +154,11 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	}
 	stats.RamQuotaBytes = quota.RAMMB * bytesPerMB
 	stats.RamUsedBytes, err = s.contRepo.GetUserReservedMemory(ctx, ownerID)
+	if err != nil {
+		return model.UserStats{}, err
+	}
+	stats.CPUQuotaMillicores = quota.CPUMillicores
+	stats.CPUUsedMillicores, err = s.contRepo.GetUserReservedCPU(ctx, ownerID)
 	if err != nil {
 		return model.UserStats{}, err
 	}

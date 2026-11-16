@@ -567,7 +567,7 @@ func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid
 		return err
 	}
 	if count >= limit {
-		return apperrors.ErrLimitExceeded
+		return apperrors.Exceeded(apperrors.LimitQueuedComposeDeployments)
 	}
 	return nil
 }

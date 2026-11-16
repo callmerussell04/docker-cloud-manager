@@ -90,6 +90,7 @@ func TestReserveAppliesTheChosenQuotaRule(t *testing.T) {
 			}
 			require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
 			require.Equal(t, "user disk quota exceeded", apperrors.SafeMessage(err))
+			require.Equal(t, apperrors.LimitUserDisk, apperrors.LimitOf(err))
 		})
 	}
 }

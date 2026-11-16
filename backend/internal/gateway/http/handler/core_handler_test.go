@@ -22,6 +22,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A rejected request tells the client which limit it hit, with the client
+// code and status that kind of rejection always had.
+func TestCoreHandlerNamesTheExceededLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		limit  apperrors.Limit
+		status int
+		code   string
+	}{
+		{apperrors.LimitUserCPU, http.StatusConflict, "quota_exceeded"},
+		{apperrors.LimitContainersPerUser, http.StatusConflict, "limit_exceeded"},
+		{apperrors.LimitHostMemory, http.StatusServiceUnavailable, "host_exhausted"},
+	} {
+		t.Run(string(tc.limit), func(t *testing.T) {
+			svc := newCoreServiceMock(t)
+			svc.EXPECT().CreateContainer(mock.Anything, mock.Anything).Return("", apperrors.Exceeded(tc.limit))
+
+			resp := perform(coreRouter(svc), http.MethodPost, "/containers", `{"name":"web","image_tag":"nginx:latest"}`, nil)
+
+			require.Equal(t, tc.status, resp.Code)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+			require.Equal(t, tc.code, body["error_code"])
+			require.Equal(t, string(tc.limit), body["limit"])
+		})
+	}
+}
+
 func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newCoreServiceMock(t)
@@ -195,9 +223,11 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	require.Equal(t, int64(10240), updatedConfig.DefaultUserQuotaDiskMB)
 	require.Equal(t, int64(5368709120), updatedConfig.BuildMaxDiskBytes)
 
-	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2}, nil)
+	svc.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, CPUUsedMillicores: 750, CPUQuotaMillicores: 2000}, nil)
 	resp = perform(router, http.MethodGet, "/stats", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), `"cpu_used_millicores":750`)
+	require.Contains(t, resp.Body.String(), `"cpu_quota_millicores":2000`)
 	svc.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{ContainersTotal: 3, DCMBorrowedMemoryBytes: 512, RootfsQuotaStatus: "unknown", DCMReservedVolumeBytes: 4096, VolumeSizeMode: "measured"}, nil)
 	resp = perform(router, http.MethodGet, "/admin/monitoring", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)

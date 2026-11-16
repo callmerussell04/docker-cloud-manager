@@ -1,4 +1,4 @@
-import { Activity, Box, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
+import { Activity, Box, Cpu, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { formatBytes } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
@@ -6,6 +6,7 @@ import { useT } from '@/shared/i18n';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useDashboardStats } from '@/features/dashboard/queries';
+import { millicoresToCores } from '@/features/dashboard/model';
 
 export function DashboardPage() {
   const t = useT();
@@ -46,6 +47,8 @@ export function DashboardPage() {
   const safeStats = {
     ram_used_bytes: stats?.ram_used_bytes || 0,
     ram_quota_bytes: stats?.ram_quota_bytes || 0,
+    cpu_used_millicores: stats?.cpu_used_millicores || 0,
+    cpu_quota_millicores: stats?.cpu_quota_millicores || 0,
     disk_used_mb: stats?.disk_used_mb || 0,
     disk_quota_mb: stats?.disk_quota_mb || 0,
     containers_total: stats?.containers_total || 0,
@@ -71,7 +74,7 @@ export function DashboardPage() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[...Array(4)].map((_, i) => (
+          {[...Array(5)].map((_, i) => (
             <div key={i} className="h-48 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />
           ))}
         </div>
@@ -94,6 +97,18 @@ export function DashboardPage() {
               </CardHeader>
               <CardContent>
                 {renderProgressBar(safeStats.ram_used_bytes, safeStats.ram_quota_bytes, formatBytes)}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Cpu className="w-5 h-5 text-amber-500" />
+                  {t('dashboard.cpu')}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {renderProgressBar(safeStats.cpu_used_millicores, safeStats.cpu_quota_millicores, (val) => t('dashboard.cores', { cores: millicoresToCores(val) }))}
               </CardContent>
             </Card>
 

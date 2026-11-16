@@ -156,7 +156,7 @@ func (s *Staging) checkDiskQuota(ctx context.Context, ownerID uuid.UUID, incomin
 		return errors.New("staged source: unknown disk quota rule")
 	}
 	if usedBytes+stagedBytes+incomingBytes > quotaBytes {
-		return apperrors.New(apperrors.ErrQuotaExceeded, "user disk quota exceeded")
+		return apperrors.Exceeded(apperrors.LimitUserDisk)
 	}
 	return nil
 }

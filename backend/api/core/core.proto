@@ -142,6 +142,9 @@ message UserStatsResponse {
   int32 volumes_quota = 9;
   int32 images_total = 10;
   int32 projects_total = 11;
+  // CPU the user's containers reserve, and the user's CPU quota.
+  int64 cpu_used_millicores = 12;
+  int64 cpu_quota_millicores = 13;
 }
 
 message SystemMonitoringResponse {

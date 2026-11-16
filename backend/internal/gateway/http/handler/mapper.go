@@ -344,17 +344,19 @@ func systemConfigToDTO(data model.SystemConfig) dto.SystemConfigDTO {
 
 func userStatsToDTO(data model.UserStats) dto.UserStatsDTO {
 	return dto.UserStatsDTO{
-		ContainersTotal:   data.ContainersTotal,
-		ContainersRunning: data.ContainersRunning,
-		ContainersQuota:   data.ContainersQuota,
-		RamUsedBytes:      data.RamUsedBytes,
-		RamQuotaBytes:     data.RamQuotaBytes,
-		DiskUsedMB:        data.DiskUsedMB,
-		DiskQuotaMB:       data.DiskQuotaMB,
-		VolumesTotal:      data.VolumesTotal,
-		VolumesQuota:      data.VolumesQuota,
-		ImagesTotal:       data.ImagesTotal,
-		ProjectsTotal:     data.ProjectsTotal,
+		ContainersTotal:    data.ContainersTotal,
+		ContainersRunning:  data.ContainersRunning,
+		ContainersQuota:    data.ContainersQuota,
+		RamUsedBytes:       data.RamUsedBytes,
+		RamQuotaBytes:      data.RamQuotaBytes,
+		CPUUsedMillicores:  data.CPUUsedMillicores,
+		CPUQuotaMillicores: data.CPUQuotaMillicores,
+		DiskUsedMB:         data.DiskUsedMB,
+		DiskQuotaMB:        data.DiskQuotaMB,
+		VolumesTotal:       data.VolumesTotal,
+		VolumesQuota:       data.VolumesQuota,
+		ImagesTotal:        data.ImagesTotal,
+		ProjectsTotal:      data.ProjectsTotal,
 	}
 }
 

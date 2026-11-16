@@ -3,6 +3,8 @@ export const dashboard = {
   'dashboard.subtitle': 'Сводка по использованию ресурсов платформы',
   'dashboard.usedPercent': 'Использовано {percent}%',
   'dashboard.ram': 'Оперативная память (RAM) (Зарезервировано)',
+  'dashboard.cpu': 'Процессор (CPU) (Зарезервировано)',
+  'dashboard.cores': '{cores} vCPU',
   'dashboard.disk': 'Дисковое пространство (образы и размеры томов)',
   'dashboard.containerLimit': 'Лимит контейнеров',
   'dashboard.volumeLimit': 'Лимит томов (Volumes)',

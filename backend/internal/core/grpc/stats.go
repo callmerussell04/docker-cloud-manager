@@ -34,17 +34,19 @@ func (h *StatsHandler) GetUserStats(ctx context.Context, _ *coreapi.Empty) (*cor
 	}
 
 	return &coreapi.UserStatsResponse{
-		ContainersTotal:   int32(stats.ContainersTotal),
-		ContainersRunning: int32(stats.ContainersRunning),
-		ContainersQuota:   int32(stats.ContainersQuota),
-		RamUsedBytes:      stats.RamUsedBytes,
-		RamQuotaBytes:     stats.RamQuotaBytes,
-		DiskUsedMb:        int32(stats.DiskUsedMB),
-		DiskQuotaMb:       int32(stats.DiskQuotaMB),
-		VolumesTotal:      int32(stats.VolumesTotal),
-		VolumesQuota:      int32(stats.VolumesQuota),
-		ImagesTotal:       int32(stats.ImagesTotal),
-		ProjectsTotal:     int32(stats.ProjectsTotal),
+		ContainersTotal:    int32(stats.ContainersTotal),
+		ContainersRunning:  int32(stats.ContainersRunning),
+		ContainersQuota:    int32(stats.ContainersQuota),
+		RamUsedBytes:       stats.RamUsedBytes,
+		RamQuotaBytes:      stats.RamQuotaBytes,
+		CpuUsedMillicores:  stats.CPUUsedMillicores,
+		CpuQuotaMillicores: stats.CPUQuotaMillicores,
+		DiskUsedMb:         int32(stats.DiskUsedMB),
+		DiskQuotaMb:        int32(stats.DiskQuotaMB),
+		VolumesTotal:       int32(stats.VolumesTotal),
+		VolumesQuota:       int32(stats.VolumesQuota),
+		ImagesTotal:        int32(stats.ImagesTotal),
+		ProjectsTotal:      int32(stats.ProjectsTotal),
 	}, nil
 }
 

@@ -26,17 +26,19 @@ func (c *CoreClient) GetSystemMonitoring(ctx context.Context) (model.SystemMonit
 
 func userStatsFromProto(data *coreapi.UserStatsResponse) model.UserStats {
 	return model.UserStats{
-		ContainersTotal:   data.GetContainersTotal(),
-		ContainersRunning: data.GetContainersRunning(),
-		ContainersQuota:   data.GetContainersQuota(),
-		RamUsedBytes:      data.GetRamUsedBytes(),
-		RamQuotaBytes:     data.GetRamQuotaBytes(),
-		DiskUsedMB:        data.GetDiskUsedMb(),
-		DiskQuotaMB:       data.GetDiskQuotaMb(),
-		VolumesTotal:      data.GetVolumesTotal(),
-		VolumesQuota:      data.GetVolumesQuota(),
-		ImagesTotal:       data.GetImagesTotal(),
-		ProjectsTotal:     data.GetProjectsTotal(),
+		ContainersTotal:    data.GetContainersTotal(),
+		ContainersRunning:  data.GetContainersRunning(),
+		ContainersQuota:    data.GetContainersQuota(),
+		RamUsedBytes:       data.GetRamUsedBytes(),
+		RamQuotaBytes:      data.GetRamQuotaBytes(),
+		CPUUsedMillicores:  data.GetCpuUsedMillicores(),
+		CPUQuotaMillicores: data.GetCpuQuotaMillicores(),
+		DiskUsedMB:         data.GetDiskUsedMb(),
+		DiskQuotaMB:        data.GetDiskQuotaMb(),
+		VolumesTotal:       data.GetVolumesTotal(),
+		VolumesQuota:       data.GetVolumesQuota(),
+		ImagesTotal:        data.GetImagesTotal(),
+		ProjectsTotal:      data.GetProjectsTotal(),
 	}
 }
 

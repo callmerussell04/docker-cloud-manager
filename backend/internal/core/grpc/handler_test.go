@@ -430,7 +430,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	projectLogic.EXPECT().Cancel(mock.Anything, projectID).Return(nil)
-	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
+	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, CPUUsedMillicores: 750, CPUQuotaMillicores: 2000, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
 	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, VolumeSizeMode: model.VolumeSizeUnavailable, DCMDiskUsedBytes: 20, DCMReservedVolumeBytes: 40, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterProjectAPI(s, projectLogic, users)
@@ -454,6 +454,8 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(2), userStats.ContainersTotal)
 	require.EqualValues(t, 128, userStats.RamUsedBytes)
+	require.EqualValues(t, 750, userStats.CpuUsedMillicores)
+	require.EqualValues(t, 2000, userStats.CpuQuotaMillicores)
 
 	systemStats, err := statsClient.GetSystemMonitoring(adminCtx, &coreapi.Empty{})
 	require.NoError(t, err)

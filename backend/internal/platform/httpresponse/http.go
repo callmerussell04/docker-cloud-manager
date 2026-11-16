@@ -12,6 +12,9 @@ import (
 type ErrorResponse struct {
 	Error     string `json:"error"`
 	ErrorCode string `json:"error_code"`
+	// Limit names the limit a rejected request exceeded (apperrors.Limit);
+	// it is absent when the error names none.
+	Limit     string `json:"limit,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
 }
 
@@ -20,6 +23,7 @@ func Respond(c *gin.Context, statusCode int, err error) {
 	c.AbortWithStatusJSON(statusCode, ErrorResponse{
 		Error:     apperrors.SafeMessage(err),
 		ErrorCode: apperrors.Code(err),
+		Limit:     string(apperrors.LimitOf(err)),
 		RequestID: logging.RequestIDFromContext(c.Request.Context()),
 	})
 }

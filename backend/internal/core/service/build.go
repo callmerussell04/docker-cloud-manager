@@ -268,7 +268,7 @@ func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.U
 		return err
 	}
 	if count >= cfg.MaxQueuedBuildsPerUser {
-		return apperrors.ErrLimitExceeded
+		return apperrors.Exceeded(apperrors.LimitQueuedBuilds)
 	}
 	return nil
 }
