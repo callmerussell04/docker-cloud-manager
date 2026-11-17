@@ -32,7 +32,6 @@ type ProjectRepository interface {
 	CreateWithComposeDeploymentJob(ctx context.Context, p model.Project, job model.ComposeDeploymentJob, outbox model.ComposeDeploymentOutbox) error
 	GetByID(ctx context.Context, id uuid.UUID) (model.Project, error)
 	GetComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, error)
-	GetActiveComposeDeploymentJobByProjectID(ctx context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error)
 	ListInterruptedComposeDeploymentJobs(ctx context.Context) ([]model.ComposeDeploymentJob, error)
 	StartComposeDeploymentJob(ctx context.Context, id uuid.UUID) (model.ComposeDeploymentJob, bool, error)
 	// RequeueComposeDeploymentJob moves a running job back to queued and leaves

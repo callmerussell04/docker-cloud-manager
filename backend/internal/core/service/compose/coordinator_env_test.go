@@ -225,13 +225,6 @@ func (r *deploymentRepo) GetComposeDeploymentJob(_ context.Context, id uuid.UUID
 	return r.job, nil
 }
 
-func (r *deploymentRepo) GetActiveComposeDeploymentJobByProjectID(_ context.Context, projectID uuid.UUID) (model.ComposeDeploymentJob, error) {
-	if projectID != r.job.ProjectID || !jobActive(r.job) {
-		return model.ComposeDeploymentJob{}, apperrors.ErrNotFound
-	}
-	return r.job, nil
-}
-
 func (r *deploymentRepo) ListInterruptedComposeDeploymentJobs(context.Context) ([]model.ComposeDeploymentJob, error) {
 	if !jobStatusIn(r.job, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStatusCanceling) {
 		return nil, nil
