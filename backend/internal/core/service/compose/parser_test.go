@@ -41,8 +41,8 @@ func TestDocumentedComposeExamplesRemainValid(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read documented compose example: %v", err)
 			}
-			if _, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "docs-example", content, nil, tt.basePath); err != nil {
-				t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+			if _, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "docs-example", content, nil, nil, tt.basePath); err != nil {
+				t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 			}
 		})
 	}
@@ -68,9 +68,9 @@ func TestDocumentedUnsafeComposeDirectivesRemainRejected(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			yaml := []byte("services:\n  web:\n    image: nginx:alpine\n    " + tt.service + "\n")
-			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "docs-example", yaml, nil, "")
+			_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "docs-example", yaml, nil, nil, "")
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Fatalf("ParseAndValidateWithBase() error = %v, want containing %q", err, tt.want)
+				t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v, want containing %q", err, tt.want)
 			}
 		})
 	}
@@ -103,9 +103,9 @@ services:
     restart: ` + tt.restart + `
 `)
 
-			project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+			project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 			if err != nil {
-				t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+				t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 			}
 			if len(project.Services) != 1 {
 				t.Fatalf("services count = %d, want 1", len(project.Services))
@@ -132,9 +132,9 @@ services:
     image: postgres:16
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 
 	web := findComposeService(t, project.Services, "web")
@@ -170,9 +170,9 @@ services:
       dcm.internal_port: "8081"
 `)
 
-	_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+	_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 	if !errors.Is(err, apperrors.ErrAlreadyExists) {
-		t.Fatalf("ParseAndValidateWithBase() error = %v, want already exists", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v, want already exists", err)
 	}
 	if got := apperrors.SafeMessage(err); !strings.Contains(got, "subdomain app is used by both services") {
 		t.Fatalf("SafeMessage() = %q, want duplicate subdomain message", got)
@@ -196,9 +196,9 @@ volumes:
     name: project_a_postgres_data
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "project_a", yaml, nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "project_a", yaml, nil, nil, "")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 	if len(project.Volumes) != 2 {
 		t.Fatalf("volumes count = %d, want 2", len(project.Volumes))
@@ -259,9 +259,9 @@ services:
       - debug
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 
 	web := findComposeService(t, project.Services, "web")
@@ -311,7 +311,7 @@ services:
       - debug
 `)
 
-			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+			_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 			requireRejection(t, err, apperrors.ErrBadRequest, invalidComposeProjectMessage)
 		})
 	}
@@ -351,7 +351,7 @@ services:
     depends_on:` + tt.depConfig + `
 `)
 
-			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+			_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 			requireRejection(t, err, apperrors.ErrBadRequest, invalidComposeProjectMessage)
 		})
 	}
@@ -365,7 +365,7 @@ const invalidComposeProjectMessage = "bad request: compose file is not a valid C
 func requireRejection(t *testing.T, err, kind error, want string) {
 	t.Helper()
 	if !errors.Is(err, kind) {
-		t.Fatalf("ParseAndValidateWithBase() error = %v, want %v", err, kind)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v, want %v", err, kind)
 	}
 	if got := apperrors.SafeMessage(err); got != want {
 		t.Fatalf("SafeMessage() = %q, want %q", got, want)
@@ -387,9 +387,9 @@ services:
     image: postgres:16
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 	web := findComposeService(t, project.Services, "web")
 	if len(web.DependsOn) != 1 {
@@ -413,9 +413,9 @@ services:
     image: web:latest
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "deploy")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "deploy")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 
 	web := findComposeService(t, project.Services, "web")
@@ -447,9 +447,9 @@ volumes:
     external: true
 `)
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "")
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 
 	data := findComposeVolume(t, project.Volumes, "data")
@@ -485,12 +485,12 @@ services:
     image: web:latest
 `)
 
-	_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, "deploy")
+	_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, "deploy")
 	if err == nil {
-		t.Fatalf("ParseAndValidateWithBase() error = nil, want invalid build context")
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = nil, want invalid build context")
 	}
 	if !strings.Contains(err.Error(), "parent directory traversal is not allowed") {
-		t.Fatalf("ParseAndValidateWithBase() error = %q, want traversal error", err.Error())
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %q, want traversal error", err.Error())
 	}
 }
 
@@ -535,7 +535,7 @@ func FuzzParser(f *testing.F) {
 		f.Add([]byte(seed.yaml), seed.baseDir)
 	}
 	f.Fuzz(func(t *testing.T, yaml []byte, baseDir string) {
-		project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", yaml, nil, baseDir)
+		project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", yaml, nil, nil, baseDir)
 		if err != nil {
 			if !errors.Is(err, apperrors.ErrBadRequest) && !errors.Is(err, apperrors.ErrAlreadyExists) {
 				t.Fatalf("parser error is not a client error: %v", err)
@@ -572,9 +572,9 @@ func TestParserRejectsMalformedTopLevelSections(t *testing.T) {
 	} {
 		t.Run(yaml, func(t *testing.T) {
 			t.Parallel()
-			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", []byte(yaml), nil, "")
+			_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", []byte(yaml), nil, nil, "")
 			if !errors.Is(err, apperrors.ErrBadRequest) {
-				t.Fatalf("ParseAndValidateWithBase() error = %v, want bad request", err)
+				t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v, want bad request", err)
 			}
 		})
 	}
@@ -771,7 +771,7 @@ func TestParserRejectionsNeverEchoRejectedInput(t *testing.T) {
 			if project == "" {
 				project = "proj"
 			}
-			_, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), project, []byte(tt.yaml), tt.reserved, tt.baseDir)
+			_, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), project, []byte(tt.yaml), tt.reserved, nil, tt.baseDir)
 			if got := apperrors.SafeMessage(err); !tt.echoAllowed && strings.Contains(got, echoMarker) {
 				t.Fatalf("SafeMessage() = %q echoes rejected input %q", got, echoMarker)
 			}
@@ -786,10 +786,10 @@ func TestParserKeepsTheLastVolumeDeclaredForAMountPath(t *testing.T) {
 	t.Parallel()
 	yaml := "services:\n  web:\n    image: nginx\n    volumes:\n      - data:/srv/app\n      - cache:/srv/app/\nvolumes:\n  data: {}\n  cache: {}\n"
 
-	project, err := compose.NewParser().ParseAndValidateWithBase(context.Background(), "proj", []byte(yaml), nil, "")
+	project, err := compose.NewParser().ParseAndValidateWithBaseAndBlocked(context.Background(), "proj", []byte(yaml), nil, nil, "")
 
 	if err != nil {
-		t.Fatalf("ParseAndValidateWithBase() error = %v", err)
+		t.Fatalf("ParseAndValidateWithBaseAndBlocked() error = %v", err)
 	}
 	web := findComposeService(t, project.Services, "web")
 	if len(web.VolumeMounts) != 1 || web.VolumeMounts[0].VolumeName != "cache" || web.VolumeMounts[0].MountPath != "/srv/app" {
