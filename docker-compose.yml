@@ -199,7 +199,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      proxy_net: {}
+      # build-network-policy accepts same-bridge proxy_net traffic only to or
+      # from this address, so exposed containers reach each other only via Traefik.
+      proxy_net:
+        ipv4_address: "${TRAEFIK_PROXY_IP:-172.30.240.2}"
       dcm_net: {}
       gateway_ingress:
         ipv4_address: "${TRAEFIK_GATEWAY_IP:-172.30.251.2}"
@@ -212,6 +215,9 @@ services:
     cap_add: [NET_ADMIN]
     read_only: true
     tmpfs: [/run]
+    environment:
+      PROXY_BRIDGE: "${PROXY_BRIDGE_NAME:-br-dcm-proxy}"
+      TRAEFIK_PROXY_IP: "${TRAEFIK_PROXY_IP:-172.30.240.2}"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "sh", "/usr/local/bin/network-policy-check"]
@@ -436,6 +442,9 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      # Core attaches exposed containers to proxy_net, which the policy isolates.
+      build-network-policy:
+        condition: service_healthy
 
   builder:
     <<: *service-defaults
@@ -579,6 +588,14 @@ networks:
         - subnet: "${GATEWAY_INGRESS_SUBNET:-172.30.251.0/24}"
   proxy_net:
     name: proxy_net
+    driver_opts:
+      com.docker.network.bridge.name: "${PROXY_BRIDGE_NAME:-br-dcm-proxy}"
+    ipam:
+      config:
+        # Docker allocates exposed containers only from ip_range, so Traefik's
+        # fixed address outside it is never taken first.
+        - subnet: "${PROXY_NETWORK_SUBNET:-172.30.240.0/21}"
+          ip_range: "${PROXY_NETWORK_IP_RANGE:-172.30.244.0/22}"
   dcm_net:
     name: dcm_net
   registry_publish_net: {}

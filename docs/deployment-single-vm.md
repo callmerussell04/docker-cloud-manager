@@ -360,13 +360,15 @@ DCM_TEST_VOLUME_QUOTA_DOCKER=1 GOTOOLCHAIN=go1.26.11 GOCACHE=/tmp/go-build-cache
 
 Для локальной проверки на личной машине `make dev-certs` (из `backend/`, нужен `sudo`) создаёт одноразовые сертификаты, устанавливает `ca.crt` для Docker и добавляет `registry` в `/etc/hosts`; не используйте его в production.
 
-Создайте сертификаты своей CA, задайте `REGISTRY_HTTP_SECRET` независимо от остальных секретов. Включите `br_netfilter` и `net.bridge.bridge-nf-call-iptables=1`, `net.bridge.bridge-nf-call-ip6tables=1`. Compose требует iptables backend Docker и устанавливает ограничения для отдельных bridges `br-dcm-build`/`br-dcm-egress`; не используйте эти имена для других сетей. Диапазон `172.30.252.0/24` должен быть свободен.
+Создайте сертификаты своей CA, задайте `REGISTRY_HTTP_SECRET` независимо от остальных секретов. Включите `br_netfilter` и `net.bridge.bridge-nf-call-iptables=1`, `net.bridge.bridge-nf-call-ip6tables=1`. Compose требует iptables backend Docker и устанавливает ограничения для отдельных bridges `br-dcm-build`/`br-dcm-egress`/`br-dcm-proxy`; не используйте эти имена для других сетей. Диапазоны `172.30.252.0/24` и `PROXY_NETWORK_SUBNET` (по умолчанию `172.30.240.0/21`) должны быть свободны.
 
 Для single-server конфигурации установите `REGISTRY_URL=registry:5000` и `REGISTRY_PUBLIC_URL=registry:5000`. Добавьте на Docker host `registry` в `/etc/hosts` с адресом `127.0.0.1` и установите `ca.crt` в `/etc/docker/certs.d/registry:5000/ca.crt`. Docker должен доверять этой CA. Канонический TLS realm должен быть достижим по одному имени и из Kaniko, и из daemon. Для другого DNS имени обновите SAN, host DNS, оба адреса и network alias согласованно.
 
 Порт `127.0.0.1:5000` принадлежит TCP forwarder `registry-edge`, который передаёт TLS только в аутентифицированный listener Core. Core не подключается к сети сборки. Сам Registry не публикует порты и находится в отдельной внутренней сети. Не добавляйте его в `build_net`, `dcm_net` или Traefik. Запрос без credentials к `https://registry:5000/v2/` должен вернуть `401` и Bearer challenge; plaintext HTTP и Core management paths на этом порту недоступны.
 
 `build-network-policy` требует `CAP_NET_ADMIN` и host network для установки host firewall. `build-egress` обеспечивает доступ Dockerfile к внешним пакетам по HTTP(S) через `HTTP_PROXY`/`HTTPS_PROXY`; клиенты, игнорирующие proxy, не получают прямой интернет-доступ. Builder ждёт готовности policy. Для обновления существующего стенда остановите новые сборки, дождитесь завершения текущих, затем пересоздайте `build_net` как internal network. Согласуйте действующий host firewall с этими правилами; не снимайте ограничения при остановке worker.
+
+Тот же `build-network-policy` изолирует опубликованные контейнеры разных пользователей в `proxy_net`: цепочка `DCM-PROXY` принимает трафик внутри bridge `PROXY_BRIDGE_NAME` только если его источник или получатель — `TRAEFIK_PROXY_IP`, остальной трафик внутри bridge отбрасывается (в IPv6 — весь). Трафик из `proxy_net` в другие сети не меняется. Core стартует только после готовности policy. Healthcheck policy также требует, чтобы bridge `PROXY_BRIDGE_NAME` существовал. Для обновления существующего стенда остановите стек, отключите от старой сети опубликованные контейнеры (`docker network disconnect -f proxy_net <container>`) и удалите её (`docker network rm proxy_net`); после `docker compose up` Compose создаст её с фиксированными bridge и подсетью, затем подключите эти контейнеры снова (`docker network connect proxy_net <container>`).
 
 Двухвладельческая проверка изоляции Registry входит в `make test` (и в CI) вместе с Docker smoke-тестами: `make test` задаёт `CORE_TEST_REGISTRY_ISOLATION=1` и использует свою disposable test database. Ей нужны Docker и доступ к pinned-образам Registry и Kaniko. Отдельный запуск (только disposable test database):
 
@@ -378,12 +380,12 @@ GOTOOLCHAIN=go1.26.11 CORE_TEST_REGISTRY_ISOLATION=1 CORE_TEST_DATABASE_URL='pos
 
 Тест создаёт собственные Registry storage, bridge и execution containers, проверяет реальные Dockerfile RUN с прочитанным job credential и удаляет свои fixtures. Он не устанавливает host firewall и не проверяет policy container; перед эксплуатацией отдельно проверьте сетевую политику из execution network.
 
-Проверка host firewall остаётся ручной проверкой развёртывания: `make test` и CI её не запускают, потому что она собирает policy-образ и меняет правила iptables/ip6tables хоста (нужны root-доступ к Docker, `CAP_NET_ADMIN` и host network). Выполните её на целевом хосте перед эксплуатацией и после изменения `deployment/registry/network-policy*` или host firewall. Тест использует уникальные временные bridges/chains и удаляет их после завершения:
+Проверка host firewall остаётся ручной проверкой развёртывания: `make test` и CI её не запускают, потому что она собирает policy-образ и меняет правила iptables/ip6tables хоста (нужны root-доступ к Docker, `CAP_NET_ADMIN` и host network). Выполните её на целевом хосте перед эксплуатацией и после изменения `deployment/registry/network-policy*` или host firewall. Тест проверяет сеть сборки и изоляцию `proxy_net`: два контейнера в proxy bridge не могут подключиться друг к другу, а контейнер с адресом Traefik достигает обоих; готовность policy проверяется её healthcheck-скриптом. Тест использует уникальные временные bridges/chains и удаляет их после завершения:
 
 ```bash
 cd backend
 GOTOOLCHAIN=go1.26.11 CORE_TEST_NETWORK_POLICY=1 \
-  go test -count=1 -timeout=3m -run TestBuildNetworkPolicy ./tests/integration/registry_isolation
+  go test -count=1 -timeout=3m -run TestNetworkPolicy ./tests/integration/registry_isolation
 ```
 
 ## Go toolchain and build inputs

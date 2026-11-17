@@ -132,6 +132,10 @@ Core проверяет обязательные зависимости build ad
 | `TRAEFIK_DASHBOARD_ENABLED` | `false` | Локальная панель на `127.0.0.1:8080` | Перезапуск Traefik |
 | `GATEWAY_INGRESS_SUBNET` | `172.30.251.0/24` | Отдельная внутренняя сеть Traefik–Gateway | Повторное создание сети и контейнеров |
 | `TRAEFIK_GATEWAY_IP` | `172.30.251.2` | Адрес Traefik и доверенный прокси Gateway в Compose | Повторное создание Traefik и Gateway |
+| `PROXY_BRIDGE_NAME` | `br-dcm-proxy` | Имя bridge-устройства `proxy_net`, на котором `build-network-policy` изолирует опубликованные контейнеры | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `PROXY_NETWORK_SUBNET` | `172.30.240.0/21` | Подсеть `proxy_net` | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `PROXY_NETWORK_IP_RANGE` | `172.30.244.0/22` | Диапазон внутри подсети, из которого Docker выдаёт адреса опубликованным контейнерам | Повторное создание `proxy_net` и всех подключённых контейнеров |
+| `TRAEFIK_PROXY_IP` | `172.30.240.2` | Постоянный адрес Traefik в `proxy_net` вне `PROXY_NETWORK_IP_RANGE`; трафик внутри `proxy_net` разрешён только к нему и от него | Повторное создание Traefik и `build-network-policy` |
 | `TRAEFIK_LOG_LEVEL` | `INFO` | Уровень журналирования Traefik | Перезапуск Traefik |
 | `COMPOSE_LOG_MAX_SIZE` | `10m` | Размер файла журнала Docker до ротации | Повторное создание контейнеров |
 | `COMPOSE_LOG_MAX_FILE` | `3` | Количество файлов журнала | Повторное создание контейнеров |
