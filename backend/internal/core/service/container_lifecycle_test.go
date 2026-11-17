@@ -314,7 +314,9 @@ func stopCases() []lifecycleCase {
 func deleteCases() []lifecycleCase {
 	remove := func(err error) func(d *coremocks.ContainerDockerAPI) []string {
 		return func(d *coremocks.ContainerDockerAPI) []string {
+			d.EXPECT().InspectContainer(mock.Anything, recordedDocker).Return(model.ContainerInspection{Image: "nginx:latest"}, nil).Once()
 			d.EXPECT().RemoveContainer(mock.Anything, recordedDocker, true).Return(err).Once()
+			d.EXPECT().RemoveImage(mock.Anything, "nginx:latest", false).Return(nil).Maybe()
 			d.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 			return holdingUnlessMissing(err)
 		}
@@ -349,20 +351,34 @@ func exposeCases() []lifecycleCase {
 			return holdingUnlessMissing(err)
 		}
 	}
-	// replace scripts an expose that creates and starts the new generation;
-	// startErr fails the start. Removals report success.
-	replace := func(startErr error) func(d *coremocks.ContainerDockerAPI) []string {
+	// replaceWith scripts an expose that creates the new generation, stops the
+	// old one and starts the new one; stopErr fails the stop and startErr the
+	// start, after which the old generation is started again. Removals report
+	// success, and the new generation is observed running.
+	replaceWith := func(stopErr, startErr error) func(d *coremocks.ContainerDockerAPI) []string {
 		return func(d *coremocks.ContainerDockerAPI) []string {
 			held := inspect(nil)(d)
 			d.EXPECT().CreateContainer(mock.Anything, mock.MatchedBy(func(spec model.ContainerRuntimeSpec) bool {
 				return spec.Generation == 2 && spec.Domain == "app.example.test" && spec.InternalPort == 8080 &&
 					specResources(spec) == lifecycleResources // standard again, not the boost
 			})).Return(exposedDocker, nil).Once()
-			d.EXPECT().StartContainer(mock.Anything, exposedDocker).Return(startErr).Once()
 			d.EXPECT().RemoveContainer(mock.Anything, mock.Anything, true).Return(nil).Maybe()
+			d.EXPECT().StopContainer(mock.Anything, recordedDocker, 1).Return(stopErr).Once()
+			if stopErr != nil {
+				return holdingUnlessMissing(stopErr)
+			}
+			d.EXPECT().StartContainer(mock.Anything, exposedDocker).Return(startErr).Once()
+			if startErr != nil {
+				d.EXPECT().StartContainer(mock.Anything, recordedDocker).Return(nil).Once()
+				return held
+			}
+			d.EXPECT().InspectContainer(mock.Anything, exposedDocker).Return(model.ContainerInspection{
+				State: model.ContainerState{Running: true, Status: "running"},
+			}, nil).Maybe()
 			return held
 		}
 	}
+	replace := func(startErr error) func(d *coremocks.ContainerDockerAPI) []string { return replaceWith(nil, startErr) }
 	busy := containerRow{Status: model.ContainerStatusExposing, DockerID: recordedDocker, Generation: 1, TTL: ttlKept}
 	restored := busy
 	restored.Status = model.ContainerStatusRunning
@@ -380,9 +396,12 @@ func exposeCases() []lifecycleCase {
 		{name: "retryable docker error", operation: op, docker: inspect(errDockerDown), wantErr: []error{apperrors.ErrUnavailable}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
 		{name: "retryable error removes the unrecorded generation", operation: op, docker: replace(errDockerDown), wantErr: []error{apperrors.ErrUnavailable}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
 		{name: "terminal docker error", operation: op, docker: inspect(errDockerRejected), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
+		{name: "terminal start error restarts the old generation", operation: op, docker: replace(errDockerRejected), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
+		{name: "terminal stop error removes the unrecorded generation", operation: op, docker: replaceWith(errDockerRejected, nil), wantErr: []error{errDockerRejected}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
+		{name: "old generation missing at stop", operation: op, docker: replaceWith(cerrdefs.ErrNotFound, nil), wantErr: []error{apperrors.ErrConflict}, wantRow: &missing, wantOperation: model.OperationStatusFailed},
 		{name: "claim write fails", operation: op, docker: noDockerCalls, faults: coretest.ContainerStoreFaults{ClaimPendingOperation: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &busy, wantOperation: model.OperationStatusPending, wantDocker: held(recordedDocker)},
 		{name: "generation write fails", operation: op, docker: replace(nil), faults: coretest.ContainerStoreFaults{UpdateDockerIDRoutingAndGeneration: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
-		{name: "status write fails", operation: op, docker: replace(nil), faults: coretest.ContainerStoreFaults{UpdateStatus: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &recorded, wantOperation: model.OperationStatusRunning, wantDocker: held(exposedDocker)},
+		{name: "status write fails", operation: op, docker: replace(nil), faults: coretest.ContainerStoreFaults{UpdateObservedStatusByContainerIDAndGeneration: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &recorded, wantOperation: model.OperationStatusRunning, wantDocker: held(exposedDocker)},
 		{name: "completion write fails", operation: op, docker: replace(nil), faults: coretest.ContainerStoreFaults{CompleteOperation: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errStoreWrite}, wantRow: &exposed, wantOperation: model.OperationStatusRunning, wantDocker: held(exposedDocker)},
 		{name: "requeue write fails", operation: op, docker: inspect(errDockerDown), faults: coretest.ContainerStoreFaults{RequeueOperation: coretest.FailAlways(errStoreWrite)}, wantErr: []error{apperrors.ErrUnavailable, errStoreWrite}, wantRow: &restored, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},
 		{name: "error mark write fails", operation: op, docker: inspect(errDockerRejected), faults: coretest.ContainerStoreFaults{MarkStatusError: coretest.FailAlways(errStoreWrite)}, wantErr: []error{errDockerRejected, errStoreWrite}, wantRow: &busy, wantOperation: model.OperationStatusFailed, wantDocker: held(recordedDocker)},

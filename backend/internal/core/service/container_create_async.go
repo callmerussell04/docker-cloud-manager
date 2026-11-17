@@ -29,6 +29,7 @@ type containerCreateWorkerRepository interface {
 	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
+	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error)
 }

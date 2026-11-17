@@ -112,6 +112,7 @@ func TestEventWorkerLogsFailedStatusWrites(t *testing.T) {
 		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(func(ctx context.Context) (<-chan model.ContainerEvent, <-chan error) {
 			return events, make(chan error)
 		}).Once()
+		repo.EXPECT().GetByDockerID(mock.Anything, "docker-id").Return(model.Container{Status: model.ContainerStatusExited}, nil)
 		repo.EXPECT().UpdateObservedStatusByDockerID(mock.Anything, "docker-id", model.ContainerStatusRunning, mock.Anything, mock.Anything, mock.Anything).Return(writeErr)
 		var logs bytes.Buffer
 		worker := service.NewEventWorker(repo, volumeRepo, dockerAPI, nil, coretest.StaticConfig{Config: settings}, slog.New(slog.NewJSONHandler(&logs, nil)))
@@ -281,4 +282,37 @@ func TestEventWorkerReleasesSubscriptions(t *testing.T) {
 			})
 		})
 	}
+}
+
+// While a container is exposing, the expose operation owns its status: the
+// events of the old generation it stops and restarts are not recorded, so a
+// clean exit cannot leave the exposed container desired exited. Other
+// containers' events are recorded as usual.
+func TestEventWorkerLeavesAnExposingContainersStatusToTheExpose(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		exitCode := 0
+		repo := coremocks.NewEventContainerRepo(t)
+		volumeRepo := coremocks.NewEventVolumeRepo(t)
+		dockerAPI := coremocks.NewEventDockerAPI(t)
+		settings := testSystemConfig()
+		settings.EventSyncIntervalSeconds = 3600
+		repo.EXPECT().GetNonExited(mock.Anything).Return(nil, nil).Once()
+		volumeRepo.EXPECT().GetReconcileCandidates(mock.Anything).Return(nil, nil).Once()
+		events := make(chan model.ContainerEvent)
+		dockerAPI.EXPECT().ListenEvents(mock.Anything).RunAndReturn(func(context.Context) (<-chan model.ContainerEvent, <-chan error) {
+			return events, make(chan error)
+		}).Once()
+		repo.EXPECT().GetByDockerID(mock.Anything, "old-generation").Return(model.Container{Status: model.ContainerStatusExposing, DesiredStatus: model.ContainerStatusRunning}, nil)
+		repo.EXPECT().GetByDockerID(mock.Anything, "other").Return(model.Container{Status: model.ContainerStatusRunning, DesiredStatus: model.ContainerStatusRunning}, nil)
+		repo.EXPECT().UpdateObservedStatusByDockerID(mock.Anything, "other", model.ContainerStatusExited, &exitCode, mock.Anything, nil).Return(nil).Once()
+		worker := service.NewEventWorker(repo, volumeRepo, dockerAPI, nil, coretest.StaticConfig{Config: settings}, slog.New(slog.DiscardHandler))
+
+		stop := startInBubble(t, worker.Run)
+		synctest.Wait()
+		events <- model.ContainerEvent{Type: "container", Action: "die", DockerID: "old-generation", ExitCode: &exitCode}
+		events <- model.ContainerEvent{Type: "container", Action: "start", DockerID: "old-generation"}
+		events <- model.ContainerEvent{Type: "container", Action: "die", DockerID: "other", ExitCode: &exitCode}
+		synctest.Wait()
+		stop()
+	})
 }

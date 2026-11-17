@@ -202,7 +202,17 @@ func (w *EventWorker) recordContainerEvent(ctx context.Context, msg model.Contai
 }
 
 func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg model.ContainerEvent, state observedContainerState) error {
-	state = w.adjustExpectedExitState(ctx, msg, state)
+	if msg.DockerID != "" {
+		if container, err := w.repo.GetByDockerID(ctx, msg.DockerID); err == nil {
+			// The expose operation stops and may restart the generation it
+			// replaces, and records the status of the generation it settles
+			// on; those events would overwrite it.
+			if container.Status == model.ContainerStatusExposing {
+				return nil
+			}
+			state = adjustExpectedExitState(container, state)
+		}
+	}
 	err := w.repo.UpdateObservedStatusByDockerID(ctx, msg.DockerID, state.status, state.exitCode, state.desiredStatus, state.cause)
 	if err == nil || !errors.Is(err, apperrors.ErrNotFound) {
 		return err
@@ -217,15 +227,10 @@ func (w *EventWorker) updateContainerStatusFromEvent(ctx context.Context, msg mo
 	return w.repo.UpdateObservedStatusByContainerIDAndGeneration(ctx, containerID, msg.Generation, state.status, state.exitCode, state.desiredStatus, state.cause)
 }
 
-func (w *EventWorker) adjustExpectedExitState(ctx context.Context, msg model.ContainerEvent, state observedContainerState) observedContainerState {
-	if state.cause == nil || msg.DockerID == "" {
-		return state
-	}
-	container, err := w.repo.GetByDockerID(ctx, msg.DockerID)
-	if err != nil {
-		return state
-	}
-	if !expectedContainerExit(container.DesiredStatus) {
+// adjustExpectedExitState records a failed exit as a plain exit when the
+// container was meant to stop.
+func adjustExpectedExitState(container model.Container, state observedContainerState) observedContainerState {
+	if state.cause == nil || !expectedContainerExit(container.DesiredStatus) {
 		return state
 	}
 	state.status = model.ContainerStatusExited

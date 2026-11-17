@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/cleanupctx"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
 
@@ -51,10 +52,10 @@ type lifecycleChange struct {
 	// result, such as create's pulled image and user network. The executor
 	// runs it, best effort, whenever the result is not recorded.
 	discard func(ctx context.Context)
-	// status, when set, is written after record. Its failure is returned and
-	// leaves the operation running, because the record already points at the
-	// new state.
-	status string
+	// recordStatus, when set, writes the container's status after record and
+	// the replaced container's removal. Its failure is returned and leaves the
+	// operation running, because the record already points at the new state.
+	recordStatus func(ctx context.Context) error
 	// settled runs once the result is recorded: rebalancing, project status,
 	// network cleanup and the business log.
 	settled func(ctx context.Context)
@@ -182,8 +183,8 @@ func (s *ContainerService) executeQueuedLifecycle(ctx context.Context, op model.
 		}
 	}
 	s.removeLifecycleContainer(ctx, containerID, change.replaced)
-	if change.status != "" {
-		if err := s.repo.UpdateStatus(ctx, containerID, change.status); err != nil {
+	if change.recordStatus != nil {
+		if err := change.recordStatus(ctx); err != nil {
 			return fmt.Errorf("record container status: %w", err)
 		}
 	}
@@ -327,9 +328,16 @@ func (s *ContainerService) runQueuedStop(ctx context.Context, c model.Container,
 }
 
 // runQueuedDelete removes the Docker container. One Docker no longer holds is
-// already deleted.
+// already deleted. The image the removed container ran is then removed from
+// the Docker cache when nothing else uses it.
 func (s *ContainerService) runQueuedDelete(ctx context.Context, c model.Container, _ queue.ContainerLifecycleMessage) (lifecycleChange, error) {
+	var imageRef string
 	if c.DockerID != "" {
+		// The image is noted best effort: a container Docker cannot inspect
+		// leaves no image to clean up, and the removal below decides the step.
+		if inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID); err == nil {
+			imageRef = inspect.Image
+		}
 		if err := s.dockerAPI.RemoveContainer(ctx, c.DockerID, true); err != nil && !isDockerNotFound(err) {
 			return lifecycleChange{}, err
 		}
@@ -339,11 +347,28 @@ func (s *ContainerService) runQueuedDelete(ctx context.Context, c model.Containe
 			return s.repo.Delete(ctx, c.ID)
 		},
 		settled: func(ctx context.Context) {
+			s.removeUnusedImage(ctx, c.ID, imageRef)
 			s.cleanupUserNetworkIfUnused(ctx, c.OwnerID)
 			s.refreshProjectStatus(ctx, c.ProjectID)
 			s.logger.InfoContext(ctx, "container deleted", "container_id", c.ID, "owner_id", c.OwnerID)
 		},
 	}, nil
+}
+
+// removeUnusedImage removes a deleted container's image from the Docker cache,
+// best effort and without force. Docker refuses while another container uses
+// the image or another tag names it; that refusal is expected and not logged.
+func (s *ContainerService) removeUnusedImage(ctx context.Context, containerID uuid.UUID, imageRef string) {
+	if imageRef == "" {
+		return
+	}
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
+	defer cancel()
+	err := s.dockerAPI.RemoveImage(cleanupCtx, imageRef, false)
+	if err == nil || isDockerNotFound(err) || cerrdefs.IsConflict(err) {
+		return
+	}
+	s.logger.WarnContext(cleanupCtx, "failed to remove deleted container image", "container_id", containerID, "error", normalizeContainerRuntimeError(err))
 }
 
 func validateExposeMessage(msg queue.ContainerLifecycleMessage) error {
@@ -354,7 +379,10 @@ func validateExposeMessage(msg queue.ContainerLifecycleMessage) error {
 }
 
 // runQueuedExpose replaces the Docker container with a new generation that
-// carries the new routing, started when the container was running.
+// carries the new routing. For a container that should run, the old
+// generation is stopped before the new one starts, so two generations never
+// run on the same volumes; the container is briefly down in between. The
+// status recorded then is what Docker reports for the new generation.
 func (s *ContainerService) runQueuedExpose(ctx context.Context, c model.Container, msg queue.ContainerLifecycleMessage) (lifecycleChange, error) {
 	inspect, err := s.dockerAPI.InspectContainer(ctx, c.DockerID)
 	if err != nil {
@@ -375,18 +403,52 @@ func (s *ContainerService) runQueuedExpose(ctx context.Context, c model.Containe
 		record: func(ctx context.Context) error {
 			return s.repo.UpdateDockerIDRoutingAndGeneration(ctx, c.ID, newDockerID, msg.DomainPrefix, msg.InternalPort, nextGeneration)
 		},
-		status: targetStatus,
 		settled: func(ctx context.Context) {
 			s.refreshProjectStatus(ctx, c.ProjectID)
 			s.logger.InfoContext(ctx, "container exposed", "container_id", c.ID, "owner_id", c.OwnerID, "domain_prefix", msg.DomainPrefix, "internal_port", msg.InternalPort)
 		},
 	}
-	if msg.PreviousStatus == model.ContainerStatusRunning || c.DesiredStatus == model.ContainerStatusRunning {
-		if err := s.dockerAPI.StartContainer(ctx, newDockerID); err != nil {
-			return change, err
+	if msg.PreviousStatus != model.ContainerStatusRunning && c.DesiredStatus != model.ContainerStatusRunning {
+		change.recordStatus = func(ctx context.Context) error {
+			return s.repo.UpdateStatus(ctx, c.ID, targetStatus)
 		}
+		return change, nil
+	}
+	if err := s.dockerAPI.StopContainer(ctx, c.DockerID, s.config.Get().ContainerStopTimeout); err != nil {
+		return change, recordedContainerError(err)
+	}
+	if err := s.dockerAPI.StartContainer(ctx, newDockerID); err != nil {
+		s.restartReplacedGeneration(ctx, c)
+		return change, err
+	}
+	change.recordStatus = func(ctx context.Context) error {
+		return s.recordExposedStatus(ctx, c, newDockerID, nextGeneration, targetStatus)
 	}
 	return change, nil
+}
+
+// restartReplacedGeneration starts the old generation again after the new one
+// failed to start, best effort: the executor then removes the new generation
+// and settles the operation as for any step failure.
+func (s *ContainerService) restartReplacedGeneration(ctx context.Context, c model.Container) {
+	cleanupCtx, cancel := cleanupctx.Detached(ctx)
+	defer cancel()
+	if err := s.dockerAPI.StartContainer(cleanupCtx, c.DockerID); err != nil {
+		s.logger.WarnContext(cleanupCtx, "failed to restart the replaced container generation", "container_id", c.ID, "docker_id", c.DockerID, "error", normalizeContainerRuntimeError(err))
+	}
+}
+
+// recordExposedStatus inspects the recorded new generation once and records
+// the status Docker reports for it, with exit code and cause. When Docker
+// cannot be read, it records fallback; state sync corrects it later.
+func (s *ContainerService) recordExposedStatus(ctx context.Context, c model.Container, dockerID string, generation int, fallback string) error {
+	inspect, err := s.dockerAPI.InspectContainer(ctx, dockerID)
+	if err != nil {
+		s.logger.WarnContext(ctx, "failed to inspect the exposed container generation", "container_id", c.ID, "docker_id", dockerID, "error", normalizeContainerRuntimeError(err))
+		return s.repo.UpdateStatus(ctx, c.ID, fallback)
+	}
+	observed := observedStateFromInspect(c, inspect)
+	return s.repo.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, generation, observed.status, observed.exitCode, observed.desiredStatus, observed.cause)
 }
 
 // exposeRuntimeSpec is the inspected container's runtime with the new

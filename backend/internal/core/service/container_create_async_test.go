@@ -28,7 +28,7 @@ func TestContainerServiceQueuedExposeKeepsRecordedGenerationWhenLaterWriteFails(
 		faults     coretest.ContainerStoreFaults
 		wantStatus string
 	}{
-		{name: "status write fails", faults: coretest.ContainerStoreFaults{UpdateStatus: coretest.FailAlways(writeErr)}, wantStatus: model.ContainerStatusExposing},
+		{name: "status write fails", faults: coretest.ContainerStoreFaults{UpdateObservedStatusByContainerIDAndGeneration: coretest.FailAlways(writeErr)}, wantStatus: model.ContainerStatusExposing},
 		{name: "completion write fails", faults: coretest.ContainerStoreFaults{CompleteOperation: coretest.FailAlways(writeErr)}, wantStatus: model.ContainerStatusRunning},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,7 +52,9 @@ func TestContainerServiceQueuedExposeKeepsRecordedGenerationWhenLaterWriteFails(
 			dockerAPI := coremocks.NewContainerDockerAPI(t)
 			dockerAPI.EXPECT().InspectContainer(mock.Anything, "old-docker").Return(model.ContainerInspection{Name: "/usr_web", Image: "nginx:latest"}, nil)
 			dockerAPI.EXPECT().CreateContainer(mock.Anything, mock.Anything).Return("new-docker", nil)
+			dockerAPI.EXPECT().StopContainer(mock.Anything, "old-docker", mock.Anything).Return(nil)
 			dockerAPI.EXPECT().StartContainer(mock.Anything, "new-docker").Return(nil)
+			dockerAPI.EXPECT().InspectContainer(mock.Anything, "new-docker").Return(model.ContainerInspection{State: model.ContainerState{Running: true, Status: "running"}}, nil)
 			var mu sync.Mutex
 			var removed []string
 			dockerAPI.EXPECT().RemoveContainer(mock.Anything, mock.Anything, true).RunAndReturn(func(_ context.Context, dockerID string, _ bool) error {
