@@ -36,7 +36,7 @@ func TestAdmissionPoolPreservesQueryProgress(t *testing.T) {
 		}()
 	}
 	go func() {
-		results <- containers.SaveWithMountsAndOperation(waiterCtx, model.Container{OwnerID: uuid.New()}, nil, model.ResourceOperation{}, true, true)
+		results <- containers.SaveWithMountsOperationAndOutbox(waiterCtx, model.Container{OwnerID: uuid.New()}, nil, model.ResourceOperation{}, model.ContainerLifecycleOutbox{}, true, true)
 	}()
 	require.Eventually(t, func() bool { return dbtest.PendingAcquires(locks) >= 9 }, time.Second, time.Millisecond)
 	count, err := builds.CountActive(ctx)

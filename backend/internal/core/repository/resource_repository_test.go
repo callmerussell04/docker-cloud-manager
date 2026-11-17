@@ -182,55 +182,6 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	require.Nil(t, preservedVolume.ProjectID)
 }
 
-func TestContainerRepositoryOperationsAndConflict(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.OpenCorePostgres(t)
-	containerRepo := repository.NewContainerRepository(db, db)
-	ownerID := uuid.New()
-	containerID := uuid.New()
-	op := model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    model.OperationCreate,
-		Status:       model.OperationStatusPending,
-	}
-	require.NoError(t, containerRepo.SaveWithMountsAndOperation(ctx, model.Container{
-		ID:                    containerID,
-		OwnerID:               ownerID,
-		DockerID:              "docker-" + containerID.String()[:8],
-		Name:                  "web",
-		ImageTag:              "nginx:latest",
-		Status:                model.ContainerStatusCreating,
-		DesiredStatus:         model.ContainerStatusRunning,
-		BaseMemoryReservation: 256,
-	}, nil, op, true, true))
-
-	err := containerRepo.CreateOperation(ctx, model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    model.OperationStart,
-		Status:       model.OperationStatusPending,
-	})
-	require.ErrorIs(t, err, apperrors.ErrConflict)
-
-	require.NoError(t, containerRepo.CompleteLatestOperation(ctx, model.ResourceTypeContainer, containerID, model.OperationStatusDone, nil))
-	require.NoError(t, containerRepo.CreateOperationAndSetDesired(ctx, containerID, model.ContainerStatusExited, model.ResourceOperation{
-		ID:           uuid.New(),
-		ResourceType: model.ResourceTypeContainer,
-		ResourceID:   containerID,
-		OwnerID:      ownerID,
-		Operation:    model.OperationStop,
-		Status:       model.OperationStatusPending,
-	}))
-	container, err := containerRepo.GetByID(ctx, containerID)
-	require.NoError(t, err)
-	require.Equal(t, model.ContainerStatusExited, container.DesiredStatus)
-}
-
 func TestResourceLifecycleRepositoryNamesOperationAndKeepsCause(t *testing.T) {
 	db := dbtest.OpenCorePostgres(t)
 	repo := repository.NewResourceLifecycleRepository(db)

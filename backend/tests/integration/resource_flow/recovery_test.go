@@ -301,8 +301,12 @@ func TestResourceRecoveryPolicy(t *testing.T) {
 	} {
 		t.Run(tc.resource+"/"+tc.operation+"/"+tc.initial, func(t *testing.T) {
 			id := uuid.New()
-			require.NoError(t, repos.Containers.CreateOperation(ctx, model.ResourceOperation{ID: id, ResourceType: tc.resource, ResourceID: uuid.New(), OwnerID: uuid.New(), Operation: tc.operation, Status: tc.initial}))
-			_, err := lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
+			_, err := repos.DB.Exec(ctx, `
+				INSERT INTO resource_operations (id, resource_type, resource_id, owner_id, operation, status)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				id, tc.resource, uuid.New(), uuid.New(), tc.operation, tc.initial)
+			require.NoError(t, err)
+			_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
 			require.NoError(t, err)
 			_, err = repos.Containers.FailInterruptedNonResumableOperations(ctx, errors.New("core restarted"))
 			require.NoError(t, err)

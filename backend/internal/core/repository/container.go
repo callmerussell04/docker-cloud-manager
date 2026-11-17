@@ -620,10 +620,6 @@ func (r *ContainerRepository) CheckDomainPrefixExists(ctx context.Context, prefi
 	return exists, err
 }
 
-func (r *ContainerRepository) SaveWithMountsAndOperation(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, lockOwner, lockCapacity bool) error {
-	return r.SaveWithMountsOperationAndOutbox(ctx, c, mounts, op, model.ContainerLifecycleOutbox{}, lockOwner, lockCapacity)
-}
-
 func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Context, c model.Container, mounts []model.VolumeMount, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox, lockOwner, lockCapacity bool) error {
 	pool := r.db
 	if lockOwner || lockCapacity {
@@ -692,40 +688,6 @@ func (r *ContainerRepository) MarkStatusError(ctx context.Context, id uuid.UUID,
 		return apperrors.ErrNotFound
 	}
 	return nil
-}
-
-func (r *ContainerRepository) CreateOperation(ctx context.Context, op model.ResourceOperation) error {
-	if op.ID == uuid.Nil {
-		op.ID = uuid.New()
-	}
-	if op.Status == "" {
-		op.Status = model.OperationStatusPending
-	}
-	query := `
-		INSERT INTO resource_operations (id, resource_type, resource_id, owner_id, operation, status, attempts, last_error)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`
-	lastError := op.LastError
-	_, err := r.db.Exec(ctx, query, op.ID, op.ResourceType, op.ResourceID, op.OwnerID, op.Operation, op.Status, op.Attempts, lastError)
-	return mapActiveOperationError(err)
-}
-
-func (r *ContainerRepository) CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error {
-	var lastError *string
-	if cause != nil {
-		lastError = ptr(cause.Error())
-	}
-	_, err := r.db.Exec(ctx, `
-		UPDATE resource_operations
-		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE id = (
-			SELECT id FROM resource_operations
-			WHERE resource_type = $3 AND resource_id = $4 AND status IN ($5, $6)
-			ORDER BY created_at DESC
-			LIMIT 1
-		)
-	`, status, lastError, resourceType, resourceID, model.OperationStatusPending, model.OperationStatusRunning)
-	return wrapOp("container complete latest operation", err)
 }
 
 func (r *ContainerRepository) GetOperationByID(ctx context.Context, id uuid.UUID) (model.ResourceOperation, error) {
@@ -1051,30 +1013,6 @@ func (r *ContainerRepository) updateContainerOutboxStatus(ctx context.Context, i
 
 func (r *ContainerRepository) AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error) {
 	return acquireAdmissionLock(ctx, r.lockDB, []string{"dcm:owner:" + ownerID.String(), "dcm:capacity"})
-}
-
-func (r *ContainerRepository) CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return wrapOp("container create operation and set desired", err)
-	}
-	defer tx.Rollback(ctx)
-
-	if op.ResourceID != uuid.Nil {
-		if err := insertResourceOperationTx(ctx, tx, op); err != nil {
-			return wrapOp("container create operation and set desired", err)
-		}
-	}
-
-	res, err := tx.Exec(ctx, `UPDATE containers SET desired_status = $1, last_error = NULL WHERE id = $2`, desiredStatus, id)
-	if err != nil {
-		return wrapOp("container create operation and set desired", err)
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return commitTx(ctx, tx, "create operation and set desired")
 }
 
 func (r *ContainerRepository) QueueContainerOperation(ctx context.Context, id uuid.UUID, status string, desiredStatus string, op model.ResourceOperation, outbox model.ContainerLifecycleOutbox) error {

@@ -138,7 +138,8 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, model.ContainerStatusPending, container.Status)
 	require.Equal(t, model.ContainerStatusCreated, container.DesiredStatus)
 	require.Equal(t, "nginx:latest", container.ImageTag)
-	require.Len(t, mustContainerOutbox(t, repos.DB), 1)
+	createOutbox := mustContainerOutbox(t, repos.DB)
+	require.Len(t, createOutbox, 1)
 
 	userContainers, total, err := containers.List(ownerCtx, 20, 0, nil)
 	require.NoError(t, err)
@@ -176,7 +177,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 
 	require.NoError(t, repos.Containers.UpdateDockerIDAndStatus(ctx, containerID, "docker-"+containerID.String()[:8], model.ContainerStatusExited))
-	require.NoError(t, repos.Containers.CompleteLatestOperation(ctx, model.ResourceTypeContainer, containerID, model.OperationStatusDone, nil))
+	require.NoError(t, repos.Containers.CompleteOperation(ctx, uuid.MustParse(createOutbox[0].OperationID), model.OperationStatusDone, nil))
 	require.NoError(t, containers.Start(ownerCtx, containerID))
 
 	operations := mustResourceOperations(t, repos.DB)

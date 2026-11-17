@@ -49,9 +49,6 @@ type containerCreateRepository interface {
 
 type containerStateRepository interface {
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
-	CreateOperation(ctx context.Context, op model.ResourceOperation) error
-	CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error
-	CompleteLatestOperation(ctx context.Context, resourceType string, resourceID uuid.UUID, status string, cause error) error
 }
 
 type containerLifecycleQueueRepository interface {
