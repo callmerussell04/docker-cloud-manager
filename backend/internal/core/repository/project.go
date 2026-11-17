@@ -676,16 +676,6 @@ func (r *ProjectRepository) GetServiceGraph(ctx context.Context, projectID uuid.
 	return services, nil
 }
 
-func (r *ProjectRepository) FailActiveDeployments(ctx context.Context, errorMessage string) error {
-	query := `
-		UPDATE projects
-		SET status = $1, error_message = $2
-		WHERE status IN ($3, $4, $5)
-	`
-	_, err := r.db.Exec(ctx, query, model.ProjectStatusFailed, errorMessage, model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling)
-	return wrapOp("project fail active deployments", err)
-}
-
 func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM projects WHERE id = $1`
 

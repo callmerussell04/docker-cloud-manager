@@ -141,7 +141,9 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	containerID := uuid.New()
 	volumeID := uuid.New()
 	require.NoError(t, projectRepo.Save(ctx, model.Project{ID: projectID, OwnerID: ownerID, Name: "demo", Status: model.ProjectStatusRunning}))
-	require.NoError(t, containerRepo.Save(ctx, model.Container{
+	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
+	require.NoError(t, volumeRepo.LinkProjectVolume(ctx, projectID, volumeID))
+	require.NoError(t, containerRepo.SaveWithMountsOperationAndOutbox(ctx, model.Container{
 		ID:                    containerID,
 		OwnerID:               ownerID,
 		ProjectID:             &projectID,
@@ -152,13 +154,10 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 		DesiredStatus:         model.ContainerStatusRunning,
 		BaseMemoryReservation: 128,
 		BaseCPUReservation:    250,
-	}))
+	}, []model.VolumeMount{{ContainerID: containerID, VolumeID: volumeID, MountPath: "/data", IsReadOnly: true}}, model.ResourceOperation{}, model.ContainerLifecycleOutbox{}, false, false))
 	cpuReserved, err := containerRepo.GetTotalSystemReservedCPU(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 250, cpuReserved)
-	require.NoError(t, volumeRepo.Save(ctx, model.Volume{ID: volumeID, OwnerID: ownerID, ProjectID: &projectID, Name: "data", DockerName: "vol_data", Status: model.VolumeStatusAvailable, SizeBytes: 1 << 20}))
-	require.NoError(t, volumeRepo.LinkProjectVolume(ctx, projectID, volumeID))
-	require.NoError(t, volumeRepo.SaveMounts(ctx, []model.VolumeMount{{ContainerID: containerID, VolumeID: volumeID, MountPath: "/data", IsReadOnly: true}}))
 
 	inUse, err := volumeRepo.IsVolumeInUse(ctx, volumeID)
 	require.NoError(t, err)
@@ -262,10 +261,6 @@ func TestRepositoriesRoundTripNullsArraysAndConstraintErrors(t *testing.T) {
 	require.Nil(t, pending.FinishedAt)
 	require.Nil(t, pending.ProjectID)
 	require.Empty(t, pending.ProjectServiceName)
-	byImage, err := builds.GetByImageID(ctx, imageID)
-	require.NoError(t, err)
-	require.Len(t, byImage, 1)
-	require.True(t, byImage[0].StartedAt.IsZero())
 	listedBuilds, _, err := builds.List(ctx, model.ListOptions{OwnerID: &ownerID, Limit: 10})
 	require.NoError(t, err)
 	require.Len(t, listedBuilds, 1)

@@ -201,36 +201,6 @@ func (r *VolumeRepository) MarkStatusError(ctx context.Context, id uuid.UUID, st
 	return nil
 }
 
-func (r *VolumeRepository) SaveMounts(ctx context.Context, mounts []model.VolumeMount) error {
-	if len(mounts) == 0 {
-		return nil
-	}
-
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	insertMountSQL := `
-		INSERT INTO volume_mounts (container_id, volume_id, mount_path, is_readonly)
-		VALUES ($1, $2, $3, $4)
-	`
-
-	for _, m := range mounts {
-		_, err = tx.Exec(ctx, insertMountSQL, m.ContainerID, m.VolumeID, m.MountPath, m.IsReadOnly)
-		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				continue
-			}
-			return err
-		}
-	}
-
-	return commitTx(ctx, tx, "save mounts")
-}
-
 func (r *VolumeRepository) CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM volumes WHERE owner_id = $1`
 	var count int

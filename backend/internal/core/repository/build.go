@@ -131,31 +131,6 @@ func (r *BuildRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status
 	return nil
 }
 
-func (r *BuildRepository) GetByImageID(ctx context.Context, imageID uuid.UUID) ([]model.Build, error) {
-	query := `
-		SELECT ` + buildColumns + `
-		FROM builds
-		WHERE image_id = $1
-		ORDER BY created_at DESC
-	`
-	rows, err := r.db.Query(ctx, query, imageID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var builds []model.Build
-
-	for rows.Next() {
-		b, err := scanBuild(rows)
-		if err != nil {
-			return nil, err
-		}
-		builds = append(builds, b)
-	}
-	return builds, rows.Err()
-}
-
 func (r *BuildRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Build, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT `+buildColumns+`

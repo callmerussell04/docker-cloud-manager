@@ -126,14 +126,13 @@ func TestContainerRepositoryListsRunningWritersOfVolume(t *testing.T) {
 	saveContainer := func(name, status string, mounts ...model.VolumeMount) uuid.UUID {
 		t.Helper()
 		id := uuid.New()
-		require.NoError(t, containers.Save(ctx, model.Container{
-			ID: id, OwnerID: ownerID, DockerID: "docker-" + id.String()[:8], Name: name, ImageTag: "nginx:latest",
-			Status: status, DesiredStatus: status, BaseMemoryReservation: 128, BaseCPUReservation: 100,
-		}))
 		for i := range mounts {
 			mounts[i].ContainerID = id
 		}
-		require.NoError(t, volumes.SaveMounts(ctx, mounts))
+		require.NoError(t, containers.SaveWithMountsOperationAndOutbox(ctx, model.Container{
+			ID: id, OwnerID: ownerID, DockerID: "docker-" + id.String()[:8], Name: name, ImageTag: "nginx:latest",
+			Status: status, DesiredStatus: status, BaseMemoryReservation: 128, BaseCPUReservation: 100,
+		}, mounts, model.ResourceOperation{}, model.ContainerLifecycleOutbox{}, false, false))
 		return id
 	}
 	writer := saveContainer("writer", model.ContainerStatusRunning,

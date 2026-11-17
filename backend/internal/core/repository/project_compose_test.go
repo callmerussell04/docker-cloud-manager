@@ -237,43 +237,6 @@ func setJobUpdatedAt(t *testing.T, db *pgxpool.Pool, jobID uuid.UUID, age string
 	require.NoError(t, err)
 }
 
-func TestProjectRepositoryFailsActiveDeployments(t *testing.T) {
-	ctx := context.Background()
-	db := dbtest.OpenCorePostgres(t)
-	repo := repository.NewProjectRepository(db)
-	statuses := []string{
-		model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling,
-		model.ProjectStatusRunning, model.ProjectStatusStopped, model.ProjectStatusCanceled, model.ProjectStatusPending,
-	}
-	priorError := "earlier failure"
-	ids := make(map[string]uuid.UUID, len(statuses)+1)
-	for _, status := range statuses {
-		ids[status] = uuid.New()
-		require.NoError(t, repo.Save(ctx, model.Project{ID: ids[status], OwnerID: uuid.New(), Name: status, Status: status}))
-	}
-	failedID := uuid.New()
-	require.NoError(t, repo.Save(ctx, model.Project{ID: failedID, OwnerID: uuid.New(), Name: "failed", Status: model.ProjectStatusFailed, ErrorMessage: &priorError}))
-
-	require.NoError(t, repo.FailActiveDeployments(ctx, "deployment interrupted by core service restart"))
-
-	for _, status := range []string{model.ProjectStatusBuilding, model.ProjectStatusDeploying, model.ProjectStatusCanceling} {
-		project, err := repo.GetByID(ctx, ids[status])
-		require.NoError(t, err)
-		require.Equal(t, model.ProjectStatusFailed, project.Status, "a %s deployment fails", status)
-		require.NotNil(t, project.ErrorMessage)
-		require.Equal(t, "deployment interrupted by core service restart", *project.ErrorMessage)
-	}
-	for _, status := range []string{model.ProjectStatusRunning, model.ProjectStatusStopped, model.ProjectStatusCanceled, model.ProjectStatusPending} {
-		project, err := repo.GetByID(ctx, ids[status])
-		require.NoError(t, err)
-		require.Equal(t, status, project.Status, "a %s project is not a deployment in progress", status)
-		require.Nil(t, project.ErrorMessage)
-	}
-	project, err := repo.GetByID(ctx, failedID)
-	require.NoError(t, err)
-	require.Equal(t, priorError, *project.ErrorMessage, "an already failed project keeps its error")
-}
-
 func TestProjectRepositoryListsAnOwnersCancelableComposeJobs(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
