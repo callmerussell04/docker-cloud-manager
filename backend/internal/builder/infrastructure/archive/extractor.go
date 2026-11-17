@@ -57,13 +57,16 @@ func (e *Extractor) extractZip(zipPath string, destDir string, maxUnpackedSize i
 }
 
 func (e *Extractor) extractZipFile(f *zip.File, destDir string, remainingBytes *int64) error {
-	// Защита от ZipSlip
-	destPath, err := sanitizeExtractPath(f.Name, destDir)
+	isDir := f.FileInfo().IsDir()
+	destPath, skip, err := resolveEntryPath(f.Name, destDir, isDir)
 	if err != nil {
 		return err
 	}
+	if skip {
+		return nil
+	}
 
-	if f.FileInfo().IsDir() {
+	if isDir {
 		return os.MkdirAll(destPath, os.ModePerm)
 	}
 
@@ -120,9 +123,12 @@ func (e *Extractor) extractTar(tarPath string, destDir string, maxUnpackedSize i
 			return err
 		}
 
-		destPath, err := sanitizeExtractPath(header.Name, destDir)
+		destPath, skip, err := resolveEntryPath(header.Name, destDir, header.Typeflag == tar.TypeDir)
 		if err != nil {
-			return err // Пропускаем файлы с плохими путями или прерываем
+			return err
+		}
+		if skip {
+			continue
 		}
 
 		switch header.Typeflag {
@@ -165,11 +171,20 @@ func writeExtractedFile(destPath string, mode os.FileMode, src io.Reader) (int64
 	return written, err
 }
 
-// sanitizeExtractPath защищает от ZipSlip уязвимости (пути вида ../../etc/passwd)
-func sanitizeExtractPath(filePath string, destination string) (string, error) {
-	destPath := filepath.Join(destination, filePath)
-	if !strings.HasPrefix(destPath, filepath.Clean(destination)+string(os.PathSeparator)) {
-		return "", fmt.Errorf("illegal file path: %s", filePath)
+// errEntryOutsideRoot does not name the entry: entry names are user input.
+var errEntryOutsideRoot = errors.New("archive entry path is not below the extraction root")
+
+// resolveEntryPath protects against ZipSlip (names like ../../etc/passwd).
+// A directory entry that is the root itself, as `tar -czf ctx.tar.gz .`
+// writes first, reports skip; any other entry must resolve below the root.
+func resolveEntryPath(name string, destination string, isDir bool) (destPath string, skip bool, err error) {
+	root := filepath.Clean(destination)
+	destPath = filepath.Join(root, name)
+	if destPath == root && isDir {
+		return "", true, nil
 	}
-	return destPath, nil
+	if !strings.HasPrefix(destPath, root+string(os.PathSeparator)) {
+		return "", false, errEntryOutsideRoot
+	}
+	return destPath, false, nil
 }

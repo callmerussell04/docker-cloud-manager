@@ -48,6 +48,64 @@ func TestExtractorExtractsZipTarAndTarGz(t *testing.T) {
 	}
 }
 
+// `tar -czf ctx.tar.gz .` writes the root directory itself as the first entry.
+func TestExtractorAcceptsRootDirectoryEntry(t *testing.T) {
+	for _, kind := range fuzzArchiveKinds {
+		t.Run(kind.file, func(t *testing.T) {
+			data, err := kind.build([]string{"./", "./Dockerfile", "./services/", "./services/main.go"})
+			require.NoError(t, err)
+			requireRootEntryExtracts(t, kind.file, data)
+		})
+	}
+
+	t.Run("tar directory named dot", func(t *testing.T) {
+		var buf bytes.Buffer
+		w := tar.NewWriter(&buf)
+		require.NoError(t, w.WriteHeader(&tar.Header{Name: ".", Mode: 0o755, Typeflag: tar.TypeDir}))
+		require.NoError(t, writeTarEntries(w, map[string]string{"Dockerfile": "x", "services/main.go": "x"}))
+		require.NoError(t, w.Close())
+		requireRootEntryExtracts(t, "source.tar", buf.Bytes())
+	})
+}
+
+func requireRootEntryExtracts(t *testing.T, archiveName string, data []byte) {
+	t.Helper()
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, archiveName)
+	require.NoError(t, os.WriteFile(archivePath, data, 0o600))
+	destDir := filepath.Join(dir, "out")
+
+	require.NoError(t, archive.NewExtractor().Extract(archivePath, destDir, 1024))
+	require.FileExists(t, filepath.Join(destDir, "Dockerfile"))
+	require.FileExists(t, filepath.Join(destDir, "services", "main.go"))
+}
+
+// A file entry that resolves to the root, or any entry that resolves
+// outside it, fails without naming the entry.
+func TestExtractorRejectsRootFileAndEscapingEntriesWithoutEchoingTheName(t *testing.T) {
+	for _, kind := range fuzzArchiveKinds {
+		for _, name := range []string{".", "secret-name/..", "../secret-name"} {
+			t.Run(kind.file+"/"+name, func(t *testing.T) {
+				data, err := kind.build([]string{name})
+				require.NoError(t, err)
+				err = requireExtractionContained(t, kind.file, data)
+				require.Error(t, err)
+				require.NotContains(t, err.Error(), "secret-name")
+			})
+		}
+	}
+}
+
+func TestExtractorRejectsEscapingDirectoryEntry(t *testing.T) {
+	for _, kind := range fuzzArchiveKinds {
+		t.Run(kind.file, func(t *testing.T) {
+			data, err := kind.build([]string{"./", "../"})
+			require.NoError(t, err)
+			require.Error(t, requireExtractionContained(t, kind.file, data))
+		})
+	}
+}
+
 func TestExtractorReplacesRepeatedTarEntry(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
@@ -103,6 +161,7 @@ func FuzzExtractEntryNames(f *testing.F) {
 	}{
 		{0, "Dockerfile\nsrc/main.go"}, {1, "../escape"}, {2, "a/../../escape"}, {0, "/abs/path"},
 		{1, "dir/\ndir/file"}, {2, "./x\n."}, {0, "a/b/../../../c"}, {1, ".."}, {2, "a\\..\\..\\b"},
+		{0, "./\n./Dockerfile"}, {1, "./\n./Dockerfile"}, {2, "./\n../escape"},
 	} {
 		f.Add(seed.format, seed.names)
 	}
@@ -125,7 +184,7 @@ func FuzzExtractEntryNames(f *testing.F) {
 // FuzzExtractRawArchive feeds arbitrary bytes to the archive readers.
 func FuzzExtractRawArchive(f *testing.F) {
 	for i, kind := range fuzzArchiveKinds {
-		for _, names := range [][]string{{"Dockerfile"}, {"../escape"}, {"dir/", "dir/file"}} {
+		for _, names := range [][]string{{"Dockerfile"}, {"../escape"}, {"dir/", "dir/file"}, {"./", "./Dockerfile"}} {
 			data, err := kind.build(names)
 			require.NoError(f, err)
 			f.Add(uint8(i), data)
