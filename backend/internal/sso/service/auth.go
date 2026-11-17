@@ -102,7 +102,10 @@ type TokenProvider interface {
 	ValidateAccessToken(token string) (model.AccessIdentity, error)
 }
 
+// OIDCProvider is the external authorization-code provider. It is unavailable
+// until SSO has reached it; once available it stays available.
 type OIDCProvider interface {
+	Available() bool
 	AuthCodeURL(state, nonce string) string
 	ExchangeCode(ctx context.Context, code, nonce string) (OIDCIdentity, error)
 }
@@ -373,11 +376,12 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (mod
 	return s.createSession(ctx, user, true)
 }
 
-func (s *AuthService) AuthProviders() []string {
-	if !s.cfg.OIDCEnabled || s.oidcProvider == nil {
-		return []string{}
+// AuthProviders lists the enabled external providers and whether each is available.
+func (s *AuthService) AuthProviders() []model.AuthProvider {
+	if !s.oidcEnabled() {
+		return []model.AuthProvider{}
 	}
-	return []string{s.cfg.OIDCProviderName}
+	return []model.AuthProvider{{Name: s.cfg.OIDCProviderName, Available: s.oidcProvider.Available()}}
 }
 
 func (s *AuthService) LocalAuthConfig() (loginEnabled bool, registerEnabled bool) {
@@ -386,8 +390,8 @@ func (s *AuthService) LocalAuthConfig() (loginEnabled bool, registerEnabled bool
 
 func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (string, string, error) {
 	_ = ctx
-	if !s.oidcAvailable(provider) {
-		return "", "", apperrors.ErrNotFound
+	if err := s.requireOIDCProvider(provider); err != nil {
+		return "", "", err
 	}
 
 	state, err := randomToken()
@@ -421,8 +425,8 @@ func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfte
 }
 
 func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error) {
-	if !s.oidcAvailable(provider) {
-		return model.Tokens{}, "", apperrors.ErrNotFound
+	if err := s.requireOIDCProvider(provider); err != nil {
+		return model.Tokens{}, "", err
 	}
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" || strings.TrimSpace(stateBinding) == "" {
 		return model.Tokens{}, "", apperrors.ErrBadRequest
@@ -453,8 +457,20 @@ func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, 
 	return tokens, oidcState.RedirectAfter, nil
 }
 
-func (s *AuthService) oidcAvailable(provider string) bool {
-	return s.cfg.OIDCEnabled && s.oidcProvider != nil && provider == s.cfg.OIDCProviderName
+func (s *AuthService) oidcEnabled() bool {
+	return s.cfg.OIDCEnabled && s.oidcProvider != nil
+}
+
+// requireOIDCProvider answers not found for a provider that is not enabled and
+// unavailable for an enabled one SSO has not reached yet.
+func (s *AuthService) requireOIDCProvider(provider string) error {
+	if !s.oidcEnabled() || provider != s.cfg.OIDCProviderName {
+		return apperrors.ErrNotFound
+	}
+	if !s.oidcProvider.Available() {
+		return apperrors.New(apperrors.ErrUnavailable, "identity provider is not available")
+	}
+	return nil
 }
 
 func (s *AuthService) consumeOIDCState(provider, state, stateBinding string) (oidcState, error) {

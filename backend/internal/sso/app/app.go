@@ -56,7 +56,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, repository.NewSessionRepository(db), oidcProvider, service.Config{
+	// A nil *oidc.Provider must reach the service as a nil interface.
+	var serviceProvider service.OIDCProvider
+	if oidcProvider != nil {
+		serviceProvider = oidcProvider
+	}
+	if !cfg.Auth.LocalLoginEnabled && len(cfg.OIDC.AdminGroups) == 0 {
+		logger.Warn("local sign-in is off and SSO_OIDC_ADMIN_GROUPS is empty: no administrator may be able to sign in; recovering through the bootstrap admin requires SSO_LOCAL_LOGIN_ENABLED=true")
+	}
+	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, repository.NewSessionRepository(db), serviceProvider, service.Config{
 		LocalLoginEnabled: cfg.Auth.LocalLoginEnabled,
 		AccessTTL:         cfg.AccessTTL, SessionTTL: cfg.SessionTTL, SessionIdleTTL: cfg.SessionIdleTTL,
 		LocalRegisterEnabled: cfg.Auth.LocalRegisterEnabled,
@@ -89,6 +97,15 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		logger:     logging.WithComponent(logger, "app"),
 		cancel:     cancel,
 	}
+	if oidcProvider != nil {
+		// Discovery never blocks startup: SSO serves local sign-in and token
+		// verification while the provider is unreachable.
+		application.wg.Add(1)
+		go func() {
+			defer application.wg.Done()
+			oidcProvider.Run(ctx, logging.WithComponent(logger, "oidc"))
+		}()
+	}
 	application.wg.Add(1)
 	go func() {
 		defer application.wg.Done()
@@ -116,15 +133,12 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	return application, nil
 }
 
-func buildOIDCProvider(cfg config.OIDC) (service.OIDCProvider, error) {
+// buildOIDCProvider returns nil with OIDC off. It makes no provider call.
+func buildOIDCProvider(cfg config.OIDC) (*oidc.Provider, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	provider, err := oidc.NewProvider(ctx, oidc.Config{
+	provider, err := oidc.NewProvider(oidc.Config{
 		IssuerURL:    cfg.IssuerURL,
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,

@@ -458,8 +458,10 @@ func (*GetAuthConfigRequest) Descriptor() ([]byte, []int) {
 }
 
 type OIDCProviderData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// available is false while SSO has not reached the provider; sign-in through it answers unavailable.
+	Available     bool `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -499,6 +501,13 @@ func (x *OIDCProviderData) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *OIDCProviderData) GetAvailable() bool {
+	if x != nil {
+		return x.Available
+	}
+	return false
 }
 
 type GetAuthConfigResponse struct {
@@ -1492,9 +1501,10 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12,\n" +
 	"\x12refresh_expires_at\x18\x03 \x01(\x03R\x10refreshExpiresAt\"\x16\n" +
-	"\x14GetAuthConfigRequest\"&\n" +
+	"\x14GetAuthConfigRequest\"D\n" +
 	"\x10OIDCProviderData\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\"\xbb\x01\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
+	"\tavailable\x18\x02 \x01(\bR\tavailable\"\xbb\x01\n" +
 	"\x15GetAuthConfigResponse\x12.\n" +
 	"\x13local_login_enabled\x18\x01 \x01(\bR\x11localLoginEnabled\x124\n" +
 	"\x16local_register_enabled\x18\x02 \x01(\bR\x14localRegisterEnabled\x12<\n" +

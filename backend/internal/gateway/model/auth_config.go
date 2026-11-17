@@ -6,8 +6,10 @@ type AuthConfig struct {
 	OIDCProviders        []OIDCProvider
 }
 
+// OIDCProvider is an enabled external provider; Available is false while SSO has not reached it.
 type OIDCProvider struct {
-	Name string
+	Name      string
+	Available bool
 }
 
 type OIDCLoginStartResult struct {

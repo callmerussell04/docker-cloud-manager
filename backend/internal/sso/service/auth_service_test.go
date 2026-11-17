@@ -391,7 +391,42 @@ func TestAuthServiceOIDCRejectsInvalidAndExpiredState(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 }
 
+func TestAuthServiceOIDCProviderEnabledButUnavailable(t *testing.T) {
+	ctx := context.Background()
+	repo := ssomocks.NewUserRepository(t)
+	provider := ssomocks.NewOIDCProvider(t)
+	available := false
+	provider.EXPECT().Available().RunAndReturn(func() bool { return available })
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), provider, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak",
+	})
+
+	require.Equal(t, []model.AuthProvider{{Name: "keycloak", Available: false}}, svc.AuthProviders())
+	_, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+	_, _, err = svc.StartOIDCLogin(ctx, "other", "/")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+
+	available = true
+	require.Equal(t, []model.AuthProvider{{Name: "keycloak", Available: true}}, svc.AuthProviders())
+}
+
+func TestAuthServiceOIDCDisabledHasNoProvider(t *testing.T) {
+	ctx := context.Background()
+	repo := ssomocks.NewUserRepository(t)
+	svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
+
+	require.Empty(t, svc.AuthProviders())
+	_, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
 func expectAuthCodeURL(provider *ssomocks.OIDCProvider) {
+	provider.EXPECT().Available().Return(true).Maybe()
 	provider.EXPECT().
 		AuthCodeURL(mock.AnythingOfType("string"), mock.AnythingOfType("string")).
 		RunAndReturn(func(state, nonce string) string {

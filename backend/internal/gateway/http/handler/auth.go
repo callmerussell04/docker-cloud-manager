@@ -22,6 +22,7 @@ const (
 	oidcStateCookieName   = "oidc_state"
 	oidcStateCookiePath   = "/api/v1/auth/oidc/keycloak/callback"
 	oidcStateCookieMaxAge = 600
+	keycloakProvider      = "keycloak"
 )
 
 type AuthService interface {
@@ -146,7 +147,7 @@ func (h *AuthHandler) Providers(c *gin.Context) {
 
 	providers := make([]gin.H, 0, len(cfg.OIDCProviders))
 	for _, provider := range cfg.OIDCProviders {
-		providers = append(providers, gin.H{"name": provider.Name})
+		providers = append(providers, gin.H{"name": provider.Name, "available": provider.Available})
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -163,7 +164,7 @@ func (h *AuthHandler) StartKeycloakLogin(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.StartOIDCLogin(c.Request.Context(), "keycloak", redirectAfter)
+	result, err := h.service.StartOIDCLogin(c.Request.Context(), keycloakProvider, redirectAfter)
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
@@ -174,20 +175,19 @@ func (h *AuthHandler) StartKeycloakLogin(c *gin.Context) {
 
 func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	if c.Query("error") != "" {
-		h.clearOIDCStateCookie(c)
-		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidCredentials)
-		return
-	}
-
 	stateBinding, err := c.Cookie(oidcStateCookieName)
-	if err != nil {
+	if c.Query("error") != "" || err != nil {
 		h.clearOIDCStateCookie(c)
+		// SSO is not asked to complete this callback, so ask it whether the
+		// provider is enabled and available before refusing the attempt.
+		if !h.requireKeycloakAvailable(c) {
+			return
+		}
 		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidCredentials)
 		return
 	}
 
-	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), "keycloak", c.Query("code"), c.Query("state"), stateBinding)
+	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), keycloakProvider, c.Query("code"), c.Query("state"), stateBinding)
 	if err != nil {
 		h.clearOIDCStateCookie(c)
 		h.handleAuthError(c, err)
@@ -203,6 +203,28 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 		redirectAfter = h.defaultRedirectAfter()
 	}
 	c.Redirect(http.StatusFound, redirectWithLoginSuccess(redirectAfter))
+}
+
+// requireKeycloakAvailable answers not found when the Keycloak provider is not
+// enabled and unavailable while SSO has not reached it.
+func (h *AuthHandler) requireKeycloakAvailable(c *gin.Context) bool {
+	cfg, err := h.service.GetAuthConfig(c.Request.Context())
+	if err != nil {
+		h.handleAuthError(c, err)
+		return false
+	}
+	for _, provider := range cfg.OIDCProviders {
+		if provider.Name != keycloakProvider {
+			continue
+		}
+		if !provider.Available {
+			httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
+			return false
+		}
+		return true
+	}
+	httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+	return false
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {

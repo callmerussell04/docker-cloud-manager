@@ -76,7 +76,7 @@ func (h *Handler) GetAuthConfig(ctx context.Context, _ *sso.GetAuthConfigRequest
 		OidcProviders:        make([]*sso.OIDCProviderData, 0, len(providers)),
 	}
 	for _, provider := range providers {
-		resp.OidcProviders = append(resp.OidcProviders, &sso.OIDCProviderData{Name: provider})
+		resp.OidcProviders = append(resp.OidcProviders, &sso.OIDCProviderData{Name: provider.Name, Available: provider.Available})
 	}
 	return resp, nil
 }

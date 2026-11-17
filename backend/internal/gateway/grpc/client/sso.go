@@ -90,7 +90,7 @@ func (c *SSOClient) GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 	}
 	providers := make([]model.OIDCProvider, 0, len(resp.GetOidcProviders()))
 	for _, provider := range resp.GetOidcProviders() {
-		providers = append(providers, model.OIDCProvider{Name: provider.GetName()})
+		providers = append(providers, model.OIDCProvider{Name: provider.GetName(), Available: provider.GetAvailable()})
 	}
 	return model.AuthConfig{
 		LocalLoginEnabled:    resp.GetLocalLoginEnabled(),

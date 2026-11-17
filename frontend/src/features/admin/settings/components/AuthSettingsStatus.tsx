@@ -1,6 +1,6 @@
 import type { TFunction } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
-import type { AuthConfig } from '@/features/auth/model';
+import { type AuthConfig, unreachableProviders } from '@/features/auth/model';
 
 /** Shows the sign-in settings, which come from bootstrap configuration and cannot be changed here. */
 export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
@@ -17,6 +17,7 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
   }
 
   const providers = authConfig?.oidc_providers.map((provider) => provider.name).filter(Boolean) ?? [];
+  const unreachable = unreachableProviders(authConfig);
 
   return (
     <div className="divide-y divide-slate-200/70 dark:divide-slate-700/50">
@@ -40,14 +41,27 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
         enabled={providers.length > 0}
         t={t}
       />
+      {providers.length > 0 && (
+        <StatusRow
+          label={t('admin.settings.field.external_sso_reachable.label')}
+          description={t('admin.settings.field.external_sso_reachable.hint')}
+          enabled={unreachable.length === 0}
+          value={unreachable.length === 0
+            ? t('admin.settings.reachable')
+            : t('admin.settings.unreachable', { providers: unreachable.join(', ') })}
+          t={t}
+        />
+      )}
     </div>
   );
 }
 
-function StatusRow({ label, description, enabled, t }: {
+function StatusRow({ label, description, enabled, value, t }: {
   label: string;
   description: string;
   enabled: boolean;
+  /** Replaces the Enabled/Disabled text. */
+  value?: string;
   t: TFunction;
 }) {
   return (
@@ -62,7 +76,7 @@ function StatusRow({ label, description, enabled, t }: {
           ? 'border-indigo-300 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100'
           : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300',
       )}>
-        {enabled ? t('admin.settings.enabled') : t('admin.settings.disabled')}
+        {value ?? (enabled ? t('admin.settings.enabled') : t('admin.settings.disabled'))}
       </p>
     </div>
   );

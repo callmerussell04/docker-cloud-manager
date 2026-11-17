@@ -41,7 +41,7 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	config, err := ssoClient.GetAuthConfig(context.Background())
 	require.NoError(t, err)
 	require.True(t, config.LocalLoginEnabled)
-	require.Equal(t, []model.OIDCProvider{{Name: "keycloak"}}, config.OIDCProviders)
+	require.Equal(t, []model.OIDCProvider{{Name: "keycloak", Available: true}}, config.OIDCProviders)
 
 	start, err := ssoClient.StartOIDCLogin(context.Background(), "keycloak", "http://frontend/auth/callback")
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func (s *ssoAuthServer) GetAuthConfig(context.Context, *sso.GetAuthConfigRequest
 	return &sso.GetAuthConfigResponse{
 		LocalLoginEnabled:    true,
 		LocalRegisterEnabled: false,
-		OidcProviders:        []*sso.OIDCProviderData{{Name: "keycloak"}},
+		OidcProviders:        []*sso.OIDCProviderData{{Name: "keycloak", Available: true}},
 	}, nil
 }
 

@@ -14,6 +14,7 @@ import { useToastStore } from '@/shared/ui/toastStore';
 import { loginFn } from '@/features/auth/api';
 import { type LoginData, createLoginSchema } from '@/features/auth/schemas';
 import { useAuthConfig } from '@/features/auth/queries';
+import { providerAvailability } from '@/features/auth/model';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { API_URL } from '@/shared/lib/config';
@@ -25,7 +26,7 @@ export function LoginPage() {
   const { data: authConfig } = useAuthConfig();
   const localLoginEnabled = authConfig?.local_login_enabled ?? true;
   const localRegisterEnabled = authConfig?.local_register_enabled ?? true;
-  const keycloakEnabled = authConfig?.oidc_providers.some((provider) => provider.name === 'keycloak') ?? false;
+  const keycloak = providerAvailability(authConfig, 'keycloak');
 
   const {
     register,
@@ -71,11 +72,25 @@ export function LoginPage() {
             </p>
           </CardHeader>
           <CardContent>
-            {keycloakEnabled && (
-              <Button type="button" variant="secondary" className="w-full mt-4" onClick={startKeycloakLogin}>
-                <KeyRound className="w-4 h-4 mr-2" />
-                {t('auth.login.keycloak')}
-              </Button>
+            {keycloak !== 'off' && (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full mt-4"
+                  onClick={startKeycloakLogin}
+                  disabled={keycloak === 'unavailable'}
+                  aria-describedby={keycloak === 'unavailable' ? 'keycloak-unavailable' : undefined}
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  {t('auth.login.keycloak')}
+                </Button>
+                {keycloak === 'unavailable' && (
+                  <p id="keycloak-unavailable" className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                    {t('auth.login.keycloakUnavailable')}
+                  </p>
+                )}
+              </>
             )}
 
             {localLoginEnabled && (

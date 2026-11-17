@@ -10,6 +10,7 @@ export const auth: Record<keyof typeof ru, string> = {
   'auth.login.subtitle': 'Enter your credentials to access the control panel',
   'auth.login.submit': 'Log in',
   'auth.login.keycloak': 'Continue with external SSO',
+  'auth.login.keycloakUnavailable': 'External SSO is not reachable right now. Try again later or sign in with your password.',
   'auth.login.success': 'Logged in successfully',
   'auth.login.failed': 'Failed to log in',
   'auth.login.noAccount': 'No account?',

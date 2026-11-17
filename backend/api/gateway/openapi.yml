@@ -82,7 +82,7 @@ paths:
       security: []
       responses:
         '200':
-          description: Local authentication flags and configured OIDC providers
+          description: Local authentication flags and enabled OIDC providers. With OIDC off the provider list is empty.
           content:
             application/json:
               schema:
@@ -93,6 +93,7 @@ paths:
   /auth/oidc/keycloak/start:
     get:
       summary: Start Keycloak authorization code flow
+      description: Answers 404 when OIDC is off and 503 while the provider is enabled but SSO has not reached it yet (`available` is false in `/auth/providers`).
       tags: [Auth]
       security: []
       parameters:
@@ -107,12 +108,15 @@ paths:
           description: Redirect to the Keycloak authorization endpoint and set the HttpOnly oidc_state cookie
         '400':
           $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/oidc/keycloak/callback:
     get:
       summary: Complete Keycloak authorization code flow
+      description: Answers 404 when OIDC is off and 503 while the provider is enabled but SSO has not reached it yet (`available` is false in `/auth/providers`).
       tags: [Auth]
       security:
         - OIDCStateCookie: []
@@ -139,6 +143,10 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
   /auth/login:
     post:
@@ -1915,11 +1923,14 @@ components:
           type: array
           items:
             type: object
-            required: [name]
+            required: [name, available]
             properties:
               name:
                 type: string
                 example: keycloak
+              available:
+                type: boolean
+                description: False while SSO has not reached the enabled provider; sign-in through it answers 503 until then.
 
     # ADMIN USERS
     AdminUser:

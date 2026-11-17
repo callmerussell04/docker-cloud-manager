@@ -64,6 +64,20 @@ curl -sS -b cookies.txt -c cookies.txt \
 
 Токен доступа проверяется службой Gateway через SSO. Для административных маршрутов дополнительно требуется соответствующее разрешение.
 
+### Способы входа
+
+`GET /api/v1/auth/providers` возвращает флаги локального входа и включённых поставщиков OIDC:
+
+```json
+{
+  "local_login_enabled": true,
+  "local_register_enabled": true,
+  "oidc_providers": [{ "name": "keycloak", "available": false }]
+}
+```
+
+При выключенном OIDC список пуст, а `/api/v1/auth/oidc/keycloak/start` и `/callback` отвечают `404`. `available: false` означает, что поставщик включён, но SSO ещё не связался с ним; тогда эти маршруты отвечают `503`, а локальный вход работает.
+
 ## Ошибки
 
 Ошибки в формате JSON имеют единый вид:

@@ -29,7 +29,7 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
 	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
 	auth.EXPECT().LocalAuthConfig().Return(true, false)
-	auth.EXPECT().AuthProviders().Return([]string{"keycloak"})
+	auth.EXPECT().AuthProviders().Return([]model.AuthProvider{{Name: "keycloak", Available: false}})
 	auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/dashboard").Return("https://keycloak/auth", "binding", nil)
 	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)}, "/dashboard", nil)
 	conn := newSSOGRPCConn(t, auth, false)
@@ -57,6 +57,7 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	require.False(t, cfgResp.LocalRegisterEnabled)
 	require.Len(t, cfgResp.OidcProviders, 1)
 	require.Equal(t, "keycloak", cfgResp.OidcProviders[0].Name)
+	require.False(t, cfgResp.OidcProviders[0].Available)
 
 	startResp, err := client.StartOIDCLogin(context.Background(), &sso.StartOIDCLoginRequest{Provider: "keycloak", RedirectAfter: "/dashboard"})
 	require.NoError(t, err)

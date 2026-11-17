@@ -4,7 +4,9 @@
 
 ## Первый вход
 
-Bootstrap admin создаётся SSO при старте из `SSO_ADMIN_USERNAME`, `SSO_ADMIN_EMAIL` и `SSO_ADMIN_PASSWORD`. Храните эти credentials как recovery-доступ даже при включённом OIDC.
+Bootstrap admin создаётся SSO при старте из `SSO_ADMIN_USERNAME`, `SSO_ADMIN_EMAIL` и `SSO_ADMIN_PASSWORD`. Храните эти credentials как recovery-доступ даже при включённом OIDC. Bootstrap admin входит только по паролю, поэтому восстановление через него требует `SSO_LOCAL_LOGIN_ENABLED=true`.
+
+На странице настроек блок входа показывает отдельно, включён ли внешний SSO и удалось ли SSO связаться с поставщиком. Пока связи нет, вход через Keycloak недоступен, а вход по паролю работает; SSO подключится сам, когда Keycloak станет доступен.
 
 ## Пользователи
 

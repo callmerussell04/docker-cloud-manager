@@ -47,12 +47,12 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{
 		LocalLoginEnabled:    true,
 		LocalRegisterEnabled: false,
-		OIDCProviders:        []model.OIDCProvider{{Name: "keycloak"}},
+		OIDCProviders:        []model.OIDCProvider{{Name: "keycloak", Available: false}},
 	}, nil)
 	resp = perform(router, http.MethodGet, "/providers", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"local_login_enabled":true`)
-	require.Contains(t, resp.Body.String(), `"name":"keycloak"`)
+	require.Contains(t, resp.Body.String(), `"oidc_providers":[{"available":false,"name":"keycloak"}]`)
 
 	auth.EXPECT().Logout(mock.Anything, "").Return(nil)
 	resp = perform(router, http.MethodPost, "/logout", ``, nil)
@@ -121,8 +121,43 @@ func TestAuthHandlerOIDCRejectsUnsafeRedirectAndMissingState(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, resp.Code)
 	}
 
+	auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{OIDCProviders: []model.OIDCProvider{{Name: "keycloak", Available: true}}}, nil)
 	resp := perform(router, http.MethodGet, "/callback?code=code&state=state", ``, nil)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
+}
+
+// Without a provider answer to rely on, the callback asks SSO whether the
+// provider is enabled and available before refusing a missing state cookie or
+// a provider error, so a disabled provider is not found and an unreachable one
+// unavailable on every path.
+func TestAuthHandlerOIDCRoutesReportDisabledAndUnavailableProvider(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, tc := range map[string]struct {
+		providers []model.OIDCProvider
+		ssoErr    error
+		status    int
+	}{
+		"disabled":    {providers: []model.OIDCProvider{}, ssoErr: apperrors.ErrNotFound, status: http.StatusNotFound},
+		"unavailable": {providers: []model.OIDCProvider{{Name: "keycloak", Available: false}}, ssoErr: apperrors.ErrUnavailable, status: http.StatusServiceUnavailable},
+	} {
+		t.Run(name, func(t *testing.T) {
+			auth := gatewayhandlermocks.NewMockAuthService(t)
+			h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token"}, testRedirectConfig())
+			router := gin.New()
+			router.GET("/start", h.StartKeycloakLogin)
+			router.GET("/callback", h.CompleteKeycloakCallback)
+			auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{OIDCProviders: tc.providers}, nil)
+			auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "http://frontend.example/auth/callback").Return(model.OIDCLoginStartResult{}, tc.ssoErr)
+			auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.OIDCCallbackResult{}, tc.ssoErr)
+
+			require.Equal(t, tc.status, perform(router, http.MethodGet, "/start?redirect_after=http://frontend.example/auth/callback", ``, nil).Code)
+			require.Equal(t, tc.status, perform(router, http.MethodGet, "/callback?code=code&state=state", ``, nil).Code)
+			require.Equal(t, tc.status, perform(router, http.MethodGet, "/callback?error=access_denied", ``, nil).Code)
+			resp := perform(router, http.MethodGet, "/callback?code=code&state=state", ``, []*http.Cookie{{Name: "oidc_state", Value: "binding"}})
+			require.Equal(t, tc.status, resp.Code)
+			requireCookieMaxAge(t, resp.Result(), "oidc_state", -1)
+		})
+	}
 }
 
 func testRedirectConfig() handler.AuthRedirectConfig {

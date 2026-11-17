@@ -137,3 +137,12 @@ func TestDistinctNamesTheFirstSharedValueWithoutIt(t *testing.T) {
 	assert.Equal(t, "environment variables must hold different values", msg)
 	assert.Equal(t, []any{"env_vars", []string{"A_TOKEN", "C_TOKEN"}}, args)
 }
+
+func TestLogEntryNamesAnInvalidSettingAndItsExpectedForm(t *testing.T) {
+	err := &envconfig.InvalidError{Key: "ISSUER_URL", Reason: "must be an absolute http or https URL"}
+	assert.Equal(t, "environment variable is invalid: ISSUER_URL: must be an absolute http or https URL", err.Error())
+
+	msg, args := envconfig.LogEntry(fmt.Errorf("load: %w", err))
+	assert.Equal(t, "environment variable is invalid", msg)
+	assert.Equal(t, []any{"env_var", "ISSUER_URL", "reason", "must be an absolute http or https URL"}, args)
+}

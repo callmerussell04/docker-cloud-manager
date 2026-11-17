@@ -80,14 +80,16 @@ Core проверяет обязательные зависимости build ad
 | `SSO_LOCAL_LOGIN_ENABLED` | `true` | Показывать и принимать локальный вход |
 | `SSO_LOCAL_REGISTER_ENABLED` | `true` | Разрешить самостоятельную регистрацию |
 | `SSO_OIDC_ENABLED` | `false` | Включить поток входа через Keycloak |
-| `SSO_OIDC_ISSUER_URL` | Область Keycloak на localhost | URL издателя и метаданных OIDC |
-| `SSO_OIDC_CLIENT_ID` | `dcm` | Идентификатор клиента OIDC |
-| `SSO_OIDC_CLIENT_SECRET` | `change_me_*` | Секрет конфиденциального клиента |
-| `SSO_OIDC_REDIRECT_URL` | Обратный вызов на localhost | Точный URL обратного вызова Gateway |
+| `SSO_OIDC_ISSUER_URL` | Область Keycloak на localhost | URL издателя и метаданных OIDC; обязателен при включённом OIDC, абсолютный `http`/`https` |
+| `SSO_OIDC_CLIENT_ID` | `dcm` | Идентификатор клиента OIDC; обязателен при включённом OIDC |
+| `SSO_OIDC_CLIENT_SECRET` | `change_me_*` | Секрет конфиденциального клиента; обязателен при включённом OIDC |
+| `SSO_OIDC_REDIRECT_URL` | Обратный вызов на localhost | Точный URL обратного вызова Gateway; обязателен при включённом OIDC, абсолютный `http`/`https` |
 | `SSO_OIDC_ADMIN_GROUPS` | `/dcm-admins,dcm-admin` | Группы или роли, назначающие администратора |
 | `SSO_OIDC_DEFAULT_ROLE` | `user` | Роль нового пользователя OIDC без сопоставления с администратором |
 
 Все изменения требуют перезапуска SSO; изменения браузерной маршрутизации также требуют перезапуска Gateway.
+
+SSO не запускается, если `SSO_LOCAL_LOGIN_ENABLED` и `SSO_OIDC_ENABLED` оба равны `false`, и называет обе переменные. Недоступный при старте Keycloak запуск не останавливает: SSO подключается к нему в фоне (см. [Аутентификация](authentication.md#недоступный-keycloak)). Восстановление доступа через bootstrap admin требует `SSO_LOCAL_LOGIN_ENABLED=true`.
 
 ### Optional development Keycloak
 

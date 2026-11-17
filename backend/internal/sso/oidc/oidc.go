@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -21,6 +23,12 @@ import (
 
 const defaultScope = "openid profile email"
 
+// Discovery retries back off from discoveryInitialBackoff, doubling up to discoveryMaxBackoff.
+const (
+	discoveryInitialBackoff = time.Second
+	discoveryMaxBackoff     = time.Minute
+)
+
 type Config struct {
 	IssuerURL    string
 	ClientID     string
@@ -29,9 +37,13 @@ type Config struct {
 	HTTPClient   *http.Client
 }
 
+// Provider is the OIDC adapter. It is unavailable until discovery succeeds;
+// discovery runs outside startup (see Run), so an unreachable provider never
+// stops SSO from starting.
 type Provider struct {
-	cfg       Config
-	discovery discoveryDocument
+	cfg Config
+	// discovery is nil until discovery succeeds, then never changes.
+	discovery atomic.Pointer[discoveryDocument]
 	client    *http.Client
 	jwksMu    sync.Mutex
 	jwks      jwks
@@ -79,7 +91,8 @@ type jwk struct {
 	E   string `json:"e"`
 }
 
-func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
+// NewProvider checks the configuration and makes no provider call.
+func NewProvider(cfg Config) (*Provider, error) {
 	cfg.IssuerURL = strings.TrimRight(strings.TrimSpace(cfg.IssuerURL), "/")
 	cfg.ClientID = strings.TrimSpace(cfg.ClientID)
 	cfg.RedirectURL = strings.TrimSpace(cfg.RedirectURL)
@@ -91,23 +104,64 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
-
-	discovery, err := discover(ctx, client, cfg.IssuerURL)
-	if err != nil {
-		return nil, err
-	}
-	if discovery.Issuer != "" && discovery.Issuer != cfg.IssuerURL {
-		return nil, fmt.Errorf("oidc issuer mismatch")
-	}
-
-	return &Provider{
-		cfg:       cfg,
-		discovery: discovery,
-		client:    client,
-	}, nil
+	return &Provider{cfg: cfg, client: client}, nil
 }
 
+// Available reports whether discovery has succeeded. Once true it stays true.
+func (p *Provider) Available() bool {
+	return p.discovery.Load() != nil
+}
+
+// Discover makes one discovery attempt and, on success, makes the provider available.
+func (p *Provider) Discover(ctx context.Context) error {
+	if p.Available() {
+		return nil
+	}
+	document, err := discover(ctx, p.client, p.cfg.IssuerURL)
+	if err != nil {
+		return err
+	}
+	if document.Issuer != "" && document.Issuer != p.cfg.IssuerURL {
+		return fmt.Errorf("oidc issuer mismatch")
+	}
+	p.discovery.CompareAndSwap(nil, &document)
+	return nil
+}
+
+// Run attempts discovery at once and then, while it fails, again after a
+// backoff that doubles from one second up to one minute. It returns when
+// discovery succeeds or ctx ends. Each failure is logged as a warning and the
+// success once.
+func (p *Provider) Run(ctx context.Context, logger *slog.Logger) {
+	backoff := discoveryInitialBackoff
+	for {
+		err := p.Discover(ctx)
+		if err == nil {
+			logger.Info("oidc provider available")
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		logger.Warn("oidc provider discovery failed", "error", err, "retry_in", backoff.String())
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		backoff = min(2*backoff, discoveryMaxBackoff)
+	}
+}
+
+// AuthCodeURL returns the authorization request URL, or "" while the provider
+// is unavailable; callers check Available first.
 func (p *Provider) AuthCodeURL(state, nonce string) string {
+	discovery := p.discovery.Load()
+	if discovery == nil {
+		return ""
+	}
 	values := url.Values{}
 	values.Set("client_id", p.cfg.ClientID)
 	values.Set("redirect_uri", p.cfg.RedirectURL)
@@ -115,10 +169,14 @@ func (p *Provider) AuthCodeURL(state, nonce string) string {
 	values.Set("scope", defaultScope)
 	values.Set("state", state)
 	values.Set("nonce", nonce)
-	return p.discovery.AuthorizationEndpoint + "?" + values.Encode()
+	return discovery.AuthorizationEndpoint + "?" + values.Encode()
 }
 
 func (p *Provider) ExchangeCode(ctx context.Context, code, nonce string) (service.OIDCIdentity, error) {
+	discovery := p.discovery.Load()
+	if discovery == nil {
+		return service.OIDCIdentity{}, apperrors.New(apperrors.ErrUnavailable, "identity provider is not available")
+	}
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -126,7 +184,7 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce string) (servic
 	form.Set("client_id", p.cfg.ClientID)
 	form.Set("client_secret", p.cfg.ClientSecret)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.discovery.TokenEndpoint, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discovery.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return service.OIDCIdentity{}, apperrors.ErrInternal
 	}
@@ -150,7 +208,7 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce string) (servic
 		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
 	}
 
-	tokenClaims, err := p.verifyIDToken(ctx, tokenResp.IDToken, nonce)
+	tokenClaims, err := p.verifyIDToken(ctx, discovery.JWKSURI, tokenResp.IDToken, nonce)
 	if err != nil {
 		return service.OIDCIdentity{}, err
 	}
@@ -192,7 +250,7 @@ func discover(ctx context.Context, client *http.Client, issuerURL string) (disco
 	return document, nil
 }
 
-func (p *Provider) verifyIDToken(ctx context.Context, rawToken, nonce string) (claims, error) {
+func (p *Provider) verifyIDToken(ctx context.Context, jwksURI, rawToken, nonce string) (claims, error) {
 	tokenClaims := claims{}
 	token, err := jwt.ParseWithClaims(rawToken, &tokenClaims, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
@@ -202,7 +260,7 @@ func (p *Provider) verifyIDToken(ctx context.Context, rawToken, nonce string) (c
 		if kid == "" {
 			return nil, fmt.Errorf("oidc token is missing kid")
 		}
-		return p.publicKey(ctx, kid)
+		return p.publicKey(ctx, jwksURI, kid)
 	}, jwt.WithAudience(p.cfg.ClientID), jwt.WithIssuer(p.cfg.IssuerURL))
 	if err != nil || !token.Valid {
 		return claims{}, apperrors.ErrInvalidCredentials
@@ -213,8 +271,8 @@ func (p *Provider) verifyIDToken(ctx context.Context, rawToken, nonce string) (c
 	return tokenClaims, nil
 }
 
-func (p *Provider) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
-	keys, err := p.cachedJWKS(ctx)
+func (p *Provider) publicKey(ctx context.Context, jwksURI, kid string) (*rsa.PublicKey, error) {
+	keys, err := p.cachedJWKS(ctx, jwksURI)
 	if err != nil {
 		return nil, err
 	}
@@ -227,14 +285,14 @@ func (p *Provider) publicKey(ctx context.Context, kid string) (*rsa.PublicKey, e
 	p.jwksAt = time.Time{}
 	p.jwksMu.Unlock()
 
-	keys, refreshErr := p.cachedJWKS(ctx)
+	keys, refreshErr := p.cachedJWKS(ctx, jwksURI)
 	if refreshErr != nil {
 		return nil, refreshErr
 	}
 	return publicKeyFromJWKS(keys, kid)
 }
 
-func (p *Provider) cachedJWKS(ctx context.Context) (jwks, error) {
+func (p *Provider) cachedJWKS(ctx context.Context, jwksURI string) (jwks, error) {
 	p.jwksMu.Lock()
 	if !p.jwksAt.IsZero() && time.Since(p.jwksAt) < 10*time.Minute {
 		keys := p.jwks
@@ -243,7 +301,7 @@ func (p *Provider) cachedJWKS(ctx context.Context) (jwks, error) {
 	}
 	p.jwksMu.Unlock()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.discovery.JWKSURI, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
 	if err != nil {
 		return jwks{}, err
 	}

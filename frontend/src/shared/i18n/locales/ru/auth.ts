@@ -8,6 +8,7 @@ export const auth = {
   'auth.login.subtitle': 'Введите свои данные для входа в панель управления',
   'auth.login.submit': 'Войти',
   'auth.login.keycloak': 'Войти через внешний SSO',
+  'auth.login.keycloakUnavailable': 'Внешний SSO сейчас недоступен. Попробуйте позже или войдите по паролю.',
   'auth.login.success': 'Успешный вход',
   'auth.login.failed': 'Не удалось войти',
   'auth.login.noAccount': 'Нет аккаунта?',

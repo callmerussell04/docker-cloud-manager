@@ -67,6 +67,8 @@ message GetAuthConfigRequest {}
 
 message OIDCProviderData {
   string name = 1;
+  // available is false while SSO has not reached the provider; sign-in through it answers unavailable.
+  bool available = 2;
 }
 
 message GetAuthConfigResponse {

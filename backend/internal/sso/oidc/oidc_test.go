@@ -72,15 +72,17 @@ func TestProviderDiscoveryValidation(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := oidc.NewProvider(context.Background(), oidc.Config{
+	provider, err := oidc.NewProvider(oidc.Config{
 		IssuerURL:    server.URL,
 		ClientID:     "dcm-client",
 		ClientSecret: "secret",
 		RedirectURL:  "http://gateway.example/callback",
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	require.Error(t, provider.Discover(context.Background()))
+	require.False(t, provider.Available())
 
-	_, err = oidc.NewProvider(context.Background(), oidc.Config{})
+	_, err = oidc.NewProvider(oidc.Config{})
 	require.Error(t, err)
 }
 
@@ -97,13 +99,15 @@ type oidcServerConfig struct {
 
 func newProvider(t *testing.T, issuerURL string) *oidc.Provider {
 	t.Helper()
-	provider, err := oidc.NewProvider(context.Background(), oidc.Config{
+	provider, err := oidc.NewProvider(oidc.Config{
 		IssuerURL:    issuerURL,
 		ClientID:     "dcm-client",
 		ClientSecret: "secret",
 		RedirectURL:  "http://gateway.example/callback",
 	})
 	require.NoError(t, err)
+	require.NoError(t, provider.Discover(context.Background()))
+	require.True(t, provider.Available())
 	return provider
 }
 

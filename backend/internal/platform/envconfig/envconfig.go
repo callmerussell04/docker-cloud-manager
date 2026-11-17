@@ -157,6 +157,17 @@ func (e *DuplicateError) Error() string {
 	return "environment variables must hold different values: " + e.Key + " and " + e.OtherKey
 }
 
+// InvalidError names a setting whose value is malformed. Reason describes the
+// expected form and never carries the value.
+type InvalidError struct {
+	Key    string
+	Reason string
+}
+
+func (e *InvalidError) Error() string {
+	return "environment variable is invalid: " + e.Key + ": " + e.Reason
+}
+
 // Setting pairs a setting's name with its loaded value.
 type Setting struct {
 	Key   string
@@ -184,6 +195,10 @@ func LogEntry(err error) (string, []any) {
 	var duplicate *DuplicateError
 	if errors.As(err, &duplicate) {
 		return "environment variables must hold different values", []any{"env_vars", []string{duplicate.Key, duplicate.OtherKey}}
+	}
+	var invalid *InvalidError
+	if errors.As(err, &invalid) {
+		return "environment variable is invalid", []any{"env_var", invalid.Key, "reason", invalid.Reason}
 	}
 	return err.Error(), nil
 }

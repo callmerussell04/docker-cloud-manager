@@ -15,7 +15,7 @@ type AuthService interface {
 	Login(ctx context.Context, username, password string) (model.Tokens, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
 	Logout(ctx context.Context, refreshToken string) error
-	AuthProviders() []string
+	AuthProviders() []model.AuthProvider
 	LocalAuthConfig() (bool, bool)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (string, string, error)
 	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error)
