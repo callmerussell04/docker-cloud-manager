@@ -113,12 +113,16 @@ type admissionEntry struct {
 	// volume marks the volume create, which asks only for disk quota and
 	// meets the disk floor.
 	volume bool
-	run    func(t *testing.T, w admissionWorld) (queued bool, err error)
+	// reserving marks the start of a container that already reserves its
+	// memory and CPU: it asks for none and meets only the disk limits.
+	reserving bool
+	run       func(t *testing.T, w admissionWorld) (queued bool, err error)
 }
 
 var admissionEntries = []admissionEntry{
 	{name: "container create", chargesUser: true, run: admitContainerCreate},
 	{name: "container start", chargesUser: true, run: admitContainerStart},
+	{name: "container start that already reserves", reserving: true, run: admitReservingContainerStart},
 	{name: "project start", chargesUser: true, run: admitProjectStart},
 	{name: "build creation", chargesUser: false, run: admitBuildCreation},
 	{name: "volume create", volume: true, run: admitVolumeCreate},
@@ -150,8 +154,10 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		// wantBuild, for builds, is the same unless the limit is a user
 		// memory or CPU quota, which builds do not count against. wantVolume
 		// is for volume creates, which meet only the disk quota and the disk
-		// floor. An empty limit means the request is admitted.
-		want, wantBuild, wantVolume apperrors.Limit
+		// floor. wantReserving is for the start of a container that already
+		// reserves its memory and CPU, which meets only the disk limits. An
+		// empty limit means the request is admitted.
+		want, wantBuild, wantVolume, wantReserving apperrors.Limit
 	}{
 		{name: "fits", world: func(*admissionWorld) {}},
 		{
@@ -167,14 +173,14 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "user disk quota",
 			world: func(w *admissionWorld) { w.usedDiskMB = 1024 },
-			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
+			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk, wantReserving: apperrors.LimitUserDisk,
 		},
 		{
 			// Measured usage is nothing, but the sizes the owner's volumes
 			// reserve fill the quota.
 			name:  "volume sizes fill the user disk quota",
 			world: func(w *admissionWorld) { w.reservedVolumeBytes = 1024 * admissionMiB },
-			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
+			want:  apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk, wantReserving: apperrors.LimitUserDisk,
 		},
 		{
 			// 1000 of 1024 MB leaves room for a container or a build, but
@@ -228,7 +234,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 		{
 			name:  "disk floor",
 			world: func(w *admissionWorld) { w.diskFreeBytes = 512 * admissionMiB },
-			want:  apperrors.LimitDiskFloor, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor,
+			want:  apperrors.LimitDiskFloor, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor, wantReserving: apperrors.LimitDiskFloor,
 		},
 		{
 			// Two running builds and the new one may each write 3 GiB: 9 of
@@ -272,7 +278,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.usedDiskMB = 1024
 				w.otherMemory = 1400 * admissionMiB
 			},
-			want: apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk,
+			want: apperrors.LimitUserDisk, wantBuild: apperrors.LimitUserDisk, wantVolume: apperrors.LimitUserDisk, wantReserving: apperrors.LimitUserDisk,
 		},
 		{
 			name: "user memory is checked before the disk floor",
@@ -280,7 +286,7 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 				w.quotaRAMMB = 700
 				w.diskFreeBytes = 0
 			},
-			want: apperrors.LimitUserMemory, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor,
+			want: apperrors.LimitUserMemory, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor, wantReserving: apperrors.LimitDiskFloor,
 		},
 	} {
 		for _, source := range []struct {
@@ -296,6 +302,8 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 					switch {
 					case entry.volume:
 						want = tc.wantVolume
+					case entry.reserving:
+						want = tc.wantReserving
 					case !entry.chargesUser:
 						want = tc.wantBuild
 					}
@@ -492,6 +500,22 @@ func admitContainerStart(t *testing.T, w admissionWorld) (bool, error) {
 	ownerID := uuid.New()
 	store := admissionStore(t, w, ownerID)
 	c := stoppedContainer(ownerID, nil)
+	saveContainer(t, store, c)
+	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	err := svc.Start(ctx, c.ID)
+
+	return queuedCount(t, store) == 1, err
+}
+
+// admitReservingContainerStart starts the owner's crashed container, which
+// still reserves its 256 MiB and 250m because its desired status is running.
+func admitReservingContainerStart(t *testing.T, w admissionWorld) (bool, error) {
+	ownerID := uuid.New()
+	store := admissionStore(t, w, ownerID)
+	c := stoppedContainer(ownerID, nil)
+	c.Status, c.DesiredStatus = model.ContainerStatusError, model.ContainerStatusRunning
 	saveContainer(t, store, c)
 	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")

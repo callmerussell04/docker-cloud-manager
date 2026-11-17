@@ -21,6 +21,12 @@ type admissionRequest struct {
 	// chargesUser reports whether the memory and CPU count against the
 	// owner's quotas. Builds reserve host capacity only.
 	chargesUser bool
+	// reservationHeld reports that the work's memory and CPU are already in the
+	// ledger, as for the start of a container that reserves them. It asks for
+	// none and meets no memory or CPU limit, only the disk ones: the ledger
+	// already counts its reservation, so a limit it now exceeds was exceeded
+	// before the request.
+	reservationHeld bool
 	// diskWriteBytes is what the work is projected to write to host disk.
 	diskWriteBytes int64
 	// userDiskBytes is disk the request reserves against the owner's disk
@@ -80,7 +86,9 @@ func (v admissionVerdict) err() error {
 // checkAdmission decides whether req fits ledger. It checks, in order, user
 // memory, user CPU, user disk, host memory including builds, host CPU
 // including builds, and the host disk floor including the disk of build slots
-// for a build request, and rejects at the first limit exceeded.
+// for a build request, and rejects at the first limit exceeded. A request
+// whose memory and CPU are already held meets only the user disk quota and the
+// disk floor.
 func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) admissionVerdict {
 	memory, cpu := max(req.memoryBytes, 0), max(req.cpuMillicores, 0)
 	if req.chargesUser {
@@ -100,7 +108,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 			return admissionVerdict{limit: apperrors.LimitUserDisk, projected: ledger.userReservedDiskBytes, capacity: ledger.userDiskQuotaBytes}
 		}
 	}
-	if ledger.hostCounted {
+	if ledger.hostCounted && !req.reservationHeld {
 		pool := hostMemoryPool(ledger.hostMemoryBytes, cfg.ReservedSystemMemory, cfg.OvercommitFactor)
 		builds := reservedBuildSlots(ledger.activeBuilds+max(req.builds, 0), cfg)
 		projected := ledger.systemReservedMemoryBytes + builds*cfg.BuildMemoryBytes + memory

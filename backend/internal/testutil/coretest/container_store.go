@@ -394,7 +394,7 @@ func (f *ContainerStoreFake) ListReservingByOwner(_ context.Context, ownerID uui
 	}
 	var reserving []model.Container
 	for _, c := range f.containers {
-		if c.OwnerID != ownerID || !reservesCapacity(c) {
+		if c.OwnerID != ownerID || !c.ReservesCapacity() {
 			continue
 		}
 		reserving = append(reserving, model.Container{
@@ -644,20 +644,11 @@ func (f *ContainerStoreFake) sumReserved(fault *Fault, ownerID *uuid.UUID, amoun
 		if ownerID != nil && c.OwnerID != *ownerID {
 			continue
 		}
-		if reservesCapacity(c) {
+		if c.ReservesCapacity() {
 			total += amount(c)
 		}
 	}
 	return total, nil
-}
-
-// reservesCapacity is the reservation rule: a container that is not missing
-// and whose status or desired status is running.
-func reservesCapacity(c model.Container) bool {
-	if c.Status == model.ContainerStatusMissing {
-		return false
-	}
-	return c.Status == model.ContainerStatusRunning || c.DesiredStatus == model.ContainerStatusRunning
 }
 
 // outboxLeaseTimeout is how long a publishing lease holds before the record

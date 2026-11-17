@@ -304,6 +304,9 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		if vol.Status == model.VolumeStatusMissing {
 			return uuid.Nil, resourceUnavailableError("volume")
 		}
+		if vol.Status != model.VolumeStatusAvailable {
+			return uuid.Nil, apperrors.New(apperrors.ErrConflict, "volume is not available")
+		}
 		dbMounts = append(dbMounts, model.VolumeMount{
 			ContainerID: containerID,
 			VolumeID:    vol.ID,
@@ -386,12 +389,8 @@ func (s *ContainerService) Expose(ctx context.Context, containerID uuid.UUID, do
 	defer func() {
 		s.recordExposeAudit(ctx, c, domainPrefix, internalPort, err)
 	}()
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
+		return err
 	}
 
 	if domainPrefix == "" || internalPort <= 0 {
@@ -509,6 +508,10 @@ func actorIDValue(actorID *uuid.UUID) uuid.UUID {
 	return *actorID
 }
 
+// Start queues a start of the container. It decides under the owner capacity
+// lock, from the record read again under it: a running container is left as
+// it is, one that already reserves its memory and CPU asks for none, and any
+// other is admitted with its reservation.
 func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) error {
 	c, err := s.repo.GetByID(ctx, containerID)
 	if err != nil {
@@ -517,36 +520,74 @@ func (s *ContainerService) Start(ctx context.Context, containerID uuid.UUID) err
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
-	}
-	ownerID := c.OwnerID
 
-	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
+	unlock, err := s.acquireOwnerCapacityLock(ctx, c.OwnerID)
 	if err != nil {
 		return err
 	}
-	releaseLock := func() {
-		if unlock != nil {
-			unlock()
-			unlock = nil
-		}
+	if unlock != nil {
+		defer unlock()
 	}
-	defer releaseLock()
-	// Повторная проверка перед стартом (вдруг пока он был 'exited', студент запустил другие)
-	cfg := s.config.Get()
-	requestedMemory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
-	requestedCPU := normalizeCPUReservation(c.BaseCPUReservation, cfg)
-	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: requestedMemory, cpuMillicores: requestedCPU, chargesUser: true}); err != nil {
+	if c, err = s.repo.GetByID(ctx, containerID); err != nil {
+		return err
+	}
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
+		return err
+	}
+	if c.Status == model.ContainerStatusRunning {
+		return nil
+	}
+	if err := s.admit(ctx, c.OwnerID, s.startAdmissionRequest(c)); err != nil {
 		return err
 	}
 	return s.queueContainerOperation(ctx, c, model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,
 	})
+}
+
+// startAdmissionRequest is what starting c asks admission for. A container
+// that reserves capacity by the reservation rule is already in the ledger, so
+// its start asks for no memory or CPU and meets only the disk limits.
+func (s *ContainerService) startAdmissionRequest(c model.Container) admissionRequest {
+	if c.ReservesCapacity() {
+		return admissionRequest{reservationHeld: true}
+	}
+	cfg := s.config.Get()
+	return admissionRequest{
+		memoryBytes:   normalizeMemoryReservation(c.BaseMemoryReservation, cfg),
+		cpuMillicores: normalizeCPUReservation(c.BaseCPUReservation, cfg),
+		chargesUser:   true,
+	}
+}
+
+// requireDockerRuntime refuses a request that needs the container's Docker
+// runtime when it has none. A missing container can only be deleted. One
+// without a recorded Docker container is still being created while it is
+// pending or creating or has an active operation: that is a conflict that
+// writes nothing. Otherwise its runtime is lost, and it is marked missing.
+func (s *ContainerService) requireDockerRuntime(ctx context.Context, c model.Container) error {
+	if c.Status == model.ContainerStatusMissing {
+		return resourceUnavailableError("container")
+	}
+	if c.DockerID != "" {
+		return nil
+	}
+	if c.Status == model.ContainerStatusPending || c.Status == model.ContainerStatusCreating {
+		return containerStillBeingCreatedError()
+	}
+	active, err := s.repo.HasActiveOperation(ctx, model.ResourceTypeContainer, c.ID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return containerStillBeingCreatedError()
+	}
+	s.markContainerError(ctx, c.ID, model.ContainerStatusMissing, resourceMissingError("container"))
+	return resourceUnavailableError("container")
+}
+
+func containerStillBeingCreatedError() error {
+	return apperrors.New(apperrors.ErrConflict, "container is still being created")
 }
 
 func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) error {
@@ -557,12 +598,8 @@ func (s *ContainerService) Stop(ctx context.Context, containerID uuid.UUID) erro
 	if err := accessscope.RequireOwnerAccess(ctx, c.OwnerID); err != nil {
 		return err
 	}
-	if c.Status == model.ContainerStatusMissing {
-		return resourceUnavailableError("container")
-	}
-	if c.DockerID == "" {
-		s.markContainerError(ctx, containerID, model.ContainerStatusMissing, resourceMissingError("container"))
-		return resourceUnavailableError("container")
+	if err := s.requireDockerRuntime(ctx, c); err != nil {
+		return err
 	}
 	return s.queueContainerOperation(ctx, c, model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, queue.ContainerLifecycleMessage{
 		PreviousStatus: c.Status,

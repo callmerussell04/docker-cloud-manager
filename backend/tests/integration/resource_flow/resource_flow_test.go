@@ -169,6 +169,16 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	})
 	require.ErrorIs(t, err, apperrors.ErrConflict)
 
+	deletingVolumeID := uuid.New()
+	require.NoError(t, repos.Volumes.Save(ctx, model.Volume{ID: deletingVolumeID, OwnerID: ownerID, Name: "deleting", DockerName: "vol_deleting", Status: model.VolumeStatusDeleting, SizeBytes: 1 << 20}))
+	_, err = containers.Create(ownerCtx, model.ContainerCreateParams{
+		Name:         "deleting-volume",
+		ImageTag:     "nginx:latest",
+		VolumeMounts: []model.VolumeMountParams{{VolumeID: deletingVolumeID, MountPath: "/data"}},
+	})
+	require.ErrorIs(t, err, apperrors.ErrConflict)
+	require.Equal(t, "volume is not available", apperrors.SafeMessage(err))
+
 	_, err = containers.Create(coretest.UserContext(otherOwnerID), model.ContainerCreateParams{
 		Name:         "foreign-volume",
 		ImageTag:     "nginx:latest",

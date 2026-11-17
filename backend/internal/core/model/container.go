@@ -49,6 +49,16 @@ type Container struct {
 	CreatedAt             time.Time
 }
 
+// ReservesCapacity is the reservation rule: a container reserves its memory
+// and CPU when it is not missing and its status or desired status is running.
+// The repository's reservation queries apply the same rule in SQL.
+func (c Container) ReservesCapacity() bool {
+	if c.Status == ContainerStatusMissing {
+		return false
+	}
+	return c.Status == ContainerStatusRunning || c.DesiredStatus == ContainerStatusRunning
+}
+
 type ContainerCreateParams struct {
 	ProjectID         *uuid.UUID
 	Name              string
