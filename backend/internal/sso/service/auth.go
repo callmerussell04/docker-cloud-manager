@@ -95,7 +95,6 @@ type UserRepository interface {
 	GetUserByID(ctx context.Context, id uuid.UUID) (model.User, error)
 	GetUsersByIDs(ctx context.Context, ids []uuid.UUID) ([]model.User, error)
 	ListUsers(ctx context.Context, opts model.ListUsersOptions) ([]model.User, int, error)
-	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
 type TokenProvider interface {
@@ -310,6 +309,9 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	if !s.cfg.LocalRegisterEnabled {
 		return uuid.Nil, apperrors.ErrNotFound
 	}
+	if err := validatePasswordLength(password); err != nil {
+		return uuid.Nil, err
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -359,6 +361,11 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (mod
 		return model.Tokens{}, apperrors.ErrInvalidCredentials
 	}
 
+	// bcrypt compares only the first 72 bytes; no stored password is longer, so a
+	// longer one would otherwise match the password it starts with.
+	if len(password) > maxPasswordBytes {
+		return model.Tokens{}, apperrors.ErrInvalidCredentials
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return model.Tokens{}, apperrors.ErrInvalidCredentials
 	}
@@ -491,9 +498,6 @@ func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, id
 		if err != nil {
 			return model.User{}, err
 		}
-		if err := s.ensureNotLastActiveAdmin(ctx, existing, role, existing.Status); err != nil {
-			return model.User{}, err
-		}
 		existing.Username = username
 		existing.Email = email
 		existing.Role = role
@@ -505,6 +509,9 @@ func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, id
 		if err := s.updateUser(ctx, existing, false, false); err != nil {
 			if errors.Is(err, apperrors.ErrAlreadyExists) {
 				return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
+			}
+			if errors.Is(err, apperrors.ErrConflict) {
+				return model.User{}, err
 			}
 			return model.User{}, fmt.Errorf("failed to update oidc user: %w", err)
 		}
@@ -626,6 +633,9 @@ func (s *AuthService) CreateUser(ctx context.Context, input CreateUserInput) (mo
 	if err := validateUserInput(input.Role, input.Status); err != nil {
 		return model.User{}, err
 	}
+	if err := validatePasswordLength(input.Password); err != nil {
+		return model.User{}, err
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -654,12 +664,12 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 	if err := validateUserInput(input.Role, input.Status); err != nil {
 		return model.User{}, err
 	}
+	if err := validatePasswordLength(input.Password); err != nil {
+		return model.User{}, err
+	}
 
 	user, err := s.repo.GetUserByID(ctx, userID)
 	if err != nil {
-		return model.User{}, err
-	}
-	if err := s.ensureNotLastActiveAdmin(ctx, user, input.Role, input.Status); err != nil {
 		return model.User{}, err
 	}
 
@@ -679,6 +689,9 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
 			return model.User{}, apperrors.ErrAlreadyExists
 		}
+		if errors.Is(err, apperrors.ErrConflict) {
+			return model.User{}, err
+		}
 		return model.User{}, fmt.Errorf("failed to update user: %w", err)
 	}
 	return user, nil
@@ -689,11 +702,11 @@ func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (mod
 	if err != nil {
 		return model.User{}, err
 	}
-	if err := s.ensureNotLastActiveAdmin(ctx, user, user.Role, model.StatusDeactivated); err != nil {
-		return model.User{}, err
-	}
 	user.Status = model.StatusDeactivated
 	if err := s.updateUser(ctx, user, false, true); err != nil {
+		if errors.Is(err, apperrors.ErrConflict) {
+			return model.User{}, err
+		}
 		return model.User{}, fmt.Errorf("failed to deactivate user: %w", err)
 	}
 	return user, nil
@@ -721,29 +734,24 @@ func validateUserInput(role, status string) error {
 	return nil
 }
 
+// maxPasswordBytes is the longest password bcrypt hashes; it counts bytes, not characters.
+const maxPasswordBytes = 72
+
+// validatePasswordLength runs before hashing, so a too-long password is the
+// caller's mistake rather than a hashing failure.
+func validatePasswordLength(password string) error {
+	if len(password) > maxPasswordBytes {
+		return apperrors.New(apperrors.ErrBadRequest, "password must be at most 72 bytes")
+	}
+	return nil
+}
+
 func validRole(role string) bool {
 	return role == model.RoleAdmin || role == model.RoleUser
 }
 
 func validStatus(status string) bool {
 	return status == model.StatusActive || status == model.StatusDeactivated
-}
-
-func (s *AuthService) ensureNotLastActiveAdmin(ctx context.Context, current model.User, nextRole, nextStatus string) error {
-	if current.Role != model.RoleAdmin || current.Status != model.StatusActive {
-		return nil
-	}
-	if nextRole == model.RoleAdmin && nextStatus == model.StatusActive {
-		return nil
-	}
-	count, err := s.repo.CountActiveAdmins(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to count active admins: %w", err)
-	}
-	if count <= 1 {
-		return apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
-	}
-	return nil
 }
 
 func randomToken() (string, error) {

@@ -252,16 +252,6 @@ func updateUser(ctx context.Context, executor userExecutor, user model.User) err
 	return nil
 }
 
-func (r *UserRepository) CountActiveAdmins(ctx context.Context) (int, error) {
-	query := `SELECT COUNT(*) FROM users WHERE role = $1 AND status = $2`
-
-	var total int
-	if err := r.db.QueryRow(ctx, query, model.RoleAdmin, model.StatusActive).Scan(&total); err != nil {
-		return 0, err
-	}
-	return total, nil
-}
-
 func userScanDest(user *model.User) []any {
 	return []any{
 		&user.ID,

@@ -18,6 +18,10 @@ import (
 type SessionRepository interface {
 	// WithUser commits fn's writes; operation names the commit in returned errors.
 	WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error
+	// WithLastAdminGuard is WithUser that first takes the lock serializing every
+	// write able to lower the number of active administrators; only its
+	// transaction may call CountActiveAdmins.
+	WithLastAdminGuard(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, SessionTransaction) error) error
 	FindRefresh(ctx context.Context, digest []byte) (model.RefreshToken, error)
 	VerifySession(ctx context.Context, identity model.AccessIdentity, now time.Time) (model.User, error)
 	DeleteExpired(ctx context.Context, now time.Time, limit int) error
@@ -32,6 +36,8 @@ type SessionTransaction interface {
 	Revoke(ctx context.Context, sessionID uuid.UUID, now time.Time, reason string) error
 	RevokeAll(ctx context.Context, userID uuid.UUID, now time.Time) error
 	UpdateUser(ctx context.Context, user model.User) error
+	// CountActiveAdmins counts active administrators; valid only inside WithLastAdminGuard.
+	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
 func (s *AuthService) createSession(ctx context.Context, authenticated model.User, local bool) (model.Tokens, error) {
@@ -170,13 +176,28 @@ func earlier(a, b time.Time) time.Time {
 }
 
 // updateUser serializes credential/status mutations with session creation/refresh.
+// A write that may leave the user other than an active administrator runs under
+// the last-admin guard and is refused when it would remove the last one.
 func (s *AuthService) updateUser(ctx context.Context, user model.User, passwordChanged, statusChanged bool) error {
-	return s.sessions.WithUser(ctx, user.ID, "update session user", func(current model.User, tx SessionTransaction) error {
+	withUser := s.sessions.WithUser
+	if user.Role != model.RoleAdmin || (statusChanged && user.Status != model.StatusActive) {
+		withUser = s.sessions.WithLastAdminGuard
+	}
+	return withUser(ctx, user.ID, "update session user", func(current model.User, tx SessionTransaction) error {
 		if !passwordChanged {
 			user.PasswordHash = current.PasswordHash
 		}
 		if !statusChanged {
 			user.Status = current.Status
+		}
+		if isActiveAdmin(current) && !isActiveAdmin(user) {
+			count, err := tx.CountActiveAdmins(ctx)
+			if err != nil {
+				return err
+			}
+			if count <= 1 {
+				return errLastActiveAdmin
+			}
 		}
 		if err := tx.UpdateUser(ctx, user); err != nil {
 			return err
@@ -186,6 +207,12 @@ func (s *AuthService) updateUser(ctx context.Context, user model.User, passwordC
 		}
 		return nil
 	})
+}
+
+var errLastActiveAdmin = apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
+
+func isActiveAdmin(user model.User) bool {
+	return user.Role == model.RoleAdmin && user.Status == model.StatusActive
 }
 
 // CleanupSessions bounds each pass; authorization enforces expiry independently.

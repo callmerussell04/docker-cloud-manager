@@ -22,18 +22,38 @@ func NewSessionRepository(db *pgxpool.Pool) *SessionRepository { return &Session
 const userColumns = `id, username, email, password_hash, role, status,
  auth_source, external_provider, external_subject, external_username, last_login_at`
 
+// lastAdminGuardLockKey names the transaction-scoped advisory lock that every
+// write able to lower the number of active administrators takes first.
+const lastAdminGuardLockKey = "dcm:sso:last-active-admin"
+
 func (r *SessionRepository) WithUser(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {
+	return r.withUser(ctx, userID, operation, false, fn)
+}
+
+// WithLastAdminGuard is WithUser preceded by the last-active-administrator lock,
+// taken before the user row so the transaction's CountActiveAdmins sees every
+// committed guarded write.
+func (r *SessionRepository) WithLastAdminGuard(ctx context.Context, userID uuid.UUID, operation string, fn func(model.User, service.SessionTransaction) error) error {
+	return r.withUser(ctx, userID, operation, true, fn)
+}
+
+func (r *SessionRepository) withUser(ctx context.Context, userID uuid.UUID, operation string, guarded bool, fn func(model.User, service.SessionTransaction) error) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return sessionStorageError(ctx, "begin session transaction", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after commit; on failure the earlier error is returned
+	if guarded {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, lastAdminGuardLockKey); err != nil {
+			return sessionStorageError(ctx, "lock last active admin guard", err)
+		}
+	}
 	var user model.User
 	err = tx.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(userScanDest(&user)...)
 	if err != nil {
 		return sessionStorageError(ctx, "lock session user", err)
 	}
-	if err := fn(user, &sessionTransaction{tx: tx, userID: userID}); err != nil {
+	if err := fn(user, &sessionTransaction{tx: tx, userID: userID, guarded: guarded}); err != nil {
 		return err
 	}
 	return sessionStorageError(ctx, "commit "+operation, tx.Commit(ctx))
@@ -63,8 +83,9 @@ func (r *SessionRepository) DeleteExpired(ctx context.Context, now time.Time, li
 }
 
 type sessionTransaction struct {
-	tx     pgx.Tx
-	userID uuid.UUID
+	tx      pgx.Tx
+	userID  uuid.UUID
+	guarded bool
 }
 
 func (t *sessionTransaction) CreateSession(ctx context.Context, session model.Session, token model.RefreshToken) error {
@@ -126,6 +147,16 @@ func (t *sessionTransaction) UpdateUser(ctx context.Context, user model.User) er
 		return apperrors.ErrForbidden
 	}
 	return sessionStorageError(ctx, "update session user", updateUser(ctx, t.tx, user))
+}
+
+func (t *sessionTransaction) CountActiveAdmins(ctx context.Context) (int, error) {
+	if !t.guarded {
+		// Without the guard lock a concurrent removal could commit after this count.
+		return 0, apperrors.Wrap(apperrors.ErrInternal, apperrors.ErrInternal.Error(), errors.New("count active admins outside the last-admin guard"))
+	}
+	var total int
+	err := t.tx.QueryRow(ctx, `SELECT count(*) FROM users WHERE role=$1 AND status=$2`, model.RoleAdmin, model.StatusActive).Scan(&total)
+	return total, sessionStorageError(ctx, "count active admins", err)
 }
 
 // Driver errors may include bind values (digests or password hashes). Keep them

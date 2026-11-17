@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 	ssomocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/sso/service"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -420,4 +421,126 @@ func TestOIDCLoginsUseIndependentDurableSessions(t *testing.T) {
 	third := login() // A fresh provider login is allowed after DCM logout.
 	_, err = svc.VerifyAccessToken(ctx, third.AccessToken)
 	require.NoError(t, err)
+}
+
+// Two writes that each remove a different active administrator must not both
+// pass the last-administrator check. A blocker holds both rows so the two
+// writes are in flight together before either can commit.
+func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
+	type change func(ctx context.Context, svc *service.AuthService, admin model.User) error
+	demote := func(ctx context.Context, svc *service.AuthService, admin model.User) error {
+		_, err := svc.UpdateUser(ctx, admin.ID, service.UpdateUserInput{Username: admin.Username, Email: admin.Email, Role: model.RoleUser, Status: model.StatusActive})
+		return err
+	}
+	deactivateByStatus := func(ctx context.Context, svc *service.AuthService, admin model.User) error {
+		_, err := svc.UpdateUser(ctx, admin.ID, service.UpdateUserInput{Username: admin.Username, Email: admin.Email, Role: model.RoleAdmin, Status: model.StatusDeactivated})
+		return err
+	}
+	deactivate := func(ctx context.Context, svc *service.AuthService, admin model.User) error {
+		_, err := svc.DeactivateUser(ctx, admin.ID)
+		return err
+	}
+	tests := []struct {
+		name          string
+		first, second change
+		secondIsOIDC  bool
+	}{
+		{name: "deactivation and role change", first: deactivate, second: demote},
+		{name: "two status changes", first: deactivateByStatus, second: deactivateByStatus},
+		{name: "role change and OIDC sign-in demotion", first: demote, secondIsOIDC: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			db := dbtest.OpenSSOPostgres(t)
+			users := repository.NewUserRepository(db)
+			provider := ssomocks.NewOIDCProvider(t)
+			provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything).RunAndReturn(func(state, nonce string) string { return "https://idp.example/auth?state=" + state }).Maybe()
+			svc := service.NewAuthServiceWithConfig(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{
+				OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: []string{"dcm-admins"},
+			})
+
+			first := adminUser("admin-a")
+			second := adminUser("admin-b")
+			if tt.secondIsOIDC {
+				second.PasswordHash = ""
+				second.AuthSource = model.AuthSourceOIDC
+				second.ExternalProvider = "keycloak"
+				second.ExternalSubject = "admin-b-subject"
+				// The provider no longer lists the administrator group, so sign-in demotes.
+				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything).Return(service.OIDCIdentity{
+					Subject: second.ExternalSubject, Username: second.Username, Email: second.Email,
+				}, nil)
+				authURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+				require.NoError(t, err)
+				parsed, err := url.Parse(authURL)
+				require.NoError(t, err)
+				state := parsed.Query().Get("state")
+				tt.second = func(ctx context.Context, svc *service.AuthService, _ model.User) error {
+					_, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+					return err
+				}
+			}
+			require.NoError(t, users.SaveUser(ctx, first))
+			require.NoError(t, users.SaveUser(ctx, second))
+
+			blocker, err := db.Begin(ctx)
+			require.NoError(t, err)
+			defer func() { _ = blocker.Rollback(ctx) }()
+			var blockerPID int
+			require.NoError(t, blocker.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&blockerPID))
+			_, err = blocker.Exec(ctx, `SELECT 1 FROM users WHERE id = ANY($1) FOR UPDATE`, []uuid.UUID{first.ID, second.ID})
+			require.NoError(t, err)
+
+			errs := make(chan error, 2)
+			go func() { errs <- tt.first(ctx, svc, first) }()
+			go func() { errs <- tt.second(ctx, svc, second) }()
+			require.Eventually(t, func() bool {
+				return backendsWaitingOn(ctx, db, blockerPID) == 2
+			}, 5*time.Second, 5*time.Millisecond, "both changes must be in flight before the blocker releases them")
+			require.NoError(t, blocker.Rollback(ctx))
+
+			var refused []error
+			for range 2 {
+				if err := <-errs; err != nil {
+					refused = append(refused, err)
+				}
+			}
+			require.Len(t, refused, 1, "exactly one change must succeed")
+			require.ErrorIs(t, refused[0], apperrors.ErrConflict)
+			require.EqualError(t, refused[0], "cannot deactivate or demote the last active admin")
+			stored, err := svc.GetUsers(ctx, []uuid.UUID{first.ID, second.ID})
+			require.NoError(t, err)
+			active := 0
+			for _, u := range stored {
+				if u.Role == model.RoleAdmin && u.Status == model.StatusActive {
+					active++
+				}
+			}
+			require.Equal(t, 1, active)
+		})
+	}
+}
+
+func adminUser(username string) model.User {
+	return model.User{
+		ID: uuid.New(), Username: username, Email: username + "@example.com", PasswordHash: "hash-" + username,
+		Role: model.RoleAdmin, Status: model.StatusActive, AuthSource: model.AuthSourceLocal,
+	}
+}
+
+// backendsWaitingOn counts the backends blocked by pid, directly or behind
+// another backend it blocks.
+func backendsWaitingOn(ctx context.Context, db *pgxpool.Pool, pid int) int {
+	var waiting int
+	err := db.QueryRow(ctx, `WITH RECURSIVE waiting(pid) AS (
+		SELECT a.pid FROM pg_stat_activity a WHERE $1 = ANY(pg_blocking_pids(a.pid))
+		UNION
+		SELECT a.pid FROM pg_stat_activity a JOIN waiting w ON w.pid = ANY(pg_blocking_pids(a.pid))
+	) SELECT count(*) FROM waiting`, pid).Scan(&waiting)
+	if err != nil {
+		return -1
+	}
+	return waiting
 }

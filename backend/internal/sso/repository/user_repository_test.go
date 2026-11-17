@@ -19,7 +19,7 @@ func TestSSOMigrationsApply(t *testing.T) {
 	require.GreaterOrEqual(t, dbtest.CountRows(t, db, "users"), 0)
 }
 
-func TestUserRepositorySaveGetUpdateListAndCount(t *testing.T) {
+func TestUserRepositorySaveGetUpdateAndList(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenSSOPostgres(t)
 	repo := repository.NewUserRepository(db)
@@ -75,10 +75,6 @@ func TestUserRepositorySaveGetUpdateListAndCount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
 	require.Len(t, listed, 2)
-
-	admins, err := repo.CountActiveAdmins(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 1, admins)
 }
 
 func TestUserRepositoryMapsConstraintAndNotFoundErrors(t *testing.T) {
