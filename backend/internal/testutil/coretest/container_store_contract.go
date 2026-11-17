@@ -26,7 +26,6 @@ type ContainerStore interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
-	UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error
 	UpdateObservedStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string, exitCode *int, desiredStatus *string, cause error) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
 	UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error
@@ -238,7 +237,6 @@ func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
 	require.NoError(t, store.Save(ctx, c))
 
 	// A write fenced on a generation the record no longer holds changes nothing.
-	require.ErrorIs(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited), apperrors.ErrNotFound)
 	exitCode := 137
 	desired := model.ContainerStatusExited
 	require.ErrorIs(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusError, &exitCode, &desired, errContractCause), apperrors.ErrNotFound)
@@ -248,7 +246,6 @@ func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
 	require.Nil(t, got.LastExitCode)
 
 	// Generations start at 1, so generation 0 fences out every write.
-	require.ErrorIs(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 0, model.ContainerStatusExited), apperrors.ErrNotFound)
 	require.ErrorIs(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 0, model.ContainerStatusExited, nil, nil, nil), apperrors.ErrNotFound)
 	require.Equal(t, model.ContainerStatusRunning, getContainer(t, store, c.ID).Status)
 
@@ -261,15 +258,9 @@ func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
 	require.Equal(t, errContractCause.Error(), deref(got.LastError))
 	require.NotNil(t, got.LastObservedAt)
 
-	// A plain status write for the recorded generation clears the last error.
-	require.NoError(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 2, model.ContainerStatusExited))
-	got = getContainer(t, store, c.ID)
-	require.Equal(t, model.ContainerStatusExited, got.Status)
-	require.Nil(t, got.LastError)
-
 	// Recording a new generation fences out writes for the previous one.
 	require.NoError(t, store.UpdateDockerIDRoutingAndGeneration(ctx, c.ID, "docker-gen-3", "web-gen3", 8080, 3))
-	require.ErrorIs(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 2, model.ContainerStatusRunning), apperrors.ErrNotFound)
+	require.ErrorIs(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 2, model.ContainerStatusRunning, nil, nil, nil), apperrors.ErrNotFound)
 	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 3, model.ContainerStatusRunning, nil, &desired, nil))
 	got = getContainer(t, store, c.ID)
 	require.Equal(t, 3, got.DockerGeneration)
@@ -282,7 +273,6 @@ func testGenerationFencedStatusWrites(t *testing.T, store ContainerStore) {
 
 	// Fenced writes to an unknown container report not found.
 	unknown := uuid.New()
-	require.ErrorIs(t, store.UpdateStatusByContainerIDAndGeneration(ctx, unknown, 1, model.ContainerStatusExited), apperrors.ErrNotFound)
 	require.ErrorIs(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, unknown, 1, model.ContainerStatusExited, nil, nil, nil), apperrors.ErrNotFound)
 	require.ErrorIs(t, store.UpdateDockerIDRoutingAndGeneration(ctx, unknown, "docker-x", "", 0, 2), apperrors.ErrNotFound)
 }

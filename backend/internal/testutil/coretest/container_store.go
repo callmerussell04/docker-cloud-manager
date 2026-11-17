@@ -85,7 +85,6 @@ type ContainerStoreFaults struct {
 	UpdateStatus                                   Fault
 	UpdateStatusAndTTLDeadline                     Fault
 	MarkStatusError                                Fault
-	UpdateStatusByContainerIDAndGeneration         Fault
 	UpdateObservedStatusByContainerIDAndGeneration Fault
 	UpdateDockerIDAndStatus                        Fault
 	UpdateDockerIDRoutingAndGeneration             Fault
@@ -274,21 +273,6 @@ func (f *ContainerStoreFake) MarkStatusError(_ context.Context, id uuid.UUID, st
 		c.Status = status
 		c.LastObservedAt = ptr(time.Now())
 		c.LastError = errorText(cause)
-	})
-}
-
-// UpdateStatusByContainerIDAndGeneration writes status only while the
-// container records generation, and clears the last error.
-func (f *ContainerStoreFake) UpdateStatusByContainerIDAndGeneration(_ context.Context, containerID uuid.UUID, generation int, status string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if err := f.faults.UpdateStatusByContainerIDAndGeneration.take(); err != nil {
-		return err
-	}
-	return f.updateRecordedGeneration(containerID, generation, func(c *model.Container) {
-		c.Status = status
-		c.LastObservedAt = ptr(time.Now())
-		c.LastError = nil
 	})
 }
 

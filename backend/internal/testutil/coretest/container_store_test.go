@@ -26,15 +26,15 @@ func TestContainerStoreFakeFailNextFailsThatManyCallsWithoutWriting(t *testing.T
 	require.NoError(t, store.Save(ctx, c))
 
 	store.SetFaults(coretest.ContainerStoreFaults{
-		UpdateStatusByContainerIDAndGeneration: coretest.FailNext(2, errInjected),
+		UpdateObservedStatusByContainerIDAndGeneration: coretest.FailNext(2, errInjected),
 	})
 	for range 2 {
-		require.ErrorIs(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited), errInjected)
+		require.ErrorIs(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited, nil, nil, nil), errInjected)
 		got, err := store.GetByID(ctx, c.ID)
 		require.NoError(t, err)
 		require.Equal(t, model.ContainerStatusRunning, got.Status)
 	}
-	require.NoError(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited))
+	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited, nil, nil, nil))
 	got, err := store.GetByID(ctx, c.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.ContainerStatusExited, got.Status)
@@ -52,7 +52,7 @@ func TestContainerStoreFakeFailAlwaysFailsUntilFaultsAreCleared(t *testing.T) {
 		require.ErrorIs(t, err, errInjected)
 	}
 	// Other methods are unaffected.
-	require.NoError(t, store.UpdateStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited))
+	require.NoError(t, store.UpdateObservedStatusByContainerIDAndGeneration(ctx, c.ID, 1, model.ContainerStatusExited, nil, nil, nil))
 
 	store.SetFaults(coretest.ContainerStoreFaults{})
 	got, err := store.GetByID(ctx, c.ID)

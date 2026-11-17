@@ -129,19 +129,6 @@ func (r *ContainerRepository) UpdateStatusAndTTLDeadline(ctx context.Context, id
 	return nil
 }
 
-func (r *ContainerRepository) UpdateStatusByContainerIDAndGeneration(ctx context.Context, containerID uuid.UUID, generation int, status string) error {
-	query := `UPDATE containers SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2 AND docker_generation = $3`
-	res, err := r.db.Exec(ctx, query, status, containerID, generation)
-	if err != nil {
-		return err
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
 // The observed-status writes below replace the last error with the
 // observation's cause. An observation without a cause that reports the status
 // already recorded keeps the last error, so the Docker events that follow a
