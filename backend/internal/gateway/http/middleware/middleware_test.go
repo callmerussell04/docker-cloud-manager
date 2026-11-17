@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
@@ -195,6 +196,25 @@ func TestRateLimitAllowsWithinLimitRejectsOverLimitAndDisabledBypasses(t *testin
 		resp = request(router, http.MethodGet, "/disabled", "", nil)
 		require.Equal(t, http.StatusNoContent, resp.Code)
 	}
+}
+
+func TestRateLimiterKeepsLongWindowBucketAfterShortWindowTraffic(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		limiter := middleware.NewRateLimiter()
+		allowUpload := func() bool { return limiter.Allow("upload:203.0.113.7", 1, time.Hour) }
+		allowAuth := func() bool { return limiter.Allow("auth:203.0.113.7", 10, time.Minute) }
+
+		require.True(t, allowUpload())
+		require.False(t, allowUpload())
+
+		time.Sleep(10 * time.Minute)
+		require.True(t, allowAuth())
+
+		require.False(t, allowUpload(), "upload bucket must hold for its whole hour")
+
+		time.Sleep(time.Hour)
+		require.True(t, allowUpload(), "upload bucket must reset after its window")
+	})
 }
 
 func TestCORSMiddlewareHandlesAllowedDeniedAndEmptyOrigins(t *testing.T) {

@@ -46,6 +46,7 @@ type RateLimiter struct {
 
 type rateBucket struct {
 	count     int
+	window    time.Duration
 	resetAt   time.Time
 	lastSeen  time.Time
 	overLimit bool
@@ -77,11 +78,11 @@ func (l *RateLimiter) Allow(key string, limit int, window time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.cleanupLocked(now, window)
+	l.cleanupLocked(now)
 
 	bucket := l.buckets[key]
 	if bucket.resetAt.IsZero() || now.After(bucket.resetAt) {
-		bucket = rateBucket{resetAt: now.Add(window)}
+		bucket = rateBucket{window: window, resetAt: now.Add(window)}
 	}
 	bucket.count++
 	bucket.lastSeen = now
@@ -91,9 +92,11 @@ func (l *RateLimiter) Allow(key string, limit int, window time.Duration) bool {
 	return !bucket.overLimit
 }
 
-func (l *RateLimiter) cleanupLocked(now time.Time, window time.Duration) {
+// cleanupLocked removes buckets idle longer than twice their own window, so a
+// short-window route never evicts a long-window bucket that is still limiting.
+func (l *RateLimiter) cleanupLocked(now time.Time) {
 	for key, bucket := range l.buckets {
-		if bucket.lastSeen.IsZero() || now.Sub(bucket.lastSeen) > 2*window {
+		if bucket.lastSeen.IsZero() || now.Sub(bucket.lastSeen) > 2*bucket.window {
 			delete(l.buckets, key)
 		}
 	}
