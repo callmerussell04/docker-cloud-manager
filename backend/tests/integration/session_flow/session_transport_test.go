@@ -376,6 +376,7 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	require.Contains(t, b.cookies, "oidc_state")
 	back := idp.SignIn(response.Header().Get("Location"))
 	require.Equal(t, oidcCallbackPath, back.Path)
+	require.Equal(t, "S256", idp.LastAuthorization().Get("code_challenge_method"), "the code is bound to the attempt with PKCE")
 
 	// The callback signs the user in: a refresh cookie, no token in the URL.
 	response = b.get(back.RequestURI())

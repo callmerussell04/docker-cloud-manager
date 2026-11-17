@@ -1,27 +1,32 @@
+// Package oidc is SSO's OpenID Connect adapter. Discovery, signing keys and
+// ID-token verification come from github.com/coreos/go-oidc/v3, and the
+// authorization-code exchange with PKCE from golang.org/x/oauth2.
 package oidc
 
 import (
 	"context"
-	"crypto/rsa"
-	"encoding/base64"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
-	"math/big"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
-	"github.com/golang-jwt/jwt/v5"
 )
-
-const defaultScope = "openid profile email"
 
 // Discovery retries back off from discoveryInitialBackoff, doubling up to discoveryMaxBackoff.
 const (
@@ -29,66 +34,70 @@ const (
 	discoveryMaxBackoff     = time.Minute
 )
 
+// Every provider request is bounded in time and size and follows no redirect.
+const (
+	requestTimeout   = 10 * time.Second
+	maxResponseBytes = 1 << 20
+	// maxLoggedReason bounds provider-supplied text in logs and errors.
+	maxLoggedReason = 256
+)
+
+// signingAlgorithms are the asymmetric algorithms an ID token may use; none
+// and HMAC are never accepted.
+var signingAlgorithms = map[string]bool{
+	gooidc.RS256: true, gooidc.RS384: true, gooidc.RS512: true,
+	gooidc.PS256: true, gooidc.PS384: true, gooidc.PS512: true,
+	gooidc.ES256: true, gooidc.ES384: true, gooidc.ES512: true,
+	gooidc.EdDSA: true,
+}
+
+var (
+	errRedirect         = errors.New("oidc provider redirects are not followed")
+	errResponseTooLarge = errors.New("oidc provider response exceeds 1 MiB")
+)
+
 type Config struct {
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
-	HTTPClient   *http.Client
+	// Transport carries provider requests; nil uses a copy of http.DefaultTransport.
+	// The adapter adds the timeout, the redirect refusal and the body cap.
+	Transport http.RoundTripper
+	// Now is SSO's clock, against which ID-token expiry is checked; nil is time.Now.
+	Now func() time.Time
+	// Logger receives provider failures; nil discards them.
+	Logger *slog.Logger
 }
 
 // Provider is the OIDC adapter. It is unavailable until discovery succeeds;
 // discovery runs outside startup (see Run), so an unreachable provider never
 // stops SSO from starting.
 type Provider struct {
-	cfg Config
-	// discovery is nil until discovery succeeds, then never changes.
-	discovery atomic.Pointer[discoveryDocument]
-	client    *http.Client
-	jwksMu    sync.Mutex
-	jwks      jwks
-	jwksAt    time.Time
+	cfg        Config
+	httpClient *http.Client
+	logger     *slog.Logger
+	// client is nil until discovery succeeds, then never changes.
+	client atomic.Pointer[discoveredClient]
 }
 
-type discoveryDocument struct {
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	JWKSURI               string `json:"jwks_uri"`
-	Issuer                string `json:"issuer"`
+// discoveredClient is what discovery yields: the OAuth client for the
+// provider's endpoints and the verifier for its ID tokens.
+type discoveredClient struct {
+	oauth    oauth2.Config
+	verifier *gooidc.IDTokenVerifier
 }
 
-type tokenResponse struct {
-	IDToken     string `json:"id_token"`
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-}
-
-type claims struct {
-	jwt.RegisteredClaims
-	Nonce             string              `json:"nonce"`
-	PreferredUsername string              `json:"preferred_username"`
-	Name              string              `json:"name"`
-	Email             string              `json:"email"`
-	EmailVerified     bool                `json:"email_verified"`
-	Groups            []string            `json:"groups"`
-	RealmAccess       keycloakRealmAccess `json:"realm_access"`
-}
-
-type keycloakRealmAccess struct {
-	Roles []string `json:"roles"`
-}
-
-type jwks struct {
-	Keys []jwk `json:"keys"`
-}
-
-type jwk struct {
-	KID string `json:"kid"`
-	KTY string `json:"kty"`
-	Alg string `json:"alg"`
-	Use string `json:"use"`
-	N   string `json:"n"`
-	E   string `json:"e"`
+// idClaims are the ID-token claims DCM reads besides sub and nonce.
+type idClaims struct {
+	PreferredUsername string   `json:"preferred_username"`
+	Name              string   `json:"name"`
+	Email             string   `json:"email"`
+	EmailVerified     bool     `json:"email_verified"`
+	Groups            []string `json:"groups"`
+	RealmAccess       struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access"`
 }
 
 // NewProvider checks the configuration and makes no provider call.
@@ -99,17 +108,28 @@ func NewProvider(cfg Config) (*Provider, error) {
 	if cfg.IssuerURL == "" || cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.RedirectURL == "" {
 		return nil, fmt.Errorf("oidc issuer, client id, client secret and redirect url are required")
 	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
-	return &Provider{cfg: cfg, client: client}, nil
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	transport := cfg.Transport
+	if transport == nil {
+		transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	httpClient := &http.Client{
+		Transport:     cappedTransport{base: transport},
+		Timeout:       requestTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return errRedirect },
+	}
+	return &Provider{cfg: cfg, httpClient: httpClient, logger: logger}, nil
 }
 
 // Available reports whether discovery has succeeded. Once true it stays true.
 func (p *Provider) Available() bool {
-	return p.discovery.Load() != nil
+	return p.client.Load() != nil
 }
 
 // Discover makes one discovery attempt and, on success, makes the provider available.
@@ -117,14 +137,44 @@ func (p *Provider) Discover(ctx context.Context) error {
 	if p.Available() {
 		return nil
 	}
-	document, err := discover(ctx, p.client, p.cfg.IssuerURL)
+	ctx = gooidc.ClientContext(ctx, p.httpClient)
+	provider, err := gooidc.NewProvider(ctx, p.cfg.IssuerURL)
 	if err != nil {
-		return err
+		// go-oidc puts the response body in its error, so the text is bounded.
+		return boundedError{prefix: "oidc discovery failed", cause: err}
 	}
-	if document.Issuer != "" && document.Issuer != p.cfg.IssuerURL {
-		return fmt.Errorf("oidc issuer mismatch")
+	var metadata struct {
+		JWKSURI    string   `json:"jwks_uri"`
+		Algorithms []string `json:"id_token_signing_alg_values_supported"`
 	}
-	p.discovery.CompareAndSwap(nil, &document)
+	if err := provider.Claims(&metadata); err != nil {
+		return fmt.Errorf("oidc discovery document is malformed: %w", err)
+	}
+	endpoint := provider.Endpoint()
+	if endpoint.AuthURL == "" || endpoint.TokenURL == "" || metadata.JWKSURI == "" {
+		return fmt.Errorf("oidc discovery document is missing endpoints")
+	}
+	// Client authentication is fixed to credentials in the request body.
+	endpoint.AuthStyle = oauth2.AuthStyleInParams
+
+	// The key set keeps ctx's HTTP client but not its cancellation, and
+	// refetches the keys when a token names a key ID it does not know.
+	keys := probingKeySet{keys: gooidc.NewRemoteKeySet(ctx, metadata.JWKSURI)}
+	verifier := gooidc.NewVerifier(p.cfg.IssuerURL, keys, &gooidc.Config{
+		ClientID:             p.cfg.ClientID,
+		SupportedSigningAlgs: asymmetricAlgorithms(metadata.Algorithms),
+		Now:                  p.cfg.Now,
+	})
+	p.client.CompareAndSwap(nil, &discoveredClient{
+		oauth: oauth2.Config{
+			ClientID:     p.cfg.ClientID,
+			ClientSecret: p.cfg.ClientSecret,
+			Endpoint:     endpoint,
+			RedirectURL:  p.cfg.RedirectURL,
+			Scopes:       []string{gooidc.ScopeOpenID, "profile", "email"},
+		},
+		verifier: verifier,
+	})
 	return nil
 }
 
@@ -132,7 +182,8 @@ func (p *Provider) Discover(ctx context.Context) error {
 // backoff that doubles from one second up to one minute. It returns when
 // discovery succeeds or ctx ends. Each failure is logged as a warning and the
 // success once.
-func (p *Provider) Run(ctx context.Context, logger *slog.Logger) {
+func (p *Provider) Run(ctx context.Context) {
+	logger := p.logger
 	backoff := discoveryInitialBackoff
 	for {
 		err := p.Discover(ctx)
@@ -155,202 +206,258 @@ func (p *Provider) Run(ctx context.Context, logger *slog.Logger) {
 	}
 }
 
-// AuthCodeURL returns the authorization request URL, or "" while the provider
-// is unavailable; callers check Available first.
-func (p *Provider) AuthCodeURL(state, nonce string) string {
-	discovery := p.discovery.Load()
-	if discovery == nil {
+// AuthCodeURL returns the authorization request URL with an S256 PKCE
+// challenge for verifier, or "" while the provider is unavailable; callers
+// check Available first.
+func (p *Provider) AuthCodeURL(state, nonce, verifier string) string {
+	client := p.client.Load()
+	if client == nil {
 		return ""
 	}
-	values := url.Values{}
-	values.Set("client_id", p.cfg.ClientID)
-	values.Set("redirect_uri", p.cfg.RedirectURL)
-	values.Set("response_type", "code")
-	values.Set("scope", defaultScope)
-	values.Set("state", state)
-	values.Set("nonce", nonce)
-	return discovery.AuthorizationEndpoint + "?" + values.Encode()
+	return client.oauth.AuthCodeURL(state, gooidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier))
 }
 
-func (p *Provider) ExchangeCode(ctx context.Context, code, nonce string) (service.OIDCIdentity, error) {
-	discovery := p.discovery.Load()
-	if discovery == nil {
-		return service.OIDCIdentity{}, apperrors.New(apperrors.ErrUnavailable, "identity provider is not available")
+// ExchangeCode redeems code with the PKCE verifier and returns the identity of
+// the verified ID token. An identity the provider or the token checks reject is
+// ErrInvalidCredentials; a provider that cannot be used is ErrUnavailable or
+// ErrTimeout.
+func (p *Provider) ExchangeCode(ctx context.Context, code, nonce, verifier string) (service.OIDCIdentity, error) {
+	client := p.client.Load()
+	if client == nil {
+		return service.OIDCIdentity{}, unavailable(nil)
 	}
-	form := url.Values{}
-	form.Set("grant_type", "authorization_code")
-	form.Set("code", code)
-	form.Set("redirect_uri", p.cfg.RedirectURL)
-	form.Set("client_id", p.cfg.ClientID)
-	form.Set("client_secret", p.cfg.ClientSecret)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, discovery.TokenEndpoint, strings.NewReader(form.Encode()))
+	token, err := client.oauth.Exchange(context.WithValue(ctx, oauth2.HTTPClient, p.httpClient), code, oauth2.VerifierOption(verifier))
 	if err != nil {
-		return service.OIDCIdentity{}, apperrors.ErrInternal
+		return service.OIDCIdentity{}, p.tokenEndpointFailure(err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
+	rawIDToken, _ := token.Extra("id_token").(string)
+	if rawIDToken == "" {
+		p.logger.Error("oidc token response has no id token; check that the client requests the openid scope")
+		return service.OIDCIdentity{}, unavailable(nil)
+	}
 
-	resp, err := p.client.Do(req)
+	probe := &keyProbe{}
+	idToken, err := client.verifier.Verify(context.WithValue(ctx, keyProbeKey{}, probe), rawIDToken)
 	if err != nil {
-		return service.OIDCIdentity{}, apperrors.Wrap(apperrors.ErrUnavailable, "oidc token endpoint unavailable", err)
+		return service.OIDCIdentity{}, p.verificationFailure(err, probe)
 	}
-	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
+	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(nonce)) != 1 || nonce == "" {
+		return service.OIDCIdentity{}, p.rejected("nonce")
 	}
-
-	var tokenResp tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
+	if strings.TrimSpace(idToken.Subject) == "" {
+		return service.OIDCIdentity{}, p.rejected("subject")
 	}
-	if tokenResp.IDToken == "" {
-		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
+	var claims idClaims
+	if err := idToken.Claims(&claims); err != nil {
+		return service.OIDCIdentity{}, p.rejected("claims")
 	}
-
-	tokenClaims, err := p.verifyIDToken(ctx, discovery.JWKSURI, tokenResp.IDToken, nonce)
-	if err != nil {
-		return service.OIDCIdentity{}, err
-	}
-
 	return service.OIDCIdentity{
-		Subject:           tokenClaims.Subject,
-		Username:          firstNonEmpty(tokenClaims.PreferredUsername, tokenClaims.Name, tokenClaims.Subject),
-		Email:             tokenClaims.Email,
-		EmailVerified:     tokenClaims.EmailVerified,
-		Groups:            tokenClaims.Groups,
-		RealmRoles:        tokenClaims.RealmAccess.Roles,
-		PreferredUsername: tokenClaims.PreferredUsername,
+		Subject:           idToken.Subject,
+		Username:          firstNonEmpty(claims.PreferredUsername, claims.Name, idToken.Subject),
+		Email:             claims.Email,
+		EmailVerified:     claims.EmailVerified,
+		Groups:            claims.Groups,
+		RealmRoles:        claims.RealmAccess.Roles,
+		PreferredUsername: claims.PreferredUsername,
 	}, nil
 }
 
-func discover(ctx context.Context, client *http.Client, issuerURL string) (discoveryDocument, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, issuerURL+"/.well-known/openid-configuration", nil)
-	if err != nil {
-		return discoveryDocument{}, err
+// tokenEndpointFailure classifies a failed code exchange: invalid_grant rejects
+// the identity, a 5xx or an unreachable provider is unavailable, and any other
+// OAuth error or an answer that cannot be read is a DCM misconfiguration,
+// unavailable to the user and logged as an error.
+func (p *Provider) tokenEndpointFailure(err error) error {
+	var retrieve *oauth2.RetrieveError
+	if !errors.As(err, &retrieve) {
+		var transportErr *url.Error
+		if errors.As(err, &transportErr) {
+			return p.unreachable("oidc token endpoint", err)
+		}
+		p.logger.Error("oidc token endpoint answer is unreadable; check the issuer and the client configuration", "error", bounded(err.Error()))
+		return unavailable(err)
 	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return discoveryDocument{}, fmt.Errorf("failed to discover oidc provider: %w", err)
+	status := 0
+	if retrieve.Response != nil {
+		status = retrieve.Response.StatusCode
 	}
-	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return discoveryDocument{}, fmt.Errorf("oidc discovery returned status %d", resp.StatusCode)
+	attrs := []any{
+		"status", status,
+		"provider_error", bounded(retrieve.ErrorCode),
+		"provider_error_description", bounded(retrieve.ErrorDescription),
 	}
-
-	var document discoveryDocument
-	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
-		return discoveryDocument{}, fmt.Errorf("failed to decode oidc discovery: %w", err)
+	switch {
+	// RetrieveError's own text carries the response body, so it is never logged.
+	case status >= http.StatusInternalServerError:
+		p.logger.Warn("oidc token endpoint unavailable", attrs...)
+		return unavailable(err)
+	case retrieve.ErrorCode == "invalid_grant":
+		p.logger.Warn("oidc provider refused the authorization code", attrs...)
+		return apperrors.Wrap(apperrors.ErrInvalidCredentials, "", err)
+	default:
+		p.logger.Error("oidc provider refused the token request; check the DCM client configuration", attrs...)
+		return unavailable(err)
 	}
-	if document.AuthorizationEndpoint == "" || document.TokenEndpoint == "" || document.JWKSURI == "" {
-		return discoveryDocument{}, fmt.Errorf("oidc discovery document is missing endpoints")
-	}
-	return document, nil
 }
 
-func (p *Provider) verifyIDToken(ctx context.Context, jwksURI, rawToken, nonce string) (claims, error) {
-	tokenClaims := claims{}
-	token, err := jwt.ParseWithClaims(rawToken, &tokenClaims, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected oidc signing method")
-		}
-		kid, _ := token.Header["kid"].(string)
-		if kid == "" {
-			return nil, fmt.Errorf("oidc token is missing kid")
-		}
-		return p.publicKey(ctx, jwksURI, kid)
-	}, jwt.WithAudience(p.cfg.ClientID), jwt.WithIssuer(p.cfg.IssuerURL))
-	if err != nil || !token.Valid {
-		return claims{}, apperrors.ErrInvalidCredentials
+// unreachable logs and classifies a provider request that got no usable answer.
+func (p *Provider) unreachable(what string, err error) error {
+	if isTimeout(err) {
+		p.logger.Warn(what + " timed out")
+		return apperrors.Wrap(apperrors.ErrTimeout, "identity provider timed out", err)
 	}
-	if tokenClaims.Nonce != nonce {
-		return claims{}, apperrors.ErrInvalidCredentials
-	}
-	return tokenClaims, nil
+	p.logger.Warn(what+" unavailable", "error", bounded(err.Error()))
+	return unavailable(err)
 }
 
-func (p *Provider) publicKey(ctx context.Context, jwksURI, kid string) (*rsa.PublicKey, error) {
-	keys, err := p.cachedJWKS(ctx, jwksURI)
+// verificationFailure classifies a failed ID-token verification: signing keys
+// that cannot be fetched make the provider unavailable; anything else rejects
+// the identity.
+func (p *Provider) verificationFailure(err error, probe *keyProbe) error {
+	if probe.keysErr != nil {
+		return p.unreachable("oidc signing keys", probe.keysErr)
+	}
+	if probe.payload == nil {
+		return p.rejected("signature")
+	}
+	// The signature verified, so a claim check failed; the verified claims say which.
+	var expired *gooidc.TokenExpiredError
+	var claims struct {
+		Issuer   string          `json:"iss"`
+		Audience json.RawMessage `json:"aud"`
+	}
+	switch {
+	case errors.As(err, &expired):
+		return p.rejected("expiry")
+	case json.Unmarshal(probe.payload, &claims) != nil:
+		return p.rejected("claims")
+	case claims.Issuer != p.cfg.IssuerURL:
+		return p.rejected("issuer")
+	case !audienceIncludes(claims.Audience, p.cfg.ClientID):
+		return p.rejected("audience")
+	default:
+		return p.rejected("claims")
+	}
+}
+
+// audienceIncludes reads aud, a string or an array of strings.
+func audienceIncludes(raw json.RawMessage, clientID string) bool {
+	var single string
+	if json.Unmarshal(raw, &single) == nil {
+		return single == clientID
+	}
+	var many []string
+	return json.Unmarshal(raw, &many) == nil && slices.Contains(many, clientID)
+}
+
+func (p *Provider) rejected(reason string) error {
+	p.logger.Warn("oidc id token rejected", "reason", reason)
+	return apperrors.ErrInvalidCredentials
+}
+
+func unavailable(cause error) error {
+	return apperrors.Wrap(apperrors.ErrUnavailable, "identity provider is not available", cause)
+}
+
+// boundedError shows a bounded copy of its cause's text and keeps the cause.
+type boundedError struct {
+	prefix string
+	cause  error
+}
+
+func (e boundedError) Error() string { return e.prefix + ": " + bounded(e.cause.Error()) }
+func (e boundedError) Unwrap() error { return e.cause }
+
+func isTimeout(err error) bool {
+	var netErr net.Error
+	return errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout())
+}
+
+// keyProbe records, for one verification, the payload whose signature
+// verified and a failure to fetch the signing keys; go-oidc reports both only
+// as text.
+type keyProbe struct {
+	payload []byte
+	keysErr error
+}
+
+type keyProbeKey struct{}
+
+type probingKeySet struct{ keys *gooidc.RemoteKeySet }
+
+func (k probingKeySet) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
+	payload, err := k.keys.VerifySignature(ctx, jwt)
+	if probe, ok := ctx.Value(keyProbeKey{}).(*keyProbe); ok {
+		if err == nil {
+			probe.payload = payload
+		}
+		// RemoteKeySet prefixes key-fetch failures with "fetching keys" and wraps
+		// the cause; a signature no key verifies is a different error.
+		if err != nil && (strings.HasPrefix(err.Error(), "fetching keys") || ctx.Err() != nil) {
+			probe.keysErr = err
+		}
+	}
+	return payload, err
+}
+
+func asymmetricAlgorithms(advertised []string) []string {
+	var allowed []string
+	for _, alg := range advertised {
+		if signingAlgorithms[alg] {
+			allowed = append(allowed, alg)
+		}
+	}
+	if len(allowed) == 0 {
+		// The one algorithm every provider must support.
+		return []string{gooidc.RS256}
+	}
+	return allowed
+}
+
+// cappedTransport fails a response body that exceeds maxResponseBytes.
+type cappedTransport struct{ base http.RoundTripper }
+
+func (t cappedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	response, err := t.base.RoundTrip(r)
 	if err != nil {
 		return nil, err
 	}
-	key, err := publicKeyFromJWKS(keys, kid)
-	if err == nil {
-		return key, nil
-	}
-
-	p.jwksMu.Lock()
-	p.jwksAt = time.Time{}
-	p.jwksMu.Unlock()
-
-	keys, refreshErr := p.cachedJWKS(ctx, jwksURI)
-	if refreshErr != nil {
-		return nil, refreshErr
-	}
-	return publicKeyFromJWKS(keys, kid)
+	response.Body = &cappedBody{body: response.Body}
+	return response, nil
 }
 
-func (p *Provider) cachedJWKS(ctx context.Context, jwksURI string) (jwks, error) {
-	p.jwksMu.Lock()
-	if !p.jwksAt.IsZero() && time.Since(p.jwksAt) < 10*time.Minute {
-		keys := p.jwks
-		p.jwksMu.Unlock()
-		return keys, nil
-	}
-	p.jwksMu.Unlock()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jwksURI, nil)
-	if err != nil {
-		return jwks{}, err
-	}
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return jwks{}, err
-	}
-	defer func() { _ = resp.Body.Close() }() // read-only response; close failure is not actionable
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return jwks{}, errors.New("failed to fetch oidc jwks")
-	}
-
-	var keys jwks
-	if err := json.NewDecoder(resp.Body).Decode(&keys); err != nil {
-		return jwks{}, err
-	}
-
-	p.jwksMu.Lock()
-	p.jwks = keys
-	p.jwksAt = time.Now()
-	p.jwksMu.Unlock()
-	return keys, nil
+type cappedBody struct {
+	body io.ReadCloser
+	read int64
 }
 
-func publicKeyFromJWKS(keys jwks, kid string) (*rsa.PublicKey, error) {
-	for _, key := range keys.Keys {
-		if key.KID != kid || key.KTY != "RSA" {
-			continue
-		}
-		n, err := base64.RawURLEncoding.DecodeString(key.N)
-		if err != nil {
-			return nil, err
-		}
-		eBytes, err := base64.RawURLEncoding.DecodeString(key.E)
-		if err != nil {
-			return nil, err
-		}
-		e := 0
-		for _, b := range eBytes {
-			e = e<<8 + int(b)
-		}
-		if e == 0 {
-			return nil, errors.New("invalid oidc jwk exponent")
-		}
-		return &rsa.PublicKey{N: new(big.Int).SetBytes(n), E: e}, nil
+func (b *cappedBody) Read(buf []byte) (int, error) {
+	n, err := b.body.Read(buf)
+	b.read += int64(n)
+	if b.read > maxResponseBytes {
+		return 0, errResponseTooLarge
 	}
-	return nil, errors.New("oidc jwk not found")
+	return n, err
+}
+
+func (b *cappedBody) Close() error { return b.body.Close() }
+
+// bounded makes provider-supplied text safe to log: control characters become
+// spaces and the result is cut to maxLoggedReason bytes.
+func bounded(text string) string {
+	text = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(text, ""))
+	if len(text) <= maxLoggedReason {
+		return text
+	}
+	cut := maxLoggedReason
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 func firstNonEmpty(values ...string) string {

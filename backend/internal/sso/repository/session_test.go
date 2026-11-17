@@ -396,8 +396,8 @@ func TestOIDCLoginsUseIndependentDurableSessions(t *testing.T) {
 	db := dbtest.OpenSSOPostgres(t)
 	provider := ssomocks.NewOIDCProvider(t)
 	provider.EXPECT().Available().Return(true).Maybe()
-	provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything).RunAndReturn(func(state, nonce string) string { return "https://idp.example/auth?state=" + state })
-	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything).Return(service.OIDCIdentity{Subject: "subject", Username: "external-user", Email: "external@example.com"}, nil)
+	provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(state, nonce, verifier string) string { return "https://idp.example/auth?state=" + state })
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject", Username: "external-user", Email: "external@example.com"}, nil)
 	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{OIDCEnabled: true})
 	login := func() model.Tokens {
 		t.Helper()
@@ -458,7 +458,7 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 			users := repository.NewUserRepository(db)
 			provider := ssomocks.NewOIDCProvider(t)
 			provider.EXPECT().Available().Return(true).Maybe()
-			provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything).RunAndReturn(func(state, nonce string) string { return "https://idp.example/auth?state=" + state }).Maybe()
+			provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(state, nonce, verifier string) string { return "https://idp.example/auth?state=" + state }).Maybe()
 			svc := service.NewAuthServiceWithConfig(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{
 				OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: []string{"dcm-admins"},
 			})
@@ -471,7 +471,7 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 				second.ExternalProvider = "keycloak"
 				second.ExternalSubject = "admin-b-subject"
 				// The provider no longer lists the administrator group, so sign-in demotes.
-				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything).Return(service.OIDCIdentity{
+				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{
 					Subject: second.ExternalSubject, Username: second.Username, Email: second.Email,
 				}, nil)
 				authURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/")

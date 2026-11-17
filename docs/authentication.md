@@ -90,7 +90,7 @@ SSO_OIDC_DEFAULT_ROLE=user
 2. Откройте `http://keycloak.localhost`.
 3. Создайте realm `dcm`.
 4. Создайте confidential OpenID Connect client `dcm`.
-5. Включите client authentication и standard authorization code flow.
+5. Включите client authentication и standard authorization code flow. На вкладке **Advanced** установите **Proof Key for Code Exchange Code Challenge Method** в `S256`: DCM отправляет PKCE-проверку в каждом запросе авторизации, и Keycloak тогда отклоняет код, предъявленный без неё.
 6. Добавьте valid redirect URI `http://localhost/api/v1/auth/oidc/keycloak/callback`.
 7. Добавьте post logout redirect `http://localhost/*` и web origins `http://localhost`, `http://localhost:5173`.
 8. Скопируйте client secret в `SSO_OIDC_CLIENT_SECRET` и перезапустите SSO/Gateway.
@@ -108,13 +108,14 @@ DCM сопоставляет группы и роли области Keycloak с
 
 ## Безопасность потока OIDC
 
-Gateway устанавливает привязанный к браузеру файл cookie `oidc_state` с атрибутом HttpOnly. SSO проверяет состояние, одноразовое значение, издателя и код авторизации при обратном вызове. После него Gateway устанавливает файл cookie с токеном обновления DCM и перенаправляет одностраничное приложение на `/auth/callback`; токены DCM не появляются в строке запроса.
+Gateway устанавливает привязанный к браузеру файл cookie `oidc_state` с атрибутом HttpOnly. Запрос авторизации содержит PKCE-проверку `S256`, и SSO обменивает код только вместе с её секретом, поэтому перехваченный код бесполезен. SSO проверяет состояние, а в ID-токене — подпись ключами Keycloak, издателя, аудиторию (идентификатор клиента), наличие и срок действия `exp`, одноразовое значение и непустой `sub`. Принимаются асимметричные алгоритмы, которые Keycloak объявляет в метаданных (RS256, PS256, ES256 и другие); неподписанные и HMAC-токены отклоняются. Новый ключ после ротации в Keycloak подхватывается автоматически. Каждый запрос к Keycloak ограничен 10 секундами и 1 МиБ ответа и не следует перенаправлениям. После проверки Gateway устанавливает файл cookie с токеном обновления DCM и перенаправляет одностраничное приложение на `/auth/callback`; токены DCM не появляются в строке запроса.
 
 ## Диагностика
 
 - Если provider не отображается, проверьте `SSO_OIDC_ENABLED` и `/api/v1/auth/providers`.
 - Если provider отображается с `"available": false`, SSO ещё не получил метаданные Keycloak: проверьте предупреждения `oidc provider discovery failed` в журнале SSO и доступность `SSO_OIDC_ISSUER_URL` из контейнера SSO.
 - Если callback отклонён, сравните issuer, redirect URI и browser origin без отличий в scheme/host/port.
+- Ошибки Keycloak SSO записывает в журнал с кодом OAuth (`provider_error`) и усечённым описанием (`provider_error_description`), без кода авторизации, состояния, токенов и секрета клиента. Ошибка уровня error `oidc provider refused the token request` (`invalid_client`, `unauthorized_client`, `invalid_request`) означает ошибку настройки DCM — например, неверный `SSO_OIDC_CLIENT_SECRET` или redirect URI; пользователь в этом случае, как и при недоступности Keycloak, видит «временно недоступно», а не «неверные учётные данные». Предупреждение `oidc id token rejected` называет причину: `signature`, `issuer`, `audience`, `expiry`, `nonce`, `subject` или `claims`.
 - Если admin role не назначается, проверьте token mappers и точное значение group/role.
 - После изменения OIDC env перезапустите `sso` и `gateway`.
 

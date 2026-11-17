@@ -3,25 +3,34 @@
 //
 // The provider serves discovery, the authorization endpoint (which records its
 // parameters and redirects back with a code, as a browser that signed in would
-// see), the token endpoint and the signing keys. It can be taken down, in which
-// case every request fails at the connection.
+// see), the token endpoint and the signing keys. Like a Keycloak client with
+// PKCE required, it refuses an authorization request without an S256
+// challenge and a code exchange whose verifier does not match it. It signs ID
+// tokens with a chosen algorithm, can rotate its keys, edit or forge the next
+// tokens, replace any endpoint with a scripted failure, and be taken down, in
+// which case every request fails at the connection.
 package oidctest
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"math/big"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	jose "github.com/go-jose/go-jose/v4"
 )
 
 // Client registration the provider accepts unless Options say otherwise.
@@ -30,7 +39,13 @@ const (
 	DefaultClientSecret = "dcm-client-secret"
 )
 
-const keyID = "oidctest-key"
+// Endpoint paths, for Override.
+const (
+	PathDiscovery = "/.well-known/openid-configuration"
+	PathAuthorize = "/auth"
+	PathToken     = "/token"
+	PathKeys      = "/keys"
+)
 
 // Options configure a Provider. Zero values select the defaults.
 type Options struct {
@@ -40,6 +55,11 @@ type Options struct {
 	RedirectURL string
 	// Down starts the provider unreachable; see SetDown.
 	Down bool
+	// Algorithm signs ID tokens: RS256 (the default), PS256 or ES256.
+	Algorithm string
+	// Advertised replaces id_token_signing_alg_values_supported in discovery.
+	// Empty advertises Algorithm.
+	Advertised []string
 }
 
 // Identity is the user the provider signs in at its authorization endpoint.
@@ -56,21 +76,31 @@ type Identity struct {
 type Provider struct {
 	t       testing.TB
 	opts    Options
-	key     *rsa.PrivateKey
 	server  *httptest.Server
 	handler http.Handler
 
-	mu        sync.Mutex
-	down      bool
-	identity  Identity
-	grants    map[string]grant
-	authorize url.Values
+	mu          sync.Mutex
+	down        bool
+	key         signingKey
+	keyCount    int
+	identity    Identity
+	grants      map[string]grant
+	authorize   url.Values
+	idTokenEdit func(map[string]any)
+	forge       string
+	overrides   map[string]http.HandlerFunc
+}
+
+type signingKey struct {
+	id      string
+	private crypto.Signer
 }
 
 type grant struct {
-	nonce       string
-	redirectURI string
-	identity    Identity
+	nonce         string
+	redirectURI   string
+	codeChallenge string
+	identity      Identity
 }
 
 // New starts a provider on a loopback listener and stops it at the end of the test.
@@ -82,24 +112,36 @@ func New(t testing.TB, opts Options) *Provider {
 	if opts.ClientSecret == "" {
 		opts.ClientSecret = DefaultClientSecret
 	}
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate oidctest signing key: %v", err)
+	if opts.Algorithm == "" {
+		opts.Algorithm = string(jose.RS256)
+	}
+	if len(opts.Advertised) == 0 {
+		opts.Advertised = []string{opts.Algorithm}
 	}
 	p := &Provider{
-		t:        t,
-		opts:     opts,
-		key:      key,
-		down:     opts.Down,
-		identity: Identity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com", EmailVerified: true},
-		grants:   map[string]grant{},
+		t:         t,
+		opts:      opts,
+		down:      opts.Down,
+		identity:  Identity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com", EmailVerified: true},
+		grants:    map[string]grant{},
+		overrides: map[string]http.HandlerFunc{},
 	}
+	p.key = p.newKey()
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/openid-configuration", p.serveDiscovery)
-	mux.HandleFunc("GET /auth", p.serveAuthorize)
-	mux.HandleFunc("POST /token", p.serveToken)
-	mux.HandleFunc("GET /keys", p.serveKeys)
-	p.handler = mux
+	mux.HandleFunc("GET "+PathDiscovery, p.serveDiscovery)
+	mux.HandleFunc("GET "+PathAuthorize, p.serveAuthorize)
+	mux.HandleFunc("POST "+PathToken, p.serveToken)
+	mux.HandleFunc("GET "+PathKeys, p.serveKeys)
+	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p.mu.Lock()
+		override := p.overrides[r.URL.Path]
+		p.mu.Unlock()
+		if override != nil {
+			override(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if p.isDown() {
 			dropConnection(w)
@@ -118,11 +160,14 @@ func (p *Provider) Issuer() string { return p.server.URL }
 func (p *Provider) ClientID() string     { return p.opts.ClientID }
 func (p *Provider) ClientSecret() string { return p.opts.ClientSecret }
 
-// Client returns an HTTP client that reaches the provider without a socket, so
-// it also works inside a testing/synctest bubble. While the provider is down
-// every request fails as a connection error.
+// Transport reaches the provider without a socket, so it also works inside a
+// testing/synctest bubble. While the provider is down every request fails as a
+// connection error.
+func (p *Provider) Transport() http.RoundTripper { return inProcess{p} }
+
+// Client returns an HTTP client over Transport.
 func (p *Provider) Client() *http.Client {
-	return &http.Client{Transport: inProcess{p}}
+	return &http.Client{Transport: p.Transport()}
 }
 
 // SetDown makes the provider unreachable (true) or reachable again (false).
@@ -137,6 +182,42 @@ func (p *Provider) SetIdentity(identity Identity) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.identity = identity
+}
+
+// EditIDToken edits the claims of every ID token issued from now on before it
+// is signed; delete a key to leave the claim out. Nil stops editing.
+func (p *Provider) EditIDToken(edit func(claims map[string]any)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.idTokenEdit = edit
+}
+
+// Forge makes the token endpoint issue ID tokens with the algorithm alg
+// instead of a real signature: "none" leaves them unsigned and "HS256" signs
+// them with the client secret, repeated to HMAC's minimum key length. Empty stops forging.
+func (p *Provider) Forge(alg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.forge = alg
+}
+
+// RotateKeys replaces the signing key with a new one under a new key ID. The
+// keys endpoint publishes only the new key.
+func (p *Provider) RotateKeys() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.key = p.newKey()
+}
+
+// Override replaces the endpoint at path with handler; nil restores it.
+func (p *Provider) Override(path string, handler http.HandlerFunc) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if handler == nil {
+		delete(p.overrides, path)
+		return
+	}
+	p.overrides[path] = handler
 }
 
 // LastAuthorization returns the query of the last authorization request.
@@ -172,22 +253,75 @@ func (p *Provider) SignIn(authURL string) *url.URL {
 	return location
 }
 
+// OAuthError answers status with an OAuth error body.
+func OAuthError(status int, code, description string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, status, map[string]string{"error": code, "error_description": description})
+	}
+}
+
+// Status answers status with an empty JSON object.
+func Status(status int) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, status, map[string]string{}) }
+}
+
+// Oversized answers 200 with a JSON body of size bytes.
+func Oversized(size int) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"padding":"` + strings.Repeat("a", max(size-14, 0)) + `"}`)) // the test client reads what arrives
+	}
+}
+
+// Redirect answers with a redirect to target.
+func Redirect(target string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+	}
+}
+
+// Hang answers nothing until the request is cancelled.
+func Hang() http.HandlerFunc {
+	return func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+}
+
 func (p *Provider) isDown() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.down
 }
 
+func (p *Provider) newKey() signingKey {
+	p.t.Helper()
+	p.keyCount++
+	var private crypto.Signer
+	var err error
+	switch jose.SignatureAlgorithm(p.opts.Algorithm) {
+	case jose.RS256, jose.PS256:
+		private, err = rsa.GenerateKey(rand.Reader, 2048)
+	case jose.ES256:
+		private, err = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	default:
+		p.t.Fatalf("oidctest: unsupported signing algorithm %q", p.opts.Algorithm)
+	}
+	if err != nil {
+		p.t.Fatalf("generate oidctest signing key: %v", err)
+	}
+	return signingKey{id: fmt.Sprintf("oidctest-key-%d", p.keyCount), private: private}
+}
+
 func (p *Provider) serveDiscovery(w http.ResponseWriter, _ *http.Request) {
 	issuer := p.Issuer()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer":                                issuer,
-		"authorization_endpoint":                issuer + "/auth",
-		"token_endpoint":                        issuer + "/token",
-		"jwks_uri":                              issuer + "/keys",
+		"authorization_endpoint":                issuer + PathAuthorize,
+		"token_endpoint":                        issuer + PathToken,
+		"jwks_uri":                              issuer + PathKeys,
 		"response_types_supported":              []string{"code"},
 		"subject_types_supported":               []string{"public"},
-		"id_token_signing_alg_values_supported": []string{"RS256"},
+		"id_token_signing_alg_values_supported": p.opts.Advertised,
+		"code_challenge_methods_supported":      []string{"S256"},
 	})
 }
 
@@ -198,6 +332,10 @@ func (p *Provider) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid authorization request", http.StatusBadRequest)
 		return
 	}
+	if query.Get("code_challenge_method") != "S256" || query.Get("code_challenge") == "" {
+		http.Error(w, "PKCE S256 challenge required", http.StatusBadRequest)
+		return
+	}
 	redirect, err := url.Parse(query.Get("redirect_uri"))
 	if err != nil || !redirect.IsAbs() {
 		http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
@@ -206,7 +344,10 @@ func (p *Provider) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 	code := rand.Text()
 	p.mu.Lock()
 	p.authorize = query
-	p.grants[code] = grant{nonce: query.Get("nonce"), redirectURI: query.Get("redirect_uri"), identity: p.identity}
+	p.grants[code] = grant{
+		nonce: query.Get("nonce"), redirectURI: query.Get("redirect_uri"),
+		codeChallenge: query.Get("code_challenge"), identity: p.identity,
+	}
 	p.mu.Unlock()
 
 	back := redirect.Query()
@@ -233,6 +374,11 @@ func (p *Provider) serveToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant"})
 		return
 	}
+	verifier := sha256.Sum256([]byte(r.PostForm.Get("code_verifier")))
+	if base64.RawURLEncoding.EncodeToString(verifier[:]) != issued.codeChallenge {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "PKCE verification failed"})
+		return
+	}
 	idToken, err := p.signIDToken(issued)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
@@ -248,7 +394,7 @@ func (p *Provider) serveToken(w http.ResponseWriter, r *http.Request) {
 
 func (p *Provider) signIDToken(issued grant) (string, error) {
 	now := time.Now()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+	claims := map[string]any{
 		"iss":                p.Issuer(),
 		"aud":                p.opts.ClientID,
 		"sub":                issued.identity.Subject,
@@ -260,20 +406,47 @@ func (p *Provider) signIDToken(issued grant) (string, error) {
 		"email_verified":     issued.identity.EmailVerified,
 		"groups":             issued.identity.Groups,
 		"realm_access":       map[string]any{"roles": issued.identity.RealmRoles},
-	})
-	token.Header["kid"] = keyID
-	return token.SignedString(p.key)
+	}
+	p.mu.Lock()
+	edit, forge, key := p.idTokenEdit, p.forge, p.key
+	p.mu.Unlock()
+	if edit != nil {
+		edit(claims)
+	}
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	switch forge {
+	case "":
+	case "none":
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","kid":"` + key.id + `"}`))
+		return header + "." + base64.RawURLEncoding.EncodeToString(payload) + ".", nil
+	default:
+		// go-jose refuses HMAC keys shorter than the hash.
+		return sign(jose.SignatureAlgorithm(forge), key.id, []byte(strings.Repeat(p.opts.ClientSecret, 4)), payload)
+	}
+	return sign(jose.SignatureAlgorithm(p.opts.Algorithm), key.id, key.private, payload)
+}
+
+func sign(alg jose.SignatureAlgorithm, keyID string, key any, payload []byte) (string, error) {
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: alg, Key: jose.JSONWebKey{Key: key, KeyID: keyID}}, nil)
+	if err != nil {
+		return "", err
+	}
+	signed, err := signer.Sign(payload)
+	if err != nil {
+		return "", err
+	}
+	return signed.CompactSerialize()
 }
 
 func (p *Provider) serveKeys(w http.ResponseWriter, _ *http.Request) {
-	public := p.key.PublicKey
-	writeJSON(w, http.StatusOK, map[string]any{"keys": []map[string]string{{
-		"kid": keyID,
-		"kty": "RSA",
-		"alg": "RS256",
-		"use": "sig",
-		"n":   base64.RawURLEncoding.EncodeToString(public.N.Bytes()),
-		"e":   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(public.E)).Bytes()),
+	p.mu.Lock()
+	key := p.key
+	p.mu.Unlock()
+	writeJSON(w, http.StatusOK, jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
+		Key: key.private.Public(), KeyID: key.id, Algorithm: p.opts.Algorithm, Use: "sig",
 	}}})
 }
 
@@ -308,6 +481,9 @@ func (t inProcess) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 	recorder := httptest.NewRecorder()
 	t.p.handler.ServeHTTP(recorder, r)
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
 	response := recorder.Result()
 	response.Request = r
 	return response, nil

@@ -52,7 +52,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	repo := repository.NewUserRepository(db)
 	tokenProvider := jwt.NewProvider(cfg.JWTSecret)
-	oidcProvider, err := buildOIDCProvider(cfg.OIDC)
+	oidcProvider, err := buildOIDCProvider(cfg.OIDC, logging.WithComponent(logger, "oidc"))
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		application.wg.Add(1)
 		go func() {
 			defer application.wg.Done()
-			oidcProvider.Run(ctx, logging.WithComponent(logger, "oidc"))
+			oidcProvider.Run(ctx)
 		}()
 	}
 	application.wg.Add(1)
@@ -134,7 +134,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 }
 
 // buildOIDCProvider returns nil with OIDC off. It makes no provider call.
-func buildOIDCProvider(cfg config.OIDC) (*oidc.Provider, error) {
+func buildOIDCProvider(cfg config.OIDC, logger *slog.Logger) (*oidc.Provider, error) {
 	if !cfg.Enabled {
 		return nil, nil
 	}
@@ -143,6 +143,7 @@ func buildOIDCProvider(cfg config.OIDC) (*oidc.Provider, error) {
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURL:  cfg.RedirectURL,
+		Logger:       logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize oidc provider: %w", err)

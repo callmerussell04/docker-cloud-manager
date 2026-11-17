@@ -103,11 +103,13 @@ type TokenProvider interface {
 }
 
 // OIDCProvider is the external authorization-code provider. It is unavailable
-// until SSO has reached it; once available it stays available.
+// until SSO has reached it; once available it stays available. The
+// authorization request carries an S256 PKCE challenge for verifier, and the
+// code exchange sends verifier.
 type OIDCProvider interface {
 	Available() bool
-	AuthCodeURL(state, nonce string) string
-	ExchangeCode(ctx context.Context, code, nonce string) (OIDCIdentity, error)
+	AuthCodeURL(state, nonce, verifier string) string
+	ExchangeCode(ctx context.Context, code, nonce, verifier string) (OIDCIdentity, error)
 }
 
 type OIDCIdentity struct {
@@ -150,6 +152,7 @@ type Config struct {
 type oidcState struct {
 	Provider       string
 	Nonce          string
+	PKCEVerifier   string
 	BrowserBinding string
 	RedirectAfter  string
 	ExpiresAt      time.Time
@@ -402,6 +405,11 @@ func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfte
 	if err != nil {
 		return "", "", apperrors.ErrInternal
 	}
+	// 32 random bytes in base64url: a 43-character RFC 7636 verifier.
+	verifier, err := randomToken()
+	if err != nil {
+		return "", "", apperrors.ErrInternal
+	}
 	browserBinding, err := randomToken()
 	if err != nil {
 		return "", "", apperrors.ErrInternal
@@ -415,13 +423,14 @@ func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfte
 	s.states[state] = oidcState{
 		Provider:       provider,
 		Nonce:          nonce,
+		PKCEVerifier:   verifier,
 		BrowserBinding: browserBinding,
 		RedirectAfter:  strings.TrimSpace(redirectAfter),
 		ExpiresAt:      s.now().Add(s.cfg.OIDCStateTTL),
 	}
 	s.stateMu.Unlock()
 
-	return s.oidcProvider.AuthCodeURL(state, nonce), browserBinding, nil
+	return s.oidcProvider.AuthCodeURL(state, nonce, verifier), browserBinding, nil
 }
 
 func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error) {
@@ -437,7 +446,7 @@ func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, 
 		return model.Tokens{}, "", err
 	}
 
-	identity, err := s.oidcProvider.ExchangeCode(ctx, code, oidcState.Nonce)
+	identity, err := s.oidcProvider.ExchangeCode(ctx, code, oidcState.Nonce, oidcState.PKCEVerifier)
 	if err != nil {
 		return model.Tokens{}, "", err
 	}

@@ -3,8 +3,6 @@ package oidc_test
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -21,7 +19,7 @@ func fakeProviderConfig(idp *oidctest.Provider) oidc.Config {
 		ClientID:     idp.ClientID(),
 		ClientSecret: idp.ClientSecret(),
 		RedirectURL:  "http://gateway.example/callback",
-		HTTPClient:   idp.Client(),
+		Transport:    idp.Transport(),
 	}
 }
 
@@ -32,7 +30,7 @@ func TestProviderIsUnavailableUntilDiscovered(t *testing.T) {
 
 	require.NoError(t, err, "construction makes no provider call")
 	require.False(t, provider.Available())
-	_, err = provider.ExchangeCode(context.Background(), "code", "nonce")
+	_, err = provider.ExchangeCode(context.Background(), "code", "nonce", "verifier")
 	require.True(t, errors.Is(err, apperrors.ErrUnavailable), "got %v", err)
 	require.Error(t, provider.Discover(context.Background()))
 	require.False(t, provider.Available())
@@ -54,7 +52,7 @@ func TestRunRetriesDiscoveryWithDoublingBackoff(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			provider.Run(ctx, discardLogger())
+			provider.Run(ctx)
 		}()
 
 		time.Sleep(3500 * time.Millisecond)
@@ -82,7 +80,7 @@ func TestRunCapsTheBackoffAtOneMinute(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			provider.Run(t.Context(), discardLogger())
+			provider.Run(t.Context())
 		}()
 
 		time.Sleep(time.Hour)
@@ -106,7 +104,7 @@ func TestRunStopsWithItsContext(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			provider.Run(ctx, discardLogger())
+			provider.Run(ctx)
 		}()
 
 		time.Sleep(10 * time.Second)
@@ -120,5 +118,3 @@ func TestRunStopsWithItsContext(t *testing.T) {
 		require.False(t, provider.Available())
 	})
 }
-
-func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

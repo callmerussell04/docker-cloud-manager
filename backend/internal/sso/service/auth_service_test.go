@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -298,7 +299,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	expectAuthCodeURL(provider)
 
 	state, binding := startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.AnythingOfType("string")).Return(service.OIDCIdentity{
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
 		Subject: "subject-1", PreferredUsername: "Alice.External", Email: "alice@example.com", Groups: []string{"/dcm-admins"},
 	}, nil).Once()
 	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
@@ -327,7 +328,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	existing := created
 	existing.Role = model.RoleAdmin
 	state, binding = startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code2", mock.AnythingOfType("string")).Return(service.OIDCIdentity{
+	provider.EXPECT().ExchangeCode(mock.Anything, "code2", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
 		Subject: "subject-1", PreferredUsername: "Alice.Updated", Email: "alice.updated@example.com",
 	}, nil).Once()
 	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(existing, nil).Once()
@@ -345,7 +346,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	require.Equal(t, model.RoleUser, updated.Role)
 
 	state, binding = startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code3", mock.AnythingOfType("string")).Return(service.OIDCIdentity{
+	provider.EXPECT().ExchangeCode(mock.Anything, "code3", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
 		Subject: "Subject-XYZ-123", PreferredUsername: "Alice.External", Email: "alice@example.com",
 	}, nil).Once()
 	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "Subject-XYZ-123").Return(model.User{}, apperrors.ErrNotFound).Once()
@@ -364,6 +365,38 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alice-external-subjectx", collided.Username)
 	require.True(t, strings.HasSuffix(collided.Email, "@oidc.local"))
+}
+
+// Each attempt gets its own PKCE verifier, and the callback redeems the code
+// with the nonce and verifier of the attempt it consumes.
+func TestAuthServiceOIDCExchangesTheCodeWithTheAttemptsVerifier(t *testing.T) {
+	ctx := context.Background()
+	repo := ssomocks.NewUserRepository(t)
+	provider := ssomocks.NewOIDCProvider(t)
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), provider, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak",
+	})
+	expectAuthCodeURL(provider)
+
+	firstURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	require.NoError(t, err)
+	secondURL, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	require.NoError(t, err)
+	first, second := authURLQuery(t, firstURL), authURLQuery(t, secondURL)
+	require.GreaterOrEqual(t, len(first.Get("verifier")), 43, "RFC 7636 verifiers have at least 43 characters")
+	require.NotEqual(t, first.Get("verifier"), second.Get("verifier"))
+
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", first.Get("nonce"), first.Get("verifier")).
+		Return(service.OIDCIdentity{}, apperrors.ErrInvalidCredentials).Once()
+	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", first.Get("state"), binding)
+	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
+}
+
+func authURLQuery(t *testing.T, authURL string) url.Values {
+	t.Helper()
+	parsed, err := url.Parse(authURL)
+	require.NoError(t, err)
+	return parsed.Query()
 }
 
 func TestAuthServiceOIDCRejectsInvalidAndExpiredState(t *testing.T) {
@@ -428,9 +461,9 @@ func TestAuthServiceOIDCDisabledHasNoProvider(t *testing.T) {
 func expectAuthCodeURL(provider *ssomocks.OIDCProvider) {
 	provider.EXPECT().Available().Return(true).Maybe()
 	provider.EXPECT().
-		AuthCodeURL(mock.AnythingOfType("string"), mock.AnythingOfType("string")).
-		RunAndReturn(func(state, nonce string) string {
-			return "https://keycloak.example/authorize?state=" + state + "&nonce=" + nonce
+		AuthCodeURL(mock.AnythingOfType("string"), mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+		RunAndReturn(func(state, nonce, verifier string) string {
+			return "https://keycloak.example/authorize?state=" + state + "&nonce=" + nonce + "&verifier=" + verifier
 		}).
 		Maybe()
 }
