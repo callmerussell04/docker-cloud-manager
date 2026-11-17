@@ -33,7 +33,6 @@ type ManifestSharingRepository interface {
 }
 
 type imageStateRepository interface {
-	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 }
 

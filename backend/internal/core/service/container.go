@@ -31,9 +31,7 @@ type ContainerRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string) error
 	UpdateStatusAndTTLDeadline(ctx context.Context, id uuid.UUID, status string, ttlDeadline *time.Time) error
-	UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error
 	UpdateDockerIDAndStatus(ctx context.Context, id uuid.UUID, dockerID string, status string) error
-	UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -50,7 +48,6 @@ type containerCreateRepository interface {
 }
 
 type containerStateRepository interface {
-	SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error
 	MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error
 	CreateOperation(ctx context.Context, op model.ResourceOperation) error
 	CreateOperationAndSetDesired(ctx context.Context, id uuid.UUID, desiredStatus string, op model.ResourceOperation) error

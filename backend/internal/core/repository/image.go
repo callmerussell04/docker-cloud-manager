@@ -176,32 +176,6 @@ func (r *ImageRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ImageRepository) UpdateSize(ctx context.Context, id uuid.UUID, sizeBytes int64) error {
-	query := `UPDATE images SET size_bytes = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.Exec(ctx, query, sizeBytes, id)
-	if err != nil {
-		return err
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-func (r *ImageRepository) UpdateStatus(ctx context.Context, id uuid.UUID, status string) error {
-	query := `UPDATE images SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.Exec(ctx, query, status, id)
-	if err != nil {
-		return err
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
 func (r *ImageRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
 	var msg *string
 	if cause != nil {

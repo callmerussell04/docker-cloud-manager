@@ -84,19 +84,6 @@ func (r *ContainerRepository) Save(ctx context.Context, c model.Container) error
 	return nil
 }
 
-func (r *ContainerRepository) UpdateRouting(ctx context.Context, id uuid.UUID, domainPrefix string, internalPort int) error {
-	query := `UPDATE containers SET domain_prefix = $1, internal_port = $2 WHERE id = $3`
-	res, err := r.db.Exec(ctx, query, domainPrefix, internalPort, id)
-	if err != nil {
-		return mapContainerUniqueViolation(err, domainPrefix)
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
 func (r *ContainerRepository) UpdateDockerIDRoutingAndGeneration(ctx context.Context, id uuid.UUID, dockerID string, domainPrefix string, internalPort int, generation int) error {
 	query := `
 		UPDATE containers
@@ -132,19 +119,6 @@ func (r *ContainerRepository) UpdateStatusAndTTLDeadline(ctx context.Context, id
 	ttl := ttlDeadline
 	query := `UPDATE containers SET status = $1, ttl_deadline = $2, last_observed_at = NOW(), last_error = NULL WHERE id = $3`
 	res, err := r.db.Exec(ctx, query, status, ttl, id)
-	if err != nil {
-		return err
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-func (r *ContainerRepository) UpdateStatusByDockerID(ctx context.Context, dockerID string, status string) error {
-	query := `UPDATE containers SET status = $1, last_observed_at = NOW(), last_error = NULL WHERE docker_id = $2`
-	res, err := r.db.Exec(ctx, query, status, dockerID)
 	if err != nil {
 		return err
 	}
@@ -226,19 +200,6 @@ func (r *ContainerRepository) UpdateObservedStatusByContainerIDAndGeneration(ctx
 		WHERE id = $5 AND docker_generation = $6
 	`
 	res, err := r.db.Exec(ctx, query, status, desiredStatus, nullableInt(exitCode), nullableError(cause), containerID, generation)
-	if err != nil {
-		return err
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
-func (r *ContainerRepository) UpdateDockerID(ctx context.Context, id uuid.UUID, dockerID string) error {
-	query := `UPDATE containers SET docker_id = $1, last_observed_at = NOW(), last_error = NULL WHERE id = $2`
-	res, err := r.db.Exec(ctx, query, dockerID, id)
 	if err != nil {
 		return err
 	}
@@ -729,19 +690,6 @@ func (r *ContainerRepository) SaveWithMountsOperationAndOutbox(ctx context.Conte
 	return commitTx(ctx, tx, "save with mounts operation and outbox")
 }
 
-func (r *ContainerRepository) SetDesiredStatus(ctx context.Context, id uuid.UUID, desiredStatus string) error {
-	query := `UPDATE containers SET desired_status = $1, last_error = NULL WHERE id = $2`
-	res, err := r.db.Exec(ctx, query, desiredStatus, id)
-	if err != nil {
-		return wrapOp("container set desired status", err)
-	}
-	rowsAffected := res.RowsAffected()
-	if rowsAffected == 0 {
-		return apperrors.ErrNotFound
-	}
-	return nil
-}
-
 func (r *ContainerRepository) MarkStatusError(ctx context.Context, id uuid.UUID, status string, cause error) error {
 	var msg *string
 	if cause != nil {
@@ -1028,15 +976,6 @@ func (r *ContainerRepository) MarkContainerOutboxPending(ctx context.Context, id
 
 func (r *ContainerRepository) MarkContainerOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error {
 	return r.updateContainerOutboxStatus(ctx, id, model.ContainerOutboxStatusDiscarded, cause)
-}
-
-func (r *ContainerRepository) DiscardContainerOutboxByOperation(ctx context.Context, operationID uuid.UUID, cause error) error {
-	_, err := r.db.Exec(ctx, `
-		UPDATE container_lifecycle_queue_outbox
-		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE operation_id = $3 AND status IN ($4, $5)
-	`, model.ContainerOutboxStatusDiscarded, nullableError(cause), operationID, model.ContainerOutboxStatusPending, model.ContainerOutboxStatusPublishing)
-	return wrapOp("container discard container outbox by operation", err)
 }
 
 func (r *ContainerRepository) CancelActiveCreateAndDeleteContainer(ctx context.Context, containerID uuid.UUID, cause error) error {
