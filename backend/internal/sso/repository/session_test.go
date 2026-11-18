@@ -33,9 +33,9 @@ func TestSessionsRotateRevokeAndSurviveRestart(t *testing.T) {
 	svc := ssotest.NewAuthService(users, jwt.NewProvider("secret"), sessions)
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	first, err := svc.Login(ctx, "alice", "secret123")
+	first, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
-	other, err := svc.Login(ctx, "alice", "secret123")
+	other, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	require.NotEqual(t, first.AccessToken, other.AccessToken)
 	require.NotEqual(t, first.RefreshToken, other.RefreshToken)
@@ -65,9 +65,9 @@ func TestConcurrentRefreshRevokesWinnerAndOtherSessionsSurvive(t *testing.T) {
 	svc := ssotest.NewAuthService(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db))
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	first, err := svc.Login(ctx, "alice", "secret123")
+	first, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
-	other, err := svc.Login(ctx, "alice", "secret123")
+	other, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	type result struct {
 		tokens model.Tokens
@@ -111,7 +111,7 @@ func TestLogoutRacingRefreshCannotLeaveUsableTokens(t *testing.T) {
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
 	for range 8 {
-		first, err := svc.Login(ctx, "alice", "secret123")
+		first, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 		require.NoError(t, err)
 		type result struct {
 			tokens model.Tokens
@@ -149,10 +149,10 @@ func TestSessionExpiryBoundariesAndAbsoluteCap(t *testing.T) {
 	})
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	pair, err := svc.Login(ctx, "alice", "secret123")
+	pair, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	require.Equal(t, beginning.Add(7*24*time.Hour), pair.RefreshExpiresAt)
-	idle, err := svc.Login(ctx, "alice", "secret123")
+	idle, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	now = beginning.Add(6 * 24 * time.Hour)
 	pair, err = svc.Refresh(ctx, pair.RefreshToken)
@@ -189,9 +189,9 @@ func TestPasswordAndStatusChangesInvalidateEverySession(t *testing.T) {
 			svc := ssotest.NewAuthService(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db))
 			id, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 			require.NoError(t, err)
-			first, err := svc.Login(ctx, "alice", "secret123")
+			first, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 			require.NoError(t, err)
-			second, err := svc.Login(ctx, "alice", "secret123")
+			second, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 			require.NoError(t, err)
 			update := service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive}
 			if kind == "password" {
@@ -231,7 +231,7 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			normal := ssotest.NewAuthService(users, tokens, sessions)
 			_, err := normal.Register(ctx, "alice", "alice@example.com", "secret123")
 			require.NoError(t, err)
-			pair, err := normal.Login(ctx, "alice", "secret123")
+			pair, err := loginTokens(normal.Login(ctx, "alice", "secret123"))
 			require.NoError(t, err)
 			var failing *service.AuthService
 			switch kind {
@@ -303,7 +303,7 @@ func TestUnknownSecretAndRoleUpdatesPreserveOtherSessions(t *testing.T) {
 	svc := ssotest.NewAuthService(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db))
 	id, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	pair, err := svc.Login(ctx, "alice", "secret123")
+	pair, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	unknown := strings.Repeat("A", 43)
 	_, err = svc.Refresh(ctx, unknown)
@@ -364,7 +364,7 @@ func TestDeactivationRacingRefreshRevokesEveryResult(t *testing.T) {
 	svc := ssotest.NewAuthService(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db))
 	id, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	first, err := svc.Login(ctx, "alice", "secret123")
+	first, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	type result struct {
 		tokens model.Tokens
@@ -560,4 +560,9 @@ func backendsWaitingOn(ctx context.Context, db *pgxpool.Pool, pid int) int {
 		return -1
 	}
 	return waiting
+}
+
+// loginTokens returns only the tokens of a sign-in.
+func loginTokens(signIn model.SignIn, err error) (model.Tokens, error) {
+	return signIn.Tokens, err
 }

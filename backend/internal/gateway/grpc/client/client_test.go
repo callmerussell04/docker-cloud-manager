@@ -34,9 +34,12 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	require.Equal(t, "user-id", userID)
 	require.Equal(t, "alice@example.com", servers.auth.registerEmail)
 
-	tokens, err := ssoClient.Login(context.Background(), "alice", "secret")
+	signIn, err := ssoClient.Login(context.Background(), "alice", "secret")
 	require.NoError(t, err)
-	require.Equal(t, model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(0, 0)}, tokens)
+	require.Equal(t, model.SignIn{
+		Tokens: model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(0, 0)},
+		User:   model.SignedInUser{ID: "user-id", Username: "alice", Role: "admin"},
+	}, signIn)
 
 	config, err := ssoClient.GetAuthConfig(context.Background())
 	require.NoError(t, err)
@@ -55,6 +58,7 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	require.Equal(t, "http://frontend/auth/callback", callback.RedirectAfter)
 	require.Equal(t, model.OIDCCallbackSuccess, callback.Outcome)
 	require.Equal(t, "oidc-access", callback.Tokens.AccessToken)
+	require.Equal(t, model.SignedInUser{ID: "oidc-user-id", Username: "bob", Role: "user"}, callback.User)
 
 	user, err := ssoClient.VerifyAccessToken(context.Background(), "Bearer access")
 	require.NoError(t, err)
@@ -280,7 +284,7 @@ func (s *ssoAuthServer) Login(context.Context, *sso.LoginRequest) (*sso.LoginRes
 	if s.loginErr != nil {
 		return nil, s.loginErr
 	}
-	return &sso.LoginResponse{AccessToken: "access", RefreshToken: "refresh"}, nil
+	return &sso.LoginResponse{AccessToken: "access", RefreshToken: "refresh", User: &sso.SignedInUser{Id: "user-id", Username: "alice", Role: "admin"}}, nil
 }
 
 func (s *ssoAuthServer) Refresh(context.Context, *sso.RefreshRequest) (*sso.RefreshResponse, error) {
@@ -300,7 +304,7 @@ func (s *ssoAuthServer) StartOIDCLogin(context.Context, *sso.StartOIDCLoginReque
 }
 
 func (s *ssoAuthServer) CompleteOIDCCallback(context.Context, *sso.CompleteOIDCCallbackRequest) (*sso.CompleteOIDCCallbackResponse, error) {
-	return &sso.CompleteOIDCCallbackResponse{Outcome: sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS, AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback"}, nil
+	return &sso.CompleteOIDCCallbackResponse{Outcome: sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS, AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback", User: &sso.SignedInUser{Id: "oidc-user-id", Username: "bob", Role: "user"}}, nil
 }
 
 type ssoUserServer struct {

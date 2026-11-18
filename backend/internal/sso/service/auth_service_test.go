@@ -301,6 +301,9 @@ func TestAuthServiceOIDCSignsInOncePerAttempt(t *testing.T) {
 	require.Equal(t, "access", result.Tokens.AccessToken)
 	require.Len(t, result.Tokens.RefreshToken, 43)
 	require.Equal(t, "/", result.RedirectAfter)
+	signedIn, err := repo.GetUserByExternalIdentity(context.Background(), "keycloak", "subject-1")
+	require.NoError(t, err)
+	require.Equal(t, model.SignedInUser{ID: signedIn.ID, Username: "alice", Role: model.RoleUser}, result.User, "the sign-in names its user")
 
 	result, err = svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
 	require.NoError(t, err)
@@ -450,7 +453,7 @@ func TestLoginPreservesSafeLookupTimeoutClassification(t *testing.T) {
 			repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(model.User{}, lookupError)
 			svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), ssomocks.NewSessionRepository(t))
 			result, err := svc.Login(ctx, "alice", "secret123")
-			require.Equal(t, model.Tokens{}, result)
+			require.Equal(t, model.SignIn{}, result)
 			require.ErrorIs(t, err, apperrors.ErrTimeout)
 		})
 	}
@@ -497,6 +500,22 @@ func TestAuthServiceStoresAndLooksUpIdentityInLowercase(t *testing.T) {
 
 		require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 	})
+}
+
+// A local sign-in names the user its session was created for, as the
+// session's transaction read it.
+func TestAuthServiceLoginNamesTheSignedInUser(t *testing.T) {
+	admin := userWithPassword(uuid.New(), "alice", "secret123", model.RoleAdmin, model.StatusActive)
+	_, repo, sessions := newUserStore(t, admin)
+	tokens := ssomocks.NewTokenProvider(t)
+	tokens.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("access", nil)
+	svc := ssotest.NewAuthService(repo, tokens, sessions)
+
+	signIn, err := svc.Login(context.Background(), "alice", "secret123")
+
+	require.NoError(t, err)
+	require.Equal(t, "access", signIn.Tokens.AccessToken)
+	require.Equal(t, model.SignedInUser{ID: admin.ID, Username: "alice", Role: model.RoleAdmin}, signIn.User)
 }
 
 // oidcTestService builds an OIDC-enabled service over attempts whose clock

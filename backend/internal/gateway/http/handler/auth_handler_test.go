@@ -22,7 +22,7 @@ import (
 func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	auth := gatewayhandlermocks.NewMockAuthService(t)
-	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/", HTTPOnly: true}, testRedirectConfig())
+	h := handler.NewAuthHandler(auth, anyAudit(t), handler.CookieConfig{Name: "refresh_token", Path: "/", HTTPOnly: true}, testRedirectConfig())
 	router := gin.New()
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
@@ -35,7 +35,7 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.Code)
 	require.Contains(t, resp.Body.String(), `"user_id":"user-id"`)
 
-	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Now().Add(time.Hour)}, nil)
+	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.SignIn{Tokens: model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Now().Add(time.Hour)}}, nil)
 	resp = perform(router, http.MethodPost, "/login", `{"username":"alice","password":"secret123"}`, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"access_token":"access"`)
@@ -66,7 +66,7 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 func TestAuthHandlerValidationAndErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	auth := gatewayhandlermocks.NewMockAuthService(t)
-	h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token"}, testRedirectConfig())
+	h := handler.NewAuthHandler(auth, anyAudit(t), handler.CookieConfig{Name: "refresh_token"}, testRedirectConfig())
 	router := gin.New()
 	router.POST("/register", h.Register)
 	router.POST("/login", h.Login)
@@ -75,7 +75,7 @@ func TestAuthHandlerValidationAndErrors(t *testing.T) {
 	resp := perform(router, http.MethodPost, "/register", `{"username":"bad name","email":"bad@example.com","password":"secret"}`, nil)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 
-	auth.EXPECT().Login(mock.Anything, "alice", "wrong").Return(model.Tokens{}, apperrors.ErrInvalidCredentials)
+	auth.EXPECT().Login(mock.Anything, "alice", "wrong").Return(model.SignIn{}, apperrors.ErrInvalidCredentials)
 	resp = perform(router, http.MethodPost, "/login", `{"username":"alice","password":"wrong"}`, nil)
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
 
@@ -103,7 +103,7 @@ func oidcRouter(t *testing.T, cookies handler.CookieConfig) (*gatewayhandlermock
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	auth := gatewayhandlermocks.NewMockAuthService(t)
-	h := handler.NewAuthHandler(auth, cookies, testRedirectConfig())
+	h := handler.NewAuthHandler(auth, anyAudit(t), cookies, testRedirectConfig())
 	router := gin.New()
 	router.GET("/start", h.StartKeycloakLogin)
 	router.GET("/callback", h.CompleteKeycloakCallback)
@@ -351,7 +351,7 @@ func TestAuthHandlerLogoutRevocationAndRefreshFailureCookies(t *testing.T) {
 		for _, kind := range []string{"success", "invalid", "unavailable", "timeout"} {
 			t.Run(action+"/"+kind, func(t *testing.T) {
 				auth := gatewayhandlermocks.NewMockAuthService(t)
-				h := handler.NewAuthHandler(auth, handler.CookieConfig{Name: "refresh_token", Path: "/api/v1/auth", Domain: "example.com", HTTPOnly: true, Secure: true}, testRedirectConfig())
+				h := handler.NewAuthHandler(auth, anyAudit(t), handler.CookieConfig{Name: "refresh_token", Path: "/api/v1/auth", Domain: "example.com", HTTPOnly: true, Secure: true}, testRedirectConfig())
 				router := gin.New()
 				router.POST("/refresh", h.Refresh)
 				router.POST("/logout", h.Logout)
@@ -395,7 +395,7 @@ func TestAuthHandlerCookieRequestsRequireTrustedBrowserOrigin(t *testing.T) {
 		for _, origin := range []string{"", "null", "http://evil.example", "http://frontend.example.evil", "http://frontend.example/path"} {
 			t.Run(action+"/"+origin, func(t *testing.T) {
 				auth := gatewayhandlermocks.NewMockAuthService(t)
-				h := handler.NewAuthHandler(auth, handler.CookieConfig{}, testRedirectConfig())
+				h := handler.NewAuthHandler(auth, anyAudit(t), handler.CookieConfig{}, testRedirectConfig())
 				router := gin.New()
 				router.POST("/refresh", h.Refresh)
 				router.POST("/logout", h.Logout)
@@ -425,7 +425,7 @@ func TestCookieOriginFallsBackToRefererOnlyWhenOriginIsAbsent(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			auth := gatewayhandlermocks.NewMockAuthService(t)
-			h := handler.NewAuthHandler(auth, handler.CookieConfig{}, testRedirectConfig())
+			h := handler.NewAuthHandler(auth, anyAudit(t), handler.CookieConfig{}, testRedirectConfig())
 			router := gin.New()
 			router.POST("/logout", h.Logout)
 			if test.allowed {
@@ -448,4 +448,11 @@ func TestCookieOriginFallsBackToRefererOnlyWhenOriginIsAbsent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// anyAudit accepts every audit event, for tests that do not observe audit.
+func anyAudit(t *testing.T) *gatewayhandlermocks.MockAuditRecorder {
+	t.Helper()
+	recorder, _ := expectAudit(t, nil)
+	return recorder
 }

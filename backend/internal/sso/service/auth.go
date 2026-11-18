@@ -351,35 +351,35 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	return user.ID, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, username, password string) (model.Tokens, error) {
+func (s *AuthService) Login(ctx context.Context, username, password string) (model.SignIn, error) {
 	if !s.cfg.LocalLoginEnabled {
-		return model.Tokens{}, apperrors.ErrNotFound
+		return model.SignIn{}, apperrors.ErrNotFound
 	}
 
 	user, err := s.repo.GetUserByUsername(ctx, normalizeIdentity(username))
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
-			return model.Tokens{}, apperrors.ErrInvalidCredentials
+			return model.SignIn{}, apperrors.ErrInvalidCredentials
 		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return model.Tokens{}, apperrors.ErrTimeout
+			return model.SignIn{}, apperrors.ErrTimeout
 		}
-		return model.Tokens{}, apperrors.ErrUnavailable
+		return model.SignIn{}, apperrors.ErrUnavailable
 	}
 	if user.Status != model.StatusActive {
-		return model.Tokens{}, apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 	if user.AuthSource != "" && user.AuthSource != model.AuthSourceLocal {
-		return model.Tokens{}, apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 
 	// bcrypt compares only the first 72 bytes; no stored password is longer, so a
 	// longer one would otherwise match the password it starts with.
 	if len(password) > maxPasswordBytes {
-		return model.Tokens{}, apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return model.Tokens{}, apperrors.ErrInvalidCredentials
+		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 
 	return s.createSession(ctx, user, true)
@@ -495,7 +495,7 @@ func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, 
 		return rejected(model.OIDCCallbackAccountDeactivated)
 	}
 
-	tokens, err := s.createSession(ctx, user, false)
+	signIn, err := s.createSession(ctx, user, false)
 	if errors.Is(err, apperrors.ErrInvalidCredentials) {
 		// Deactivated between provisioning and the session lock.
 		return rejected(model.OIDCCallbackAccountDeactivated)
@@ -503,7 +503,7 @@ func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, 
 	if err != nil {
 		return model.OIDCCallbackResult{}, err
 	}
-	return model.OIDCCallbackResult{Outcome: model.OIDCCallbackSuccess, Tokens: tokens, RedirectAfter: attempt.RedirectAfter}, nil
+	return model.OIDCCallbackResult{Outcome: model.OIDCCallbackSuccess, Tokens: signIn.Tokens, User: signIn.User, RedirectAfter: attempt.RedirectAfter}, nil
 }
 
 func (s *AuthService) oidcEnabled() bool {

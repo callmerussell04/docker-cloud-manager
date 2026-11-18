@@ -48,7 +48,7 @@ func (c *SSOClient) Register(ctx context.Context, username, email, password stri
 	return resp.GetUserId(), nil
 }
 
-func (c *SSOClient) Login(ctx context.Context, username, password string) (model.Tokens, error) {
+func (c *SSOClient) Login(ctx context.Context, username, password string) (model.SignIn, error) {
 	req := &sso.LoginRequest{
 		Username: username,
 		Password: password,
@@ -56,14 +56,21 @@ func (c *SSOClient) Login(ctx context.Context, username, password string) (model
 
 	resp, err := c.authAPI.Login(withoutAuthenticatedUser(ctx), req)
 	if err != nil {
-		return model.Tokens{}, grpcerrors.FromGRPC(err)
+		return model.SignIn{}, grpcerrors.FromGRPC(err)
 	}
 
-	return model.Tokens{
-		AccessToken:      resp.GetAccessToken(),
-		RefreshToken:     resp.GetRefreshToken(),
-		RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
+	return model.SignIn{
+		Tokens: model.Tokens{
+			AccessToken:      resp.GetAccessToken(),
+			RefreshToken:     resp.GetRefreshToken(),
+			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
+		},
+		User: signedInUserFromProto(resp.GetUser()),
 	}, nil
+}
+
+func signedInUserFromProto(user *sso.SignedInUser) model.SignedInUser {
+	return model.SignedInUser{ID: user.GetId(), Username: user.GetUsername(), Role: user.GetRole()}
 }
 
 func (c *SSOClient) Refresh(ctx context.Context, refreshToken string) (model.Tokens, error) {
@@ -135,6 +142,7 @@ func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, st
 			RefreshToken:     resp.GetRefreshToken(),
 			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
 		}
+		result.User = signedInUserFromProto(resp.GetUser())
 	}
 	return result, nil
 }

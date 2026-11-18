@@ -18,6 +18,20 @@ type Tokens struct {
 	RefreshExpiresAt time.Time
 }
 
+// SignedInUser names the user a session was created for, as the session's
+// transaction read it, so the caller can attribute the sign-in.
+type SignedInUser struct {
+	ID       uuid.UUID
+	Username string
+	Role     string
+}
+
+// SignIn is a new session's tokens and its user.
+type SignIn struct {
+	Tokens Tokens
+	User   SignedInUser
+}
+
 // Session is the durable authorization lifetime shared by a refresh-token family.
 type Session struct {
 	ID                uuid.UUID

@@ -26,8 +26,12 @@ import (
 func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth := ssogrpcmocks.NewMockAuthService(t)
 	userID := uuid.New()
+	oidcUserID := uuid.New()
 	auth.EXPECT().Register(mock.Anything, "alice", "alice@example.com", "secret123").Return(userID, nil)
-	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
+	auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.SignIn{
+		Tokens: model.Tokens{AccessToken: "access", RefreshToken: "refresh", RefreshExpiresAt: time.Unix(2000000000, 0)},
+		User:   model.SignedInUser{ID: userID, Username: "alice", Role: model.RoleAdmin},
+	}, nil)
 	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
 	auth.EXPECT().LocalAuthConfig().Return(true, false)
 	auth.EXPECT().AuthProviders().Return([]model.AuthProvider{{Name: "keycloak", Available: false}})
@@ -37,6 +41,7 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.OIDCCallbackResult{
 		Outcome:       model.OIDCCallbackSuccess,
 		Tokens:        model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)},
+		User:          model.SignedInUser{ID: oidcUserID, Username: "bob", Role: model.RoleUser},
 		RedirectAfter: "/dashboard",
 	}, nil)
 	conn := newSSOGRPCConn(t, auth, false)
@@ -53,6 +58,9 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "access", loginResp.AccessToken)
 	require.Equal(t, "refresh", loginResp.RefreshToken)
+	require.Equal(t, userID.String(), loginResp.GetUser().GetId())
+	require.Equal(t, "alice", loginResp.GetUser().GetUsername())
+	require.Equal(t, model.RoleAdmin, loginResp.GetUser().GetRole())
 
 	refreshResp, err := client.Refresh(context.Background(), &sso.RefreshRequest{RefreshToken: "refresh"})
 	require.NoError(t, err)
@@ -78,6 +86,9 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	require.Equal(t, sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS, callbackResp.Outcome)
 	require.Equal(t, "access3", callbackResp.AccessToken)
 	require.Equal(t, "/dashboard", callbackResp.RedirectAfter)
+	require.Equal(t, oidcUserID.String(), callbackResp.GetUser().GetId())
+	require.Equal(t, "bob", callbackResp.GetUser().GetUsername())
+	require.Equal(t, model.RoleUser, callbackResp.GetUser().GetRole())
 }
 
 // Expected callback rejections are typed outcomes in the response, while

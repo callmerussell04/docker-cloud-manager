@@ -11,12 +11,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/config"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/dto"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/httpresponse"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 )
@@ -28,6 +32,7 @@ const (
 	oidcStateCookiePrefix = "oidc_state_"
 	oidcStateCookiePath   = "/api/v1/auth/oidc/keycloak/callback"
 	keycloakProvider      = "keycloak"
+	roleAdmin             = "admin"
 )
 
 // Reasons a sign-in through the provider failed, sent to the SPA callback page
@@ -54,7 +59,7 @@ var callbackOutcomeReasons = map[model.OIDCCallbackOutcome]string{
 
 type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
-	Login(ctx context.Context, username, password string) (model.Tokens, error)
+	Login(ctx context.Context, username, password string) (model.SignIn, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
 	Logout(ctx context.Context, refreshToken string) error
 	GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
@@ -64,6 +69,7 @@ type AuthService interface {
 
 type AuthHandler struct {
 	service        AuthService
+	audit          AuditRecorder
 	cookieConfig   CookieConfig
 	redirectConfig AuthRedirectConfig
 }
@@ -74,7 +80,9 @@ type CookieConfig = config.Cookie
 // AuthRedirectConfig is the redirect configuration owned by the config package.
 type AuthRedirectConfig = config.AuthRedirect
 
-func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConfig AuthRedirectConfig) *AuthHandler {
+// NewAuthHandler serves the public auth routes and records sign-ins and
+// registrations through audit.
+func NewAuthHandler(service AuthService, audit AuditRecorder, cookieConfig CookieConfig, redirectConfig AuthRedirectConfig) *AuthHandler {
 	if cookieConfig.Name == "" {
 		cookieConfig.Name = "refresh_token"
 	}
@@ -89,6 +97,7 @@ func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConf
 	}
 	return &AuthHandler{
 		service:        service,
+		audit:          audit,
 		cookieConfig:   cookieConfig,
 		redirectConfig: normalizeAuthRedirectConfig(redirectConfig),
 	}
@@ -97,15 +106,18 @@ func NewAuthHandler(service AuthService, cookieConfig CookieConfig, redirectConf
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req dto.RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.auditRegistration(c, "", apperrors.ErrBadRequest)
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 	if err := validation.ResourceName(req.Username); err != nil {
+		h.auditRegistration(c, "", apperrors.ErrBadRequest)
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.New(apperrors.ErrBadRequest, err.Error()))
 		return
 	}
 
 	userID, err := h.service.Register(c.Request.Context(), req.Username, req.Email, req.Password)
+	h.auditRegistration(c, userID, err)
 	if err != nil {
 		h.handleAuthError(c, err)
 		return
@@ -118,24 +130,29 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	var req dto.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		h.auditLoginFailure(c, apperrors.ErrBadRequest)
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.ErrBadRequest)
 		return
 	}
 	if err := validation.ResourceName(req.Username); err != nil {
+		h.auditLoginFailure(c, apperrors.ErrBadRequest)
 		httpresponse.Respond(c, http.StatusBadRequest, apperrors.New(apperrors.ErrBadRequest, err.Error()))
 		return
 	}
 
-	tokens, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
+	signIn, err := h.service.Login(c.Request.Context(), req.Username, req.Password)
 	if err != nil {
+		h.auditLoginFailure(c, err)
 		h.handleAuthError(c, err)
 		return
 	}
 
-	if !h.setRefreshTokenCookie(c, tokens) {
+	if !h.setRefreshTokenCookie(c, signIn.Tokens) {
+		h.auditLoginFailure(c, apperrors.ErrUnavailable)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"access_token": tokens.AccessToken})
+	h.auditSignInSuccess(c, auditlog.ActionAuthLogin, nil, signIn.User)
+	c.JSON(http.StatusOK, gin.H{"access_token": signIn.Tokens.AccessToken})
 }
 
 func (h *AuthHandler) Refresh(c *gin.Context) {
@@ -227,18 +244,18 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 		if providerError == "access_denied" {
 			reason = loginReasonAccessDenied
 		}
-		h.refuseCallback(c, reason)
+		h.auditCallbackFailure(c, h.refuseCallback(c, reason))
 		return
 	}
 	code := c.Query("code")
 	if !stateValid || stateBinding == "" || code == "" {
-		h.refuseCallback(c, loginReasonStateInvalid)
+		h.auditCallbackFailure(c, h.refuseCallback(c, loginReasonStateInvalid))
 		return
 	}
 
 	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), keycloakProvider, code, state, stateBinding)
 	if err != nil {
-		h.failNavigation(c, h.defaultRedirectAfter(), err)
+		h.auditCallbackFailure(c, h.failNavigation(c, h.defaultRedirectAfter(), err))
 		return
 	}
 	target := h.defaultRedirectAfter()
@@ -252,13 +269,16 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 		if !known {
 			reason = loginReasonLoginFailed
 		}
+		h.auditCallbackFailure(c, reason)
 		h.redirectLoginFailure(c, target, reason)
 		return
 	}
 	if !h.writeRefreshTokenCookie(c, result.Tokens) {
+		h.auditCallbackFailure(c, loginReasonLoginFailed)
 		h.redirectLoginFailure(c, target, loginReasonLoginFailed)
 		return
 	}
+	h.auditSignInSuccess(c, auditlog.ActionAuthOIDCCallback, keycloakAuditDetails(), result.User)
 	c.Redirect(http.StatusFound, redirectWithLoginResult(target, ""))
 }
 
@@ -274,30 +294,112 @@ func (h *AuthHandler) RejectRateLimitedNavigation(c *gin.Context) {
 
 // refuseCallback refuses a callback without sending it to SSO's callback. It
 // still asks SSO whether the provider is enabled, so with OIDC off the route
-// is not found on every path.
-func (h *AuthHandler) refuseCallback(c *gin.Context, reason string) {
+// is not found on every path. It returns the reason it redirected with, empty
+// when it answered not found.
+func (h *AuthHandler) refuseCallback(c *gin.Context, reason string) string {
 	cfg, err := h.service.GetAuthConfig(c.Request.Context())
 	if err != nil {
 		h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonProviderUnavailable)
-		return
+		return loginReasonProviderUnavailable
 	}
 	for _, provider := range cfg.OIDCProviders {
 		if provider.Name == keycloakProvider {
 			h.redirectLoginFailure(c, h.defaultRedirectAfter(), reason)
-			return
+			return reason
 		}
 	}
 	httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+	return ""
 }
 
 // failNavigation answers an SSO error on a sign-in navigation: not found with
-// OIDC off, otherwise a redirect to target with the error's reason.
-func (h *AuthHandler) failNavigation(c *gin.Context, target string, err error) {
+// OIDC off, otherwise a redirect to target with the error's reason. It
+// returns that reason, empty when it answered not found.
+func (h *AuthHandler) failNavigation(c *gin.Context, target string, err error) string {
 	if errors.Is(err, apperrors.ErrNotFound) {
 		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+		return ""
+	}
+	reason := loginReasonForError(err)
+	h.redirectLoginFailure(c, target, reason)
+	return reason
+}
+
+// Sign-in audit events record only what SSO answered, never what the
+// browser sent: no attempted username, password, code, state or token.
+
+// auditSignInSuccess attributes a sign-in to the user SSO signed in, with that
+// user as the resource. A user without a valid ID, which SSO never answers, is
+// recorded under system scope rather than dropped.
+func (h *AuthHandler) auditSignInSuccess(c *gin.Context, action string, details map[string]string, user model.SignedInUser) {
+	input := auditInput{Action: action, ResourceType: auditlog.ResourceAuth, DetailsJSON: auditlog.SafeDetailsJSON(details)}
+	scope, ok := signedInScope(user)
+	if ok {
+		input.ResourceID = user.ID
+		input.OwnerID = user.ID
+	} else {
+		scope = accessscope.Scope{Kind: accessscope.KindSystem}
+	}
+	recordAuditAs(c, h.audit, scope, input)
+}
+
+// auditSignInFailure records a failed sign-in under system scope with its code.
+func (h *AuthHandler) auditSignInFailure(c *gin.Context, action string, details map[string]string, errorCode string) {
+	recordAuditAs(c, h.audit, accessscope.Scope{Kind: accessscope.KindSystem}, auditInput{
+		Action:       action,
+		ResourceType: auditlog.ResourceAuth,
+		Outcome:      auditlog.OutcomeFailure,
+		ErrorCode:    errorCode,
+		DetailsJSON:  auditlog.SafeDetailsJSON(details),
+	})
+}
+
+// auditLoginFailure records a failed local sign-in with the error's code.
+func (h *AuthHandler) auditLoginFailure(c *gin.Context, err error) {
+	h.auditSignInFailure(c, auditlog.ActionAuthLogin, nil, apperrors.Code(err))
+}
+
+// auditCallbackFailure records a failed callback with its reason code. An
+// empty reason is a route answered as not found, which is no sign-in.
+func (h *AuthHandler) auditCallbackFailure(c *gin.Context, reason string) {
+	if reason == "" {
 		return
 	}
-	h.redirectLoginFailure(c, target, loginReasonForError(err))
+	h.auditSignInFailure(c, auditlog.ActionAuthOIDCCallback, keycloakAuditDetails(), reason)
+}
+
+// auditRegistration records a registration under system scope, with the new
+// user as the resource on success and the error's code on failure.
+func (h *AuthHandler) auditRegistration(c *gin.Context, userID string, err error) {
+	input := auditInput{Action: auditlog.ActionAuthRegister, ResourceType: auditlog.ResourceUser}
+	if err != nil {
+		input.Outcome = auditlog.OutcomeFailure
+		input.ErrorCode = apperrors.Code(err)
+	} else {
+		input.ResourceID = userID
+		input.OwnerID = userID
+	}
+	recordAuditAs(c, h.audit, accessscope.Scope{Kind: accessscope.KindSystem}, input)
+}
+
+func keycloakAuditDetails() map[string]string {
+	return map[string]string{auditlog.DetailProvider: keycloakProvider}
+}
+
+// signedInScope is the audit scope of a sign-in: admin when SSO signed in an
+// administrator, user otherwise. Request scopes come from the route instead;
+// a sign-in has no route scope, so the role picks it. It is false when SSO
+// named no valid user.
+func signedInScope(user model.SignedInUser) (accessscope.Scope, bool) {
+	userID, err := uuid.Parse(user.ID)
+	if err != nil || userID == uuid.Nil {
+		return accessscope.Scope{}, false
+	}
+	kind := accessscope.KindUser
+	if user.Role == roleAdmin {
+		kind = accessscope.KindAdmin
+	}
+	return accessscope.Scope{Kind: kind, UserID: userID, Username: user.Username, Role: user.Role}, true
 }
 
 func (h *AuthHandler) redirectLoginFailure(c *gin.Context, target, reason string) {

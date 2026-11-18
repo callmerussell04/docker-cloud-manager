@@ -226,11 +226,12 @@ func newRouterDeps(t *testing.T) *routerDeps {
 	tickets := gatewayhandlermocks.NewMockTelemetryTicketIssuer(t)
 	readiness := gatewayhandlermocks.NewMockReadinessService(t)
 	verifier := gatewaymiddlewaremocks.NewMockTokenVerifier(t)
-	return &routerDeps{auth: auth, core: core, users: users, adminUsers: adminUsers, tickets: tickets, readiness: readiness, verifier: verifier}
+	return &routerDeps{auth: auth, authAudit: anyAudit(t), core: core, users: users, adminUsers: adminUsers, tickets: tickets, readiness: readiness, verifier: verifier}
 }
 
 type routerDeps struct {
 	auth       *gatewayhandlermocks.MockAuthService
+	authAudit  *gatewayhandlermocks.MockAuditRecorder
 	core       *gatewayhandlermocks.MockCoreService
 	users      *gatewayhandlermocks.MockUserDirectory
 	adminUsers *gatewayhandlermocks.MockAdminUserService
@@ -243,7 +244,7 @@ type routerDeps struct {
 func (d *routerDeps) routerDeps() gatewayhttp.RouterDeps {
 	coreHandler := handler.NewCoreHandler(d.core)
 	return gatewayhttp.RouterDeps{
-		AuthHandler:            handler.NewAuthHandler(d.auth, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{}),
+		AuthHandler:            handler.NewAuthHandler(d.auth, d.authAudit, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{}),
 		CoreHandler:            coreHandler,
 		UserHandler:            handler.NewUserManagementHandler(handler.UserManagementDeps{Users: d.users, AdminUsers: d.adminUsers, Audit: d.core}),
 		HealthHandler:          handler.NewHealthHandler(d.readiness),
@@ -316,7 +317,7 @@ func TestRouterSplitsAuthRateLimitsByPurpose(t *testing.T) {
 	cfg.AuthRateLimit = middleware.RateLimitConfig{Requests: 1, Window: time.Minute}
 	router, err := gatewayhttp.NewRouter(cfg, deps.routerDeps())
 	require.NoError(t, err)
-	deps.auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{}, apperrors.ErrInvalidCredentials).Once()
+	deps.auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.SignIn{}, apperrors.ErrInvalidCredentials).Once()
 	deps.auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{}, nil).Once()
 	deps.auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/auth/callback").Return(model.OIDCLoginStartResult{}, apperrors.ErrUnavailable).Once()
 	login := map[string]string{"Content-Type": "application/json", "Origin": "http://localhost:5173"}
@@ -462,4 +463,12 @@ func TestRouterForwardedClientRateLimitsAndAttribution(t *testing.T) {
 			}
 		})
 	}
+}
+
+// anyAudit accepts every audit event, for tests that do not observe audit.
+func anyAudit(t *testing.T) *gatewayhandlermocks.MockAuditRecorder {
+	t.Helper()
+	recorder := gatewayhandlermocks.NewMockAuditRecorder(t)
+	recorder.EXPECT().RecordAuditEvent(mock.Anything, mock.Anything).Return(nil).Maybe()
+	return recorder
 }

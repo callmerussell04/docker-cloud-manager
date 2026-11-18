@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type auditInput struct {
@@ -35,10 +36,22 @@ func (h *CoreHandler) recordAudit(c *gin.Context, input auditInput) {
 
 // recordAudit attributes the event to the request's scope.
 func recordAudit(c *gin.Context, recorder AuditRecorder, input auditInput) {
+	recordAuditIn(c.Request.Context(), c, recorder, input)
+}
+
+// recordAuditAs attributes the event to scope instead of the request's: a
+// public auth route has no scope, and learns its actor only from the result.
+func recordAuditAs(c *gin.Context, recorder AuditRecorder, scope accessscope.Scope, input auditInput) {
+	recordAuditIn(accessscope.WithScope(c.Request.Context(), scope), c, recorder, input)
+}
+
+// recordAuditIn records the event under the scope ctx carries, which is also
+// the scope Core takes the actor from.
+func recordAuditIn(ctx context.Context, c *gin.Context, recorder AuditRecorder, input auditInput) {
 	if input.Action == "" {
 		return
 	}
-	scope, _ := accessscope.FromContext(c.Request.Context())
+	scope, _ := accessscope.FromContext(ctx)
 	actorScope := string(scope.Kind)
 	if actorScope == "" {
 		actorScope = auditlog.ActorScopeUnknown
@@ -52,12 +65,12 @@ func recordAudit(c *gin.Context, recorder AuditRecorder, input auditInput) {
 		detailsJSON = "{}"
 	}
 	actorUserID := ""
-	if scope.UserID.String() != "00000000-0000-0000-0000-000000000000" {
+	if scope.UserID != uuid.Nil {
 		actorUserID = scope.UserID.String()
 	}
 	// Audit is best effort: a failed write never changes the response. It is
 	// attached to the request so the access log records it.
-	err := recorder.RecordAuditEvent(context.WithoutCancel(c.Request.Context()), model.AuditEvent{
+	err := recorder.RecordAuditEvent(context.WithoutCancel(ctx), model.AuditEvent{
 		OccurredAt:    time.Now().UTC().Unix(),
 		ActorUserID:   actorUserID,
 		ActorUsername: scope.Username,
@@ -68,7 +81,7 @@ func recordAudit(c *gin.Context, recorder AuditRecorder, input auditInput) {
 		ResourceID:    input.ResourceID,
 		ResourceName:  input.ResourceName,
 		OwnerID:       input.OwnerID,
-		RequestID:     logging.RequestIDFromContext(c.Request.Context()),
+		RequestID:     logging.RequestIDFromContext(ctx),
 		ClientIP:      c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
 		ErrorCode:     input.ErrorCode,

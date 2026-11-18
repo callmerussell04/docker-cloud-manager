@@ -40,15 +40,16 @@ func (h *Handler) Login(ctx context.Context, req *sso.LoginRequest) (*sso.LoginR
 		return nil, status.Error(codes.InvalidArgument, "missing required fields")
 	}
 
-	tokens, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
+	signIn, err := h.auth.Login(ctx, loginDTO.Username, loginDTO.Password)
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
 	return &sso.LoginResponse{
-		AccessToken:      tokens.AccessToken,
-		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
-		RefreshToken:     tokens.RefreshToken,
+		AccessToken:      signIn.Tokens.AccessToken,
+		RefreshExpiresAt: signIn.Tokens.RefreshExpiresAt.Unix(),
+		RefreshToken:     signIn.Tokens.RefreshToken,
+		User:             signedInUserToProto(signIn.User),
 	}, nil
 }
 
@@ -117,8 +118,13 @@ func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOID
 		resp.AccessToken = result.Tokens.AccessToken
 		resp.RefreshToken = result.Tokens.RefreshToken
 		resp.RefreshExpiresAt = result.Tokens.RefreshExpiresAt.Unix()
+		resp.User = signedInUserToProto(result.User)
 	}
 	return resp, nil
+}
+
+func signedInUserToProto(user model.SignedInUser) *sso.SignedInUser {
+	return &sso.SignedInUser{Id: user.ID.String(), Username: user.Username, Role: user.Role}
 }
 
 func callbackOutcomeToProto(outcome model.OIDCCallbackOutcome) sso.OIDCCallbackOutcome {

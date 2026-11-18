@@ -335,7 +335,7 @@ func newSecurityHarnessWithUsers(t *testing.T, logger *slog.Logger, users handle
 	// Production derives the refresh-cookie origins from the CORS origins.
 	cfg.CORSAllowedOrigins = []string{securityOrigin}
 	h.router, err = gatewayhttp.NewRouter(cfg, gatewayhttp.RouterDeps{
-		AuthHandler:                 handler.NewAuthHandler(h.auth, handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{securityOrigin}}),
+		AuthHandler:                 handler.NewAuthHandler(h.auth, anyAudit(t), handler.CookieConfig{Name: "refresh_token"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{securityOrigin}}),
 		CoreHandler:                 handler.NewCoreHandler(unreachableCoreService{}),
 		UserHandler:                 handler.NewUserManagementHandler(users),
 		HealthHandler:               handler.NewHealthHandler(nil),

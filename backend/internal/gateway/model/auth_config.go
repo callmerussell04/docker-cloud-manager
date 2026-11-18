@@ -36,10 +36,12 @@ const (
 	OIDCCallbackAccountConflict    OIDCCallbackOutcome = "account_conflict"
 )
 
-// OIDCCallbackResult carries tokens only on success. RedirectAfter is the
-// attempt's target once SSO consumed the attempt, and empty before.
+// OIDCCallbackResult carries tokens and the signed-in user only on success.
+// RedirectAfter is the attempt's target once SSO consumed the attempt, and
+// empty before.
 type OIDCCallbackResult struct {
 	Outcome       OIDCCallbackOutcome
 	Tokens        Tokens
+	User          SignedInUser
 	RedirectAfter string
 }

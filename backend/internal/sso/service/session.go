@@ -40,8 +40,10 @@ type SessionTransaction interface {
 	CountActiveAdmins(ctx context.Context) (int, error)
 }
 
-func (s *AuthService) createSession(ctx context.Context, authenticated model.User, local bool) (model.Tokens, error) {
-	var result model.Tokens
+// createSession signs authenticated in and names the user as the session's
+// transaction read it, which is the user the access token was issued for.
+func (s *AuthService) createSession(ctx context.Context, authenticated model.User, local bool) (model.SignIn, error) {
+	var result model.SignIn
 	err := s.sessions.WithUser(ctx, authenticated.ID, "create session", func(user model.User, tx SessionTransaction) error {
 		if user.Status != model.StatusActive || (local && (user.PasswordHash != authenticated.PasswordHash || user.AuthSource == model.AuthSourceOIDC)) {
 			return apperrors.ErrInvalidCredentials
@@ -51,10 +53,11 @@ func (s *AuthService) createSession(ctx context.Context, authenticated model.Use
 		session.IdleExpiresAt = earlier(now.Add(s.cfg.SessionIdleTTL), session.AbsoluteExpiresAt)
 		var token model.RefreshToken
 		var err error
-		result, token, err = s.issueTokens(user, session, now)
+		result.Tokens, token, err = s.issueTokens(user, session, now)
 		if err != nil {
 			return err
 		}
+		result.User = model.SignedInUser{ID: user.ID, Username: user.Username, Role: user.Role}
 		if err := tx.CreateSession(ctx, session, token); err != nil {
 			return err
 		}
@@ -66,7 +69,7 @@ func (s *AuthService) createSession(ctx context.Context, authenticated model.Use
 		return tx.UpdateUser(ctx, user)
 	})
 	if err != nil {
-		return model.Tokens{}, err
+		return model.SignIn{}, err
 	}
 	return result, nil
 }

@@ -54,7 +54,7 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	cfg.Router.AuthRedirect.CookieAllowedOrigins = cfg.Router.CORSAllowedOrigins
 	healthHandler := handler.NewHealthHandler(newReadiness(cfg, clients))
 	router, err := gatewayhttp.NewRouter(cfg.Router, gatewayhttp.RouterDeps{
-		AuthHandler: handler.NewAuthHandler(clients.ssoClient, cfg.Cookie, cfg.Router.AuthRedirect),
+		AuthHandler: handler.NewAuthHandler(clients.ssoClient, clients.coreClient, cfg.Cookie, cfg.Router.AuthRedirect),
 		CoreHandler: handler.NewCoreHandler(clients.coreClient),
 		UserHandler: handler.NewUserManagementHandler(handler.UserManagementDeps{
 			Users:        clients.ssoClient,

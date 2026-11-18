@@ -41,10 +41,19 @@ message LoginRequest {
   string password = 2;
 }
 
+// SignedInUser names the user a sign-in authenticated, so Gateway can
+// attribute the sign-in to that user.
+message SignedInUser {
+  string id = 1;
+  string username = 2;
+  string role = 3;
+}
+
 message LoginResponse {
   string access_token = 1;
   string refresh_token = 2;
   int64 refresh_expires_at = 3;
+  SignedInUser user = 4;
 }
 
 message LogoutRequest {
@@ -119,6 +128,8 @@ message CompleteOIDCCallbackResponse {
   string redirect_after = 3;
   int64 refresh_expires_at = 4;
   OIDCCallbackOutcome outcome = 5;
+  // user is set only with OIDC_CALLBACK_OUTCOME_SUCCESS.
+  SignedInUser user = 6;
 }
 
 message VerifyTokenRequest {

@@ -3,11 +3,13 @@ package session_flow_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,18 +17,22 @@ import (
 	coreclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/core/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/grpc/client"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
+	gatewaymodel "github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/internalauth"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/jwt"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/oidc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
+	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/gateway/http/handler"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/oidctest"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -72,7 +78,7 @@ func TestCoreCredentialOnlyReadsUsersFromSSO(t *testing.T) {
 	})
 	aliceID, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
 	require.NoError(t, err)
-	tokens, err := svc.Login(ctx, "alice", "secret123")
+	tokens, err := loginTokens(svc.Login(ctx, "alice", "secret123"))
 	require.NoError(t, err)
 	dial := serveSSO(t, svc)
 
@@ -145,7 +151,8 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	ssoClient := client.NewSSOClient(conn)
 	// Direct token checks state system scope, as Gateway's client does.
 	rpcCtx := accessscope.WithSystemScope(ctx)
-	auth := handler.NewAuthHandler(ssoClient, handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
+	recorder, _ := auditMock(t)
+	auth := handler.NewAuthHandler(ssoClient, recorder, handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{CookieAllowedOrigins: []string{"http://frontend.example"}})
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.POST("/login", auth.Login)
@@ -252,6 +259,40 @@ type browser struct {
 	ctx     context.Context
 	router  http.Handler
 	cookies map[string]*http.Cookie
+	audit   *auditTrail
+}
+
+// auditTrail holds the events Gateway sent to Core's audit API, each with
+// the scope its call carried, which is where Core takes the actor from.
+type auditTrail struct {
+	mu     sync.Mutex
+	events []auditedEvent
+}
+
+type auditedEvent struct {
+	Scope accessscope.Scope
+	Event gatewaymodel.AuditEvent
+}
+
+func (a *auditTrail) recorded() []auditedEvent {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]auditedEvent(nil), a.events...)
+}
+
+// auditMock stands in for Core's audit API, accepting every event into the
+// returned trail.
+func auditMock(t *testing.T) (*gatewayhandlermocks.MockAuditRecorder, *auditTrail) {
+	t.Helper()
+	trail := &auditTrail{}
+	recorder := gatewayhandlermocks.NewMockAuditRecorder(t)
+	recorder.EXPECT().RecordAuditEvent(mock.Anything, mock.Anything).Run(func(ctx context.Context, event gatewaymodel.AuditEvent) {
+		scope, _ := accessscope.FromContext(ctx)
+		trail.mu.Lock()
+		defer trail.mu.Unlock()
+		trail.events = append(trail.events, auditedEvent{Scope: scope, Event: event})
+	}).Return(nil).Maybe()
+	return recorder, trail
 }
 
 func (b *browser) get(target string) *httptest.ResponseRecorder {
@@ -284,19 +325,21 @@ func (b *browser) do(method, target string) *httptest.ResponseRecorder {
 func oidcGateway(t *testing.T, ctx context.Context, svc *service.AuthService) (*browser, sso.UserAPIClient) {
 	t.Helper()
 	conn := serveSSO(t, svc)(internalauth.UnaryClientInterceptor(gatewayCredential))
-	auth := handler.NewAuthHandler(client.NewSSOClient(conn), handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{
+	recorder, audit := auditMock(t)
+	auth := handler.NewAuthHandler(client.NewSSOClient(conn), recorder, handler.CookieConfig{Name: "refresh_token", HTTPOnly: true, Path: "/api/v1/auth"}, handler.AuthRedirectConfig{
 		AllowedOrigins:       []string{"http://frontend.example"},
 		CookieAllowedOrigins: []string{"http://frontend.example"},
 		CallbackPath:         "/auth/callback",
 	})
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.POST("/api/v1/auth/register", auth.Register)
 	router.POST("/api/v1/auth/login", auth.Login)
 	router.POST("/api/v1/auth/refresh", auth.Refresh)
 	router.GET("/api/v1/auth/providers", auth.Providers)
 	router.GET("/api/v1/auth/oidc/keycloak/start", auth.StartKeycloakLogin)
 	router.GET(oidcCallbackPath, auth.CompleteKeycloakCallback)
-	return &browser{t: t, ctx: ctx, router: router, cookies: map[string]*http.Cookie{}}, sso.NewUserAPIClient(conn)
+	return &browser{t: t, ctx: ctx, router: router, cookies: map[string]*http.Cookie{}, audit: audit}, sso.NewUserAPIClient(conn)
 }
 
 type providersAnswer struct {
@@ -335,10 +378,25 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true, OIDCEnabled: true, OIDCProviderName: "keycloak",
 	})
-	_, err = svc.Register(ctx, "bob", "bob@example.com", "secret123")
+	bobID, err := svc.Register(ctx, "bob", "bob@example.com", "secret123")
 	require.NoError(t, err)
 	b, users := oidcGateway(t, ctx, svc)
 	rpcCtx := accessscope.WithSystemScope(ctx)
+
+	// Registration and a failed local sign-in go through Gateway.
+	post := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", "http://frontend.example")
+		recorded := httptest.NewRecorder()
+		b.router.ServeHTTP(recorded, req)
+		return recorded
+	}
+	registered := post("/api/v1/auth/register", `{"username":"carol","email":"carol@example.com","password":"carol-secret"}`)
+	require.Equal(t, http.StatusCreated, registered.Code)
+	var created map[string]string
+	require.NoError(t, json.Unmarshal(registered.Body.Bytes(), &created))
+	require.Equal(t, http.StatusUnauthorized, post("/api/v1/auth/login", `{"username":"bob","password":"wrong-password"}`).Code)
 
 	// Provider down: local sign-in, refresh and token verification work.
 	login := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":"bob","password":"secret123"}`)).WithContext(ctx)
@@ -382,6 +440,8 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	require.Len(t, stateCookies(b), 1)
 	back := idp.SignIn(response.Header().Get("Location"))
 	require.Equal(t, oidcCallbackPath, back.Path)
+	code, state := back.Query().Get("code"), back.Query().Get("state")
+	binding := stateCookies(b)[0].Value
 	require.Equal(t, "S256", idp.LastAuthorization().Get("code_challenge_method"), "the code is bound to the attempt with PKCE")
 
 	// The callback signs the user in: a refresh cookie, no token in the URL.
@@ -398,6 +458,30 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, "alice", verified.GetUsername())
 	require.Equal(t, "alice@example.com", verified.GetEmail())
+
+	// Each sign-in is audited: a success under its user's scope, a failure
+	// under system scope with its reason, and never what the browser sent.
+	aliceID, err := uuid.Parse(verified.GetUserId())
+	require.NoError(t, err)
+	events := b.audit.recorded()
+	require.Len(t, events, 5, "a registration, two local sign-ins and two callbacks; start and refresh are no sign-in")
+	require.Equal(t, accessscope.Scope{Kind: accessscope.KindSystem}, events[0].Scope)
+	require.Equal(t, [4]string{"auth.register", "success", "user", created["user_id"]}, [4]string{events[0].Event.Action, events[0].Event.Outcome, events[0].Event.ResourceType, events[0].Event.ResourceID})
+	require.Equal(t, accessscope.Scope{Kind: accessscope.KindSystem}, events[1].Scope)
+	require.Equal(t, [3]string{"auth.login", "failure", "invalid_credentials"}, [3]string{events[1].Event.Action, events[1].Event.Outcome, events[1].Event.ErrorCode})
+	require.Equal(t, accessscope.Scope{Kind: accessscope.KindUser, UserID: bobID, Username: "bob", Role: "user"}, events[2].Scope)
+	require.Equal(t, [3]string{"auth.login", "success", bobID.String()}, [3]string{events[2].Event.Action, events[2].Event.Outcome, events[2].Event.ResourceID})
+	require.Equal(t, accessscope.Scope{Kind: accessscope.KindSystem}, events[3].Scope)
+	require.Equal(t, [3]string{"auth.oidc_callback", "failure", "state_invalid"}, [3]string{events[3].Event.Action, events[3].Event.Outcome, events[3].Event.ErrorCode})
+	require.Equal(t, accessscope.Scope{Kind: accessscope.KindUser, UserID: aliceID, Username: "alice", Role: "user"}, events[4].Scope)
+	require.Equal(t, [3]string{"auth.oidc_callback", "success", aliceID.String()}, [3]string{events[4].Event.Action, events[4].Event.Outcome, events[4].Event.ResourceID})
+	require.JSONEq(t, `{"provider":"keycloak"}`, events[4].Event.DetailsJSON)
+	for _, event := range events {
+		dump := fmt.Sprintf("%+v", event)
+		for _, secret := range []string{"secret123", "wrong-password", "carol-secret", "carol@example.com", code, state, binding, refreshed["access_token"]} {
+			require.NotContains(t, dump, secret)
+		}
+	}
 }
 
 // With OIDC off SSO lists no provider and the provider routes are not found.
@@ -539,4 +623,9 @@ func TestOIDCLoginAttemptsAreDurableSingleUseAndPerBrowserTab(t *testing.T) {
 	response = after.get(oidcCallbackPath + "?error=access_denied&state=" + lateBack.Query().Get("state"))
 	require.Equal(t, http.StatusFound, response.Code)
 	require.Equal(t, "/auth/callback?login=error&reason=access_denied", response.Header().Get("Location"))
+}
+
+// loginTokens returns only the tokens of a sign-in.
+func loginTokens(signIn model.SignIn, err error) (model.Tokens, error) {
+	return signIn.Tokens, err
 }

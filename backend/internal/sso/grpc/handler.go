@@ -12,7 +12,7 @@ import (
 
 type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (uuid.UUID, error)
-	Login(ctx context.Context, username, password string) (model.Tokens, error)
+	Login(ctx context.Context, username, password string) (model.SignIn, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
 	Logout(ctx context.Context, refreshToken string) error
 	AuthProviders() []model.AuthProvider
