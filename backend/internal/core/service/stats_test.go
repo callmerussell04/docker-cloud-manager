@@ -58,6 +58,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	cfgData.DefaultMemoryReservation = 1
 	cfgData.OvercommitFactor = 1
 	cfgData.BuildMemoryBytes = 100
+	cfgData.BuildCPUMillicores = 50
 	cfgData.MaxConcurrentBuilds = 2
 	cfgData.HostMinFreeDiskBytes = 100
 	// 500 free less the 100 floor holds one build slot of 300.
@@ -65,6 +66,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	cfg := coretest.StaticConfig{Config: cfgData}
 
 	contRepo.EXPECT().GetTotalSystemReservedMemory(ctx).Return(int64(3*bytesPerMBForTest), nil)
+	contRepo.EXPECT().GetTotalSystemReservedCPU(ctx).Return(int64(750), nil)
 	contRepo.EXPECT().GetSystemStatusCounts(ctx).Return(model.ContainerStatusCounts{
 		Total:   7,
 		Running: 3,
@@ -88,6 +90,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 		UsedBytes:      600,
 		AvailableBytes: 400,
 	}, nil)
+	metrics.EXPECT().GetLogicalCPUs().Return(int64(4), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{
 		TotalBytes: 2000,
 		UsedBytes:  1500,
@@ -118,6 +121,8 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.EqualValues(t, 500, stats.DiskFreeBytes)
 	require.EqualValues(t, 3*bytesPerMBForTest, stats.DCMReservedMemoryBytes)
 	require.EqualValues(t, 200, stats.DCMReservedBuildMemoryBytes)
+	require.EqualValues(t, 750, stats.DCMReservedCPUMillicores, "the CPU containers reserve")
+	require.EqualValues(t, 100, stats.DCMReservedBuildCPUMillicores, "two occupied build slots of 50m")
 	require.EqualValues(t, 1234, stats.DCMBorrowedMemoryBytes, "borrowed memory as the memory pressure worker last measured it")
 	require.Equal(t, model.RootfsQuotaNotEnforced, stats.RootfsQuotaStatus, "root filesystem cap status as Core found it at startup")
 	require.EqualValues(t, 2*bytesPerMBForTest+512, stats.DCMDiskUsedBytes)

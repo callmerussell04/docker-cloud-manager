@@ -8,6 +8,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
 
@@ -19,6 +20,7 @@ type StatsContainerRepository interface {
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
 	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
+	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 	GetSystemStatusCounts(ctx context.Context) (model.ContainerStatusCounts, error)
 }
 
@@ -68,6 +70,7 @@ type StatsProjectRepository interface {
 type StatsMetricsProvider interface {
 	GetCPULoad() (float64, error)
 	GetMemoryStats() (model.HostMemoryStats, error)
+	GetLogicalCPUs() (int64, error)
 	GetDiskUsage(path string) (model.HostDiskStats, error)
 }
 
@@ -208,118 +211,146 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMonitoring, error) {
 	cpuPercent, err := s.metrics.GetCPULoad()
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetCPULoad: %w", err)
 	}
 
 	memory, err := s.metrics.GetMemoryStats()
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetMemoryStats: %w", err)
 	}
 
 	disk, err := s.metrics.GetDiskUsage(s.hostDiskPath)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetDiskUsage: %w", err)
+	}
+
+	logicalCPUs, err := s.metrics.GetLogicalCPUs()
+	if err != nil {
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetLogicalCPUs: %w", err)
 	}
 
 	reservedMemory, err := s.contRepo.GetTotalSystemReservedMemory(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalSystemReservedMemory: %w", err)
+	}
+	reservedCPU, err := s.contRepo.GetTotalSystemReservedCPU(ctx)
+	if err != nil {
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalSystemReservedCPU: %w", err)
 	}
 	activeBuilds, err := s.buildRepo.CountActive(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: CountActive: %w", err)
 	}
 	cfg := s.monitoringConfig()
-	reservedBuildMemory := reservedBuildSlots(int64(activeBuilds), cfg) * cfg.BuildMemoryBytes
-	totalReservedMemory := reservedMemory + reservedBuildMemory
+	buildSlots := reservedBuildSlots(int64(activeBuilds), cfg)
 
 	imageUsedBytes, err := s.imgRepo.GetTotalImageBytes(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalImageBytes: %w", err)
 	}
 	volumeUsedBytes, err := s.volRepo.GetTotalUsedVolumeBytes(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalUsedVolumeBytes: %w", err)
 	}
 
 	reservedVolumeBytes, err := s.volRepo.GetTotalVolumeSizeBytes(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalVolumeSizeBytes: %w", err)
 	}
 	unusedVolumePromise, err := s.volRepo.GetUnusedVolumePromiseBytes(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetUnusedVolumePromiseBytes: %w", err)
 	}
 
 	containerCounts, err := s.contRepo.GetSystemStatusCounts(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetSystemStatusCounts: %w", err)
 	}
 	volumesTotal, err := s.volRepo.CountAll(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: count volumes: %w", err)
 	}
 	imagesTotal, err := s.imgRepo.CountAll(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: count images: %w", err)
 	}
 	buildsTotal, err := s.buildRepo.CountAll(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: count builds: %w", err)
 	}
 	projectsTotal, err := s.projRepo.CountAll(ctx)
 	if err != nil {
-		return model.SystemMonitoring{}, err
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: count projects: %w", err)
 	}
 
-	admissionStatus, admissionReasons := admissionState(memory.TotalBytes, disk.FreeBytes, cfg, totalReservedMemory)
+	admissionStatus, admissionReasons := admissionState(reservationLedger{
+		systemReservedMemoryBytes:   reservedMemory,
+		systemReservedCPUMillicores: reservedCPU,
+		activeBuilds:                int64(activeBuilds),
+		hostCounted:                 true,
+		hostMemoryBytes:             memory.TotalBytes,
+		hostLogicalCPUs:             logicalCPUs,
+		diskFloorCounted:            cfg.HostMinFreeDiskBytes > 0,
+		diskFreeBytes:               disk.FreeBytes,
+	}, cfg)
 
 	return model.SystemMonitoring{
-		CPUPercent:                  cpuPercent,
-		MemoryTotalBytes:            memory.TotalBytes,
-		MemoryUsedBytes:             memory.UsedBytes,
-		MemoryAvailableBytes:        memory.AvailableBytes,
-		DiskTotalBytes:              disk.TotalBytes,
-		DiskUsedBytes:               disk.UsedBytes,
-		DiskFreeBytes:               disk.FreeBytes,
-		DCMReservedMemoryBytes:      reservedMemory,
-		DCMReservedBuildMemoryBytes: reservedBuildMemory,
-		DCMBorrowedMemoryBytes:      s.borrowed.BorrowedMemoryBytes(),
-		RootfsQuotaStatus:           s.rootfsQuota.RootfsQuotaStatus(),
-		VolumeSizeMode:              s.volumeSize.VolumeSizeMode(),
-		DCMDiskUsedBytes:            imageUsedBytes + volumeUsedBytes,
-		DCMReservedVolumeBytes:      reservedVolumeBytes,
-		DCMUnusedVolumePromiseBytes: unusedVolumePromise,
-		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
-		BuildClaimCap:               buildClaimCap(cfg, disk.FreeBytes),
-		MaxConcurrentBuilds:         cfg.MaxConcurrentBuilds,
-		AdmissionStatus:             admissionStatus,
-		AdmissionReasons:            admissionReasons,
-		ContainersTotal:             containerCounts.Total,
-		ContainersRunning:           containerCounts.Running,
-		ContainersStopped:           containerCounts.Stopped,
-		ContainersError:             containerCounts.Error,
-		ContainersMissing:           containerCounts.Missing,
-		VolumesTotal:                volumesTotal,
-		ImagesTotal:                 imagesTotal,
-		BuildsTotal:                 buildsTotal,
-		ProjectsTotal:               projectsTotal,
-		ObservedAt:                  time.Now(),
+		CPUPercent:                    cpuPercent,
+		MemoryTotalBytes:              memory.TotalBytes,
+		MemoryUsedBytes:               memory.UsedBytes,
+		MemoryAvailableBytes:          memory.AvailableBytes,
+		DiskTotalBytes:                disk.TotalBytes,
+		DiskUsedBytes:                 disk.UsedBytes,
+		DiskFreeBytes:                 disk.FreeBytes,
+		DCMReservedMemoryBytes:        reservedMemory,
+		DCMReservedBuildMemoryBytes:   buildSlots * cfg.BuildMemoryBytes,
+		DCMReservedCPUMillicores:      reservedCPU,
+		DCMReservedBuildCPUMillicores: buildSlots * max(cfg.BuildCPUMillicores, 0),
+		DCMBorrowedMemoryBytes:        s.borrowed.BorrowedMemoryBytes(),
+		RootfsQuotaStatus:             s.rootfsQuota.RootfsQuotaStatus(),
+		VolumeSizeMode:                s.volumeSize.VolumeSizeMode(),
+		DCMDiskUsedBytes:              imageUsedBytes + volumeUsedBytes,
+		DCMReservedVolumeBytes:        reservedVolumeBytes,
+		DCMUnusedVolumePromiseBytes:   unusedVolumePromise,
+		HostMinFreeDiskBytes:          cfg.HostMinFreeDiskBytes,
+		BuildClaimCap:                 buildClaimCap(cfg, disk.FreeBytes),
+		MaxConcurrentBuilds:           cfg.MaxConcurrentBuilds,
+		AdmissionStatus:               admissionStatus,
+		AdmissionReasons:              admissionReasons,
+		ContainersTotal:               containerCounts.Total,
+		ContainersRunning:             containerCounts.Running,
+		ContainersStopped:             containerCounts.Stopped,
+		ContainersError:               containerCounts.Error,
+		ContainersMissing:             containerCounts.Missing,
+		VolumesTotal:                  volumesTotal,
+		ImagesTotal:                   imagesTotal,
+		BuildsTotal:                   buildsTotal,
+		ProjectsTotal:                 projectsTotal,
+		ObservedAt:                    time.Now(),
 	}, nil
 }
 
-func admissionState(totalMemoryBytes, diskFreeBytes int64, cfg config.SystemConfig, reservedMemoryBytes int64) (string, []string) {
-	reasons := make([]string, 0, 2)
-	if err := ensureHostMemoryAdmission(totalMemoryBytes, cfg, reservedMemoryBytes, cfg.DefaultMemoryReservation); err != nil {
-		reasons = append(reasons, "host_memory_exhausted")
+// admissionState is what the admission check says of one more container with
+// the default reservations, charged to no owner, over ledger: "open", or
+// "blocked" with the host limit it meets first as the reason.
+func admissionState(ledger reservationLedger, cfg config.SystemConfig) (string, []string) {
+	verdict := checkAdmission(ledger, admissionRequest{
+		memoryBytes:   cfg.DefaultMemoryReservation,
+		cpuMillicores: cfg.DefaultCPUReservation,
+	}, cfg)
+	reason, blocked := admissionReasons[verdict.limit]
+	if !blocked {
+		return "open", []string{}
 	}
-	if cfg.HostMinFreeDiskBytes > 0 && diskFreeBytes < cfg.HostMinFreeDiskBytes {
-		reasons = append(reasons, "host_disk_floor")
-	}
-	if len(reasons) > 0 {
-		return "blocked", reasons
-	}
-	return "open", reasons
+	return "blocked", []string{reason}
+}
+
+// admissionReasons is the monitoring reason for each limit a request charged
+// to no owner can meet.
+var admissionReasons = map[apperrors.Limit]string{
+	apperrors.LimitHostMemory: "host_memory_exhausted",
+	apperrors.LimitHostCPU:    "host_cpu_exhausted",
+	apperrors.LimitDiskFloor:  "host_disk_floor",
 }
 
 func (s *StatsService) monitoringConfig() config.SystemConfig {

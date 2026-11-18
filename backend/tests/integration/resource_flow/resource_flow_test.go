@@ -47,6 +47,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	statsMetrics := coremocks.NewStatsMetricsProvider(t)
 	statsMetrics.EXPECT().GetCPULoad().Return(1.0, nil).Maybe()
 	statsMetrics.EXPECT().GetMemoryStats().Return(model.HostMemoryStats{TotalBytes: 64 << 30, AvailableBytes: 32 << 30}, nil).Maybe()
+	statsMetrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 	statsMetrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{TotalBytes: 1 << 40, FreeBytes: 1 << 39}, nil).Maybe()
 
 	lifecycle := repository.NewResourceLifecycleRepository(repos.DB)

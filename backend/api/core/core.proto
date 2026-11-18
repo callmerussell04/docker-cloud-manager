@@ -186,6 +186,10 @@ message SystemMonitoringResponse {
   // when the free disk above the floor cannot hold that many build slots.
   int32 build_claim_cap = 29;
   int32 max_concurrent_builds = 30;
+  // CPU reserved by every container that reserves capacity, and CPU held by
+  // the occupied build slots, both in millicores.
+  int64 dcm_reserved_cpu_millicores = 31;
+  int64 dcm_reserved_build_cpu_millicores = 32;
 }
 
 message Empty {}

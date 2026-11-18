@@ -281,22 +281,6 @@ func hostMemoryPool(totalMemoryBytes, reservedSystemMemoryBytes int64, overcommi
 	return int64(float64(available) * overcommitFactor)
 }
 
-// ensureHostMemoryAdmission is admin monitoring's host memory check. Request
-// admission goes through checkAdmission.
-func ensureHostMemoryAdmission(totalMemoryBytes int64, cfg config.SystemConfig, reservedMemoryBytes, requestedMemoryBytes int64) error {
-	if requestedMemoryBytes < 0 {
-		requestedMemoryBytes = 0
-	}
-	pool := hostMemoryPool(totalMemoryBytes, cfg.ReservedSystemMemory, cfg.OvercommitFactor)
-	if pool <= 0 {
-		return apperrors.Exceeded(apperrors.LimitHostMemory)
-	}
-	if reservedMemoryBytes+requestedMemoryBytes > pool {
-		return apperrors.Exceeded(apperrors.LimitHostMemory)
-	}
-	return nil
-}
-
 func hostCPUPool(logicalCPUs, reservedSystemCPUMillicores int64, overcommitFactor float64) int64 {
 	if logicalCPUs <= 0 || overcommitFactor <= 0 {
 		return 0

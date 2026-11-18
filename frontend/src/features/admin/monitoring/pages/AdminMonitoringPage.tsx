@@ -8,11 +8,14 @@ import { useSystemMonitoring } from '../queries';
 import { MetricCard } from '../components/MetricCard';
 import { CountCard } from '../components/CountCard';
 import { RootfsQuotaCard, VolumeSizeModeCard } from '../components/HostStatusCards';
+import { ReservedCPUCard } from '../components/ReservedCPUCard';
 
 function admissionReasonLabel(t: ReturnType<typeof useT>, reason: string) {
   switch (reason) {
     case 'host_memory_exhausted':
       return t('admin.monitoring.reason.host_memory_exhausted');
+    case 'host_cpu_exhausted':
+      return t('admin.monitoring.reason.host_cpu_exhausted');
     case 'host_disk_floor':
       return t('admin.monitoring.reason.host_disk_floor');
     default:
@@ -136,6 +139,10 @@ export function AdminMonitoringPage() {
             />
           </div>
 
+          <ReservedCPUCard
+            containerMillicores={stats.dcm_reserved_cpu_millicores}
+            buildMillicores={stats.dcm_reserved_build_cpu_millicores}
+          />
           <RootfsQuotaCard status={stats.rootfs_quota_status} />
           <VolumeSizeModeCard mode={stats.volume_size_mode} />
 

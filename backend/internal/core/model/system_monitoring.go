@@ -32,6 +32,11 @@ type SystemMonitoring struct {
 	DiskFreeBytes               int64
 	DCMReservedMemoryBytes      int64
 	DCMReservedBuildMemoryBytes int64
+	// DCMReservedCPUMillicores is the CPU reserved by every container that
+	// reserves capacity; DCMReservedBuildCPUMillicores is the CPU the occupied build
+	// slots hold. Both are in millicores.
+	DCMReservedCPUMillicores      int64
+	DCMReservedBuildCPUMillicores int64
 	// DCMBorrowedMemoryBytes is the memory running workloads borrow above
 	// their standard limits.
 	DCMBorrowedMemoryBytes int64

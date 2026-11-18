@@ -51,8 +51,9 @@ Bootstrap admin создаётся SSO при старте из `SSO_ADMIN_USERN
 
 Раздел мониторинга показывает ресурсы сервера и актуальные показатели допуска операций:
 
-- `admission_status` — доступность новых операций;
-- `admission_reasons` — причины ограничения;
+- `admission_status` — доступность новых операций: `open` или `blocked`. Статус вычисляется той же проверкой допуска, которую проходят запросы, для ещё одного контейнера с резервами по умолчанию (`default_memory_reservation_bytes`, `default_cpu_reservation_millicores`), поэтому мониторинг не расходится с отказами;
+- `admission_reasons` — причина ограничения: первый ресурс сервера, которого не хватило, в порядке проверки — `host_memory_exhausted` (память сервера), `host_cpu_exhausted` (CPU сервера), `host_disk_floor` (свободное место ниже `host_min_free_disk_bytes`). Квоты пользователей сюда не входят;
+- `dcm_reserved_cpu_millicores` и `dcm_reserved_build_cpu_millicores` (карточка «Резерв CPU») — CPU в миллиядрах, зарезервированный контейнерами и занятыми слотами сборки (`build_cpu_millicores` на слот); страница показывает их в ядрах;
 - `host_min_free_disk_bytes` — минимальный остаток места;
 - `dcm_reserved_build_memory_bytes` — память, зарезервированная занятыми слотами сборки (не больше `max_concurrent_builds`);
 - `build_claim_cap` и `max_concurrent_builds` — сколько сборок может выполняться сейчас: `max_concurrent_builds` или меньше, если свободного места на диске выше `host_min_free_disk_bytes` хватает на меньшее число слотов по `build_max_disk_bytes`. Когда `build_claim_cap` меньше `max_concurrent_builds`, страница мониторинга показывает предупреждение: сборки сдерживает диск, а не настройка. Остальные сборки ждут в состоянии `pending` и запускаются, когда место освобождается;

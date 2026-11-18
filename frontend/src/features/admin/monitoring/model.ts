@@ -13,6 +13,10 @@ export interface SystemMonitoring {
   dcm_reserved_memory_bytes: number;
   dcm_reserved_build_memory_bytes: number;
   dcm_borrowed_memory_bytes: number;
+  // CPU every reserving container holds, and CPU the occupied build slots
+  // hold, in millicores.
+  dcm_reserved_cpu_millicores: number;
+  dcm_reserved_build_cpu_millicores: number;
   dcm_disk_used_bytes: number;
   dcm_reserved_volume_bytes: number;
   dcm_unused_volume_promise_bytes: number;
@@ -51,6 +55,8 @@ export function withDefaults(stats?: SystemMonitoring): SystemMonitoring {
     dcm_reserved_memory_bytes: stats?.dcm_reserved_memory_bytes ?? 0,
     dcm_reserved_build_memory_bytes: stats?.dcm_reserved_build_memory_bytes ?? 0,
     dcm_borrowed_memory_bytes: stats?.dcm_borrowed_memory_bytes ?? 0,
+    dcm_reserved_cpu_millicores: stats?.dcm_reserved_cpu_millicores ?? 0,
+    dcm_reserved_build_cpu_millicores: stats?.dcm_reserved_build_cpu_millicores ?? 0,
     dcm_disk_used_bytes: stats?.dcm_disk_used_bytes ?? 0,
     dcm_reserved_volume_bytes: stats?.dcm_reserved_volume_bytes ?? 0,
     dcm_unused_volume_promise_bytes: stats?.dcm_unused_volume_promise_bytes ?? 0,

@@ -23,6 +23,12 @@ import (
 
 const admissionMiB = int64(1 << 20)
 
+// The admission world's host: 2 GiB of memory and two logical CPUs.
+const (
+	admissionHostMemoryBytes = 2048 * admissionMiB
+	admissionHostCPUs        = int64(2)
+)
+
 // admissionWorld is the reservation state an admission request meets. The
 // owner already runs one 512 MiB, 500m container; another owner's running
 // container and active builds take host capacity. The host has 2 GiB and
@@ -482,8 +488,8 @@ func admissionVolumeService(t *testing.T, w admissionWorld, ownerID uuid.UUID, s
 func admissionHostMetrics(t *testing.T) *coremocks.HostMetricsProvider {
 	t.Helper()
 	metrics := coremocks.NewHostMetricsProvider(t)
-	metrics.EXPECT().GetTotalMemory().Return(2048*admissionMiB, nil).Maybe()
-	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil).Maybe()
+	metrics.EXPECT().GetTotalMemory().Return(admissionHostMemoryBytes, nil).Maybe()
+	metrics.EXPECT().GetLogicalCPUs().Return(admissionHostCPUs, nil).Maybe()
 	return metrics
 }
 
