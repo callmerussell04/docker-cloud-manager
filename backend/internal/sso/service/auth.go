@@ -109,6 +109,23 @@ type OIDCProvider interface {
 	Available() bool
 	AuthCodeURL(state, nonce, verifier string) string
 	ExchangeCode(ctx context.Context, code, nonce, verifier string) (OIDCIdentity, error)
+	// EndSessionURL is the provider's sign-out URL for the session whose ID
+	// token is idTokenHint, returning the browser to postLogoutRedirectURI
+	// when it is set. It is empty while the provider is unavailable or when it
+	// advertises no end-session endpoint.
+	EndSessionURL(idTokenHint, postLogoutRedirectURI string) string
+	// VerifyLogoutToken verifies a back-channel logout token. A token the
+	// checks refuse is ErrInvalidToken; a provider whose keys cannot be read
+	// is ErrUnavailable or ErrTimeout.
+	VerifyLogoutToken(ctx context.Context, rawToken string) (OIDCLogout, error)
+}
+
+// OIDCLogout is a verified back-channel logout: the provider session that
+// ended (sid) or, without one, the subject whose sessions ended. At least one
+// is set.
+type OIDCLogout struct {
+	Subject   string
+	SessionID string
 }
 
 // OIDCIdentity holds the ID-token claims DCM reads. PreferredUsername is the
@@ -120,6 +137,12 @@ type OIDCIdentity struct {
 	Groups            []string
 	RealmRoles        []string
 	PreferredUsername string
+	// SessionID is the provider's session (the ID token's sid), which a
+	// back-channel logout names; empty when the provider sent none.
+	SessionID string
+	// IDToken is the raw ID token, kept with the session only as the
+	// id_token_hint of the provider sign-out URL.
+	IDToken string
 }
 
 type AuthService struct {
@@ -382,7 +405,7 @@ func (s *AuthService) Login(ctx context.Context, username, password string) (mod
 		return model.SignIn{}, apperrors.ErrInvalidCredentials
 	}
 
-	return s.createSession(ctx, user, true)
+	return s.createSession(ctx, user, sessionOrigin{})
 }
 
 // AuthProviders lists the enabled external providers and whether each is available.
@@ -495,7 +518,7 @@ func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, 
 		return rejected(model.OIDCCallbackAccountDeactivated)
 	}
 
-	signIn, err := s.createSession(ctx, user, false)
+	signIn, err := s.createSession(ctx, user, sessionOrigin{provider: provider, providerSessionID: identity.SessionID, idToken: identity.IDToken})
 	if errors.Is(err, apperrors.ErrInvalidCredentials) {
 		// Deactivated between provisioning and the session lock.
 		return rejected(model.OIDCCallbackAccountDeactivated)

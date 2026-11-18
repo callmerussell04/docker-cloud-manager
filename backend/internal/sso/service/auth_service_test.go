@@ -1170,3 +1170,36 @@ func TestAuthServiceReportsWhetherTheProviderManagesARole(t *testing.T) {
 	require.False(t, providerManaged.RoleManagedByProvider(local))
 	require.False(t, dcmManaged.RoleManagedByProvider(oidc))
 }
+
+// A back-channel logout is not found with OIDC off or for another provider,
+// unavailable before SSO reaches the provider or while its keys cannot be
+// read, and a bad request that echoes nothing for a refused or missing token.
+func TestAuthServiceBackchannelLogoutAnswers(t *testing.T) {
+	ctx := context.Background()
+	repo := ssomocks.NewUserRepository(t)
+	off := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
+	_, err := off.BackchannelLogout(ctx, "keycloak", "logout-token")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+
+	provider := ssomocks.NewOIDCProvider(t)
+	available := false
+	provider.EXPECT().Available().RunAndReturn(func() bool { return available })
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak",
+	})
+	_, err = svc.BackchannelLogout(ctx, "keycloak", "logout-token")
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+
+	available = true
+	_, err = svc.BackchannelLogout(ctx, "other", "logout-token")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+	provider.EXPECT().VerifyLogoutToken(mock.Anything, "refused-token").Return(service.OIDCLogout{}, apperrors.ErrInvalidToken)
+	provider.EXPECT().VerifyLogoutToken(mock.Anything, "keys-down").Return(service.OIDCLogout{}, apperrors.Wrap(apperrors.ErrUnavailable, "identity provider is not available", errors.New("keys")))
+	for _, token := range []string{"", "refused-token"} {
+		_, err = svc.BackchannelLogout(ctx, "keycloak", token)
+		require.ErrorIs(t, err, apperrors.ErrBadRequest)
+		require.Equal(t, "invalid logout token", apperrors.SafeMessage(err))
+	}
+	_, err = svc.BackchannelLogout(ctx, "keycloak", "keys-down")
+	require.ErrorIs(t, err, apperrors.ErrUnavailable)
+}

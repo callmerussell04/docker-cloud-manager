@@ -34,8 +34,9 @@ const session = createSessionCoordinator({
     return response.data.access_token;
   },
   logout: async () => {
-    await publicApi.post('/auth/logout', undefined, { timeout: 15000 });
+    const response = await publicApi.post<{ provider_logout_url?: string } | undefined>('/auth/logout', undefined, { timeout: 15000 });
     logoutChannel?.postMessage('logout');
+    return response.data?.provider_logout_url ?? null;
   },
   withLock: (operation) => navigator.locks
     ? navigator.locks.request('dcm-session-cookie', operation)

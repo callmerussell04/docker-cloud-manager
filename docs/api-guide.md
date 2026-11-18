@@ -60,7 +60,13 @@ curl -sS -b cookies.txt -c cookies.txt \
   http://dcm.example.com/api/v1/auth/logout
 ```
 
-Успешный `200` подтверждает отзыв текущей сессии и удаление cookie; повторный выход и отсутствие cookie также дают `200`. Другие сессии и Keycloak сохраняются. При `503`/`504` cookie сохраняется для повтора; сервер не подтверждает отзыв. Обновление с `401` удаляет cookie. Подробности: [контракт сессий](session-security.md).
+Успешный `200` подтверждает отзыв текущей сессии и удаление cookie; повторный выход и отсутствие cookie также дают `200`. Другие сессии сохраняются. Для сессии, открытой через Keycloak, ответ содержит адрес выхода из Keycloak:
+
+```json
+{ "provider_logout_url": "http://keycloak.localhost/realms/dcm/protocol/openid-connect/logout?client_id=dcm&id_token_hint=...&post_logout_redirect_uri=http%3A%2F%2Fdcm.example.com%2Flogin" }
+```
+
+Клиент переходит по нему после успешного выхода, чтобы завершить и сессию Keycloak; адрес содержит ID-токен Keycloak, а не токены DCM, и выдаётся один раз. Для локальной сессии ответ — `{}`. При `503`/`504` cookie сохраняется для повтора; сервер не подтверждает отзыв. Обновление с `401` удаляет cookie. Подробности: [контракт сессий](session-security.md).
 
 Токен доступа проверяется службой Gateway через SSO. Для административных маршрутов дополнительно требуется соответствующее разрешение.
 
@@ -78,7 +84,11 @@ curl -sS -b cookies.txt -c cookies.txt \
 
 При выключенном OIDC список пуст, а `/api/v1/auth/oidc/keycloak/start` и `/callback` отвечают `404`. `available: false` означает, что поставщик включён, но SSO ещё не связался с ним; локальный вход при этом работает.
 
-При включённом OIDC `/start` и `/callback` — переходы браузера, и они не отвечают JSON: любая ошибка перенаправляет на `/auth/callback?login=error&reason=<код>` (коды перечислены в [описании входа](authentication.md#безопасность-потока-oidc)), успех — на `/auth/callback?login=success`. Попытка входа живёт 30 минут и используется один раз. Ограничение частоты для `/auth/login` и `/auth/register`, для `/auth/refresh`, `/auth/logout` и `/auth/providers` и для `/start` и `/callback` считается отдельно; превышение на `/start` и `/callback` перенаправляет с кодом `rate_limited`, остальные маршруты отвечают `429`.
+При включённом OIDC `/start` и `/callback` — переходы браузера, и они не отвечают JSON: любая ошибка перенаправляет на `/auth/callback?login=error&reason=<код>` (коды перечислены в [описании входа](authentication.md#безопасность-потока-oidc)), успех — на `/auth/callback?login=success`. Попытка входа живёт 30 минут и используется один раз. Ограничение частоты для `/auth/login` и `/auth/register`, для `/auth/refresh`, `/auth/logout` и `/auth/providers`, для `/start` и `/callback` и для back-channel logout считается отдельно; превышение на `/start` и `/callback` перенаправляет с кодом `rate_limited`, остальные маршруты отвечают `429`.
+
+### Back-channel logout
+
+`POST /api/v1/auth/oidc/keycloak/backchannel-logout` вызывает сервер Keycloak, а не клиент: тело `application/x-www-form-urlencoded` с полем `logout_token` (не больше 64 КиБ), без cookie и `Origin`. Действительный токен отзывает сессии DCM, открытые с названной сессией Keycloak (`sid`), или все сессии пользователя (`sub`), открытые через Keycloak. Ответы: `200` (в том числе когда ничего не совпало), `400`, `503` (ключи Keycloak недоступны), `404` (OIDC выключен), всегда с `Cache-Control: no-store`. Подробности: [вход через Keycloak](authentication.md#безопасность-потока-oidc).
 
 ## Ошибки
 

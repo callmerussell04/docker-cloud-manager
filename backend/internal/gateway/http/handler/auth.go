@@ -33,6 +33,12 @@ const (
 	oidcStateCookiePath   = "/api/v1/auth/oidc/keycloak/callback"
 	keycloakProvider      = "keycloak"
 	roleAdmin             = "admin"
+	// spaLoginPath is the SPA's login page, where the provider returns the
+	// browser after a sign-out DCM started.
+	spaLoginPath = "/login"
+	// maxBackchannelLogoutBodyBytes bounds a back-channel logout request; a
+	// logout token is a few kilobytes.
+	maxBackchannelLogoutBodyBytes = 64 << 10
 )
 
 // Reasons a sign-in through the provider failed, sent to the SPA callback page
@@ -61,7 +67,8 @@ type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
 	Login(ctx context.Context, username, password string) (model.SignIn, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
-	Logout(ctx context.Context, refreshToken string) error
+	Logout(ctx context.Context, refreshToken, postLogoutRedirectURI string) (string, error)
+	BackchannelLogout(ctx context.Context, provider, logoutToken string) (int, error)
 	GetAuthConfig(ctx context.Context) (model.AuthConfig, error)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStartResult, error)
 	CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error)
@@ -428,22 +435,80 @@ func oidcStateCookieName(state string) (string, bool) {
 	return oidcStateCookiePrefix + hex.EncodeToString(sum[:])[:16], true
 }
 
+// Logout revokes the browser's session. For a session created through OIDC it
+// answers the provider sign-out URL, which returns the browser to the login
+// page of the validated request origin; the SPA navigates to it after this
+// sign-out succeeds. A local session gets an empty object.
 func (h *AuthHandler) Logout(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	if !h.requireCookieOrigin(c) {
+	requestOrigin, ok := h.cookieOrigin(c)
+	if !ok {
 		return
 	}
 	value, _ := c.Cookie(h.cookieConfig.Name)
-	if err := h.service.Logout(c.Request.Context(), value); err != nil {
+	providerLogoutURL, err := h.service.Logout(c.Request.Context(), value, requestOrigin+spaLoginPath)
+	if err != nil {
 		h.handleAuthError(c, err)
 		return
 	}
 	h.clearRefreshTokenCookie(c)
+	body := gin.H{}
+	if providerLogoutURL != "" {
+		body["provider_logout_url"] = providerLogoutURL
+	}
+	c.JSON(http.StatusOK, body)
+}
+
+// KeycloakBackchannelLogout receives the provider's back-channel logout: a
+// form-encoded logout_token posted by the provider's server, so it needs no
+// cookie and no browser origin. A body it cannot read sends SSO no token, so
+// the answer stays not found with OIDC off. It answers 200 for a valid token
+// even when nothing matched, 400 for an invalid one, 503 while the provider's
+// keys are unavailable and 404 with OIDC off, and records a verified logout.
+func (h *AuthHandler) KeycloakBackchannelLogout(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBackchannelLogoutBodyBytes)
+	var logoutToken string
+	if err := c.Request.ParseForm(); err == nil {
+		logoutToken = c.Request.PostForm.Get("logout_token")
+	}
+	revoked, err := h.service.BackchannelLogout(c.Request.Context(), keycloakProvider, logoutToken)
+	switch {
+	case err == nil:
+	case errors.Is(err, apperrors.ErrNotFound):
+		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+		return
+	case errors.Is(err, apperrors.ErrBadRequest):
+		httpresponse.Respond(c, http.StatusBadRequest, err)
+		return
+	case errors.Is(err, apperrors.ErrUnavailable), errors.Is(err, apperrors.ErrTimeout):
+		httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
+		return
+	default:
+		h.handleAuthError(c, err)
+		return
+	}
+	recordAuditAs(c, h.audit, accessscope.Scope{Kind: accessscope.KindSystem}, auditInput{
+		Action:       auditlog.ActionAuthProviderLogout,
+		ResourceType: auditlog.ResourceAuth,
+		DetailsJSON: auditlog.SafeDetailsJSON(map[string]string{
+			auditlog.DetailProvider:        keycloakProvider,
+			auditlog.DetailRevokedSessions: auditlog.IntDetail(revoked),
+		}),
+	})
 	c.Status(http.StatusOK)
 }
 
 // Cookie-authenticated mutations require explicit trusted browser origin evidence.
 func (h *AuthHandler) requireCookieOrigin(c *gin.Context) bool {
+	_, ok := h.cookieOrigin(c)
+	return ok
+}
+
+// cookieOrigin returns the trusted browser origin of a cookie-authenticated
+// request, from Origin or, when it is absent, Referer; otherwise it answers
+// 403 and reports false.
+func (h *AuthHandler) cookieOrigin(c *gin.Context) (string, bool) {
 	raw := c.GetHeader("Origin")
 	fromReferer := raw == ""
 	if fromReferer {
@@ -457,12 +522,12 @@ func (h *AuthHandler) requireCookieOrigin(c *gin.Context) bool {
 	if allowed {
 		for _, candidate := range h.redirectConfig.CookieAllowedOrigins {
 			if candidate == origin(parsed) {
-				return true
+				return candidate, true
 			}
 		}
 	}
 	httpresponse.Respond(c, http.StatusForbidden, apperrors.ErrForbidden)
-	return false
+	return "", false
 }
 
 func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {

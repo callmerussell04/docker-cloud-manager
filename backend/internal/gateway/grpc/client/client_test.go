@@ -60,6 +60,16 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	require.Equal(t, "oidc-access", callback.Tokens.AccessToken)
 	require.Equal(t, model.SignedInUser{ID: "oidc-user-id", Username: "bob", Role: "user"}, callback.User)
 
+	signOutURL, err := ssoClient.Logout(context.Background(), "refresh", "http://frontend/login")
+	require.NoError(t, err)
+	require.Equal(t, "https://idp/logout", signOutURL)
+	require.Equal(t, "http://frontend/login", servers.auth.postLogoutRedirectURI)
+
+	revoked, err := ssoClient.BackchannelLogout(context.Background(), "keycloak", "logout-token")
+	require.NoError(t, err)
+	require.Equal(t, 3, revoked)
+	require.Equal(t, "logout-token", servers.auth.logoutToken)
+
 	user, err := ssoClient.VerifyAccessToken(context.Background(), "Bearer access")
 	require.NoError(t, err)
 	require.Equal(t, model.AuthUser{UserID: "user-id", Username: "alice", Role: "user"}, user)
@@ -271,8 +281,20 @@ type ssoServers struct {
 
 type ssoAuthServer struct {
 	sso.UnimplementedAuthServer
-	registerEmail string
-	loginErr      error
+	registerEmail         string
+	loginErr              error
+	postLogoutRedirectURI string
+	logoutToken           string
+}
+
+func (s *ssoAuthServer) Logout(_ context.Context, req *sso.LogoutRequest) (*sso.LogoutResponse, error) {
+	s.postLogoutRedirectURI = req.GetPostLogoutRedirectUri()
+	return &sso.LogoutResponse{ProviderLogoutUrl: "https://idp/logout"}, nil
+}
+
+func (s *ssoAuthServer) BackchannelLogout(_ context.Context, req *sso.BackchannelLogoutRequest) (*sso.BackchannelLogoutResponse, error) {
+	s.logoutToken = req.GetLogoutToken()
+	return &sso.BackchannelLogoutResponse{RevokedSessions: 3}, nil
 }
 
 func (s *ssoAuthServer) Register(_ context.Context, req *sso.RegisterRequest) (*sso.RegisterResponse, error) {

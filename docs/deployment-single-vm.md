@@ -435,7 +435,7 @@ The other third-party infrastructure images in `docker-compose.yml`,
 `backend/docker-compose.test.yml` and `backend/docker-compose.keycloak.yml` are pinned
 to exact release tags without digests: `postgres:17.10-alpine3.23`,
 `migrate/migrate:v4.19.1`, `clickhouse/clickhouse-server:25.5.11.15`,
-`rabbitmq:4.3.1-management`, `traefik:v3.6.20`, `quay.io/keycloak/keycloak:26.0.8`
+`rabbitmq:4.3.1-management`, `traefik:v3.6.20`, `quay.io/keycloak/keycloak:26.8.2`
 and `pgsty/minio:RELEASE.2026-08-04T00-00-00Z`.
 An exact tag stops silent minor or major upgrades, but a publisher can still
 rebuild it, so these pulls are not byte-reproducible. Update a tag deliberately

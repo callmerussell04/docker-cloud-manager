@@ -160,7 +160,7 @@ Gateway доверяет `X-Forwarded-For` только от Traefik на отд
 | Состояние и потоки | `GATEWAY_READINESS_TIMEOUT_SECONDS`, `GATEWAY_TELEMETRY_TICKET_TTL_SECONDS` | Время ожидания проверки готовности и срок действия билета доступа |
 | Файл cookie | `COOKIE_NAME`, `COOKIE_PATH`, `COOKIE_DOMAIN`, `COOKIE_SECURE`, `COOKIE_HTTP_ONLY`, `COOKIE_SAMESITE` | Атрибуты файла cookie с токеном обновления |
 
-Срок refresh-cookie вычисляется из срока сессии SSO (30 дней всего, 7 дней без обновления); `COOKIE_MAX_AGE_SECONDS` удалён. Для cookie-запросов refresh/logout обязателен разрешённый `Origin` или `Referer`; список берётся из `CORS_ALLOWED_ORIGINS`.
+Срок refresh-cookie вычисляется из срока сессии SSO (30 дней всего для локального входа и 12 часов для входа через Keycloak, 7 дней без обновления); `COOKIE_MAX_AGE_SECONDS` удалён. Для cookie-запросов refresh/logout обязателен разрешённый `Origin` или `Referer`; список берётся из `CORS_ALLOWED_ORIGINS`.
 
 Пустое значение `GATEWAY_TRUSTED_PROXIES` безопаснее неизвестного широкого диапазона CIDR. Внутренний gRPC работает без TLS внутри частных сетей Docker одного сервера (ADR 0006).
 

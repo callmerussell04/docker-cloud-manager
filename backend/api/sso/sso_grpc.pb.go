@@ -26,6 +26,7 @@ const (
 	Auth_GetAuthConfig_FullMethodName        = "/sso.Auth/GetAuthConfig"
 	Auth_StartOIDCLogin_FullMethodName       = "/sso.Auth/StartOIDCLogin"
 	Auth_CompleteOIDCCallback_FullMethodName = "/sso.Auth/CompleteOIDCCallback"
+	Auth_BackchannelLogout_FullMethodName    = "/sso.Auth/BackchannelLogout"
 )
 
 // AuthClient is the client API for Auth service.
@@ -39,6 +40,7 @@ type AuthClient interface {
 	GetAuthConfig(ctx context.Context, in *GetAuthConfigRequest, opts ...grpc.CallOption) (*GetAuthConfigResponse, error)
 	StartOIDCLogin(ctx context.Context, in *StartOIDCLoginRequest, opts ...grpc.CallOption) (*StartOIDCLoginResponse, error)
 	CompleteOIDCCallback(ctx context.Context, in *CompleteOIDCCallbackRequest, opts ...grpc.CallOption) (*CompleteOIDCCallbackResponse, error)
+	BackchannelLogout(ctx context.Context, in *BackchannelLogoutRequest, opts ...grpc.CallOption) (*BackchannelLogoutResponse, error)
 }
 
 type authClient struct {
@@ -119,6 +121,16 @@ func (c *authClient) CompleteOIDCCallback(ctx context.Context, in *CompleteOIDCC
 	return out, nil
 }
 
+func (c *authClient) BackchannelLogout(ctx context.Context, in *BackchannelLogoutRequest, opts ...grpc.CallOption) (*BackchannelLogoutResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(BackchannelLogoutResponse)
+	err := c.cc.Invoke(ctx, Auth_BackchannelLogout_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServer is the server API for Auth service.
 // All implementations must embed UnimplementedAuthServer
 // for forward compatibility.
@@ -130,6 +142,7 @@ type AuthServer interface {
 	GetAuthConfig(context.Context, *GetAuthConfigRequest) (*GetAuthConfigResponse, error)
 	StartOIDCLogin(context.Context, *StartOIDCLoginRequest) (*StartOIDCLoginResponse, error)
 	CompleteOIDCCallback(context.Context, *CompleteOIDCCallbackRequest) (*CompleteOIDCCallbackResponse, error)
+	BackchannelLogout(context.Context, *BackchannelLogoutRequest) (*BackchannelLogoutResponse, error)
 	mustEmbedUnimplementedAuthServer()
 }
 
@@ -160,6 +173,9 @@ func (UnimplementedAuthServer) StartOIDCLogin(context.Context, *StartOIDCLoginRe
 }
 func (UnimplementedAuthServer) CompleteOIDCCallback(context.Context, *CompleteOIDCCallbackRequest) (*CompleteOIDCCallbackResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompleteOIDCCallback not implemented")
+}
+func (UnimplementedAuthServer) BackchannelLogout(context.Context, *BackchannelLogoutRequest) (*BackchannelLogoutResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method BackchannelLogout not implemented")
 }
 func (UnimplementedAuthServer) mustEmbedUnimplementedAuthServer() {}
 func (UnimplementedAuthServer) testEmbeddedByValue()              {}
@@ -308,6 +324,24 @@ func _Auth_CompleteOIDCCallback_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Auth_BackchannelLogout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BackchannelLogoutRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServer).BackchannelLogout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Auth_BackchannelLogout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServer).BackchannelLogout(ctx, req.(*BackchannelLogoutRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Auth_ServiceDesc is the grpc.ServiceDesc for Auth service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -342,6 +376,10 @@ var Auth_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompleteOIDCCallback",
 			Handler:    _Auth_CompleteOIDCCallback_Handler,
+		},
+		{
+			MethodName: "BackchannelLogout",
+			Handler:    _Auth_BackchannelLogout_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

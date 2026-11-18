@@ -369,10 +369,13 @@ func (x *LoginResponse) GetUser() *SignedInUser {
 }
 
 type LogoutRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RefreshToken  string                 `protobuf:"bytes,1,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	RefreshToken string                 `protobuf:"bytes,1,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+	// Where the provider returns the browser after its sign-out; Gateway sends
+	// the validated request origin plus the login path.
+	PostLogoutRedirectUri string `protobuf:"bytes,2,opt,name=post_logout_redirect_uri,json=postLogoutRedirectUri,proto3" json:"post_logout_redirect_uri,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *LogoutRequest) Reset() {
@@ -412,10 +415,20 @@ func (x *LogoutRequest) GetRefreshToken() string {
 	return ""
 }
 
+func (x *LogoutRequest) GetPostLogoutRedirectUri() string {
+	if x != nil {
+		return x.PostLogoutRedirectUri
+	}
+	return ""
+}
+
 type LogoutResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The provider sign-out URL for a session created through OIDC; empty
+	// otherwise.
+	ProviderLogoutUrl string `protobuf:"bytes,1,opt,name=provider_logout_url,json=providerLogoutUrl,proto3" json:"provider_logout_url,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *LogoutResponse) Reset() {
@@ -448,6 +461,110 @@ func (*LogoutResponse) Descriptor() ([]byte, []int) {
 	return file_api_sso_sso_proto_rawDescGZIP(), []int{6}
 }
 
+func (x *LogoutResponse) GetProviderLogoutUrl() string {
+	if x != nil {
+		return x.ProviderLogoutUrl
+	}
+	return ""
+}
+
+// A back-channel logout token the provider posted to Gateway.
+type BackchannelLogoutRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Provider      string                 `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	LogoutToken   string                 `protobuf:"bytes,2,opt,name=logout_token,json=logoutToken,proto3" json:"logout_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BackchannelLogoutRequest) Reset() {
+	*x = BackchannelLogoutRequest{}
+	mi := &file_api_sso_sso_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackchannelLogoutRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackchannelLogoutRequest) ProtoMessage() {}
+
+func (x *BackchannelLogoutRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackchannelLogoutRequest.ProtoReflect.Descriptor instead.
+func (*BackchannelLogoutRequest) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BackchannelLogoutRequest) GetProvider() string {
+	if x != nil {
+		return x.Provider
+	}
+	return ""
+}
+
+func (x *BackchannelLogoutRequest) GetLogoutToken() string {
+	if x != nil {
+		return x.LogoutToken
+	}
+	return ""
+}
+
+type BackchannelLogoutResponse struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	RevokedSessions int32                  `protobuf:"varint,1,opt,name=revoked_sessions,json=revokedSessions,proto3" json:"revoked_sessions,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *BackchannelLogoutResponse) Reset() {
+	*x = BackchannelLogoutResponse{}
+	mi := &file_api_sso_sso_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BackchannelLogoutResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BackchannelLogoutResponse) ProtoMessage() {}
+
+func (x *BackchannelLogoutResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_sso_sso_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BackchannelLogoutResponse.ProtoReflect.Descriptor instead.
+func (*BackchannelLogoutResponse) Descriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *BackchannelLogoutResponse) GetRevokedSessions() int32 {
+	if x != nil {
+		return x.RevokedSessions
+	}
+	return 0
+}
+
 type RefreshRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RefreshToken  string                 `protobuf:"bytes,1,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
@@ -457,7 +574,7 @@ type RefreshRequest struct {
 
 func (x *RefreshRequest) Reset() {
 	*x = RefreshRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[7]
+	mi := &file_api_sso_sso_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +586,7 @@ func (x *RefreshRequest) String() string {
 func (*RefreshRequest) ProtoMessage() {}
 
 func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[7]
+	mi := &file_api_sso_sso_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -482,7 +599,7 @@ func (x *RefreshRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshRequest.ProtoReflect.Descriptor instead.
 func (*RefreshRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{7}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *RefreshRequest) GetRefreshToken() string {
@@ -503,7 +620,7 @@ type RefreshResponse struct {
 
 func (x *RefreshResponse) Reset() {
 	*x = RefreshResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[8]
+	mi := &file_api_sso_sso_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -515,7 +632,7 @@ func (x *RefreshResponse) String() string {
 func (*RefreshResponse) ProtoMessage() {}
 
 func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[8]
+	mi := &file_api_sso_sso_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -528,7 +645,7 @@ func (x *RefreshResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshResponse.ProtoReflect.Descriptor instead.
 func (*RefreshResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{8}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RefreshResponse) GetAccessToken() string {
@@ -560,7 +677,7 @@ type GetAuthConfigRequest struct {
 
 func (x *GetAuthConfigRequest) Reset() {
 	*x = GetAuthConfigRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[9]
+	mi := &file_api_sso_sso_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -572,7 +689,7 @@ func (x *GetAuthConfigRequest) String() string {
 func (*GetAuthConfigRequest) ProtoMessage() {}
 
 func (x *GetAuthConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[9]
+	mi := &file_api_sso_sso_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -585,7 +702,7 @@ func (x *GetAuthConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetAuthConfigRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{9}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{11}
 }
 
 type OIDCProviderData struct {
@@ -599,7 +716,7 @@ type OIDCProviderData struct {
 
 func (x *OIDCProviderData) Reset() {
 	*x = OIDCProviderData{}
-	mi := &file_api_sso_sso_proto_msgTypes[10]
+	mi := &file_api_sso_sso_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -611,7 +728,7 @@ func (x *OIDCProviderData) String() string {
 func (*OIDCProviderData) ProtoMessage() {}
 
 func (x *OIDCProviderData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[10]
+	mi := &file_api_sso_sso_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -624,7 +741,7 @@ func (x *OIDCProviderData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OIDCProviderData.ProtoReflect.Descriptor instead.
 func (*OIDCProviderData) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{10}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *OIDCProviderData) GetName() string {
@@ -652,7 +769,7 @@ type GetAuthConfigResponse struct {
 
 func (x *GetAuthConfigResponse) Reset() {
 	*x = GetAuthConfigResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[11]
+	mi := &file_api_sso_sso_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +781,7 @@ func (x *GetAuthConfigResponse) String() string {
 func (*GetAuthConfigResponse) ProtoMessage() {}
 
 func (x *GetAuthConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[11]
+	mi := &file_api_sso_sso_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +794,7 @@ func (x *GetAuthConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAuthConfigResponse.ProtoReflect.Descriptor instead.
 func (*GetAuthConfigResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{11}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetAuthConfigResponse) GetLocalLoginEnabled() bool {
@@ -711,7 +828,7 @@ type StartOIDCLoginRequest struct {
 
 func (x *StartOIDCLoginRequest) Reset() {
 	*x = StartOIDCLoginRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[12]
+	mi := &file_api_sso_sso_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -723,7 +840,7 @@ func (x *StartOIDCLoginRequest) String() string {
 func (*StartOIDCLoginRequest) ProtoMessage() {}
 
 func (x *StartOIDCLoginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[12]
+	mi := &file_api_sso_sso_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -736,7 +853,7 @@ func (x *StartOIDCLoginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartOIDCLoginRequest.ProtoReflect.Descriptor instead.
 func (*StartOIDCLoginRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{12}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StartOIDCLoginRequest) GetProvider() string {
@@ -768,7 +885,7 @@ type StartOIDCLoginResponse struct {
 
 func (x *StartOIDCLoginResponse) Reset() {
 	*x = StartOIDCLoginResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[13]
+	mi := &file_api_sso_sso_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -780,7 +897,7 @@ func (x *StartOIDCLoginResponse) String() string {
 func (*StartOIDCLoginResponse) ProtoMessage() {}
 
 func (x *StartOIDCLoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[13]
+	mi := &file_api_sso_sso_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -793,7 +910,7 @@ func (x *StartOIDCLoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartOIDCLoginResponse.ProtoReflect.Descriptor instead.
 func (*StartOIDCLoginResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{13}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *StartOIDCLoginResponse) GetAuthUrl() string {
@@ -836,7 +953,7 @@ type CompleteOIDCCallbackRequest struct {
 
 func (x *CompleteOIDCCallbackRequest) Reset() {
 	*x = CompleteOIDCCallbackRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[14]
+	mi := &file_api_sso_sso_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -848,7 +965,7 @@ func (x *CompleteOIDCCallbackRequest) String() string {
 func (*CompleteOIDCCallbackRequest) ProtoMessage() {}
 
 func (x *CompleteOIDCCallbackRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[14]
+	mi := &file_api_sso_sso_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -861,7 +978,7 @@ func (x *CompleteOIDCCallbackRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteOIDCCallbackRequest.ProtoReflect.Descriptor instead.
 func (*CompleteOIDCCallbackRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{14}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *CompleteOIDCCallbackRequest) GetProvider() string {
@@ -909,7 +1026,7 @@ type CompleteOIDCCallbackResponse struct {
 
 func (x *CompleteOIDCCallbackResponse) Reset() {
 	*x = CompleteOIDCCallbackResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[15]
+	mi := &file_api_sso_sso_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -921,7 +1038,7 @@ func (x *CompleteOIDCCallbackResponse) String() string {
 func (*CompleteOIDCCallbackResponse) ProtoMessage() {}
 
 func (x *CompleteOIDCCallbackResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[15]
+	mi := &file_api_sso_sso_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -934,7 +1051,7 @@ func (x *CompleteOIDCCallbackResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteOIDCCallbackResponse.ProtoReflect.Descriptor instead.
 func (*CompleteOIDCCallbackResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{15}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *CompleteOIDCCallbackResponse) GetAccessToken() string {
@@ -988,7 +1105,7 @@ type VerifyTokenRequest struct {
 
 func (x *VerifyTokenRequest) Reset() {
 	*x = VerifyTokenRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[16]
+	mi := &file_api_sso_sso_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1000,7 +1117,7 @@ func (x *VerifyTokenRequest) String() string {
 func (*VerifyTokenRequest) ProtoMessage() {}
 
 func (x *VerifyTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[16]
+	mi := &file_api_sso_sso_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1013,7 +1130,7 @@ func (x *VerifyTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyTokenRequest.ProtoReflect.Descriptor instead.
 func (*VerifyTokenRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{16}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *VerifyTokenRequest) GetAccessToken() string {
@@ -1033,7 +1150,7 @@ type CheckPermissionRequest struct {
 
 func (x *CheckPermissionRequest) Reset() {
 	*x = CheckPermissionRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[17]
+	mi := &file_api_sso_sso_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1045,7 +1162,7 @@ func (x *CheckPermissionRequest) String() string {
 func (*CheckPermissionRequest) ProtoMessage() {}
 
 func (x *CheckPermissionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[17]
+	mi := &file_api_sso_sso_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1058,7 +1175,7 @@ func (x *CheckPermissionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckPermissionRequest.ProtoReflect.Descriptor instead.
 func (*CheckPermissionRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{17}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CheckPermissionRequest) GetAccessToken() string {
@@ -1085,7 +1202,7 @@ type CheckPermissionResponse struct {
 
 func (x *CheckPermissionResponse) Reset() {
 	*x = CheckPermissionResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[18]
+	mi := &file_api_sso_sso_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1097,7 +1214,7 @@ func (x *CheckPermissionResponse) String() string {
 func (*CheckPermissionResponse) ProtoMessage() {}
 
 func (x *CheckPermissionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[18]
+	mi := &file_api_sso_sso_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1110,7 +1227,7 @@ func (x *CheckPermissionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckPermissionResponse.ProtoReflect.Descriptor instead.
 func (*CheckPermissionResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{18}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *CheckPermissionResponse) GetAllowed() bool {
@@ -1136,7 +1253,7 @@ type GetUserRequest struct {
 
 func (x *GetUserRequest) Reset() {
 	*x = GetUserRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[19]
+	mi := &file_api_sso_sso_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1148,7 +1265,7 @@ func (x *GetUserRequest) String() string {
 func (*GetUserRequest) ProtoMessage() {}
 
 func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[19]
+	mi := &file_api_sso_sso_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1161,7 +1278,7 @@ func (x *GetUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserRequest.ProtoReflect.Descriptor instead.
 func (*GetUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{19}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *GetUserRequest) GetUserId() string {
@@ -1180,7 +1297,7 @@ type UserIDRequest struct {
 
 func (x *UserIDRequest) Reset() {
 	*x = UserIDRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[20]
+	mi := &file_api_sso_sso_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1192,7 +1309,7 @@ func (x *UserIDRequest) String() string {
 func (*UserIDRequest) ProtoMessage() {}
 
 func (x *UserIDRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[20]
+	mi := &file_api_sso_sso_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1205,7 +1322,7 @@ func (x *UserIDRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserIDRequest.ProtoReflect.Descriptor instead.
 func (*UserIDRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{20}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *UserIDRequest) GetUserId() string {
@@ -1224,7 +1341,7 @@ type BatchGetUsersRequest struct {
 
 func (x *BatchGetUsersRequest) Reset() {
 	*x = BatchGetUsersRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[21]
+	mi := &file_api_sso_sso_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1236,7 +1353,7 @@ func (x *BatchGetUsersRequest) String() string {
 func (*BatchGetUsersRequest) ProtoMessage() {}
 
 func (x *BatchGetUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[21]
+	mi := &file_api_sso_sso_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1249,7 +1366,7 @@ func (x *BatchGetUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetUsersRequest.ProtoReflect.Descriptor instead.
 func (*BatchGetUsersRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{21}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BatchGetUsersRequest) GetUserIds() []string {
@@ -1277,7 +1394,7 @@ type UserData struct {
 
 func (x *UserData) Reset() {
 	*x = UserData{}
-	mi := &file_api_sso_sso_proto_msgTypes[22]
+	mi := &file_api_sso_sso_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1289,7 +1406,7 @@ func (x *UserData) String() string {
 func (*UserData) ProtoMessage() {}
 
 func (x *UserData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[22]
+	mi := &file_api_sso_sso_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1302,7 +1419,7 @@ func (x *UserData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserData.ProtoReflect.Descriptor instead.
 func (*UserData) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{22}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *UserData) GetUserId() string {
@@ -1363,7 +1480,7 @@ type BatchGetUsersResponse struct {
 
 func (x *BatchGetUsersResponse) Reset() {
 	*x = BatchGetUsersResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[23]
+	mi := &file_api_sso_sso_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1375,7 +1492,7 @@ func (x *BatchGetUsersResponse) String() string {
 func (*BatchGetUsersResponse) ProtoMessage() {}
 
 func (x *BatchGetUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[23]
+	mi := &file_api_sso_sso_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1388,7 +1505,7 @@ func (x *BatchGetUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchGetUsersResponse.ProtoReflect.Descriptor instead.
 func (*BatchGetUsersResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{23}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BatchGetUsersResponse) GetUsers() []*UserData {
@@ -1408,7 +1525,7 @@ type ListUsersRequest struct {
 
 func (x *ListUsersRequest) Reset() {
 	*x = ListUsersRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[24]
+	mi := &file_api_sso_sso_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1420,7 +1537,7 @@ func (x *ListUsersRequest) String() string {
 func (*ListUsersRequest) ProtoMessage() {}
 
 func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[24]
+	mi := &file_api_sso_sso_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1433,7 +1550,7 @@ func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListUsersRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{24}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListUsersRequest) GetPage() int32 {
@@ -1460,7 +1577,7 @@ type ListUsersResponse struct {
 
 func (x *ListUsersResponse) Reset() {
 	*x = ListUsersResponse{}
-	mi := &file_api_sso_sso_proto_msgTypes[25]
+	mi := &file_api_sso_sso_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1472,7 +1589,7 @@ func (x *ListUsersResponse) String() string {
 func (*ListUsersResponse) ProtoMessage() {}
 
 func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[25]
+	mi := &file_api_sso_sso_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1485,7 +1602,7 @@ func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListUsersResponse) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{25}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListUsersResponse) GetUsers() []*UserData {
@@ -1515,7 +1632,7 @@ type CreateUserRequest struct {
 
 func (x *CreateUserRequest) Reset() {
 	*x = CreateUserRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[26]
+	mi := &file_api_sso_sso_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1527,7 +1644,7 @@ func (x *CreateUserRequest) String() string {
 func (*CreateUserRequest) ProtoMessage() {}
 
 func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[26]
+	mi := &file_api_sso_sso_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1540,7 +1657,7 @@ func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
 func (*CreateUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{26}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *CreateUserRequest) GetUsername() string {
@@ -1592,7 +1709,7 @@ type UpdateUserRequest struct {
 
 func (x *UpdateUserRequest) Reset() {
 	*x = UpdateUserRequest{}
-	mi := &file_api_sso_sso_proto_msgTypes[27]
+	mi := &file_api_sso_sso_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1604,7 +1721,7 @@ func (x *UpdateUserRequest) String() string {
 func (*UpdateUserRequest) ProtoMessage() {}
 
 func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_sso_sso_proto_msgTypes[27]
+	mi := &file_api_sso_sso_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1617,7 +1734,7 @@ func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserRequest) Descriptor() ([]byte, []int) {
-	return file_api_sso_sso_proto_rawDescGZIP(), []int{27}
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *UpdateUserRequest) GetUserId() string {
@@ -1684,10 +1801,17 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12,\n" +
 	"\x12refresh_expires_at\x18\x03 \x01(\x03R\x10refreshExpiresAt\x12%\n" +
-	"\x04user\x18\x04 \x01(\v2\x11.sso.SignedInUserR\x04user\"4\n" +
+	"\x04user\x18\x04 \x01(\v2\x11.sso.SignedInUserR\x04user\"m\n" +
 	"\rLogoutRequest\x12#\n" +
-	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"\x10\n" +
-	"\x0eLogoutResponse\"5\n" +
+	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\x127\n" +
+	"\x18post_logout_redirect_uri\x18\x02 \x01(\tR\x15postLogoutRedirectUri\"@\n" +
+	"\x0eLogoutResponse\x12.\n" +
+	"\x13provider_logout_url\x18\x01 \x01(\tR\x11providerLogoutUrl\"Y\n" +
+	"\x18BackchannelLogoutRequest\x12\x1a\n" +
+	"\bprovider\x18\x01 \x01(\tR\bprovider\x12!\n" +
+	"\flogout_token\x18\x02 \x01(\tR\vlogoutToken\"F\n" +
+	"\x19BackchannelLogoutResponse\x12)\n" +
+	"\x10revoked_sessions\x18\x01 \x01(\x05R\x0frevokedSessions\"5\n" +
 	"\x0eRefreshRequest\x12#\n" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"\x87\x01\n" +
 	"\x0fRefreshResponse\x12!\n" +
@@ -1778,7 +1902,7 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"%OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT\x10\x02\x12+\n" +
 	"'OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED\x10\x03\x12-\n" +
 	")OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED\x10\x04\x12*\n" +
-	"&OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT\x10\x052\xc8\x03\n" +
+	"&OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT\x10\x052\x9c\x04\n" +
 	"\x04Auth\x127\n" +
 	"\bRegister\x12\x14.sso.RegisterRequest\x1a\x15.sso.RegisterResponse\x12.\n" +
 	"\x05Login\x12\x11.sso.LoginRequest\x1a\x12.sso.LoginResponse\x124\n" +
@@ -1786,7 +1910,8 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\x06Logout\x12\x12.sso.LogoutRequest\x1a\x13.sso.LogoutResponse\x12F\n" +
 	"\rGetAuthConfig\x12\x19.sso.GetAuthConfigRequest\x1a\x1a.sso.GetAuthConfigResponse\x12I\n" +
 	"\x0eStartOIDCLogin\x12\x1a.sso.StartOIDCLoginRequest\x1a\x1b.sso.StartOIDCLoginResponse\x12[\n" +
-	"\x14CompleteOIDCCallback\x12 .sso.CompleteOIDCCallbackRequest\x1a!.sso.CompleteOIDCCallbackResponse2\x9b\x04\n" +
+	"\x14CompleteOIDCCallback\x12 .sso.CompleteOIDCCallbackRequest\x1a!.sso.CompleteOIDCCallbackResponse\x12R\n" +
+	"\x11BackchannelLogout\x12\x1d.sso.BackchannelLogoutRequest\x1a\x1e.sso.BackchannelLogoutResponse2\x9b\x04\n" +
 	"\aUserAPI\x12;\n" +
 	"\x11VerifyAccessToken\x12\x17.sso.VerifyTokenRequest\x1a\r.sso.UserData\x12L\n" +
 	"\x0fCheckPermission\x12\x1b.sso.CheckPermissionRequest\x1a\x1c.sso.CheckPermissionResponse\x12-\n" +
@@ -1813,7 +1938,7 @@ func file_api_sso_sso_proto_rawDescGZIP() []byte {
 }
 
 var file_api_sso_sso_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_sso_sso_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_api_sso_sso_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
 var file_api_sso_sso_proto_goTypes = []any{
 	(OIDCCallbackOutcome)(0),             // 0: sso.OIDCCallbackOutcome
 	(*RegisterRequest)(nil),              // 1: sso.RegisterRequest
@@ -1823,70 +1948,74 @@ var file_api_sso_sso_proto_goTypes = []any{
 	(*LoginResponse)(nil),                // 5: sso.LoginResponse
 	(*LogoutRequest)(nil),                // 6: sso.LogoutRequest
 	(*LogoutResponse)(nil),               // 7: sso.LogoutResponse
-	(*RefreshRequest)(nil),               // 8: sso.RefreshRequest
-	(*RefreshResponse)(nil),              // 9: sso.RefreshResponse
-	(*GetAuthConfigRequest)(nil),         // 10: sso.GetAuthConfigRequest
-	(*OIDCProviderData)(nil),             // 11: sso.OIDCProviderData
-	(*GetAuthConfigResponse)(nil),        // 12: sso.GetAuthConfigResponse
-	(*StartOIDCLoginRequest)(nil),        // 13: sso.StartOIDCLoginRequest
-	(*StartOIDCLoginResponse)(nil),       // 14: sso.StartOIDCLoginResponse
-	(*CompleteOIDCCallbackRequest)(nil),  // 15: sso.CompleteOIDCCallbackRequest
-	(*CompleteOIDCCallbackResponse)(nil), // 16: sso.CompleteOIDCCallbackResponse
-	(*VerifyTokenRequest)(nil),           // 17: sso.VerifyTokenRequest
-	(*CheckPermissionRequest)(nil),       // 18: sso.CheckPermissionRequest
-	(*CheckPermissionResponse)(nil),      // 19: sso.CheckPermissionResponse
-	(*GetUserRequest)(nil),               // 20: sso.GetUserRequest
-	(*UserIDRequest)(nil),                // 21: sso.UserIDRequest
-	(*BatchGetUsersRequest)(nil),         // 22: sso.BatchGetUsersRequest
-	(*UserData)(nil),                     // 23: sso.UserData
-	(*BatchGetUsersResponse)(nil),        // 24: sso.BatchGetUsersResponse
-	(*ListUsersRequest)(nil),             // 25: sso.ListUsersRequest
-	(*ListUsersResponse)(nil),            // 26: sso.ListUsersResponse
-	(*CreateUserRequest)(nil),            // 27: sso.CreateUserRequest
-	(*UpdateUserRequest)(nil),            // 28: sso.UpdateUserRequest
+	(*BackchannelLogoutRequest)(nil),     // 8: sso.BackchannelLogoutRequest
+	(*BackchannelLogoutResponse)(nil),    // 9: sso.BackchannelLogoutResponse
+	(*RefreshRequest)(nil),               // 10: sso.RefreshRequest
+	(*RefreshResponse)(nil),              // 11: sso.RefreshResponse
+	(*GetAuthConfigRequest)(nil),         // 12: sso.GetAuthConfigRequest
+	(*OIDCProviderData)(nil),             // 13: sso.OIDCProviderData
+	(*GetAuthConfigResponse)(nil),        // 14: sso.GetAuthConfigResponse
+	(*StartOIDCLoginRequest)(nil),        // 15: sso.StartOIDCLoginRequest
+	(*StartOIDCLoginResponse)(nil),       // 16: sso.StartOIDCLoginResponse
+	(*CompleteOIDCCallbackRequest)(nil),  // 17: sso.CompleteOIDCCallbackRequest
+	(*CompleteOIDCCallbackResponse)(nil), // 18: sso.CompleteOIDCCallbackResponse
+	(*VerifyTokenRequest)(nil),           // 19: sso.VerifyTokenRequest
+	(*CheckPermissionRequest)(nil),       // 20: sso.CheckPermissionRequest
+	(*CheckPermissionResponse)(nil),      // 21: sso.CheckPermissionResponse
+	(*GetUserRequest)(nil),               // 22: sso.GetUserRequest
+	(*UserIDRequest)(nil),                // 23: sso.UserIDRequest
+	(*BatchGetUsersRequest)(nil),         // 24: sso.BatchGetUsersRequest
+	(*UserData)(nil),                     // 25: sso.UserData
+	(*BatchGetUsersResponse)(nil),        // 26: sso.BatchGetUsersResponse
+	(*ListUsersRequest)(nil),             // 27: sso.ListUsersRequest
+	(*ListUsersResponse)(nil),            // 28: sso.ListUsersResponse
+	(*CreateUserRequest)(nil),            // 29: sso.CreateUserRequest
+	(*UpdateUserRequest)(nil),            // 30: sso.UpdateUserRequest
 }
 var file_api_sso_sso_proto_depIdxs = []int32{
 	4,  // 0: sso.LoginResponse.user:type_name -> sso.SignedInUser
-	11, // 1: sso.GetAuthConfigResponse.oidc_providers:type_name -> sso.OIDCProviderData
+	13, // 1: sso.GetAuthConfigResponse.oidc_providers:type_name -> sso.OIDCProviderData
 	0,  // 2: sso.CompleteOIDCCallbackResponse.outcome:type_name -> sso.OIDCCallbackOutcome
 	4,  // 3: sso.CompleteOIDCCallbackResponse.user:type_name -> sso.SignedInUser
-	23, // 4: sso.CheckPermissionResponse.user:type_name -> sso.UserData
-	23, // 5: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
-	23, // 6: sso.ListUsersResponse.users:type_name -> sso.UserData
+	25, // 4: sso.CheckPermissionResponse.user:type_name -> sso.UserData
+	25, // 5: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
+	25, // 6: sso.ListUsersResponse.users:type_name -> sso.UserData
 	1,  // 7: sso.Auth.Register:input_type -> sso.RegisterRequest
 	3,  // 8: sso.Auth.Login:input_type -> sso.LoginRequest
-	8,  // 9: sso.Auth.Refresh:input_type -> sso.RefreshRequest
+	10, // 9: sso.Auth.Refresh:input_type -> sso.RefreshRequest
 	6,  // 10: sso.Auth.Logout:input_type -> sso.LogoutRequest
-	10, // 11: sso.Auth.GetAuthConfig:input_type -> sso.GetAuthConfigRequest
-	13, // 12: sso.Auth.StartOIDCLogin:input_type -> sso.StartOIDCLoginRequest
-	15, // 13: sso.Auth.CompleteOIDCCallback:input_type -> sso.CompleteOIDCCallbackRequest
-	17, // 14: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
-	18, // 15: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
-	20, // 16: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
-	22, // 17: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
-	25, // 18: sso.UserAPI.ListUsers:input_type -> sso.ListUsersRequest
-	27, // 19: sso.UserAPI.CreateUser:input_type -> sso.CreateUserRequest
-	28, // 20: sso.UserAPI.UpdateUser:input_type -> sso.UpdateUserRequest
-	21, // 21: sso.UserAPI.DeactivateUser:input_type -> sso.UserIDRequest
-	21, // 22: sso.UserAPI.ReactivateUser:input_type -> sso.UserIDRequest
-	2,  // 23: sso.Auth.Register:output_type -> sso.RegisterResponse
-	5,  // 24: sso.Auth.Login:output_type -> sso.LoginResponse
-	9,  // 25: sso.Auth.Refresh:output_type -> sso.RefreshResponse
-	7,  // 26: sso.Auth.Logout:output_type -> sso.LogoutResponse
-	12, // 27: sso.Auth.GetAuthConfig:output_type -> sso.GetAuthConfigResponse
-	14, // 28: sso.Auth.StartOIDCLogin:output_type -> sso.StartOIDCLoginResponse
-	16, // 29: sso.Auth.CompleteOIDCCallback:output_type -> sso.CompleteOIDCCallbackResponse
-	23, // 30: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
-	19, // 31: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
-	23, // 32: sso.UserAPI.GetUser:output_type -> sso.UserData
-	24, // 33: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
-	26, // 34: sso.UserAPI.ListUsers:output_type -> sso.ListUsersResponse
-	23, // 35: sso.UserAPI.CreateUser:output_type -> sso.UserData
-	23, // 36: sso.UserAPI.UpdateUser:output_type -> sso.UserData
-	23, // 37: sso.UserAPI.DeactivateUser:output_type -> sso.UserData
-	23, // 38: sso.UserAPI.ReactivateUser:output_type -> sso.UserData
-	23, // [23:39] is the sub-list for method output_type
-	7,  // [7:23] is the sub-list for method input_type
+	12, // 11: sso.Auth.GetAuthConfig:input_type -> sso.GetAuthConfigRequest
+	15, // 12: sso.Auth.StartOIDCLogin:input_type -> sso.StartOIDCLoginRequest
+	17, // 13: sso.Auth.CompleteOIDCCallback:input_type -> sso.CompleteOIDCCallbackRequest
+	8,  // 14: sso.Auth.BackchannelLogout:input_type -> sso.BackchannelLogoutRequest
+	19, // 15: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
+	20, // 16: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
+	22, // 17: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
+	24, // 18: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
+	27, // 19: sso.UserAPI.ListUsers:input_type -> sso.ListUsersRequest
+	29, // 20: sso.UserAPI.CreateUser:input_type -> sso.CreateUserRequest
+	30, // 21: sso.UserAPI.UpdateUser:input_type -> sso.UpdateUserRequest
+	23, // 22: sso.UserAPI.DeactivateUser:input_type -> sso.UserIDRequest
+	23, // 23: sso.UserAPI.ReactivateUser:input_type -> sso.UserIDRequest
+	2,  // 24: sso.Auth.Register:output_type -> sso.RegisterResponse
+	5,  // 25: sso.Auth.Login:output_type -> sso.LoginResponse
+	11, // 26: sso.Auth.Refresh:output_type -> sso.RefreshResponse
+	7,  // 27: sso.Auth.Logout:output_type -> sso.LogoutResponse
+	14, // 28: sso.Auth.GetAuthConfig:output_type -> sso.GetAuthConfigResponse
+	16, // 29: sso.Auth.StartOIDCLogin:output_type -> sso.StartOIDCLoginResponse
+	18, // 30: sso.Auth.CompleteOIDCCallback:output_type -> sso.CompleteOIDCCallbackResponse
+	9,  // 31: sso.Auth.BackchannelLogout:output_type -> sso.BackchannelLogoutResponse
+	25, // 32: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
+	21, // 33: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
+	25, // 34: sso.UserAPI.GetUser:output_type -> sso.UserData
+	26, // 35: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
+	28, // 36: sso.UserAPI.ListUsers:output_type -> sso.ListUsersResponse
+	25, // 37: sso.UserAPI.CreateUser:output_type -> sso.UserData
+	25, // 38: sso.UserAPI.UpdateUser:output_type -> sso.UserData
+	25, // 39: sso.UserAPI.DeactivateUser:output_type -> sso.UserData
+	25, // 40: sso.UserAPI.ReactivateUser:output_type -> sso.UserData
+	24, // [24:41] is the sub-list for method output_type
+	7,  // [7:24] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name
@@ -1903,7 +2032,7 @@ func file_api_sso_sso_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_sso_sso_proto_rawDesc), len(file_api_sso_sso_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   28,
+			NumMessages:   30,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

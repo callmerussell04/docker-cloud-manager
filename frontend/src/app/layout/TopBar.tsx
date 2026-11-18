@@ -2,7 +2,7 @@ import { Languages, Menu, Moon, Sun, LogOut, User } from 'lucide-react';
 import { useThemeStore } from '@/shared/lib/themeStore';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useLanguageStore, type Locale } from '@/shared/lib/languageStore';
-import { logoutFn } from '@/features/auth/api';
+import { leaveForProviderSignOut, logoutFn } from '@/features/auth/api';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage } from '@/shared/api/apiError';
@@ -23,9 +23,9 @@ export function TopBar({ onMenuClick }: TopBarProps) {
 
   const handleLogout = async () => {
     try {
-      await logoutFn();
+      const destination = await logoutFn();
       logout();
-      navigate('/login');
+      if (!leaveForProviderSignOut(destination)) navigate('/login');
     } catch (error) {
       const { message } = getApiErrorMessage(error, t('topbar.logoutFailed'), t);
       addToast(message, 'error');

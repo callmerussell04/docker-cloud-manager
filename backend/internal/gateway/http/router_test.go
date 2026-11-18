@@ -320,7 +320,9 @@ func TestRouterSplitsAuthRateLimitsByPurpose(t *testing.T) {
 	deps.auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.SignIn{}, apperrors.ErrInvalidCredentials).Once()
 	deps.auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{}, nil).Once()
 	deps.auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/auth/callback").Return(model.OIDCLoginStartResult{}, apperrors.ErrUnavailable).Once()
+	deps.auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", "logout-token").Return(0, nil).Once()
 	login := map[string]string{"Content-Type": "application/json", "Origin": "http://localhost:5173"}
+	backchannel := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
 	const credentials = `{"username":"alice","password":"secret123"}`
 
 	// The first call in each bucket passes, whatever the other buckets saw.
@@ -329,6 +331,10 @@ func TestRouterSplitsAuthRateLimitsByPurpose(t *testing.T) {
 	resp := routerRequest(router, http.MethodGet, "/api/v1/auth/oidc/keycloak/start", "", nil)
 	require.Equal(t, http.StatusFound, resp.Code)
 	require.Equal(t, "/auth/callback?login=error&reason=provider_unavailable", resp.Header().Get("Location"))
+	require.Equal(t, http.StatusOK, routerRequest(router, http.MethodPost, "/api/v1/auth/oidc/keycloak/backchannel-logout", "logout_token=logout-token", backchannel).Code)
+	resp = routerRequest(router, http.MethodPost, "/api/v1/auth/oidc/keycloak/backchannel-logout", "logout_token=logout-token", backchannel)
+	require.Equal(t, http.StatusTooManyRequests, resp.Code, "the back-channel route has a bucket of its own")
+	require.Contains(t, resp.Header().Get("Content-Type"), "json")
 
 	for _, call := range []struct{ method, path, body string }{
 		{http.MethodPost, "/api/v1/auth/login", credentials},

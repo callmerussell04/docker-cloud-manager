@@ -3,7 +3,8 @@
 //
 // The provider serves discovery, the authorization endpoint (which records its
 // parameters and redirects back with a code, as a browser that signed in would
-// see), the token endpoint and the signing keys. Like a Keycloak client with
+// see), the token endpoint, the signing keys and an end-session endpoint. It
+// signs back-channel logout tokens on request. Like a Keycloak client with
 // PKCE required, it refuses an authorization request without an S256
 // challenge and a code exchange whose verifier does not match it. It signs ID
 // tokens with a chosen algorithm, can rotate its keys, edit or forge the next
@@ -41,11 +42,15 @@ const (
 
 // Endpoint paths, for Override.
 const (
-	PathDiscovery = "/.well-known/openid-configuration"
-	PathAuthorize = "/auth"
-	PathToken     = "/token"
-	PathKeys      = "/keys"
+	PathDiscovery  = "/.well-known/openid-configuration"
+	PathAuthorize  = "/auth"
+	PathToken      = "/token"
+	PathKeys       = "/keys"
+	PathEndSession = "/logout"
 )
+
+// BackchannelLogoutEvent is the event a back-channel logout token carries.
+const BackchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout"
 
 // Options configure a Provider. Zero values select the defaults.
 type Options struct {
@@ -60,6 +65,8 @@ type Options struct {
 	// Advertised replaces id_token_signing_alg_values_supported in discovery.
 	// Empty advertises Algorithm.
 	Advertised []string
+	// NoEndSession leaves end_session_endpoint out of discovery.
+	NoEndSession bool
 }
 
 // Identity is the user the provider signs in at its authorization endpoint.
@@ -70,6 +77,9 @@ type Identity struct {
 	EmailVerified     bool
 	Groups            []string
 	RealmRoles        []string
+	// SessionID is the provider session (sid) of the next sign-ins; empty
+	// gives each sign-in a fresh one.
+	SessionID string
 }
 
 // Provider is an in-process identity provider.
@@ -86,6 +96,9 @@ type Provider struct {
 	identity    Identity
 	grants      map[string]grant
 	authorize   url.Values
+	endSession  url.Values
+	lastIDToken string
+	lastSID     string
 	idTokenEdit func(map[string]any)
 	forge       string
 	overrides   map[string]http.HandlerFunc
@@ -101,6 +114,7 @@ type grant struct {
 	redirectURI   string
 	codeChallenge string
 	identity      Identity
+	sessionID     string
 }
 
 // New starts a provider on a loopback listener and stops it at the end of the test.
@@ -132,6 +146,7 @@ func New(t testing.TB, opts Options) *Provider {
 	mux.HandleFunc("GET "+PathAuthorize, p.serveAuthorize)
 	mux.HandleFunc("POST "+PathToken, p.serveToken)
 	mux.HandleFunc("GET "+PathKeys, p.serveKeys)
+	mux.HandleFunc("GET "+PathEndSession, p.serveEndSession)
 	p.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
 		override := p.overrides[r.URL.Path]
@@ -218,6 +233,57 @@ func (p *Provider) Override(path string, handler http.HandlerFunc) {
 		return
 	}
 	p.overrides[path] = handler
+}
+
+// LastIDToken returns the last ID token the token endpoint issued.
+func (p *Provider) LastIDToken() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastIDToken
+}
+
+// LastSessionID returns the provider session (sid) of the last sign-in.
+func (p *Provider) LastSessionID() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.lastSID
+}
+
+// LastEndSession returns the query of the last end-session request.
+func (p *Provider) LastEndSession() url.Values {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.endSession
+}
+
+// LogoutToken signs a back-channel logout token for subject and provider
+// session sessionID; an empty value leaves its claim out. edit changes the
+// claims before signing, as EditIDToken does, and Forge applies too.
+func (p *Provider) LogoutToken(subject, sessionID string, edit func(claims map[string]any)) string {
+	p.t.Helper()
+	now := time.Now()
+	claims := map[string]any{
+		"iss":    p.Issuer(),
+		"aud":    p.opts.ClientID,
+		"iat":    now.Unix(),
+		"exp":    now.Add(2 * time.Minute).Unix(),
+		"jti":    rand.Text(),
+		"events": map[string]any{BackchannelLogoutEvent: map[string]any{}},
+	}
+	if subject != "" {
+		claims["sub"] = subject
+	}
+	if sessionID != "" {
+		claims["sid"] = sessionID
+	}
+	if edit != nil {
+		edit(claims)
+	}
+	token, err := p.signClaims(claims)
+	if err != nil {
+		p.t.Fatalf("sign oidctest logout token: %v", err)
+	}
+	return token
 }
 
 // LastAuthorization returns the query of the last authorization request.
@@ -313,7 +379,7 @@ func (p *Provider) newKey() signingKey {
 
 func (p *Provider) serveDiscovery(w http.ResponseWriter, _ *http.Request) {
 	issuer := p.Issuer()
-	writeJSON(w, http.StatusOK, map[string]any{
+	document := map[string]any{
 		"issuer":                                issuer,
 		"authorization_endpoint":                issuer + PathAuthorize,
 		"token_endpoint":                        issuer + PathToken,
@@ -322,7 +388,11 @@ func (p *Provider) serveDiscovery(w http.ResponseWriter, _ *http.Request) {
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": p.opts.Advertised,
 		"code_challenge_methods_supported":      []string{"S256"},
-	})
+	}
+	if !p.opts.NoEndSession {
+		document["end_session_endpoint"] = issuer + PathEndSession
+	}
+	writeJSON(w, http.StatusOK, document)
 }
 
 func (p *Provider) serveAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -344,9 +414,14 @@ func (p *Provider) serveAuthorize(w http.ResponseWriter, r *http.Request) {
 	code := rand.Text()
 	p.mu.Lock()
 	p.authorize = query
+	sessionID := p.identity.SessionID
+	if sessionID == "" {
+		sessionID = rand.Text()
+	}
+	p.lastSID = sessionID
 	p.grants[code] = grant{
 		nonce: query.Get("nonce"), redirectURI: query.Get("redirect_uri"),
-		codeChallenge: query.Get("code_challenge"), identity: p.identity,
+		codeChallenge: query.Get("code_challenge"), identity: p.identity, sessionID: sessionID,
 	}
 	p.mu.Unlock()
 
@@ -384,6 +459,9 @@ func (p *Provider) serveToken(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
 		return
 	}
+	p.mu.Lock()
+	p.lastIDToken = idToken
+	p.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"access_token": rand.Text(),
 		"token_type":   "Bearer",
@@ -401,6 +479,7 @@ func (p *Provider) signIDToken(issued grant) (string, error) {
 		"iat":                now.Unix(),
 		"exp":                now.Add(5 * time.Minute).Unix(),
 		"nonce":              issued.nonce,
+		"sid":                issued.sessionID,
 		"preferred_username": issued.identity.PreferredUsername,
 		"email":              issued.identity.Email,
 		"email_verified":     issued.identity.EmailVerified,
@@ -408,11 +487,19 @@ func (p *Provider) signIDToken(issued grant) (string, error) {
 		"realm_access":       map[string]any{"roles": issued.identity.RealmRoles},
 	}
 	p.mu.Lock()
-	edit, forge, key := p.idTokenEdit, p.forge, p.key
+	edit := p.idTokenEdit
 	p.mu.Unlock()
 	if edit != nil {
 		edit(claims)
 	}
+	return p.signClaims(claims)
+}
+
+// signClaims signs claims with the current key, or forges them as Forge set.
+func (p *Provider) signClaims(claims map[string]any) (string, error) {
+	p.mu.Lock()
+	forge, key := p.forge, p.key
+	p.mu.Unlock()
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		return "", err
@@ -439,6 +526,20 @@ func sign(alg jose.SignatureAlgorithm, keyID string, key any, payload []byte) (s
 		return "", err
 	}
 	return signed.CompactSerialize()
+}
+
+// serveEndSession records the sign-out request and, like Keycloak, sends the
+// browser to post_logout_redirect_uri when there is one.
+func (p *Provider) serveEndSession(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	p.mu.Lock()
+	p.endSession = query
+	p.mu.Unlock()
+	if target := query.Get("post_logout_redirect_uri"); target != "" {
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (p *Provider) serveKeys(w http.ResponseWriter, _ *http.Request) {

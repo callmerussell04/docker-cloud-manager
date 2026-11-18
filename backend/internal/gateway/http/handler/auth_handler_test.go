@@ -57,7 +57,7 @@ func TestAuthHandlerRegisterLoginRefreshLogoutAndProviders(t *testing.T) {
 	require.Contains(t, resp.Body.String(), `"local_login_enabled":true`)
 	require.Contains(t, resp.Body.String(), `"oidc_providers":[{"available":false,"name":"keycloak"}]`)
 
-	auth.EXPECT().Logout(mock.Anything, "").Return(nil)
+	auth.EXPECT().Logout(mock.Anything, "", "http://frontend.example/login").Return("", nil)
 	resp = perform(router, http.MethodPost, "/logout", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	requireCookieMaxAge(t, resp.Result(), "refresh_token", -1)
@@ -368,7 +368,7 @@ func TestAuthHandlerLogoutRevocationAndRefreshFailureCookies(t *testing.T) {
 				if action == "refresh" {
 					auth.EXPECT().Refresh(mock.Anything, "secret").Return(model.Tokens{AccessToken: "access", RefreshToken: "next", RefreshExpiresAt: time.Now().Add(90 * time.Second)}, err)
 				} else {
-					auth.EXPECT().Logout(mock.Anything, "secret").Return(err)
+					auth.EXPECT().Logout(mock.Anything, "secret", "http://frontend.example/login").Return("", err)
 				}
 				resp := perform(router, http.MethodPost, "/"+action, "", []*http.Cookie{{Name: "refresh_token", Value: "secret"}})
 				require.Equal(t, statusCode, resp.Code)
@@ -429,7 +429,7 @@ func TestCookieOriginFallsBackToRefererOnlyWhenOriginIsAbsent(t *testing.T) {
 			router := gin.New()
 			router.POST("/logout", h.Logout)
 			if test.allowed {
-				auth.EXPECT().Logout(mock.Anything, "").Return(nil)
+				auth.EXPECT().Logout(mock.Anything, "", "http://frontend.example/login").Return("", nil)
 			}
 			req := httptest.NewRequest(http.MethodPost, "/logout", nil)
 			if test.origin != "" {

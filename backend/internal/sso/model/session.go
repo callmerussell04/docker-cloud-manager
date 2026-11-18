@@ -40,6 +40,12 @@ type Session struct {
 	AbsoluteExpiresAt time.Time
 	IdleExpiresAt     time.Time
 	RevokedAt         *time.Time
+	// Provider, ProviderSessionID and IDToken are set only for a session
+	// created by an OIDC callback. The ID token is cleared when the session is
+	// revoked and leaves SSO only inside the provider sign-out URL.
+	Provider          string
+	ProviderSessionID string
+	IDToken           string
 }
 
 // RefreshToken contains only a digest, including for consumed predecessors.

@@ -45,6 +45,9 @@ const (
 	ActionAuthRegister     = "auth.register"
 	ActionAuthLogin        = "auth.login"
 	ActionAuthOIDCCallback = "auth.oidc_callback"
+	// ActionAuthProviderLogout is a verified back-channel logout from the
+	// identity provider.
+	ActionAuthProviderLogout = "auth.provider_logout"
 
 	ActionUserAdminCreate     = "user.admin_create"
 	ActionUserAdminUpdate     = "user.admin_update"
@@ -76,4 +79,5 @@ const (
 	DetailCanceledBuilds       = "canceled_builds"
 	DetailCanceledDeployments  = "canceled_deployments"
 	DetailRemainingWorkloads   = "remaining_workloads"
+	DetailRevokedSessions      = "revoked_sessions"
 )

@@ -14,7 +14,8 @@ type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (uuid.UUID, error)
 	Login(ctx context.Context, username, password string) (model.SignIn, error)
 	Refresh(ctx context.Context, refreshToken string) (model.Tokens, error)
-	Logout(ctx context.Context, refreshToken string) error
+	Logout(ctx context.Context, refreshToken, postLogoutRedirectURI string) (string, error)
+	BackchannelLogout(ctx context.Context, provider, logoutToken string) (int, error)
 	AuthProviders() []model.AuthProvider
 	LocalAuthConfig() (bool, bool)
 	StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStart, error)

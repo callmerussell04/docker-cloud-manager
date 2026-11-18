@@ -12,6 +12,7 @@ service Auth {
   rpc GetAuthConfig (GetAuthConfigRequest) returns (GetAuthConfigResponse);
   rpc StartOIDCLogin (StartOIDCLoginRequest) returns (StartOIDCLoginResponse);
   rpc CompleteOIDCCallback (CompleteOIDCCallbackRequest) returns (CompleteOIDCCallbackResponse);
+  rpc BackchannelLogout (BackchannelLogoutRequest) returns (BackchannelLogoutResponse);
 }
 
 service UserAPI {
@@ -58,9 +59,26 @@ message LoginResponse {
 
 message LogoutRequest {
   string refresh_token = 1;
+  // Where the provider returns the browser after its sign-out; Gateway sends
+  // the validated request origin plus the login path.
+  string post_logout_redirect_uri = 2;
 }
 
-message LogoutResponse {}
+message LogoutResponse {
+  // The provider sign-out URL for a session created through OIDC; empty
+  // otherwise.
+  string provider_logout_url = 1;
+}
+
+// A back-channel logout token the provider posted to Gateway.
+message BackchannelLogoutRequest {
+  string provider = 1;
+  string logout_token = 2;
+}
+
+message BackchannelLogoutResponse {
+  int32 revoked_sessions = 1;
+}
 
 message RefreshRequest {
   string refresh_token = 1;

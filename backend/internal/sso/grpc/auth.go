@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"math"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
@@ -179,8 +180,22 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 }
 
 func (h *Handler) Logout(ctx context.Context, req *sso.LogoutRequest) (*sso.LogoutResponse, error) {
-	if err := h.auth.Logout(ctx, req.GetRefreshToken()); err != nil {
+	providerLogoutURL, err := h.auth.Logout(ctx, req.GetRefreshToken(), req.GetPostLogoutRedirectUri())
+	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &sso.LogoutResponse{}, nil
+	return &sso.LogoutResponse{ProviderLogoutUrl: providerLogoutURL}, nil
+}
+
+// BackchannelLogout passes an empty token to the service, which answers not
+// found with OIDC off before it judges the token.
+func (h *Handler) BackchannelLogout(ctx context.Context, req *sso.BackchannelLogoutRequest) (*sso.BackchannelLogoutResponse, error) {
+	if req.GetProvider() == "" {
+		return nil, status.Error(codes.InvalidArgument, "missing provider")
+	}
+	revoked, err := h.auth.BackchannelLogout(ctx, req.GetProvider(), req.GetLogoutToken())
+	if err != nil {
+		return nil, grpcerrors.ToGRPC(err)
+	}
+	return &sso.BackchannelLogoutResponse{RevokedSessions: int32(min(revoked, math.MaxInt32))}, nil
 }

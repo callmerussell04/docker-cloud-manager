@@ -47,6 +47,25 @@ export const loginFailureMessages = {
   rate_limited: 'auth.callback.reason.rateLimited',
 } as const satisfies Record<string, TranslationKey>;
 
+export type SignOutDestination = { to: 'provider'; url: string } | { to: 'login' };
+
+/**
+ * Where the browser goes after DCM sign-out succeeded: for a session created
+ * through Keycloak, the provider's sign-out URL Gateway answered, so the
+ * Keycloak session ends too and returns to the login page; otherwise, or for
+ * anything but an absolute http(s) URL, the login page.
+ */
+export function signOutDestination(providerLogoutUrl: unknown): SignOutDestination {
+  if (typeof providerLogoutUrl !== 'string' || providerLogoutUrl === '') return { to: 'login' };
+  try {
+    const url = new URL(providerLogoutUrl);
+    if (url.protocol === 'https:' || url.protocol === 'http:') return { to: 'provider', url: providerLogoutUrl };
+  } catch {
+    // Not an absolute URL.
+  }
+  return { to: 'login' };
+}
+
 export type CallbackResult = { ok: true } | { ok: false; message: TranslationKey };
 
 /** Reads the callback page's query: only `login=success` signs in; anything else is a failure with a message. */

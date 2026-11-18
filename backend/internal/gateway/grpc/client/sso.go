@@ -309,10 +309,28 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 	}
 }
 
-func (c *SSOClient) Logout(ctx context.Context, refreshToken string) error {
-	_, err := c.authAPI.Logout(withoutAuthenticatedUser(ctx), &sso.LogoutRequest{RefreshToken: refreshToken})
+// Logout revokes the session and answers the provider sign-out URL for a
+// session created through OIDC, empty otherwise.
+func (c *SSOClient) Logout(ctx context.Context, refreshToken, postLogoutRedirectURI string) (string, error) {
+	resp, err := c.authAPI.Logout(withoutAuthenticatedUser(ctx), &sso.LogoutRequest{
+		RefreshToken:          refreshToken,
+		PostLogoutRedirectUri: postLogoutRedirectURI,
+	})
 	if err != nil {
-		return grpcerrors.FromGRPC(err)
+		return "", grpcerrors.FromGRPC(err)
 	}
-	return nil
+	return resp.GetProviderLogoutUrl(), nil
+}
+
+// BackchannelLogout forwards a provider's logout token under system scope and
+// returns how many sessions SSO revoked.
+func (c *SSOClient) BackchannelLogout(ctx context.Context, provider, logoutToken string) (int, error) {
+	resp, err := c.authAPI.BackchannelLogout(withoutAuthenticatedUser(ctx), &sso.BackchannelLogoutRequest{
+		Provider:    provider,
+		LogoutToken: logoutToken,
+	})
+	if err != nil {
+		return 0, grpcerrors.FromGRPC(err)
+	}
+	return int(resp.GetRevokedSessions()), nil
 }

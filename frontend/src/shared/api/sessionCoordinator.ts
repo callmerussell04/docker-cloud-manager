@@ -12,7 +12,8 @@ export class SessionUnavailableError extends Error {
 
 interface SessionDependencies {
   refresh: () => Promise<string>;
-  logout: () => Promise<void>;
+  /** Signs out and resolves with the provider sign-out URL the server answered, or null. */
+  logout: () => Promise<string | null>;
   withLock: <T>(operation: () => Promise<T>) => Promise<T>;
   onToken: (token: string) => void;
   onLogout: () => void;
@@ -24,7 +25,7 @@ interface SessionDependencies {
 // The browser adapter supplies an origin-wide lock and reads cookies inside it.
 export function createSessionCoordinator(deps: SessionDependencies) {
   let refreshPromise: Promise<string> | null = null;
-  let logoutPromise: Promise<void> | null = null;
+  let logoutPromise: Promise<string | null> | null = null;
   let epoch = 0;
   let logoutRequested = false;
   let suspended = false;
@@ -57,13 +58,17 @@ export function createSessionCoordinator(deps: SessionDependencies) {
       }).finally(() => { refreshPromise = null; });
       return refreshPromise;
     },
-    logout(): Promise<void> {
+    /** Resolves with the provider sign-out URL for an OIDC session, or null, once sign-out succeeded. */
+    logout(): Promise<string | null> {
       if (logoutPromise) return logoutPromise;
       logoutRequested = true;
       epoch++;
       logoutPromise = (refreshPromise?.catch(() => {}) ?? Promise.resolve())
         .then(() => deps.withLock(deps.logout))
-        .then(() => deps.onLogout())
+        .then((providerLogoutUrl) => {
+          deps.onLogout();
+          return providerLogoutUrl;
+        })
         .catch((error: unknown) => {
           deps.onSuspend('logout');
           throw error;

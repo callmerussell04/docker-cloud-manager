@@ -51,8 +51,8 @@ func TestSessionsRotateRevokeAndSurviveRestart(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
 	_, err = svc.VerifyAccessToken(ctx, other.AccessToken)
 	require.NoError(t, err)
-	require.NoError(t, svc.Logout(ctx, other.RefreshToken))
-	require.NoError(t, svc.Logout(ctx, other.RefreshToken))
+	require.NoError(t, logout(svc.Logout(ctx, other.RefreshToken, "")))
+	require.NoError(t, logout(svc.Logout(ctx, other.RefreshToken, "")))
 	_, err = svc.VerifyAccessToken(ctx, other.AccessToken)
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
 }
@@ -121,7 +121,7 @@ func TestLogoutRacingRefreshCannotLeaveUsableTokens(t *testing.T) {
 		loggedOut := make(chan error, 1)
 		start := make(chan struct{})
 		go func() { <-start; tokens, err := svc.Refresh(ctx, first.RefreshToken); refreshed <- result{tokens, err} }()
-		go func() { <-start; loggedOut <- svc.Logout(ctx, first.RefreshToken) }()
+		go func() { <-start; loggedOut <- logout(svc.Logout(ctx, first.RefreshToken, "")) }()
 		close(start)
 		require.NoError(t, <-loggedOut)
 		next := <-refreshed
@@ -308,8 +308,8 @@ func TestUnknownSecretAndRoleUpdatesPreserveOtherSessions(t *testing.T) {
 	unknown := strings.Repeat("A", 43)
 	_, err = svc.Refresh(ctx, unknown)
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
-	require.NoError(t, svc.Logout(ctx, unknown))
-	require.NoError(t, svc.Logout(ctx, ""))
+	require.NoError(t, logout(svc.Logout(ctx, unknown, "")))
+	require.NoError(t, logout(svc.Logout(ctx, "", "")))
 	for _, value := range []string{"legacy.jwt.token", strings.Repeat("x", 5000)} {
 		_, err = svc.Refresh(ctx, value)
 		require.ErrorIs(t, err, apperrors.ErrInvalidToken)
@@ -413,7 +413,7 @@ func TestOIDCLoginsUseIndependentDurableSessions(t *testing.T) {
 	second := login()
 	require.NotEqual(t, first.AccessToken, second.AccessToken)
 	require.NotEqual(t, first.RefreshToken, second.RefreshToken)
-	require.NoError(t, svc.Logout(ctx, first.RefreshToken))
+	require.NoError(t, logout(svc.Logout(ctx, first.RefreshToken, "")))
 	_, err := svc.VerifyAccessToken(ctx, first.AccessToken)
 	require.ErrorIs(t, err, apperrors.ErrInvalidToken)
 	_, err = svc.VerifyAccessToken(ctx, second.AccessToken)
@@ -565,4 +565,9 @@ func backendsWaitingOn(ctx context.Context, db *pgxpool.Pool, pid int) int {
 // loginTokens returns only the tokens of a sign-in.
 func loginTokens(signIn model.SignIn, err error) (model.Tokens, error) {
 	return signIn.Tokens, err
+}
+
+// logout returns only the error of a sign-out.
+func logout(_ string, err error) error {
+	return err
 }

@@ -76,6 +76,16 @@ func (r *SessionRepository) VerifySession(ctx context.Context, identity model.Ac
 	return user, sessionStorageError(ctx, "verify session", err)
 }
 
+func (r *SessionRepository) ProviderSessionUsers(ctx context.Context, provider, providerSessionID string) ([]uuid.UUID, error) {
+	rows, err := r.db.Query(ctx, `SELECT DISTINCT user_id FROM sessions
+ WHERE provider=$1 AND provider_session_id=$2 AND revoked_at IS NULL`, provider, providerSessionID)
+	if err != nil {
+		return nil, sessionStorageError(ctx, "find provider sessions", err)
+	}
+	userIDs, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	return userIDs, sessionStorageError(ctx, "find provider sessions", err)
+}
+
 func (r *SessionRepository) DeleteExpired(ctx context.Context, now time.Time, limit int) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM sessions WHERE id IN
  (SELECT id FROM sessions WHERE absolute_expires_at<=$1 ORDER BY absolute_expires_at,id LIMIT $2 FOR UPDATE SKIP LOCKED)`, now, limit)
@@ -92,8 +102,10 @@ func (t *sessionTransaction) CreateSession(ctx context.Context, session model.Se
 	if session.UserID != t.userID {
 		return apperrors.ErrForbidden
 	}
-	_, err := t.tx.Exec(ctx, `INSERT INTO sessions(id,user_id,created_at,absolute_expires_at,idle_expires_at) VALUES($1,$2,$3,$4,$5)`,
-		session.ID, t.userID, session.CreatedAt, session.AbsoluteExpiresAt, session.IdleExpiresAt)
+	_, err := t.tx.Exec(ctx, `INSERT INTO sessions(id,user_id,created_at,absolute_expires_at,idle_expires_at,provider,provider_session_id,id_token)
+ VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),NULLIF($8,''))`,
+		session.ID, t.userID, session.CreatedAt, session.AbsoluteExpiresAt, session.IdleExpiresAt,
+		session.Provider, session.ProviderSessionID, session.IDToken)
 	if err != nil {
 		return sessionStorageError(ctx, "create session", err)
 	}
@@ -109,9 +121,11 @@ func (t *sessionTransaction) GetRefresh(ctx context.Context, digest []byte) (mod
 	var session model.Session
 	var token model.RefreshToken
 	err := t.tx.QueryRow(ctx, `SELECT s.id,s.user_id,s.created_at,s.absolute_expires_at,s.idle_expires_at,s.revoked_at,
+ COALESCE(s.provider,''),COALESCE(s.provider_session_id,''),COALESCE(s.id_token,''),
  t.digest,t.issued_at,t.consumed_at FROM sessions s JOIN refresh_tokens t ON t.session_id=s.id
  WHERE t.digest=$1 AND s.user_id=$2 FOR UPDATE OF s,t`, digest, t.userID).
 		Scan(&session.ID, &session.UserID, &session.CreatedAt, &session.AbsoluteExpiresAt, &session.IdleExpiresAt, &session.RevokedAt,
+			&session.Provider, &session.ProviderSessionID, &session.IDToken,
 			&token.Digest, &token.IssuedAt, &token.ConsumedAt)
 	token.SessionID, token.UserID = session.ID, session.UserID
 	return session, token, sessionStorageError(ctx, "lock refresh session", err)
@@ -130,7 +144,7 @@ func (t *sessionTransaction) Rotate(ctx context.Context, session model.Session, 
 }
 
 func (t *sessionTransaction) Revoke(ctx context.Context, id uuid.UUID, now time.Time, reason string) error {
-	_, err := t.tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2,revoked_reason=$3 WHERE id=$1 AND user_id=$4 AND revoked_at IS NULL`, id, now, reason, t.userID)
+	_, err := t.tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2,revoked_reason=$3,id_token=NULL WHERE id=$1 AND user_id=$4 AND revoked_at IS NULL`, id, now, reason, t.userID)
 	return sessionStorageError(ctx, "revoke session", err)
 }
 
@@ -138,8 +152,18 @@ func (t *sessionTransaction) RevokeAll(ctx context.Context, userID uuid.UUID, no
 	if userID != t.userID {
 		return apperrors.ErrForbidden
 	}
-	_, err := t.tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2,revoked_reason='user_security_change' WHERE user_id=$1 AND revoked_at IS NULL`, userID, now)
+	_, err := t.tx.Exec(ctx, `UPDATE sessions SET revoked_at=$2,revoked_reason='user_security_change',id_token=NULL WHERE user_id=$1 AND revoked_at IS NULL`, userID, now)
 	return sessionStorageError(ctx, "revoke user sessions", err)
+}
+
+func (t *sessionTransaction) RevokeProviderSessions(ctx context.Context, provider, providerSessionID string, now time.Time) (int, error) {
+	tag, err := t.tx.Exec(ctx, `UPDATE sessions SET revoked_at=$3,revoked_reason='provider_logout',id_token=NULL
+ WHERE user_id=$1 AND provider=$2 AND revoked_at IS NULL AND ($4='' OR provider_session_id=$4)`,
+		t.userID, provider, now, providerSessionID)
+	if err != nil {
+		return 0, sessionStorageError(ctx, "revoke provider sessions", err)
+	}
+	return int(tag.RowsAffected()), nil
 }
 
 func (t *sessionTransaction) UpdateUser(ctx context.Context, user model.User) error {

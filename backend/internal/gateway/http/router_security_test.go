@@ -279,6 +279,24 @@ func TestRouterKeepsCredentialsOutOfLogs(t *testing.T) {
 	}
 }
 
+// The provider posts a back-channel logout from its own server: the route
+// needs neither a refresh cookie nor a browser origin, answers uncached, and
+// keeps the token out of the logs.
+func TestRouterBackchannelLogoutNeedsNoCookieOrBrowserOrigin(t *testing.T) {
+	const logoutToken = "secret-logout-token-5d1a"
+	var logs bytes.Buffer
+	h := newSecurityHarness(t, slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	h.auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", logoutToken).Return(1, nil).Once()
+	form := map[string]string{"Content-Type": "application/x-www-form-urlencoded"}
+
+	rec := h.serveBody(http.MethodPost, "/api/v1/auth/oidc/keycloak/backchannel-logout", "logout_token="+logoutToken, form)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+
+	require.Contains(t, logs.String(), "http request completed")
+	require.NotContains(t, logs.String(), logoutToken)
+}
+
 const (
 	securityGatewayToken = "internal-token-value"
 	securityOrigin       = "https://dcm.example.test"

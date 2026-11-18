@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { translate } from '@/shared/i18n';
-import { type AuthConfig, callbackResult, loginFailureMessages, providerAvailability, unreachableProviders } from './model';
+import { type AuthConfig, callbackResult, loginFailureMessages, providerAvailability, signOutDestination, unreachableProviders } from './model';
 
 const config = (providers: AuthConfig['oidc_providers']): AuthConfig => ({
   local_login_enabled: true,
@@ -52,4 +52,16 @@ describe('callbackResult', () => {
       expect(text.length).toBeGreaterThan(0);
     }
   });
+});
+
+test.each([
+  ['the provider sign-out URL of an OIDC session', 'https://idp.example/realms/dcm/logout?id_token_hint=x', { to: 'provider', url: 'https://idp.example/realms/dcm/logout?id_token_hint=x' }],
+  ['a plain HTTP provider in development', 'http://keycloak.localhost/realms/dcm/logout', { to: 'provider', url: 'http://keycloak.localhost/realms/dcm/logout' }],
+  ['the login page for a local session', null, { to: 'login' }],
+  ['the login page for an empty URL', '', { to: 'login' }],
+  ['the login page for a script URL', 'javascript:alert(1)', { to: 'login' }],
+  ['the login page for a relative URL', '/logout', { to: 'login' }],
+  ['the login page for a value that is not a string', 42, { to: 'login' }],
+] as const)('signOutDestination: %s', (_, providerLogoutUrl, expected) => {
+  expect(signOutDestination(providerLogoutUrl)).toEqual(expected);
 });

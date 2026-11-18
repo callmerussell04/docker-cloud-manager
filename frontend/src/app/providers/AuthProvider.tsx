@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { refreshSession, retrySessionRefresh, logoutSession } from '@/shared/api/client';
+import { refreshSession, retrySessionRefresh } from '@/shared/api/client';
+import { leaveForProviderSignOut, logoutFn } from '@/features/auth/api';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
 import { Button } from '@/shared/ui/Button';
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const retry = async () => {
       setRetrying(true);
       try {
-        if (sessionIssue === 'logout') await logoutSession();
+        if (sessionIssue === 'logout') leaveForProviderSignOut(await logoutFn());
         else await retrySessionRefresh();
       } catch {
         // The coordinator keeps the recovery screen and preserves the cookie.

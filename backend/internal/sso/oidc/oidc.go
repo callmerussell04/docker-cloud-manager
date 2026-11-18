@@ -28,6 +28,15 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 )
 
+// backchannelLogoutEvent is the event every back-channel logout token carries.
+const backchannelLogoutEvent = "http://schemas.openid.net/event/backchannel-logout"
+
+// Token kinds, as rejection logs name them.
+const (
+	kindIDToken     = "id token"
+	kindLogoutToken = "logout token"
+)
+
 // Discovery retries back off from discoveryInitialBackoff, doubling up to discoveryMaxBackoff.
 const (
 	discoveryInitialBackoff = time.Second
@@ -82,14 +91,17 @@ type Provider struct {
 }
 
 // discoveredClient is what discovery yields: the OAuth client for the
-// provider's endpoints and the verifier for its ID tokens.
+// provider's endpoints, the verifier for its ID and logout tokens, and its
+// end-session endpoint, nil when it advertises none.
 type discoveredClient struct {
-	oauth    oauth2.Config
-	verifier *gooidc.IDTokenVerifier
+	oauth      oauth2.Config
+	verifier   *gooidc.IDTokenVerifier
+	endSession *url.URL
 }
 
 // idClaims are the ID-token claims DCM reads besides sub and nonce.
 type idClaims struct {
+	SessionID         string   `json:"sid"`
 	PreferredUsername string   `json:"preferred_username"`
 	Email             string   `json:"email"`
 	EmailVerified     bool     `json:"email_verified"`
@@ -145,6 +157,7 @@ func (p *Provider) Discover(ctx context.Context) error {
 	var metadata struct {
 		JWKSURI    string   `json:"jwks_uri"`
 		Algorithms []string `json:"id_token_signing_alg_values_supported"`
+		EndSession string   `json:"end_session_endpoint"`
 	}
 	if err := provider.Claims(&metadata); err != nil {
 		return fmt.Errorf("oidc discovery document is malformed: %w", err)
@@ -172,9 +185,24 @@ func (p *Provider) Discover(ctx context.Context) error {
 			RedirectURL:  p.cfg.RedirectURL,
 			Scopes:       []string{gooidc.ScopeOpenID, "profile", "email"},
 		},
-		verifier: verifier,
+		verifier:   verifier,
+		endSession: p.endSessionEndpoint(metadata.EndSession),
 	})
 	return nil
+}
+
+// endSessionEndpoint parses the advertised end-session endpoint. A missing or
+// unusable one gives no provider sign-out, and an unusable one is logged.
+func (p *Provider) endSessionEndpoint(raw string) *url.URL {
+	if raw == "" {
+		return nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		p.logger.Warn("oidc discovery advertises an unusable end_session_endpoint; DCM sign-out will not end the provider session")
+		return nil
+	}
+	return parsed
 }
 
 // Run attempts discovery at once and then, while it fails, again after a
@@ -238,7 +266,7 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce, verifier strin
 	probe := &keyProbe{}
 	idToken, err := client.verifier.Verify(context.WithValue(ctx, keyProbeKey{}, probe), rawIDToken)
 	if err != nil {
-		return service.OIDCIdentity{}, p.verificationFailure(err, probe)
+		return service.OIDCIdentity{}, p.verificationFailure(kindIDToken, err, probe)
 	}
 	if subtle.ConstantTimeCompare([]byte(idToken.Nonce), []byte(nonce)) != 1 || nonce == "" {
 		return service.OIDCIdentity{}, p.rejected("nonce")
@@ -257,7 +285,81 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce, verifier strin
 		Groups:            claims.Groups,
 		RealmRoles:        claims.RealmAccess.Roles,
 		PreferredUsername: claims.PreferredUsername,
+		SessionID:         claims.SessionID,
+		IDToken:           rawIDToken,
 	}, nil
+}
+
+// EndSessionURL builds the provider sign-out URL from the advertised
+// end-session endpoint with id_token_hint, client_id and, when set,
+// post_logout_redirect_uri. It is empty before discovery or without an
+// advertised endpoint.
+func (p *Provider) EndSessionURL(idTokenHint, postLogoutRedirectURI string) string {
+	client := p.client.Load()
+	if client == nil || client.endSession == nil {
+		return ""
+	}
+	endpoint := *client.endSession
+	query := endpoint.Query()
+	query.Set("id_token_hint", idTokenHint)
+	query.Set("client_id", p.cfg.ClientID)
+	if postLogoutRedirectURI != "" {
+		query.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+	}
+	endpoint.RawQuery = query.Encode()
+	return endpoint.String()
+}
+
+// VerifyLogoutToken verifies a back-channel logout token as an ID token is
+// verified (signature, issuer, audience, expiry on SSO's clock) and also
+// requires the back-channel logout event, a sub or sid, and no nonce. A token
+// these checks refuse is ErrInvalidToken; keys that cannot be fetched make
+// the provider unavailable.
+func (p *Provider) VerifyLogoutToken(ctx context.Context, rawToken string) (service.OIDCLogout, error) {
+	client := p.client.Load()
+	if client == nil {
+		return service.OIDCLogout{}, unavailable(nil)
+	}
+	probe := &keyProbe{}
+	token, err := client.verifier.Verify(context.WithValue(ctx, keyProbeKey{}, probe), rawToken)
+	if err != nil {
+		err = p.verificationFailure(kindLogoutToken, err, probe)
+		if errors.Is(err, apperrors.ErrInvalidCredentials) {
+			return service.OIDCLogout{}, apperrors.ErrInvalidToken
+		}
+		return service.OIDCLogout{}, err
+	}
+	var claims map[string]json.RawMessage
+	if err := token.Claims(&claims); err != nil {
+		return service.OIDCLogout{}, p.refuseLogoutToken("claims")
+	}
+	if _, hasNonce := claims["nonce"]; hasNonce {
+		return service.OIDCLogout{}, p.refuseLogoutToken("nonce")
+	}
+	var events map[string]json.RawMessage
+	if json.Unmarshal(claims["events"], &events) != nil || !isJSONObject(events[backchannelLogoutEvent]) {
+		return service.OIDCLogout{}, p.refuseLogoutToken("events")
+	}
+	var sessionID string
+	if raw, ok := claims["sid"]; ok && json.Unmarshal(raw, &sessionID) != nil {
+		return service.OIDCLogout{}, p.refuseLogoutToken("claims")
+	}
+	logout := service.OIDCLogout{Subject: strings.TrimSpace(token.Subject), SessionID: strings.TrimSpace(sessionID)}
+	if logout.Subject == "" && logout.SessionID == "" {
+		return service.OIDCLogout{}, p.refuseLogoutToken("subject")
+	}
+	return logout, nil
+}
+
+func (p *Provider) refuseLogoutToken(reason string) error {
+	p.rejectedToken(kindLogoutToken, reason)
+	return apperrors.ErrInvalidToken
+}
+
+// isJSONObject reports whether raw is a JSON object.
+func isJSONObject(raw json.RawMessage) bool {
+	var object map[string]json.RawMessage
+	return len(raw) > 0 && json.Unmarshal(raw, &object) == nil && object != nil
 }
 
 // tokenEndpointFailure classifies a failed code exchange: invalid_grant rejects
@@ -307,15 +409,19 @@ func (p *Provider) unreachable(what string, err error) error {
 	return unavailable(err)
 }
 
-// verificationFailure classifies a failed ID-token verification: signing keys
-// that cannot be fetched make the provider unavailable; anything else rejects
-// the identity.
-func (p *Provider) verificationFailure(err error, probe *keyProbe) error {
+// verificationFailure classifies a failed verification of a token of kind:
+// signing keys that cannot be fetched make the provider unavailable; anything
+// else rejects the token as ErrInvalidCredentials.
+func (p *Provider) verificationFailure(kind string, err error, probe *keyProbe) error {
 	if probe.keysErr != nil {
 		return p.unreachable("oidc signing keys", probe.keysErr)
 	}
+	reject := func(reason string) error {
+		p.rejectedToken(kind, reason)
+		return apperrors.ErrInvalidCredentials
+	}
 	if probe.payload == nil {
-		return p.rejected("signature")
+		return reject("signature")
 	}
 	// The signature verified, so a claim check failed; the verified claims say which.
 	var expired *gooidc.TokenExpiredError
@@ -325,15 +431,15 @@ func (p *Provider) verificationFailure(err error, probe *keyProbe) error {
 	}
 	switch {
 	case errors.As(err, &expired):
-		return p.rejected("expiry")
+		return reject("expiry")
 	case json.Unmarshal(probe.payload, &claims) != nil:
-		return p.rejected("claims")
+		return reject("claims")
 	case claims.Issuer != p.cfg.IssuerURL:
-		return p.rejected("issuer")
+		return reject("issuer")
 	case !audienceIncludes(claims.Audience, p.cfg.ClientID):
-		return p.rejected("audience")
+		return reject("audience")
 	default:
-		return p.rejected("claims")
+		return reject("claims")
 	}
 }
 
@@ -348,8 +454,13 @@ func audienceIncludes(raw json.RawMessage, clientID string) bool {
 }
 
 func (p *Provider) rejected(reason string) error {
-	p.logger.Warn("oidc id token rejected", "reason", reason)
+	p.rejectedToken(kindIDToken, reason)
 	return apperrors.ErrInvalidCredentials
+}
+
+// rejectedToken logs a refused token of kind with the reason category only.
+func (p *Provider) rejectedToken(kind, reason string) {
+	p.logger.Warn("oidc "+kind+" rejected", "reason", reason)
 }
 
 func unavailable(cause error) error {

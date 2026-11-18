@@ -269,3 +269,32 @@ func requireUserData(t *testing.T, got *sso.UserData, want model.User) {
 	require.Equal(t, want.Role, got.Role)
 	require.Equal(t, want.Status, got.Status)
 }
+
+func TestSSOAuthGRPCMapsSignOutAndBackchannelLogout(t *testing.T) {
+	auth := ssogrpcmocks.NewMockAuthService(t)
+	auth.EXPECT().Logout(mock.Anything, "refresh", "http://frontend.example/login").Return("https://idp.example/logout", nil)
+	auth.EXPECT().Logout(mock.Anything, "local-refresh", "").Return("", nil)
+	auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", "logout-token").Return(2, nil)
+	auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", "").Return(0, apperrors.ErrNotFound)
+	auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", "refused").Return(0, apperrors.New(apperrors.ErrBadRequest, "invalid logout token"))
+	auth.EXPECT().BackchannelLogout(mock.Anything, "keycloak", "keys-down").Return(0, apperrors.ErrUnavailable)
+	client := sso.NewAuthClient(newSSOGRPCConn(t, auth, false))
+	ctx := context.Background()
+
+	signedOut, err := client.Logout(ctx, &sso.LogoutRequest{RefreshToken: "refresh", PostLogoutRedirectUri: "http://frontend.example/login"})
+	require.NoError(t, err)
+	require.Equal(t, "https://idp.example/logout", signedOut.GetProviderLogoutUrl())
+	signedOut, err = client.Logout(ctx, &sso.LogoutRequest{RefreshToken: "local-refresh"})
+	require.NoError(t, err)
+	require.Empty(t, signedOut.GetProviderLogoutUrl())
+
+	revoked, err := client.BackchannelLogout(ctx, &sso.BackchannelLogoutRequest{Provider: "keycloak", LogoutToken: "logout-token"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, revoked.GetRevokedSessions())
+	_, err = client.BackchannelLogout(ctx, &sso.BackchannelLogoutRequest{LogoutToken: "logout-token"})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	for token, code := range map[string]codes.Code{"": codes.NotFound, "refused": codes.InvalidArgument, "keys-down": codes.Unavailable} {
+		_, err = client.BackchannelLogout(ctx, &sso.BackchannelLogoutRequest{Provider: "keycloak", LogoutToken: token})
+		require.Equal(t, code, status.Code(err), token)
+	}
+}

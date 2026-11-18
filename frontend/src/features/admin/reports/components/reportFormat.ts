@@ -1,4 +1,4 @@
-import type { TFunction } from '@/shared/i18n';
+import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 
 export const ranges = [
@@ -8,35 +8,47 @@ export const ranges = [
   { label: '90d', seconds: 90 * 24 * 60 * 60 },
 ];
 
-export const auditActions = [
-  'container.create',
-  'container.start',
-  'container.stop',
-  'container.delete',
-  'container.expose',
-  'volume.create',
-  'volume.delete',
-  'image.delete',
-  'build.create_archive',
-  'build.create_git',
-  'build.cancel',
-  'build.delete',
-  'compose.upload_deploy',
-  'compose.git_deploy',
-  'project.start',
-  'project.stop',
-  'project.cancel',
-  'project.delete',
-  'auth.register',
-  'auth.login',
-  'auth.oidc_callback',
-  'user.admin_create',
-  'user.admin_update',
-  'user.admin_deactivate',
-  'user.admin_reactivate',
-  'telemetry.logs_ticket',
-  'telemetry.terminal_ticket',
-];
+// auditActionLabels names every action Gateway and Core record, in filter order.
+const auditActionLabels = {
+  'container.create': 'admin.reports.auditAction.container.create',
+  'container.start': 'admin.reports.auditAction.container.start',
+  'container.stop': 'admin.reports.auditAction.container.stop',
+  'container.delete': 'admin.reports.auditAction.container.delete',
+  'container.expose': 'admin.reports.auditAction.container.expose',
+  'volume.create': 'admin.reports.auditAction.volume.create',
+  'volume.delete': 'admin.reports.auditAction.volume.delete',
+  'image.delete': 'admin.reports.auditAction.image.delete',
+  'build.create_archive': 'admin.reports.auditAction.build.create_archive',
+  'build.create_git': 'admin.reports.auditAction.build.create_git',
+  'build.cancel': 'admin.reports.auditAction.build.cancel',
+  'build.delete': 'admin.reports.auditAction.build.delete',
+  'compose.upload_deploy': 'admin.reports.auditAction.compose.upload_deploy',
+  'compose.git_deploy': 'admin.reports.auditAction.compose.git_deploy',
+  'project.start': 'admin.reports.auditAction.project.start',
+  'project.stop': 'admin.reports.auditAction.project.stop',
+  'project.cancel': 'admin.reports.auditAction.project.cancel',
+  'project.delete': 'admin.reports.auditAction.project.delete',
+  'auth.register': 'admin.reports.auditAction.auth.register',
+  'auth.login': 'admin.reports.auditAction.auth.login',
+  'auth.oidc_callback': 'admin.reports.auditAction.auth.oidc_callback',
+  'auth.provider_logout': 'admin.reports.auditAction.auth.provider_logout',
+  'user.admin_create': 'admin.reports.auditAction.user.admin_create',
+  'user.admin_update': 'admin.reports.auditAction.user.admin_update',
+  'user.admin_deactivate': 'admin.reports.auditAction.user.admin_deactivate',
+  'user.admin_reactivate': 'admin.reports.auditAction.user.admin_reactivate',
+  'user.quota_set': 'admin.reports.auditAction.user.quota_set',
+  'user.quota_reset': 'admin.reports.auditAction.user.quota_reset',
+  'telemetry.logs_ticket': 'admin.reports.auditAction.telemetry.logs_ticket',
+  'telemetry.terminal_ticket': 'admin.reports.auditAction.telemetry.terminal_ticket',
+} as const satisfies Record<string, TranslationKey>;
+
+export const auditActions = Object.keys(auditActionLabels);
+
+// auditActionLabel shows an action by its localized name, or as recorded when
+// the page does not know it.
+export function auditActionLabel(t: TFunction, action: string) {
+  return labelFor(t, auditActionLabels, action);
+}
 
 export const auditResourceTypes = ['container', 'volume', 'image', 'build', 'project', 'user', 'auth', 'telemetry', 'system'];
 export const userPageSize = 10;

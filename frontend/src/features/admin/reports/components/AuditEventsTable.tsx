@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { Pagination } from '@/shared/ui/Pagination';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { auditDetails, type AuditEventsResponse } from '../model';
-import { auditActions, auditPageSize, auditResourceTypes } from './reportFormat';
+import { auditActionLabel, auditActions, auditPageSize, auditResourceTypes } from './reportFormat';
 
 export interface AuditFilterValues {
   search: string;
@@ -52,7 +52,7 @@ export function AuditEventsTable({ query, filters, onFilterChange, page, onPageC
           <select value={filters.action} onChange={(event) => onFilterChange('action', event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
             <option value="">{t('admin.reports.allActions')}</option>
             {auditActions.map((action) => (
-              <option key={action} value={action}>{action}</option>
+              <option key={action} value={action}>{auditActionLabel(t, action)}</option>
             ))}
           </select>
           <select value={filters.resourceType} onChange={(event) => onFilterChange('resourceType', event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm dark:border-slate-700 dark:bg-slate-900">
@@ -83,7 +83,7 @@ export function AuditEventsTable({ query, filters, onFilterChange, page, onPageC
                   <tr key={event.id} className="align-top border-t border-slate-100 dark:border-slate-800">
                     <td className="whitespace-nowrap py-3 pr-3">{new Date(event.occurred_at * 1000).toLocaleString(dateLocale(locale))}</td>
                     <td className="py-3 pr-3">{event.actor_username || event.actor_user_id || 'system'}</td>
-                    <td className="py-3 pr-3 font-medium">{event.action}</td>
+                    <td className="py-3 pr-3 font-medium" title={event.action}>{auditActionLabel(t, event.action)}</td>
                     <td className="py-3 pr-3">{event.outcome}</td>
                     <td className="py-3 pr-3">{event.resource_name || event.resource_id || event.resource_type}</td>
                     <td className="min-w-64 py-3 pr-3">

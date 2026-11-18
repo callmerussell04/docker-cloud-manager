@@ -336,9 +336,11 @@ func oidcGateway(t *testing.T, ctx context.Context, svc *service.AuthService) (*
 	router.POST("/api/v1/auth/register", auth.Register)
 	router.POST("/api/v1/auth/login", auth.Login)
 	router.POST("/api/v1/auth/refresh", auth.Refresh)
+	router.POST("/api/v1/auth/logout", auth.Logout)
 	router.GET("/api/v1/auth/providers", auth.Providers)
 	router.GET("/api/v1/auth/oidc/keycloak/start", auth.StartKeycloakLogin)
 	router.GET(oidcCallbackPath, auth.CompleteKeycloakCallback)
+	router.POST(backchannelLogoutPath, auth.KeycloakBackchannelLogout)
 	return &browser{t: t, ctx: ctx, router: router, cookies: map[string]*http.Cookie{}, audit: audit}, sso.NewUserAPIClient(conn)
 }
 
@@ -516,7 +518,8 @@ func stateCookies(b *browser) []*http.Cookie {
 
 // oidcSSO builds SSO's auth service over db with a provider that has reached
 // idp, as the SSO composition root does; calling it again rebuilds the service.
-// Administrator groups make roles provider-managed.
+// Local sign-in is on beside OIDC. Administrator groups make roles
+// provider-managed.
 func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.Provider, now *time.Time, adminGroups ...string) *service.AuthService {
 	t.Helper()
 	provider, err := oidc.NewProvider(oidc.Config{
@@ -526,6 +529,7 @@ func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.
 	require.NoError(t, err)
 	require.NoError(t, provider.Discover(ctx))
 	return service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
+		LocalLoginEnabled: true, LocalRegisterEnabled: true,
 		OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: adminGroups, Now: func() time.Time { return *now },
 	})
 }

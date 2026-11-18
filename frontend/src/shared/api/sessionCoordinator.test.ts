@@ -15,7 +15,7 @@ function fixture(overrides: Partial<Dependencies> = {}) {
   const events: Event[] = [];
   const api = createSessionCoordinator({
     refresh: async () => 'access',
-    logout: async () => {},
+    logout: async () => null,
     withLock: async (fn) => fn(),
     onToken: (token) => events.push(['token', token]),
     onLogout: () => events.push(['logout']),
@@ -109,4 +109,12 @@ test('without origin locking independent tabs can submit the same cookie', async
   release.resolve();
   await pending;
   expect(seen).toEqual(['same-cookie', 'same-cookie']);
+});
+
+test('logout resolves with the provider sign-out URL the server answered, after signing out', async () => {
+  const { api, events } = fixture({ logout: async () => 'https://idp.example/logout?id_token_hint=x' });
+  expect(await api.logout()).toBe('https://idp.example/logout?id_token_hint=x');
+  expect(events).toEqual([['logout']]);
+  const local = fixture();
+  expect(await local.api.logout()).toBeNull();
 });
