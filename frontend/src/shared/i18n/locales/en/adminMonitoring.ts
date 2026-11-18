@@ -33,6 +33,8 @@ export const adminMonitoring: Record<keyof typeof ru, string> = {
   'admin.monitoring.volumeSizeMode.measured.hint': 'Volume sizes are checked periodically; a volume can briefly exceed its size before its writers are stopped.',
   'admin.monitoring.volumeSizeMode.enforced.hint': 'New volumes get a kernel-enforced size. Volumes created earlier are still checked periodically.',
   'admin.monitoring.volumeSizeMode.unavailable.hint': 'Enforcement is on, but the host check failed at startup. New volumes are created measured. After fixing the host, restart Core or turn the setting off and on again to re-run the check.',
+  'admin.monitoring.buildsHeldByDisk': 'The disk lets {cap} of {max} builds run now',
+  'admin.monitoring.buildsHeldByDiskDetail': 'Free disk above the floor holds fewer build slots than max_concurrent_builds. Other builds wait pending and start when disk frees up.',
   'admin.monitoring.admissionBlocked': 'New deployments are temporarily blocked',
   'admin.monitoring.reason.host_memory_exhausted': 'host memory capacity is exhausted',
   'admin.monitoring.reason.host_disk_floor': 'host disk free-space floor is reached',

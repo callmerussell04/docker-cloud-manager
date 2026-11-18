@@ -196,6 +196,10 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 			return nil, fmt.Errorf("build service: %s is required", dependency.name)
 		}
 	}
+	hostDiskPath := deps.HostDiskPath
+	if hostDiskPath == "" {
+		hostDiskPath = "/"
+	}
 	return &BuildService{
 		repo:         deps.Repository,
 		imageRepo:    deps.Images,
@@ -218,7 +222,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		containers:   deps.Containers,
 		diskMetrics:  deps.DiskMetrics,
 		hostMetrics:  deps.HostMetrics,
-		hostDiskPath: deps.HostDiskPath,
+		hostDiskPath: hostDiskPath,
 		logger:       logging.WithComponent(deps.Logger, "build_service"),
 	}, nil
 }
@@ -238,10 +242,12 @@ func (s *BuildService) getUserReservedDiskBytes(ctx context.Context, ownerID uui
 	return reservedDiskBytes(ctx, ownerID, s.imageRepo, s.volumeRepo)
 }
 
-// admitBuild checks the host memory and CPU one more build slot reserves and
-// the owner's disk quota. Builds do not count against the owner's memory and
-// CPU quotas, and a build queued behind MaxConcurrentBuilds others reserves
-// nothing more. The caller holds the capacity lock.
+// admitBuild checks the host memory and CPU one more build slot reserves, the
+// owner's disk quota and the plain host disk floor. Builds do not count
+// against the owner's memory and CPU quotas, and a build queued behind
+// MaxConcurrentBuilds others reserves nothing more. The disk a build slot may
+// write is held at the claim (StartBuildRecord), so a build the disk cannot
+// hold yet is accepted and waits. The caller holds the capacity lock.
 func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
 	sources := admissionSources{
@@ -670,11 +676,13 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 }
 
 // StartBuildRecord claims a pending build for a Builder. Builds running at once
-// stay within max_concurrent_builds however many Builders run: over the cap
-// the build is returned unclaimed and still pending, and the Builder retries.
+// stay within the claim cap however many Builders run: max_concurrent_builds,
+// or fewer when the disk cannot hold that many build slots (buildClaimCap).
+// Over the cap the build is returned unclaimed and still pending, and the
+// Builder retries.
 func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) (model.Build, bool, error) {
 	cfg := s.buildConfig()
-	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(cfg.MaxBuildTimeMinutes)*time.Minute, cfg.MaxConcurrentBuilds)
+	b, started, err := s.registryAuth.ClaimBuild(ctx, buildID, time.Duration(cfg.MaxBuildTimeMinutes)*time.Minute, s.readClaimCap(ctx, buildID, cfg))
 	if err != nil {
 		return model.Build{}, false, err
 	}
@@ -683,6 +691,23 @@ func (s *BuildService) StartBuildRecord(ctx context.Context, buildID uuid.UUID) 
 	}
 	s.logger.InfoContext(ctx, "build record started", "build_id", buildID, "image_id", b.ImageID, "owner_id", b.OwnerID)
 	return b, true, nil
+}
+
+// readClaimCap reads Core's host disk and returns the cap the next claim
+// gets. Core's disk is the disk builds write only for a co-located Builder
+// (ADR 0003). A failed disk read is logged and gives a cap of zero: the claim
+// is refused and the build stays pending, because an error to Builder could
+// dead-letter it.
+func (s *BuildService) readClaimCap(ctx context.Context, buildID uuid.UUID, cfg config.SystemConfig) int {
+	if cfg.HostMinFreeDiskBytes <= 0 {
+		return buildClaimCap(cfg, 0)
+	}
+	stats, err := s.diskMetrics.GetDiskUsage(s.hostDiskPath)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "build claim refused: failed to read host disk", "build_id", buildID, "error", err)
+		return 0
+	}
+	return buildClaimCap(cfg, stats.FreeBytes)
 }
 
 func (s *BuildService) CancelBuildRecord(ctx context.Context, buildID uuid.UUID) error {

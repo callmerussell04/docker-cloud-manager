@@ -82,7 +82,7 @@ type BuildNetworkAdmission interface {
 const defaultBuildCancelPollInterval = 2 * time.Second
 
 // refusedClaimRetryDelay is how long a Builder waits before it claims again
-// a build Core refused because max_concurrent_builds builds already run.
+// a build Core refused because its claim cap is full.
 const refusedClaimRetryDelay = 5 * time.Second
 
 // buildCleanupTimeout bounds cleanup that must outlive the build's own context.
@@ -378,12 +378,14 @@ func (s *BuilderService) HandleBuildMessage(ctx context.Context, msg buildqueue.
 	return nil
 }
 
-// claimBuild claims the build from Core. While Core refuses the claim because
-// max_concurrent_builds builds already run (unclaimed and still pending), it
-// keeps the delivery and claims again every refusedClaimRetryDelay. Returning
-// a refused delivery to the queue instead would count against the queue's
-// delivery limit, and a build that only waits for a slot would be
-// dead-lettered. Shutdown ends the wait with the context error.
+// claimBuild claims the build from Core. While Core refuses the claim
+// (unclaimed and still pending: the running builds fill its claim cap, the
+// disk cannot hold another build slot, or Registry garbage collection holds
+// claims), it keeps the delivery and claims again every
+// refusedClaimRetryDelay. Returning a refused delivery to the queue instead
+// would count against the queue's delivery limit, and a build that only waits
+// for a slot would be dead-lettered. Shutdown ends the wait with the context
+// error.
 func (s *BuilderService) claimBuild(ctx context.Context, buildID string) (model.BuildClaim, bool, model.BuildStatus, error) {
 	refused := false
 	for {
@@ -393,7 +395,7 @@ func (s *BuilderService) claimBuild(ctx context.Context, buildID string) (model.
 		}
 		if !refused {
 			refused = true
-			s.logger.InfoContext(ctx, "build claim refused: running builds are at max_concurrent_builds; waiting for a slot", "build_id", buildID)
+			s.logger.InfoContext(ctx, "build claim refused by Core; waiting to claim again", "build_id", buildID)
 		}
 		timer := time.NewTimer(refusedClaimRetryDelay)
 		select {

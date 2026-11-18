@@ -291,6 +291,8 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DCMReservedVolumeBytes:      reservedVolumeBytes,
 		DCMUnusedVolumePromiseBytes: unusedVolumePromise,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
+		BuildClaimCap:               buildClaimCap(cfg, disk.FreeBytes),
+		MaxConcurrentBuilds:         cfg.MaxConcurrentBuilds,
 		AdmissionStatus:             admissionStatus,
 		AdmissionReasons:            admissionReasons,
 		ContainersTotal:             containerCounts.Total,

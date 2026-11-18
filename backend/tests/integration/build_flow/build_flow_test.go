@@ -10,6 +10,7 @@ import (
 
 	builderclient "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/grpc/client"
 	buildermodel "github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -211,6 +212,13 @@ func mustBuildOutbox(t *testing.T, db *pgxpool.Pool) []buildOutboxRow {
 
 func newBuildService(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, objects map[string][]byte, failUpload bool) *service.BuildService {
 	t.Helper()
+	return newBuildServiceWithStore(t, repos, ownerID, newMemoryBuildObjectStore(t, objects, failUpload))
+}
+
+// newMemoryBuildObjectStore keeps staged objects in objects. With failUpload
+// every upload fails as unavailable.
+func newMemoryBuildObjectStore(t *testing.T, objects map[string][]byte, failUpload bool) service.BuildObjectStore {
+	t.Helper()
 	store := coremocks.NewBuildObjectStore(t)
 	store.EXPECT().
 		UploadStream(mock.Anything, mock.AnythingOfType("string"), mock.Anything, mock.AnythingOfType("int64"), mock.AnythingOfType("string")).
@@ -254,19 +262,26 @@ func newBuildService(t *testing.T, repos coretest.CoreRepositories, ownerID uuid
 			return objectstorage.ObjectInfo{Size: int64(len(data))}, nil
 		}).
 		Maybe()
-	return newBuildServiceWithStore(t, repos, ownerID, store)
+	return store
 }
 
 func newBuildServiceWithStore(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, store service.BuildObjectStore) *service.BuildService {
 	t.Helper()
-	cfg := coretest.StaticConfig{Config: coretest.IntegrationConfig()}
+	metrics := coremocks.NewHostDiskMetricsProvider(t)
+	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
+	return newBuildServiceWithDisk(t, repos, ownerID, store, coretest.IntegrationConfig(), metrics)
+}
+
+// newBuildServiceWithDisk is a build service over repos that reads cfg and
+// measures the host disk through metrics.
+func newBuildServiceWithDisk(t *testing.T, repos coretest.CoreRepositories, ownerID uuid.UUID, store service.BuildObjectStore, systemConfig config.SystemConfig, metrics service.HostDiskMetricsProvider) *service.BuildService {
+	t.Helper()
+	cfg := coretest.StaticConfig{Config: systemConfig}
 	repos.SetCustomQuota(t, ownerID, model.UserQuota{CPUMillicores: 4000, RAMMB: 4096, DiskMB: 4096})
 	hostMetrics := coremocks.NewHostMetricsProvider(t)
 	hostMetrics.EXPECT().GetTotalMemory().Return(int64(1<<40), nil).Maybe()
 	hostMetrics.EXPECT().GetLogicalCPUs().Return(int64(64), nil).Maybe()
 
-	metrics := coremocks.NewHostDiskMetricsProvider(t)
-	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: 1 << 40}, nil).Maybe()
 	registry := coremocks.NewImageRegistryAPI(t)
 	registry.EXPECT().
 		GetImageSizeAndDigest(mock.Anything, mock.AnythingOfType("string"), mock.AnythingOfType("string")).

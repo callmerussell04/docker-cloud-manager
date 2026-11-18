@@ -33,6 +33,8 @@ type SystemMonitoring struct {
 	DCMUnusedVolumePromiseBytes int64  // volume sizes less measured usage, never below zero
 	VolumeSizeMode              string // measured, enforced or unavailable
 	HostMinFreeDiskBytes        int64
+	BuildClaimCap               int // the cap the next build claim would get
+	MaxConcurrentBuilds         int
 	AdmissionStatus             string
 	AdmissionReasons            []string
 	ContainersTotal             int32

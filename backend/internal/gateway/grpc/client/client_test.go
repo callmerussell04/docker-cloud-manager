@@ -221,6 +221,8 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "not_enforced", monitoring.RootfsQuotaStatus)
 	require.EqualValues(t, 4096, monitoring.DCMReservedVolumeBytes)
 	require.EqualValues(t, 1024, monitoring.DCMUnusedVolumePromiseBytes)
+	require.Equal(t, 1, monitoring.BuildClaimCap)
+	require.Equal(t, 2, monitoring.MaxConcurrentBuilds)
 	require.Equal(t, "enforced", monitoring.VolumeSizeMode)
 
 	overview, err := coreClient.GetReportsOverview(context.Background(), 1, 2)
@@ -498,7 +500,7 @@ func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreap
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
-	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, RootfsQuotaStatus: "not_enforced", DcmReservedVolumeBytes: 4096, DcmUnusedVolumePromiseBytes: 1024, VolumeSizeMode: "enforced"}, nil
+	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, RootfsQuotaStatus: "not_enforced", DcmReservedVolumeBytes: 4096, DcmUnusedVolumePromiseBytes: 1024, BuildClaimCap: 1, MaxConcurrentBuilds: 2, VolumeSizeMode: "enforced"}, nil
 }
 
 type coreReportServer struct {

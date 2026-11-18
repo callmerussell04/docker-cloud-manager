@@ -15,8 +15,9 @@ type admissionRequest struct {
 	cpuMillicores int64
 	// builds is how many image builds the request queues. A build asks for no
 	// memoryBytes, cpuMillicores or diskWriteBytes of its own: it takes a
-	// build slot, and every occupied slot then holds its memory, CPU and
-	// BuildMaxDiskBytes of disk.
+	// build slot, and every occupied slot then holds its memory and CPU. The
+	// slot's BuildMaxDiskBytes of disk is held at the claim (buildClaimCap),
+	// not here, so a build waits for disk instead of being refused.
 	builds int64
 	// chargesUser reports whether the memory and CPU count against the
 	// owner's quotas. Builds reserve host capacity only.
@@ -92,10 +93,9 @@ func (v admissionVerdict) err() error {
 
 // checkAdmission decides whether req fits ledger. It checks, in order, user
 // memory, user CPU, user disk, host memory including builds, host CPU
-// including builds, and the host disk floor including the disk of build slots
-// for a build request and the unused volume promise for a volume request, and
-// rejects at the first limit exceeded. A request
-// whose memory and CPU are already held meets only the user disk quota and the
+// including builds, and the host disk floor including the unused volume
+// promise for a volume request, and rejects at the first limit exceeded. A
+// request whose memory and CPU are already held meets only the user disk quota and the
 // disk floor.
 func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) admissionVerdict {
 	memory, cpu := max(req.memoryBytes, 0), max(req.cpuMillicores, 0)
@@ -130,7 +130,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		}
 	}
 	if ledger.diskFloorCounted {
-		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - buildSlotDiskBytes(ledger, req, cfg) - projectedVolumePromiseBytes(ledger, req)
+		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - projectedVolumePromiseBytes(ledger, req)
 		if remaining < cfg.HostMinFreeDiskBytes {
 			return admissionVerdict{limit: apperrors.LimitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
 		}
@@ -315,14 +315,19 @@ func reservedBuildSlots(activeBuilds int64, cfg config.SystemConfig) int64 {
 	return max(min(activeBuilds, int64(cfg.MaxConcurrentBuilds)), 0)
 }
 
-// buildSlotDiskBytes is the disk a build request projects onto the host: every
-// build slot, its own included, may write BuildMaxDiskBytes. Work that queues
-// no build projects none.
-func buildSlotDiskBytes(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) int64 {
-	if req.builds <= 0 {
-		return 0
+// buildClaimCap is how many builds may run at once: MaxConcurrentBuilds, or
+// fewer when the free disk above HostMinFreeDiskBytes cannot hold that many
+// build slots of BuildMaxDiskBytes each. It is never below zero. With a zero
+// floor diskFreeBytes is not read and the cap is MaxConcurrentBuilds. The
+// projection is conservative: diskFreeBytes already lacks what running builds
+// wrote, and each of them is counted again as a whole slot.
+func buildClaimCap(cfg config.SystemConfig, diskFreeBytes int64) int {
+	limit := max(cfg.MaxConcurrentBuilds, 0)
+	if cfg.HostMinFreeDiskBytes <= 0 || cfg.BuildMaxDiskBytes <= 0 {
+		return limit
 	}
-	return reservedBuildSlots(ledger.activeBuilds+req.builds, cfg) * max(cfg.BuildMaxDiskBytes, 0)
+	slots := max(diskFreeBytes-cfg.HostMinFreeDiskBytes, 0) / cfg.BuildMaxDiskBytes
+	return int(min(slots, int64(limit)))
 }
 
 // projectedVolumePromiseBytes is the disk a volume request projects onto the

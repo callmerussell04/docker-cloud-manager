@@ -387,6 +387,8 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		DCMUnusedVolumePromiseBytes: data.DCMUnusedVolumePromiseBytes,
 		VolumeSizeMode:              data.VolumeSizeMode,
 		HostMinFreeDiskBytes:        data.HostMinFreeDiskBytes,
+		BuildClaimCap:               data.BuildClaimCap,
+		MaxConcurrentBuilds:         data.MaxConcurrentBuilds,
 		AdmissionStatus:             data.AdmissionStatus,
 		AdmissionReasons:            data.AdmissionReasons,
 		ContainersTotal:             data.ContainersTotal,

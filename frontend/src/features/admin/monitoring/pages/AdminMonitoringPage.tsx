@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, Box, Cpu, Database, Disc, HardDrive, Layers, R
 import { Button } from '@/shared/ui/Button';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
-import { withDefaults } from '../model';
+import { buildsHeldByDisk, withDefaults } from '../model';
 import { useSystemMonitoring } from '../queries';
 import { MetricCard } from '../components/MetricCard';
 import { CountCard } from '../components/CountCard';
@@ -61,6 +61,17 @@ export function AdminMonitoringPage() {
               <div>
                 <p className="font-semibold">{t('admin.monitoring.admissionBlocked')}</p>
                 <p className="mt-1 text-sm">{stats.admission_reasons.map((reason) => admissionReasonLabel(t, reason)).join(', ')}</p>
+              </div>
+            </div>
+          )}
+          {buildsHeldByDisk(stats) && (
+            <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">
+              <HardDrive className="mt-0.5 h-5 w-5 shrink-0" />
+              <div>
+                <p className="font-semibold">
+                  {t('admin.monitoring.buildsHeldByDisk', { cap: stats.build_claim_cap, max: stats.max_concurrent_builds })}
+                </p>
+                <p className="mt-1 text-sm">{t('admin.monitoring.buildsHeldByDiskDetail')}</p>
               </div>
             </div>
           )}

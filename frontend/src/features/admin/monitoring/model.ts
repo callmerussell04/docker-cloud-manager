@@ -17,6 +17,10 @@ export interface SystemMonitoring {
   dcm_reserved_volume_bytes: number;
   dcm_unused_volume_promise_bytes: number;
   host_min_free_disk_bytes: number;
+  // The cap the next build claim would get: max_concurrent_builds, or fewer
+  // when the free disk above the floor cannot hold that many build slots.
+  build_claim_cap: number;
+  max_concurrent_builds: number;
   admission_status: string;
   admission_reasons: string[];
   rootfs_quota_status: RootfsQuotaStatus;
@@ -51,6 +55,8 @@ export function withDefaults(stats?: SystemMonitoring): SystemMonitoring {
     dcm_reserved_volume_bytes: stats?.dcm_reserved_volume_bytes ?? 0,
     dcm_unused_volume_promise_bytes: stats?.dcm_unused_volume_promise_bytes ?? 0,
     host_min_free_disk_bytes: stats?.host_min_free_disk_bytes ?? 0,
+    build_claim_cap: stats?.build_claim_cap ?? 0,
+    max_concurrent_builds: stats?.max_concurrent_builds ?? 0,
     admission_status: stats?.admission_status ?? 'open',
     admission_reasons: stats?.admission_reasons ?? [],
     rootfs_quota_status: stats?.rootfs_quota_status ?? 'unknown',
@@ -66,4 +72,10 @@ export function withDefaults(stats?: SystemMonitoring): SystemMonitoring {
     projects_total: stats?.projects_total ?? 0,
     observed_at: stats?.observed_at ?? 0,
   };
+}
+
+// buildsHeldByDisk reports whether the disk, and not max_concurrent_builds,
+// limits how many builds may run now.
+export function buildsHeldByDisk(stats: SystemMonitoring): boolean {
+  return stats.build_claim_cap < stats.max_concurrent_builds;
 }

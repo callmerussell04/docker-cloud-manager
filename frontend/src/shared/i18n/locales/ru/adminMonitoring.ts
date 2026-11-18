@@ -31,6 +31,8 @@ export const adminMonitoring = {
   'admin.monitoring.volumeSizeMode.measured.hint': 'Размеры томов проверяются периодически; том может ненадолго превысить размер, пока пишущие в него контейнеры не будут остановлены.',
   'admin.monitoring.volumeSizeMode.enforced.hint': 'Новые тома получают размер, ограниченный ядром. Тома, созданные раньше, по-прежнему проверяются периодически.',
   'admin.monitoring.volumeSizeMode.unavailable.hint': 'Ограничение включено, но проверка сервера при запуске не прошла. Новые тома создаются с периодической проверкой. После исправления сервера перезапустите Core или выключите и снова включите настройку, чтобы повторить проверку.',
+  'admin.monitoring.buildsHeldByDisk': 'Диск позволяет запустить сейчас {cap} из {max} сборок',
+  'admin.monitoring.buildsHeldByDiskDetail': 'Свободного диска выше порога хватает на меньшее число слотов сборки, чем max_concurrent_builds. Остальные сборки ждут в очереди и запустятся, когда диск освободится.',
   'admin.monitoring.admissionBlocked': 'Новые деплои временно заблокированы',
   'admin.monitoring.reason.host_memory_exhausted': 'исчерпана емкость памяти сервера',
   'admin.monitoring.reason.host_disk_floor': 'достигнут минимальный остаток диска сервера',

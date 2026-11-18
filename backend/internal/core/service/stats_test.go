@@ -60,6 +60,8 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	cfgData.BuildMemoryBytes = 100
 	cfgData.MaxConcurrentBuilds = 2
 	cfgData.HostMinFreeDiskBytes = 100
+	// 500 free less the 100 floor holds one build slot of 300.
+	cfgData.BuildMaxDiskBytes = 300
 	cfg := coretest.StaticConfig{Config: cfgData}
 
 	contRepo.EXPECT().GetTotalSystemReservedMemory(ctx).Return(int64(3*bytesPerMBForTest), nil)
@@ -123,6 +125,8 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.EqualValues(t, 2<<30, stats.DCMUnusedVolumePromiseBytes, "what volumes were promised and have not used")
 	require.Equal(t, model.VolumeSizeEnforced, stats.VolumeSizeMode)
 	require.EqualValues(t, 100, stats.HostMinFreeDiskBytes)
+	require.Equal(t, 1, stats.BuildClaimCap, "the disk holds one build slot, below max_concurrent_builds")
+	require.Equal(t, 2, stats.MaxConcurrentBuilds)
 	require.Equal(t, "open", stats.AdmissionStatus)
 	require.Empty(t, stats.AdmissionReasons)
 	require.Equal(t, 7, stats.ContainersTotal)

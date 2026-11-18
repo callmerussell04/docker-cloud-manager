@@ -60,6 +60,8 @@ func systemMonitoringFromProto(data *coreapi.SystemMonitoringResponse) model.Sys
 		DCMUnusedVolumePromiseBytes: data.GetDcmUnusedVolumePromiseBytes(),
 		VolumeSizeMode:              data.GetVolumeSizeMode(),
 		HostMinFreeDiskBytes:        data.GetHostMinFreeDiskBytes(),
+		BuildClaimCap:               int(data.GetBuildClaimCap()),
+		MaxConcurrentBuilds:         int(data.GetMaxConcurrentBuilds()),
 		AdmissionStatus:             data.GetAdmissionStatus(),
 		AdmissionReasons:            append([]string(nil), data.GetAdmissionReasons()...),
 		ContainersTotal:             data.GetContainersTotal(),

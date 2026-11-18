@@ -31,11 +31,12 @@ const admissionMiB = int64(1 << 20)
 // reservations or with its own figures over smaller defaults, container start
 // of a default or a non-default reservation, project start, and build creation
 // through BuildMemoryBytes and the build CPU quota.
-// Builder runs up to four builds at once unless a case narrows it, and each
-// build slot also holds buildMaxDiskBytes of disk against the 1 GiB disk
-// floor. A volume create asks for the default 64 MiB size and no memory or CPU;
-// it alone meets the disk floor together with unusedVolumePromiseBytes, what
-// every volume on the host was promised and has not used yet.
+// Builder runs up to four builds at once unless a case narrows it. A build
+// slot's buildMaxDiskBytes of disk is held at the claim, not at creation, so
+// build creation meets only the plain 1 GiB disk floor. A volume create asks
+// for the default 64 MiB size and no memory or CPU; it alone meets the disk
+// floor together with unusedVolumePromiseBytes, what every volume on the host
+// was promised and has not used yet.
 //
 // The owner's quota is quotaRAMMB, quotaCPU and quotaDiskMB. With customQuota
 // it is a custom quota in Core's store and the defaults are one millicore and
@@ -248,31 +249,13 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			want:  apperrors.LimitDiskFloor, wantBuild: apperrors.LimitDiskFloor, wantVolume: apperrors.LimitDiskFloor, wantReserving: apperrors.LimitDiskFloor,
 		},
 		{
-			// Two running builds and the new one may each write 3 GiB: 9 of
-			// the 10 GiB free leaves exactly the 1 GiB floor.
-			name: "build slots fill the disk down to the floor",
+			// Two running builds may each write 4 GiB, and so may the new
+			// one, which would leave 10 GiB free below the 1 GiB floor. A build
+			// holds its slot's disk at the claim, not at creation, so it is
+			// accepted and waits.
+			name: "a build slot's disk is not held at creation",
 			world: func(w *admissionWorld) {
 				w.activeBuilds = 2
-				w.buildMaxDiskBytes = 3 << 30
-			},
-		},
-		{
-			// 12 GiB for three slots goes below the floor, so a build is
-			// rejected; other work writes nothing of its own and fits.
-			name: "disk floor held by build slots",
-			world: func(w *admissionWorld) {
-				w.activeBuilds = 2
-				w.buildMaxDiskBytes = 4 << 30
-			},
-			wantBuild: apperrors.LimitDiskFloor,
-		},
-		{
-			// One build runs at a time, so the new build waits behind it and
-			// asks for no disk beyond that one slot's 4 GiB.
-			name: "builds queued behind the concurrency limit hold no disk",
-			world: func(w *admissionWorld) {
-				w.activeBuilds = 6
-				w.maxConcurrentBuilds = 1
 				w.buildMaxDiskBytes = 4 << 30
 			},
 		},
@@ -281,7 +264,6 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			world: func(w *admissionWorld) {
 				w.buildMaxDiskBytes = 9<<30 + 1
 			},
-			wantBuild: apperrors.LimitDiskFloor,
 		},
 		{
 			// 9 GiB of the 10 GiB free is promised to volumes and unused, so
@@ -299,14 +281,12 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			// The owner's volumes reserve 512 MiB of quota, but the host
 			// reports no unused promise (their usage caught up with their
 			// sizes; the repository test pins that sum), so 1 GiB and 64 MiB
-			// free holds the floor and the new volume. A build slot's 1 GiB
-			// does not fit.
+			// free holds the floor and the new volume.
 			name: "a volume fits the disk when no promise is unused",
 			world: func(w *admissionWorld) {
 				w.reservedVolumeBytes = 512 * admissionMiB
 				w.diskFreeBytes = 1<<30 + 64*admissionMiB
 			},
-			wantBuild: apperrors.LimitDiskFloor,
 		},
 		{
 			name: "nothing is checked against the disk with a zero floor",

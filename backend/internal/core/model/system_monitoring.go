@@ -44,20 +44,25 @@ type SystemMonitoring struct {
 	// not used yet, which volume creates count against the disk floor.
 	DCMUnusedVolumePromiseBytes int64
 	HostMinFreeDiskBytes        int64
-	AdmissionStatus             string
-	AdmissionReasons            []string
-	RootfsQuotaStatus           RootfsQuotaStatus
-	VolumeSizeMode              VolumeSizeMode
-	ContainersTotal             int
-	ContainersRunning           int
-	ContainersStopped           int
-	ContainersError             int
-	ContainersMissing           int
-	VolumesTotal                int
-	ImagesTotal                 int
-	BuildsTotal                 int
-	ProjectsTotal               int
-	ObservedAt                  time.Time
+	// BuildClaimCap is the cap the next build claim would get:
+	// MaxConcurrentBuilds, or fewer when the free disk above the floor cannot
+	// hold that many build slots.
+	BuildClaimCap       int
+	MaxConcurrentBuilds int
+	AdmissionStatus     string
+	AdmissionReasons    []string
+	RootfsQuotaStatus   RootfsQuotaStatus
+	VolumeSizeMode      VolumeSizeMode
+	ContainersTotal     int
+	ContainersRunning   int
+	ContainersStopped   int
+	ContainersError     int
+	ContainersMissing   int
+	VolumesTotal        int
+	ImagesTotal         int
+	BuildsTotal         int
+	ProjectsTotal       int
+	ObservedAt          time.Time
 }
 
 // RootfsQuotaStatus says whether Docker enforces the container root

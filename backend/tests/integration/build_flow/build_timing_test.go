@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,4 +231,38 @@ func TestBuildClaimIsRefusedAtMaxConcurrentBuilds(t *testing.T) {
 	_, started, err = builds.StartBuildRecord(ctx, queued[maxRunning])
 	require.NoError(t, err)
 	require.True(t, started, "a freed slot admits the claim")
+}
+
+// A build the disk cannot hold a build slot for is accepted at creation and
+// waits pending at the claim, as it waits for a free slot, and runs once the
+// disk can hold one.
+func TestBuildWaitsPendingUntilTheDiskCanHoldABuildSlot(t *testing.T) {
+	ctx := context.Background()
+	repos := coretest.OpenCoreRepositories(t)
+	owner := uuid.New()
+	cfg := coretest.IntegrationConfig()
+	cfg.HostMinFreeDiskBytes = 1 << 30
+	cfg.BuildMaxDiskBytes = 4 << 30
+	// 3 GiB above the floor cannot hold one 4 GiB build slot.
+	var freeBytes atomic.Int64
+	freeBytes.Store(4 << 30)
+	disk := coremocks.NewHostDiskMetricsProvider(t)
+	disk.EXPECT().GetDiskUsage(mock.Anything).RunAndReturn(func(string) (model.HostDiskStats, error) {
+		return model.HostDiskStats{FreeBytes: freeBytes.Load()}, nil
+	}).Maybe()
+	builds := newBuildServiceWithDisk(t, repos, owner, newMemoryBuildObjectStore(t, map[string][]byte{}, false), cfg, disk)
+
+	result, err := builds.CreateBuildFromArchive(coretest.UserContext(owner), service.BuildArchiveInput{Tag: "disk-wait:latest", ArchiveName: "source.zip", Archive: strings.NewReader("archive")})
+	require.NoError(t, err, "a build is not refused at creation for the disk of its build slot")
+
+	refused, started, err := builds.StartBuildRecord(ctx, result.BuildID)
+	require.NoError(t, err)
+	require.False(t, started)
+	require.Equal(t, model.BuildStatusPending, refused.Status, "a build the disk cannot hold waits pending")
+
+	freeBytes.Store(5 << 30)
+	claimed, started, err := builds.StartBuildRecord(ctx, result.BuildID)
+	require.NoError(t, err)
+	require.True(t, started, "the build runs once the disk can hold its slot")
+	require.Equal(t, model.BuildStatusRunning, claimed.Status)
 }

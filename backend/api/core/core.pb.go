@@ -598,8 +598,12 @@ type SystemMonitoringResponse struct {
 	// Over the same volumes, each size less its measured usage, never below
 	// zero: the disk promised to volumes and not used yet.
 	DcmUnusedVolumePromiseBytes int64 `protobuf:"varint,28,opt,name=dcm_unused_volume_promise_bytes,json=dcmUnusedVolumePromiseBytes,proto3" json:"dcm_unused_volume_promise_bytes,omitempty"`
-	unknownFields               protoimpl.UnknownFields
-	sizeCache                   protoimpl.SizeCache
+	// The cap the next build claim would get: max_concurrent_builds, or fewer
+	// when the free disk above the floor cannot hold that many build slots.
+	BuildClaimCap       int32 `protobuf:"varint,29,opt,name=build_claim_cap,json=buildClaimCap,proto3" json:"build_claim_cap,omitempty"`
+	MaxConcurrentBuilds int32 `protobuf:"varint,30,opt,name=max_concurrent_builds,json=maxConcurrentBuilds,proto3" json:"max_concurrent_builds,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -824,6 +828,20 @@ func (x *SystemMonitoringResponse) GetVolumeSizeMode() string {
 func (x *SystemMonitoringResponse) GetDcmUnusedVolumePromiseBytes() int64 {
 	if x != nil {
 		return x.DcmUnusedVolumePromiseBytes
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetBuildClaimCap() int32 {
+	if x != nil {
+		return x.BuildClaimCap
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetMaxConcurrentBuilds() int32 {
+	if x != nil {
+		return x.MaxConcurrentBuilds
 	}
 	return 0
 }
@@ -4784,8 +4802,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
 	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\x12.\n" +
 	"\x13cpu_used_millicores\x18\f \x01(\x03R\x11cpuUsedMillicores\x120\n" +
-	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\xb1\n" +
-	"\n" +
+	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\x8d\v\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4817,7 +4834,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\x129\n" +
 	"\x19dcm_reserved_volume_bytes\x18\x1a \x01(\x03R\x16dcmReservedVolumeBytes\x12(\n" +
 	"\x10volume_size_mode\x18\x1b \x01(\tR\x0evolumeSizeMode\x12D\n" +
-	"\x1fdcm_unused_volume_promise_bytes\x18\x1c \x01(\x03R\x1bdcmUnusedVolumePromiseBytes\"\a\n" +
+	"\x1fdcm_unused_volume_promise_bytes\x18\x1c \x01(\x03R\x1bdcmUnusedVolumePromiseBytes\x12&\n" +
+	"\x0fbuild_claim_cap\x18\x1d \x01(\x05R\rbuildClaimCap\x122\n" +
+	"\x15max_concurrent_builds\x18\x1e \x01(\x05R\x13maxConcurrentBuilds\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +

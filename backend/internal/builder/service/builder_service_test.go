@@ -1118,11 +1118,12 @@ func TestBuilderServiceQueuedBuildReceivesFullExecutionBudget(t *testing.T) {
 	require.NoError(t, h.service.HandleBuildMessage(context.Background(), msg))
 }
 
-// Core refuses a claim while max_concurrent_builds builds run across every
-// Builder, answering unclaimed and still pending. The Builder keeps the
-// delivery and claims again, however long the slots stay taken: a delivery
-// returned to the queue each time would reach the queue's delivery limit and
-// be dead-lettered.
+// Core refuses a claim while its claim cap is full (max_concurrent_builds
+// builds run across every Builder, or the disk cannot hold another build
+// slot), answering unclaimed and still pending. The Builder keeps the delivery
+// and claims again, however long the slots stay taken: a delivery returned to
+// the queue each time would reach the queue's delivery limit and be
+// dead-lettered.
 func TestBuilderServiceKeepsARefusedClaimUntilASlotIsFree(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cfg := testBuilderRuntimeConfig()

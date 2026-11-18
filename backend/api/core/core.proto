@@ -182,6 +182,10 @@ message SystemMonitoringResponse {
   // Over the same volumes, each size less its measured usage, never below
   // zero: the disk promised to volumes and not used yet.
   int64 dcm_unused_volume_promise_bytes = 28;
+  // The cap the next build claim would get: max_concurrent_builds, or fewer
+  // when the free disk above the floor cannot hold that many build slots.
+  int32 build_claim_cap = 29;
+  int32 max_concurrent_builds = 30;
 }
 
 message Empty {}
