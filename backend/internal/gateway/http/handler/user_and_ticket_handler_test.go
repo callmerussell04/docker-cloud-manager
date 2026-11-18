@@ -52,13 +52,13 @@ var adminActorID = uuid.New()
 func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
 	h := newUserHandlerHarness(t)
 	userID := uuid.NewString()
-	user := model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.com", Role: "user", Status: "active"}
+	user := model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", AuthSource: "oidc", RoleManagedByProvider: true}
 	withQuota := model.AdminUserWithQuota{User: user, Quota: model.UserQuota{UserID: userID, CPU: 1.5, RAMMB: 1024, DiskMB: 2048, Custom: true}}
 
 	h.adminUsers.EXPECT().ListUsers(mock.Anything, 2, 10).Return(model.PaginatedAdminUsersWithQuota{Users: []model.AdminUserWithQuota{withQuota}, TotalCount: 1}, nil)
 	resp := perform(h.router, http.MethodGet, "/users?page=2&limit=10", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	require.JSONEq(t, `{"total_count":1,"users":[{"user_id":"`+userID+`","username":"alice","email":"alice@example.com","role":"user","status":"active","quota_cpu":1.5,"quota_ram_mb":1024,"quota_disk_mb":2048,"quota_custom":true}]}`, resp.Body.String())
+	require.JSONEq(t, `{"total_count":1,"users":[{"user_id":"`+userID+`","username":"alice","email":"alice@example.com","role":"user","status":"active","auth_source":"oidc","role_managed_by_provider":true,"quota_cpu":1.5,"quota_ram_mb":1024,"quota_disk_mb":2048,"quota_custom":true}]}`, resp.Body.String())
 
 	h.adminUsers.EXPECT().GetUser(mock.Anything, userID).Return(withQuota, nil)
 	resp = perform(h.router, http.MethodGet, "/users/"+userID, ``, nil)
@@ -68,6 +68,7 @@ func TestUserManagementHandlerCRUDAndValidation(t *testing.T) {
 	h.users.EXPECT().CreateUser(mock.Anything, model.CreateUserInput{Username: "bob", Email: "bob@example.com", Password: "secret", Role: "user", Status: "active"}).Return(user, nil)
 	resp = perform(h.router, http.MethodPost, "/users", `{"username":"bob","email":"bob@example.com","password":"secret","role":"user","status":"active"}`, nil)
 	require.Equal(t, http.StatusCreated, resp.Code)
+	require.Contains(t, resp.Body.String(), `"auth_source":"oidc","role_managed_by_provider":true`)
 	require.NotContains(t, resp.Body.String(), "quota")
 
 	h.accounts.EXPECT().UpdateUser(mock.Anything, userID, model.UpdateUserInput{Username: "alice2", Email: "alice2@example.com", Password: "newsecret", Role: "admin", Status: "active"}).Return(model.UserUpdate{User: user}, nil)

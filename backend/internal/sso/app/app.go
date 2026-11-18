@@ -71,7 +71,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		OIDCEnabled:          cfg.OIDC.Enabled,
 		OIDCProviderName:     "keycloak",
 		OIDCAdminGroups:      cfg.OIDC.AdminGroups,
-		OIDCDefaultRole:      cfg.OIDC.DefaultRole,
+		Logger:               logging.WithComponent(logger, "auth"),
 	})
 	if err := ensureBootstrapAdmin(authService, cfg.BootstrapAdmin, logger); err != nil {
 		return nil, err

@@ -79,7 +79,12 @@ export function AdminUsersPage() {
             ) : users.length > 0 ? (
               users.map((user) => (
                 <div key={user.user_id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", userTableLayout.grid)}>
-                  <div className="font-medium truncate">{user.username}</div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{user.username}</div>
+                    <Badge variant={user.auth_source === 'oidc' ? 'info' : 'default'} title={t('admin.users.source')}>
+                      {user.auth_source === 'oidc' ? t('admin.users.sourceOidc') : t('admin.users.sourceLocal')}
+                    </Badge>
+                  </div>
                   <div className="min-w-0">
                     <div className="truncate">{user.email}</div>
                     <div className="text-xs font-mono text-slate-500 truncate">{user.user_id}</div>

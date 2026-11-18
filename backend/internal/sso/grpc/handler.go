@@ -28,6 +28,7 @@ type AuthService interface {
 	UpdateUser(ctx context.Context, userID uuid.UUID, input ssoservice.UpdateUserInput) (model.User, error)
 	DeactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error)
 	ReactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error)
+	RoleManagedByProvider(user model.User) bool
 }
 
 type Handler struct {
@@ -41,12 +42,14 @@ func Register(gRPCServer *grpc.Server, auth AuthService) {
 	sso.RegisterUserAPIServer(gRPCServer, &Handler{auth: auth})
 }
 
-func userToProto(user model.User) *sso.UserData {
+func (h *Handler) userToProto(user model.User) *sso.UserData {
 	return &sso.UserData{
-		UserId:   user.ID.String(),
-		Username: user.Username,
-		Email:    user.Email,
-		Role:     user.Role,
-		Status:   user.Status,
+		UserId:                user.ID.String(),
+		Username:              user.Username,
+		Email:                 user.Email,
+		Role:                  user.Role,
+		Status:                user.Status,
+		AuthSource:            user.AuthSource,
+		RoleManagedByProvider: h.auth.RoleManagedByProvider(user),
 	}
 }

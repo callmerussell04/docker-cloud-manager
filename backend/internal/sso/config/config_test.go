@@ -38,7 +38,7 @@ func TestLoadDefaults(t *testing.T) {
 		SessionIdleTTL: 7 * 24 * time.Hour,
 		BootstrapAdmin: config.BootstrapAdmin{Username: "admin", Email: "admin@example.local", Password: secret},
 		Auth:           config.Auth{LocalLoginEnabled: true, LocalRegisterEnabled: true},
-		OIDC:           config.OIDC{AdminGroups: []string{}, DefaultRole: "user"},
+		OIDC:           config.OIDC{AdminGroups: []string{}},
 	}, cfg)
 }
 
@@ -52,7 +52,6 @@ func TestLoadTrimsOptionalSettings(t *testing.T) {
 	values["SSO_OIDC_CLIENT_ID"] = " dcm "
 	values["SSO_OIDC_REDIRECT_URL"] = " https://dcm.test/api/v1/auth/oidc/keycloak/callback "
 	values["SSO_OIDC_ADMIN_GROUPS"] = " a, ,b "
-	values["SSO_OIDC_DEFAULT_ROLE"] = "   "
 	values["SSO_OIDC_CLIENT_SECRET"] = " kept as is "
 
 	cfg, err := config.Load(envtest.Lookup(values))
@@ -66,7 +65,6 @@ func TestLoadTrimsOptionalSettings(t *testing.T) {
 	assert.Equal(t, "dcm", cfg.OIDC.ClientID)
 	assert.Equal(t, "https://dcm.test/api/v1/auth/oidc/keycloak/callback", cfg.OIDC.RedirectURL)
 	assert.Equal(t, []string{"a", "b"}, cfg.OIDC.AdminGroups)
-	assert.Equal(t, "user", cfg.OIDC.DefaultRole)
 	assert.Equal(t, " kept as is ", cfg.OIDC.ClientSecret)
 }
 

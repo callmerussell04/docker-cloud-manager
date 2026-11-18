@@ -55,3 +55,11 @@ test('every limit the backend names has a message in both locales', () => {
     expect(en, limit).toHaveProperty([`apiError.limit.${limit}`]);
   }
 });
+
+test.each([
+  ['role of this user is managed by the identity provider', 'apiError.roleManagedByProvider'],
+  ['username, email and password of this user are managed by the identity provider', 'apiError.profileManagedByProvider'],
+])('SSO\'s refusal of a provider-managed edit shows its own message: %s', (message, key) => {
+  const error = rejection(400, { error: message, error_code: 'bad_request' });
+  expect(getApiErrorMessage(error, 'fallback', t).message).toBe(key);
+});

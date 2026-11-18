@@ -34,5 +34,7 @@ export const apiError: Record<keyof typeof ru, string> = {
   'apiError.limit.queued_builds': 'Too many builds are queued',
   'apiError.limit.queued_compose_deployments': 'Too many Compose deployments are queued',
   'apiError.limit.staged_source_bytes': 'Too much source data is waiting to be processed',
+  'apiError.roleManagedByProvider': 'The identity provider (Keycloak) manages this user\'s role. Change it there.',
+  'apiError.profileManagedByProvider': 'The identity provider (Keycloak) manages this user\'s username, email and password. Change them there.',
   'apiError.workloadsNotStopped': 'The account is deactivated, but its workloads could not be stopped. Try again to stop them.',
 };

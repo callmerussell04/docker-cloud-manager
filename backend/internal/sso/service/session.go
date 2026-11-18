@@ -55,7 +55,15 @@ func (s *AuthService) createSession(ctx context.Context, authenticated model.Use
 		if err != nil {
 			return err
 		}
-		return tx.CreateSession(ctx, session, token)
+		if err := tx.CreateSession(ctx, session, token); err != nil {
+			return err
+		}
+		if local {
+			return nil
+		}
+		// An OIDC user's last sign-in is the session it succeeded with.
+		user.LastLoginAt = &now
+		return tx.UpdateUser(ctx, user)
 	})
 	if err != nil {
 		return model.Tokens{}, err

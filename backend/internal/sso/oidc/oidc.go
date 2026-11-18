@@ -91,7 +91,6 @@ type discoveredClient struct {
 // idClaims are the ID-token claims DCM reads besides sub and nonce.
 type idClaims struct {
 	PreferredUsername string   `json:"preferred_username"`
-	Name              string   `json:"name"`
 	Email             string   `json:"email"`
 	EmailVerified     bool     `json:"email_verified"`
 	Groups            []string `json:"groups"`
@@ -253,7 +252,6 @@ func (p *Provider) ExchangeCode(ctx context.Context, code, nonce, verifier strin
 	}
 	return service.OIDCIdentity{
 		Subject:           idToken.Subject,
-		Username:          firstNonEmpty(claims.PreferredUsername, claims.Name, idToken.Subject),
 		Email:             claims.Email,
 		EmailVerified:     claims.EmailVerified,
 		Groups:            claims.Groups,
@@ -458,14 +456,4 @@ func bounded(text string) string {
 		cut--
 	}
 	return text[:cut]
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

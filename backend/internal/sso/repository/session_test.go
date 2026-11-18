@@ -397,7 +397,7 @@ func TestOIDCLoginsUseIndependentDurableSessions(t *testing.T) {
 	provider := ssomocks.NewOIDCProvider(t)
 	provider.EXPECT().Available().Return(true).Maybe()
 	provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(state, nonce, verifier string) string { return "https://idp.example/auth?state=" + state })
-	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject", Username: "external-user", Email: "external@example.com"}, nil)
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject", PreferredUsername: "external-user", Email: "external@example.com"}, nil)
 	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{OIDCEnabled: true})
 	login := func() model.Tokens {
 		t.Helper()
@@ -471,7 +471,7 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 				second.ExternalSubject = "admin-b-subject"
 				// The provider no longer lists the administrator group, so sign-in demotes.
 				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{
-					Subject: second.ExternalSubject, Username: second.Username, Email: second.Email,
+					Subject: second.ExternalSubject, PreferredUsername: second.Username, Email: second.Email, EmailVerified: true,
 				}, nil)
 				started, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 				require.NoError(t, err)
@@ -516,10 +516,16 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 					refused = append(refused, err)
 				}
 			}
-			require.Len(t, refused, 1, "exactly one change must succeed")
-			require.ErrorIs(t, refused[0], apperrors.ErrConflict)
-			if !tt.secondIsOIDC {
-				require.EqualError(t, refused[0], "cannot deactivate or demote the last active admin")
+			if tt.secondIsOIDC {
+				// The sign-in is never refused: it demotes first and the role
+				// change is refused, or it finds the last active administrator
+				// and keeps the role.
+				require.LessOrEqual(t, len(refused), 1)
+			} else {
+				require.Len(t, refused, 1, "exactly one change must succeed")
+			}
+			for _, err := range refused {
+				require.EqualError(t, err, "cannot deactivate or demote the last active admin")
 			}
 			stored, err := svc.GetUsers(ctx, []uuid.UUID{first.ID, second.ID})
 			require.NoError(t, err)

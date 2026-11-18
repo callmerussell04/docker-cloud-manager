@@ -5,6 +5,18 @@ export interface AdminUserAccount {
   email: string;
   role: 'admin' | 'user';
   status: 'active' | 'deactivated';
+  /** Where the account comes from; the identity provider owns an OIDC user's username, email and password. */
+  auth_source: 'local' | 'oidc';
+  /** True when the identity provider owns the role, so DCM refuses to change it. */
+  role_managed_by_provider: boolean;
+}
+
+/** Which fields of the edit form the identity provider owns, so the form disables them. A new user has none. */
+export function providerManagedFields(user: AdminUserAccount | null) {
+  return {
+    profile: user?.auth_source === 'oidc',
+    role: !!user?.role_managed_by_provider,
+  };
 }
 
 /** A user's effective quota from Core. quota_custom is false for the default quota. */

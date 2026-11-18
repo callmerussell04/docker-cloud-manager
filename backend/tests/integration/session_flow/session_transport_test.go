@@ -432,7 +432,8 @@ func stateCookies(b *browser) []*http.Cookie {
 
 // oidcSSO builds SSO's auth service over db with a provider that has reached
 // idp, as the SSO composition root does; calling it again rebuilds the service.
-func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.Provider, now *time.Time) *service.AuthService {
+// Administrator groups make roles provider-managed.
+func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.Provider, now *time.Time, adminGroups ...string) *service.AuthService {
 	t.Helper()
 	provider, err := oidc.NewProvider(oidc.Config{
 		IssuerURL: idp.Issuer(), ClientID: idp.ClientID(), ClientSecret: idp.ClientSecret(),
@@ -441,7 +442,7 @@ func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.
 	require.NoError(t, err)
 	require.NoError(t, provider.Discover(ctx))
 	return service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
-		OIDCEnabled: true, OIDCProviderName: "keycloak", Now: func() time.Time { return *now },
+		OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: adminGroups, Now: func() time.Time { return *now },
 	})
 }
 

@@ -50,7 +50,7 @@ func (s fakeDeactivationSSO) DeactivateUser(_ context.Context, userID string) (m
 	if s.err != nil {
 		return model.AdminUser{}, s.err
 	}
-	return model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.test", Role: "user", Status: "deactivated"}, nil
+	return model.AdminUser{UserID: userID, Username: "alice", Email: "alice@example.test", Role: "user", Status: "deactivated", AuthSource: "local"}, nil
 }
 
 // UpdateUser saves the requested status as SSO does.
@@ -59,7 +59,7 @@ func (s fakeDeactivationSSO) UpdateUser(_ context.Context, userID string, input 
 	if s.err != nil {
 		return model.AdminUser{}, s.err
 	}
-	return model.AdminUser{UserID: userID, Username: input.Username, Email: input.Email, Role: input.Role, Status: input.Status}, nil
+	return model.AdminUser{UserID: userID, Username: input.Username, Email: input.Email, Role: input.Role, Status: input.Status, AuthSource: "local"}, nil
 }
 
 // fakeWorkloadCore suspends workloads as Core does, or fails with err, and
@@ -100,7 +100,7 @@ func TestRouterDeactivatesAUserInSSOThenStopsTheirWorkloadsInCore(t *testing.T) 
 			suspension: model.WorkloadSuspension{StoppedContainers: 2, CanceledBuilds: 1, CanceledDeployments: 1},
 			wantStatus: http.StatusOK,
 			wantCalls:  []string{"sso.DeactivateUser", "core.SuspendUserWorkloads"},
-			wantBody: `{"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"deactivated",
+			wantBody: `{"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"deactivated","auth_source":"local","role_managed_by_provider":false,
 				"workloads":{"stopped_containers":2,"canceled_builds":1,"canceled_deployments":1,"remaining":0}}`,
 			wantAudit: map[string]string{"stopped_containers": "2", "canceled_builds": "1", "canceled_deployments": "1", "remaining_workloads": "0"},
 		},
@@ -109,7 +109,7 @@ func TestRouterDeactivatesAUserInSSOThenStopsTheirWorkloadsInCore(t *testing.T) 
 			suspension: model.WorkloadSuspension{StoppedContainers: 1, SkippedContainers: 2, Failed: 1},
 			wantStatus: http.StatusOK,
 			wantCalls:  []string{"sso.DeactivateUser", "core.SuspendUserWorkloads"},
-			wantBody: `{"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"deactivated",
+			wantBody: `{"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"deactivated","auth_source":"local","role_managed_by_provider":false,
 				"workloads":{"stopped_containers":1,"canceled_builds":0,"canceled_deployments":0,"remaining":3}}`,
 			wantAudit: map[string]string{"stopped_containers": "1", "canceled_builds": "0", "canceled_deployments": "0", "remaining_workloads": "3"},
 		},
@@ -178,7 +178,7 @@ func TestRouterDeactivatesAUserInSSOThenStopsTheirWorkloadsInCore(t *testing.T) 
 func TestRouterStopsWorkloadsWhenAnUpdateDeactivatesAUser(t *testing.T) {
 	user := uuid.NewString()
 	account := func(status string) string {
-		return `"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"` + status + `"`
+		return `"user_id":"` + user + `","username":"alice","email":"alice@example.test","role":"user","status":"` + status + `","auth_source":"local","role_managed_by_provider":false`
 	}
 	tests := []struct {
 		name       string

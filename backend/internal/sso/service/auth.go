@@ -9,10 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/mail"
+	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
@@ -110,9 +111,10 @@ type OIDCProvider interface {
 	ExchangeCode(ctx context.Context, code, nonce, verifier string) (OIDCIdentity, error)
 }
 
+// OIDCIdentity holds the ID-token claims DCM reads. PreferredUsername is the
+// only source of a derived username.
 type OIDCIdentity struct {
 	Subject           string
-	Username          string
 	Email             string
 	EmailVerified     bool
 	Groups            []string
@@ -129,6 +131,8 @@ type AuthService struct {
 	oidcProvider  OIDCProvider
 	loginAttempts LoginAttemptRepository
 	now           func() time.Time
+	// adminGroups are the configured administrator groups and realm roles.
+	adminGroups map[string]struct{}
 }
 
 type Config struct {
@@ -142,7 +146,8 @@ type Config struct {
 	OIDCEnabled          bool
 	OIDCProviderName     string
 	OIDCAdminGroups      []string
-	OIDCDefaultRole      string
+	// Logger receives warnings the caller is not told about; nil discards them.
+	Logger *slog.Logger
 }
 
 type BootstrapAdminConfig struct {
@@ -245,10 +250,17 @@ func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, 
 	if cfg.OIDCProviderName == "" {
 		cfg.OIDCProviderName = "keycloak"
 	}
-	if cfg.OIDCDefaultRole == "" {
-		cfg.OIDCDefaultRole = model.RoleUser
+	if cfg.Logger == nil {
+		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	adminGroups := map[string]struct{}{}
+	for _, group := range cfg.OIDCAdminGroups {
+		if group = strings.TrimSpace(group); group != "" {
+			adminGroups[group] = struct{}{}
+		}
 	}
 	return &AuthService{
+		adminGroups:   adminGroups,
 		repo:          repo,
 		tokenProvider: tokenProvider,
 		cfg:           cfg,
@@ -510,58 +522,54 @@ func (s *AuthService) requireOIDCProvider(provider string) error {
 	return nil
 }
 
+// provisionOIDCUser returns the user bound to the identity, creating it on the
+// first sign-in and otherwise synchronizing its provider-managed profile. A
+// deactivated user is returned unchanged, before any write.
 func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, identity OIDCIdentity) (model.User, error) {
 	if strings.TrimSpace(identity.Subject) == "" {
 		return model.User{}, apperrors.ErrInvalidCredentials
 	}
-
-	now := s.now()
-	role := s.roleForOIDCIdentity(identity)
-	baseUsername := normalizeExternalUsername(identity.Username, identity.PreferredUsername, identity.Subject)
+	identityHash := oidcIdentityHash(provider, identity.Subject)
 
 	existing, err := s.repo.GetUserByExternalIdentity(ctx, provider, identity.Subject)
-	if err == nil {
-		username, err := s.resolveOIDCUsername(ctx, existing.ID, existing.Username, baseUsername, identity.Subject)
-		if err != nil {
-			return model.User{}, err
+	if errors.Is(err, apperrors.ErrNotFound) {
+		var created model.User
+		created, err = s.createOIDCUser(ctx, provider, identity, identityHash)
+		if !errors.Is(err, apperrors.ErrAlreadyExists) {
+			return created, err
 		}
-		email, err := s.resolveOIDCEmail(ctx, existing.ID, provider, identity.Subject, identity.Email)
-		if err != nil {
-			return model.User{}, err
+		// A simultaneous first sign-in of the same identity may have saved it
+		// first; continue as that user. Otherwise the save hit another user.
+		existing, err = s.repo.GetUserByExternalIdentity(ctx, provider, identity.Subject)
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
 		}
-		existing.Username = username
-		existing.Email = email
-		existing.Role = role
-		existing.AuthSource = model.AuthSourceOIDC
-		existing.ExternalProvider = provider
-		existing.ExternalSubject = identity.Subject
-		existing.ExternalUsername = firstNonEmpty(identity.Username, identity.PreferredUsername)
-		existing.LastLoginAt = &now
-		if err := s.updateUser(ctx, existing, false, false); err != nil {
-			if errors.Is(err, apperrors.ErrAlreadyExists) {
-				return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
-			}
-			if errors.Is(err, apperrors.ErrConflict) {
-				return model.User{}, err
-			}
-			return model.User{}, fmt.Errorf("failed to update oidc user: %w", err)
-		}
-		return existing, nil
 	}
-	if !errors.Is(err, apperrors.ErrNotFound) {
+	if err != nil {
 		return model.User{}, fmt.Errorf("failed to get oidc user: %w", err)
 	}
+	if existing.Status != model.StatusActive {
+		return existing, nil
+	}
+	return s.syncOIDCUser(ctx, existing, identity, identityHash)
+}
 
+// createOIDCUser saves a new user for the identity. A unique violation is
+// returned as ErrAlreadyExists for the caller to resolve.
+func (s *AuthService) createOIDCUser(ctx context.Context, provider string, identity OIDCIdentity, identityHash string) (model.User, error) {
 	userID := uuid.New()
-	username, err := s.resolveOIDCUsername(ctx, userID, "", baseUsername, identity.Subject)
+	username, err := s.resolveOIDCUsername(ctx, userID, "", deriveOIDCUsername(identity.PreferredUsername, identityHash), identityHash)
 	if err != nil {
 		return model.User{}, err
 	}
-	email, err := s.resolveOIDCEmail(ctx, userID, provider, identity.Subject, identity.Email)
+	email, err := s.resolveOIDCEmail(ctx, userID, identity, identityHash)
 	if err != nil {
 		return model.User{}, err
 	}
-
+	role := model.RoleUser
+	if s.providerManagesRoles() {
+		role = s.roleFromProvider(identity)
+	}
 	user := model.User{
 		ID:               userID,
 		Username:         username,
@@ -571,41 +579,65 @@ func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, id
 		AuthSource:       model.AuthSourceOIDC,
 		ExternalProvider: provider,
 		ExternalSubject:  identity.Subject,
-		ExternalUsername: firstNonEmpty(identity.Username, identity.PreferredUsername),
-		LastLoginAt:      &now,
+		ExternalUsername: strings.TrimSpace(identity.PreferredUsername),
 	}
 	if err := s.repo.SaveUser(ctx, user); err != nil {
 		if errors.Is(err, apperrors.ErrAlreadyExists) {
-			return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
+			return model.User{}, err
 		}
 		return model.User{}, fmt.Errorf("failed to save oidc user: %w", err)
 	}
 	return user, nil
 }
 
-func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uuid.UUID, currentUsername, base, subject string) (string, error) {
-	user, err := s.repo.GetUserByUsername(ctx, base)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return base, nil
+// syncOIDCUser writes the provider-managed username and email, and the role
+// when the provider manages it. A demotion the last-admin guard refuses is
+// skipped with a warning, so the last active administrator still signs in.
+func (s *AuthService) syncOIDCUser(ctx context.Context, user model.User, identity OIDCIdentity, identityHash string) (model.User, error) {
+	username, err := s.resolveOIDCUsername(ctx, user.ID, user.Username, deriveOIDCUsername(identity.PreferredUsername, identityHash), identityHash)
+	if err != nil {
+		return model.User{}, err
+	}
+	email, err := s.resolveOIDCEmail(ctx, user.ID, identity, identityHash)
+	if err != nil {
+		return model.User{}, err
+	}
+	user.Username = username
+	user.Email = email
+	user.ExternalUsername = strings.TrimSpace(identity.PreferredUsername)
+	if s.providerManagesRoles() {
+		user.Role = s.roleFromProvider(identity)
+	}
+	err = s.updateUser(ctx, user, false, false)
+	if errors.Is(err, errLastActiveAdmin) {
+		s.cfg.Logger.WarnContext(ctx, "oidc role synchronization skipped: the user is the last active admin", "user_id", user.ID)
+		user.Role = model.RoleAdmin
+		err = s.updateUser(ctx, user, false, false)
+	}
+	if errors.Is(err, apperrors.ErrAlreadyExists) {
+		return model.User{}, apperrors.New(apperrors.ErrConflict, "oidc user email or username already exists")
 	}
 	if err != nil {
-		return "", fmt.Errorf("failed to check oidc username: %w", err)
+		return model.User{}, fmt.Errorf("failed to update oidc user: %w", err)
 	}
-	if user.ID == currentUserID {
-		return base, nil
-	}
+	return user, nil
+}
 
-	suffix := shortSubjectSuffix(subject)
-	candidate := trimUsername(base, 30-len(suffix)-1) + "-" + suffix
-	user, err = s.repo.GetUserByUsername(ctx, candidate)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return candidate, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to check oidc username: %w", err)
-	}
-	if user.ID == currentUserID {
-		return candidate, nil
+// resolveOIDCUsername picks the first candidate no other user holds: the
+// derived base, the base with 8 characters of the identity hash, then "oidc-"
+// and 24 of them. Past those an existing user keeps currentUsername, and a new
+// user (empty currentUsername) is an account conflict.
+func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uuid.UUID, currentUsername, base, identityHash string) (string, error) {
+	suffix := "-" + identityHash[:8]
+	candidates := []string{base, cutUsername(base, maxDerivedUsername-len(suffix)) + suffix, "oidc-" + identityHash[:24]}
+	for _, candidate := range candidates {
+		user, err := s.repo.GetUserByUsername(ctx, candidate)
+		if errors.Is(err, apperrors.ErrNotFound) || (err == nil && user.ID == currentUserID) {
+			return candidate, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to check oidc username: %w", err)
+		}
 	}
 	if currentUsername != "" {
 		return currentUsername, nil
@@ -613,8 +645,10 @@ func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uui
 	return "", apperrors.New(apperrors.ErrConflict, "oidc username already exists")
 }
 
-func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.UUID, provider, subject, upstreamEmail string) (string, error) {
-	if email := normalizeExternalEmail(upstreamEmail); email != "" {
+// resolveOIDCEmail stores the provider's email only when it is verified, valid
+// and no other user holds it; otherwise the deterministic fallback address.
+func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.UUID, identity OIDCIdentity, identityHash string) (string, error) {
+	if email := normalizeExternalEmail(identity.Email); identity.EmailVerified && email != "" {
 		user, err := s.repo.GetUserByEmail(ctx, email)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return email, nil
@@ -627,7 +661,7 @@ func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.U
 		}
 	}
 
-	email := oidcFallbackEmail(provider, subject)
+	email := "oidc-" + identityHash[:24] + "@oidc.local"
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return email, nil
@@ -641,21 +675,25 @@ func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.U
 	return "", apperrors.New(apperrors.ErrConflict, "oidc fallback email already exists")
 }
 
-func (s *AuthService) roleForOIDCIdentity(identity OIDCIdentity) string {
-	adminGroups := map[string]struct{}{}
-	for _, group := range s.cfg.OIDCAdminGroups {
-		group = strings.TrimSpace(group)
-		if group != "" {
-			adminGroups[group] = struct{}{}
-		}
-	}
-	for _, value := range append(identity.Groups, identity.RealmRoles...) {
-		if _, ok := adminGroups[value]; ok {
+// providerManagesRoles reports whether the identity provider owns the role of
+// an OIDC user, which it does when administrator groups are configured.
+func (s *AuthService) providerManagesRoles() bool {
+	return len(s.adminGroups) > 0
+}
+
+// RoleManagedByProvider reports whether the identity provider owns user's role:
+// an OIDC user's while administrator groups are configured.
+func (s *AuthService) RoleManagedByProvider(user model.User) bool {
+	return user.AuthSource == model.AuthSourceOIDC && s.providerManagesRoles()
+}
+
+// roleFromProvider is admin when any configured administrator group appears in
+// the identity's groups or realm roles, and user otherwise.
+func (s *AuthService) roleFromProvider(identity OIDCIdentity) string {
+	for _, value := range append(slices.Clone(identity.Groups), identity.RealmRoles...) {
+		if _, ok := s.adminGroups[value]; ok {
 			return model.RoleAdmin
 		}
-	}
-	if validRole(s.cfg.OIDCDefaultRole) {
-		return s.cfg.OIDCDefaultRole
 	}
 	return model.RoleUser
 }
@@ -703,6 +741,9 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 	if err != nil {
 		return model.User{}, err
 	}
+	if err := s.refuseProviderManagedEdit(user, input); err != nil {
+		return model.User{}, err
+	}
 
 	user.Username = normalizeIdentity(input.Username)
 	user.Email = normalizeIdentity(input.Email)
@@ -726,6 +767,27 @@ func (s *AuthService) UpdateUser(ctx context.Context, userID uuid.UUID, input Up
 		return model.User{}, fmt.Errorf("failed to update user: %w", err)
 	}
 	return user, nil
+}
+
+var (
+	errProfileManagedByProvider = apperrors.New(apperrors.ErrBadRequest, "username, email and password of this user are managed by the identity provider")
+	errRoleManagedByProvider    = apperrors.New(apperrors.ErrBadRequest, "role of this user is managed by the identity provider")
+)
+
+// refuseProviderManagedEdit refuses an update that would change what the
+// identity provider owns and so be reverted at the user's next sign-in. The
+// refusals echo no value.
+func (s *AuthService) refuseProviderManagedEdit(user model.User, input UpdateUserInput) error {
+	if user.AuthSource != model.AuthSourceOIDC {
+		return nil
+	}
+	if normalizeIdentity(input.Username) != user.Username || normalizeIdentity(input.Email) != user.Email || input.Password != "" {
+		return errProfileManagedByProvider
+	}
+	if s.RoleManagedByProvider(user) && input.Role != user.Role {
+		return errRoleManagedByProvider
+	}
+	return nil
 }
 
 func (s *AuthService) DeactivateUser(ctx context.Context, userID uuid.UUID) (model.User, error) {
@@ -806,36 +868,46 @@ func normalizeIdentity(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func normalizeExternalUsername(username, preferredUsername, subject string) string {
-	base := firstNonEmpty(username, preferredUsername, subject)
+// maxDerivedUsername bounds a username derived from the provider, leaving room
+// below the local limit.
+const maxDerivedUsername = 30
+
+// usernameSeparators are the characters besides a-z and 0-9 a derived
+// username keeps; it neither starts nor ends with one.
+const usernameSeparators = "._-"
+
+// deriveOIDCUsername turns preferred_username into a username that follows the
+// local rule: the part before the first @, lowercased, without characters
+// outside a-z, 0-9 and the separators, cut to 30 characters. A result shorter
+// than 3 characters becomes "oidc-" and 8 characters of the identity hash.
+func deriveOIDCUsername(preferredUsername, identityHash string) string {
+	local, _, _ := strings.Cut(strings.TrimSpace(preferredUsername), "@")
 	var b strings.Builder
-	for _, r := range strings.ToLower(base) {
-		switch {
-		case unicode.IsLetter(r), unicode.IsDigit(r):
+	for _, r := range strings.ToLower(local) {
+		if ('a' <= r && r <= 'z') || ('0' <= r && r <= '9') || strings.ContainsRune(usernameSeparators, r) {
 			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune('-')
 		}
 	}
-	value := strings.Trim(b.String(), "-")
+	value := cutUsername(strings.TrimLeft(b.String(), usernameSeparators), maxDerivedUsername)
 	if len(value) < 3 {
-		value = "oidc-" + shortSubjectSuffix(subject)
-	}
-	return trimUsername(value, 30)
-}
-
-func trimUsername(value string, limit int) string {
-	if limit < 3 {
-		limit = 3
-	}
-	if len(value) <= limit {
-		return value
-	}
-	value = strings.Trim(value[:limit], "-")
-	if len(value) < 3 {
-		return value + strings.Repeat("0", 3-len(value))
+		return "oidc-" + identityHash[:8]
 	}
 	return value
+}
+
+// cutUsername cuts an ASCII username to limit and trims trailing separators.
+func cutUsername(value string, limit int) string {
+	if len(value) > limit {
+		value = value[:limit]
+	}
+	return strings.TrimRight(value, usernameSeparators)
+}
+
+// oidcIdentityHash is the hex SHA-256 of provider:subject. Derived usernames and
+// the fallback email use its prefixes, so they differ for every identity.
+func oidcIdentityHash(provider, subject string) string {
+	sum := sha256.Sum256([]byte(provider + ":" + subject))
+	return hex.EncodeToString(sum[:])
 }
 
 func normalizeExternalEmail(email string) string {
@@ -849,35 +921,4 @@ func normalizeExternalEmail(email string) string {
 		return ""
 	}
 	return email
-}
-
-func oidcFallbackEmail(provider, subject string) string {
-	sum := sha256.Sum256([]byte(provider + ":" + subject))
-	return "oidc-" + hex.EncodeToString(sum[:])[:24] + "@oidc.local"
-}
-
-func shortSubjectSuffix(subject string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(subject) {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		}
-		if b.Len() >= 8 {
-			break
-		}
-	}
-	if b.Len() == 0 {
-		return "external"
-	}
-	return b.String()
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

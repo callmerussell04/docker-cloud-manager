@@ -295,6 +295,9 @@ func adminUserFromProto(user *sso.UserData) model.AdminUser {
 		Email:    user.GetEmail(),
 		Role:     user.GetRole(),
 		Status:   user.GetStatus(),
+
+		AuthSource:            user.GetAuthSource(),
+		RoleManagedByProvider: user.GetRoleManagedByProvider(),
 	}
 }
 

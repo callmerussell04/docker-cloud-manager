@@ -2,7 +2,6 @@
 package ssotest
 
 import (
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 )
 
@@ -11,7 +10,6 @@ func NewAuthService(repo service.UserRepository, tokens service.TokenProvider, s
 	return service.NewAuthServiceWithConfig(repo, tokens, sessions, service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled:    true,
 		LocalRegisterEnabled: true,
-		OIDCDefaultRole:      model.RoleUser,
 		OIDCProviderName:     "keycloak",
 	})
 }

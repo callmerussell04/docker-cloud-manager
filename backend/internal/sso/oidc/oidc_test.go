@@ -85,7 +85,6 @@ func TestExchangeCodeReturnsTheIdentityFromTheIDToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "subject-1", identity.Subject)
 	require.Equal(t, "alice", identity.PreferredUsername)
-	require.Equal(t, "alice", identity.Username)
 	require.Equal(t, "alice@example.com", identity.Email)
 	require.True(t, identity.EmailVerified)
 	require.Equal(t, []string{"/dcm-admins"}, identity.Groups)

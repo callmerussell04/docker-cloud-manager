@@ -40,4 +40,9 @@ export const adminUsers = {
   'admin.users.quotaSaveFailed': 'Не удалось сохранить квоту',
   'admin.users.quotaReset': 'Квота сброшена к умолчанию',
   'admin.users.quotaResetFailed': 'Не удалось сбросить квоту',
+  'admin.users.source': 'Источник',
+  'admin.users.sourceLocal': 'Локальный',
+  'admin.users.sourceOidc': 'Keycloak',
+  'admin.users.profileManagedHint': 'Имя пользователя, email и пароль этого пользователя задаёт Keycloak.',
+  'admin.users.roleManagedHint': 'Роль задаёт Keycloak через группы администраторов.',
 } as const;

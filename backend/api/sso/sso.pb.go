@@ -1181,14 +1181,19 @@ func (x *BatchGetUsersRequest) GetUserIds() []string {
 }
 
 type UserData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
-	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
-	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
-	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	UserId   string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	Username string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Email    string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	Role     string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	Status   string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`
+	// Where the account comes from: "local" or "oidc".
+	AuthSource string `protobuf:"bytes,9,opt,name=auth_source,json=authSource,proto3" json:"auth_source,omitempty"`
+	// True for an OIDC user while administrator groups are configured: the
+	// identity provider owns the role and SSO refuses to change it.
+	RoleManagedByProvider bool `protobuf:"varint,10,opt,name=role_managed_by_provider,json=roleManagedByProvider,proto3" json:"role_managed_by_provider,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *UserData) Reset() {
@@ -1254,6 +1259,20 @@ func (x *UserData) GetStatus() string {
 		return x.Status
 	}
 	return ""
+}
+
+func (x *UserData) GetAuthSource() string {
+	if x != nil {
+		return x.AuthSource
+	}
+	return ""
+}
+
+func (x *UserData) GetRoleManagedByProvider() bool {
+	if x != nil {
+		return x.RoleManagedByProvider
+	}
+	return false
 }
 
 type BatchGetUsersResponse struct {
@@ -1634,13 +1653,17 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\rUserIDRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\"1\n" +
 	"\x14BatchGetUsersRequest\x12\x19\n" +
-	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\xbb\x01\n" +
+	"\buser_ids\x18\x01 \x03(\tR\auserIds\"\x95\x02\n" +
 	"\bUserData\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12\x12\n" +
 	"\x04role\x18\x04 \x01(\tR\x04role\x12\x16\n" +
-	"\x06status\x18\b \x01(\tR\x06statusJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fquota_ram_mbR\rquota_disk_mbR\tquota_cpu\"<\n" +
+	"\x06status\x18\b \x01(\tR\x06status\x12\x1f\n" +
+	"\vauth_source\x18\t \x01(\tR\n" +
+	"authSource\x127\n" +
+	"\x18role_managed_by_provider\x18\n" +
+	" \x01(\bR\x15roleManagedByProviderJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\fquota_ram_mbR\rquota_disk_mbR\tquota_cpu\"<\n" +
 	"\x15BatchGetUsersResponse\x12#\n" +
 	"\x05users\x18\x01 \x03(\v2\r.sso.UserDataR\x05users\"<\n" +
 	"\x10ListUsersRequest\x12\x12\n" +

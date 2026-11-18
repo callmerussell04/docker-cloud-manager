@@ -47,7 +47,6 @@ type OIDC struct {
 	ClientSecret string
 	RedirectURL  string
 	AdminGroups  []string
-	DefaultRole  string
 }
 
 // ErrNoSignInMethod refuses a configuration in which nobody can sign in.
@@ -85,7 +84,6 @@ func Load(lookup envconfig.Lookup) (Bootstrap, error) {
 			ClientSecret: envconfig.String(lookup, "SSO_OIDC_CLIENT_SECRET", ""),
 			RedirectURL:  envconfig.NonEmpty(trimmed, "SSO_OIDC_REDIRECT_URL", ""),
 			AdminGroups:  envconfig.CSV(trimmed, "SSO_OIDC_ADMIN_GROUPS", []string{}),
-			DefaultRole:  envconfig.NonEmpty(trimmed, "SSO_OIDC_DEFAULT_ROLE", "user"),
 		},
 	}
 	if err := required.Err(); err != nil {

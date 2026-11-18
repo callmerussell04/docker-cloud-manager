@@ -3,15 +3,18 @@ package dto
 // AdminUserDTO is a user as the admin list and get show it: SSO's identity
 // with Core's effective quota. QuotaCustom is false for the default quota.
 type AdminUserDTO struct {
-	UserID      string  `json:"user_id"`
-	Username    string  `json:"username"`
-	Email       string  `json:"email"`
-	Role        string  `json:"role"`
-	Status      string  `json:"status"`
-	QuotaCPU    float64 `json:"quota_cpu"`
-	QuotaRAMMB  int64   `json:"quota_ram_mb"`
-	QuotaDiskMB int64   `json:"quota_disk_mb"`
-	QuotaCustom bool    `json:"quota_custom"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	AuthSource string `json:"auth_source"`
+	// RoleManagedByProvider is true when the identity provider owns the role.
+	RoleManagedByProvider bool    `json:"role_managed_by_provider"`
+	QuotaCPU              float64 `json:"quota_cpu"`
+	QuotaRAMMB            int64   `json:"quota_ram_mb"`
+	QuotaDiskMB           int64   `json:"quota_disk_mb"`
+	QuotaCustom           bool    `json:"quota_custom"`
 }
 
 type PaginatedAdminUsers struct {
@@ -22,11 +25,14 @@ type PaginatedAdminUsers struct {
 // AdminUserAccountDTO is the user an account change returns. It carries no
 // quota: quotas are read with the user and changed through the quota routes.
 type AdminUserAccountDTO struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Role     string `json:"role"`
-	Status   string `json:"status"`
+	UserID     string `json:"user_id"`
+	Username   string `json:"username"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	Status     string `json:"status"`
+	AuthSource string `json:"auth_source"`
+	// RoleManagedByProvider is true when the identity provider owns the role.
+	RoleManagedByProvider bool `json:"role_managed_by_provider"`
 }
 
 // AdminUserDeactivationDTO is a deactivated user and what happened to their

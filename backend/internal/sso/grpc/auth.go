@@ -149,7 +149,7 @@ func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenReq
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionRequest) (*sso.CheckPermissionResponse, error) {
@@ -168,7 +168,7 @@ func (h *Handler) CheckPermission(ctx context.Context, req *sso.CheckPermissionR
 
 	return &sso.CheckPermissionResponse{
 		Allowed: allowed,
-		User:    userToProto(user),
+		User:    h.userToProto(user),
 	}, nil
 }
 

@@ -309,15 +309,18 @@ func usersWithQuotaToDTO(users []model.AdminUserWithQuota) []dto.AdminUserDTO {
 
 func userWithQuotaToDTO(user model.AdminUserWithQuota) dto.AdminUserDTO {
 	return dto.AdminUserDTO{
-		UserID:      user.User.UserID,
-		Username:    user.User.Username,
-		Email:       user.User.Email,
-		Role:        user.User.Role,
-		Status:      user.User.Status,
-		QuotaCPU:    user.Quota.CPU,
-		QuotaRAMMB:  user.Quota.RAMMB,
-		QuotaDiskMB: user.Quota.DiskMB,
-		QuotaCustom: user.Quota.Custom,
+		UserID:     user.User.UserID,
+		Username:   user.User.Username,
+		Email:      user.User.Email,
+		Role:       user.User.Role,
+		Status:     user.User.Status,
+		AuthSource: user.User.AuthSource,
+
+		RoleManagedByProvider: user.User.RoleManagedByProvider,
+		QuotaCPU:              user.Quota.CPU,
+		QuotaRAMMB:            user.Quota.RAMMB,
+		QuotaDiskMB:           user.Quota.DiskMB,
+		QuotaCustom:           user.Quota.Custom,
 	}
 }
 
@@ -328,6 +331,9 @@ func accountToDTO(user model.AdminUser) dto.AdminUserAccountDTO {
 		Email:    user.Email,
 		Role:     user.Role,
 		Status:   user.Status,
+
+		AuthSource:            user.AuthSource,
+		RoleManagedByProvider: user.RoleManagedByProvider,
 	}
 }
 

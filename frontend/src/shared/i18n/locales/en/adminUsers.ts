@@ -42,4 +42,9 @@ export const adminUsers: Record<keyof typeof ru, string> = {
   'admin.users.quotaSaveFailed': 'Failed to save quota',
   'admin.users.quotaReset': 'Quota reset to default',
   'admin.users.quotaResetFailed': 'Failed to reset quota',
+  'admin.users.source': 'Source',
+  'admin.users.sourceLocal': 'Local',
+  'admin.users.sourceOidc': 'Keycloak',
+  'admin.users.profileManagedHint': 'Keycloak manages this user\'s username, email and password.',
+  'admin.users.roleManagedHint': 'Keycloak manages the role through the administrator groups.',
 };

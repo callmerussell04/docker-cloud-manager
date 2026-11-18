@@ -1162,6 +1162,14 @@ paths:
         cannot be reached the account is still saved as deactivated and the
         answer is `503`; repeating the request is safe. Any other update
         answers without `workloads` and stops nothing.
+
+        For an OIDC user (`auth_source` is `oidc`) the identity provider owns
+        the username, email and password: an update that changes the
+        username or email, or sets a password, answers `400` with
+        `username, email and password of this user are managed by the
+        identity provider`. While `role_managed_by_provider` is true, an
+        update that changes the role answers `400` with `role of this user
+        is managed by the identity provider`. Status changes stay allowed.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/IdParam'
@@ -1996,6 +2004,13 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+        auth_source:
+          type: string
+          enum: [local, oidc]
+          description: Where the account comes from. The identity provider owns an OIDC user's username, email and password, and updates that change them answer 400.
+        role_managed_by_provider:
+          type: boolean
+          description: True for an OIDC user while SSO_OIDC_ADMIN_GROUPS is set. The identity provider then owns the role, and an update that changes it answers 400.
         quota_cpu:
           type: number
           format: double
@@ -2028,6 +2043,13 @@ components:
         status:
           type: string
           enum: [active, deactivated]
+        auth_source:
+          type: string
+          enum: [local, oidc]
+          description: Where the account comes from. The identity provider owns an OIDC user's username, email and password, and updates that change them answer 400.
+        role_managed_by_provider:
+          type: boolean
+          description: True for an OIDC user while SSO_OIDC_ADMIN_GROUPS is set. The identity provider then owns the role, and an update that changes it answers 400.
 
     AdminUserDeactivation:
       description: The deactivated user and what happened to their workloads.

@@ -32,5 +32,7 @@ export const apiError = {
   'apiError.limit.queued_builds': 'Слишком много сборок в очереди',
   'apiError.limit.queued_compose_deployments': 'Слишком много развёртываний Compose в очереди',
   'apiError.limit.staged_source_bytes': 'Слишком много исходных данных ожидает обработки',
+  'apiError.roleManagedByProvider': 'Роль этого пользователя задаёт провайдер удостоверений (Keycloak). Измените её там.',
+  'apiError.profileManagedByProvider': 'Имя пользователя, email и пароль этого пользователя задаёт провайдер удостоверений (Keycloak). Измените их там.',
   'apiError.workloadsNotStopped': 'Учётная запись деактивирована, но её нагрузки остановить не удалось. Повторите попытку.',
 } as const;

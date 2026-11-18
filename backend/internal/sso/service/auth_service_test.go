@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	ssomocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/sso/service"
@@ -285,90 +287,24 @@ func TestAuthServiceEnsureBootstrapAdmin(t *testing.T) {
 	})
 }
 
-func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
-	ctx := context.Background()
-	repo := ssomocks.NewUserRepository(t)
-	tokens := ssomocks.NewTokenProvider(t)
-	provider := ssomocks.NewOIDCProvider(t)
-	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
-		OIDCEnabled:      true,
-		OIDCProviderName: "keycloak",
-		OIDCAdminGroups:  []string{"/dcm-admins"},
-		OIDCDefaultRole:  model.RoleUser,
-	})
-	expectAuthCodeURL(provider)
+// A sign-in returns tokens and the attempt's target, and its attempt is usable once.
+func TestAuthServiceOIDCSignsInOncePerAttempt(t *testing.T) {
+	_, repo, sessions := newUserStore(t)
+	svc, provider, _ := provisioningService(t, repo, sessions)
+	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+	require.NoError(t, err)
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice"}, nil).Once()
 
-	state, binding := startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
-		Subject: "subject-1", PreferredUsername: "Alice.External", Email: "alice@example.com", Groups: []string{"/dcm-admins"},
-	}, nil).Once()
-	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
-	repo.EXPECT().GetUserByUsername(mock.Anything, "alice-external").Return(model.User{}, apperrors.ErrNotFound).Once()
-	repo.EXPECT().GetUserByEmail(mock.Anything, "alice@example.com").Return(model.User{}, apperrors.ErrNotFound).Once()
-	var created model.User
-	repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
-		created = user
-	}).Return(nil).Once()
-	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access", nil).Once()
-
-	result, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	result, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
 	require.NoError(t, err)
 	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
 	require.Equal(t, "access", result.Tokens.AccessToken)
 	require.Len(t, result.Tokens.RefreshToken, 43)
 	require.Equal(t, "/", result.RedirectAfter)
-	require.Equal(t, "alice-external", created.Username)
-	require.Equal(t, "alice@example.com", created.Email)
-	require.Equal(t, model.RoleAdmin, created.Role)
-	require.Equal(t, model.AuthSourceOIDC, created.AuthSource)
-	require.NotNil(t, created.LastLoginAt)
 
-	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	result, err = svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
 	require.NoError(t, err)
 	require.Equal(t, model.OIDCCallbackInvalidAttempt, result.Outcome, "an attempt is usable once")
-
-	existing := created
-	existing.Role = model.RoleAdmin
-	state, binding = startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code2", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
-		Subject: "subject-1", PreferredUsername: "Alice.Updated", Email: "alice.updated@example.com",
-	}, nil).Once()
-	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(existing, nil).Once()
-	repo.EXPECT().GetUserByUsername(mock.Anything, "alice-updated").Return(model.User{}, apperrors.ErrNotFound).Once()
-	repo.EXPECT().GetUserByEmail(mock.Anything, "alice.updated@example.com").Return(model.User{}, apperrors.ErrNotFound).Once()
-	var updated model.User
-	repo.EXPECT().UpdateUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
-		updated = user
-	}).Return(nil).Once()
-	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access2", nil).Once()
-	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code2", state, binding)
-	require.NoError(t, err)
-	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
-	require.Equal(t, existing.ID, updated.ID)
-	require.Equal(t, "alice-updated", updated.Username)
-	require.Equal(t, model.RoleUser, updated.Role)
-
-	state, binding = startOIDCTestLogin(t, svc)
-	provider.EXPECT().ExchangeCode(mock.Anything, "code3", mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(service.OIDCIdentity{
-		Subject: "Subject-XYZ-123", PreferredUsername: "Alice.External", Email: "alice@example.com",
-	}, nil).Once()
-	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "Subject-XYZ-123").Return(model.User{}, apperrors.ErrNotFound).Once()
-	repo.EXPECT().GetUserByUsername(mock.Anything, "alice-external").Return(model.User{ID: uuid.New()}, nil).Once()
-	repo.EXPECT().GetUserByUsername(mock.Anything, "alice-external-subjectx").Return(model.User{}, apperrors.ErrNotFound).Once()
-	repo.EXPECT().GetUserByEmail(mock.Anything, "alice@example.com").Return(model.User{ID: uuid.New()}, nil).Once()
-	repo.EXPECT().GetUserByEmail(mock.Anything, mock.MatchedBy(func(email string) bool {
-		return strings.HasPrefix(email, "oidc-") && strings.HasSuffix(email, "@oidc.local")
-	})).Return(model.User{}, apperrors.ErrNotFound).Once()
-	var collided model.User
-	repo.EXPECT().SaveUser(mock.Anything, mock.AnythingOfType("model.User")).Run(func(ctx context.Context, user model.User) {
-		collided = user
-	}).Return(nil).Once()
-	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access3", nil).Once()
-	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code3", state, binding)
-	require.NoError(t, err)
-	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
-	require.Equal(t, "alice-external-subjectx", collided.Username)
-	require.True(t, strings.HasSuffix(collided.Email, "@oidc.local"))
 }
 
 // Each attempt gets its own PKCE verifier, and the callback redeems the code
@@ -446,15 +382,6 @@ func expectAuthCodeURL(provider *ssomocks.OIDCProvider) {
 			return "https://keycloak.example/authorize?state=" + state + "&nonce=" + nonce + "&verifier=" + verifier
 		}).
 		Maybe()
-}
-
-func startOIDCTestLogin(t *testing.T, svc *service.AuthService) (string, string) {
-	t.Helper()
-	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
-	require.NoError(t, err)
-	require.NotEmpty(t, started.State)
-	require.NotEmpty(t, started.StateBinding)
-	return started.State, started.StateBinding
 }
 
 func userWithPassword(id uuid.UUID, username, password, role, status string) model.User {
@@ -636,9 +563,6 @@ func TestAuthServiceOIDCCallbackOutcomes(t *testing.T) {
 				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(subject, nil).Once()
 				existing := model.User{ID: uuid.New(), Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusDeactivated, AuthSource: model.AuthSourceOIDC}
 				repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(existing, nil).Once()
-				repo.EXPECT().GetUserByUsername(mock.Anything, mock.Anything).Return(existing, nil).Maybe()
-				repo.EXPECT().GetUserByEmail(mock.Anything, mock.Anything).Return(existing, nil).Maybe()
-				repo.EXPECT().UpdateUser(mock.Anything, mock.Anything).Return(nil).Maybe()
 			},
 			outcome:  model.OIDCCallbackAccountDeactivated,
 			redirect: target,
@@ -646,7 +570,8 @@ func TestAuthServiceOIDCCallbackOutcomes(t *testing.T) {
 		"an account that collides with another": {
 			prepare: func(repo *ssomocks.UserRepository, provider *ssomocks.OIDCProvider) {
 				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(subject, nil).Once()
-				repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
+				// The save hits another user: re-reading the binding finds none.
+				repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Twice()
 				repo.EXPECT().GetUserByUsername(mock.Anything, mock.Anything).Return(model.User{}, apperrors.ErrNotFound).Maybe()
 				repo.EXPECT().GetUserByEmail(mock.Anything, mock.Anything).Return(model.User{}, apperrors.ErrNotFound).Maybe()
 				repo.EXPECT().SaveUser(mock.Anything, mock.Anything).Return(apperrors.ErrAlreadyExists).Once()
@@ -718,11 +643,12 @@ func TestAuthServiceOIDCAttemptOutlivesItsServiceAndAWrongBinding(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, model.OIDCCallbackInvalidAttempt, refused.Outcome)
 
-	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com"}, nil).Once()
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com", EmailVerified: true}, nil).Once()
 	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
 	repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(model.User{}, apperrors.ErrNotFound).Once()
 	repo.EXPECT().GetUserByEmail(mock.Anything, "alice@example.com").Return(model.User{}, apperrors.ErrNotFound).Once()
 	repo.EXPECT().SaveUser(mock.Anything, mock.Anything).Return(nil).Once()
+	repo.EXPECT().UpdateUser(mock.Anything, mock.Anything).Return(nil).Once() // last sign-in
 	tokens.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("access", nil).Once()
 	result, err := after.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
 	require.NoError(t, err)
@@ -754,4 +680,474 @@ func TestAuthServiceCleanupDeletesExpiredLoginAttempts(t *testing.T) {
 	result, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
 	require.NoError(t, err)
 	require.Equal(t, model.OIDCCallbackInvalidAttempt, result.Outcome)
+}
+
+// userStore backs the generated repository and session mocks with users kept
+// in memory, so provisioning tests read back what a sign-in stored. writes
+// counts every user save and update.
+type userStore struct {
+	users map[uuid.UUID]model.User
+	// beforeSave runs once before the next SaveUser, as a competing writer would.
+	beforeSave func()
+	writes     int
+}
+
+func newUserStore(t *testing.T, users ...model.User) (*userStore, *ssomocks.UserRepository, *ssomocks.SessionRepository) {
+	t.Helper()
+	store := &userStore{users: map[uuid.UUID]model.User{}}
+	for _, user := range users {
+		store.users[user.ID] = user
+	}
+	find := func(match func(model.User) bool) (model.User, error) {
+		for _, user := range store.users {
+			if match(user) {
+				return user, nil
+			}
+		}
+		return model.User{}, apperrors.ErrNotFound
+	}
+	repo := ssomocks.NewUserRepository(t)
+	repo.EXPECT().GetUserByUsername(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, username string) (model.User, error) {
+		return find(func(u model.User) bool { return u.Username == username })
+	}).Maybe()
+	repo.EXPECT().GetUserByEmail(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, email string) (model.User, error) {
+		return find(func(u model.User) bool { return u.Email == email })
+	}).Maybe()
+	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, provider, subject string) (model.User, error) {
+		return find(func(u model.User) bool { return u.ExternalProvider == provider && u.ExternalSubject == subject })
+	}).Maybe()
+	repo.EXPECT().GetUserByID(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, id uuid.UUID) (model.User, error) {
+		return find(func(u model.User) bool { return u.ID == id })
+	}).Maybe()
+	repo.EXPECT().SaveUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, user model.User) error {
+		if store.beforeSave != nil {
+			competing := store.beforeSave
+			store.beforeSave = nil
+			competing()
+		}
+		return store.put(user)
+	}).Maybe()
+	repo.EXPECT().UpdateUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, user model.User) error {
+		return store.put(user)
+	}).Maybe()
+
+	sessions := ssomocks.NewSessionRepository(t)
+	tx := ssomocks.NewSessionTransaction(t)
+	withUser := func(_ context.Context, id uuid.UUID, _ string, fn func(model.User, service.SessionTransaction) error) error {
+		current, ok := store.users[id]
+		if !ok {
+			return apperrors.ErrNotFound
+		}
+		return fn(current, tx)
+	}
+	sessions.EXPECT().WithUser(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(withUser).Maybe()
+	sessions.EXPECT().WithLastAdminGuard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(withUser).Maybe()
+	tx.EXPECT().CreateSession(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	tx.EXPECT().UpdateUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, user model.User) error {
+		return store.put(user)
+	}).Maybe()
+	tx.EXPECT().RevokeAll(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	tx.EXPECT().CountActiveAdmins(mock.Anything).RunAndReturn(func(context.Context) (int, error) {
+		count := 0
+		for _, user := range store.users {
+			if user.Role == model.RoleAdmin && user.Status == model.StatusActive {
+				count++
+			}
+		}
+		return count, nil
+	}).Maybe()
+	return store, repo, sessions
+}
+
+// put saves user, refusing a username, email or external identity another
+// user holds, as the unique indexes do.
+func (s *userStore) put(user model.User) error {
+	for id, other := range s.users {
+		if id == user.ID {
+			continue
+		}
+		if other.Username == user.Username || other.Email == user.Email ||
+			(user.ExternalSubject != "" && other.ExternalProvider == user.ExternalProvider && other.ExternalSubject == user.ExternalSubject) {
+			return apperrors.ErrAlreadyExists
+		}
+	}
+	s.users[user.ID] = user
+	s.writes++
+	return nil
+}
+
+func (s *userStore) bySubject(t *testing.T, subject string) model.User {
+	t.Helper()
+	for _, user := range s.users {
+		if user.ExternalSubject == subject {
+			return user
+		}
+	}
+	t.Fatalf("no user for subject %q", subject)
+	return model.User{}
+}
+
+func oidcUser(subject, username, role string) model.User {
+	return model.User{
+		ID: uuid.New(), Username: username, Email: username + "@example.com", Role: role, Status: model.StatusActive,
+		AuthSource: model.AuthSourceOIDC, ExternalProvider: "keycloak", ExternalSubject: subject,
+	}
+}
+
+func localUser(username, role string) model.User {
+	return model.User{
+		ID: uuid.New(), Username: username, Email: username + "@example.com", Role: role, Status: model.StatusActive,
+		AuthSource: model.AuthSourceLocal, PasswordHash: "hash",
+	}
+}
+
+// provisioningService is an OIDC-enabled service over store's mocks. Admin
+// groups make roles provider-managed; logs go to the returned buffer.
+func provisioningService(t *testing.T, repo *ssomocks.UserRepository, sessions *ssomocks.SessionRepository, adminGroups ...string) (*service.AuthService, *ssomocks.OIDCProvider, *strings.Builder) {
+	t.Helper()
+	provider := ssomocks.NewOIDCProvider(t)
+	expectAuthCodeURL(provider)
+	tokens := ssomocks.NewTokenProvider(t)
+	tokens.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("access", nil).Maybe()
+	logs := &strings.Builder{}
+	svc := service.NewAuthServiceWithConfig(repo, tokens, sessions, service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: adminGroups,
+		Logger: slog.New(slog.NewTextHandler(logs, nil)),
+	})
+	return svc, provider, logs
+}
+
+// signInAs completes one OIDC sign-in in which the provider vouches for identity.
+func signInAs(t *testing.T, svc *service.AuthService, provider *ssomocks.OIDCProvider, identity service.OIDCIdentity) model.OIDCCallbackResult {
+	t.Helper()
+	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+	require.NoError(t, err)
+	code := "code-" + uuid.NewString()
+	provider.EXPECT().ExchangeCode(mock.Anything, code, mock.Anything, mock.Anything).Return(identity, nil).Once()
+	result, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", code, started.State, started.StateBinding)
+	require.NoError(t, err)
+	return result
+}
+
+// Every derived username passes the rule for local usernames.
+func TestOIDCSignInDerivesAUsernameThatFollowsTheLocalRule(t *testing.T) {
+	for _, tc := range []struct {
+		name, preferred, want string
+	}{
+		{name: "a Latin name keeps its separators", preferred: "Alice.External", want: "alice.external"},
+		{name: "an email-style name keeps the part before the first @", preferred: "Bob@Example.com", want: "bob"},
+		{name: "a non-Latin name falls back to the identity hash", preferred: "Иван", want: "oidc-32c485b7"},
+		{name: "letters outside a-z are dropped", preferred: "José.García", want: "jos.garca"},
+		{name: "a too-short name falls back to the identity hash", preferred: "ab", want: "oidc-32c485b7"},
+		{name: "a missing name falls back to the identity hash", preferred: "", want: "oidc-32c485b7"},
+		{name: "leading non-alphanumerics and trailing separators are trimmed", preferred: "--_Carol__", want: "carol"},
+		{name: "an over-long name is cut to 30 characters", preferred: strings.Repeat("d", 40), want: strings.Repeat("d", 30)},
+		{name: "a separator left at the cut is trimmed", preferred: "abcdefghijklmnopqrstuvwxyz012-xyz", want: "abcdefghijklmnopqrstuvwxyz012"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, repo, sessions := newUserStore(t)
+			svc, provider, _ := provisioningService(t, repo, sessions)
+
+			result := signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: tc.preferred})
+
+			require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+			username := store.bySubject(t, "subject-1").Username
+			require.Equal(t, tc.want, username)
+			require.NoError(t, validation.ResourceName(username))
+		})
+	}
+}
+
+// A taken username resolves to the base with 8 characters of the identity
+// hash, then to "oidc-" and 24 of them; past both, an existing user keeps their
+// username and a new user is an account conflict.
+func TestOIDCSignInResolvesAUsernameCollision(t *testing.T) {
+	identity := service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice"}
+
+	t.Run("the base gets the identity hash", func(t *testing.T) {
+		store, repo, sessions := newUserStore(t, localUser("alice", model.RoleUser))
+		svc, provider, _ := provisioningService(t, repo, sessions)
+		require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+		require.Equal(t, "alice-32c485b7", store.bySubject(t, "subject-1").Username)
+	})
+
+	t.Run("a long base is cut to make room for the hash", func(t *testing.T) {
+		long := strings.Repeat("a", 30)
+		store, repo, sessions := newUserStore(t, localUser(long, model.RoleUser))
+		svc, provider, _ := provisioningService(t, repo, sessions)
+		require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: long}).Outcome)
+		require.Equal(t, strings.Repeat("a", 21)+"-32c485b7", store.bySubject(t, "subject-1").Username)
+	})
+
+	t.Run("then oidc- and the longer hash", func(t *testing.T) {
+		store, repo, sessions := newUserStore(t, localUser("alice", model.RoleUser), localUser("alice-32c485b7", model.RoleUser))
+		svc, provider, _ := provisioningService(t, repo, sessions)
+		require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+		require.Equal(t, "oidc-32c485b7a31284158eec5433", store.bySubject(t, "subject-1").Username)
+	})
+
+	taken := []model.User{localUser("alice", model.RoleUser), localUser("alice-32c485b7", model.RoleUser), localUser("oidc-32c485b7a31284158eec5433", model.RoleUser)}
+
+	t.Run("an existing user keeps their username", func(t *testing.T) {
+		store, repo, sessions := newUserStore(t, append(taken, oidcUser("subject-1", "alice.old", model.RoleUser))...)
+		svc, provider, _ := provisioningService(t, repo, sessions)
+		require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+		require.Equal(t, "alice.old", store.bySubject(t, "subject-1").Username)
+	})
+
+	t.Run("a new user is an account conflict", func(t *testing.T) {
+		_, repo, sessions := newUserStore(t, taken...)
+		svc, provider, _ := provisioningService(t, repo, sessions)
+		require.Equal(t, model.OIDCCallbackAccountConflict, signInAs(t, svc, provider, identity).Outcome)
+	})
+}
+
+// Users of one Keycloak user federation share the leading characters of their
+// subjects; two of them with one name both sign in.
+func TestOIDCSignInSeparatesFederatedUsersWithOneName(t *testing.T) {
+	store, repo, sessions := newUserStore(t, localUser("dave", model.RoleUser))
+	svc, provider, _ := provisioningService(t, repo, sessions)
+	const first, second = "f:6f1c2b9e-4d3a-4c55-9a7e-0b1d2c3e4f50:dave", "f:6f1c2b9e-4d3a-4c55-9a7e-0b1d2c3e4f50:erin"
+
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, service.OIDCIdentity{Subject: first, PreferredUsername: "dave"}).Outcome)
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, service.OIDCIdentity{Subject: second, PreferredUsername: "dave"}).Outcome)
+
+	require.Equal(t, "dave-12858549", store.bySubject(t, first).Username)
+	require.Equal(t, "dave-d713ee80", store.bySubject(t, second).Username)
+}
+
+// An OIDC user whose stored username breaks the local rule gets a valid one at
+// their next sign-in.
+func TestOIDCSignInCorrectsAnExistingUsernameThatBreaksTheRule(t *testing.T) {
+	store, repo, sessions := newUserStore(t, oidcUser("subject-1", "иван", model.RoleUser))
+	svc, provider, _ := provisioningService(t, repo, sessions)
+
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "Иван"}).Outcome)
+
+	require.Equal(t, "oidc-32c485b7", store.bySubject(t, "subject-1").Username)
+}
+
+// The provider's email is stored only when it is verified, valid and no other
+// user holds it; otherwise the user gets the fallback address.
+func TestOIDCSignInStoresOnlyAVerifiedFreeEmail(t *testing.T) {
+	const fallback = "oidc-32c485b7a31284158eec5433@oidc.local"
+	for _, tc := range []struct {
+		name     string
+		email    string
+		verified bool
+		want     string
+	}{
+		{name: "a verified free address is stored", email: "Alice@Example.com", verified: true, want: "alice@example.com"},
+		{name: "an unverified address is not", email: "alice@example.com", verified: false, want: fallback},
+		{name: "an invalid address is not", email: "not an address", verified: true, want: fallback},
+		{name: "an address another user holds is not", email: "taken@example.com", verified: true, want: fallback},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, repo, sessions := newUserStore(t, localUser("taken", model.RoleUser))
+			svc, provider, _ := provisioningService(t, repo, sessions)
+
+			result := signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Email: tc.email, EmailVerified: tc.verified})
+
+			require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+			require.Equal(t, tc.want, store.bySubject(t, "subject-1").Email)
+		})
+	}
+}
+
+// With administrator groups configured, groups and realm roles decide the role
+// at every sign-in.
+func TestOIDCSignInTakesTheRoleFromTheProviderWhenAdminGroupsAreConfigured(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		existing *model.User
+		identity service.OIDCIdentity
+		want     string
+	}{
+		{name: "a new user in an admin group is an admin", identity: service.OIDCIdentity{Groups: []string{"/dcm-admins"}}, want: model.RoleAdmin},
+		{name: "a new user with an admin realm role is an admin", identity: service.OIDCIdentity{RealmRoles: []string{"dcm-admin"}}, want: model.RoleAdmin},
+		{name: "a new user in no admin group is a user", identity: service.OIDCIdentity{Groups: []string{"/staff"}}, want: model.RoleUser},
+		{name: "an admin who left the group is demoted", existing: new(oidcUser("subject-1", "alice", model.RoleAdmin)), want: model.RoleUser},
+		{name: "a user who joined the group is promoted", existing: new(oidcUser("subject-1", "alice", model.RoleUser)), identity: service.OIDCIdentity{Groups: []string{"/dcm-admins"}}, want: model.RoleAdmin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			users := []model.User{localUser("root", model.RoleAdmin)}
+			if tc.existing != nil {
+				users = append(users, *tc.existing)
+			}
+			store, repo, sessions := newUserStore(t, users...)
+			svc, provider, _ := provisioningService(t, repo, sessions, "/dcm-admins", "dcm-admin")
+			tc.identity.Subject, tc.identity.PreferredUsername = "subject-1", "alice"
+
+			require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, tc.identity).Outcome)
+
+			require.Equal(t, tc.want, store.bySubject(t, "subject-1").Role)
+		})
+	}
+}
+
+// With no administrator groups, a new OIDC user is a user and sign-in never
+// changes an existing user's role, so a promotion made in DCM stays.
+func TestOIDCSignInKeepsTheRoleDCMGaveWhenNoAdminGroupsAreConfigured(t *testing.T) {
+	store, repo, sessions := newUserStore(t, localUser("root", model.RoleAdmin))
+	svc, provider, _ := provisioningService(t, repo, sessions)
+	identity := service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Groups: []string{"/dcm-admins"}}
+
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+	alice := store.bySubject(t, "subject-1")
+	require.Equal(t, model.RoleUser, alice.Role)
+
+	_, err := svc.UpdateUser(context.Background(), alice.ID, service.UpdateUserInput{Username: alice.Username, Email: alice.Email, Role: model.RoleAdmin, Status: model.StatusActive})
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+	require.Equal(t, model.RoleAdmin, store.bySubject(t, "subject-1").Role)
+
+	_, err = svc.UpdateUser(context.Background(), alice.ID, service.UpdateUserInput{Username: alice.Username, Email: alice.Email, Role: model.RoleUser, Status: model.StatusActive})
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+	require.Equal(t, model.RoleUser, store.bySubject(t, "subject-1").Role)
+}
+
+// A role synchronization that would demote the last active administrator is
+// skipped with a warning, and the sign-in succeeds.
+func TestOIDCSignInKeepsTheLastActiveAdminAndWarns(t *testing.T) {
+	store, repo, sessions := newUserStore(t, oidcUser("subject-1", "alice", model.RoleAdmin), localUser("bob", model.RoleUser))
+	svc, provider, logs := provisioningService(t, repo, sessions, "/dcm-admins")
+
+	result := signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice"})
+
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+	require.Equal(t, model.RoleAdmin, store.bySubject(t, "subject-1").Role)
+	require.Contains(t, logs.String(), "level=WARN")
+	require.Contains(t, logs.String(), "last active admin")
+}
+
+// A deactivated OIDC user is refused before any write: profile, role and last
+// sign-in stay as they were.
+func TestOIDCSignInRefusesADeactivatedUserBeforeAnyWrite(t *testing.T) {
+	deactivated := oidcUser("subject-1", "alice", model.RoleUser)
+	deactivated.Status = model.StatusDeactivated
+	store, repo, sessions := newUserStore(t, deactivated, localUser("root", model.RoleAdmin))
+	svc, provider, _ := provisioningService(t, repo, sessions, "/dcm-admins")
+
+	result := signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice.new", Email: "new@example.com", EmailVerified: true, Groups: []string{"/dcm-admins"}})
+
+	require.Equal(t, model.OIDCCallbackAccountDeactivated, result.Outcome)
+	require.Zero(t, store.writes)
+	require.Equal(t, deactivated, store.bySubject(t, "subject-1"))
+}
+
+// Last sign-in time is written when a sign-in succeeds, for a new and for an
+// existing user.
+func TestOIDCSignInRecordsTheLastSignInOnSuccess(t *testing.T) {
+	now := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	store, repo, sessions := newUserStore(t)
+	provider := ssomocks.NewOIDCProvider(t)
+	expectAuthCodeURL(provider)
+	tokens := ssomocks.NewTokenProvider(t)
+	tokens.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("access", nil)
+	svc := service.NewAuthServiceWithConfig(repo, tokens, sessions, service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak", Now: func() time.Time { return now },
+	})
+	identity := service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice"}
+
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+	require.Equal(t, now, *store.bySubject(t, "subject-1").LastLoginAt)
+
+	now = now.Add(time.Hour)
+	require.Equal(t, model.OIDCCallbackSuccess, signInAs(t, svc, provider, identity).Outcome)
+	require.Equal(t, now, *store.bySubject(t, "subject-1").LastLoginAt)
+}
+
+// When another sign-in of the same new user saves it first, provisioning reads
+// the identity binding again and signs in the user that sign-in created.
+func TestOIDCSignInJoinsASimultaneousFirstSignIn(t *testing.T) {
+	store, repo, sessions := newUserStore(t)
+	svc, provider, _ := provisioningService(t, repo, sessions)
+	winner := oidcUser("subject-1", "alice", model.RoleUser)
+	store.beforeSave = func() { require.NoError(t, store.put(winner)) }
+
+	result := signInAs(t, svc, provider, service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice"})
+
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+	require.Len(t, store.users, 1)
+	require.Equal(t, winner.ID, store.bySubject(t, "subject-1").ID)
+}
+
+const (
+	roleManagedMessage    = "role of this user is managed by the identity provider"
+	profileManagedMessage = "username, email and password of this user are managed by the identity provider"
+)
+
+// An administrator update of an OIDC user is refused when it changes what the
+// provider owns: username, email and password always, and the role while
+// administrator groups are configured. Status changes stay allowed.
+func TestAuthServiceRefusesAdminEditsOfProviderManagedFields(t *testing.T) {
+	alice := oidcUser("subject-1", "alice", model.RoleUser)
+	unchanged := service.UpdateUserInput{Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive}
+	edit := func(change func(*service.UpdateUserInput)) service.UpdateUserInput {
+		input := unchanged
+		change(&input)
+		return input
+	}
+	for _, tc := range []struct {
+		name        string
+		adminGroups []string
+		input       service.UpdateUserInput
+		refusal     string
+	}{
+		{name: "a changed username", input: edit(func(i *service.UpdateUserInput) { i.Username = "alice2" }), refusal: profileManagedMessage},
+		{name: "a changed email", input: edit(func(i *service.UpdateUserInput) { i.Email = "other@example.com" }), refusal: profileManagedMessage},
+		{name: "a new password", input: edit(func(i *service.UpdateUserInput) { i.Password = "secret123" }), refusal: profileManagedMessage},
+		{name: "a role change under provider-managed roles", adminGroups: []string{"/dcm-admins"}, input: edit(func(i *service.UpdateUserInput) { i.Role = model.RoleAdmin }), refusal: roleManagedMessage},
+		{name: "a role change under DCM-managed roles", input: edit(func(i *service.UpdateUserInput) { i.Role = model.RoleAdmin })},
+		{name: "a status change under provider-managed roles", adminGroups: []string{"/dcm-admins"}, input: edit(func(i *service.UpdateUserInput) { i.Status = model.StatusDeactivated })},
+		{name: "the same values in another case", adminGroups: []string{"/dcm-admins"}, input: edit(func(i *service.UpdateUserInput) { i.Username, i.Email = " Alice", "ALICE@example.com" })},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, repo, sessions := newUserStore(t, alice, localUser("root", model.RoleAdmin))
+			svc, _, _ := provisioningService(t, repo, sessions, tc.adminGroups...)
+
+			_, err := svc.UpdateUser(context.Background(), alice.ID, tc.input)
+
+			if tc.refusal == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, apperrors.ErrBadRequest)
+			require.Equal(t, tc.refusal, apperrors.SafeMessage(err))
+			require.Equal(t, alice, store.users[alice.ID], "a refused update writes nothing")
+		})
+	}
+
+	t.Run("a local user's profile stays editable", func(t *testing.T) {
+		bob := localUser("bob", model.RoleUser)
+		store, repo, sessions := newUserStore(t, bob)
+		svc, _, _ := provisioningService(t, repo, sessions, "/dcm-admins")
+		_, err := svc.UpdateUser(context.Background(), bob.ID, service.UpdateUserInput{Username: "bob2", Email: "bob2@example.com", Password: "secret123", Role: model.RoleAdmin, Status: model.StatusActive})
+		require.NoError(t, err)
+		require.Equal(t, "bob2", store.users[bob.ID].Username)
+	})
+
+	t.Run("deactivation and reactivation still work", func(t *testing.T) {
+		store, repo, sessions := newUserStore(t, alice)
+		svc, _, _ := provisioningService(t, repo, sessions, "/dcm-admins")
+		_, err := svc.DeactivateUser(context.Background(), alice.ID)
+		require.NoError(t, err)
+		require.Equal(t, model.StatusDeactivated, store.users[alice.ID].Status)
+		_, err = svc.ReactivateUser(context.Background(), alice.ID)
+		require.NoError(t, err)
+		require.Equal(t, model.StatusActive, store.users[alice.ID].Status)
+	})
+}
+
+// The provider owns an OIDC user's role only while administrator groups are configured.
+func TestAuthServiceReportsWhetherTheProviderManagesARole(t *testing.T) {
+	_, repo, sessions := newUserStore(t)
+	providerManaged, _, _ := provisioningService(t, repo, sessions, "/dcm-admins")
+	dcmManaged, _, _ := provisioningService(t, repo, sessions)
+	oidc, local := oidcUser("subject-1", "alice", model.RoleUser), localUser("bob", model.RoleUser)
+
+	require.True(t, providerManaged.RoleManagedByProvider(oidc))
+	require.False(t, providerManaged.RoleManagedByProvider(local))
+	require.False(t, dcmManaged.RoleManagedByProvider(oidc))
 }

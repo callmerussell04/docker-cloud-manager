@@ -156,6 +156,11 @@ message UserData {
   // Quotas moved to Core (ADR 0005); do not reuse.
   reserved 5, 6, 7;
   reserved "quota_ram_mb", "quota_disk_mb", "quota_cpu";
+  // Where the account comes from: "local" or "oidc".
+  string auth_source = 9;
+  // True for an OIDC user while administrator groups are configured: the
+  // identity provider owns the role and SSO refuses to change it.
+  bool role_managed_by_provider = 10;
 }
 
 message BatchGetUsersResponse {

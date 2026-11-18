@@ -27,7 +27,7 @@ func (h *Handler) GetUser(ctx context.Context, req *sso.GetUserRequest) (*sso.Us
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersRequest) (*sso.BatchGetUsersResponse, error) {
@@ -55,7 +55,7 @@ func (h *Handler) BatchGetUsers(ctx context.Context, req *sso.BatchGetUsersReque
 		Users: make([]*sso.UserData, 0, len(users)),
 	}
 	for _, user := range users {
-		resp.Users = append(resp.Users, userToProto(user))
+		resp.Users = append(resp.Users, h.userToProto(user))
 	}
 	return resp, nil
 }
@@ -79,7 +79,7 @@ func (h *Handler) ListUsers(ctx context.Context, req *sso.ListUsersRequest) (*ss
 		TotalCount: int32(total),
 	}
 	for _, user := range users {
-		resp.Users = append(resp.Users, userToProto(user))
+		resp.Users = append(resp.Users, h.userToProto(user))
 	}
 	return resp, nil
 }
@@ -103,7 +103,7 @@ func (h *Handler) CreateUser(ctx context.Context, req *sso.CreateUserRequest) (*
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) UpdateUser(ctx context.Context, req *sso.UpdateUserRequest) (*sso.UserData, error) {
@@ -136,7 +136,7 @@ func (h *Handler) UpdateUser(ctx context.Context, req *sso.UpdateUserRequest) (*
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func (h *Handler) DeactivateUser(ctx context.Context, req *sso.UserIDRequest) (*sso.UserData, error) {
@@ -165,7 +165,7 @@ func (h *Handler) setUserActive(ctx context.Context, req *sso.UserIDRequest, act
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return userToProto(user), nil
+	return h.userToProto(user), nil
 }
 
 func pagination(pageRaw, limitRaw int32) (int, int) {

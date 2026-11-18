@@ -191,6 +191,26 @@ func TestSSOUserGRPCAdminRoutes(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
 
+// Every user message says where the account comes from and whether the
+// identity provider owns its role.
+func TestSSOUserGRPCReportsTheIdentitySourceAndRoleOwner(t *testing.T) {
+	auth := ssogrpcmocks.NewMockAuthService(t)
+	oidc := model.User{ID: uuid.New(), Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusActive, AuthSource: model.AuthSourceOIDC}
+	local := model.User{ID: uuid.New(), Username: "bob", Email: "bob@example.com", Role: model.RoleUser, Status: model.StatusActive, AuthSource: model.AuthSourceLocal}
+	auth.EXPECT().ListUsers(mock.Anything, 20, 0).Return([]model.User{oidc, local}, 2, nil)
+	auth.EXPECT().RoleManagedByProvider(oidc).Return(true)
+	auth.EXPECT().RoleManagedByProvider(local).Return(false)
+	client := sso.NewUserAPIClient(newSSOGRPCConn(t, auth, true))
+
+	resp, err := client.ListUsers(context.Background(), &sso.ListUsersRequest{})
+
+	require.NoError(t, err)
+	require.Equal(t, "oidc", resp.Users[0].GetAuthSource())
+	require.True(t, resp.Users[0].GetRoleManagedByProvider())
+	require.Equal(t, "local", resp.Users[1].GetAuthSource())
+	require.False(t, resp.Users[1].GetRoleManagedByProvider())
+}
+
 func TestSSOUserGRPCRejectsAdminRoutesWithoutAdminScope(t *testing.T) {
 	conn := newSSOGRPCConn(t, ssogrpcmocks.NewMockAuthService(t), false)
 	client := sso.NewUserAPIClient(conn)
@@ -201,6 +221,10 @@ func TestSSOUserGRPCRejectsAdminRoutesWithoutAdminScope(t *testing.T) {
 
 func newSSOGRPCConn(t *testing.T, auth ssogrpc.AuthService, injectAdmin bool) *grpc.ClientConn {
 	t.Helper()
+	if m, ok := auth.(*ssogrpcmocks.MockAuthService); ok {
+		// Tests that do not ask about the role owner answer local ownership.
+		m.EXPECT().RoleManagedByProvider(mock.Anything).Return(false).Maybe()
+	}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if injectAdmin {

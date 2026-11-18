@@ -305,7 +305,6 @@ services:
       SSO_OIDC_CLIENT_SECRET: "${SSO_OIDC_CLIENT_SECRET:-}"
       SSO_OIDC_REDIRECT_URL: "${SSO_OIDC_REDIRECT_URL:-}"
       SSO_OIDC_ADMIN_GROUPS: "${SSO_OIDC_ADMIN_GROUPS:-}"
-      SSO_OIDC_DEFAULT_ROLE: "${SSO_OIDC_DEFAULT_ROLE:-user}"
       SSO_GRPC_PORT: "50051"
     extra_hosts:
       - "host.docker.internal:host-gateway"

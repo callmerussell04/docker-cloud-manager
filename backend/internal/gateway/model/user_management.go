@@ -8,6 +8,11 @@ type AdminUser struct {
 	Email    string
 	Role     string
 	Status   string
+	// AuthSource is "local" or "oidc"; the provider owns an OIDC user's
+	// username, email and password.
+	AuthSource string
+	// RoleManagedByProvider is true when the provider owns the role.
+	RoleManagedByProvider bool
 }
 
 type PaginatedAdminUsers struct {

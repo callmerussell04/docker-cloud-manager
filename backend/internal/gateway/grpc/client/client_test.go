@@ -69,7 +69,7 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	list, err := ssoClient.ListUsers(context.Background(), 2, 10)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), list.TotalCount)
-	require.Equal(t, "alice", list.Users[0].Username)
+	require.Equal(t, model.AdminUser{UserID: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", AuthSource: "oidc", RoleManagedByProvider: true}, list.Users[0])
 }
 
 func TestSSOClientAuthHeaderPermissionAndGRPCErrorMapping(t *testing.T) {
@@ -329,7 +329,7 @@ func (s *ssoUserServer) CheckPermission(_ context.Context, req *sso.CheckPermiss
 
 func (s *ssoUserServer) ListUsers(_ context.Context, req *sso.ListUsersRequest) (*sso.ListUsersResponse, error) {
 	return &sso.ListUsersResponse{
-		Users:      []*sso.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active"}},
+		Users:      []*sso.UserData{{UserId: "user-id", Username: "alice", Email: "alice@example.com", Role: "user", Status: "active", AuthSource: "oidc", RoleManagedByProvider: true}},
 		TotalCount: 1,
 	}, nil
 }

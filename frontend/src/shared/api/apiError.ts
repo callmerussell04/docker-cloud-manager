@@ -145,6 +145,14 @@ function getDetailedServerErrorMessage(message?: string, t?: TFunction) {
     return t ? t('apiError.workloadsNotStopped') : message;
   }
 
+  // SSO's fixed refusals of an edit to what the identity provider owns.
+  if (/^role of this user is managed by the identity provider$/i.test(message)) {
+    return t ? t('apiError.roleManagedByProvider') : message;
+  }
+  if (/^username, email and password of this user are managed by the identity provider$/i.test(message)) {
+    return t ? t('apiError.profileManagedByProvider') : message;
+  }
+
   const subdomainInUse = /^subdomain\s+(.+?)\s+is already in use$/i.exec(message);
   if (subdomainInUse) {
     return t ? t('apiError.subdomainInUse', { subdomain: subdomainInUse[1] }) : message;
