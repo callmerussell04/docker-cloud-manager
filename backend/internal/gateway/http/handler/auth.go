@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
@@ -19,11 +22,35 @@ import (
 )
 
 const (
-	oidcStateCookieName   = "oidc_state"
+	// oidcStateCookiePrefix starts the name of each attempt's browser-binding
+	// cookie; the rest is derived from the attempt's state, so two sign-in tabs
+	// keep separate cookies.
+	oidcStateCookiePrefix = "oidc_state_"
 	oidcStateCookiePath   = "/api/v1/auth/oidc/keycloak/callback"
-	oidcStateCookieMaxAge = 600
 	keycloakProvider      = "keycloak"
 )
+
+// Reasons a sign-in through the provider failed, sent to the SPA callback page
+// as login=error&reason=<code>. The set is closed; the SPA shows a generic
+// message for a code it does not know.
+const (
+	loginReasonAccessDenied        = "access_denied"
+	loginReasonProviderError       = "provider_error"
+	loginReasonStateInvalid        = "state_invalid"
+	loginReasonIdentityRejected    = "identity_rejected"
+	loginReasonAccountDeactivated  = "account_deactivated"
+	loginReasonAccountConflict     = "account_conflict"
+	loginReasonProviderUnavailable = "provider_unavailable"
+	loginReasonRateLimited         = "rate_limited"
+	loginReasonLoginFailed         = "login_failed"
+)
+
+var callbackOutcomeReasons = map[model.OIDCCallbackOutcome]string{
+	model.OIDCCallbackInvalidAttempt:     loginReasonStateInvalid,
+	model.OIDCCallbackIdentityRejected:   loginReasonIdentityRejected,
+	model.OIDCCallbackAccountDeactivated: loginReasonAccountDeactivated,
+	model.OIDCCallbackAccountConflict:    loginReasonAccountConflict,
+}
 
 type AuthService interface {
 	Register(ctx context.Context, username, email, password string) (string, error)
@@ -157,74 +184,146 @@ func (h *AuthHandler) Providers(c *gin.Context) {
 	})
 }
 
+// StartKeycloakLogin is a browser navigation: with the provider enabled it
+// answers only redirects, to the provider or, on failure, to the SPA callback
+// page with a reason. With OIDC off SSO answers not found, and so does it.
 func (h *AuthHandler) StartKeycloakLogin(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	redirectAfter, err := h.safeRedirectAfter(c.Query("redirect_after"))
 	if err != nil {
-		httpresponse.Respond(c, http.StatusBadRequest, err)
+		h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonLoginFailed)
 		return
 	}
 
 	result, err := h.service.StartOIDCLogin(c.Request.Context(), keycloakProvider, redirectAfter)
 	if err != nil {
-		h.handleAuthError(c, err)
+		h.failNavigation(c, redirectAfter, err)
 		return
 	}
-	h.setOIDCStateCookie(c, result.StateBinding)
+	cookieName, valid := oidcStateCookieName(result.State)
+	maxAge := int(time.Until(result.ExpiresAt) / time.Second)
+	if !valid || maxAge <= 0 || result.StateBinding == "" || result.AuthURL == "" {
+		h.redirectLoginFailure(c, redirectAfter, loginReasonLoginFailed)
+		return
+	}
+	h.setOIDCStateCookie(c, cookieName, result.StateBinding, maxAge)
 	c.Redirect(http.StatusFound, result.AuthURL)
 }
 
+// CompleteKeycloakCallback is a browser navigation like StartKeycloakLogin. It
+// clears the attempt's binding cookie on every outcome, and sends SSO only a
+// callback that carries a code, a well-formed state and that state's cookie.
 func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	stateBinding, err := c.Cookie(oidcStateCookieName)
-	if c.Query("error") != "" || err != nil {
-		h.clearOIDCStateCookie(c)
-		// SSO is not asked to complete this callback, so ask it whether the
-		// provider is enabled and available before refusing the attempt.
-		if !h.requireKeycloakAvailable(c) {
-			return
+	state := c.Query("state")
+	cookieName, stateValid := oidcStateCookieName(state)
+	var stateBinding string
+	if stateValid {
+		stateBinding, _ = c.Cookie(cookieName)
+		h.clearOIDCStateCookie(c, cookieName)
+	}
+	if providerError := c.Query("error"); providerError != "" {
+		reason := loginReasonProviderError
+		if providerError == "access_denied" {
+			reason = loginReasonAccessDenied
 		}
-		httpresponse.Respond(c, http.StatusUnauthorized, apperrors.ErrInvalidCredentials)
+		h.refuseCallback(c, reason)
+		return
+	}
+	code := c.Query("code")
+	if !stateValid || stateBinding == "" || code == "" {
+		h.refuseCallback(c, loginReasonStateInvalid)
 		return
 	}
 
-	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), keycloakProvider, c.Query("code"), c.Query("state"), stateBinding)
+	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), keycloakProvider, code, state, stateBinding)
 	if err != nil {
-		h.clearOIDCStateCookie(c)
-		h.handleAuthError(c, err)
+		h.failNavigation(c, h.defaultRedirectAfter(), err)
 		return
 	}
-
-	h.clearOIDCStateCookie(c)
-	if !h.setRefreshTokenCookie(c, result.Tokens) {
+	target := h.defaultRedirectAfter()
+	if result.RedirectAfter != "" {
+		if safe, err := h.safeRedirectAfter(result.RedirectAfter); err == nil {
+			target = safe
+		}
+	}
+	if result.Outcome != model.OIDCCallbackSuccess {
+		reason, known := callbackOutcomeReasons[result.Outcome]
+		if !known {
+			reason = loginReasonLoginFailed
+		}
+		h.redirectLoginFailure(c, target, reason)
 		return
 	}
-	redirectAfter, err := h.safeRedirectAfter(result.RedirectAfter)
-	if err != nil {
-		redirectAfter = h.defaultRedirectAfter()
+	if !h.writeRefreshTokenCookie(c, result.Tokens) {
+		h.redirectLoginFailure(c, target, loginReasonLoginFailed)
+		return
 	}
-	c.Redirect(http.StatusFound, redirectWithLoginSuccess(redirectAfter))
+	c.Redirect(http.StatusFound, redirectWithLoginResult(target, ""))
 }
 
-// requireKeycloakAvailable answers not found when the Keycloak provider is not
-// enabled and unavailable while SSO has not reached it.
-func (h *AuthHandler) requireKeycloakAvailable(c *gin.Context) bool {
+// RejectRateLimitedNavigation answers a sign-in navigation over its rate limit
+// with a redirect the SPA can show, instead of a JSON 429.
+func (h *AuthHandler) RejectRateLimitedNavigation(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if cookieName, valid := oidcStateCookieName(c.Query("state")); valid {
+		h.clearOIDCStateCookie(c, cookieName)
+	}
+	h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonRateLimited)
+}
+
+// refuseCallback refuses a callback without sending it to SSO's callback. It
+// still asks SSO whether the provider is enabled, so with OIDC off the route
+// is not found on every path.
+func (h *AuthHandler) refuseCallback(c *gin.Context, reason string) {
 	cfg, err := h.service.GetAuthConfig(c.Request.Context())
 	if err != nil {
-		h.handleAuthError(c, err)
-		return false
+		h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonProviderUnavailable)
+		return
 	}
 	for _, provider := range cfg.OIDCProviders {
-		if provider.Name != keycloakProvider {
-			continue
+		if provider.Name == keycloakProvider {
+			h.redirectLoginFailure(c, h.defaultRedirectAfter(), reason)
+			return
 		}
-		if !provider.Available {
-			httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
-			return false
-		}
-		return true
 	}
 	httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
-	return false
+}
+
+// failNavigation answers an SSO error on a sign-in navigation: not found with
+// OIDC off, otherwise a redirect to target with the error's reason.
+func (h *AuthHandler) failNavigation(c *gin.Context, target string, err error) {
+	if errors.Is(err, apperrors.ErrNotFound) {
+		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
+		return
+	}
+	h.redirectLoginFailure(c, target, loginReasonForError(err))
+}
+
+func (h *AuthHandler) redirectLoginFailure(c *gin.Context, target, reason string) {
+	c.Redirect(http.StatusFound, redirectWithLoginResult(target, reason))
+}
+
+// loginReasonForError names an SSO failure: the provider or SSO being
+// unreachable or slow is provider_unavailable, anything else login_failed.
+func loginReasonForError(err error) string {
+	if errors.Is(err, apperrors.ErrUnavailable) || errors.Is(err, apperrors.ErrTimeout) {
+		return loginReasonProviderUnavailable
+	}
+	return loginReasonLoginFailed
+}
+
+// oidcStateCookieName derives an attempt's cookie name from its state, which
+// must be 43 base64url characters (32 random bytes).
+func oidcStateCookieName(state string) (string, bool) {
+	if len(state) != 43 {
+		return "", false
+	}
+	if decoded, err := base64.RawURLEncoding.Strict().DecodeString(state); err != nil || len(decoded) != 32 {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte(state))
+	return oidcStateCookiePrefix + hex.EncodeToString(sum[:])[:16], true
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
@@ -269,9 +368,18 @@ func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
 }
 
 func (h *AuthHandler) setRefreshTokenCookie(c *gin.Context, tokens model.Tokens) bool {
+	if !h.writeRefreshTokenCookie(c, tokens) {
+		httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
+		return false
+	}
+	return true
+}
+
+// writeRefreshTokenCookie sets the refresh cookie and reports false, writing
+// nothing, when SSO answered tokens Gateway cannot use.
+func (h *AuthHandler) writeRefreshTokenCookie(c *gin.Context, tokens model.Tokens) bool {
 	seconds := int(time.Until(tokens.RefreshExpiresAt) / time.Second)
 	if seconds <= 0 || tokens.RefreshToken == "" || tokens.AccessToken == "" {
-		httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
 		return false
 	}
 	cfg := h.cookieConfig
@@ -286,14 +394,14 @@ func (h *AuthHandler) clearRefreshTokenCookie(c *gin.Context) {
 	c.SetCookie(cfg.Name, "", -1, cfg.Path, cfg.Domain, cfg.Secure, cfg.HTTPOnly)
 }
 
-func (h *AuthHandler) setOIDCStateCookie(c *gin.Context, stateBinding string) {
+func (h *AuthHandler) setOIDCStateCookie(c *gin.Context, name, stateBinding string, maxAge int) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(oidcStateCookieName, stateBinding, oidcStateCookieMaxAge, oidcStateCookiePath, h.cookieConfig.Domain, h.cookieConfig.Secure, true)
+	c.SetCookie(name, stateBinding, maxAge, oidcStateCookiePath, h.cookieConfig.Domain, h.cookieConfig.Secure, true)
 }
 
-func (h *AuthHandler) clearOIDCStateCookie(c *gin.Context) {
+func (h *AuthHandler) clearOIDCStateCookie(c *gin.Context, name string) {
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(oidcStateCookieName, "", -1, oidcStateCookiePath, h.cookieConfig.Domain, h.cookieConfig.Secure, true)
+	c.SetCookie(name, "", -1, oidcStateCookiePath, h.cookieConfig.Domain, h.cookieConfig.Secure, true)
 }
 
 func (h *AuthHandler) safeRedirectAfter(rawRedirect string) (string, error) {
@@ -346,13 +454,20 @@ func (h *AuthHandler) allowedOrigins() map[string]struct{} {
 	return allowed
 }
 
-func redirectWithLoginSuccess(rawRedirect string) string {
+// redirectWithLoginResult adds login=success to a validated target, or
+// login=error and reason when reason is set.
+func redirectWithLoginResult(rawRedirect, reason string) string {
 	parsed, err := url.Parse(rawRedirect)
 	if err != nil {
-		return "/auth/callback?login=success"
+		parsed = &url.URL{Path: "/auth/callback"}
 	}
 	query := parsed.Query()
-	query.Set("login", "success")
+	if reason == "" {
+		query.Set("login", "success")
+	} else {
+		query.Set("login", "error")
+		query.Set("reason", reason)
+	}
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }

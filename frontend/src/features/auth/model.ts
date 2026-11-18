@@ -1,3 +1,5 @@
+import type { TranslationKey } from '@/shared/i18n';
+
 export interface AuthResponse {
   access_token?: string;
   user_id?: string;
@@ -27,4 +29,33 @@ export function providerAvailability(config: AuthConfig | undefined, name: strin
 /** Enabled providers SSO has not reached. */
 export function unreachableProviders(config: AuthConfig | undefined): string[] {
   return config?.oidc_providers.filter((provider) => !provider.available).map((provider) => provider.name) ?? [];
+}
+
+/**
+ * Messages for the reasons Gateway gives when a sign-in through the provider
+ * fails (`login=error&reason=<code>` on the callback page). A reason not listed
+ * here, including `login_failed`, shows the generic failure message.
+ */
+export const loginFailureMessages = {
+  access_denied: 'auth.callback.reason.accessDenied',
+  provider_error: 'auth.callback.reason.providerError',
+  state_invalid: 'auth.callback.reason.stateInvalid',
+  identity_rejected: 'auth.callback.reason.identityRejected',
+  account_deactivated: 'auth.callback.reason.accountDeactivated',
+  account_conflict: 'auth.callback.reason.accountConflict',
+  provider_unavailable: 'auth.callback.reason.providerUnavailable',
+  rate_limited: 'auth.callback.reason.rateLimited',
+} as const satisfies Record<string, TranslationKey>;
+
+export type CallbackResult = { ok: true } | { ok: false; message: TranslationKey };
+
+/** Reads the callback page's query: only `login=success` signs in; anything else is a failure with a message. */
+export function callbackResult(search: string): CallbackResult {
+  const params = new URLSearchParams(search);
+  if (params.get('login') === 'success') return { ok: true };
+  const reason = params.get('reason') ?? '';
+  const message = Object.hasOwn(loginFailureMessages, reason)
+    ? loginFailureMessages[reason as keyof typeof loginFailureMessages]
+    : 'auth.callback.failed';
+  return { ok: false, message };
 }

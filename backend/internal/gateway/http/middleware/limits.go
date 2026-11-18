@@ -56,7 +56,16 @@ func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{buckets: make(map[string]rateBucket)}
 }
 
+// RateLimit answers a request over the limit with a JSON 429.
 func RateLimit(limiter *RateLimiter, cfg RateLimitConfig, bucketName string) gin.HandlerFunc {
+	return RateLimitWith(limiter, cfg, bucketName, func(c *gin.Context) {
+		httpresponse.Respond(c, http.StatusTooManyRequests, apperrors.New(apperrors.ErrResourceExhausted, "rate limit exceeded"))
+	})
+}
+
+// RateLimitWith answers a request over the limit with reject, for routes a
+// browser navigates to and that must not answer JSON.
+func RateLimitWith(limiter *RateLimiter, cfg RateLimitConfig, bucketName string, reject gin.HandlerFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if limiter == nil || cfg.Requests <= 0 || cfg.Window <= 0 {
 			c.Next()
@@ -65,7 +74,8 @@ func RateLimit(limiter *RateLimiter, cfg RateLimitConfig, bucketName string) gin
 
 		key := bucketName + ":" + c.ClientIP()
 		if !limiter.Allow(key, cfg.Requests, cfg.Window) {
-			httpresponse.Respond(c, http.StatusTooManyRequests, apperrors.New(apperrors.ErrResourceExhausted, "rate limit exceeded"))
+			reject(c)
+			c.Abort()
 			return
 		}
 		c.Next()

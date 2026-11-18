@@ -20,6 +20,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/middleware"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/permissions"
 	gatewayhandlermocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/gateway/http/handler"
 	gatewaymiddlewaremocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/gateway/http/middleware"
@@ -302,6 +303,48 @@ func TestRouterRejectsInvalidTrustedProxies(t *testing.T) {
 			require.Contains(t, err.Error(), "GATEWAY_TRUSTED_PROXIES")
 			require.NotContains(t, err.Error(), "proxy-secret.invalid")
 		})
+	}
+}
+
+// Sign-in navigation, password attempts and session calls each have their own
+// bucket under the same auth limit. A navigation over its limit is redirected
+// to the SPA callback page; the other routes keep the JSON 429.
+func TestRouterSplitsAuthRateLimitsByPurpose(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	deps := newRouterDeps(t)
+	cfg := gatewayhttp.DefaultConfig()
+	cfg.AuthRateLimit = middleware.RateLimitConfig{Requests: 1, Window: time.Minute}
+	router, err := gatewayhttp.NewRouter(cfg, deps.routerDeps())
+	require.NoError(t, err)
+	deps.auth.EXPECT().Login(mock.Anything, "alice", "secret123").Return(model.Tokens{}, apperrors.ErrInvalidCredentials).Once()
+	deps.auth.EXPECT().GetAuthConfig(mock.Anything).Return(model.AuthConfig{}, nil).Once()
+	deps.auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/auth/callback").Return(model.OIDCLoginStartResult{}, apperrors.ErrUnavailable).Once()
+	login := map[string]string{"Content-Type": "application/json", "Origin": "http://localhost:5173"}
+	const credentials = `{"username":"alice","password":"secret123"}`
+
+	// The first call in each bucket passes, whatever the other buckets saw.
+	require.Equal(t, http.StatusUnauthorized, routerRequest(router, http.MethodPost, "/api/v1/auth/login", credentials, login).Code)
+	require.Equal(t, http.StatusOK, routerRequest(router, http.MethodGet, "/api/v1/auth/providers", "", nil).Code)
+	resp := routerRequest(router, http.MethodGet, "/api/v1/auth/oidc/keycloak/start", "", nil)
+	require.Equal(t, http.StatusFound, resp.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=provider_unavailable", resp.Header().Get("Location"))
+
+	for _, call := range []struct{ method, path, body string }{
+		{http.MethodPost, "/api/v1/auth/login", credentials},
+		{http.MethodPost, "/api/v1/auth/register", `{"username":"bob","email":"bob@example.com","password":"secret123"}`},
+		{http.MethodGet, "/api/v1/auth/providers", ""},
+		{http.MethodPost, "/api/v1/auth/refresh", ""},
+		{http.MethodPost, "/api/v1/auth/logout", ""},
+	} {
+		resp := routerRequest(router, call.method, call.path, call.body, login)
+		require.Equal(t, http.StatusTooManyRequests, resp.Code, call.path)
+		require.Contains(t, resp.Header().Get("Content-Type"), "json", call.path)
+	}
+	for _, path := range []string{"/api/v1/auth/oidc/keycloak/start", "/api/v1/auth/oidc/keycloak/callback?code=code&state=state"} {
+		resp := routerRequest(router, http.MethodGet, path, "", nil)
+		require.Equal(t, http.StatusFound, resp.Code, path)
+		require.Equal(t, "/auth/callback?login=error&reason=rate_limited", resp.Header().Get("Location"), path)
+		require.Equal(t, "no-store", resp.Header().Get("Cache-Control"), path)
 	}
 }
 

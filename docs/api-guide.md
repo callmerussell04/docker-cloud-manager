@@ -76,7 +76,9 @@ curl -sS -b cookies.txt -c cookies.txt \
 }
 ```
 
-При выключенном OIDC список пуст, а `/api/v1/auth/oidc/keycloak/start` и `/callback` отвечают `404`. `available: false` означает, что поставщик включён, но SSO ещё не связался с ним; тогда эти маршруты отвечают `503`, а локальный вход работает.
+При выключенном OIDC список пуст, а `/api/v1/auth/oidc/keycloak/start` и `/callback` отвечают `404`. `available: false` означает, что поставщик включён, но SSO ещё не связался с ним; локальный вход при этом работает.
+
+При включённом OIDC `/start` и `/callback` — переходы браузера, и они не отвечают JSON: любая ошибка перенаправляет на `/auth/callback?login=error&reason=<код>` (коды перечислены в [описании входа](authentication.md#безопасность-потока-oidc)), успех — на `/auth/callback?login=success`. Попытка входа живёт 30 минут и используется один раз. Ограничение частоты для `/auth/login` и `/auth/register`, для `/auth/refresh`, `/auth/logout` и `/auth/providers` и для `/start` и `/callback` считается отдельно; превышение на `/start` и `/callback` перенаправляет с кодом `rate_limited`, остальные маршруты отвечают `429`.
 
 ## Ошибки
 

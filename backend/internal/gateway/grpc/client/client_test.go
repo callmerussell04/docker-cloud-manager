@@ -47,10 +47,13 @@ func TestSSOClientMapsAuthOIDCAndUserManagementRPCs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://idp/auth", start.AuthURL)
 	require.Equal(t, "binding", start.StateBinding)
+	require.Equal(t, "state", start.State)
+	require.Equal(t, time.Unix(2000000000, 0), start.ExpiresAt)
 
 	callback, err := ssoClient.CompleteOIDCCallback(context.Background(), "keycloak", "code", "state", "binding")
 	require.NoError(t, err)
 	require.Equal(t, "http://frontend/auth/callback", callback.RedirectAfter)
+	require.Equal(t, model.OIDCCallbackSuccess, callback.Outcome)
 	require.Equal(t, "oidc-access", callback.Tokens.AccessToken)
 
 	user, err := ssoClient.VerifyAccessToken(context.Background(), "Bearer access")
@@ -293,11 +296,11 @@ func (s *ssoAuthServer) GetAuthConfig(context.Context, *sso.GetAuthConfigRequest
 }
 
 func (s *ssoAuthServer) StartOIDCLogin(context.Context, *sso.StartOIDCLoginRequest) (*sso.StartOIDCLoginResponse, error) {
-	return &sso.StartOIDCLoginResponse{AuthUrl: "https://idp/auth", StateBinding: "binding"}, nil
+	return &sso.StartOIDCLoginResponse{AuthUrl: "https://idp/auth", StateBinding: "binding", State: "state", ExpiresAt: 2000000000}, nil
 }
 
 func (s *ssoAuthServer) CompleteOIDCCallback(context.Context, *sso.CompleteOIDCCallbackRequest) (*sso.CompleteOIDCCallbackResponse, error) {
-	return &sso.CompleteOIDCCallbackResponse{AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback"}, nil
+	return &sso.CompleteOIDCCallbackResponse{Outcome: sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS, AccessToken: "oidc-access", RefreshToken: "oidc-refresh", RedirectAfter: "http://frontend/auth/callback"}, nil
 }
 
 type ssoUserServer struct {

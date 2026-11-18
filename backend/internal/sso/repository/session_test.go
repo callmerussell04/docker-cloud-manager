@@ -3,7 +3,7 @@ package repository_test
 import (
 	"context"
 	"errors"
-	"net/url"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -144,7 +144,7 @@ func TestSessionExpiryBoundariesAndAbsoluteCap(t *testing.T) {
 	db := dbtest.OpenSSOPostgres(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	beginning := now
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), nil, service.Config{
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true, Now: func() time.Time { return now },
 	})
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
@@ -236,7 +236,7 @@ func TestRefreshFailuresPreserveRollbackAndHandleUncertainCommit(t *testing.T) {
 			var failing *service.AuthService
 			switch kind {
 			case "random":
-				failing = service.NewAuthServiceWithConfig(users, tokens, sessions, nil, service.Config{Random: strings.NewReader("")})
+				failing = service.NewAuthServiceWithConfig(users, tokens, sessions, service.OIDCDeps{}, service.Config{Random: strings.NewReader("")})
 			case "signing":
 				signer := ssomocks.NewTokenProvider(t)
 				signer.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("", errors.New("signing failed"))
@@ -398,17 +398,16 @@ func TestOIDCLoginsUseIndependentDurableSessions(t *testing.T) {
 	provider.EXPECT().Available().Return(true).Maybe()
 	provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(state, nonce, verifier string) string { return "https://idp.example/auth?state=" + state })
 	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject", Username: "external-user", Email: "external@example.com"}, nil)
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{OIDCEnabled: true})
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{OIDCEnabled: true})
 	login := func() model.Tokens {
 		t.Helper()
-		authURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/auth/callback")
+		started, err := svc.StartOIDCLogin(ctx, "keycloak", "/auth/callback")
 		require.NoError(t, err)
-		parsed, err := url.Parse(authURL)
+		result, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", started.State, started.StateBinding)
 		require.NoError(t, err)
-		tokens, redirect, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", parsed.Query().Get("state"), binding)
-		require.NoError(t, err)
-		require.Equal(t, "/auth/callback", redirect)
-		return tokens
+		require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+		require.Equal(t, "/auth/callback", result.RedirectAfter)
+		return result.Tokens
 	}
 	first := login()
 	second := login()
@@ -459,7 +458,7 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 			provider := ssomocks.NewOIDCProvider(t)
 			provider.EXPECT().Available().Return(true).Maybe()
 			provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(state, nonce, verifier string) string { return "https://idp.example/auth?state=" + state }).Maybe()
-			svc := service.NewAuthServiceWithConfig(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{
+			svc := service.NewAuthServiceWithConfig(users, jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
 				OIDCEnabled: true, OIDCProviderName: "keycloak", OIDCAdminGroups: []string{"dcm-admins"},
 			})
 
@@ -474,14 +473,22 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{
 					Subject: second.ExternalSubject, Username: second.Username, Email: second.Email,
 				}, nil)
-				authURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+				started, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 				require.NoError(t, err)
-				parsed, err := url.Parse(authURL)
-				require.NoError(t, err)
-				state := parsed.Query().Get("state")
 				tt.second = func(ctx context.Context, svc *service.AuthService, _ model.User) error {
-					_, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
-					return err
+					result, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", started.State, started.StateBinding)
+					if err != nil {
+						return err
+					}
+					switch result.Outcome {
+					case model.OIDCCallbackSuccess:
+						return nil
+					case model.OIDCCallbackAccountConflict:
+						// A refused sign-in is an outcome, not an error.
+						return fmt.Errorf("oidc sign-in refused: %w", apperrors.ErrConflict)
+					default:
+						return fmt.Errorf("oidc sign-in ended with %s", result.Outcome)
+					}
 				}
 			}
 			require.NoError(t, users.SaveUser(ctx, first))
@@ -511,7 +518,9 @@ func TestConcurrentAdminRemovalsKeepOneActiveAdmin(t *testing.T) {
 			}
 			require.Len(t, refused, 1, "exactly one change must succeed")
 			require.ErrorIs(t, refused[0], apperrors.ErrConflict)
-			require.EqualError(t, refused[0], "cannot deactivate or demote the last active admin")
+			if !tt.secondIsOIDC {
+				require.EqualError(t, refused[0], "cannot deactivate or demote the last active admin")
+			}
 			stored, err := svc.GetUsers(ctx, []uuid.UUID{first.ID, second.ID})
 			require.NoError(t, err)
 			active := 0

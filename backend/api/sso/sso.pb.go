@@ -21,6 +21,67 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// OIDCCallbackOutcome is how a callback ended when it ended as expected.
+// Provider or SSO unavailability and timeouts are gRPC errors instead.
+type OIDCCallbackOutcome int32
+
+const (
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_UNSPECIFIED OIDCCallbackOutcome = 0
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS     OIDCCallbackOutcome = 1
+	// The attempt is unknown, expired, already used, or bound to another browser.
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT     OIDCCallbackOutcome = 2
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED   OIDCCallbackOutcome = 3
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED OIDCCallbackOutcome = 4
+	OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT    OIDCCallbackOutcome = 5
+)
+
+// Enum value maps for OIDCCallbackOutcome.
+var (
+	OIDCCallbackOutcome_name = map[int32]string{
+		0: "OIDC_CALLBACK_OUTCOME_UNSPECIFIED",
+		1: "OIDC_CALLBACK_OUTCOME_SUCCESS",
+		2: "OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT",
+		3: "OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED",
+		4: "OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED",
+		5: "OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT",
+	}
+	OIDCCallbackOutcome_value = map[string]int32{
+		"OIDC_CALLBACK_OUTCOME_UNSPECIFIED":         0,
+		"OIDC_CALLBACK_OUTCOME_SUCCESS":             1,
+		"OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT":     2,
+		"OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED":   3,
+		"OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED": 4,
+		"OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT":    5,
+	}
+)
+
+func (x OIDCCallbackOutcome) Enum() *OIDCCallbackOutcome {
+	p := new(OIDCCallbackOutcome)
+	*p = x
+	return p
+}
+
+func (x OIDCCallbackOutcome) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (OIDCCallbackOutcome) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_sso_sso_proto_enumTypes[0].Descriptor()
+}
+
+func (OIDCCallbackOutcome) Type() protoreflect.EnumType {
+	return &file_api_sso_sso_proto_enumTypes[0]
+}
+
+func (x OIDCCallbackOutcome) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use OIDCCallbackOutcome.Descriptor instead.
+func (OIDCCallbackOutcome) EnumDescriptor() ([]byte, []int) {
+	return file_api_sso_sso_proto_rawDescGZIP(), []int{0}
+}
+
 type RegisterRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
@@ -623,9 +684,14 @@ func (x *StartOIDCLoginRequest) GetRedirectAfter() string {
 }
 
 type StartOIDCLoginResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AuthUrl       string                 `protobuf:"bytes,1,opt,name=auth_url,json=authUrl,proto3" json:"auth_url,omitempty"`
-	StateBinding  string                 `protobuf:"bytes,2,opt,name=state_binding,json=stateBinding,proto3" json:"state_binding,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	AuthUrl string                 `protobuf:"bytes,1,opt,name=auth_url,json=authUrl,proto3" json:"auth_url,omitempty"`
+	// state_binding is the secret Gateway keeps in the attempt's browser cookie.
+	StateBinding string `protobuf:"bytes,2,opt,name=state_binding,json=stateBinding,proto3" json:"state_binding,omitempty"`
+	// state names the attempt; Gateway derives the cookie name from it.
+	State string `protobuf:"bytes,3,opt,name=state,proto3" json:"state,omitempty"`
+	// expires_at (Unix seconds) is when the attempt expires; Gateway sets the cookie lifetime from it.
+	ExpiresAt     int64 `protobuf:"varint,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -672,6 +738,20 @@ func (x *StartOIDCLoginResponse) GetStateBinding() string {
 		return x.StateBinding
 	}
 	return ""
+}
+
+func (x *StartOIDCLoginResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *StartOIDCLoginResponse) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
 }
 
 type CompleteOIDCCallbackRequest struct {
@@ -743,11 +823,14 @@ func (x *CompleteOIDCCallbackRequest) GetStateBinding() string {
 }
 
 type CompleteOIDCCallbackResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	AccessToken      string                 `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
-	RefreshToken     string                 `protobuf:"bytes,2,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
-	RedirectAfter    string                 `protobuf:"bytes,3,opt,name=redirect_after,json=redirectAfter,proto3" json:"redirect_after,omitempty"`
-	RefreshExpiresAt int64                  `protobuf:"varint,4,opt,name=refresh_expires_at,json=refreshExpiresAt,proto3" json:"refresh_expires_at,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Tokens are set only with OIDC_CALLBACK_OUTCOME_SUCCESS.
+	AccessToken  string `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
+	RefreshToken string `protobuf:"bytes,2,opt,name=refresh_token,json=refreshToken,proto3" json:"refresh_token,omitempty"`
+	// redirect_after is the attempt's target once the attempt was consumed, and empty before.
+	RedirectAfter    string              `protobuf:"bytes,3,opt,name=redirect_after,json=redirectAfter,proto3" json:"redirect_after,omitempty"`
+	RefreshExpiresAt int64               `protobuf:"varint,4,opt,name=refresh_expires_at,json=refreshExpiresAt,proto3" json:"refresh_expires_at,omitempty"`
+	Outcome          OIDCCallbackOutcome `protobuf:"varint,5,opt,name=outcome,proto3,enum=sso.OIDCCallbackOutcome" json:"outcome,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -808,6 +891,13 @@ func (x *CompleteOIDCCallbackResponse) GetRefreshExpiresAt() int64 {
 		return x.RefreshExpiresAt
 	}
 	return 0
+}
+
+func (x *CompleteOIDCCallbackResponse) GetOutcome() OIDCCallbackOutcome {
+	if x != nil {
+		return x.Outcome
+	}
+	return OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_UNSPECIFIED
 }
 
 type VerifyTokenRequest struct {
@@ -1511,20 +1601,24 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\x0eoidc_providers\x18\x03 \x03(\v2\x15.sso.OIDCProviderDataR\roidcProviders\"Z\n" +
 	"\x15StartOIDCLoginRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12%\n" +
-	"\x0eredirect_after\x18\x02 \x01(\tR\rredirectAfter\"X\n" +
+	"\x0eredirect_after\x18\x02 \x01(\tR\rredirectAfter\"\x8d\x01\n" +
 	"\x16StartOIDCLoginResponse\x12\x19\n" +
 	"\bauth_url\x18\x01 \x01(\tR\aauthUrl\x12#\n" +
-	"\rstate_binding\x18\x02 \x01(\tR\fstateBinding\"\x88\x01\n" +
+	"\rstate_binding\x18\x02 \x01(\tR\fstateBinding\x12\x14\n" +
+	"\x05state\x18\x03 \x01(\tR\x05state\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x04 \x01(\x03R\texpiresAt\"\x88\x01\n" +
 	"\x1bCompleteOIDCCallbackRequest\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x12\n" +
 	"\x04code\x18\x02 \x01(\tR\x04code\x12\x14\n" +
 	"\x05state\x18\x03 \x01(\tR\x05state\x12#\n" +
-	"\rstate_binding\x18\x04 \x01(\tR\fstateBinding\"\xbb\x01\n" +
+	"\rstate_binding\x18\x04 \x01(\tR\fstateBinding\"\xef\x01\n" +
 	"\x1cCompleteOIDCCallbackResponse\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
 	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\x12%\n" +
 	"\x0eredirect_after\x18\x03 \x01(\tR\rredirectAfter\x12,\n" +
-	"\x12refresh_expires_at\x18\x04 \x01(\x03R\x10refreshExpiresAt\"7\n" +
+	"\x12refresh_expires_at\x18\x04 \x01(\x03R\x10refreshExpiresAt\x122\n" +
+	"\aoutcome\x18\x05 \x01(\x0e2\x18.sso.OIDCCallbackOutcomeR\aoutcome\"7\n" +
 	"\x12VerifyTokenRequest\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\"[\n" +
 	"\x16CheckPermissionRequest\x12!\n" +
@@ -1569,7 +1663,14 @@ const file_api_sso_sso_proto_rawDesc = "" +
 	"\bpassword\x18\x04 \x01(\tR\bpassword\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x12\x16\n" +
 	"\x06status\x18\x06 \x01(\tR\x06statusJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"R\tquota_cpuR\fquota_ram_mbR\rquota_disk_mb2\xc8\x03\n" +
+	"R\tquota_cpuR\fquota_ram_mbR\rquota_disk_mb*\x92\x02\n" +
+	"\x13OIDCCallbackOutcome\x12%\n" +
+	"!OIDC_CALLBACK_OUTCOME_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dOIDC_CALLBACK_OUTCOME_SUCCESS\x10\x01\x12)\n" +
+	"%OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT\x10\x02\x12+\n" +
+	"'OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED\x10\x03\x12-\n" +
+	")OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED\x10\x04\x12*\n" +
+	"&OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT\x10\x052\xc8\x03\n" +
 	"\x04Auth\x127\n" +
 	"\bRegister\x12\x14.sso.RegisterRequest\x1a\x15.sso.RegisterResponse\x12.\n" +
 	"\x05Login\x12\x11.sso.LoginRequest\x1a\x12.sso.LoginResponse\x124\n" +
@@ -1603,78 +1704,81 @@ func file_api_sso_sso_proto_rawDescGZIP() []byte {
 	return file_api_sso_sso_proto_rawDescData
 }
 
+var file_api_sso_sso_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_api_sso_sso_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_api_sso_sso_proto_goTypes = []any{
-	(*RegisterRequest)(nil),              // 0: sso.RegisterRequest
-	(*RegisterResponse)(nil),             // 1: sso.RegisterResponse
-	(*LoginRequest)(nil),                 // 2: sso.LoginRequest
-	(*LoginResponse)(nil),                // 3: sso.LoginResponse
-	(*LogoutRequest)(nil),                // 4: sso.LogoutRequest
-	(*LogoutResponse)(nil),               // 5: sso.LogoutResponse
-	(*RefreshRequest)(nil),               // 6: sso.RefreshRequest
-	(*RefreshResponse)(nil),              // 7: sso.RefreshResponse
-	(*GetAuthConfigRequest)(nil),         // 8: sso.GetAuthConfigRequest
-	(*OIDCProviderData)(nil),             // 9: sso.OIDCProviderData
-	(*GetAuthConfigResponse)(nil),        // 10: sso.GetAuthConfigResponse
-	(*StartOIDCLoginRequest)(nil),        // 11: sso.StartOIDCLoginRequest
-	(*StartOIDCLoginResponse)(nil),       // 12: sso.StartOIDCLoginResponse
-	(*CompleteOIDCCallbackRequest)(nil),  // 13: sso.CompleteOIDCCallbackRequest
-	(*CompleteOIDCCallbackResponse)(nil), // 14: sso.CompleteOIDCCallbackResponse
-	(*VerifyTokenRequest)(nil),           // 15: sso.VerifyTokenRequest
-	(*CheckPermissionRequest)(nil),       // 16: sso.CheckPermissionRequest
-	(*CheckPermissionResponse)(nil),      // 17: sso.CheckPermissionResponse
-	(*GetUserRequest)(nil),               // 18: sso.GetUserRequest
-	(*UserIDRequest)(nil),                // 19: sso.UserIDRequest
-	(*BatchGetUsersRequest)(nil),         // 20: sso.BatchGetUsersRequest
-	(*UserData)(nil),                     // 21: sso.UserData
-	(*BatchGetUsersResponse)(nil),        // 22: sso.BatchGetUsersResponse
-	(*ListUsersRequest)(nil),             // 23: sso.ListUsersRequest
-	(*ListUsersResponse)(nil),            // 24: sso.ListUsersResponse
-	(*CreateUserRequest)(nil),            // 25: sso.CreateUserRequest
-	(*UpdateUserRequest)(nil),            // 26: sso.UpdateUserRequest
+	(OIDCCallbackOutcome)(0),             // 0: sso.OIDCCallbackOutcome
+	(*RegisterRequest)(nil),              // 1: sso.RegisterRequest
+	(*RegisterResponse)(nil),             // 2: sso.RegisterResponse
+	(*LoginRequest)(nil),                 // 3: sso.LoginRequest
+	(*LoginResponse)(nil),                // 4: sso.LoginResponse
+	(*LogoutRequest)(nil),                // 5: sso.LogoutRequest
+	(*LogoutResponse)(nil),               // 6: sso.LogoutResponse
+	(*RefreshRequest)(nil),               // 7: sso.RefreshRequest
+	(*RefreshResponse)(nil),              // 8: sso.RefreshResponse
+	(*GetAuthConfigRequest)(nil),         // 9: sso.GetAuthConfigRequest
+	(*OIDCProviderData)(nil),             // 10: sso.OIDCProviderData
+	(*GetAuthConfigResponse)(nil),        // 11: sso.GetAuthConfigResponse
+	(*StartOIDCLoginRequest)(nil),        // 12: sso.StartOIDCLoginRequest
+	(*StartOIDCLoginResponse)(nil),       // 13: sso.StartOIDCLoginResponse
+	(*CompleteOIDCCallbackRequest)(nil),  // 14: sso.CompleteOIDCCallbackRequest
+	(*CompleteOIDCCallbackResponse)(nil), // 15: sso.CompleteOIDCCallbackResponse
+	(*VerifyTokenRequest)(nil),           // 16: sso.VerifyTokenRequest
+	(*CheckPermissionRequest)(nil),       // 17: sso.CheckPermissionRequest
+	(*CheckPermissionResponse)(nil),      // 18: sso.CheckPermissionResponse
+	(*GetUserRequest)(nil),               // 19: sso.GetUserRequest
+	(*UserIDRequest)(nil),                // 20: sso.UserIDRequest
+	(*BatchGetUsersRequest)(nil),         // 21: sso.BatchGetUsersRequest
+	(*UserData)(nil),                     // 22: sso.UserData
+	(*BatchGetUsersResponse)(nil),        // 23: sso.BatchGetUsersResponse
+	(*ListUsersRequest)(nil),             // 24: sso.ListUsersRequest
+	(*ListUsersResponse)(nil),            // 25: sso.ListUsersResponse
+	(*CreateUserRequest)(nil),            // 26: sso.CreateUserRequest
+	(*UpdateUserRequest)(nil),            // 27: sso.UpdateUserRequest
 }
 var file_api_sso_sso_proto_depIdxs = []int32{
-	9,  // 0: sso.GetAuthConfigResponse.oidc_providers:type_name -> sso.OIDCProviderData
-	21, // 1: sso.CheckPermissionResponse.user:type_name -> sso.UserData
-	21, // 2: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
-	21, // 3: sso.ListUsersResponse.users:type_name -> sso.UserData
-	0,  // 4: sso.Auth.Register:input_type -> sso.RegisterRequest
-	2,  // 5: sso.Auth.Login:input_type -> sso.LoginRequest
-	6,  // 6: sso.Auth.Refresh:input_type -> sso.RefreshRequest
-	4,  // 7: sso.Auth.Logout:input_type -> sso.LogoutRequest
-	8,  // 8: sso.Auth.GetAuthConfig:input_type -> sso.GetAuthConfigRequest
-	11, // 9: sso.Auth.StartOIDCLogin:input_type -> sso.StartOIDCLoginRequest
-	13, // 10: sso.Auth.CompleteOIDCCallback:input_type -> sso.CompleteOIDCCallbackRequest
-	15, // 11: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
-	16, // 12: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
-	18, // 13: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
-	20, // 14: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
-	23, // 15: sso.UserAPI.ListUsers:input_type -> sso.ListUsersRequest
-	25, // 16: sso.UserAPI.CreateUser:input_type -> sso.CreateUserRequest
-	26, // 17: sso.UserAPI.UpdateUser:input_type -> sso.UpdateUserRequest
-	19, // 18: sso.UserAPI.DeactivateUser:input_type -> sso.UserIDRequest
-	19, // 19: sso.UserAPI.ReactivateUser:input_type -> sso.UserIDRequest
-	1,  // 20: sso.Auth.Register:output_type -> sso.RegisterResponse
-	3,  // 21: sso.Auth.Login:output_type -> sso.LoginResponse
-	7,  // 22: sso.Auth.Refresh:output_type -> sso.RefreshResponse
-	5,  // 23: sso.Auth.Logout:output_type -> sso.LogoutResponse
-	10, // 24: sso.Auth.GetAuthConfig:output_type -> sso.GetAuthConfigResponse
-	12, // 25: sso.Auth.StartOIDCLogin:output_type -> sso.StartOIDCLoginResponse
-	14, // 26: sso.Auth.CompleteOIDCCallback:output_type -> sso.CompleteOIDCCallbackResponse
-	21, // 27: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
-	17, // 28: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
-	21, // 29: sso.UserAPI.GetUser:output_type -> sso.UserData
-	22, // 30: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
-	24, // 31: sso.UserAPI.ListUsers:output_type -> sso.ListUsersResponse
-	21, // 32: sso.UserAPI.CreateUser:output_type -> sso.UserData
-	21, // 33: sso.UserAPI.UpdateUser:output_type -> sso.UserData
-	21, // 34: sso.UserAPI.DeactivateUser:output_type -> sso.UserData
-	21, // 35: sso.UserAPI.ReactivateUser:output_type -> sso.UserData
-	20, // [20:36] is the sub-list for method output_type
-	4,  // [4:20] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	10, // 0: sso.GetAuthConfigResponse.oidc_providers:type_name -> sso.OIDCProviderData
+	0,  // 1: sso.CompleteOIDCCallbackResponse.outcome:type_name -> sso.OIDCCallbackOutcome
+	22, // 2: sso.CheckPermissionResponse.user:type_name -> sso.UserData
+	22, // 3: sso.BatchGetUsersResponse.users:type_name -> sso.UserData
+	22, // 4: sso.ListUsersResponse.users:type_name -> sso.UserData
+	1,  // 5: sso.Auth.Register:input_type -> sso.RegisterRequest
+	3,  // 6: sso.Auth.Login:input_type -> sso.LoginRequest
+	7,  // 7: sso.Auth.Refresh:input_type -> sso.RefreshRequest
+	5,  // 8: sso.Auth.Logout:input_type -> sso.LogoutRequest
+	9,  // 9: sso.Auth.GetAuthConfig:input_type -> sso.GetAuthConfigRequest
+	12, // 10: sso.Auth.StartOIDCLogin:input_type -> sso.StartOIDCLoginRequest
+	14, // 11: sso.Auth.CompleteOIDCCallback:input_type -> sso.CompleteOIDCCallbackRequest
+	16, // 12: sso.UserAPI.VerifyAccessToken:input_type -> sso.VerifyTokenRequest
+	17, // 13: sso.UserAPI.CheckPermission:input_type -> sso.CheckPermissionRequest
+	19, // 14: sso.UserAPI.GetUser:input_type -> sso.GetUserRequest
+	21, // 15: sso.UserAPI.BatchGetUsers:input_type -> sso.BatchGetUsersRequest
+	24, // 16: sso.UserAPI.ListUsers:input_type -> sso.ListUsersRequest
+	26, // 17: sso.UserAPI.CreateUser:input_type -> sso.CreateUserRequest
+	27, // 18: sso.UserAPI.UpdateUser:input_type -> sso.UpdateUserRequest
+	20, // 19: sso.UserAPI.DeactivateUser:input_type -> sso.UserIDRequest
+	20, // 20: sso.UserAPI.ReactivateUser:input_type -> sso.UserIDRequest
+	2,  // 21: sso.Auth.Register:output_type -> sso.RegisterResponse
+	4,  // 22: sso.Auth.Login:output_type -> sso.LoginResponse
+	8,  // 23: sso.Auth.Refresh:output_type -> sso.RefreshResponse
+	6,  // 24: sso.Auth.Logout:output_type -> sso.LogoutResponse
+	11, // 25: sso.Auth.GetAuthConfig:output_type -> sso.GetAuthConfigResponse
+	13, // 26: sso.Auth.StartOIDCLogin:output_type -> sso.StartOIDCLoginResponse
+	15, // 27: sso.Auth.CompleteOIDCCallback:output_type -> sso.CompleteOIDCCallbackResponse
+	22, // 28: sso.UserAPI.VerifyAccessToken:output_type -> sso.UserData
+	18, // 29: sso.UserAPI.CheckPermission:output_type -> sso.CheckPermissionResponse
+	22, // 30: sso.UserAPI.GetUser:output_type -> sso.UserData
+	23, // 31: sso.UserAPI.BatchGetUsers:output_type -> sso.BatchGetUsersResponse
+	25, // 32: sso.UserAPI.ListUsers:output_type -> sso.ListUsersResponse
+	22, // 33: sso.UserAPI.CreateUser:output_type -> sso.UserData
+	22, // 34: sso.UserAPI.UpdateUser:output_type -> sso.UserData
+	22, // 35: sso.UserAPI.DeactivateUser:output_type -> sso.UserData
+	22, // 36: sso.UserAPI.ReactivateUser:output_type -> sso.UserData
+	21, // [21:37] is the sub-list for method output_type
+	5,  // [5:21] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_api_sso_sso_proto_init() }
@@ -1687,13 +1791,14 @@ func file_api_sso_sso_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_sso_sso_proto_rawDesc), len(file_api_sso_sso_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
 		GoTypes:           file_api_sso_sso_proto_goTypes,
 		DependencyIndexes: file_api_sso_sso_proto_depIdxs,
+		EnumInfos:         file_api_sso_sso_proto_enumTypes,
 		MessageInfos:      file_api_sso_sso_proto_msgTypes,
 	}.Build()
 	File_api_sso_sso_proto = out.File

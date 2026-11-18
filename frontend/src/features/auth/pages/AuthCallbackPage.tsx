@@ -1,17 +1,27 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { refreshSession } from '@/shared/api/client';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { useT } from '@/shared/i18n';
+import { callbackResult } from '../model';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
+  const { search } = useLocation();
   const addToast = useToastStore((state) => state.addToast);
   const t = useT();
 
   useEffect(() => {
     let canceled = false;
+    const result = callbackResult(search);
+
+    // A failed sign-in has no session to refresh: show why and go back to the login page.
+    if (!result.ok) {
+      addToast(t(result.message), 'error');
+      navigate('/login', { replace: true });
+      return;
+    }
 
     async function completeLogin() {
       try {
@@ -35,7 +45,7 @@ export function AuthCallbackPage() {
     return () => {
       canceled = true;
     };
-  }, [addToast, navigate, t]);
+  }, [addToast, navigate, search, t]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 text-sm text-slate-500 dark:text-slate-400">

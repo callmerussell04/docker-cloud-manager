@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/oidctest"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -65,7 +67,7 @@ func TestCoreCredentialOnlyReadsUsersFromSSO(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	db := dbtest.OpenSSOPostgres(t)
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), nil, service.Config{
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true,
 	})
 	aliceID, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
@@ -134,7 +136,7 @@ func TestSessionLifecycleThroughHTTPAndRPC(t *testing.T) {
 	defer cancel()
 	db := dbtest.OpenSSOPostgres(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), nil, service.Config{
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true, Now: func() time.Time { return now },
 	})
 	_, err := svc.Register(ctx, "alice", "alice@example.com", "secret123")
@@ -330,7 +332,7 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	})
 	require.NoError(t, err)
 	require.Error(t, provider.Discover(ctx), "the provider starts unreachable")
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), provider, service.Config{
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
 		LocalLoginEnabled: true, LocalRegisterEnabled: true, OIDCEnabled: true, OIDCProviderName: "keycloak",
 	})
 	_, err = svc.Register(ctx, "bob", "bob@example.com", "secret123")
@@ -362,8 +364,12 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	require.Len(t, answer.OIDCProviders, 1)
 	require.Equal(t, "keycloak", answer.OIDCProviders[0].Name)
 	require.False(t, answer.OIDCProviders[0].Available)
-	require.Equal(t, http.StatusServiceUnavailable, b.get(startPath).Code)
-	require.Equal(t, http.StatusServiceUnavailable, b.get(oidcCallbackPath+"?code=c&state=s").Code)
+	response = b.get(startPath)
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "http://frontend.example/auth/callback?login=error&reason=provider_unavailable", response.Header().Get("Location"))
+	response = b.get(oidcCallbackPath + "?code=c&state=" + strings.Repeat("A", 43))
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=state_invalid", response.Header().Get("Location"))
 
 	// The provider comes up and SSO's next discovery attempt reaches it.
 	idp.SetDown(false)
@@ -373,7 +379,7 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	// Start redirects the browser to the provider with a state cookie.
 	response = b.get(startPath)
 	require.Equal(t, http.StatusFound, response.Code)
-	require.Contains(t, b.cookies, "oidc_state")
+	require.Len(t, stateCookies(b), 1)
 	back := idp.SignIn(response.Header().Get("Location"))
 	require.Equal(t, oidcCallbackPath, back.Path)
 	require.Equal(t, "S256", idp.LastAuthorization().Get("code_challenge_method"), "the code is bound to the attempt with PKCE")
@@ -382,7 +388,7 @@ func TestOIDCSignInThroughGatewayAfterTheProviderBecomesReachable(t *testing.T) 
 	response = b.get(back.RequestURI())
 	require.Equal(t, http.StatusFound, response.Code)
 	require.Equal(t, "http://frontend.example/auth/callback?login=success", response.Header().Get("Location"))
-	require.NotContains(t, b.cookies, "oidc_state")
+	require.Empty(t, stateCookies(b))
 	require.Contains(t, b.cookies, "refresh_token")
 
 	response = b.do(http.MethodPost, "/api/v1/auth/refresh")
@@ -399,7 +405,7 @@ func TestOIDCRoutesAreNotFoundWhenOIDCIsOff(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	db := dbtest.OpenSSOPostgres(t)
-	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), nil, service.Config{
+	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled: true,
 	})
 	b, _ := oidcGateway(t, ctx, svc)
@@ -407,6 +413,129 @@ func TestOIDCRoutesAreNotFoundWhenOIDCIsOff(t *testing.T) {
 	require.Empty(t, providers(t, b).OIDCProviders)
 	require.Equal(t, http.StatusNotFound, b.get(startPath).Code)
 	require.Equal(t, http.StatusNotFound, b.get(oidcCallbackPath+"?code=c&state=s").Code)
-	b.cookies["oidc_state"] = &http.Cookie{Name: "oidc_state", Value: "binding", Path: oidcCallbackPath}
-	require.Equal(t, http.StatusNotFound, b.get(oidcCallbackPath+"?code=c&state=s").Code)
+	state := strings.Repeat("A", 43)
+	b.cookies["oidc_state_x"] = &http.Cookie{Name: "oidc_state_x", Value: "binding", Path: oidcCallbackPath}
+	require.Equal(t, http.StatusNotFound, b.get(oidcCallbackPath+"?code=c&state="+state).Code)
+	require.Equal(t, http.StatusNotFound, b.get(oidcCallbackPath+"?error=access_denied").Code)
+}
+
+// stateCookies lists the browser-binding cookies of the attempts in flight.
+func stateCookies(b *browser) []*http.Cookie {
+	var cookies []*http.Cookie
+	for name, cookie := range b.cookies {
+		if strings.HasPrefix(name, "oidc_state_") {
+			cookies = append(cookies, cookie)
+		}
+	}
+	return cookies
+}
+
+// oidcSSO builds SSO's auth service over db with a provider that has reached
+// idp, as the SSO composition root does; calling it again rebuilds the service.
+func oidcSSO(t *testing.T, ctx context.Context, db *pgxpool.Pool, idp *oidctest.Provider, now *time.Time) *service.AuthService {
+	t.Helper()
+	provider, err := oidc.NewProvider(oidc.Config{
+		IssuerURL: idp.Issuer(), ClientID: idp.ClientID(), ClientSecret: idp.ClientSecret(),
+		RedirectURL: "http://gateway.example" + oidcCallbackPath,
+	})
+	require.NoError(t, err)
+	require.NoError(t, provider.Discover(ctx))
+	return service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db), service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak", Now: func() time.Time { return *now },
+	})
+}
+
+// callback replays a provider's redirect back to Gateway with the given
+// binding cookie, as a browser holding that cookie would.
+func (b *browser) callback(back *url.URL, cookieName, binding string) *httptest.ResponseRecorder {
+	b.t.Helper()
+	b.cookies[cookieName] = &http.Cookie{Name: cookieName, Value: binding, Path: oidcCallbackPath}
+	return b.get(back.RequestURI())
+}
+
+// Login attempts live in PostgreSQL: an attempt started before SSO is rebuilt
+// completes afterwards, two attempts in one browser complete independently, a
+// callback with another attempt's binding consumes nothing, and an attempt is
+// usable once and for 30 minutes.
+func TestOIDCLoginAttemptsAreDurableSingleUseAndPerBrowserTab(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db := dbtest.OpenSSOPostgres(t)
+	idp := oidctest.New(t, oidctest.Options{RedirectURL: "http://gateway.example" + oidcCallbackPath})
+	now := time.Now()
+	before, _ := oidcGateway(t, ctx, oidcSSO(t, ctx, db, idp, &now))
+
+	// Two tabs start sign-in; each attempt gets a cookie of its own.
+	start := func() (*url.URL, *http.Cookie) {
+		t.Helper()
+		known := map[string]bool{}
+		for _, cookie := range stateCookies(before) {
+			known[cookie.Name] = true
+		}
+		response := before.get(startPath)
+		require.Equal(t, http.StatusFound, response.Code)
+		for _, cookie := range stateCookies(before) {
+			if !known[cookie.Name] {
+				require.InDelta(t, 30*60, cookie.MaxAge, 2, "the cookie lives as long as the attempt")
+				return idp.SignIn(response.Header().Get("Location")), cookie
+			}
+		}
+		t.Fatal("start set no new binding cookie")
+		return nil, nil
+	}
+	firstBack, first := start()
+	secondBack, second := start()
+	require.NotEqual(t, first.Name, second.Name)
+	require.Len(t, stateCookies(before), 2)
+	firstCookie, firstBinding := first.Name, first.Value
+	secondCookie, secondBinding := second.Name, second.Value
+
+	// SSO is rebuilt; the attempts are still in PostgreSQL.
+	after, users := oidcGateway(t, ctx, oidcSSO(t, ctx, db, idp, &now))
+	rpcCtx := accessscope.WithSystemScope(ctx)
+
+	// The first attempt's callback with the second attempt's binding is refused
+	// and consumes neither attempt.
+	response := after.callback(firstBack, firstCookie, secondBinding)
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=state_invalid", response.Header().Get("Location"))
+	require.NotContains(t, after.cookies, firstCookie, "the cookie is cleared on a refused callback")
+
+	for _, attempt := range []struct {
+		back            *url.URL
+		cookie, binding string
+	}{{secondBack, secondCookie, secondBinding}, {firstBack, firstCookie, firstBinding}} {
+		delete(after.cookies, "refresh_token")
+		response = after.callback(attempt.back, attempt.cookie, attempt.binding)
+		require.Equal(t, http.StatusFound, response.Code)
+		require.Equal(t, "http://frontend.example/auth/callback?login=success", response.Header().Get("Location"))
+		require.NotContains(t, after.cookies, attempt.cookie)
+		response = after.do(http.MethodPost, "/api/v1/auth/refresh")
+		require.Equal(t, http.StatusOK, response.Code)
+		var refreshed map[string]string
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &refreshed))
+		verified, err := users.VerifyAccessToken(rpcCtx, &sso.VerifyTokenRequest{AccessToken: refreshed["access_token"]})
+		require.NoError(t, err)
+		require.Equal(t, "alice", verified.GetUsername())
+	}
+
+	// A replayed callback finds its attempt used.
+	delete(after.cookies, "refresh_token")
+	response = after.callback(firstBack, firstCookie, firstBinding)
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=state_invalid", response.Header().Get("Location"))
+	require.NotContains(t, after.cookies, "refresh_token")
+
+	// An attempt returned to after 30 minutes has expired, cleanup or not.
+	before.cookies = map[string]*http.Cookie{}
+	lateBack, late := start()
+	now = now.Add(30 * time.Minute)
+	response = after.callback(lateBack, late.Name, late.Value)
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=state_invalid", response.Header().Get("Location"))
+
+	// Cancelling at the provider lands on the login page with a reason.
+	response = after.get(oidcCallbackPath + "?error=access_denied&state=" + lateBack.Query().Get("state"))
+	require.Equal(t, http.StatusFound, response.Code)
+	require.Equal(t, "/auth/callback?login=error&reason=access_denied", response.Header().Get("Location"))
 }

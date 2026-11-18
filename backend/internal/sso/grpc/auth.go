@@ -6,6 +6,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/grpcerrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/dto"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -87,11 +88,16 @@ func (h *Handler) StartOIDCLogin(ctx context.Context, req *sso.StartOIDCLoginReq
 		return nil, status.Error(codes.InvalidArgument, "missing provider")
 	}
 
-	authURL, stateBinding, err := h.auth.StartOIDCLogin(ctx, provider, req.GetRedirectAfter())
+	started, err := h.auth.StartOIDCLogin(ctx, provider, req.GetRedirectAfter())
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &sso.StartOIDCLoginResponse{AuthUrl: authURL, StateBinding: stateBinding}, nil
+	return &sso.StartOIDCLoginResponse{
+		AuthUrl:      started.AuthURL,
+		StateBinding: started.StateBinding,
+		State:        started.State,
+		ExpiresAt:    started.ExpiresAt.Unix(),
+	}, nil
 }
 
 func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOIDCCallbackRequest) (*sso.CompleteOIDCCallbackResponse, error) {
@@ -99,16 +105,37 @@ func (h *Handler) CompleteOIDCCallback(ctx context.Context, req *sso.CompleteOID
 		return nil, status.Error(codes.InvalidArgument, "missing provider, code, state or state binding")
 	}
 
-	tokens, redirectAfter, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
+	result, err := h.auth.CompleteOIDCCallback(ctx, req.GetProvider(), req.GetCode(), req.GetState(), req.GetStateBinding())
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
-	return &sso.CompleteOIDCCallbackResponse{
-		AccessToken:      tokens.AccessToken,
-		RefreshExpiresAt: tokens.RefreshExpiresAt.Unix(),
-		RefreshToken:     tokens.RefreshToken,
-		RedirectAfter:    redirectAfter,
-	}, nil
+	resp := &sso.CompleteOIDCCallbackResponse{
+		Outcome:       callbackOutcomeToProto(result.Outcome),
+		RedirectAfter: result.RedirectAfter,
+	}
+	if result.Outcome == model.OIDCCallbackSuccess {
+		resp.AccessToken = result.Tokens.AccessToken
+		resp.RefreshToken = result.Tokens.RefreshToken
+		resp.RefreshExpiresAt = result.Tokens.RefreshExpiresAt.Unix()
+	}
+	return resp, nil
+}
+
+func callbackOutcomeToProto(outcome model.OIDCCallbackOutcome) sso.OIDCCallbackOutcome {
+	switch outcome {
+	case model.OIDCCallbackSuccess:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS
+	case model.OIDCCallbackInvalidAttempt:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT
+	case model.OIDCCallbackIdentityRejected:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED
+	case model.OIDCCallbackAccountDeactivated:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED
+	case model.OIDCCallbackAccountConflict:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT
+	default:
+		return sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_UNSPECIFIED
+	}
 }
 
 func (h *Handler) VerifyAccessToken(ctx context.Context, req *sso.VerifyTokenRequest) (*sso.UserData, error) {

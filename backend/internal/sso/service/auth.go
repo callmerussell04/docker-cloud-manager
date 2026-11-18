@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"io"
 	"net/mail"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -129,8 +127,7 @@ type AuthService struct {
 	random        io.Reader
 	cfg           Config
 	oidcProvider  OIDCProvider
-	states        map[string]oidcState
-	stateMu       sync.Mutex
+	loginAttempts LoginAttemptRepository
 	now           func() time.Time
 }
 
@@ -146,16 +143,6 @@ type Config struct {
 	OIDCProviderName     string
 	OIDCAdminGroups      []string
 	OIDCDefaultRole      string
-	OIDCStateTTL         time.Duration
-}
-
-type oidcState struct {
-	Provider       string
-	Nonce          string
-	PKCEVerifier   string
-	BrowserBinding string
-	RedirectAfter  string
-	ExpiresAt      time.Time
 }
 
 type BootstrapAdminConfig struct {
@@ -226,9 +213,19 @@ func (s *AuthService) ListUsers(ctx context.Context, limit, offset int) ([]model
 	return s.repo.ListUsers(ctx, model.ListUsersOptions{Limit: limit, Offset: offset})
 }
 
-func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository, oidcProvider OIDCProvider, cfg Config) *AuthService {
+// OIDCDeps are the optional dependencies of OIDC sign-in. Both are nil with
+// OIDC off; a provider requires the login-attempt store.
+type OIDCDeps struct {
+	Provider      OIDCProvider
+	LoginAttempts LoginAttemptRepository
+}
+
+func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, sessions SessionRepository, oidc OIDCDeps, cfg Config) *AuthService {
 	if sessions == nil {
 		panic("session repository is required")
+	}
+	if oidc.Provider != nil && oidc.LoginAttempts == nil {
+		panic("login attempt repository is required with an OIDC provider")
 	}
 	if cfg.AccessTTL <= 0 {
 		cfg.AccessTTL = 15 * time.Minute
@@ -251,15 +248,12 @@ func NewAuthServiceWithConfig(repo UserRepository, tokenProvider TokenProvider, 
 	if cfg.OIDCDefaultRole == "" {
 		cfg.OIDCDefaultRole = model.RoleUser
 	}
-	if cfg.OIDCStateTTL <= 0 {
-		cfg.OIDCStateTTL = 10 * time.Minute
-	}
 	return &AuthService{
 		repo:          repo,
 		tokenProvider: tokenProvider,
 		cfg:           cfg,
-		oidcProvider:  oidcProvider,
-		states:        map[string]oidcState{},
+		oidcProvider:  oidc.Provider,
+		loginAttempts: oidc.LoginAttempts,
 		now:           cfg.Now,
 		random:        cfg.Random,
 		sessions:      sessions,
@@ -391,79 +385,113 @@ func (s *AuthService) LocalAuthConfig() (loginEnabled bool, registerEnabled bool
 	return s.cfg.LocalLoginEnabled, s.cfg.LocalRegisterEnabled
 }
 
-func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (string, string, error) {
-	_ = ctx
+// StartOIDCLogin stores a new login attempt and returns what the browser
+// needs to go to the provider. Only digests of the state and of the browser
+// binding are stored.
+func (s *AuthService) StartOIDCLogin(ctx context.Context, provider, redirectAfter string) (model.OIDCLoginStart, error) {
 	if err := s.requireOIDCProvider(provider); err != nil {
-		return "", "", err
+		return model.OIDCLoginStart{}, err
 	}
 
+	// Each is 32 random bytes in base64url; the verifier is a 43-character
+	// RFC 7636 verifier.
 	state, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
 	nonce, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
-	// 32 random bytes in base64url: a 43-character RFC 7636 verifier.
 	verifier, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
-	browserBinding, err := randomToken()
+	binding, err := randomToken()
 	if err != nil {
-		return "", "", apperrors.ErrInternal
+		return model.OIDCLoginStart{}, apperrors.ErrInternal
 	}
-	if strings.TrimSpace(redirectAfter) == "" {
+	redirectAfter = strings.TrimSpace(redirectAfter)
+	if redirectAfter == "" {
 		redirectAfter = "/"
 	}
 
-	s.stateMu.Lock()
-	s.cleanupExpiredStatesLocked()
-	s.states[state] = oidcState{
-		Provider:       provider,
-		Nonce:          nonce,
-		PKCEVerifier:   verifier,
-		BrowserBinding: browserBinding,
-		RedirectAfter:  strings.TrimSpace(redirectAfter),
-		ExpiresAt:      s.now().Add(s.cfg.OIDCStateTTL),
+	now := s.now()
+	attempt := model.LoginAttempt{
+		StateDigest:   secretDigest(state),
+		Provider:      provider,
+		Nonce:         nonce,
+		PKCEVerifier:  verifier,
+		BindingDigest: secretDigest(binding),
+		RedirectAfter: redirectAfter,
+		CreatedAt:     now,
+		ExpiresAt:     now.Add(OIDCLoginAttemptTTL),
 	}
-	s.stateMu.Unlock()
-
-	return s.oidcProvider.AuthCodeURL(state, nonce, verifier), browserBinding, nil
+	if err := s.loginAttempts.SaveLoginAttempt(ctx, attempt); err != nil {
+		return model.OIDCLoginStart{}, err
+	}
+	return model.OIDCLoginStart{
+		AuthURL:      s.oidcProvider.AuthCodeURL(state, nonce, verifier),
+		State:        state,
+		StateBinding: binding,
+		ExpiresAt:    attempt.ExpiresAt,
+	}, nil
 }
 
-func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.Tokens, string, error) {
+// CompleteOIDCCallback consumes the attempt and signs its user in. Expected
+// rejections are outcomes; provider or storage unavailability and timeouts
+// are errors. A rejection after the attempt was consumed carries its target.
+func (s *AuthService) CompleteOIDCCallback(ctx context.Context, provider, code, state, stateBinding string) (model.OIDCCallbackResult, error) {
 	if err := s.requireOIDCProvider(provider); err != nil {
-		return model.Tokens{}, "", err
+		return model.OIDCCallbackResult{}, err
 	}
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" || strings.TrimSpace(stateBinding) == "" {
-		return model.Tokens{}, "", apperrors.ErrBadRequest
+		return model.OIDCCallbackResult{Outcome: model.OIDCCallbackInvalidAttempt}, nil
 	}
 
-	oidcState, err := s.consumeOIDCState(provider, state, stateBinding)
+	attempt, err := s.loginAttempts.ConsumeLoginAttempt(ctx, secretDigest(state), provider, secretDigest(stateBinding), s.now())
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return model.OIDCCallbackResult{Outcome: model.OIDCCallbackInvalidAttempt}, nil
+	}
 	if err != nil {
-		return model.Tokens{}, "", err
+		return model.OIDCCallbackResult{}, err
+	}
+	rejected := func(outcome model.OIDCCallbackOutcome) (model.OIDCCallbackResult, error) {
+		return model.OIDCCallbackResult{Outcome: outcome, RedirectAfter: attempt.RedirectAfter}, nil
 	}
 
-	identity, err := s.oidcProvider.ExchangeCode(ctx, code, oidcState.Nonce, oidcState.PKCEVerifier)
+	identity, err := s.oidcProvider.ExchangeCode(ctx, code, attempt.Nonce, attempt.PKCEVerifier)
+	if errors.Is(err, apperrors.ErrInvalidCredentials) {
+		return rejected(model.OIDCCallbackIdentityRejected)
+	}
 	if err != nil {
-		return model.Tokens{}, "", err
+		return model.OIDCCallbackResult{}, err
 	}
 
 	user, err := s.provisionOIDCUser(ctx, provider, identity)
-	if err != nil {
-		return model.Tokens{}, "", err
+	switch {
+	case errors.Is(err, apperrors.ErrInvalidCredentials):
+		return rejected(model.OIDCCallbackIdentityRejected)
+	case errors.Is(err, apperrors.ErrConflict):
+		return rejected(model.OIDCCallbackAccountConflict)
+	case err != nil:
+		return model.OIDCCallbackResult{}, err
 	}
+	// The user has proven their identity at the provider, so unlike local
+	// sign-in the answer says the account is deactivated.
 	if user.Status != model.StatusActive {
-		return model.Tokens{}, "", apperrors.ErrInvalidCredentials
+		return rejected(model.OIDCCallbackAccountDeactivated)
 	}
 
 	tokens, err := s.createSession(ctx, user, false)
-	if err != nil {
-		return model.Tokens{}, "", err
+	if errors.Is(err, apperrors.ErrInvalidCredentials) {
+		// Deactivated between provisioning and the session lock.
+		return rejected(model.OIDCCallbackAccountDeactivated)
 	}
-	return tokens, oidcState.RedirectAfter, nil
+	if err != nil {
+		return model.OIDCCallbackResult{}, err
+	}
+	return model.OIDCCallbackResult{Outcome: model.OIDCCallbackSuccess, Tokens: tokens, RedirectAfter: attempt.RedirectAfter}, nil
 }
 
 func (s *AuthService) oidcEnabled() bool {
@@ -480,28 +508,6 @@ func (s *AuthService) requireOIDCProvider(provider string) error {
 		return apperrors.New(apperrors.ErrUnavailable, "identity provider is not available")
 	}
 	return nil
-}
-
-func (s *AuthService) consumeOIDCState(provider, state, stateBinding string) (oidcState, error) {
-	s.stateMu.Lock()
-	defer s.stateMu.Unlock()
-	s.cleanupExpiredStatesLocked()
-
-	stored, ok := s.states[state]
-	if !ok || stored.Provider != provider || !secureStringEqual(stored.BrowserBinding, stateBinding) {
-		return oidcState{}, apperrors.ErrInvalidCredentials
-	}
-	delete(s.states, state)
-	return stored, nil
-}
-
-func (s *AuthService) cleanupExpiredStatesLocked() {
-	now := s.now()
-	for state, stored := range s.states {
-		if now.After(stored.ExpiresAt) {
-			delete(s.states, state)
-		}
-	}
 }
 
 func (s *AuthService) provisionOIDCUser(ctx context.Context, provider string, identity OIDCIdentity) (model.User, error) {
@@ -787,13 +793,11 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf[:]), nil
 }
 
-func secureStringEqual(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	aHash := sha256.Sum256([]byte(a))
-	bHash := sha256.Sum256([]byte(b))
-	return subtle.ConstantTimeCompare(aHash[:], bHash[:]) == 1
+// secretDigest is the stored form of a login attempt's state or browser
+// binding; neither secret is stored.
+func secretDigest(value string) []byte {
+	sum := sha256.Sum256([]byte(value))
+	return sum[:]
 }
 
 // normalizeIdentity is the stored form of a username or an email: trimmed and

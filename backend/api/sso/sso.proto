@@ -84,7 +84,12 @@ message StartOIDCLoginRequest {
 
 message StartOIDCLoginResponse {
   string auth_url = 1;
+  // state_binding is the secret Gateway keeps in the attempt's browser cookie.
   string state_binding = 2;
+  // state names the attempt; Gateway derives the cookie name from it.
+  string state = 3;
+  // expires_at (Unix seconds) is when the attempt expires; Gateway sets the cookie lifetime from it.
+  int64 expires_at = 4;
 }
 
 message CompleteOIDCCallbackRequest {
@@ -94,11 +99,26 @@ message CompleteOIDCCallbackRequest {
   string state_binding = 4;
 }
 
+// OIDCCallbackOutcome is how a callback ended when it ended as expected.
+// Provider or SSO unavailability and timeouts are gRPC errors instead.
+enum OIDCCallbackOutcome {
+  OIDC_CALLBACK_OUTCOME_UNSPECIFIED = 0;
+  OIDC_CALLBACK_OUTCOME_SUCCESS = 1;
+  // The attempt is unknown, expired, already used, or bound to another browser.
+  OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT = 2;
+  OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED = 3;
+  OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED = 4;
+  OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT = 5;
+}
+
 message CompleteOIDCCallbackResponse {
+  // Tokens are set only with OIDC_CALLBACK_OUTCOME_SUCCESS.
   string access_token = 1;
   string refresh_token = 2;
+  // redirect_after is the attempt's target once the attempt was consumed, and empty before.
   string redirect_after = 3;
   int64 refresh_expires_at = 4;
+  OIDCCallbackOutcome outcome = 5;
 }
 
 message VerifyTokenRequest {

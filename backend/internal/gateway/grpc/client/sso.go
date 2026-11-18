@@ -109,7 +109,9 @@ func (c *SSOClient) StartOIDCLogin(ctx context.Context, provider, redirectAfter 
 	}
 	return model.OIDCLoginStartResult{
 		AuthURL:      resp.GetAuthUrl(),
+		State:        resp.GetState(),
 		StateBinding: resp.GetStateBinding(),
+		ExpiresAt:    time.Unix(resp.GetExpiresAt(), 0),
 	}, nil
 }
 
@@ -123,14 +125,37 @@ func (c *SSOClient) CompleteOIDCCallback(ctx context.Context, provider, code, st
 	if err != nil {
 		return model.OIDCCallbackResult{}, grpcerrors.FromGRPC(err)
 	}
-	return model.OIDCCallbackResult{
-		Tokens: model.Tokens{
+	result := model.OIDCCallbackResult{
+		Outcome:       callbackOutcomeFromProto(resp.GetOutcome()),
+		RedirectAfter: resp.GetRedirectAfter(),
+	}
+	if result.Outcome == model.OIDCCallbackSuccess {
+		result.Tokens = model.Tokens{
 			AccessToken:      resp.GetAccessToken(),
 			RefreshToken:     resp.GetRefreshToken(),
 			RefreshExpiresAt: time.Unix(resp.GetRefreshExpiresAt(), 0),
-		},
-		RedirectAfter: resp.GetRedirectAfter(),
-	}, nil
+		}
+	}
+	return result, nil
+}
+
+// callbackOutcomeFromProto maps an unknown outcome to the empty one, which
+// Gateway treats as a failed sign-in.
+func callbackOutcomeFromProto(outcome sso.OIDCCallbackOutcome) model.OIDCCallbackOutcome {
+	switch outcome {
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS:
+		return model.OIDCCallbackSuccess
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT:
+		return model.OIDCCallbackInvalidAttempt
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED:
+		return model.OIDCCallbackIdentityRejected
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED:
+		return model.OIDCCallbackAccountDeactivated
+	case sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT:
+		return model.OIDCCallbackAccountConflict
+	default:
+		return ""
+	}
 }
 
 func (c *SSOClient) VerifyAccessToken(ctx context.Context, authHeader string) (model.AuthUser, error) {

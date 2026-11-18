@@ -209,13 +209,23 @@ func (s *AuthService) updateUser(ctx context.Context, user model.User, passwordC
 	})
 }
 
+// sessionCleanupBatch bounds each cleanup pass over expired sessions.
+const sessionCleanupBatch = 100
+
 var errLastActiveAdmin = apperrors.New(apperrors.ErrConflict, "cannot deactivate or demote the last active admin")
 
 func isActiveAdmin(user model.User) bool {
 	return user.Role == model.RoleAdmin && user.Status == model.StatusActive
 }
 
-// CleanupSessions bounds each pass; authorization enforces expiry independently.
+// CleanupSessions deletes expired sessions and expired login attempts, each in
+// a bounded pass; authorization and attempt consumption enforce expiry
+// independently.
 func (s *AuthService) CleanupSessions(ctx context.Context) error {
-	return s.sessions.DeleteExpired(ctx, s.now(), 100)
+	now := s.now()
+	err := s.sessions.DeleteExpired(ctx, now, sessionCleanupBatch)
+	if s.loginAttempts != nil {
+		err = errors.Join(err, s.loginAttempts.DeleteExpiredLoginAttempts(ctx, now, loginAttemptCleanupBatch))
+	}
+	return err
 }

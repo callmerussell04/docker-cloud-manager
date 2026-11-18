@@ -8,6 +8,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/api/sso"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	ssogrpc "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/grpc"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/model"
 	ssoservice "github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
@@ -30,8 +31,14 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	auth.EXPECT().Refresh(mock.Anything, "refresh").Return(model.Tokens{AccessToken: "access2", RefreshToken: "refresh2", RefreshExpiresAt: time.Unix(2000000000, 0)}, nil)
 	auth.EXPECT().LocalAuthConfig().Return(true, false)
 	auth.EXPECT().AuthProviders().Return([]model.AuthProvider{{Name: "keycloak", Available: false}})
-	auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/dashboard").Return("https://keycloak/auth", "binding", nil)
-	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)}, "/dashboard", nil)
+	auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", "/dashboard").Return(model.OIDCLoginStart{
+		AuthURL: "https://keycloak/auth", State: "state", StateBinding: "binding", ExpiresAt: time.Unix(2000000000, 0),
+	}, nil)
+	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.OIDCCallbackResult{
+		Outcome:       model.OIDCCallbackSuccess,
+		Tokens:        model.Tokens{AccessToken: "access3", RefreshToken: "refresh3", RefreshExpiresAt: time.Unix(2000000000, 0)},
+		RedirectAfter: "/dashboard",
+	}, nil)
 	conn := newSSOGRPCConn(t, auth, false)
 	client := sso.NewAuthClient(conn)
 
@@ -63,11 +70,47 @@ func TestSSOAuthGRPCMapsAuthRPCs(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "https://keycloak/auth", startResp.AuthUrl)
 	require.Equal(t, "binding", startResp.StateBinding)
+	require.Equal(t, "state", startResp.State)
+	require.Equal(t, int64(2000000000), startResp.ExpiresAt)
 
 	callbackResp, err := client.CompleteOIDCCallback(context.Background(), &sso.CompleteOIDCCallbackRequest{Provider: "keycloak", Code: "code", State: "state", StateBinding: "binding"})
 	require.NoError(t, err)
+	require.Equal(t, sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_SUCCESS, callbackResp.Outcome)
 	require.Equal(t, "access3", callbackResp.AccessToken)
 	require.Equal(t, "/dashboard", callbackResp.RedirectAfter)
+}
+
+// Expected callback rejections are typed outcomes in the response, while
+// availability and timeout failures stay gRPC errors.
+func TestSSOAuthGRPCAnswersCallbackRejectionsAsOutcomes(t *testing.T) {
+	for outcome, want := range map[model.OIDCCallbackOutcome]sso.OIDCCallbackOutcome{
+		model.OIDCCallbackInvalidAttempt:     sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_INVALID_ATTEMPT,
+		model.OIDCCallbackIdentityRejected:   sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_IDENTITY_REJECTED,
+		model.OIDCCallbackAccountDeactivated: sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_DEACTIVATED,
+		model.OIDCCallbackAccountConflict:    sso.OIDCCallbackOutcome_OIDC_CALLBACK_OUTCOME_ACCOUNT_CONFLICT,
+	} {
+		t.Run(string(outcome), func(t *testing.T) {
+			auth := ssogrpcmocks.NewMockAuthService(t)
+			auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").
+				Return(model.OIDCCallbackResult{Outcome: outcome, RedirectAfter: "/dashboard"}, nil)
+			resp, err := sso.NewAuthClient(newSSOGRPCConn(t, auth, false)).CompleteOIDCCallback(context.Background(),
+				&sso.CompleteOIDCCallbackRequest{Provider: "keycloak", Code: "code", State: "state", StateBinding: "binding"})
+			require.NoError(t, err)
+			require.Equal(t, want, resp.Outcome)
+			require.Equal(t, "/dashboard", resp.RedirectAfter)
+			require.Empty(t, resp.AccessToken)
+			require.Empty(t, resp.RefreshToken)
+		})
+	}
+	for failure, code := range map[error]codes.Code{apperrors.ErrUnavailable: codes.Unavailable, apperrors.ErrTimeout: codes.DeadlineExceeded} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			auth := ssogrpcmocks.NewMockAuthService(t)
+			auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", "state", "binding").Return(model.OIDCCallbackResult{}, failure)
+			_, err := sso.NewAuthClient(newSSOGRPCConn(t, auth, false)).CompleteOIDCCallback(context.Background(),
+				&sso.CompleteOIDCCallbackRequest{Provider: "keycloak", Code: "code", State: "state", StateBinding: "binding"})
+			require.Equal(t, code, status.Code(err))
+		})
+	}
 }
 
 func TestSSOUserGRPCMapsReadAndPermissionRPCs(t *testing.T) {

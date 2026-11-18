@@ -66,16 +66,21 @@ func NewRouter(cfg Config, deps RouterDeps) (*gin.Engine, error) {
 	return router, nil
 }
 
+// registerAuthRoutes gives each purpose its own bucket under the auth limit,
+// so sign-in navigation, password attempts and session calls never exhaust
+// one another. Navigation routes answer a rejection with a redirect.
 func registerAuthRoutes(v1 *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {
 	auth := v1.Group("/auth")
-	auth.Use(middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth"))
-	auth.GET("/providers", deps.AuthHandler.Providers)
-	auth.GET("/oidc/keycloak/start", deps.AuthHandler.StartKeycloakLogin)
-	auth.GET("/oidc/keycloak/callback", deps.AuthHandler.CompleteKeycloakCallback)
-	auth.POST("/register", deps.AuthHandler.Register)
-	auth.POST("/login", deps.AuthHandler.Login)
-	auth.POST("/refresh", deps.AuthHandler.Refresh)
-	auth.POST("/logout", deps.AuthHandler.Logout)
+	credentials := middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth-credentials")
+	session := middleware.RateLimit(limiter, cfg.AuthRateLimit, "auth-session")
+	navigation := middleware.RateLimitWith(limiter, cfg.AuthRateLimit, "auth-oidc-navigation", deps.AuthHandler.RejectRateLimitedNavigation)
+	auth.GET("/providers", session, deps.AuthHandler.Providers)
+	auth.GET("/oidc/keycloak/start", navigation, deps.AuthHandler.StartKeycloakLogin)
+	auth.GET("/oidc/keycloak/callback", navigation, deps.AuthHandler.CompleteKeycloakCallback)
+	auth.POST("/register", credentials, deps.AuthHandler.Register)
+	auth.POST("/login", credentials, deps.AuthHandler.Login)
+	auth.POST("/refresh", session, deps.AuthHandler.Refresh)
+	auth.POST("/logout", session, deps.AuthHandler.Logout)
 }
 
 func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middleware.RateLimiter, deps RouterDeps) {

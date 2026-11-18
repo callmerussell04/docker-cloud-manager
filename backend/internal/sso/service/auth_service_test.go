@@ -50,7 +50,7 @@ func TestAuthServiceRejectsDisabledOrInvalidLocalAuth(t *testing.T) {
 	ctx := context.Background()
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
-	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), nil, service.Config{
+	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), service.OIDCDeps{}, service.Config{
 		LocalLoginEnabled:    false,
 		LocalRegisterEnabled: false,
 	})
@@ -290,7 +290,7 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	repo := ssomocks.NewUserRepository(t)
 	tokens := ssomocks.NewTokenProvider(t)
 	provider := ssomocks.NewOIDCProvider(t)
-	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, service.Config{
+	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
 		OIDCEnabled:      true,
 		OIDCProviderName: "keycloak",
 		OIDCAdminGroups:  []string{"/dcm-admins"},
@@ -311,19 +311,21 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 	}).Return(nil).Once()
 	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access", nil).Once()
 
-	pair, redirectAfter, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	result, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
 	require.NoError(t, err)
-	require.Equal(t, "access", pair.AccessToken)
-	require.Len(t, pair.RefreshToken, 43)
-	require.Equal(t, "/", redirectAfter)
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+	require.Equal(t, "access", result.Tokens.AccessToken)
+	require.Len(t, result.Tokens.RefreshToken, 43)
+	require.Equal(t, "/", result.RedirectAfter)
 	require.Equal(t, "alice-external", created.Username)
 	require.Equal(t, "alice@example.com", created.Email)
 	require.Equal(t, model.RoleAdmin, created.Role)
 	require.Equal(t, model.AuthSourceOIDC, created.AuthSource)
 	require.NotNil(t, created.LastLoginAt)
 
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
-	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
+	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackInvalidAttempt, result.Outcome, "an attempt is usable once")
 
 	existing := created
 	existing.Role = model.RoleAdmin
@@ -339,8 +341,9 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 		updated = user
 	}).Return(nil).Once()
 	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access2", nil).Once()
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code2", state, binding)
+	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code2", state, binding)
 	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
 	require.Equal(t, existing.ID, updated.ID)
 	require.Equal(t, "alice-updated", updated.Username)
 	require.Equal(t, model.RoleUser, updated.Role)
@@ -361,8 +364,9 @@ func TestAuthServiceOIDCCreateUpdateStateAndCollisions(t *testing.T) {
 		collided = user
 	}).Return(nil).Once()
 	tokens.EXPECT().GenerateAccessToken(mock.AnythingOfType("model.User"), mock.Anything, mock.Anything).Return("access3", nil).Once()
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code3", state, binding)
+	result, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code3", state, binding)
 	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
 	require.Equal(t, "alice-external-subjectx", collided.Username)
 	require.True(t, strings.HasSuffix(collided.Email, "@oidc.local"))
 }
@@ -373,23 +377,24 @@ func TestAuthServiceOIDCExchangesTheCodeWithTheAttemptsVerifier(t *testing.T) {
 	ctx := context.Background()
 	repo := ssomocks.NewUserRepository(t)
 	provider := ssomocks.NewOIDCProvider(t)
-	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), provider, service.Config{
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
 		OIDCEnabled: true, OIDCProviderName: "keycloak",
 	})
 	expectAuthCodeURL(provider)
 
-	firstURL, binding, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	firstStart, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 	require.NoError(t, err)
-	secondURL, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	secondStart, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 	require.NoError(t, err)
-	first, second := authURLQuery(t, firstURL), authURLQuery(t, secondURL)
+	first, second := authURLQuery(t, firstStart.AuthURL), authURLQuery(t, secondStart.AuthURL)
 	require.GreaterOrEqual(t, len(first.Get("verifier")), 43, "RFC 7636 verifiers have at least 43 characters")
 	require.NotEqual(t, first.Get("verifier"), second.Get("verifier"))
 
 	provider.EXPECT().ExchangeCode(mock.Anything, "code", first.Get("nonce"), first.Get("verifier")).
 		Return(service.OIDCIdentity{}, apperrors.ErrInvalidCredentials).Once()
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", first.Get("state"), binding)
-	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
+	result, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", first.Get("state"), firstStart.StateBinding)
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackIdentityRejected, result.Outcome)
 }
 
 func authURLQuery(t *testing.T, authURL string) url.Values {
@@ -399,47 +404,22 @@ func authURLQuery(t *testing.T, authURL string) url.Values {
 	return parsed.Query()
 }
 
-func TestAuthServiceOIDCRejectsInvalidAndExpiredState(t *testing.T) {
-	ctx := context.Background()
-	repo := ssomocks.NewUserRepository(t)
-	tokens := ssomocks.NewTokenProvider(t)
-	provider := ssomocks.NewOIDCProvider(t)
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	svc := service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), provider, service.Config{
-		OIDCEnabled:      true,
-		OIDCProviderName: "keycloak",
-		OIDCDefaultRole:  model.RoleUser,
-		OIDCStateTTL:     time.Minute,
-		Now:              func() time.Time { return now },
-	})
-	expectAuthCodeURL(provider)
-
-	state, _ := startOIDCTestLogin(t, svc)
-	_, _, err := svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, "bad-binding")
-	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
-
-	state, binding := startOIDCTestLogin(t, svc)
-	now = now.Add(time.Minute + time.Nanosecond)
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", state, binding)
-	require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
-}
-
 func TestAuthServiceOIDCProviderEnabledButUnavailable(t *testing.T) {
 	ctx := context.Background()
 	repo := ssomocks.NewUserRepository(t)
 	provider := ssomocks.NewOIDCProvider(t)
 	available := false
 	provider.EXPECT().Available().RunAndReturn(func() bool { return available })
-	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), provider, service.Config{
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
 		OIDCEnabled: true, OIDCProviderName: "keycloak",
 	})
 
 	require.Equal(t, []model.AuthProvider{{Name: "keycloak", Available: false}}, svc.AuthProviders())
-	_, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	_, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
+	_, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
 	require.ErrorIs(t, err, apperrors.ErrUnavailable)
-	_, _, err = svc.StartOIDCLogin(ctx, "other", "/")
+	_, err = svc.StartOIDCLogin(ctx, "other", "/")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 
 	available = true
@@ -452,9 +432,9 @@ func TestAuthServiceOIDCDisabledHasNoProvider(t *testing.T) {
 	svc := ssotest.NewAuthService(repo, ssomocks.NewTokenProvider(t), testSessions(t, repo))
 
 	require.Empty(t, svc.AuthProviders())
-	_, _, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
+	_, err := svc.StartOIDCLogin(ctx, "keycloak", "/")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	_, _, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
+	_, err = svc.CompleteOIDCCallback(ctx, "keycloak", "code", "state", "binding")
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
@@ -470,15 +450,11 @@ func expectAuthCodeURL(provider *ssomocks.OIDCProvider) {
 
 func startOIDCTestLogin(t *testing.T, svc *service.AuthService) (string, string) {
 	t.Helper()
-	authURL, binding, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
 	require.NoError(t, err)
-	require.NotEmpty(t, binding)
-	state := authURL[strings.Index(authURL, "state=")+len("state="):]
-	if end := strings.IndexByte(state, '&'); end >= 0 {
-		state = state[:end]
-	}
-	require.NotEmpty(t, state)
-	return state, binding
+	require.NotEmpty(t, started.State)
+	require.NotEmpty(t, started.StateBinding)
+	return started.State, started.StateBinding
 }
 
 func userWithPassword(id uuid.UUID, username, password, role, status string) model.User {
@@ -594,4 +570,188 @@ func TestAuthServiceStoresAndLooksUpIdentityInLowercase(t *testing.T) {
 
 		require.ErrorIs(t, err, apperrors.ErrInvalidCredentials)
 	})
+}
+
+// oidcTestService builds an OIDC-enabled service over attempts whose clock
+// reads *now.
+func oidcTestService(t *testing.T, repo *ssomocks.UserRepository, tokens *ssomocks.TokenProvider, provider *ssomocks.OIDCProvider, attempts service.LoginAttemptRepository, now *time.Time) *service.AuthService {
+	t.Helper()
+	expectAuthCodeURL(provider)
+	return service.NewAuthServiceWithConfig(repo, tokens, testSessions(t, repo), service.OIDCDeps{Provider: provider, LoginAttempts: attempts}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak", Now: func() time.Time { return *now },
+	})
+}
+
+func TestAuthServiceOIDCStartReturnsTheAttemptsStateBindingAndExpiry(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	svc := oidcTestService(t, ssomocks.NewUserRepository(t), ssomocks.NewTokenProvider(t), ssomocks.NewOIDCProvider(t), ssotest.NewLoginAttempts(), &now)
+
+	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "http://frontend.example/auth/callback")
+	require.NoError(t, err)
+	require.Equal(t, authURLQuery(t, started.AuthURL).Get("state"), started.State)
+	require.Len(t, started.State, 43)
+	require.Len(t, started.StateBinding, 43)
+	require.NotEqual(t, started.State, started.StateBinding)
+	require.Equal(t, now.Add(30*time.Minute), started.ExpiresAt, "an attempt lives 30 minutes")
+}
+
+// A callback answers expected rejections as outcomes; it reports the
+// attempt's target once the attempt has been consumed.
+func TestAuthServiceOIDCCallbackOutcomes(t *testing.T) {
+	const target = "http://frontend.example/auth/callback"
+	subject := service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com"}
+	for name, tc := range map[string]struct {
+		prepare  func(repo *ssomocks.UserRepository, provider *ssomocks.OIDCProvider)
+		code     string
+		state    func(started model.OIDCLoginStart) (string, string)
+		advance  time.Duration
+		outcome  model.OIDCCallbackOutcome
+		redirect string
+	}{
+		"an unknown state": {
+			state:   func(model.OIDCLoginStart) (string, string) { return "unknown-state", "binding" },
+			outcome: model.OIDCCallbackInvalidAttempt,
+		},
+		"a wrong browser binding": {
+			state:   func(s model.OIDCLoginStart) (string, string) { return s.State, "other-binding" },
+			outcome: model.OIDCCallbackInvalidAttempt,
+		},
+		"a missing code": {
+			code:    " ",
+			outcome: model.OIDCCallbackInvalidAttempt,
+		},
+		"an attempt returned to after 30 minutes": {
+			advance: 30 * time.Minute,
+			outcome: model.OIDCCallbackInvalidAttempt,
+		},
+		"an identity the provider rejects": {
+			prepare: func(_ *ssomocks.UserRepository, provider *ssomocks.OIDCProvider) {
+				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{}, apperrors.ErrInvalidCredentials).Once()
+			},
+			outcome:  model.OIDCCallbackIdentityRejected,
+			redirect: target,
+		},
+		"a deactivated account": {
+			prepare: func(repo *ssomocks.UserRepository, provider *ssomocks.OIDCProvider) {
+				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(subject, nil).Once()
+				existing := model.User{ID: uuid.New(), Username: "alice", Email: "alice@example.com", Role: model.RoleUser, Status: model.StatusDeactivated, AuthSource: model.AuthSourceOIDC}
+				repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(existing, nil).Once()
+				repo.EXPECT().GetUserByUsername(mock.Anything, mock.Anything).Return(existing, nil).Maybe()
+				repo.EXPECT().GetUserByEmail(mock.Anything, mock.Anything).Return(existing, nil).Maybe()
+				repo.EXPECT().UpdateUser(mock.Anything, mock.Anything).Return(nil).Maybe()
+			},
+			outcome:  model.OIDCCallbackAccountDeactivated,
+			redirect: target,
+		},
+		"an account that collides with another": {
+			prepare: func(repo *ssomocks.UserRepository, provider *ssomocks.OIDCProvider) {
+				provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(subject, nil).Once()
+				repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
+				repo.EXPECT().GetUserByUsername(mock.Anything, mock.Anything).Return(model.User{}, apperrors.ErrNotFound).Maybe()
+				repo.EXPECT().GetUserByEmail(mock.Anything, mock.Anything).Return(model.User{}, apperrors.ErrNotFound).Maybe()
+				repo.EXPECT().SaveUser(mock.Anything, mock.Anything).Return(apperrors.ErrAlreadyExists).Once()
+			},
+			outcome:  model.OIDCCallbackAccountConflict,
+			redirect: target,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			repo := ssomocks.NewUserRepository(t)
+			provider := ssomocks.NewOIDCProvider(t)
+			svc := oidcTestService(t, repo, ssomocks.NewTokenProvider(t), provider, ssotest.NewLoginAttempts(), &now)
+			if tc.prepare != nil {
+				tc.prepare(repo, provider)
+			}
+			started, err := svc.StartOIDCLogin(context.Background(), "keycloak", target)
+			require.NoError(t, err)
+			state, binding := started.State, started.StateBinding
+			if tc.state != nil {
+				state, binding = tc.state(started)
+			}
+			code := "code"
+			if tc.code != "" {
+				code = tc.code
+			}
+			now = now.Add(tc.advance)
+
+			result, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", code, state, binding)
+			require.NoError(t, err)
+			require.Equal(t, tc.outcome, result.Outcome)
+			require.Equal(t, tc.redirect, result.RedirectAfter)
+			require.Empty(t, result.Tokens)
+		})
+	}
+}
+
+func TestAuthServiceOIDCCallbackReportsProviderFailuresAsErrors(t *testing.T) {
+	for _, failure := range []error{apperrors.ErrUnavailable, apperrors.ErrTimeout} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			provider := ssomocks.NewOIDCProvider(t)
+			svc := oidcTestService(t, ssomocks.NewUserRepository(t), ssomocks.NewTokenProvider(t), provider, ssotest.NewLoginAttempts(), &now)
+			provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{}, failure).Once()
+			started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+			require.NoError(t, err)
+
+			_, err = svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
+			require.ErrorIs(t, err, failure)
+		})
+	}
+}
+
+// A refused callback with the wrong binding leaves the attempt for its own
+// browser, and an attempt started by one service instance completes on another
+// over the same store.
+func TestAuthServiceOIDCAttemptOutlivesItsServiceAndAWrongBinding(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	attempts := ssotest.NewLoginAttempts()
+	repo := ssomocks.NewUserRepository(t)
+	tokens := ssomocks.NewTokenProvider(t)
+	provider := ssomocks.NewOIDCProvider(t)
+	before := oidcTestService(t, repo, tokens, provider, attempts, &now)
+	started, err := before.StartOIDCLogin(context.Background(), "keycloak", "/")
+	require.NoError(t, err)
+
+	after := oidcTestService(t, repo, tokens, provider, attempts, &now)
+	refused, err := after.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, "other-binding")
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackInvalidAttempt, refused.Outcome)
+
+	provider.EXPECT().ExchangeCode(mock.Anything, "code", mock.Anything, mock.Anything).Return(service.OIDCIdentity{Subject: "subject-1", PreferredUsername: "alice", Email: "alice@example.com"}, nil).Once()
+	repo.EXPECT().GetUserByExternalIdentity(mock.Anything, "keycloak", "subject-1").Return(model.User{}, apperrors.ErrNotFound).Once()
+	repo.EXPECT().GetUserByUsername(mock.Anything, "alice").Return(model.User{}, apperrors.ErrNotFound).Once()
+	repo.EXPECT().GetUserByEmail(mock.Anything, "alice@example.com").Return(model.User{}, apperrors.ErrNotFound).Once()
+	repo.EXPECT().SaveUser(mock.Anything, mock.Anything).Return(nil).Once()
+	tokens.EXPECT().GenerateAccessToken(mock.Anything, mock.Anything, mock.Anything).Return("access", nil).Once()
+	result, err := after.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackSuccess, result.Outcome)
+	require.Equal(t, "access", result.Tokens.AccessToken)
+	require.Equal(t, "/", result.RedirectAfter)
+}
+
+// Session cleanup also deletes expired attempts: once it has run, the attempt
+// is gone even for a clock that reads before its expiry.
+func TestAuthServiceCleanupDeletesExpiredLoginAttempts(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	now := start
+	repo := ssomocks.NewUserRepository(t)
+	sessions := ssomocks.NewSessionRepository(t)
+	provider := ssomocks.NewOIDCProvider(t)
+	expectAuthCodeURL(provider)
+	svc := service.NewAuthServiceWithConfig(repo, ssomocks.NewTokenProvider(t), sessions, service.OIDCDeps{Provider: provider, LoginAttempts: ssotest.NewLoginAttempts()}, service.Config{
+		OIDCEnabled: true, OIDCProviderName: "keycloak", Now: func() time.Time { return now },
+	})
+	started, err := svc.StartOIDCLogin(context.Background(), "keycloak", "/")
+	require.NoError(t, err)
+
+	now = start.Add(service.OIDCLoginAttemptTTL)
+	sessions.EXPECT().DeleteExpired(mock.Anything, now, 100).Return(nil).Once()
+	require.NoError(t, svc.CleanupSessions(context.Background()))
+
+	now = start
+	result, err := svc.CompleteOIDCCallback(context.Background(), "keycloak", "code", started.State, started.StateBinding)
+	require.NoError(t, err)
+	require.Equal(t, model.OIDCCallbackInvalidAttempt, result.Outcome)
 }

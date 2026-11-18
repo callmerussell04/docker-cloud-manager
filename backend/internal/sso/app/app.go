@@ -64,7 +64,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if !cfg.Auth.LocalLoginEnabled && len(cfg.OIDC.AdminGroups) == 0 {
 		logger.Warn("local sign-in is off and SSO_OIDC_ADMIN_GROUPS is empty: no administrator may be able to sign in; recovering through the bootstrap admin requires SSO_LOCAL_LOGIN_ENABLED=true")
 	}
-	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, repository.NewSessionRepository(db), serviceProvider, service.Config{
+	authService := service.NewAuthServiceWithConfig(repo, tokenProvider, repository.NewSessionRepository(db), service.OIDCDeps{Provider: serviceProvider, LoginAttempts: repository.NewLoginAttemptRepository(db)}, service.Config{
 		LocalLoginEnabled: cfg.Auth.LocalLoginEnabled,
 		AccessTTL:         cfg.AccessTTL, SessionTTL: cfg.SessionTTL, SessionIdleTTL: cfg.SessionIdleTTL,
 		LocalRegisterEnabled: cfg.Auth.LocalRegisterEnabled,
