@@ -22,7 +22,7 @@ func (r *LoginAttemptRepository) SaveLoginAttempt(ctx context.Context, attempt m
  VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
 		attempt.StateDigest, attempt.Provider, attempt.Nonce, attempt.PKCEVerifier,
 		attempt.BindingDigest, attempt.RedirectAfter, attempt.CreatedAt, attempt.ExpiresAt)
-	return sessionStorageError(ctx, "store login attempt", err)
+	return storageError(ctx, "store login attempt", err)
 }
 
 // ConsumeLoginAttempt is one statement, so of concurrent callbacks for one
@@ -36,11 +36,11 @@ func (r *LoginAttemptRepository) ConsumeLoginAttempt(ctx context.Context, stateD
 		stateDigest, provider, bindingDigest, now).
 		Scan(&attempt.StateDigest, &attempt.Provider, &attempt.Nonce, &attempt.PKCEVerifier,
 			&attempt.BindingDigest, &attempt.RedirectAfter, &attempt.CreatedAt, &attempt.ExpiresAt)
-	return attempt, sessionStorageError(ctx, "consume login attempt", err)
+	return attempt, storageError(ctx, "consume login attempt", err)
 }
 
 func (r *LoginAttemptRepository) DeleteExpiredLoginAttempts(ctx context.Context, now time.Time, limit int) error {
 	_, err := r.db.Exec(ctx, `DELETE FROM oidc_login_attempts WHERE state_digest IN
  (SELECT state_digest FROM oidc_login_attempts WHERE expires_at<=$1 ORDER BY expires_at,state_digest LIMIT $2 FOR UPDATE SKIP LOCKED)`, now, limit)
-	return sessionStorageError(ctx, "clean expired login attempts", err)
+	return storageError(ctx, "clean expired login attempts", err)
 }

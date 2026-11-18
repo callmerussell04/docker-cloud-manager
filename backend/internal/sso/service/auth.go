@@ -652,7 +652,7 @@ func (s *AuthService) syncOIDCUser(ctx context.Context, user model.User, identit
 // user (empty currentUsername) is an account conflict.
 func (s *AuthService) resolveOIDCUsername(ctx context.Context, currentUserID uuid.UUID, currentUsername, base, identityHash string) (string, error) {
 	suffix := "-" + identityHash[:8]
-	candidates := []string{base, cutUsername(base, maxDerivedUsername-len(suffix)) + suffix, "oidc-" + identityHash[:24]}
+	candidates := []string{base, cutUsername(base, maxDerivedUsername-len(suffix)) + suffix, oidcFallbackName(identityHash)}
 	for _, candidate := range candidates {
 		user, err := s.repo.GetUserByUsername(ctx, candidate)
 		if errors.Is(err, apperrors.ErrNotFound) || (err == nil && user.ID == currentUserID) {
@@ -684,7 +684,7 @@ func (s *AuthService) resolveOIDCEmail(ctx context.Context, currentUserID uuid.U
 		}
 	}
 
-	email := "oidc-" + identityHash[:24] + "@oidc.local"
+	email := oidcFallbackName(identityHash) + "@oidc.local"
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if errors.Is(err, apperrors.ErrNotFound) {
 		return email, nil
@@ -924,6 +924,12 @@ func cutUsername(value string, limit int) string {
 		value = value[:limit]
 	}
 	return strings.TrimRight(value, usernameSeparators)
+}
+
+// oidcFallbackName is "oidc-" and 24 characters of the identity hash: the last
+// username candidate and the local part of the fallback email.
+func oidcFallbackName(identityHash string) string {
+	return "oidc-" + identityHash[:24]
 }
 
 // oidcIdentityHash is the hex SHA-256 of provider:subject. Derived usernames and

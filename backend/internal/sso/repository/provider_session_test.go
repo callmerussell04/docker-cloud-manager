@@ -3,12 +3,11 @@ package repository_test
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -17,70 +16,37 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/sso/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/dbtest"
+	ssomocks "github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/mocks/sso/service"
 )
 
-// fakeProvider is an OIDC provider that signs in whichever identity was
-// registered for a code, verifies the logout tokens it was given, builds a
-// sign-out URL from the ID token, and can be made unreachable.
-type fakeProvider struct {
-	mu          sync.Mutex
-	identities  map[string]service.OIDCIdentity
-	logouts     map[string]service.OIDCLogout
-	signOuts    []string
-	unavailable atomic.Bool
-}
-
-var _ service.OIDCProvider = (*fakeProvider)(nil)
-
-func (p *fakeProvider) Available() bool { return !p.unavailable.Load() }
-
-func (p *fakeProvider) AuthCodeURL(string, string, string) string { return "https://idp.example/auth" }
-
-func (p *fakeProvider) ExchangeCode(_ context.Context, code, _, _ string) (service.OIDCIdentity, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	identity, ok := p.identities[code]
-	if !ok {
-		return service.OIDCIdentity{}, apperrors.ErrInvalidCredentials
-	}
-	return identity, nil
-}
-
-// EndSessionURL records each sign-out URL it builds.
-func (p *fakeProvider) EndSessionURL(idTokenHint, postLogoutRedirectURI string) string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	signOut := "https://idp.example/logout?id_token_hint=" + idTokenHint + "&post_logout_redirect_uri=" + postLogoutRedirectURI
-	p.signOuts = append(p.signOuts, signOut)
-	return signOut
-}
-
-func (p *fakeProvider) VerifyLogoutToken(_ context.Context, token string) (service.OIDCLogout, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	logout, ok := p.logouts[token]
-	if !ok {
-		return service.OIDCLogout{}, apperrors.ErrInvalidToken
-	}
-	return logout, nil
-}
-
-// oidcSessions signs users in through OIDC callbacks against a fake provider,
-// over PostgreSQL and on an injected clock. Local sign-in is on too.
+// oidcSessions signs users in through OIDC callbacks against the generated
+// provider mock, over PostgreSQL and on an injected clock. Local sign-in is on
+// too. The provider is reachable until a test makes it unreachable, and each
+// sign-in and logout scripts the provider answer it needs.
 type oidcSessions struct {
-	t        *testing.T
-	ctx      context.Context
-	svc      *service.AuthService
-	provider *fakeProvider
+	t         *testing.T
+	ctx       context.Context
+	svc       *service.AuthService
+	provider  *ssomocks.OIDCProvider
+	available *mock.Call
+	codes     int
 }
 
 func newOIDCSessions(t *testing.T, ctx context.Context, db *pgxpool.Pool, now *time.Time) *oidcSessions {
 	t.Helper()
-	provider := &fakeProvider{identities: map[string]service.OIDCIdentity{}, logouts: map[string]service.OIDCLogout{}}
+	provider := ssomocks.NewOIDCProvider(t)
+	available := provider.EXPECT().Available().Return(true).Maybe()
+	provider.EXPECT().AuthCodeURL(mock.Anything, mock.Anything, mock.Anything).Return("https://idp.example/auth").Maybe()
 	svc := service.NewAuthServiceWithConfig(repository.NewUserRepository(db), jwt.NewProvider("secret"), repository.NewSessionRepository(db),
 		service.OIDCDeps{Provider: provider, LoginAttempts: repository.NewLoginAttemptRepository(db)},
 		service.Config{LocalLoginEnabled: true, LocalRegisterEnabled: true, OIDCEnabled: true, Now: func() time.Time { return *now }})
-	return &oidcSessions{t: t, ctx: ctx, svc: svc, provider: provider}
+	return &oidcSessions{t: t, ctx: ctx, svc: svc, provider: provider, available: available}
+}
+
+// makeUnreachable makes the provider report itself unavailable from now on.
+func (s *oidcSessions) makeUnreachable() {
+	s.available.Unset()
+	s.provider.EXPECT().Available().Return(false).Maybe()
 }
 
 // signIn completes one OIDC sign-in of identity and returns its tokens.
@@ -88,10 +54,9 @@ func (s *oidcSessions) signIn(identity service.OIDCIdentity) model.Tokens {
 	s.t.Helper()
 	started, err := s.svc.StartOIDCLogin(s.ctx, "keycloak", "/auth/callback")
 	require.NoError(s.t, err)
-	s.provider.mu.Lock()
-	code := fmt.Sprintf("code-%d", len(s.provider.identities))
-	s.provider.identities[code] = identity
-	s.provider.mu.Unlock()
+	s.codes++
+	code := fmt.Sprintf("code-%d", s.codes)
+	s.provider.EXPECT().ExchangeCode(mock.Anything, code, mock.Anything, mock.Anything).Return(identity, nil).Once()
 	result, err := s.svc.CompleteOIDCCallback(s.ctx, "keycloak", code, started.State, started.StateBinding)
 	require.NoError(s.t, err)
 	require.Equal(s.t, model.OIDCCallbackSuccess, result.Outcome)
@@ -142,9 +107,7 @@ func TestOIDCSessionsEndTwelveHoursAfterSignIn(t *testing.T) {
 // scriptLogout makes the provider verify token as the logout of a provider
 // session (sid) or, without one, of a subject.
 func (s *oidcSessions) scriptLogout(token string, logout service.OIDCLogout) {
-	s.provider.mu.Lock()
-	defer s.provider.mu.Unlock()
-	s.provider.logouts[token] = logout
+	s.provider.EXPECT().VerifyLogoutToken(mock.Anything, token).Return(logout, nil)
 }
 
 func (s *oidcSessions) requireValid(access string, valid bool) {
@@ -238,6 +201,9 @@ func TestLogoutOfAnOIDCSessionAnswersTheProviderSignOutURL(t *testing.T) {
 	alice := aliceAtTheProvider()
 	alice.SessionID, alice.IDToken = "provider-session-a", "id-token-a"
 	signedIn := s.signIn(alice)
+	// Strict: a second sign-out URL, for any session, fails the test.
+	s.provider.EXPECT().EndSessionURL("id-token-a", loginPage).
+		Return("https://idp.example/logout?id_token_hint=id-token-a&post_logout_redirect_uri=" + loginPage).Once()
 
 	signOutURL, err := s.svc.Logout(ctx, signedIn.RefreshToken, loginPage)
 	require.NoError(t, err)
@@ -261,16 +227,18 @@ func TestLogoutOfAnOIDCSessionAnswersTheProviderSignOutURL(t *testing.T) {
 	alice.SessionID, alice.IDToken = "provider-session-d", "id-token-d"
 	whileUnreachable := s.signIn(alice)
 
-	for name, tokens := range map[string]model.Tokens{
-		"local": local, "ended at the provider": endedAtProvider, "without an ID token": withoutIDToken, "provider unreachable": whileUnreachable,
-	} {
-		s.provider.unavailable.Store(name == "provider unreachable")
+	signOutWithoutURL := func(name string, tokens model.Tokens) {
+		t.Helper()
 		signOutURL, err := s.svc.Logout(ctx, tokens.RefreshToken, loginPage)
 		require.NoError(t, err, name)
 		require.Empty(t, signOutURL, name)
 		s.requireValid(tokens.AccessToken, false)
 	}
-	require.Len(t, s.provider.signOuts, 1, "only the first sign-out of a live OIDC session with an ID token builds a URL")
+	signOutWithoutURL("local", local)
+	signOutWithoutURL("ended at the provider", endedAtProvider)
+	signOutWithoutURL("without an ID token", withoutIDToken)
+	s.makeUnreachable()
+	signOutWithoutURL("provider unreachable", whileUnreachable)
 	var idTokens int
 	require.NoError(t, db.QueryRow(ctx, `SELECT count(*) FROM sessions WHERE id_token IS NOT NULL`).Scan(&idTokens))
 	require.Zero(t, idTokens)

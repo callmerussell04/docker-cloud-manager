@@ -273,6 +273,8 @@ func TestAuthHandlerOIDCStartRedirectsFailuresWithTheirReason(t *testing.T) {
 			auth, router := oidcRouter(t, handler.CookieConfig{Name: "refresh_token"})
 			if tc.redirectAfter == callbackTarget {
 				auth.EXPECT().StartOIDCLogin(mock.Anything, "keycloak", callbackTarget).Return(tc.result, tc.err)
+			} else {
+				expectKeycloakEnabled(auth)
 			}
 			resp := perform(router, http.MethodGet, "/start?redirect_after="+tc.redirectAfter, ``, nil)
 			requireLoginRedirect(t, resp, tc.location)
@@ -284,7 +286,7 @@ func TestAuthHandlerOIDCStartRedirectsFailuresWithTheirReason(t *testing.T) {
 }
 
 // With OIDC off the provider routes answer not found, whether or not the
-// callback reaches SSO's callback.
+// navigation reaches SSO's start or callback.
 func TestAuthHandlerOIDCRoutesAreNotFoundWhenTheProviderIsDisabled(t *testing.T) {
 	state, cookieName := testState("attempt")
 	auth, router := oidcRouter(t, handler.CookieConfig{Name: "refresh_token"})
@@ -293,6 +295,7 @@ func TestAuthHandlerOIDCRoutesAreNotFoundWhenTheProviderIsDisabled(t *testing.T)
 	auth.EXPECT().CompleteOIDCCallback(mock.Anything, "keycloak", "code", state, "binding").Return(model.OIDCCallbackResult{}, apperrors.ErrNotFound)
 
 	require.Equal(t, http.StatusNotFound, perform(router, http.MethodGet, "/start?redirect_after="+callbackTarget, ``, nil).Code)
+	require.Equal(t, http.StatusNotFound, perform(router, http.MethodGet, "/start?redirect_after=https://evil.example/auth/callback", ``, nil).Code)
 	require.Equal(t, http.StatusNotFound, perform(router, http.MethodGet, "/callback?error=access_denied", ``, nil).Code)
 	require.Equal(t, http.StatusNotFound, perform(router, http.MethodGet, "/callback?code=code&state=short", ``, nil).Code)
 	resp := perform(router, http.MethodGet, "/callback?code=code&state="+state, ``, []*http.Cookie{{Name: cookieName, Value: "binding"}})

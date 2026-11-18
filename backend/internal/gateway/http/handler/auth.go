@@ -56,6 +56,10 @@ const (
 	loginReasonLoginFailed         = "login_failed"
 )
 
+// oauthErrorAccessDenied is the OAuth error the provider returns when the user
+// cancels or refuses the sign-in.
+const oauthErrorAccessDenied = "access_denied"
+
 var callbackOutcomeReasons = map[model.OIDCCallbackOutcome]string{
 	model.OIDCCallbackInvalidAttempt:     loginReasonStateInvalid,
 	model.OIDCCallbackIdentityRejected:   loginReasonIdentityRejected,
@@ -210,12 +214,13 @@ func (h *AuthHandler) Providers(c *gin.Context) {
 
 // StartKeycloakLogin is a browser navigation: with the provider enabled it
 // answers only redirects, to the provider or, on failure, to the SPA callback
-// page with a reason. With OIDC off SSO answers not found, and so does it.
+// page with a reason. With OIDC off it answers not found on every path,
+// including an invalid redirect target.
 func (h *AuthHandler) StartKeycloakLogin(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	redirectAfter, err := h.safeRedirectAfter(c.Query("redirect_after"))
 	if err != nil {
-		h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonLoginFailed)
+		h.refuseNavigation(c, loginReasonLoginFailed)
 		return
 	}
 
@@ -248,21 +253,27 @@ func (h *AuthHandler) CompleteKeycloakCallback(c *gin.Context) {
 	}
 	if providerError := c.Query("error"); providerError != "" {
 		reason := loginReasonProviderError
-		if providerError == "access_denied" {
+		if providerError == oauthErrorAccessDenied {
 			reason = loginReasonAccessDenied
 		}
-		h.auditCallbackFailure(c, h.refuseCallback(c, reason))
+		if reason, redirected := h.refuseNavigation(c, reason); redirected {
+			h.auditCallbackFailure(c, reason)
+		}
 		return
 	}
 	code := c.Query("code")
 	if !stateValid || stateBinding == "" || code == "" {
-		h.auditCallbackFailure(c, h.refuseCallback(c, loginReasonStateInvalid))
+		if reason, redirected := h.refuseNavigation(c, loginReasonStateInvalid); redirected {
+			h.auditCallbackFailure(c, reason)
+		}
 		return
 	}
 
 	result, err := h.service.CompleteOIDCCallback(c.Request.Context(), keycloakProvider, code, state, stateBinding)
 	if err != nil {
-		h.auditCallbackFailure(c, h.failNavigation(c, h.defaultRedirectAfter(), err))
+		if reason, redirected := h.failNavigation(c, h.defaultRedirectAfter(), err); redirected {
+			h.auditCallbackFailure(c, reason)
+		}
 		return
 	}
 	target := h.defaultRedirectAfter()
@@ -299,37 +310,37 @@ func (h *AuthHandler) RejectRateLimitedNavigation(c *gin.Context) {
 	h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonRateLimited)
 }
 
-// refuseCallback refuses a callback without sending it to SSO's callback. It
-// still asks SSO whether the provider is enabled, so with OIDC off the route
-// is not found on every path. It returns the reason it redirected with, empty
-// when it answered not found.
-func (h *AuthHandler) refuseCallback(c *gin.Context, reason string) string {
+// refuseNavigation refuses a sign-in navigation without sending it on to SSO.
+// It still asks SSO whether the provider is enabled, so with OIDC off the
+// route is not found on every path. It reports the reason it redirected to
+// the default callback page with, and false when it answered not found.
+func (h *AuthHandler) refuseNavigation(c *gin.Context, reason string) (string, bool) {
 	cfg, err := h.service.GetAuthConfig(c.Request.Context())
 	if err != nil {
 		h.redirectLoginFailure(c, h.defaultRedirectAfter(), loginReasonProviderUnavailable)
-		return loginReasonProviderUnavailable
+		return loginReasonProviderUnavailable, true
 	}
 	for _, provider := range cfg.OIDCProviders {
 		if provider.Name == keycloakProvider {
 			h.redirectLoginFailure(c, h.defaultRedirectAfter(), reason)
-			return reason
+			return reason, true
 		}
 	}
 	httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
-	return ""
+	return "", false
 }
 
 // failNavigation answers an SSO error on a sign-in navigation: not found with
 // OIDC off, otherwise a redirect to target with the error's reason. It
-// returns that reason, empty when it answered not found.
-func (h *AuthHandler) failNavigation(c *gin.Context, target string, err error) string {
+// reports that reason, and false when it answered not found.
+func (h *AuthHandler) failNavigation(c *gin.Context, target string, err error) (string, bool) {
 	if errors.Is(err, apperrors.ErrNotFound) {
 		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
-		return ""
+		return "", false
 	}
 	reason := loginReasonForError(err)
 	h.redirectLoginFailure(c, target, reason)
-	return reason
+	return reason, true
 }
 
 // Sign-in audit events record only what SSO answered, never what the
@@ -366,12 +377,8 @@ func (h *AuthHandler) auditLoginFailure(c *gin.Context, err error) {
 	h.auditSignInFailure(c, auditlog.ActionAuthLogin, nil, apperrors.Code(err))
 }
 
-// auditCallbackFailure records a failed callback with its reason code. An
-// empty reason is a route answered as not found, which is no sign-in.
+// auditCallbackFailure records a failed callback with its reason code.
 func (h *AuthHandler) auditCallbackFailure(c *gin.Context, reason string) {
-	if reason == "" {
-		return
-	}
 	h.auditSignInFailure(c, auditlog.ActionAuthOIDCCallback, keycloakAuditDetails(), reason)
 }
 
@@ -473,18 +480,13 @@ func (h *AuthHandler) KeycloakBackchannelLogout(c *gin.Context) {
 		logoutToken = c.Request.PostForm.Get("logout_token")
 	}
 	revoked, err := h.service.BackchannelLogout(c.Request.Context(), keycloakProvider, logoutToken)
-	switch {
-	case err == nil:
-	case errors.Is(err, apperrors.ErrNotFound):
-		httpresponse.Respond(c, http.StatusNotFound, apperrors.ErrNotFound)
-		return
-	case errors.Is(err, apperrors.ErrBadRequest):
-		httpresponse.Respond(c, http.StatusBadRequest, err)
-		return
-	case errors.Is(err, apperrors.ErrUnavailable), errors.Is(err, apperrors.ErrTimeout):
+	if errors.Is(err, apperrors.ErrTimeout) {
+		// The provider's keys not arriving in time leaves them as unavailable
+		// as not arriving at all: 503, not the 504 a timeout answers elsewhere.
 		httpresponse.Respond(c, http.StatusServiceUnavailable, apperrors.ErrUnavailable)
 		return
-	default:
+	}
+	if err != nil {
 		h.handleAuthError(c, err)
 		return
 	}
