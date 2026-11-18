@@ -5,6 +5,7 @@ import {
   bytesToUnit,
   coresToMillicores,
   cpuSummary,
+  defaultContainerCapacity,
   formatBytes,
   memorySummary,
   millicoresToCores,
@@ -105,5 +106,33 @@ describe('cpu summary', () => {
   it('reports boost off at or below the limit multiplier and with the pressure worker off', () => {
     expect(cpuSummary({ ...defaults, cpu_boost_multiplier: 4 })).toMatchObject({ boost: 'off', boostCeilingCores: 1 });
     expect(cpuSummary({ ...defaults, memory_pressure_min_free_bytes: 0 })).toMatchObject({ boost: 'pressureOff', boostCeilingCores: 1 });
+  });
+});
+
+describe('default container capacity', () => {
+  // The defaults: 2048 MB and 2 cores, 256 MiB and 250 millicores each.
+  const defaults = {
+    default_user_quota_ram_mb: 2048,
+    default_user_quota_cpu: 2,
+    default_memory_reservation_bytes: 256 * MB,
+    default_cpu_reservation_millicores: 250,
+  };
+
+  it('counts the default containers the default quota allows, limited by both when they agree', () => {
+    expect(defaultContainerCapacity(defaults)).toEqual({ containers: 8, limitedBy: 'both' });
+  });
+
+  it('names the quota that runs out first', () => {
+    expect(defaultContainerCapacity({ ...defaults, default_user_quota_cpu: 1 })).toEqual({ containers: 4, limitedBy: 'cpu' });
+    expect(defaultContainerCapacity({ ...defaults, default_user_quota_ram_mb: 1000 })).toEqual({ containers: 3, limitedBy: 'memory' });
+  });
+
+  it('counts whole containers only', () => {
+    expect(defaultContainerCapacity({ ...defaults, default_user_quota_cpu: 0.2 })).toEqual({ containers: 0, limitedBy: 'cpu' });
+  });
+
+  it('has no summary while a value is missing or a reservation is not positive', () => {
+    expect(defaultContainerCapacity({ ...defaults, default_user_quota_cpu: undefined })).toBeNull();
+    expect(defaultContainerCapacity({ ...defaults, default_memory_reservation_bytes: 0 })).toBeNull();
   });
 });

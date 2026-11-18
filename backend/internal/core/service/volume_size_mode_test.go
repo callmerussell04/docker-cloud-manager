@@ -75,7 +75,9 @@ func TestVolumeSizeEnforcementBecomesAvailableAfterASuccessfulSettingsUpdate(t *
 	enforcement := service.CheckVolumeSizeEnforcement(context.Background(), checker, manager, slog.New(slog.DiscardHandler))
 	require.Equal(t, model.VolumeSizeUnavailable, enforcement.VolumeSizeMode())
 
-	svc, err := service.NewSystemService(service.SystemServiceDeps{Config: manager, VolumeSizeSupport: enforcement})
+	svc, err := service.NewSystemService(service.SystemServiceDeps{
+		Config: manager, VolumeSizeSupport: enforcement, HostCapacity: coremocks.NewSystemHostCapacity(t),
+	})
 	require.NoError(t, err)
 	cfg := svc.GetConfig(context.Background())
 	cfg.VolumeSizeEnforcement = false

@@ -2,7 +2,7 @@ import { useWatch, type Control } from 'react-hook-form';
 import { Info } from 'lucide-react';
 
 import type { TFunction } from '@/shared/i18n';
-import { cpuSummary, formatBytes, memorySummary, type SystemConfig } from '../model';
+import { cpuSummary, defaultContainerCapacity, formatBytes, memorySummary, type SystemConfig } from '../model';
 
 function SummaryNote({ lines }: { lines: string[] }) {
   return (
@@ -64,6 +64,27 @@ export function CPUSummaryNote({ control, t }: { control: Control<SystemConfig>;
         }),
         t(`admin.settings.summary.cpu.${summary.boost}`, { ceiling: cores(summary.boostCeilingCores) }),
       ]}
+    />
+  );
+}
+
+/** How many containers with the default reservations the default quota allows, and which quota limits them. */
+export function QuotaSummaryNote({ control, t }: { control: Control<SystemConfig>; t: TFunction }) {
+  const [quotaMB, quotaCores, memoryReservation, cpuReservation] = useWatch({
+    control,
+    name: ['default_user_quota_ram_mb', 'default_user_quota_cpu', 'default_memory_reservation_bytes', 'default_cpu_reservation_millicores'],
+  });
+  const capacity = defaultContainerCapacity({
+    default_user_quota_ram_mb: quotaMB,
+    default_user_quota_cpu: quotaCores,
+    default_memory_reservation_bytes: memoryReservation,
+    default_cpu_reservation_millicores: cpuReservation,
+  });
+  if (!capacity) return null;
+
+  return (
+    <SummaryNote
+      lines={[t(`admin.settings.summary.quota.${capacity.limitedBy}`, { containers: capacity.containers })]}
     />
   );
 }

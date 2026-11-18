@@ -1,14 +1,15 @@
 import { z } from 'zod';
 
 import { sections, type ListItemKind, type SettingDef } from './catalogue';
-import type { SettingName, SystemConfig } from './model';
+import { coresToMillicores, type SettingName, type SystemConfig } from './model';
 
 /**
  * Why a value is refused. The page turns a code into a sentence with the
  * setting's range, in the unit the setting is shown in.
  */
 export type SettingErrorCode =
-  | 'required' | 'integer' | 'range' | 'size' | 'listRequired' | 'listItem' | 'listUnique' | 'boostFloor';
+  | 'required' | 'integer' | 'range' | 'size' | 'listRequired' | 'listItem' | 'listUnique' | 'boostFloor'
+  | 'aboveMemoryQuota' | 'aboveCPUQuota' | 'aboveDiskQuota';
 
 const code = (message: SettingErrorCode) => ({ message });
 
@@ -85,13 +86,31 @@ const shape = Object.fromEntries(
   sections.flatMap((section) => section.settings.map((setting) => [setting.name, settingSchema(setting)])),
 ) as unknown as Record<SettingName, z.ZodType>;
 
+const MB = 1024 ** 2;
+
 // The same rules Core applies to an update, so the page refuses what the
-// server would. Each setting's own rule comes from the catalogue; the two
-// rules below span settings.
+// server would. Each setting's own rule comes from the catalogue; the rules
+// below span settings. Core also checks the capacity settings against the
+// host, which the page cannot see.
 export const systemConfigSchema = z.object(shape).superRefine((value, context) => {
   const settings = value as SystemConfig;
   if (settings.boost_min_free_memory_bytes < settings.memory_pressure_min_free_bytes) {
     context.addIssue({ code: 'custom', path: ['boost_min_free_memory_bytes'], ...code('boostFloor') });
+  }
+  // A default above the default quota would refuse the first container or
+  // volume of every user without a custom quota. A quota outside its own range
+  // shows only that error, as Core reports it first.
+  if (settings.default_user_quota_ram_mb > 0
+    && settings.default_memory_reservation_bytes > settings.default_user_quota_ram_mb * MB) {
+    context.addIssue({ code: 'custom', path: ['default_memory_reservation_bytes'], ...code('aboveMemoryQuota') });
+  }
+  if (settings.default_user_quota_cpu > 0
+    && settings.default_cpu_reservation_millicores > coresToMillicores(settings.default_user_quota_cpu)) {
+    context.addIssue({ code: 'custom', path: ['default_cpu_reservation_millicores'], ...code('aboveCPUQuota') });
+  }
+  if (settings.default_user_quota_disk_mb > 0
+    && settings.default_volume_size_bytes > settings.default_user_quota_disk_mb * MB) {
+    context.addIssue({ code: 'custom', path: ['default_volume_size_bytes'], ...code('aboveDiskQuota') });
   }
   if (settings.git_sources_enabled && settings.git_allowed_hosts.length === 0) {
     context.addIssue({ code: 'custom', path: ['git_allowed_hosts'], ...code('listRequired') });

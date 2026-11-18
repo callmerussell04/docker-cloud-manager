@@ -78,6 +78,7 @@ packages:
       StatsRootfsQuota: {}
       StatsVolumeRepository: {}
       StatsVolumeSizeMode: {}
+      SystemHostCapacity: {}
       SystemVolumeSizeSupport: {}
       UsageSnapshotSource: {}
       UserInfoProvider: {}

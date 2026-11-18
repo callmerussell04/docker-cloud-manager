@@ -17,12 +17,14 @@ type SystemVolumeSizeSupport interface {
 type SystemService struct {
 	cfgManager        *config.Manager
 	volumeSizeSupport SystemVolumeSizeSupport
+	hostCapacity      SystemHostCapacity
 }
 
 // SystemServiceDeps are what the system service needs; all are required.
 type SystemServiceDeps struct {
 	Config            *config.Manager
 	VolumeSizeSupport SystemVolumeSizeSupport
+	HostCapacity      SystemHostCapacity
 }
 
 func NewSystemService(deps SystemServiceDeps) (*SystemService, error) {
@@ -31,28 +33,38 @@ func NewSystemService(deps SystemServiceDeps) (*SystemService, error) {
 		value any
 	}{
 		{"config", deps.Config}, {"volume size support", deps.VolumeSizeSupport},
+		{"host capacity", deps.HostCapacity},
 	}
 	for _, dependency := range required {
 		if dependency.value == nil || isNilServiceDependency(dependency.value) {
 			return nil, fmt.Errorf("system service: %s is required", dependency.name)
 		}
 	}
-	return &SystemService{cfgManager: deps.Config, volumeSizeSupport: deps.VolumeSizeSupport}, nil
+	return &SystemService{
+		cfgManager: deps.Config, volumeSizeSupport: deps.VolumeSizeSupport, hostCapacity: deps.HostCapacity,
+	}, nil
 }
 
 func (s *SystemService) GetConfig(ctx context.Context) config.SystemConfig {
 	return s.cfgManager.Get()
 }
 
-// UpdateConfig validates and applies newConfig. Turning volume size
-// enforcement on first checks that the host supports volume sizes and rejects
-// the update when it does not; turning it off or leaving it unchanged checks
-// nothing.
+// UpdateConfig validates and applies newConfig, saving nothing when it
+// rejects it. An update that changes a capacity setting is checked against the
+// host: a system reservation that leaves no pool, or build slots above it, are
+// a bad request. Turning volume size enforcement on first checks that the host
+// supports volume sizes and rejects the update when it does not; turning it
+// off or leaving it unchanged checks nothing. A host check that cannot run is
+// unavailable.
 func (s *SystemService) UpdateConfig(ctx context.Context, newConfig config.SystemConfig) error {
 	if err := config.ValidateSystemConfig(newConfig); err != nil {
 		return fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
 	}
-	if newConfig.VolumeSizeEnforcement && !s.cfgManager.Get().VolumeSizeEnforcement {
+	current := s.cfgManager.Get()
+	if err := checkHostCapacitySettings(s.hostCapacity, current, newConfig); err != nil {
+		return err
+	}
+	if newConfig.VolumeSizeEnforcement && !current.VolumeSizeEnforcement {
 		supported, err := s.volumeSizeSupport.CheckVolumeSizeSupport(ctx)
 		if err != nil {
 			return apperrors.Wrap(apperrors.ErrUnavailable,

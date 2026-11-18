@@ -41,9 +41,12 @@ export const sections: Array<{ id: SectionId; settings: SettingDef[] }> = [
   {
     id: 'users',
     settings: [
-      { name: 'default_user_quota_cpu', kind: 'decimal', min: 0.001, max: 1_000_000, unit: 'cores' },
-      { name: 'default_user_quota_ram_mb', kind: 'integer', min: 1, unit: 'mb' },
-      { name: 'default_user_quota_disk_mb', kind: 'integer', min: 1, unit: 'mb' },
+      {
+        name: 'default_user_quota_cpu', kind: 'decimal', min: 0.001, max: 1_000_000, unit: 'cores',
+        affects: ['default_cpu_reservation_millicores'],
+      },
+      { name: 'default_user_quota_ram_mb', kind: 'integer', min: 1, unit: 'mb', affects: ['default_memory_reservation_bytes'] },
+      { name: 'default_user_quota_disk_mb', kind: 'integer', min: 1, unit: 'mb', affects: ['default_volume_size_bytes'] },
       { name: 'max_containers_per_user', kind: 'integer', min: 1 },
       { name: 'max_volumes_per_user', kind: 'integer', min: 1 },
       { name: 'max_queued_builds_per_user', kind: 'integer', min: 1 },

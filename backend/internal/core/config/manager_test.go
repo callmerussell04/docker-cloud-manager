@@ -345,11 +345,14 @@ func TestValidateSystemConfigBoundsMemoryPressureSettings(t *testing.T) {
 }
 
 func TestValidateSystemConfigRequiresPositiveDefaultUserQuotas(t *testing.T) {
+	// The smallest default quotas are the smallest default reservations and
+	// volume size: a quota below them is rejected as a contradiction.
 	smallest := validSystemConfig()
-	smallest.DefaultUserQuotaCPU = 0.001
-	smallest.DefaultUserQuotaRAMMB, smallest.DefaultUserQuotaDiskMB = 1, 1
+	smallest.DefaultMemoryReservation, smallest.DefaultCPUReservation, smallest.DefaultVolumeSizeBytes = 16<<20, 10, 1<<20
+	smallest.DefaultUserQuotaCPU = 0.01
+	smallest.DefaultUserQuotaRAMMB, smallest.DefaultUserQuotaDiskMB = 16, 1
 	if err := config.ValidateSystemConfig(smallest); err != nil {
-		t.Fatalf("one millicore, 1 MB of memory and 1 MB of disk are valid defaults: %v", err)
+		t.Fatalf("10 millicores, 16 MB of memory and 1 MB of disk are valid defaults: %v", err)
 	}
 	// The rejected values carry a marker that must not reach the message,
 	// which UpdateConfig returns to the admin client verbatim.
@@ -640,6 +643,49 @@ func TestValidateSystemConfigBoundsDefaultReservations(t *testing.T) {
 	}{
 		{name: "memory below 16 MiB", apply: func(c *config.SystemConfig) { c.DefaultMemoryReservation = 16<<20 - 1 }, want: "default memory reservation must be at least 16 MiB"},
 		{name: "cpu below 10 millicores", apply: func(c *config.SystemConfig) { c.DefaultCPUReservation = 9 }, want: "default cpu reservation must be at least 10 millicores"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.apply(&cfg)
+			err := config.ValidateSystemConfig(cfg)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("ValidateSystemConfig() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// A default reservation above the default quota, or a default volume above
+// the default disk quota, would refuse the first container or volume of every
+// user without a custom quota.
+func TestValidateSystemConfigKeepsDefaultsWithinTheDefaultQuota(t *testing.T) {
+	exact := validSystemConfig()
+	exact.DefaultUserQuotaRAMMB, exact.DefaultMemoryReservation = 256, 256<<20
+	exact.DefaultUserQuotaCPU, exact.DefaultCPUReservation = 0.25, 250
+	exact.DefaultUserQuotaDiskMB, exact.DefaultVolumeSizeBytes = 256, 256<<20
+	if err := config.ValidateSystemConfig(exact); err != nil {
+		t.Fatalf("defaults equal to the default quota are valid: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.SystemConfig)
+		want  string
+	}{
+		{
+			name:  "memory reservation one byte above the memory quota",
+			apply: func(c *config.SystemConfig) { c.DefaultUserQuotaRAMMB, c.DefaultMemoryReservation = 256, 256<<20+1 },
+			want:  "default memory reservation must not exceed the default user memory quota",
+		},
+		{
+			name:  "cpu reservation one millicore above the cpu quota",
+			apply: func(c *config.SystemConfig) { c.DefaultUserQuotaCPU, c.DefaultCPUReservation = 0.25, 251 },
+			want:  "default cpu reservation must not exceed the default user cpu quota",
+		},
+		{
+			name:  "volume size one byte above the disk quota",
+			apply: func(c *config.SystemConfig) { c.DefaultUserQuotaDiskMB, c.DefaultVolumeSizeBytes = 256, 256<<20+1 },
+			want:  "default volume size must not exceed the default user disk quota",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := validSystemConfig()

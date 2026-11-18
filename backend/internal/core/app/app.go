@@ -124,6 +124,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 
 	metricsProvider := metrics.NewSystemMetrics()
 	volumeSizeEnforcement := service.CheckVolumeSizeEnforcement(context.Background(), dockerAdapter, cfg.ConfigManager, appLogger)
+	service.ReportHostSettingConflicts(context.Background(), metricsProvider, cfg.ConfigManager.Get(), appLogger)
 
 	contService, err := service.NewContainerService(service.ContainerServiceDeps{
 		Repository: contRepo, Volumes: volRepo,
@@ -202,7 +203,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	contService.SetProjectStatusUpdater(projService)
 	systemService, err := service.NewSystemService(service.SystemServiceDeps{
-		Config: cfg.ConfigManager, VolumeSizeSupport: volumeSizeEnforcement,
+		Config: cfg.ConfigManager, VolumeSizeSupport: volumeSizeEnforcement, HostCapacity: metricsProvider,
 	})
 	if err != nil {
 		return nil, err

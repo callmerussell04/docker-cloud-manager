@@ -16,7 +16,7 @@ import { useSystemConfig, useUpdateSystemConfig } from '../queries';
 import { AuthSettingsStatus } from '../components/AuthSettingsStatus';
 import { SectionNav } from '../components/SectionNav';
 import { SettingRow } from '../components/SettingRow';
-import { CPUSummaryNote, MemorySummaryNote } from '../components/SettingsSummary';
+import { CPUSummaryNote, MemorySummaryNote, QuotaSummaryNote } from '../components/SettingsSummary';
 
 // The sign-in status is the last section: read-only, set in the environment.
 type PageSection = SectionId | 'auth';
@@ -137,6 +137,7 @@ export function SystemSettingsPage() {
             <Card key={section.id}>
               <CardContent className="p-6">
                 <SectionHeading id={section.id} t={t} />
+                {!query && section.id === 'users' && <QuotaSummaryNote control={control} t={t} />}
                 {!query && section.id === 'memory' && <MemorySummaryNote control={control} t={t} />}
                 {!query && section.id === 'cpu' && <CPUSummaryNote control={control} t={t} />}
                 <div className="divide-y divide-slate-200/70 dark:divide-slate-700/50">

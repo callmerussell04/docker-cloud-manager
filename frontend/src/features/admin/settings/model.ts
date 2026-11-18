@@ -182,3 +182,37 @@ export function cpuSummary(
     boost,
   };
 }
+
+/** Which default quota runs out first for containers with the default reservations. */
+export type CapacityLimit = 'memory' | 'cpu' | 'both';
+
+export interface DefaultContainerCapacity {
+  containers: number;
+  limitedBy: CapacityLimit;
+}
+
+/**
+ * How many containers with the default reservations the default quota allows,
+ * and which quota limits them; null while a value is missing or a reservation
+ * is not positive.
+ */
+export function defaultContainerCapacity(
+  settings: Partial<Pick<SystemConfig,
+    'default_user_quota_ram_mb' | 'default_user_quota_cpu' | 'default_memory_reservation_bytes' | 'default_cpu_reservation_millicores'>>,
+): DefaultContainerCapacity | null {
+  const values = [
+    settings.default_user_quota_ram_mb,
+    settings.default_user_quota_cpu,
+    settings.default_memory_reservation_bytes,
+    settings.default_cpu_reservation_millicores,
+  ];
+  if (!allNumbers(values)) return null;
+  const [quotaMB, quotaCores, memoryReservation, cpuReservation] = values;
+  if (memoryReservation <= 0 || cpuReservation <= 0) return null;
+  const byMemory = Math.floor((quotaMB * 1024 ** 2) / memoryReservation);
+  const byCPU = Math.floor(coresToMillicores(quotaCores) / cpuReservation);
+  return {
+    containers: Math.max(Math.min(byMemory, byCPU), 0),
+    limitedBy: byMemory === byCPU ? 'both' : byMemory < byCPU ? 'memory' : 'cpu',
+  };
+}

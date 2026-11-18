@@ -9,7 +9,7 @@ const GB = 1024 ** 3;
 
 // The values a new installation starts with.
 const defaults: SystemConfig = {
-  default_user_quota_cpu: 1,
+  default_user_quota_cpu: 2,
   default_user_quota_ram_mb: 2048,
   default_user_quota_disk_mb: 5120,
   max_containers_per_user: 10,
@@ -138,6 +138,20 @@ describe('settings schema', () => {
     expect(errorsOf({ memory_pressure_min_free_bytes: GB, boost_min_free_memory_bytes: GB - 1 }))
       .toEqual({ boost_min_free_memory_bytes: 'boostFloor' });
     expect(errorsOf({ memory_pressure_min_free_bytes: GB, boost_min_free_memory_bytes: GB })).toEqual({});
+  });
+
+  it('keeps the default reservations and volume size within the default quota', () => {
+    expect(errorsOf({ default_user_quota_ram_mb: 256, default_memory_reservation_bytes: 256 * MB + 1 }))
+      .toEqual({ default_memory_reservation_bytes: 'aboveMemoryQuota' });
+    expect(errorsOf({ default_user_quota_cpu: 0.25, default_cpu_reservation_millicores: 251 }))
+      .toEqual({ default_cpu_reservation_millicores: 'aboveCPUQuota' });
+    expect(errorsOf({ default_user_quota_disk_mb: 256, default_volume_size_bytes: 256 * MB + 1 }))
+      .toEqual({ default_volume_size_bytes: 'aboveDiskQuota' });
+    expect(errorsOf({
+      default_user_quota_ram_mb: 256, default_memory_reservation_bytes: 256 * MB,
+      default_user_quota_cpu: 0.25, default_cpu_reservation_millicores: 250,
+      default_user_quota_disk_mb: 256, default_volume_size_bytes: 256 * MB,
+    })).toEqual({});
   });
 
   it.each<[SettingName, string[], string]>([

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 
@@ -176,6 +177,17 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.DefaultUserQuotaRAMMB <= 0 || cfg.DefaultUserQuotaDiskMB <= 0 {
 		return fmt.Errorf("default user memory and disk quotas must be positive")
 	}
+	// A default above the default quota would refuse the first container or
+	// volume of every owner without a custom quota.
+	if cfg.DefaultMemoryReservation > mebibytesToBytes(cfg.DefaultUserQuotaRAMMB) {
+		return fmt.Errorf("default memory reservation must not exceed the default user memory quota")
+	}
+	if cfg.DefaultCPUReservation > CPUMillicores(cfg.DefaultUserQuotaCPU) {
+		return fmt.Errorf("default cpu reservation must not exceed the default user cpu quota")
+	}
+	if cfg.DefaultVolumeSizeBytes > mebibytesToBytes(cfg.DefaultUserQuotaDiskMB) {
+		return fmt.Errorf("default volume size must not exceed the default user disk quota")
+	}
 	if cfg.ComposeUploadMaxBytes <= 0 || cfg.ComposePipelineTimeoutMinutes <= 0 {
 		return fmt.Errorf("compose upload and timeout settings must be positive")
 	}
@@ -240,4 +252,14 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		return fmt.Errorf("telemetry command and websocket limits must be positive")
 	}
 	return nil
+}
+
+// mebibytesToBytes converts a quota in MB (MiB, as quotas are read) to bytes,
+// saturating instead of overflowing for a quota no host has.
+func mebibytesToBytes(mb int64) int64 {
+	const bytesPerMB = 1 << 20
+	if mb > math.MaxInt64/bytesPerMB {
+		return math.MaxInt64
+	}
+	return mb * bytesPerMB
 }

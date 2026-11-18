@@ -128,6 +128,12 @@ function errorText(code: string | undefined, setting: SettingDef, t: TFunction) 
       return t('admin.settings.error.listUnique');
     case 'boostFloor':
       return t('admin.settings.error.boostFloor');
+    case 'aboveMemoryQuota':
+      return t('admin.settings.error.aboveMemoryQuota');
+    case 'aboveCPUQuota':
+      return t('admin.settings.error.aboveCPUQuota');
+    case 'aboveDiskQuota':
+      return t('admin.settings.error.aboveDiskQuota');
     case 'range': {
       const min = shown(setting.min ?? 0);
       if (setting.max === undefined) return t('admin.settings.error.rangeFrom', { min });
