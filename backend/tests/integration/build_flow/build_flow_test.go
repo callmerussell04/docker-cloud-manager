@@ -300,6 +300,7 @@ func newBuildServiceWithDisk(t *testing.T, repos coretest.CoreRepositories, owne
 		Quotas:        repos.UserQuotas(t, cfg),
 		Logger:        coretest.DiscardLogger(),
 		Containers:    repos.Containers,
+		CapacityLock:  repos.Containers,
 		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,

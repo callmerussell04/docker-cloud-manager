@@ -91,6 +91,13 @@ type BuildRegistryAuthorizer interface {
 	RevokeBuild(ctx context.Context, id uuid.UUID, pushedTag model.RegistryTagDisposition) error
 }
 
+// BuildCapacityLock serialises the disk quota check at build completion with
+// every other admission for the same owner, so two completions, or a
+// completion and a volume create, cannot both take the last of the quota.
+type BuildCapacityLock interface {
+	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
+}
+
 type BuildDeploymentCanceler interface {
 	CancelDeploymentForBuild(ctx context.Context, projectID, buildID uuid.UUID) error
 }
@@ -136,6 +143,7 @@ type BuildService struct {
 	deployments  BuildDeploymentCanceler
 	staging      *stagedsource.Staging
 	containers   BuildContainerReservationRepository
+	capacityLock BuildCapacityLock
 	diskMetrics  HostDiskMetricsProvider
 	hostMetrics  HostMetricsProvider
 	hostDiskPath string
@@ -160,10 +168,13 @@ type BuildServiceDeps struct {
 	Deployments   BuildDeploymentCanceler
 	StagedObjects StagedObjectRepository
 	Containers    BuildContainerReservationRepository
-	DiskMetrics   HostDiskMetricsProvider
-	HostMetrics   HostMetricsProvider
-	HostDiskPath  string
-	RegistryAuth  BuildRegistryAuthorizer
+	// CapacityLock is the owner capacity lock the completion's disk quota
+	// check holds.
+	CapacityLock BuildCapacityLock
+	DiskMetrics  HostDiskMetricsProvider
+	HostMetrics  HostMetricsProvider
+	HostDiskPath string
+	RegistryAuth BuildRegistryAuthorizer
 }
 
 type createBuildJobInput struct {
@@ -188,6 +199,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		{"quotas", deps.Quotas},
 		{"config", deps.Config}, {"volumes", deps.VolumeRepo},
 		{"staged objects", deps.StagedObjects}, {"containers", deps.Containers},
+		{"capacity lock", deps.CapacityLock},
 		{"disk metrics", deps.DiskMetrics}, {"host metrics", deps.HostMetrics},
 		{"registry authorization", deps.RegistryAuth},
 	}
@@ -220,6 +232,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 			Config:       deps.Config,
 		}),
 		containers:   deps.Containers,
+		capacityLock: deps.CapacityLock,
 		diskMetrics:  deps.DiskMetrics,
 		hostMetrics:  deps.HostMetrics,
 		hostDiskPath: hostDiskPath,
@@ -857,24 +870,15 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		return s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedInternal)
 	}
 
-	quota, err := s.quotas.EffectiveUserQuota(ctx, img.OwnerID)
+	var recordedDigest *string
+	if digest != "" {
+		recordedDigest = &digest
+	}
+	replaced, admitted, err := s.recordBuiltImage(ctx, b.ID, img, sizeBytes, recordedDigest)
 	if err != nil {
 		return err
 	}
-	usedBytes, err := s.getUserReservedDiskBytes(ctx, img.OwnerID)
-	if err != nil {
-		return err
-	}
-	replacedBytes, err := s.imageRepo.GetReplacementImageBytes(ctx, img.OwnerID, img.Tag, img.ID)
-	if err != nil {
-		return err
-	}
-	usedBytes = max(usedBytes-replacedBytes, 0)
-
-	if usedBytes+sizeBytes > quota.DiskBytes() {
-		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, imageID, model.BuildStatusFailedQuotaExceeded); err != nil {
-			return fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
-		}
+	if !admitted {
 		if err := s.registryAuth.RevokeBuild(ctx, b.ID, model.RegistryTagDelete); err != nil {
 			return err
 		}
@@ -883,19 +887,52 @@ func (s *BuildService) CompleteBuildRecord(ctx context.Context, buildID, imageID
 		s.logger.WarnContext(ctx, "built image rejected by disk quota", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 		return nil
 	}
-
-	var recordedDigest *string
-	if digest != "" {
-		recordedDigest = &digest
-	}
-	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, imageID, status, sizeBytes, recordedDigest)
-	if err != nil {
-		return err
-	}
 	s.removeReplacedImages(ctx, replaced)
 	s.cleanupBuildArchive(ctx, b)
 	s.logger.InfoContext(ctx, "build record completed", "build_id", buildID, "image_id", imageID, "owner_id", img.OwnerID, "size_bytes", sizeBytes)
 	return nil
+}
+
+// recordBuiltImage decides whether the successfully built image fits the
+// owner's disk quota and records the outcome: the image size and success
+// (admitted, with the images the rebuild replaced), or the quota-exceeded
+// failure. The owner capacity lock covers the quota read, the
+// reserved disk read, the replaced image read and the write, so two
+// completions, or a completion and a volume create, cannot both take the last
+// of the quota. A rebuild does not count the image it replaces. No Registry,
+// Docker or object storage call runs under the lock.
+func (s *BuildService) recordBuiltImage(ctx context.Context, buildID uuid.UUID, img model.Image, sizeBytes int64, digest *string) ([]model.Image, bool, error) {
+	unlock, err := s.capacityLock.AcquireOwnerCapacityLock(ctx, img.OwnerID)
+	if err != nil {
+		return nil, false, err
+	}
+	defer unlock()
+
+	quota, err := s.quotas.EffectiveUserQuota(ctx, img.OwnerID)
+	if err != nil {
+		return nil, false, err
+	}
+	usedBytes, err := s.getUserReservedDiskBytes(ctx, img.OwnerID)
+	if err != nil {
+		return nil, false, err
+	}
+	replacedBytes, err := s.imageRepo.GetReplacementImageBytes(ctx, img.OwnerID, img.Tag, img.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	usedBytes = max(usedBytes-replacedBytes, 0)
+
+	if usedBytes+sizeBytes > quota.DiskBytes() {
+		if err := s.imageRepo.MarkBuildFailedAndDeleteImageTx(ctx, buildID, img.ID, model.BuildStatusFailedQuotaExceeded); err != nil {
+			return nil, false, fmt.Errorf("failed to mark quota-exceeded build failed: %w", err)
+		}
+		return nil, false, nil
+	}
+	replaced, err := s.imageRepo.UpdateBuildAndImageSizeTx(ctx, buildID, img.ID, model.BuildStatusSuccess, sizeBytes, digest)
+	if err != nil {
+		return nil, false, err
+	}
+	return replaced, true, nil
 }
 
 // removeReplacedImages removes the images a successful rebuild replaced from

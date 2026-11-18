@@ -26,6 +26,7 @@ func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
 		"VolumeRepo":    "volumes",
 		"StagedObjects": "staged objects",
 		"Containers":    "containers",
+		"CapacityLock":  "capacity lock",
 		"DiskMetrics":   "disk metrics",
 		"HostMetrics":   "host metrics",
 		"RegistryAuth":  "registry authorization",
@@ -34,6 +35,7 @@ func TestBuildServiceRejectsMissingDependencies(t *testing.T) {
 
 var _ service.BuildRepository = (*repository.BuildRepository)(nil)
 var _ service.BuildContainerReservationRepository = (*repository.ContainerRepository)(nil)
+var _ service.BuildCapacityLock = (*repository.ContainerRepository)(nil)
 var _ service.BuildObjectStore = (*objectstorage.LazyStorage)(nil)
 var _ service.BuildRegistryAuthorizer = (*service.RegistryAuthorization)(nil)
 
@@ -70,6 +72,7 @@ func buildServiceDeps(t *testing.T) service.BuildServiceDeps {
 		VolumeRepo:    volumes,
 		StagedObjects: staged,
 		Containers:    containers,
+		CapacityLock:  coretest.NewContainerStoreFake(),
 		DiskMetrics:   coremocks.NewHostDiskMetricsProvider(t),
 		HostMetrics:   metrics,
 		RegistryAuth:  revokingRegistryAuthorizer(t),
@@ -101,6 +104,9 @@ func newTestBuildService(t *testing.T, deps service.BuildServiceDeps) *service.B
 	}
 	if deps.Containers == nil {
 		deps.Containers = defaults.Containers
+	}
+	if deps.CapacityLock == nil {
+		deps.CapacityLock = defaults.CapacityLock
 	}
 	if deps.DiskMetrics == nil {
 		deps.DiskMetrics = defaults.DiskMetrics

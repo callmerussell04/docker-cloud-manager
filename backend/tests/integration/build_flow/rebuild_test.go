@@ -54,6 +54,7 @@ func newRebuildEnv(t *testing.T) *rebuildEnv {
 		Quotas:        repos.UserQuotas(t, cfg),
 		Logger:        coretest.DiscardLogger(),
 		Containers:    repos.Containers,
+		CapacityLock:  repos.Containers,
 		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        cfg,

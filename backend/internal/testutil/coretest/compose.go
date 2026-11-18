@@ -97,6 +97,7 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		Quotas:        quotas,
 		Logger:        logger,
 		Containers:    repos.Containers,
+		CapacityLock:  repos.Containers,
 		HostMetrics:   hostMetrics,
 		VolumeRepo:    repos.Volumes,
 		Config:        f.Config,

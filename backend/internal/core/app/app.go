@@ -177,6 +177,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		ObjectStore:   objectStore,
 		StagedObjects: stagedRepo,
 		Containers:    contRepo,
+		CapacityLock:  contRepo,
 		DiskMetrics:   metricsProvider,
 		HostMetrics:   metricsProvider,
 		HostDiskPath:  cfg.HostDiskPath,
