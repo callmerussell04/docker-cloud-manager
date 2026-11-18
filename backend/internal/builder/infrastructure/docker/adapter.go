@@ -40,6 +40,11 @@ const (
 	// instanceLabel names the Builder instance that started a build
 	// container. Core lists build containers by the other labels only.
 	instanceLabel = "dcm.builder_instance_id"
+	// buildOOMScoreAdj is the OOM score adjustment of every build container,
+	// the same as Core gives tenant containers: when the host runs out of
+	// memory, the kernel's OOM killer picks a build before the platform's own
+	// services, which keep Docker's default of zero.
+	buildOOMScoreAdj = 500
 )
 
 type Adapter struct {
@@ -180,6 +185,7 @@ func (a *Adapter) RunBuildContainer(ctx context.Context, params model.BuildRunti
 	hostConfig := &container.HostConfig{
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
+		OomScoreAdj: buildOOMScoreAdj,
 		Resources: container.Resources{
 			Memory:       params.MemoryBytes,
 			CgroupParent: a.cgroupParent,

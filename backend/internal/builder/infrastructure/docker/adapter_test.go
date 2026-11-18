@@ -106,8 +106,10 @@ func TestAdapterRunBuildContainerPassesProxyToRunSteps(t *testing.T) {
 }
 
 // Build containers run user Dockerfiles, so they sit under the same parent
-// cgroup as user containers and count against the same host cap.
-func TestAdapterRunBuildContainerPlacesItUnderTheConfiguredCgroupParent(t *testing.T) {
+// cgroup as user containers and count against the same host cap, and carry
+// the same positive OOM score so the kernel picks them before the platform's
+// own services.
+func TestAdapterRunBuildContainerPlacesItUnderTheConfiguredCgroupParentWithAnOOMScore(t *testing.T) {
 	for _, tt := range []struct {
 		name   string
 		parent string
@@ -137,9 +139,15 @@ func TestAdapterRunBuildContainerPlacesItUnderTheConfiguredCgroupParent(t *testi
 
 			created := daemon.Requests("/containers/create")
 			require.Len(t, created, 1)
-			var request struct{ HostConfig struct{ CgroupParent string } }
+			var request struct {
+				HostConfig struct {
+					CgroupParent string
+					OomScoreAdj  int
+				}
+			}
 			require.NoError(t, json.Unmarshal(created[0].Body, &request))
 			require.Equal(t, tt.want, request.HostConfig.CgroupParent)
+			require.Equal(t, 500, request.HostConfig.OomScoreAdj, "the kernel OOM killer prefers a build container over the platform's services")
 		})
 	}
 }

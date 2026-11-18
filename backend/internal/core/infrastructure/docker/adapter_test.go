@@ -62,6 +62,7 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 			CPUPeriod         int64
 			PidsLimit         *int64
 			CgroupParent      string
+			OomScoreAdj       int
 			SecurityOpt       []string
 			CapDrop           []string
 			LogConfig         struct {
@@ -90,6 +91,10 @@ func TestAdapterCreateContainerSendsIdentityLimitsAndLogOptions(t *testing.T) {
 	require.NotNil(t, host.PidsLimit)
 	require.Equal(t, int64(200), *host.PidsLimit)
 	require.Empty(t, host.CgroupParent, "without a configured parent Docker chooses the cgroup")
+	// Every generation, the first and each one expose creates, goes through
+	// here, so each carries the score that makes the kernel OOM killer pick a
+	// tenant container before the platform's services.
+	require.Equal(t, 500, host.OomScoreAdj, "the kernel OOM killer prefers a tenant container over the platform's services")
 	require.Equal(t, []string{"no-new-privileges:true"}, host.SecurityOpt)
 	require.Equal(t, []string{"CAP_NET_RAW"}, host.CapDrop) // the client normalizes capability names
 	require.Equal(t, "json-file", host.LogConfig.Type)

@@ -117,6 +117,10 @@ type memoryBoostInput struct {
 	// pool is the memory user workloads may use together.
 	pool      int64
 	workloads []boostWorkload
+	// hostAvailable is the memory the host measured available in the same
+	// pass, when hostMeasured is set. It caps the modelled free memory.
+	hostAvailable int64
+	hostMeasured  bool
 	// minFree is the free memory below which workloads are stopped.
 	minFree int64
 	// boostMinFree is the free memory a grant must leave and below which
@@ -127,10 +131,17 @@ type memoryBoostInput struct {
 	quotas map[uuid.UUID]int64
 }
 
+// free is the free part of the user memory pool: what the model leaves of
+// it after the workloads' use, or what the host measured available when that
+// is lower, so an underestimated system reservation or memory used outside
+// the measured workloads cannot hide real pressure.
 func (in memoryBoostInput) free() int64 {
 	free := in.pool
 	for _, w := range in.workloads {
 		free -= w.poolUse()
+	}
+	if in.hostMeasured {
+		free = min(free, in.hostAvailable)
 	}
 	return free
 }

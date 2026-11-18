@@ -97,6 +97,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	warnWithoutTenantCgroupParent(appLogger, cfg.TenantCgroupParent)
 	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithCgroupParent(cfg.TenantCgroupParent), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
 	if err != nil {
 		return nil, err

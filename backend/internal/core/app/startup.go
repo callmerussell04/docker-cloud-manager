@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
@@ -71,4 +72,17 @@ func outboxWorkers(publisher service.OutboxPublisher, builds *repository.BuildRe
 		service.NewContainerOutboxWorker(containers, publisher, runtime, logger).Run,
 		service.NewResourceOutboxWorker(resources, publisher, runtime, logger).Run,
 	}
+}
+
+// warnWithoutTenantCgroupParent logs one warning when TENANT_CGROUP_PARENT is
+// not set: tenant and build containers then sit under Docker's default
+// parent, and nothing on the host caps the memory they take together. It
+// never stops startup.
+func warnWithoutTenantCgroupParent(logger *slog.Logger, parent string) {
+	if strings.TrimSpace(parent) != "" {
+		return
+	}
+	logger.Warn("TENANT_CGROUP_PARENT is not set: tenant and build containers run under Docker's default cgroup parent, "+
+		"so no host cgroup caps the memory they take together and only the memory pressure worker and the kernel OOM killer protect the platform's services",
+		"operation", "check_tenant_cgroup_parent")
 }

@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -140,6 +141,8 @@ func TestMemoryPressureWorkerStopsContainersOverTheirReservation(t *testing.T) {
 			cfg.MemoryPressureMinFreeBytes = tc.minFreeMiB * pressureMiB
 			metrics := coremocks.NewMemoryPressureHostMetrics(t)
 			metrics.EXPECT().GetTotalMemory().Return(4096*pressureMiB, nil).Maybe()
+			// The host measures more free than the model, so the model decides.
+			metrics.EXPECT().GetMemoryStats().Return(model.HostMemoryStats{TotalBytes: 4096 * pressureMiB, AvailableBytes: 4096 * pressureMiB}, nil).Maybe()
 			builds := coremocks.NewActiveSystemBuildCounter(t)
 			builds.EXPECT().CountActive(mock.Anything).Return(tc.activeBuilds, nil).Maybe()
 			worker, err := service.NewMemoryPressureWorker(service.MemoryPressureWorkerDeps{
@@ -555,6 +558,96 @@ func TestMemoryPressureWorkerBoostsAndReclaimsMemory(t *testing.T) {
 	}
 }
 
+// The model can miss memory the host is really short of: a system
+// reservation set too low, or memory used outside the containers it
+// measures. The worker acts on the lower of the free part of the pool it
+// models and the memory the host measures available, for stops, for lowering
+// limits and for what a grant may take. The model here has 6 GiB of the
+// 7 GiB pool free or more in every case, so every decision below comes from
+// the measurement.
+func TestMemoryPressureWorkerActsOnMeasuredFreeMemoryWhenItIsLower(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		containers   []boostContainer
+		availableMiB int64
+		availableErr error
+		// wantLimitsMiB is every limit update sent to Docker.
+		wantLimitsMiB map[string]int64
+		wantStopped   []stopOf
+		// wantLog is a message the pass logs at wantLevel.
+		wantLog, wantLevel string
+	}{
+		{
+			// 300 MiB is measured free against a 512 MiB floor.
+			name:          "a measured shortfall stops the container over its reservation",
+			containers:    []boostContainer{{name: "over", usedMiB: 600}, {name: "within", usedMiB: 200}},
+			availableMiB:  300,
+			wantLimitsMiB: map[string]int64{},
+			wantStopped:   []stopOf{{"over", service.MemoryPressureStopReason}},
+		},
+		{
+			name:          "a measured shortfall stops nothing within its reservation and says so",
+			containers:    []boostContainer{{name: "a", usedMiB: 256}, {name: "b", usedMiB: 200}},
+			availableMiB:  300,
+			wantLimitsMiB: map[string]int64{},
+			wantLog:       "user memory pool is short but no workload exceeds its reservation",
+			wantLevel:     "WARN",
+		},
+		{
+			// 1 GiB is measured free, below the 2 GiB boost floor.
+			name:          "measured free memory below the boost floor lowers a boosted limit",
+			containers:    []boostContainer{{name: "boosted", usedMiB: 600, limitMiB: 1536}},
+			availableMiB:  1024,
+			wantLimitsMiB: map[string]int64{"boosted": 1024},
+		},
+		{
+			// 2112 MiB is measured free, so only 64 MiB may be lent.
+			name:          "a grant never takes measured free memory below the boost floor",
+			containers:    []boostContainer{{name: "near", usedMiB: 900}},
+			availableMiB:  2112,
+			wantLimitsMiB: map[string]int64{"near": 1088},
+		},
+		{
+			name:          "a measurement above the model leaves the model to decide",
+			containers:    []boostContainer{{name: "near", usedMiB: 900}},
+			availableMiB:  8192,
+			wantLimitsMiB: map[string]int64{"near": 1536},
+		},
+		{
+			name:          "a failed measurement is logged and the model decides alone",
+			containers:    []boostContainer{{name: "near", usedMiB: 900}},
+			availableErr:  errors.New("meminfo unreadable"),
+			wantLimitsMiB: map[string]int64{"near": 1536},
+			wantLog:       "failed to measure available host memory",
+			wantLevel:     "WARN",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				pass := newBoostPass(t, boostTestConfig(), nil)
+				pass.availableMiB, pass.availableErr = tc.availableMiB, tc.availableErr
+				for _, bc := range tc.containers {
+					pass.add(bc)
+				}
+
+				pass.worker.RelievePressure(context.Background())
+
+				require.Equal(t, tc.wantLimitsMiB, pass.updatedMiB(), "limit updates sent to Docker")
+				require.Equal(t, tc.wantStopped, pass.stopped(), "stops queued, in order")
+				if tc.wantLog != "" {
+					var levels []any
+					for _, entry := range decodeLogs(t, &pass.logs) {
+						if entry["msg"] == tc.wantLog {
+							levels = append(levels, entry["level"])
+						}
+					}
+					require.Equal(t, []any{tc.wantLevel}, levels, "logged once")
+				}
+			})
+		})
+	}
+}
+
 // A limit lowered under pressure is not raised again for six passes, so it
 // does not swing while the host hovers around the boost floor.
 func TestMemoryPressureWorkerDoesNotRaiseALoweredLimitWithinTheCooldown(t *testing.T) {
@@ -935,6 +1028,11 @@ type boostPass struct {
 	builds        []model.BuildContainer
 	stopper       *coremocks.MemoryPressureBuildStopper
 	buildsStopped []string
+	// availableMiB is the memory the host measures available; availableErr
+	// fails that read instead.
+	availableMiB int64
+	availableErr error
+	logs         bytes.Buffer
 }
 
 func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int64) *boostPass {
@@ -951,6 +1049,12 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 		stopper: coremocks.NewMemoryPressureBuildStopper(t),
 	}
 	p.metrics.EXPECT().GetTotalMemory().Return(8192*pressureMiB, nil).Maybe()
+	// Unless a test measures less, the host reports all of its memory
+	// available, so the model decides.
+	p.availableMiB = 8192
+	p.metrics.EXPECT().GetMemoryStats().RunAndReturn(func() (model.HostMemoryStats, error) {
+		return model.HostMemoryStats{TotalBytes: 8192 * pressureMiB, AvailableBytes: p.availableMiB * pressureMiB}, p.availableErr
+	}).Maybe()
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).RunAndReturn(
 		func(context.Context) (int, error) { return len(p.builds), nil }).Maybe()
@@ -967,7 +1071,7 @@ func newBoostPass(t *testing.T, cfg config.SystemConfig, quotaMiB map[string]int
 		BuildStopper: p.stopper,
 		Quotas:       quotas,
 		Config:       static,
-		Logger:       slog.New(slog.DiscardHandler),
+		Logger:       slog.New(slog.NewJSONHandler(&p.logs, nil)),
 	})
 	require.NoError(t, err)
 	p.worker = worker

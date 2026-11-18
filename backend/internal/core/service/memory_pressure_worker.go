@@ -51,6 +51,9 @@ type MemoryPressureBuildStopper interface {
 
 type MemoryPressureHostMetrics interface {
 	GetTotalMemory() (int64, error)
+	// GetMemoryStats is what the host measures now; the worker reads its
+	// available memory.
+	GetMemoryStats() (model.HostMemoryStats, error)
 	// GetCPULoad is the host's CPU use in percent. It blocks for about a
 	// second while it measures.
 	GetCPULoad() (float64, error)
@@ -65,7 +68,9 @@ type MemoryPressureConfigProvider interface {
 // system and for build slots. Admission keeps reservations within it, but
 // containers may use up to their limit, so their use together can exceed it.
 //
-// Each pass measures every running container and build container and acts on the free part of the pool. With
+// Each pass measures every running container and build container and acts on the free part of the pool:
+// what the model leaves of it, or what the host measures available when
+// that is lower. With
 // memory boost on, a workload close to its limit while the pool has plenty
 // free gets its limit raised, up to its boost ceiling; when the pool runs
 // low, raised limits are lowered to what their workloads use plus a margin.
@@ -163,9 +168,11 @@ func (w *MemoryPressureWorker) Run(ctx context.Context) {
 // the limit and quota changes, at most one update per workload. Lowered
 // memory limits go out before the CPU decision, which may wait a second on
 // host load, so they rest on fresh measurements; such a workload gets no CPU
-// change in the same pass. A zero MemoryPressureMinFreeBytes turns the
-// worker off. A workload whose
-// usage cannot be read counts as using nothing and is left alone.
+// change in the same pass. Every decision uses the lower of the modelled
+// free memory and the host's measured available memory; a failed
+// measurement is logged and the pass uses the model alone. A zero
+// MemoryPressureMinFreeBytes turns the worker off. A workload whose usage
+// cannot be read counts as using nothing and is left alone.
 func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -243,6 +250,13 @@ func (w *MemoryPressureWorker) RelievePressure(ctx context.Context) {
 		in.workloads = append(in.workloads, workload)
 	}
 	w.cooldown, w.cpuCooldown, w.cpuSamples = next.cooldown, next.cpuCooldown, next.cpuSamples
+	// The host is measured after the workloads, so both figures describe
+	// the same moment as closely as one pass can.
+	if host, err := w.metrics.GetMemoryStats(); err != nil {
+		w.logger.WarnContext(ctx, "failed to measure available host memory", "error", err)
+	} else {
+		in.hostAvailable, in.hostMeasured = host.AvailableBytes, true
+	}
 	if in.quotas, err = w.memoryQuotas(ctx, in.growCandidateOwners()); err != nil {
 		return
 	}

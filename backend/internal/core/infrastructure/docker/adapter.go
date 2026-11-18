@@ -27,6 +27,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// tenantOOMScoreAdj is the OOM score adjustment of every tenant container.
+// When the host runs out of memory, the kernel's OOM killer then picks a
+// tenant workload before the platform's own services, which keep Docker's
+// default of zero.
+const tenantOOMScoreAdj = 500
+
 type Adapter struct {
 	cli            *client.Client
 	hostPathPrefix string
@@ -188,6 +194,7 @@ func (a *Adapter) CreateContainer(ctx context.Context, params model.ContainerRun
 		NetworkMode: container.NetworkMode(params.NetworkName),
 		SecurityOpt: []string{"no-new-privileges:true"},
 		CapDrop:     []string{"NET_RAW"},
+		OomScoreAdj: tenantOOMScoreAdj,
 		Resources: container.Resources{
 			Memory:            params.MemoryLimitBytes,
 			CgroupParent:      a.cgroupParent,
