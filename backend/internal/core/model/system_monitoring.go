@@ -39,21 +39,25 @@ type SystemMonitoring struct {
 	// DCMReservedVolumeBytes is the sum of the sizes of all volumes not
 	// being deleted: the disk promised to volumes.
 	DCMReservedVolumeBytes int64
-	HostMinFreeDiskBytes   int64
-	AdmissionStatus        string
-	AdmissionReasons       []string
-	RootfsQuotaStatus      RootfsQuotaStatus
-	VolumeSizeMode         VolumeSizeMode
-	ContainersTotal        int
-	ContainersRunning      int
-	ContainersStopped      int
-	ContainersError        int
-	ContainersMissing      int
-	VolumesTotal           int
-	ImagesTotal            int
-	BuildsTotal            int
-	ProjectsTotal          int
-	ObservedAt             time.Time
+	// DCMUnusedVolumePromiseBytes is, over the same volumes, each size less
+	// its measured usage, never below zero: the disk promised to volumes and
+	// not used yet, which volume creates count against the disk floor.
+	DCMUnusedVolumePromiseBytes int64
+	HostMinFreeDiskBytes        int64
+	AdmissionStatus             string
+	AdmissionReasons            []string
+	RootfsQuotaStatus           RootfsQuotaStatus
+	VolumeSizeMode              VolumeSizeMode
+	ContainersTotal             int
+	ContainersRunning           int
+	ContainersStopped           int
+	ContainersError             int
+	ContainersMissing           int
+	VolumesTotal                int
+	ImagesTotal                 int
+	BuildsTotal                 int
+	ProjectsTotal               int
+	ObservedAt                  time.Time
 }
 
 // RootfsQuotaStatus says whether Docker enforces the container root

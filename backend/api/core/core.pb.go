@@ -595,8 +595,11 @@ type SystemMonitoringResponse struct {
 	DcmReservedVolumeBytes int64 `protobuf:"varint,26,opt,name=dcm_reserved_volume_bytes,json=dcmReservedVolumeBytes,proto3" json:"dcm_reserved_volume_bytes,omitempty"`
 	// measured, enforced or unavailable: how volume sizes are enforced.
 	VolumeSizeMode string `protobuf:"bytes,27,opt,name=volume_size_mode,json=volumeSizeMode,proto3" json:"volume_size_mode,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Over the same volumes, each size less its measured usage, never below
+	// zero: the disk promised to volumes and not used yet.
+	DcmUnusedVolumePromiseBytes int64 `protobuf:"varint,28,opt,name=dcm_unused_volume_promise_bytes,json=dcmUnusedVolumePromiseBytes,proto3" json:"dcm_unused_volume_promise_bytes,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -816,6 +819,13 @@ func (x *SystemMonitoringResponse) GetVolumeSizeMode() string {
 		return x.VolumeSizeMode
 	}
 	return ""
+}
+
+func (x *SystemMonitoringResponse) GetDcmUnusedVolumePromiseBytes() int64 {
+	if x != nil {
+		return x.DcmUnusedVolumePromiseBytes
+	}
+	return 0
 }
 
 type Empty struct {
@@ -4774,7 +4784,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
 	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\x12.\n" +
 	"\x13cpu_used_millicores\x18\f \x01(\x03R\x11cpuUsedMillicores\x120\n" +
-	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\xeb\t\n" +
+	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\xb1\n" +
+	"\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -4805,7 +4816,8 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x19dcm_borrowed_memory_bytes\x18\x18 \x01(\x03R\x16dcmBorrowedMemoryBytes\x12.\n" +
 	"\x13rootfs_quota_status\x18\x19 \x01(\tR\x11rootfsQuotaStatus\x129\n" +
 	"\x19dcm_reserved_volume_bytes\x18\x1a \x01(\x03R\x16dcmReservedVolumeBytes\x12(\n" +
-	"\x10volume_size_mode\x18\x1b \x01(\tR\x0evolumeSizeMode\"\a\n" +
+	"\x10volume_size_mode\x18\x1b \x01(\tR\x0evolumeSizeMode\x12D\n" +
+	"\x1fdcm_unused_volume_promise_bytes\x18\x1c \x01(\x03R\x1bdcmUnusedVolumePromiseBytes\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +

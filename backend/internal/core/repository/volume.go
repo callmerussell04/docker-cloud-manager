@@ -322,6 +322,16 @@ func (r *VolumeRepository) GetTotalVolumeSizeBytes(ctx context.Context) (int64, 
 	return total, err
 }
 
+// GetUnusedVolumePromiseBytes sums, over every owner's volumes not being
+// deleted, each volume's size less its measured usage, never below zero: the
+// disk the host has promised to volumes and they have not used yet.
+func (r *VolumeRepository) GetUnusedVolumePromiseBytes(ctx context.Context) (int64, error) {
+	query := `SELECT COALESCE(SUM(GREATEST(size_bytes - used_bytes, 0)), 0)::bigint FROM volumes WHERE status != $1`
+	var promise int64
+	err := r.db.QueryRow(ctx, query, model.VolumeStatusDeleting).Scan(&promise)
+	return promise, err
+}
+
 func (r *VolumeRepository) GetTotalUsedVolumeBytes(ctx context.Context) (int64, error) {
 	query := `SELECT COALESCE(SUM(used_bytes), 0) FROM volumes WHERE status != $1`
 	var usedBytes int64

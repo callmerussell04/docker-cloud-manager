@@ -30,6 +30,7 @@ type SystemMonitoringDTO struct {
 	RootfsQuotaStatus           string   `json:"rootfs_quota_status"`
 	DCMDiskUsedBytes            int64    `json:"dcm_disk_used_bytes"`
 	DCMReservedVolumeBytes      int64    `json:"dcm_reserved_volume_bytes"`
+	DCMUnusedVolumePromiseBytes int64    `json:"dcm_unused_volume_promise_bytes"`
 	VolumeSizeMode              string   `json:"volume_size_mode"`
 	HostMinFreeDiskBytes        int64    `json:"host_min_free_disk_bytes"`
 	AdmissionStatus             string   `json:"admission_status"`

@@ -33,7 +33,9 @@ const admissionMiB = int64(1 << 20)
 // through BuildMemoryBytes and the build CPU quota.
 // Builder runs up to four builds at once unless a case narrows it, and each
 // build slot also holds buildMaxDiskBytes of disk against the 1 GiB disk
-// floor. A volume create asks for the default 64 MiB size and no memory or CPU.
+// floor. A volume create asks for the default 64 MiB size and no memory or CPU;
+// it alone meets the disk floor together with unusedVolumePromiseBytes, what
+// every volume on the host was promised and has not used yet.
 //
 // The owner's quota is quotaRAMMB, quotaCPU and quotaDiskMB. With customQuota
 // it is a custom quota in Core's store and the defaults are one millicore and
@@ -52,16 +54,21 @@ type admissionWorld struct {
 	maxConcurrentBuilds   int
 	buildMaxDiskBytes     int64
 	diskFreeBytes         int64
+	diskFloorBytes        int64
+	// unusedVolumePromiseBytes is what every owner's volumes were promised
+	// and have not used yet.
+	unusedVolumePromiseBytes int64
 }
 
 func roomyAdmissionWorld() admissionWorld {
 	return admissionWorld{
-		quotaRAMMB:    1024,
-		quotaCPU:      1,
-		quotaDiskMB:   1024,
-		otherMemory:   256 * admissionMiB,
-		otherCPU:      250,
-		diskFreeBytes: 10 << 30,
+		quotaRAMMB:     1024,
+		quotaCPU:       1,
+		quotaDiskMB:    1024,
+		otherMemory:    256 * admissionMiB,
+		otherCPU:       250,
+		diskFreeBytes:  10 << 30,
+		diskFloorBytes: 1 << 30,
 
 		maxConcurrentBuilds: 4,
 		buildMaxDiskBytes:   1 << 30,
@@ -81,7 +88,7 @@ func (w admissionWorld) config() config.SystemConfig {
 	cfg.BuildCPUMillicores, cfg.BuildCPUPeriod = 250, 100000
 	cfg.MaxConcurrentBuilds = w.maxConcurrentBuilds
 	cfg.BuildMaxDiskBytes = w.buildMaxDiskBytes
-	cfg.HostMinFreeDiskBytes = 1 << 30
+	cfg.HostMinFreeDiskBytes = w.diskFloorBytes
 	cfg.DefaultVolumeSizeBytes = 64 * admissionMiB
 	cfg.DefaultUserQuotaCPU, cfg.DefaultUserQuotaRAMMB, cfg.DefaultUserQuotaDiskMB = w.quotaCPU, w.quotaRAMMB, w.quotaDiskMB
 	if w.customQuota {
@@ -277,6 +284,39 @@ func TestAdmissionThroughEveryEntryPoint(t *testing.T) {
 			wantBuild: apperrors.LimitDiskFloor,
 		},
 		{
+			// 9 GiB of the 10 GiB free is promised to volumes and unused, so
+			// a 64 MiB volume would go below the 1 GiB floor. Other work
+			// does not count volume promises and fits.
+			name:       "the unused volume promise leaves no room for a volume",
+			world:      func(w *admissionWorld) { w.unusedVolumePromiseBytes = 9 << 30 },
+			wantVolume: apperrors.LimitDiskFloor,
+		},
+		{
+			name:  "a volume that fills the disk down to the floor exactly",
+			world: func(w *admissionWorld) { w.unusedVolumePromiseBytes = 9<<30 - 64*admissionMiB },
+		},
+		{
+			// The owner's volumes reserve 512 MiB of quota, but the host
+			// reports no unused promise (their usage caught up with their
+			// sizes; the repository test pins that sum), so 1 GiB and 64 MiB
+			// free holds the floor and the new volume. A build slot's 1 GiB
+			// does not fit.
+			name: "a volume fits the disk when no promise is unused",
+			world: func(w *admissionWorld) {
+				w.reservedVolumeBytes = 512 * admissionMiB
+				w.diskFreeBytes = 1<<30 + 64*admissionMiB
+			},
+			wantBuild: apperrors.LimitDiskFloor,
+		},
+		{
+			name: "nothing is checked against the disk with a zero floor",
+			world: func(w *admissionWorld) {
+				w.diskFloorBytes = 0
+				w.diskFreeBytes = 0
+				w.unusedVolumePromiseBytes = 100 << 30
+			},
+		},
+		{
 			name: "user disk is checked before host memory",
 			world: func(w *admissionWorld) {
 				w.usedDiskMB = 1024
@@ -443,6 +483,7 @@ func admissionVolumeService(t *testing.T, w admissionWorld, ownerID uuid.UUID, s
 	repo := newVolumeRepoMock(t)
 	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil).Maybe()
+	repo.EXPECT().GetUnusedVolumePromiseBytes(mock.Anything).Return(w.unusedVolumePromiseBytes, nil).Maybe()
 	lifecycle := &volumeLifecycleFake{}
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
 		Repository:   repo,

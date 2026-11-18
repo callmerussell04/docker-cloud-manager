@@ -15,6 +15,7 @@ export interface SystemMonitoring {
   dcm_borrowed_memory_bytes: number;
   dcm_disk_used_bytes: number;
   dcm_reserved_volume_bytes: number;
+  dcm_unused_volume_promise_bytes: number;
   host_min_free_disk_bytes: number;
   admission_status: string;
   admission_reasons: string[];
@@ -48,6 +49,7 @@ export function withDefaults(stats?: SystemMonitoring): SystemMonitoring {
     dcm_borrowed_memory_bytes: stats?.dcm_borrowed_memory_bytes ?? 0,
     dcm_disk_used_bytes: stats?.dcm_disk_used_bytes ?? 0,
     dcm_reserved_volume_bytes: stats?.dcm_reserved_volume_bytes ?? 0,
+    dcm_unused_volume_promise_bytes: stats?.dcm_unused_volume_promise_bytes ?? 0,
     host_min_free_disk_bytes: stats?.host_min_free_disk_bytes ?? 0,
     admission_status: stats?.admission_status ?? 'open',
     admission_reasons: stats?.admission_reasons ?? [],

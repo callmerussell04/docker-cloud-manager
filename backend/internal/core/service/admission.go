@@ -29,10 +29,13 @@ type admissionRequest struct {
 	reservationHeld bool
 	// diskWriteBytes is what the work is projected to write to host disk.
 	diskWriteBytes int64
-	// userDiskBytes is disk the request reserves against the owner's disk
-	// quota, such as a new volume's size. With none, the request is
-	// rejected only when the owner's reserved disk already fills the quota.
-	userDiskBytes int64
+	// volumeBytes is the size of the volumes the request creates. It is
+	// reserved against the owner's disk quota and promised by the host disk:
+	// with the unused volume promise of every existing volume it must leave
+	// the disk floor free. With none, the request is rejected only when the
+	// owner's reserved disk already fills the quota, and the unused volume
+	// promise is not read.
+	volumeBytes int64
 }
 
 // reservationLedger is a snapshot of the memory, CPU and disk already promised
@@ -61,6 +64,10 @@ type reservationLedger struct {
 	hostLogicalCPUs  int64
 	diskFloorCounted bool
 	diskFreeBytes    int64
+	// unusedVolumePromiseBytes is what every owner's volumes were promised
+	// and have not used yet. It is read only for a request that creates
+	// volumes and only when the disk floor is counted.
+	unusedVolumePromiseBytes int64
 }
 
 // admissionVerdict is either admitted, with no limit, or rejected with the
@@ -86,7 +93,8 @@ func (v admissionVerdict) err() error {
 // checkAdmission decides whether req fits ledger. It checks, in order, user
 // memory, user CPU, user disk, host memory including builds, host CPU
 // including builds, and the host disk floor including the disk of build slots
-// for a build request, and rejects at the first limit exceeded. A request
+// for a build request and the unused volume promise for a volume request, and
+// rejects at the first limit exceeded. A request
 // whose memory and CPU are already held meets only the user disk quota and the
 // disk floor.
 func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.SystemConfig) admissionVerdict {
@@ -100,8 +108,8 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		}
 	}
 	if ledger.userDiskCounted {
-		if req.userDiskBytes > 0 {
-			if projected := ledger.userReservedDiskBytes + req.userDiskBytes; projected > ledger.userDiskQuotaBytes {
+		if req.volumeBytes > 0 {
+			if projected := ledger.userReservedDiskBytes + req.volumeBytes; projected > ledger.userDiskQuotaBytes {
 				return admissionVerdict{limit: apperrors.LimitUserDisk, projected: projected, capacity: ledger.userDiskQuotaBytes}
 			}
 		} else if ledger.userReservedDiskBytes >= ledger.userDiskQuotaBytes {
@@ -122,7 +130,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		}
 	}
 	if ledger.diskFloorCounted {
-		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - buildSlotDiskBytes(ledger, req, cfg)
+		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - buildSlotDiskBytes(ledger, req, cfg) - projectedVolumePromiseBytes(ledger, req)
 		if remaining < cfg.HostMinFreeDiskBytes {
 			return admissionVerdict{limit: apperrors.LimitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
 		}
@@ -142,10 +150,18 @@ type systemReservationReader interface {
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 }
 
+// volumePromiseReader sums what every owner's volumes were promised and have
+// not used yet.
+type volumePromiseReader interface {
+	GetUnusedVolumePromiseBytes(ctx context.Context) (int64, error)
+}
+
 // admissionSources are where a reservation ledger is read from. quotas is
 // required; userReservations is read only for requests charged to the owner,
-// and system and builds only when host metrics are wired. Absent images,
-// volumes, host or disk metrics leave that part of the ledger uncounted.
+// system and builds only when host metrics are wired, and volumePromise only
+// for requests that create volumes while the disk floor is counted. Absent
+// images, volumes, host or disk metrics leave that part of the ledger
+// uncounted.
 type admissionSources struct {
 	quotas           UserQuotaProvider
 	userReservations userReservationReader
@@ -153,6 +169,7 @@ type admissionSources struct {
 	builds           activeSystemBuildCounter
 	images           diskQuotaImageRepository
 	volumes          diskQuotaVolumeRepository
+	volumePromise    volumePromiseReader
 	hostMetrics      HostMetricsProvider
 	diskMetrics      HostDiskMetricsProvider
 	hostDiskPath     string
@@ -162,7 +179,7 @@ type admissionSources struct {
 // admit reads the reservation ledger for ownerID and checks req against it.
 // The caller holds the capacity lock. operation names the work in logs.
 func (s admissionSources) admit(ctx context.Context, ownerID uuid.UUID, req admissionRequest, cfg config.SystemConfig, operation string) error {
-	ledger, err := s.readLedger(ctx, ownerID, req.chargesUser, cfg)
+	ledger, err := s.readLedger(ctx, ownerID, req, cfg)
 	if err != nil {
 		return err
 	}
@@ -178,14 +195,15 @@ func (s admissionSources) admit(ctx context.Context, ownerID uuid.UUID, req admi
 	return verdict.err()
 }
 
-// readLedger reads the disk only when cfg enables the disk floor.
-func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, chargesUser bool, cfg config.SystemConfig) (reservationLedger, error) {
+// readLedger reads what req is checked against. It reads the disk only when
+// cfg enables the disk floor.
+func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, req admissionRequest, cfg config.SystemConfig) (reservationLedger, error) {
 	var ledger reservationLedger
 	quota, err := s.quotas.EffectiveUserQuota(ctx, ownerID)
 	if err != nil {
 		return ledger, err
 	}
-	if chargesUser {
+	if req.chargesUser {
 		ledger.userMemoryQuotaBytes = quota.RAMMB * bytesPerMB
 		ledger.userCPUQuotaMillicores = quota.CPUMillicores
 		if ledger.userReservedMemoryBytes, err = s.userReservations.GetUserReservedMemory(ctx, ownerID); err != nil {
@@ -237,6 +255,11 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, cha
 		}
 		ledger.diskFloorCounted = true
 		ledger.diskFreeBytes = stats.FreeBytes
+		if req.volumeBytes > 0 && s.volumePromise != nil {
+			if ledger.unusedVolumePromiseBytes, err = s.volumePromise.GetUnusedVolumePromiseBytes(ctx); err != nil {
+				return ledger, err
+			}
+		}
 	}
 	return ledger, nil
 }
@@ -300,4 +323,14 @@ func buildSlotDiskBytes(ledger reservationLedger, req admissionRequest, cfg conf
 		return 0
 	}
 	return reservedBuildSlots(ledger.activeBuilds+req.builds, cfg) * max(cfg.BuildMaxDiskBytes, 0)
+}
+
+// projectedVolumePromiseBytes is the disk a volume request projects onto the
+// host: the unused promise of every existing volume and the new volumes'
+// sizes. Work that creates no volume projects none.
+func projectedVolumePromiseBytes(ledger reservationLedger, req admissionRequest) int64 {
+	if req.volumeBytes <= 0 {
+		return 0
+	}
+	return ledger.unusedVolumePromiseBytes + req.volumeBytes
 }

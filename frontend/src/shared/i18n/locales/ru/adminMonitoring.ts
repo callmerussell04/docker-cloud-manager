@@ -13,6 +13,8 @@ export const adminMonitoring = {
   'admin.monitoring.ofHostDisk': 'от диска сервера',
   'admin.monitoring.reservedVolumes': 'Зарезервировано под тома',
   'admin.monitoring.reservedVolumesDetail': 'сумма размеров томов, от диска сервера',
+  'admin.monitoring.unusedVolumePromise': 'Обещано томам и не занято',
+  'admin.monitoring.unusedVolumePromiseDetail': 'неиспользованная часть размеров томов, от свободного диска; новый том должен поместиться выше порога',
   'admin.monitoring.buildMemory': 'Резерв сборок',
   'admin.monitoring.borrowedMemory': 'Заимствованная память',
   'admin.monitoring.borrowedMemoryDetail': 'сверх стандартных лимитов, по последней проверке нехватки памяти',

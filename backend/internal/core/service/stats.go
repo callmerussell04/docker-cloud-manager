@@ -27,6 +27,7 @@ type StatsVolumeRepository interface {
 	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetTotalUsedVolumeBytes(ctx context.Context) (int64, error)
 	GetTotalVolumeSizeBytes(ctx context.Context) (int64, error)
+	GetUnusedVolumePromiseBytes(ctx context.Context) (int64, error)
 	CountAll(ctx context.Context) (int, error)
 }
 
@@ -245,6 +246,10 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 	if err != nil {
 		return model.SystemMonitoring{}, err
 	}
+	unusedVolumePromise, err := s.volRepo.GetUnusedVolumePromiseBytes(ctx)
+	if err != nil {
+		return model.SystemMonitoring{}, err
+	}
 
 	containerCounts, err := s.contRepo.GetSystemStatusCounts(ctx)
 	if err != nil {
@@ -284,6 +289,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		VolumeSizeMode:              s.volumeSize.VolumeSizeMode(),
 		DCMDiskUsedBytes:            imageUsedBytes + volumeUsedBytes,
 		DCMReservedVolumeBytes:      reservedVolumeBytes,
+		DCMUnusedVolumePromiseBytes: unusedVolumePromise,
 		HostMinFreeDiskBytes:        cfg.HostMinFreeDiskBytes,
 		AdmissionStatus:             admissionStatus,
 		AdmissionReasons:            admissionReasons,

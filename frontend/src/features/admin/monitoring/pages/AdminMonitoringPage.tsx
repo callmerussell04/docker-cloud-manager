@@ -103,6 +103,13 @@ export function AdminMonitoringPage() {
               detail={t('admin.monitoring.reservedVolumesDetail')}
             />
             <MetricCard
+              title={t('admin.monitoring.unusedVolumePromise')}
+              icon={HardDrive}
+              used={stats.dcm_unused_volume_promise_bytes}
+              total={stats.disk_free_bytes}
+              detail={t('admin.monitoring.unusedVolumePromiseDetail')}
+            />
+            <MetricCard
               title={t('admin.monitoring.buildMemory')}
               icon={Server}
               used={stats.dcm_reserved_build_memory_bytes}

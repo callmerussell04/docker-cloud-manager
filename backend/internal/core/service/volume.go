@@ -11,7 +11,6 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
-	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
@@ -41,6 +40,7 @@ type VolumeRepository interface {
 
 type volumeDiskUsageRepository interface {
 	GetUserReservedVolumeBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+	volumePromiseReader
 }
 
 type volumeImageDiskRepository interface {
@@ -140,15 +140,20 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 }
 
 // admitVolumeSize checks that sizeBytes fits what the owner's reserved disk
-// leaves of their disk quota. The caller holds the owner capacity lock.
-func (s *VolumeService) admitVolumeSize(ctx context.Context, ownerID uuid.UUID, sizeBytes int64) error {
+// leaves of their disk quota, and that the host disk holds it beside the
+// unused promise of every volume above the disk floor. The caller holds the
+// owner capacity lock.
+func (s *VolumeService) admitVolumeSize(ctx context.Context, ownerID uuid.UUID, sizeBytes int64, cfg config.SystemConfig) error {
 	sources := admissionSources{
-		quotas:  s.quotas,
-		images:  s.imageRepo,
-		volumes: s.repo,
-		logger:  s.logger,
+		quotas:        s.quotas,
+		images:        s.imageRepo,
+		volumes:       s.repo,
+		volumePromise: s.repo,
+		diskMetrics:   s.diskMetrics,
+		hostDiskPath:  s.hostDiskPath,
+		logger:        s.logger,
 	}
-	return sources.admit(ctx, ownerID, admissionRequest{userDiskBytes: sizeBytes}, s.cfg.Get(), "volume")
+	return sources.admit(ctx, ownerID, admissionRequest{volumeBytes: sizeBytes}, cfg, "volume")
 }
 
 // volumeSize is the size a create asks for, or the default when it asks for
@@ -182,10 +187,7 @@ func (s *VolumeService) Create(ctx context.Context, params model.VolumeCreatePar
 		return uuid.Nil, err
 	}
 	defer unlock()
-	if err := s.admitVolumeSize(ctx, ownerID, sizeBytes); err != nil {
-		return uuid.Nil, err
-	}
-	if err := stagedsource.CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes, 0); err != nil {
+	if err := s.admitVolumeSize(ctx, ownerID, sizeBytes, cfg); err != nil {
 		return uuid.Nil, err
 	}
 

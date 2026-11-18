@@ -12,8 +12,9 @@ func (s *Staging) CheckHostDiskFloor(projectedWriteBytes int64) error {
 	return CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes, projectedWriteBytes)
 }
 
-// CheckHostDiskFloor is the projected host disk floor check for staging, volume
-// create and container admission (the admission ledger reads the floor itself).
+// CheckHostDiskFloor is the projected host disk floor check for staging and
+// container admission. Volume create and builds meet the floor through the
+// admission ledger instead.
 // It returns the disk floor rejection, a host-exhausted error, when the free
 // bytes on path, less projectedWriteBytes, fall below minFreeBytes. Without
 // metrics or a positive floor it checks nothing; an empty path means "/" and a

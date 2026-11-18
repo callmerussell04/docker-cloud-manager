@@ -15,6 +15,8 @@ export const adminMonitoring: Record<keyof typeof ru, string> = {
   'admin.monitoring.ofHostDisk': 'of host disk',
   'admin.monitoring.reservedVolumes': 'Reserved volume space',
   'admin.monitoring.reservedVolumesDetail': 'sum of volume sizes, of host disk',
+  'admin.monitoring.unusedVolumePromise': 'Unused volume promise',
+  'admin.monitoring.unusedVolumePromiseDetail': 'volume sizes not yet used, of free disk; new volumes must fit above the floor',
   'admin.monitoring.buildMemory': 'Build reservations',
   'admin.monitoring.borrowedMemory': 'Borrowed memory',
   'admin.monitoring.borrowedMemoryDetail': 'above standard limits, at the last memory pressure check',

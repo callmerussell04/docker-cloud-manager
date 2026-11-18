@@ -384,6 +384,7 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		RootfsQuotaStatus:           data.RootfsQuotaStatus,
 		DCMDiskUsedBytes:            data.DCMDiskUsedBytes,
 		DCMReservedVolumeBytes:      data.DCMReservedVolumeBytes,
+		DCMUnusedVolumePromiseBytes: data.DCMUnusedVolumePromiseBytes,
 		VolumeSizeMode:              data.VolumeSizeMode,
 		HostMinFreeDiskBytes:        data.HostMinFreeDiskBytes,
 		AdmissionStatus:             data.AdmissionStatus,

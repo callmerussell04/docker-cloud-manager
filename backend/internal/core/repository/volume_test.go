@@ -80,7 +80,8 @@ func TestVolumeRepositoryMarkAvailableRecordsTheEnforcedFlagOnce(t *testing.T) {
 }
 
 // A volume reserves its size, or its measurement when that is larger, until
-// it is being deleted.
+// it is being deleted. What it has not used of its size is promised by the
+// host.
 func TestVolumeRepositoryReservedBytes(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
@@ -110,6 +111,11 @@ func TestVolumeRepositoryReservedBytes(t *testing.T) {
 	total, err := repo.GetTotalVolumeSizeBytes(ctx)
 	require.NoError(t, err)
 	require.Equal(t, (10+4+3+50)*volumeTestMiB, total, "the sum of sizes of volumes not being deleted")
+
+	promise, err := repo.GetUnusedVolumePromiseBytes(ctx)
+	require.NoError(t, err)
+	require.Equal(t, (8+0+3+50)*volumeTestMiB, promise,
+		"every owner's volumes not being deleted promise their size less their usage, never below zero")
 }
 
 // Only running containers that mount the volume writable are its writers.

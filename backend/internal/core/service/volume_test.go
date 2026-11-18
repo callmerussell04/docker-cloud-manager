@@ -357,31 +357,57 @@ func TestVolumeServiceResolveProjectManagedByNameReusesAndAttachesVolumes(t *tes
 	}
 }
 
+// The host disk at the configured path holds 2 GiB free, of which 1 GiB is
+// promised to existing volumes and unused, so a 1 MiB volume would leave
+// less than the 1 GiB floor: the create is refused as the server being low on
+// disk, not as the owner's quota. A Compose-managed volume the owner does not
+// have yet is created through the same admission.
 func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
-	ownerID := uuid.New()
-	repo := newVolumeRepoMock(t)
-	dockerAPI := coremocks.NewVolumeDockerAPI(t)
-	imageRepo := coremocks.NewVolumeImageDiskRepository(t)
-	metrics := coremocks.NewHostDiskMetricsProvider(t)
-	cfgData := testSystemConfig()
-	cfgData.HostMinFreeDiskBytes = 1024
-	cfg := coretest.StaticConfig{Config: cfgData}
-	svc := newTestVolumeService(t, service.VolumeServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       cfg,
-		Lifecycle:    &volumeLifecycleFake{},
-		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
-		ImageRepo:    imageRepo,
-		DiskMetrics:  metrics,
-		HostDiskPath: "/host"})
+	for _, tc := range []struct {
+		name   string
+		create func(ctx context.Context, svc *service.VolumeService, repo *volumeRepoMock, ownerID uuid.UUID) error
+	}{
+		{name: "volume create", create: func(ctx context.Context, svc *service.VolumeService, _ *volumeRepoMock, _ uuid.UUID) error {
+			_, err := svc.Create(ctx, model.VolumeCreateParams{Name: "data"})
+			return err
+		}},
+		{name: "compose-managed volume", create: func(ctx context.Context, svc *service.VolumeService, repo *volumeRepoMock, ownerID uuid.UUID) error {
+			repo.EXPECT().GetByName(mock.Anything, ownerID, "project_a_data").Return(model.Volume{}, apperrors.ErrNotFound)
+			_, _, err := svc.ResolveProjectManagedByName(ctx, uuid.New(), "project_a_data")
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ownerID := uuid.New()
+			repo := newVolumeRepoMock(t)
+			imageRepo := coremocks.NewVolumeImageDiskRepository(t)
+			metrics := coremocks.NewHostDiskMetricsProvider(t)
+			cfgData := testSystemConfig()
+			cfgData.HostMinFreeDiskBytes = 1 << 30
+			cfgData.DefaultVolumeSizeBytes = 1 << 20
+			cfg := coretest.StaticConfig{Config: cfgData}
+			lifecycle := &volumeLifecycleFake{}
+			svc := newTestVolumeService(t, service.VolumeServiceDeps{
+				Repository:   repo,
+				Docker:       coremocks.NewVolumeDockerAPI(t),
+				Config:       cfg,
+				Lifecycle:    lifecycle,
+				Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
+				ImageRepo:    imageRepo,
+				DiskMetrics:  metrics,
+				HostDiskPath: "/host"})
+			imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
+			repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
+			repo.EXPECT().GetUnusedVolumePromiseBytes(mock.Anything).Return(int64(1<<30), nil)
+			metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 2 << 30}, nil)
 
-	imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
-	repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
-	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 512}, nil)
+			err := tc.create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), svc, repo, ownerID)
 
-	_, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.VolumeCreateParams{Name: "data"})
-	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
+			require.ErrorIs(t, err, apperrors.ErrHostExhausted)
+			require.Equal(t, apperrors.LimitDiskFloor, apperrors.LimitOf(err))
+			require.False(t, lifecycle.createQueued)
+		})
+	}
 }
 
 func TestVolumeServiceCreateMarksErrorWhenDockerCreateFails(t *testing.T) {

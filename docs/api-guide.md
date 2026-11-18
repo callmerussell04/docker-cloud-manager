@@ -121,7 +121,7 @@ curl -sS -b cookies.txt -c cookies.txt \
 | `staged_source_bytes` | `quota_exceeded` | `409` | объём исходных данных, ожидающих обработки |
 | `host_memory` | `host_exhausted` | `503` | память сервера, доступная для резервирования |
 | `host_cpu` | `host_exhausted` | `503` | CPU сервера, доступный для резервирования |
-| `disk_floor` | `host_exhausted` | `503` | свободное место на диске сервера |
+| `disk_floor` | `host_exhausted` | `503` | свободное место на диске сервера; для создания тома — вместе с неиспользованной частью размеров всех томов |
 | `containers_per_user` | `limit_exceeded` | `409` | число контейнеров пользователя |
 | `volumes_per_user` | `limit_exceeded` | `409` | число томов пользователя |
 | `queued_container_creates` | `limit_exceeded` | `409` | число одновременно создаваемых контейнеров |

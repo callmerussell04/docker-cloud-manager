@@ -179,6 +179,9 @@ message SystemMonitoringResponse {
   int64 dcm_reserved_volume_bytes = 26;
   // measured, enforced or unavailable: how volume sizes are enforced.
   string volume_size_mode = 27;
+  // Over the same volumes, each size less its measured usage, never below
+  // zero: the disk promised to volumes and not used yet.
+  int64 dcm_unused_volume_promise_bytes = 28;
 }
 
 message Empty {}
