@@ -149,7 +149,7 @@ func TestBuildOutboxPublishedRowNeverReturnsToPending(t *testing.T) {
 	err := repo.MarkBuildOutboxPending(ctx, outboxID, errors.New("late failure"))
 
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
-	entries, err := repo.LeasePendingBuildOutbox(ctx, 10)
+	entries, err := repo.LeasePendingBuildOutbox(ctx, 10, 10)
 	require.NoError(t, err)
 	require.Empty(t, entries)
 }

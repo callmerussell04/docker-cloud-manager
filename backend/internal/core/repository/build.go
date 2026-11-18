@@ -299,7 +299,17 @@ func (r *BuildRepository) AcquireCapacityLock(ctx context.Context) (func(), erro
 	return acquireAdmissionLock(ctx, r.lockDB, []string{"dcm:capacity"})
 }
 
-func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error) {
+// LeasePendingBuildOutbox leases up to limit outbox rows for release to
+// Builder. A build is released when its message is published; until then it
+// waits here, pending. An owner's next build is leased only while the owner
+// has fewer than maxReleasedPerOwner released builds that are pending or
+// running, counting the builds leased in this batch, so one owner cannot hold
+// the queue and an owner alone still fills every build slot. A row whose
+// build is no longer pending takes no place: it is leased so the relay
+// discards it. Eligible rows are leased oldest first. A row left publishing
+// for over a minute is retried in its turn and does not hold its own place.
+// Core runs one relay, so the rule needs no lock beyond the row locks.
+func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit, maxReleasedPerOwner int) ([]model.BuildQueueOutbox, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, wrapOp("build lease pending build outbox", err)
@@ -307,21 +317,44 @@ func (r *BuildRepository) LeasePendingBuildOutbox(ctx context.Context, limit int
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(ctx, `
-		WITH next AS (
-			SELECT id
-			FROM build_queue_outbox
-			WHERE status = $1
-			   OR (status = $2 AND updated_at < NOW() - INTERVAL '1 minute')
-			ORDER BY created_at
+		WITH released AS (
+			SELECT b.owner_id, COUNT(*) AS builds
+			FROM builds b
+			JOIN build_queue_outbox o ON o.build_id = b.id
+			WHERE b.status = $5
+			   OR (b.status = $4 AND (o.status = $6
+			       OR (o.status = $2 AND o.updated_at >= NOW() - INTERVAL '1 minute')))
+			GROUP BY b.owner_id
+		),
+		candidates AS (
+			SELECT o.id,
+			       b.status = $4 AS waits,
+			       ROW_NUMBER() OVER (
+			           PARTITION BY b.owner_id, b.status = $4
+			           ORDER BY o.created_at, o.id) AS place,
+			       COALESCE(r.builds, 0) AS released
+			FROM build_queue_outbox o
+			JOIN builds b ON b.id = o.build_id
+			LEFT JOIN released r ON r.owner_id = b.owner_id
+			WHERE o.status = $1
+			   OR (o.status = $2 AND o.updated_at < NOW() - INTERVAL '1 minute')
+		),
+		next AS (
+			SELECT o.id
+			FROM build_queue_outbox o
+			JOIN candidates c ON c.id = o.id
+			WHERE NOT c.waits OR c.released + c.place <= $7
+			ORDER BY o.created_at, o.id
 			LIMIT $3
-			FOR UPDATE SKIP LOCKED
+			FOR UPDATE OF o SKIP LOCKED
 		)
 		UPDATE build_queue_outbox o
 		SET status = $2, attempts = attempts + 1, updated_at = NOW()
 		FROM next
 		WHERE o.id = next.id
 		RETURNING o.id, o.build_id, o.exchange, o.routing_key, o.payload, o.status, o.attempts, o.last_error, o.created_at, o.updated_at
-	`, model.BuildOutboxStatusPending, model.BuildOutboxStatusPublishing, limit)
+	`, model.BuildOutboxStatusPending, model.BuildOutboxStatusPublishing, limit,
+		model.BuildStatusPending, model.BuildStatusRunning, model.BuildOutboxStatusPublished, maxReleasedPerOwner)
 	if err != nil {
 		return nil, wrapOp("build lease pending build outbox", err)
 	}

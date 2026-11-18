@@ -360,7 +360,7 @@ func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
 func leaseOneBuildOutbox(t *testing.T, db *pgxpool.Pool) model.BuildQueueOutbox {
 	t.Helper()
 	repo := repository.NewBuildRepository(db, db)
-	entries, err := repo.LeasePendingBuildOutbox(context.Background(), 10)
+	entries, err := repo.LeasePendingBuildOutbox(context.Background(), 10, 10)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	if entries[0].Status != model.BuildOutboxStatusPublishing {

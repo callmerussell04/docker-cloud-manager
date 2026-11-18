@@ -26,7 +26,9 @@ import (
 
 const (
 	outboxTestBatchSize = 7
-	outboxTestExchange  = "ex"
+	// outboxTestMaxConcurrentBuilds is the build relay's per-owner release cap.
+	outboxTestMaxConcurrentBuilds = 3
+	outboxTestExchange            = "ex"
 )
 
 var (
@@ -48,6 +50,8 @@ const (
 	// The container queue additionally requires the container record.
 	outboxContainerMissing
 	outboxContainerUnavailable
+	// outboxBuildRunning is a build already claimed: its message reached Builder.
+	outboxBuildRunning
 )
 
 type outboxMark int
@@ -305,6 +309,22 @@ func TestContainerOutboxWorkerRequiresContainerRecord(t *testing.T) {
 	}
 }
 
+// A build is released only while pending; a row whose build was claimed after
+// a publication whose mark failed is not sent to Builder a second time.
+func TestBuildOutboxWorkerDiscardsARowWhoseBuildIsNoLongerPending(t *testing.T) {
+	f := newBuildOutboxFixture(t)
+	f.interval.Store(1)
+	f.expectLease(1, nil)
+	f.expectAggregate(0, outboxBuildRunning)
+	f.expectMark(outboxMarkDiscarded, 0, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	f.run(ctx)
+
+	require.Equal(t, []string{"discarded:0:<nil>"}, f.recorded())
+}
+
 func TestOutboxWorkersScheduleBatchesFromRuntimeInterval(t *testing.T) {
 	for _, class := range outboxQueueClasses {
 		t.Run(class.name, func(t *testing.T) {
@@ -534,11 +554,12 @@ func newBuildOutboxFixture(t *testing.T) *outboxQueueFixture {
 	cfg.EXPECT().Get().RunAndReturn(f.settings(func(c *config.SystemConfig, interval int64) {
 		c.BuildOutboxBatchSize = outboxTestBatchSize
 		c.BuildOutboxIntervalSeconds = interval
+		c.MaxConcurrentBuilds = outboxTestMaxConcurrentBuilds
 	}))
 
 	f.expectLease = func(records int, err error) {
-		repo.EXPECT().LeasePendingBuildOutbox(mock.Anything, outboxTestBatchSize).
-			RunAndReturn(func(context.Context, int) ([]model.BuildQueueOutbox, error) {
+		repo.EXPECT().LeasePendingBuildOutbox(mock.Anything, outboxTestBatchSize, outboxTestMaxConcurrentBuilds).
+			RunAndReturn(func(context.Context, int, int) ([]model.BuildQueueOutbox, error) {
 				if err := f.leased(err, records); err != nil {
 					return nil, err
 				}
@@ -555,10 +576,12 @@ func newBuildOutboxFixture(t *testing.T) *outboxQueueFixture {
 		call.Once()
 		switch state {
 		case outboxAggregateActive:
-			// A running build still owns its queue message.
-			call.Return(model.Build{ID: id, Status: model.BuildStatusRunning}, nil)
+			// Only a pending build is released.
+			call.Return(model.Build{ID: id, Status: model.BuildStatusPending}, nil)
 		case outboxAggregateTerminal:
 			call.Return(model.Build{ID: id, Status: model.BuildStatusCanceled}, nil)
+		case outboxBuildRunning:
+			call.Return(model.Build{ID: id, Status: model.BuildStatusRunning}, nil)
 		case outboxAggregateMissing:
 			call.Return(model.Build{}, apperrors.ErrNotFound)
 		case outboxAggregateUnavailable:

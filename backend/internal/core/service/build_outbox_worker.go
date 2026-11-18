@@ -13,7 +13,7 @@ import (
 )
 
 type BuildOutboxRepository interface {
-	LeasePendingBuildOutbox(ctx context.Context, limit int) ([]model.BuildQueueOutbox, error)
+	LeasePendingBuildOutbox(ctx context.Context, limit, maxReleasedPerOwner int) ([]model.BuildQueueOutbox, error)
 	GetByID(ctx context.Context, id uuid.UUID) (model.Build, error)
 	MarkBuildOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkBuildOutboxPending(ctx context.Context, id uuid.UUID, cause error) error
@@ -45,8 +45,12 @@ func (w *BuildOutboxWorker) Run(ctx context.Context) {
 	w.relay.run(ctx, func() int64 { return w.cfg.Get().BuildOutboxIntervalSeconds }, w.publishBatch)
 }
 
+// publishBatch releases builds to Builder. Each owner's builds are released
+// at most max_concurrent_builds at a time (see LeasePendingBuildOutbox), and a
+// row whose build is no longer pending is discarded and never published.
 func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
-	items, err := w.repo.LeasePendingBuildOutbox(ctx, w.cfg.Get().BuildOutboxBatchSize)
+	cfg := w.cfg.Get()
+	items, err := w.repo.LeasePendingBuildOutbox(ctx, cfg.BuildOutboxBatchSize, cfg.MaxConcurrentBuilds)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to lease build outbox messages", "error", err)
 		return
@@ -54,7 +58,7 @@ func (w *BuildOutboxWorker) publishBatch(ctx context.Context) {
 
 	for _, item := range items {
 		build, err := w.repo.GetByID(ctx, item.BuildID)
-		if err == nil && model.IsBuildTerminalStatus(build.Status) {
+		if err == nil && build.Status != model.BuildStatusPending {
 			w.relay.logMarkFailure(ctx, "discarded", item.ID, w.repo.MarkBuildOutboxDiscarded(ctx, item.ID, nil), "build_id", item.BuildID)
 			continue
 		}
