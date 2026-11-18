@@ -237,6 +237,9 @@ func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.P
 	})
 }
 
+// ensureStartCapacity preflights the containers a project start gives new
+// capacity: those that are not missing, not in error and do not already
+// reserve capacity by the reservation rule (model.Container.ReservesCapacity).
 func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Project) error {
 	containers, err := s.resourceRepo.GetByProjectID(ctx, p.ID)
 	if err != nil {
@@ -246,20 +249,11 @@ func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Projec
 	requestedCPU := int64(0)
 	cfg := s.cfg.Get()
 	for _, container := range containers {
-		switch container.Status {
-		case model.ContainerStatusRunning, model.ContainerStatusStarting, model.ContainerStatusMissing, model.ContainerStatusError:
+		if container.Status == model.ContainerStatusMissing || container.Status == model.ContainerStatusError || container.ReservesCapacity() {
 			continue
 		}
-		reservation := container.BaseMemoryReservation
-		if reservation <= 0 {
-			reservation = cfg.DefaultMemoryReservation
-		}
-		requestedRam += reservation
-		cpuReservation := container.BaseCPUReservation
-		if cpuReservation <= 0 {
-			cpuReservation = cfg.DefaultCPUReservation
-		}
-		requestedCPU += cpuReservation
+		requestedRam += normalizeMemoryReservation(container.BaseMemoryReservation, cfg)
+		requestedCPU += normalizeCPUReservation(container.BaseCPUReservation, cfg)
 	}
 	if requestedRam <= 0 && requestedCPU <= 0 {
 		return nil

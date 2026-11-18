@@ -584,8 +584,6 @@ var reservingDesiredStatuses = map[string][]string{
 	model.ContainerStatusReconciling: {model.ContainerStatusRunning},
 }
 
-// testReservationRule tables every status against every desired status, one
-// owner per row, and reads which rows the reservation sums count.
 // A stop records why the platform stopped a container; the Docker events that
 // follow report the exit the record already holds and must not erase it.
 func testObservationKeepsRecordedError(t *testing.T, store ContainerStore) {
@@ -642,6 +640,10 @@ func testRunningContainers(t *testing.T, store ContainerStore) {
 	require.Equal(t, want, got)
 }
 
+// testReservationRule tables every status against every desired status, one
+// owner per row. Each row's model.Container.ReservesCapacity must agree with
+// reservingDesiredStatuses and with what the reservation sums count, so the Go
+// rule and the store's rule cannot drift apart.
 func testReservationRule(t *testing.T, store ContainerStore) {
 	ctx := context.Background()
 	const memory, cpu = int64(64 << 20), int64(125)
@@ -653,8 +655,11 @@ func testReservationRule(t *testing.T, store ContainerStore) {
 			c.BaseMemoryReservation, c.BaseCPUReservation = memory, cpu
 			require.NoError(t, store.Save(ctx, c))
 
+			reserves := c.ReservesCapacity()
+			require.Equal(t, slices.Contains(reservingDesiredStatuses[status], desired), reserves,
+				"ReservesCapacity for status %q desired %q", status, desired)
 			wantMemory, wantCPU := int64(0), int64(0)
-			if slices.Contains(reservingDesiredStatuses[status], desired) {
+			if reserves {
 				wantMemory, wantCPU = memory, cpu
 				reservedRows++
 			}
@@ -690,7 +695,7 @@ func testReservingContainersByOwner(t *testing.T, store ContainerStore) {
 			c := contractContainer(ownerID, status)
 			c.DesiredStatus = desired
 			require.NoError(t, store.Save(ctx, c))
-			if slices.Contains(reservingDesiredStatuses[status], desired) {
+			if c.ReservesCapacity() {
 				want = append(want, model.Container{
 					ID: c.ID, OwnerID: c.OwnerID, DockerID: c.DockerID, Status: c.Status, DesiredStatus: c.DesiredStatus,
 				})

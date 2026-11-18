@@ -60,12 +60,19 @@ func TestProjectServiceStartPreflightsStoppedContainersBeforeQueueing(t *testing
 		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusExited, BaseMemoryReservation: 256, BaseCPUReservation: 500},
 		// Zero CPU reservation falls back to the configured default of 250.
 		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusCreated, BaseMemoryReservation: 128},
-		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
-		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusStarting, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
-		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusMissing, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
-		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusError, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		// Containers that already reserve capacity are in the ledger already.
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusRunning, DesiredStatus: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusStarting, DesiredStatus: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		// A crashed container whose desired status is still running reserves.
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusExited, DesiredStatus: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		// Missing and error containers are not started by a project start.
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusMissing, DesiredStatus: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusError, DesiredStatus: model.ContainerStatusRunning, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusError, DesiredStatus: model.ContainerStatusExited, BaseMemoryReservation: 1024, BaseCPUReservation: 1000},
+		// A container on its way to start without desiring running takes new capacity.
+		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusStarting, DesiredStatus: model.ContainerStatusExited, BaseMemoryReservation: 32, BaseCPUReservation: 50},
 	}, nil)
-	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(384), int64(750), int64(0)).Return(nil).Once()
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(416), int64(800), int64(0)).Return(nil).Once()
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, (*string)(nil)).Return(nil).Once()
 
 	require.NoError(t, svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
