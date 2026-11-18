@@ -54,7 +54,7 @@ export const sections: Array<{ id: SectionId; settings: SettingDef[] }> = [
   {
     id: 'memory',
     settings: [
-      { name: 'default_memory_reservation_bytes', kind: 'bytes', min: 1 },
+      { name: 'default_memory_reservation_bytes', kind: 'bytes', min: 16 * MB },
       { name: 'max_burst_multiplier', kind: 'integer', min: 1, max: maxMultiplier, unit: 'times' },
       { name: 'memory_boost_multiplier', kind: 'integer', min: 1, max: maxBoostMultiplier, unit: 'times' },
       { name: 'boost_min_free_memory_bytes', kind: 'bytes', min: 0 },
@@ -66,7 +66,7 @@ export const sections: Array<{ id: SectionId; settings: SettingDef[] }> = [
   {
     id: 'cpu',
     settings: [
-      { name: 'default_cpu_reservation_millicores', kind: 'cores', min: 1 },
+      { name: 'default_cpu_reservation_millicores', kind: 'cores', min: 10 },
       { name: 'max_cpu_burst_multiplier', kind: 'integer', min: 1, max: maxMultiplier, unit: 'times' },
       { name: 'cpu_boost_multiplier', kind: 'integer', min: 1, max: maxBoostMultiplier, unit: 'times' },
       { name: 'reserved_system_cpu_millicores', kind: 'cores', min: 0 },

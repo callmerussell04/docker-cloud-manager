@@ -16,6 +16,9 @@ type ContainerDTO struct {
 	CreatedAt     int64  `json:"created_at"`
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`
+
+	MemoryReservationBytes   int64 `json:"memory_reservation_bytes"`
+	CPUReservationMillicores int64 `json:"cpu_reservation_millicores"`
 }
 
 type UserContainerDTO struct {
@@ -31,6 +34,9 @@ type UserContainerDTO struct {
 	LastExitCode  *int   `json:"last_exit_code,omitempty"`
 	TTLDeadline   int64  `json:"ttl_deadline"`
 	CreatedAt     int64  `json:"created_at"`
+
+	MemoryReservationBytes   int64 `json:"memory_reservation_bytes"`
+	CPUReservationMillicores int64 `json:"cpu_reservation_millicores"`
 }
 
 type CreateContainerDTO struct {
@@ -40,6 +46,10 @@ type CreateContainerDTO struct {
 	EnvVars      map[string]string `json:"env_vars"`
 	VolumeMounts []VolumeMountDTO  `json:"volume_mounts"`
 	DomainPrefix string            `json:"domain_prefix" binding:"omitempty,max=30"`
+	// MemoryReservationMB and CPUReservationMillicores are optional; zero or
+	// absent takes the platform default. Core checks their bounds.
+	MemoryReservationMB      int64 `json:"memory_reservation_mb"`
+	CPUReservationMillicores int64 `json:"cpu_reservation_millicores"`
 }
 
 type ExposeContainerDTO struct {

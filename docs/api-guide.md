@@ -165,6 +165,8 @@ curl -sS \
 
 Значения переменных окружения передаются в `env_vars`, а подключения томов — в `volume_mounts`.
 
+Резерв контейнера задают необязательные `memory_reservation_mb` (в МБ, от `16` до `1048576`, то есть 1 ТиБ) и `cpu_reservation_millicores` (от `10` до `1000000000`, то есть наибольшей квоты CPU). Отсутствующее поле или `0` берёт резерв по умолчанию из настроек (`default_memory_reservation_bytes`, `default_cpu_reservation_millicores`). Значение вне границ — `400 bad_request`, сообщение его не повторяет; значение в границах, но больше остатка квоты — `403 quota_exceeded` с `limit` `user_memory` или `user_cpu`. После создания резерв не меняется. Ответы чтения контейнера содержат `memory_reservation_bytes` и `cpu_reservation_millicores`.
+
 ## Сборка из архива
 
 В многочастном запросе метаданные должны идти перед частью файла `archive`:

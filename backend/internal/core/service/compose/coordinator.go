@@ -572,6 +572,9 @@ func (c *DeploymentCoordinator) containerCreateParams(projectID uuid.UUID, proje
 		Entrypoint:   srv.Entrypoint,
 		Restart:      srv.Restart,
 		Healthcheck:  srv.Healthcheck,
+
+		MemoryReservationMB:      srv.MemoryReservationMB,
+		CPUReservationMillicores: srv.CPUReservationMillicores,
 	}
 }
 

@@ -334,6 +334,9 @@ message CreateContainerRequest {
   map<string, string> env_vars = 5;
   repeated VolumeMount volume_mounts = 6;
   string domain_prefix = 7;
+  // The reservation the owner chose; zero or absent takes the default.
+  int64 memory_reservation_mb = 8;
+  int64 cpu_reservation_millicores = 9;
 }
 
 message CreateContainerResponse {
@@ -371,6 +374,8 @@ message ContainerData {
   optional int32 last_exit_code = 13;
   int64 ttl_deadline = 14;
   string project_id = 15;
+  int64 memory_reservation_bytes = 16;
+  int64 cpu_reservation_millicores = 17;
 }
 
 message ContainerListResponse {

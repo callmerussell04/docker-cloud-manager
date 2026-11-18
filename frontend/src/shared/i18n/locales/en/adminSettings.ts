@@ -114,7 +114,7 @@ export const adminSettings: Record<keyof typeof ru, string> = {
   'admin.settings.field.overcommit_factor.label': 'Overcommit factor',
   'admin.settings.field.overcommit_factor.hint': 'How much of the user memory pool may be promised as reservations. At 1 every reservation can be honoured at once; above 1 the platform relies on memory pressure stops.',
   'admin.settings.field.default_cpu_reservation_millicores.label': 'Default reservation',
-  'admin.settings.field.default_cpu_reservation_millicores.hint': 'CPU promised to each container. Busy containers share CPU in proportion to their reservations.',
+  'admin.settings.field.default_cpu_reservation_millicores.hint': 'CPU promised to a container created without its own figure. Busy containers share CPU in proportion to their reservations.',
   'admin.settings.field.max_cpu_burst_multiplier.label': 'Limit multiplier',
   'admin.settings.field.max_cpu_burst_multiplier.hint': 'CPU ceiling of a container as a multiple of its reservation. Applied at create and at every start.',
   'admin.settings.field.cpu_boost_multiplier.label': 'Boost ceiling multiplier',

@@ -3,6 +3,7 @@ package service
 import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 )
 
 // Docker's bounds for a container's CPU shares.
@@ -73,4 +74,26 @@ func cpuSharesForReservation(cpuReservation int64, cfg config.SystemConfig) int6
 		shares = shares * cpuReservation / cfg.DefaultCPUReservation
 	}
 	return min(max(shares, minCPUShares), maxCPUShares)
+}
+
+// chosenReservation returns the memory, in bytes, and the CPU, in millicores,
+// a new container reserves: the owner's figures, or the defaults of cfg for a
+// figure of zero. A figure outside the reservation bounds is a bad request
+// whose message does not echo it. A figure above the owner's quota is within
+// the bounds and left to admission.
+func chosenReservation(params model.ContainerCreateParams, cfg config.SystemConfig) (memoryBytes, cpuMillicores int64, err error) {
+	memoryBytes, cpuMillicores = cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation
+	if mb := params.MemoryReservationMB; mb != 0 {
+		if mb < config.MinMemoryReservationBytes/bytesPerMB || mb > config.MaxMemoryReservationBytes/bytesPerMB {
+			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "memory reservation must be between 16 MiB and 1 TiB")
+		}
+		memoryBytes = mb * bytesPerMB
+	}
+	if mc := params.CPUReservationMillicores; mc != 0 {
+		if mc < config.MinCPUReservationMillicores || mc > config.MaxCPUReservationMillicores {
+			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "cpu reservation must be between 10 millicores and the largest cpu quota")
+		}
+		cpuMillicores = mc
+	}
+	return memoryBytes, cpuMillicores, nil
 }

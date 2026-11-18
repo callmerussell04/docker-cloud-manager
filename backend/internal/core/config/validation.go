@@ -16,8 +16,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.BaseDomain == "" || strings.ContainsAny(cfg.BaseDomain, " `/\\") {
 		return fmt.Errorf("invalid base domain")
 	}
-	if cfg.DefaultMemoryReservation <= 0 || cfg.ReservedSystemMemory < 0 {
-		return fmt.Errorf("memory limits must be positive")
+	if cfg.ReservedSystemMemory < 0 {
+		return fmt.Errorf("reserved system memory must not be negative")
+	}
+	if cfg.DefaultMemoryReservation < MinMemoryReservationBytes {
+		return fmt.Errorf("default memory reservation must be at least 16 MiB")
 	}
 	if cfg.OvercommitFactor <= 0 || cfg.OvercommitFactor > 10 {
 		return fmt.Errorf("overcommit factor must be between 0 and 10")
@@ -25,8 +28,11 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 	if cfg.MaxBurstMultiplier <= 0 || cfg.MaxBurstMultiplier > 10 {
 		return fmt.Errorf("max burst multiplier must be between 1 and 10")
 	}
-	if cfg.DefaultCPUReservation <= 0 || cfg.ReservedSystemCPU < 0 {
-		return fmt.Errorf("cpu reservation limits must be positive")
+	if cfg.ReservedSystemCPU < 0 {
+		return fmt.Errorf("reserved system cpu must not be negative")
+	}
+	if cfg.DefaultCPUReservation < MinCPUReservationMillicores {
+		return fmt.Errorf("default cpu reservation must be at least 10 millicores")
 	}
 	if cfg.CPUOvercommitFactor <= 0 || cfg.CPUOvercommitFactor > 10 {
 		return fmt.Errorf("cpu overcommit factor must be between 0 and 10")

@@ -1,5 +1,4 @@
 import { useForm, useFieldArray } from 'react-hook-form';
-import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2 } from 'lucide-react';
 
@@ -8,7 +7,7 @@ import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { Select } from '@/shared/ui/Select';
-import { type CreateContainerForm, createContainerSchema } from '../schemas';
+import { type CreateContainerForm, type CreateContainerValues, createContainerSchema } from '../schemas';
 import type { CreateContainerDTO } from '../model';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { useT } from '@/shared/i18n';
@@ -21,8 +20,6 @@ interface CreateContainerModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-type CreateContainerValues = z.output<ReturnType<typeof createContainerSchema>>;
 
 export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalProps) {
   const t = useT();
@@ -39,6 +36,8 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
       volume_mounts: [],
       domain_prefix: '',
       internal_port: '',
+      memory_reservation_mb: '',
+      cpu_reservation_cores: '',
     }
   });
 
@@ -55,6 +54,8 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
       image_tag: data.image_tag,
       internal_port: data.internal_port,
       domain_prefix: data.domain_prefix,
+      memory_reservation_mb: data.memory_reservation_mb,
+      cpu_reservation_millicores: data.cpu_reservation_millicores,
     };
 
     if (data.env_vars && data.env_vars.length > 0) {
@@ -127,6 +128,24 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
               {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port?.message as string}</p>}
             </div>
           </div>
+        </div>
+
+        <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
+          <h4 className="font-medium">{t('containers.reservationOptional')}</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="memory_reservation_mb">{t('containers.memoryReservation')}</Label>
+              <Input id="memory_reservation_mb" type="number" min={16} step={1} placeholder={t('containers.reservationDefault')} error={!!errors.memory_reservation_mb} {...register('memory_reservation_mb')} />
+              {errors.memory_reservation_mb && <p className="text-sm text-red-500">{errors.memory_reservation_mb?.message as string}</p>}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="cpu_reservation_cores">{t('containers.cpuReservation')}</Label>
+              <Input id="cpu_reservation_cores" type="number" min={0.01} step="any" placeholder={t('containers.reservationDefault')} error={!!errors.cpu_reservation_cores} {...register('cpu_reservation_cores')} />
+              {errors.cpu_reservation_cores && <p className="text-sm text-red-500">{errors.cpu_reservation_cores?.message as string}</p>}
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">{t('containers.reservationHint')}</p>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">

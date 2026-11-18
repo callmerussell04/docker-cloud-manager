@@ -153,9 +153,14 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 		DomainPrefix: "web",
 		EnvVars:      map[string]string{"APP_ENV": "test"},
 		VolumeMounts: []model.VolumeMountInput{{VolumeID: "volume-id", MountPath: "/data", IsReadOnly: true}},
+
+		MemoryReservationMB:      512,
+		CPUReservationMillicores: 750,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "container-id", containerID)
+	require.EqualValues(t, 512, containerSrv.create.GetMemoryReservationMb())
+	require.EqualValues(t, 750, containerSrv.create.GetCpuReservationMillicores())
 	require.Equal(t, "nginx:latest", containerSrv.create.ImageTag)
 	require.True(t, containerSrv.create.VolumeMounts[0].IsReadonly)
 
@@ -170,6 +175,8 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "project-id", containers.Containers[0].ProjectID)
 	require.NotNil(t, containers.Containers[0].LastExitCode)
 	require.Equal(t, 137, *containers.Containers[0].LastExitCode)
+	require.EqualValues(t, 512<<20, containers.Containers[0].MemoryReservationBytes)
+	require.EqualValues(t, 750, containers.Containers[0].CPUReservationMillicores)
 	require.Equal(t, int32(2), containerSrv.page)
 	require.Equal(t, int32(10), containerSrv.limit)
 	require.Equal(t, "project-id", containerSrv.projectID)
@@ -430,7 +437,7 @@ func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.Pag
 	s.projectID = req.ProjectId
 	exitCode := int32(137)
 	return &coreapi.PaginatedContainerResponse{
-		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice"}},
+		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice", MemoryReservationBytes: 512 << 20, CpuReservationMillicores: 750}},
 		TotalCount: 1,
 	}, nil
 }

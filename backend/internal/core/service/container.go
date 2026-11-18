@@ -220,6 +220,10 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 	if validation.ForbiddenDomainPrefix(params.DomainPrefix, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns) {
 		return uuid.Nil, s.domainPrefixForbiddenError(params.DomainPrefix)
 	}
+	reqMem, reqCPU, err := chosenReservation(params, cfg)
+	if err != nil {
+		return uuid.Nil, err
+	}
 
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {
@@ -264,13 +268,6 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 			return uuid.Nil, apperrors.Exceeded(apperrors.LimitQueuedContainerCreates)
 		}
 	}
-
-	// 1. Определение запрашиваемой памяти (Гарантии)
-	reqMem := params.RequestedMemoryMB * 1024 * 1024
-	if reqMem <= 0 {
-		reqMem = cfg.DefaultMemoryReservation
-	}
-	reqCPU := cfg.DefaultCPUReservation
 
 	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: reqMem, cpuMillicores: reqCPU, chargesUser: true}); err != nil {
 		return uuid.Nil, err

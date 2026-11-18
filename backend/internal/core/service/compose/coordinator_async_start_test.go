@@ -108,6 +108,25 @@ func TestComposeCoordinatorResolvesExternalVolumesAndCreatesManagedVolumes(t *te
 	require.False(t, resources.ManagedVolumeAliases["cache"])
 }
 
+// A service's container is created with the reservation its Compose file
+// gave, kept in the stored plan.
+func TestComposeCoordinatorCreatesAServiceWithItsReservation(t *testing.T) {
+	job := creatingComposeJob(t, uuid.New(), uuid.New())
+	repo := newDeploymentRepo(job)
+	containers := newCoordinatorContainers(nil)
+	containers.nextCreateIDs = []uuid.UUID{uuid.New()}
+	volumes := &coordinatorVolumes{
+		createIDs:  map[string]uuid.UUID{"wh_data": uuid.New()},
+		resolveIDs: map[string]uuid.UUID{"shared-cache": uuid.New()},
+	}
+
+	runCoordinatorOnceWithVolumes(t, repo, volumes, containers, &coordinatorDocker{})
+
+	require.Len(t, containers.created, 1)
+	require.EqualValues(t, 512, containers.created[0].MemoryReservationMB)
+	require.EqualValues(t, 750, containers.created[0].CPUReservationMillicores)
+}
+
 func TestComposeCoordinatorReusesExistingManagedVolume(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
@@ -210,6 +229,8 @@ func creatingComposeJob(t *testing.T, ownerID, projectID uuid.UUID) model.Compos
 					{VolumeName: "data", MountPath: "/data"},
 					{VolumeName: "cache", MountPath: "/cache", IsReadOnly: true},
 				},
+				MemoryReservationMB:      512,
+				CPUReservationMillicores: 750,
 			},
 		},
 	}

@@ -32,6 +32,11 @@ type ComposeService struct {
 	Restart      string
 	Healthcheck  *Healthcheck
 
+	// MemoryReservationMB and CPUReservationMillicores are the service's
+	// reservation from the Compose file; zero takes the default.
+	MemoryReservationMB      int64
+	CPUReservationMillicores int64
+
 	// Роутинг (заполняется только если есть кастомные лейблы)
 	DomainPrefix string
 	InternalPort int

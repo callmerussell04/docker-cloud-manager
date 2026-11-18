@@ -60,15 +60,18 @@ func (c Container) ReservesCapacity() bool {
 }
 
 type ContainerCreateParams struct {
-	ProjectID         *uuid.UUID
-	Name              string
-	NetworkAlias      string
-	ImageTag          string
-	InternalPort      int
-	EnvVars           map[string]string
-	VolumeMounts      []VolumeMountParams
-	RequestedMemoryMB int64
-	DomainPrefix      string
+	ProjectID    *uuid.UUID
+	Name         string
+	NetworkAlias string
+	ImageTag     string
+	InternalPort int
+	EnvVars      map[string]string
+	VolumeMounts []VolumeMountParams
+	DomainPrefix string
+	// MemoryReservationMB and CPUReservationMillicores are the reservation
+	// the owner chose; zero takes the default of the runtime settings.
+	MemoryReservationMB      int64
+	CPUReservationMillicores int64
 
 	Command     []string
 	Entrypoint  []string

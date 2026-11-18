@@ -86,3 +86,38 @@ func TestStartDeploymentAdmission(t *testing.T) {
 		})
 	}
 }
+
+// The preflight asks for the sum of the services' reservations: each
+// service's own figures, or the defaults for a service without them.
+func TestStartDeploymentPreflightSumsServiceReservations(t *testing.T) {
+	const reservingCompose = `
+services:
+  web:
+    image: nginx:latest
+    deploy:
+      resources:
+        reservations:
+          memory: 1g
+          cpus: '1.5'
+  cache:
+    image: redis:latest
+`
+	owner := uuid.New()
+	cfg := composeTestConfig()
+	cfg.MaxQueuedComposeDeploysPerUser = 0
+	cfg.DefaultMemoryReservation = 256 << 20
+	cfg.DefaultCPUReservation = 500
+	repo := composemocks.NewProjectRepository(t)
+	deps, _ := composeOrchestratorDeps(t, repo, cfg)
+	capacity := composemocks.NewCapacityChecker(t)
+	capacity.EXPECT().CheckCapacity(mock.Anything, owner, int64(1024<<20+256<<20), int64(1500+500), int64(0)).Return(nil).Once()
+	deps.Capacity = capacity
+	repo.EXPECT().CreateWithComposeDeploymentJob(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	o, err := compose.NewOrchestrator(deps)
+	require.NoError(t, err)
+	ctx := accessscope.WithUserScope(context.Background(), owner, "", "")
+
+	_, err = o.StartDeployment(ctx, "proj", "source.zip", "", bytes.NewReader(zipComposeArchive(t, reservingCompose)))
+
+	require.NoError(t, err)
+}

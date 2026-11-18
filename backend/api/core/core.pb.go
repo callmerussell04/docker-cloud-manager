@@ -2171,15 +2171,18 @@ func (x *VolumeMount) GetIsReadonly() bool {
 }
 
 type CreateContainerRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	ImageTag      string                 `protobuf:"bytes,3,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
-	InternalPort  int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
-	EnvVars       map[string]string      `protobuf:"bytes,5,rep,name=env_vars,json=envVars,proto3" json:"env_vars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	VolumeMounts  []*VolumeMount         `protobuf:"bytes,6,rep,name=volume_mounts,json=volumeMounts,proto3" json:"volume_mounts,omitempty"`
-	DomainPrefix  string                 `protobuf:"bytes,7,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Name         string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ImageTag     string                 `protobuf:"bytes,3,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
+	InternalPort int32                  `protobuf:"varint,4,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
+	EnvVars      map[string]string      `protobuf:"bytes,5,rep,name=env_vars,json=envVars,proto3" json:"env_vars,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	VolumeMounts []*VolumeMount         `protobuf:"bytes,6,rep,name=volume_mounts,json=volumeMounts,proto3" json:"volume_mounts,omitempty"`
+	DomainPrefix string                 `protobuf:"bytes,7,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
+	// The reservation the owner chose; zero or absent takes the default.
+	MemoryReservationMb      int64 `protobuf:"varint,8,opt,name=memory_reservation_mb,json=memoryReservationMb,proto3" json:"memory_reservation_mb,omitempty"`
+	CpuReservationMillicores int64 `protobuf:"varint,9,opt,name=cpu_reservation_millicores,json=cpuReservationMillicores,proto3" json:"cpu_reservation_millicores,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CreateContainerRequest) Reset() {
@@ -2252,6 +2255,20 @@ func (x *CreateContainerRequest) GetDomainPrefix() string {
 		return x.DomainPrefix
 	}
 	return ""
+}
+
+func (x *CreateContainerRequest) GetMemoryReservationMb() int64 {
+	if x != nil {
+		return x.MemoryReservationMb
+	}
+	return 0
+}
+
+func (x *CreateContainerRequest) GetCpuReservationMillicores() int64 {
+	if x != nil {
+		return x.CpuReservationMillicores
+	}
+	return 0
 }
 
 type CreateContainerResponse struct {
@@ -2411,24 +2428,26 @@ func (x *ExposeRequest) GetInternalPort() int32 {
 }
 
 type ContainerData struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	DockerId      string                 `protobuf:"bytes,2,opt,name=docker_id,json=dockerId,proto3" json:"docker_id,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	ImageTag      string                 `protobuf:"bytes,4,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
-	InternalPort  int32                  `protobuf:"varint,5,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
-	DomainPrefix  string                 `protobuf:"bytes,6,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
-	Status        string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
-	CreatedAt     int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	OwnerId       string                 `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
-	OwnerUsername string                 `protobuf:"bytes,10,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
-	DesiredStatus string                 `protobuf:"bytes,11,opt,name=desired_status,json=desiredStatus,proto3" json:"desired_status,omitempty"`
-	LastError     string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
-	LastExitCode  *int32                 `protobuf:"varint,13,opt,name=last_exit_code,json=lastExitCode,proto3,oneof" json:"last_exit_code,omitempty"`
-	TtlDeadline   int64                  `protobuf:"varint,14,opt,name=ttl_deadline,json=ttlDeadline,proto3" json:"ttl_deadline,omitempty"`
-	ProjectId     string                 `protobuf:"bytes,15,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Id                       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	DockerId                 string                 `protobuf:"bytes,2,opt,name=docker_id,json=dockerId,proto3" json:"docker_id,omitempty"`
+	Name                     string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	ImageTag                 string                 `protobuf:"bytes,4,opt,name=image_tag,json=imageTag,proto3" json:"image_tag,omitempty"`
+	InternalPort             int32                  `protobuf:"varint,5,opt,name=internal_port,json=internalPort,proto3" json:"internal_port,omitempty"`
+	DomainPrefix             string                 `protobuf:"bytes,6,opt,name=domain_prefix,json=domainPrefix,proto3" json:"domain_prefix,omitempty"`
+	Status                   string                 `protobuf:"bytes,7,opt,name=status,proto3" json:"status,omitempty"`
+	CreatedAt                int64                  `protobuf:"varint,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	OwnerId                  string                 `protobuf:"bytes,9,opt,name=owner_id,json=ownerId,proto3" json:"owner_id,omitempty"`
+	OwnerUsername            string                 `protobuf:"bytes,10,opt,name=owner_username,json=ownerUsername,proto3" json:"owner_username,omitempty"`
+	DesiredStatus            string                 `protobuf:"bytes,11,opt,name=desired_status,json=desiredStatus,proto3" json:"desired_status,omitempty"`
+	LastError                string                 `protobuf:"bytes,12,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	LastExitCode             *int32                 `protobuf:"varint,13,opt,name=last_exit_code,json=lastExitCode,proto3,oneof" json:"last_exit_code,omitempty"`
+	TtlDeadline              int64                  `protobuf:"varint,14,opt,name=ttl_deadline,json=ttlDeadline,proto3" json:"ttl_deadline,omitempty"`
+	ProjectId                string                 `protobuf:"bytes,15,opt,name=project_id,json=projectId,proto3" json:"project_id,omitempty"`
+	MemoryReservationBytes   int64                  `protobuf:"varint,16,opt,name=memory_reservation_bytes,json=memoryReservationBytes,proto3" json:"memory_reservation_bytes,omitempty"`
+	CpuReservationMillicores int64                  `protobuf:"varint,17,opt,name=cpu_reservation_millicores,json=cpuReservationMillicores,proto3" json:"cpu_reservation_millicores,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ContainerData) Reset() {
@@ -2564,6 +2583,20 @@ func (x *ContainerData) GetProjectId() string {
 		return x.ProjectId
 	}
 	return ""
+}
+
+func (x *ContainerData) GetMemoryReservationBytes() int64 {
+	if x != nil {
+		return x.MemoryReservationBytes
+	}
+	return 0
+}
+
+func (x *ContainerData) GetCpuReservationMillicores() int64 {
+	if x != nil {
+		return x.CpuReservationMillicores
+	}
+	return 0
 }
 
 type ContainerListResponse struct {
@@ -4903,14 +4936,16 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\n" +
 	"mount_path\x18\x02 \x01(\tR\tmountPath\x12\x1f\n" +
 	"\vis_readonly\x18\x03 \x01(\bR\n" +
-	"isReadonly\"\xdd\x02\n" +
+	"isReadonly\"\xcf\x03\n" +
 	"\x16CreateContainerRequest\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
 	"\timage_tag\x18\x03 \x01(\tR\bimageTag\x12#\n" +
 	"\rinternal_port\x18\x04 \x01(\x05R\finternalPort\x12D\n" +
 	"\benv_vars\x18\x05 \x03(\v2).core.CreateContainerRequest.EnvVarsEntryR\aenvVars\x126\n" +
 	"\rvolume_mounts\x18\x06 \x03(\v2\x11.core.VolumeMountR\fvolumeMounts\x12#\n" +
-	"\rdomain_prefix\x18\a \x01(\tR\fdomainPrefix\x1a:\n" +
+	"\rdomain_prefix\x18\a \x01(\tR\fdomainPrefix\x122\n" +
+	"\x15memory_reservation_mb\x18\b \x01(\x03R\x13memoryReservationMb\x12<\n" +
+	"\x1acpu_reservation_millicores\x18\t \x01(\x03R\x18cpuReservationMillicores\x1a:\n" +
 	"\fEnvVarsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x01\x10\x02R\bowner_id\"<\n" +
@@ -4922,7 +4957,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\rExposeRequest\x12!\n" +
 	"\fcontainer_id\x18\x02 \x01(\tR\vcontainerId\x12#\n" +
 	"\rdomain_prefix\x18\x03 \x01(\tR\fdomainPrefix\x12#\n" +
-	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xf6\x03\n" +
+	"\rinternal_port\x18\x04 \x01(\x05R\finternalPortJ\x04\b\x01\x10\x02R\bowner_id\"\xee\x04\n" +
 	"\rContainerData\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\tdocker_id\x18\x02 \x01(\tR\bdockerId\x12\x12\n" +
@@ -4942,7 +4977,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x0elast_exit_code\x18\r \x01(\x05H\x00R\flastExitCode\x88\x01\x01\x12!\n" +
 	"\fttl_deadline\x18\x0e \x01(\x03R\vttlDeadline\x12\x1d\n" +
 	"\n" +
-	"project_id\x18\x0f \x01(\tR\tprojectIdB\x11\n" +
+	"project_id\x18\x0f \x01(\tR\tprojectId\x128\n" +
+	"\x18memory_reservation_bytes\x18\x10 \x01(\x03R\x16memoryReservationBytes\x12<\n" +
+	"\x1acpu_reservation_millicores\x18\x11 \x01(\x03R\x18cpuReservationMillicoresB\x11\n" +
 	"\x0f_last_exit_code\"L\n" +
 	"\x15ContainerListResponse\x123\n" +
 	"\n" +

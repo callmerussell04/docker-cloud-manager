@@ -624,3 +624,30 @@ func TestValidateSystemConfigRequiresPositiveQueuedLimitsAndBuildCPU(t *testing.
 		})
 	}
 }
+
+// A default reservation is at least the smallest reservation a container may
+// choose: 16 MiB of memory and 10 millicores.
+func TestValidateSystemConfigBoundsDefaultReservations(t *testing.T) {
+	smallest := validSystemConfig()
+	smallest.DefaultMemoryReservation, smallest.DefaultCPUReservation = 16<<20, 10
+	if err := config.ValidateSystemConfig(smallest); err != nil {
+		t.Fatalf("16 MiB and 10 millicores are valid default reservations: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.SystemConfig)
+		want  string
+	}{
+		{name: "memory below 16 MiB", apply: func(c *config.SystemConfig) { c.DefaultMemoryReservation = 16<<20 - 1 }, want: "default memory reservation must be at least 16 MiB"},
+		{name: "cpu below 10 millicores", apply: func(c *config.SystemConfig) { c.DefaultCPUReservation = 9 }, want: "default cpu reservation must be at least 10 millicores"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validSystemConfig()
+			tc.apply(&cfg)
+			err := config.ValidateSystemConfig(cfg)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("ValidateSystemConfig() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

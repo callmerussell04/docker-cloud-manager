@@ -67,6 +67,9 @@ func (h *ContainerHandler) CreateContainer(ctx context.Context, req *coreapi.Cre
 		EnvVars:      req.GetEnvVars(),
 		VolumeMounts: mounts,
 		DomainPrefix: req.GetDomainPrefix(),
+
+		MemoryReservationMB:      req.GetMemoryReservationMb(),
+		CPUReservationMillicores: req.GetCpuReservationMillicores(),
 	}
 
 	containerID, err := h.logic.Create(ctx, params)
@@ -208,6 +211,9 @@ func containerToProto(c model.Container, ownerUsername string) *coreapi.Containe
 		LastExitCode:  lastExitCode,
 		TtlDeadline:   ttlDeadline,
 		ProjectId:     projectID,
+
+		MemoryReservationBytes:   c.BaseMemoryReservation,
+		CpuReservationMillicores: c.BaseCPUReservation,
 	}
 }
 

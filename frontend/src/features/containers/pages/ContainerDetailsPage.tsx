@@ -18,6 +18,7 @@ import {
   containerStatusLabel,
   type ContainerAction,
   type ContainerData,
+  formatCores,
 } from '../model';
 import { ContainerTTLTimer } from '../components/ContainerTTLTimer';
 import { useContainerModals } from '../components/useContainerModals';
@@ -114,6 +115,14 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
               <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
                 <Box className="w-4 h-4" />
                 <span>{container.image_tag}</span>
+              </div>
+            )}
+            {container && (
+              <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                {t('containers.reservation', {
+                  memory: formatBytes(container.memory_reservation_bytes),
+                  cpu: formatCores(container.cpu_reservation_millicores),
+                })}
               </div>
             )}
           </div>

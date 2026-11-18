@@ -166,7 +166,7 @@ func loadRuntime(lookup envconfig.Lookup, baseDomain string) SystemConfig {
 		DefaultVolumeSizeBytes: envconfig.Int64(lookup, "DEFAULT_VOLUME_SIZE_BYTES", 256<<20),
 		VolumeSizeEnforcement:  envconfig.Bool(lookup, "VOLUME_SIZE_ENFORCEMENT", false),
 
-		DefaultUserQuotaCPU:            envconfig.Float64(lookup, "DEFAULT_USER_QUOTA_CPU", 1),
+		DefaultUserQuotaCPU:            envconfig.Float64(lookup, "DEFAULT_USER_QUOTA_CPU", 2),
 		DefaultUserQuotaRAMMB:          envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_RAM_MB", 2048),
 		DefaultUserQuotaDiskMB:         envconfig.Int64(lookup, "DEFAULT_USER_QUOTA_DISK_MB", 5120),
 		MaxContainersPerUser:           envconfig.Int(lookup, "MAX_CONTAINERS_PER_USER", 10),

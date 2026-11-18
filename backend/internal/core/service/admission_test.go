@@ -27,8 +27,10 @@ const admissionMiB = int64(1 << 20)
 // owner already runs one 512 MiB, 500m container; another owner's running
 // container and active builds take host capacity. The host has 2 GiB and
 // 2000m, with no overcommit and nothing held back for the system. Every entry
-// point asks for 256 MiB and 250m: container create, container start, project
-// start, and build creation through BuildMemoryBytes and the build CPU quota.
+// point asks for 256 MiB and 250m: container create with the default
+// reservations or with its own figures over smaller defaults, container start
+// of a default or a non-default reservation, project start, and build creation
+// through BuildMemoryBytes and the build CPU quota.
 // Builder runs up to four builds at once unless a case narrows it, and each
 // build slot also holds buildMaxDiskBytes of disk against the 1 GiB disk
 // floor. A volume create asks for the default 64 MiB size and no memory or CPU.
@@ -121,7 +123,9 @@ type admissionEntry struct {
 
 var admissionEntries = []admissionEntry{
 	{name: "container create", chargesUser: true, run: admitContainerCreate},
+	{name: "container create with chosen reservations", chargesUser: true, run: admitContainerCreateWithChosenReservations},
 	{name: "container start", chargesUser: true, run: admitContainerStart},
+	{name: "container start of a non-default reservation", chargesUser: true, run: admitNonDefaultContainerStart},
 	{name: "container start that already reserves", reserving: true, run: admitReservingContainerStart},
 	{name: "project start", chargesUser: true, run: admitProjectStart},
 	{name: "build creation", chargesUser: false, run: admitBuildCreation},
@@ -340,7 +344,7 @@ func TestChangingADefaultQuotaChangesOnlyOwnersWithoutACustomQuota(t *testing.T)
 			svc := admissionContainerService(t, w, ownerID, admissionStore(t, w, ownerID), cfg)
 			ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 			return func(n int) error {
-				_, err := svc.Create(ctx, model.ContainerCreateParams{Name: fmt.Sprintf("web-%d", n), ImageTag: "nginx:latest", RequestedMemoryMB: 256})
+				_, err := svc.Create(ctx, model.ContainerCreateParams{Name: fmt.Sprintf("web-%d", n), ImageTag: "nginx:latest", MemoryReservationMB: 256})
 				return err
 			}
 		}},
@@ -491,7 +495,47 @@ func admitContainerCreate(t *testing.T, w admissionWorld) (bool, error) {
 	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: w.config()})
 	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 
-	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest", RequestedMemoryMB: 256})
+	_, err := svc.Create(ctx, model.ContainerCreateParams{Name: "web", ImageTag: "nginx:latest"})
+
+	return queuedCount(t, store) == 1, err
+}
+
+// smallDefaultReservations lowers the default reservations to 64 MiB and 50m,
+// so a request that still meets the verdicts of 256 MiB and 250m shows that
+// admission counts the container's own reservation, not the default.
+func smallDefaultReservations(w admissionWorld) config.SystemConfig {
+	cfg := w.config()
+	cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation = 64*admissionMiB, 50
+	return cfg
+}
+
+// admitContainerCreateWithChosenReservations creates a container that chooses
+// 256 MiB and 250m over smaller defaults.
+func admitContainerCreateWithChosenReservations(t *testing.T, w admissionWorld) (bool, error) {
+	ownerID := uuid.New()
+	store := admissionStore(t, w, ownerID)
+	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: smallDefaultReservations(w)})
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	_, err := svc.Create(ctx, model.ContainerCreateParams{
+		Name: "web", ImageTag: "nginx:latest",
+		MemoryReservationMB: 256, CPUReservationMillicores: 250,
+	})
+
+	return queuedCount(t, store) == 1, err
+}
+
+// admitNonDefaultContainerStart starts the owner's stopped 256 MiB, 250m
+// container over smaller defaults.
+func admitNonDefaultContainerStart(t *testing.T, w admissionWorld) (bool, error) {
+	ownerID := uuid.New()
+	store := admissionStore(t, w, ownerID)
+	c := stoppedContainer(ownerID, nil)
+	saveContainer(t, store, c)
+	svc := admissionContainerService(t, w, ownerID, store, coretest.StaticConfig{Config: smallDefaultReservations(w)})
+	ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
+
+	err := svc.Start(ctx, c.ID)
 
 	return queuedCount(t, store) == 1, err
 }
@@ -654,7 +698,7 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 
 		errs := make(chan error, 2)
 		create := func(name string) {
-			_, err := svc.Create(ctx, model.ContainerCreateParams{Name: name, ImageTag: "nginx:latest", RequestedMemoryMB: 256})
+			_, err := svc.Create(ctx, model.ContainerCreateParams{Name: name, ImageTag: "nginx:latest", MemoryReservationMB: 256})
 			errs <- err
 		}
 		go create("first")

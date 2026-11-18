@@ -64,10 +64,12 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 			createInput = input
 		}).
 		Return(containerID, nil)
-	resp := perform(router, http.MethodPost, "/containers", `{"name":"web","image_tag":"nginx:latest","internal_port":80,"domain_prefix":"web","env_vars":{"APP_ENV":"test"},"volume_mounts":[{"volume_id":"`+volumeID+`","mount_path":"/data","is_readonly":true}]}`, nil)
+	resp := perform(router, http.MethodPost, "/containers", `{"name":"web","image_tag":"nginx:latest","internal_port":80,"domain_prefix":"web","env_vars":{"APP_ENV":"test"},"volume_mounts":[{"volume_id":"`+volumeID+`","mount_path":"/data","is_readonly":true}],"memory_reservation_mb":512,"cpu_reservation_millicores":750}`, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 	require.Contains(t, resp.Body.String(), containerID)
 	require.Equal(t, "web", createInput.Name)
+	require.EqualValues(t, 512, createInput.MemoryReservationMB)
+	require.EqualValues(t, 750, createInput.CPUReservationMillicores)
 	require.Len(t, createInput.VolumeMounts, 1)
 	require.True(t, createInput.VolumeMounts[0].IsReadOnly)
 
@@ -90,9 +92,11 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Contains(t, resp.Body.String(), "docker_id")
 	require.Contains(t, resp.Body.String(), "owner_id")
 
-	svc.EXPECT().GetContainer(mock.Anything, containerID).Return(model.Container{ID: containerID, DockerID: "docker-id", Name: "web", Status: "running", OwnerID: "owner-id", OwnerUsername: "alice"}, nil).Twice()
+	svc.EXPECT().GetContainer(mock.Anything, containerID).Return(model.Container{ID: containerID, DockerID: "docker-id", Name: "web", Status: "running", OwnerID: "owner-id", OwnerUsername: "alice", MemoryReservationBytes: 512 << 20, CPUReservationMillicores: 750}, nil).Twice()
 	resp = perform(router, http.MethodGet, "/containers/"+containerID, ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
+	require.Contains(t, resp.Body.String(), `"memory_reservation_bytes":536870912`)
+	require.Contains(t, resp.Body.String(), `"cpu_reservation_millicores":750`)
 	require.Contains(t, resp.Body.String(), `"id":"`+containerID+`"`)
 	require.Contains(t, resp.Body.String(), `"status":"running"`)
 	require.NotContains(t, resp.Body.String(), "docker_id")
@@ -102,6 +106,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"docker_id":"docker-id"`)
 	require.Contains(t, resp.Body.String(), `"owner_username":"alice"`)
+	require.Contains(t, resp.Body.String(), `"memory_reservation_bytes":536870912`)
 	svc.EXPECT().GetContainer(mock.Anything, containerID).Return(model.Container{}, apperrors.ErrNotFound)
 	resp = perform(router, http.MethodGet, "/containers/"+containerID, ``, nil)
 	require.Equal(t, http.StatusNotFound, resp.Code)

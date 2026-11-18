@@ -16,6 +16,9 @@ type Container struct {
 	CreatedAt     int64
 	OwnerID       string
 	OwnerUsername string
+
+	MemoryReservationBytes   int64
+	CPUReservationMillicores int64
 }
 
 type CreateContainerInput struct {
@@ -25,6 +28,9 @@ type CreateContainerInput struct {
 	EnvVars      map[string]string
 	VolumeMounts []VolumeMountInput
 	DomainPrefix string
+
+	MemoryReservationMB      int64
+	CPUReservationMillicores int64
 }
 
 type ContainerStats struct {

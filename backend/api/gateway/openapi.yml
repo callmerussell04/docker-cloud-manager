@@ -2259,6 +2259,22 @@ components:
         domain_prefix:
           type: string
           maxLength: 30
+        memory_reservation_mb:
+          type: integer
+          format: int64
+          description: >-
+            Memory the container is promised whenever it runs, in MB (MiB). Absent or 0 takes
+            default_memory_reservation_bytes. Outside 16 MB to 1 TiB is 400; above what the owner's
+            memory quota leaves is 403 with limit user_memory. The memory limit and boost ceiling are
+            derived from it. It cannot be changed after creation.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: >-
+            CPU the container is promised whenever it runs, in millicores. Absent or 0 takes
+            default_cpu_reservation_millicores. Outside 10 millicores to 1,000,000 cores is 400; above
+            what the owner's CPU quota leaves is 403 with limit user_cpu. CPU shares, the CPU limit and
+            the boost ceiling are derived from it. It cannot be changed after creation.
 
     VolumeMountRequest:
       type: object
@@ -2318,6 +2334,14 @@ components:
           type: integer
           format: int64
           description: Unix timestamp
+        memory_reservation_bytes:
+          type: integer
+          format: int64
+          description: Memory the container is promised whenever it runs, chosen at create or the default of that time.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: CPU the container is promised whenever it runs, chosen at create or the default of that time.
 
     Container:
       type: object
@@ -2360,6 +2384,14 @@ components:
           format: uuid
         owner_username:
           type: string
+        memory_reservation_bytes:
+          type: integer
+          format: int64
+          description: Memory the container is promised whenever it runs, chosen at create or the default of that time.
+        cpu_reservation_millicores:
+          type: integer
+          format: int64
+          description: CPU the container is promised whenever it runs, chosen at create or the default of that time.
 
     ContainerStats:
       type: object
@@ -2893,6 +2925,8 @@ components:
         default_memory_reservation_bytes:
           type: integer
           format: int64
+          minimum: 16777216
+          description: Memory reservation of a container created without its own figure. At least 16 MiB.
         reserved_system_memory_bytes:
           type: integer
           format: int64
@@ -2905,6 +2939,8 @@ components:
         default_cpu_reservation_millicores:
           type: integer
           format: int64
+          minimum: 10
+          description: CPU reservation, in millicores, of a container created without its own figure. At least 10.
         reserved_system_cpu_millicores:
           type: integer
           format: int64

@@ -58,11 +58,14 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 
 	createResp, err := client.CreateContainer(ctx, &coreapi.CreateContainerRequest{
 		Name: "web", ImageTag: "nginx:latest",
-		VolumeMounts: []*coreapi.VolumeMount{{VolumeId: uuid.NewString(), MountPath: "/data", IsReadonly: true}},
+		VolumeMounts:        []*coreapi.VolumeMount{{VolumeId: uuid.NewString(), MountPath: "/data", IsReadonly: true}},
+		MemoryReservationMb: 512, CpuReservationMillicores: 750,
 	})
 	require.NoError(t, err)
 	require.Equal(t, containerID.String(), createResp.ContainerId)
 	require.Equal(t, "web", createParams.Name)
+	require.EqualValues(t, 512, createParams.MemoryReservationMB)
+	require.EqualValues(t, 750, createParams.CPUReservationMillicores)
 	require.Len(t, createParams.VolumeMounts, 1)
 	require.True(t, createParams.VolumeMounts[0].IsReadOnly)
 
@@ -143,6 +146,7 @@ func TestContainerGRPCHandlerMapsGet(t *testing.T) {
 		ID: uuid.New(), OwnerID: ownerID, ProjectID: &projectID, DockerID: "docker-web", Name: "web",
 		ImageTag: "nginx:latest", InternalPort: 8080, DomainPrefix: "app",
 		Status: model.ContainerStatusExited, DesiredStatus: model.ContainerStatusExited, LastExitCode: &exitCode,
+		BaseMemoryReservation: 512 << 20, BaseCPUReservation: 750,
 	}
 	logic := coregrpcmocks.NewMockContainerLogic(t)
 	logic.EXPECT().Get(mock.Anything, container.ID).Return(container, nil)
@@ -169,6 +173,8 @@ func TestContainerGRPCHandlerMapsGet(t *testing.T) {
 	require.Equal(t, projectID.String(), got.GetProjectId())
 	require.NotNil(t, got.LastExitCode)
 	require.EqualValues(t, 137, got.GetLastExitCode())
+	require.EqualValues(t, 512<<20, got.GetMemoryReservationBytes())
+	require.EqualValues(t, 750, got.GetCpuReservationMillicores())
 }
 
 func TestContainerGRPCHandlerGetRejectsBadRequests(t *testing.T) {

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerNeedsPolling, containerNeedsWatching, isContainerBusy, type ContainerData } from './model';
+import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerNeedsPolling, containerNeedsWatching, formatCores, isContainerBusy, type ContainerData } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
-  return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0 };
+  return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0, memory_reservation_bytes: 256 * 1024 ** 2, cpu_reservation_millicores: 250 };
 }
 
 describe('containerBadgeVariant', () => {
@@ -117,5 +117,16 @@ describe('containerNeedsWatching', () => {
     ['error', false],
   ])('%s -> %s', (status, expected) => {
     expect(containerNeedsWatching(container(status))).toBe(expected);
+  });
+});
+
+describe('formatCores', () => {
+  test.each([
+    [250, '0.25'],
+    [2000, '2'],
+    [10, '0.01'],
+    [1500, '1.5'],
+  ])('%i millicores show as %s cores', (millicores, cores) => {
+    expect(formatCores(millicores)).toBe(cores);
   });
 });

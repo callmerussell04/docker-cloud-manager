@@ -88,7 +88,7 @@ func TestLoadRuntimeDefaultsAreValidAndHoldNoBootstrapSecrets(t *testing.T) {
 	assert.Equal(t, []string{}, runtime.BlockedDomainPrefixPatterns)
 	assert.Equal(t, config.DefaultReportsUsageSnapshotIntervalSeconds, runtime.ReportsUsageSnapshotIntervalSeconds)
 	assert.False(t, runtime.VolumeSizeEnforcement, "volume sizes are measured unless an administrator turns enforcement on")
-	assert.Equal(t, 1.0, runtime.DefaultUserQuotaCPU)
+	assert.Equal(t, 2.0, runtime.DefaultUserQuotaCPU, "two cores allow as many default containers as the 2048 MB memory quota")
 	assert.Equal(t, int64(2048), runtime.DefaultUserQuotaRAMMB)
 	assert.Equal(t, int64(5120), runtime.DefaultUserQuotaDiskMB)
 	assert.NotContains(t, assertJSON(t, runtime), secret)

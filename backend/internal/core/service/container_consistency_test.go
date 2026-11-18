@@ -286,9 +286,9 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	}).Return(nil).Once()
 
 	containerID, err := svc.Create(ctx, model.ContainerCreateParams{
-		Name:              "web",
-		ImageTag:          "nginx:latest",
-		RequestedMemoryMB: 128,
+		Name:                "web",
+		ImageTag:            "nginx:latest",
+		MemoryReservationMB: 128,
 	})
 	require.NoError(t, err)
 	require.NotEqual(t, uuid.Nil, containerID)

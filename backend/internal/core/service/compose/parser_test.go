@@ -529,6 +529,7 @@ func FuzzParser(f *testing.F) {
 		{"services:\n  web:\n    image: registry:5000/app\n    privileged: true\n", ""},
 		{"services:\n  a:\n    image: nginx\n    depends_on:\n      b:\n        condition: service_healthy\n  b:\n    image: redis\n", ""},
 		{"volumes:\n  data:\n    external: true\nservices:\n  db:\n    image: postgres\n    volumes:\n      - data:/var/lib/postgresql/data\n", ""},
+		{"services:\n  web:\n    image: nginx\n    mem_reservation: 1g\n    deploy:\n      resources:\n        reservations:\n          memory: 64m\n          cpus: '0.5'\n        limits:\n          memory: 2g\n", ""},
 		{"x: &a [1, *a]\n", ""},
 		{"", "."},
 	} {
@@ -543,6 +544,12 @@ func FuzzParser(f *testing.F) {
 			return
 		}
 		for _, service := range project.Services {
+			if mb := service.MemoryReservationMB; mb != 0 && (mb < 16 || mb > 1<<20) {
+				t.Fatalf("service %q accepted with memory reservation %d MB outside the bounds", service.Name, mb)
+			}
+			if mc := service.CPUReservationMillicores; mc != 0 && (mc < 10 || mc > 1_000_000_000) {
+				t.Fatalf("service %q accepted with cpu reservation %dm outside the bounds", service.Name, mc)
+			}
 			if err := validation.ImageTag(service.ImageTag); err != nil {
 				t.Fatalf("service %q accepted with invalid image tag %q", service.Name, service.ImageTag)
 			}

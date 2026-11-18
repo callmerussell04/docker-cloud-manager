@@ -15,6 +15,10 @@ export interface ContainerData {
   last_exit_code?: number;
   ttl_deadline?: number;
   created_at: number;
+  // The memory and CPU the container is promised whenever it runs, chosen at
+  // create or the platform defaults of that time.
+  memory_reservation_bytes: number;
+  cpu_reservation_millicores: number;
 }
 
 export interface AdminContainerData extends ContainerData {
@@ -49,6 +53,9 @@ export interface CreateContainerDTO {
   image_tag: string;
   internal_port?: number;
   domain_prefix?: string;
+  // Absent takes the platform default.
+  memory_reservation_mb?: number;
+  cpu_reservation_millicores?: number;
   env_vars?: Record<string, string>;
   volume_mounts?: Array<{
     volume_id: string;
@@ -159,3 +166,7 @@ const statusKeys: Record<string, TranslationKey> = {
 export function containerStatusLabel(t: TFunction, status?: string) {
   return labelFor(t, statusKeys, status);
 }
+
+// formatCores shows a CPU figure in millicores as cores, with up to three
+// decimals ("0.25", "2").
+export const formatCores = (millicores: number) => String(Number((millicores / 1000).toFixed(3)));

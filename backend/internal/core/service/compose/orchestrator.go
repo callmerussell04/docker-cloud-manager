@@ -579,9 +579,19 @@ func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uui
 		return nil
 	}
 	cfg := o.cfg.Get()
-	requestedRam := int64(len(project.Services)) * cfg.DefaultMemoryReservation
-	requestedCPU := int64(len(project.Services)) * cfg.DefaultCPUReservation
-	return o.capacity.CheckCapacity(ctx, ownerID, requestedRam, requestedCPU, 0)
+	var requestedRAM, requestedCPU int64
+	for _, srv := range project.Services {
+		memory, cpu := cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation
+		if srv.MemoryReservationMB > 0 {
+			memory = srv.MemoryReservationMB * bytesPerMB
+		}
+		if srv.CPUReservationMillicores > 0 {
+			cpu = srv.CPUReservationMillicores
+		}
+		requestedRAM += memory
+		requestedCPU += cpu
+	}
+	return o.capacity.CheckCapacity(ctx, ownerID, requestedRAM, requestedCPU, 0)
 }
 
 // reserveComposeSource reserves a staged Compose source. Compose ingestion

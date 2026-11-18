@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
@@ -20,28 +22,43 @@ import (
 
 type Parser struct{}
 
+const bytesPerMB = int64(1 << 20)
+
 var supportedComposeServiceKeys = map[string]struct{}{
-	"build":        {},
-	"command":      {},
-	"depends_on":   {},
-	"entrypoint":   {},
-	"environment":  {},
-	"healthcheck":  {},
-	"image":        {},
-	"labels":       {},
-	"name":         {},
-	"network_mode": {},
-	"pid":          {},
-	"privileged":   {},
-	"profiles":     {},
-	"restart":      {},
-	"volumes":      {},
+	"build":           {},
+	"command":         {},
+	"depends_on":      {},
+	"entrypoint":      {},
+	"environment":     {},
+	"healthcheck":     {},
+	"image":           {},
+	"deploy":          {},
+	"labels":          {},
+	"mem_reservation": {},
+	"name":            {},
+	"network_mode":    {},
+	"pid":             {},
+	"privileged":      {},
+	"profiles":        {},
+	"restart":         {},
+	"volumes":         {},
 }
 
 var supportedComposeBuildKeys = map[string]struct{}{
 	"args":       {},
 	"context":    {},
 	"dockerfile": {},
+}
+
+// supportedComposeDeployKeys keeps only the reservations of deploy: DCM reads
+// a service's memory and CPU reservation and derives its limits itself.
+var supportedComposeDeployKeys = map[string]struct{}{"resources": {}}
+
+var supportedComposeResourcesKeys = map[string]struct{}{"reservations": {}}
+
+var supportedComposeReservationKeys = map[string]struct{}{
+	"cpus":   {},
+	"memory": {},
 }
 
 var supportedComposeVolumeKeys = map[string]struct{}{
@@ -214,6 +231,36 @@ func sanitizeComposeServices(services map[string]any) {
 		pruneStringMap(service, supportedComposeServiceKeys)
 		sanitizeComposeServiceBuild(service)
 		sanitizeComposeServiceDependsOn(service)
+		sanitizeComposeServiceDeploy(service)
+	}
+}
+
+// sanitizeComposeServiceDeploy prunes deploy down to
+// resources.reservations.memory and resources.reservations.cpus. It then
+// settles the memory precedence that compose-go would otherwise refuse as
+// distinct values: a deploy memory reservation drops mem_reservation, and
+// without one mem_reservation moves into the deploy reservations.
+func sanitizeComposeServiceDeploy(service map[string]any) {
+	deploy, ok := asStringMap(service["deploy"])
+	if !ok {
+		return
+	}
+	pruneStringMap(deploy, supportedComposeDeployKeys)
+	resources, ok := asStringMap(deploy["resources"])
+	if !ok {
+		return
+	}
+	pruneStringMap(resources, supportedComposeResourcesKeys)
+	reservations, ok := asStringMap(resources["reservations"])
+	if !ok {
+		return
+	}
+	pruneStringMap(reservations, supportedComposeReservationKeys)
+	if memReservation, ok := service["mem_reservation"]; ok {
+		if memory, ok := reservations["memory"]; !ok || memory == nil {
+			reservations["memory"] = memReservation
+		}
+		delete(service, "mem_reservation")
 	}
 }
 
@@ -403,6 +450,12 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 			return fmt.Errorf("%w: invalid image tag for service %s: %v", apperrors.ErrBadRequest, srv.Name, err)
 		}
 
+		memoryMB, millicores, err := serviceReservation(srv)
+		if err != nil {
+			return err
+		}
+		domainSrv.MemoryReservationMB, domainSrv.CPUReservationMillicores = memoryMB, millicores
+
 		// Копируем переменные окружения
 		for key, val := range srv.Environment {
 			if val != nil {
@@ -524,6 +577,43 @@ func (p *Parser) translateToDomain(projectName string, project *types.Project, r
 	}
 
 	return result, nil
+}
+
+// serviceReservation returns a service's memory reservation in whole MB,
+// rounded up, and its CPU reservation in millicores, rounded to the nearest.
+// Memory comes from deploy.resources.reservations.memory, else
+// mem_reservation; CPU from deploy.resources.reservations.cpus. Zero means no
+// figure. A figure outside the container reservation bounds is a bad request
+// that names the service and not the figure.
+func serviceReservation(srv *types.ServiceConfig) (memoryMB, millicores int64, err error) {
+	memoryBytes := int64(srv.MemReservation)
+	var cores float64
+	if srv.Deploy != nil && srv.Deploy.Resources.Reservations != nil {
+		reservations := srv.Deploy.Resources.Reservations
+		if reservations.MemoryBytes != 0 {
+			memoryBytes = int64(reservations.MemoryBytes)
+		}
+		cores = float64(reservations.NanoCPUs)
+	}
+	if memoryBytes != 0 {
+		if memoryBytes < config.MinMemoryReservationBytes || memoryBytes > config.MaxMemoryReservationBytes {
+			return 0, 0, fmt.Errorf("%w: memory reservation for service %s must be between 16 MiB and 1 TiB", apperrors.ErrBadRequest, srv.Name)
+		}
+		memoryMB = (memoryBytes + bytesPerMB - 1) / bytesPerMB
+	}
+	if cores != 0 {
+		// compose-go keeps cpus as float32, so 0.01 arrives as 9.9999998
+		// millicores: snap to a thousandth of a millicore first. The bounds
+		// then hold before rounding to whole millicores, so a figure just
+		// below the minimum is not rounded into it. The comparison is false
+		// for NaN, so NaN is rejected too.
+		scaled := math.Round(cores*1000*1000) / 1000
+		if !(scaled >= float64(config.MinCPUReservationMillicores) && scaled <= float64(config.MaxCPUReservationMillicores)) {
+			return 0, 0, fmt.Errorf("%w: cpu reservation for service %s must be between 0.01 cores and the largest cpu quota", apperrors.ErrBadRequest, srv.Name)
+		}
+		millicores = int64(math.Round(scaled))
+	}
+	return memoryMB, millicores, nil
 }
 
 func isSupportedRestartPolicy(policy string) bool {

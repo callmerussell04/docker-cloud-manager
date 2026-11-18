@@ -112,7 +112,7 @@ export const adminSettings = {
   'admin.settings.field.overcommit_factor.label': 'Коэффициент переподписки',
   'admin.settings.field.overcommit_factor.hint': 'Какую часть пула памяти пользователей можно пообещать в резервах. При 1 все резервы выполнимы одновременно; выше 1 платформа полагается на остановки при нехватке памяти.',
   'admin.settings.field.default_cpu_reservation_millicores.label': 'Резерв по умолчанию',
-  'admin.settings.field.default_cpu_reservation_millicores.hint': 'CPU, обещанный каждому контейнеру. Под нагрузкой контейнеры делят процессор пропорционально резервам.',
+  'admin.settings.field.default_cpu_reservation_millicores.hint': 'CPU, обещанный контейнеру, созданному без своего значения. Под нагрузкой контейнеры делят процессор пропорционально резервам.',
   'admin.settings.field.max_cpu_burst_multiplier.label': 'Множитель лимита',
   'admin.settings.field.max_cpu_burst_multiplier.hint': 'Потолок CPU контейнера как кратное его резерва. Применяется при создании и при каждом запуске.',
   'admin.settings.field.cpu_boost_multiplier.label': 'Множитель потолка заимствования',

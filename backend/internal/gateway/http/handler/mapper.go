@@ -21,6 +21,9 @@ func createContainerInputFromDTO(req dto.CreateContainerDTO) model.CreateContain
 		EnvVars:      req.EnvVars,
 		VolumeMounts: mounts,
 		DomainPrefix: req.DomainPrefix,
+
+		MemoryReservationMB:      req.MemoryReservationMB,
+		CPUReservationMillicores: req.CPUReservationMillicores,
 	}
 }
 
@@ -53,6 +56,9 @@ func containerToDTO(item model.Container) dto.ContainerDTO {
 		CreatedAt:     item.CreatedAt,
 		OwnerID:       item.OwnerID,
 		OwnerUsername: item.OwnerUsername,
+
+		MemoryReservationBytes:   item.MemoryReservationBytes,
+		CPUReservationMillicores: item.CPUReservationMillicores,
 	}
 }
 
@@ -78,6 +84,9 @@ func containerToUserDTO(item model.Container) dto.UserContainerDTO {
 		LastExitCode:  item.LastExitCode,
 		TTLDeadline:   item.TTLDeadline,
 		CreatedAt:     item.CreatedAt,
+
+		MemoryReservationBytes:   item.MemoryReservationBytes,
+		CPUReservationMillicores: item.CPUReservationMillicores,
 	}
 }
 

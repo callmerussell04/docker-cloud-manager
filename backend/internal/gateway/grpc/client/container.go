@@ -26,6 +26,9 @@ func (c *CoreClient) CreateContainer(ctx context.Context, createContainerDTO mod
 		EnvVars:      createContainerDTO.EnvVars,
 		VolumeMounts: mounts,
 		DomainPrefix: createContainerDTO.DomainPrefix,
+
+		MemoryReservationMb:      createContainerDTO.MemoryReservationMB,
+		CpuReservationMillicores: createContainerDTO.CPUReservationMillicores,
 	}
 
 	resp, err := c.containerAPI.CreateContainer(ctx, req)
@@ -133,6 +136,9 @@ func containerFromProto(item *coreapi.ContainerData) model.Container {
 		CreatedAt:     item.GetCreatedAt(),
 		OwnerID:       item.GetOwnerId(),
 		OwnerUsername: item.GetOwnerUsername(),
+
+		MemoryReservationBytes:   item.GetMemoryReservationBytes(),
+		CPUReservationMillicores: item.GetCpuReservationMillicores(),
 	}
 }
 

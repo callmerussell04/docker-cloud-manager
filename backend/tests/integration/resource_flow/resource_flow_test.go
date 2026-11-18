@@ -251,9 +251,9 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = containers.Create(coretest.UserContext(ownerID), model.ContainerCreateParams{
-		Name:              "too-big",
-		ImageTag:          "nginx:latest",
-		RequestedMemoryMB: 2,
+		Name:                "too-big",
+		ImageTag:            "nginx:latest",
+		MemoryReservationMB: 16,
 	})
 	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
 	require.Zero(t, countTable(t, repos.DB, "containers"))

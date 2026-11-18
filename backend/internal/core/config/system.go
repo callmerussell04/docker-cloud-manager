@@ -15,6 +15,16 @@ const (
 	// MaxUserQuotaCPU bounds a CPU quota in cores, so its millicores stay an
 	// exact int64.
 	MaxUserQuotaCPU = 1_000_000.0
+	// MinMemoryReservationBytes and MaxMemoryReservationBytes bound a
+	// container's memory reservation, the default and one chosen at create.
+	// The upper bound keeps a figure in MB convertible to bytes.
+	MinMemoryReservationBytes = int64(16 << 20)
+	MaxMemoryReservationBytes = int64(1 << 40)
+	// MinCPUReservationMillicores and MaxCPUReservationMillicores bound a
+	// container's CPU reservation, the default and one chosen at create. The
+	// upper bound is the largest CPU quota.
+	MinCPUReservationMillicores = int64(10)
+	MaxCPUReservationMillicores = int64(MaxUserQuotaCPU * 1000)
 	// DefaultBuildMaxDiskBytes and MinBuildMaxDiskBytes are the default and
 	// the smallest disk one build may write.
 	DefaultBuildMaxDiskBytes = int64(10 << 30)

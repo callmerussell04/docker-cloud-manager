@@ -18,5 +18,7 @@ export const validation = {
   'validation.gitUrlRequired': 'Укажите URL Git-репозитория',
   'validation.projectFileType': 'Допустимы только архивы (.zip, .tar.gz) или файлы .yml',
   'validation.buildFileType': 'Допустимы только архивы .zip, .tar, .tar.gz',
+  'validation.memoryReservationRange': 'Укажите целое число МБ от 16 до 1048576 (1 ТиБ)',
+  'validation.cpuReservationRange': 'Укажите от 0.01 до 1 000 000 ядер',
   'validation.portRange': 'Укажите порт от 1 до 65535',
 } as const;
