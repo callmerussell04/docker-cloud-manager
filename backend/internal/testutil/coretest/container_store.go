@@ -101,6 +101,8 @@ type ContainerStoreFaults struct {
 	MarkContainerOutboxPending                     Fault
 	MarkContainerOutboxDiscarded                   Fault
 	RecoverInterruptedContainerCreates             Fault
+	FailInterruptedNonResumableOperations          Fault
+	RecoverLostContainerDeliveries                 Fault
 	CancelActiveCreateAndDeleteContainer           Fault
 	AcquireOwnerCapacityLock                       Fault
 	GetUserReservedMemory                          Fault
@@ -537,33 +539,136 @@ func (f *ContainerStoreFake) MarkContainerOutboxDiscarded(_ context.Context, id 
 	return f.setOutboxStatus(id, model.ContainerOutboxStatusDiscarded, cause)
 }
 
-// RecoverInterruptedContainerCreates returns running container creates to
-// pending, then marks the outbox record of every pending container create
-// pending so its message is published again. It reports how many creates were
-// running.
-func (f *ContainerStoreFake) RecoverInterruptedContainerCreates(_ context.Context, cause error) (int64, error) {
+// RecoverInterruptedContainerCreates returns running container creates in
+// scope to pending, returning their attempt when the scope says so. Without
+// an age bound, as at startup, it then marks the outbox record of every
+// pending container create pending; with one, only the recovered creates'
+// records. It reports the creates it returned.
+func (f *ContainerStoreFake) RecoverInterruptedContainerCreates(_ context.Context, cause error, scope model.OperationRecoveryScope) ([]model.RecoveredOperation, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.faults.RecoverInterruptedContainerCreates.take(); err != nil {
-		return 0, err
-	}
-	var recovered int64
-	for id, op := range f.operations {
-		if isContainerCreate(op) && op.Status == model.OperationStatusRunning {
-			f.setOperationStatus(id, model.OperationStatusPending, cause)
-			recovered++
-		}
+		return nil, err
 	}
 	now := time.Now()
+	recovered := make([]model.RecoveredOperation, 0)
+	recoveredIDs := make(map[uuid.UUID]bool)
+	for id, op := range f.operations {
+		if !isContainerCreate(op) || op.Status != model.OperationStatusRunning || !olderThan(op.UpdatedAt, now, scope.RunningLongerThan) {
+			continue
+		}
+		f.setOperationStatus(id, model.OperationStatusPending, cause)
+		if scope.ReturnAttempt {
+			op := f.operations[id]
+			op.Attempts = max(op.Attempts-1, 0)
+			f.operations[id] = op
+		}
+		recovered = append(recovered, recoveredOperation(op))
+		recoveredIDs[id] = true
+	}
 	for i := range f.outbox {
 		op := f.operations[f.outbox[i].OperationID]
-		if isContainerCreate(op) && op.Status == model.OperationStatusPending {
-			f.outbox[i].Status = model.ContainerOutboxStatusPending
-			f.outbox[i].LastError = errorText(cause)
-			f.outbox[i].UpdatedAt = now
+		if !isContainerCreate(op) || op.Status != model.OperationStatusPending {
+			continue
 		}
+		if scope.RunningLongerThan > 0 && !recoveredIDs[op.ID] {
+			continue
+		}
+		f.outbox[i].Status = model.ContainerOutboxStatusPending
+		f.outbox[i].LastError = errorText(cause)
+		f.outbox[i].UpdatedAt = now
 	}
 	return recovered, nil
+}
+
+// FailInterruptedNonResumableOperations fails every running operation that
+// is not resumable (anything but a container create, a volume create or
+// delete and an image delete) and was claimed longer ago than
+// runningLongerThan; zero fails them all. Container rows are untouched.
+func (f *ContainerStoreFake) FailInterruptedNonResumableOperations(_ context.Context, cause error, runningLongerThan time.Duration) ([]model.RecoveredOperation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.FailInterruptedNonResumableOperations.take(); err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	failed := make([]model.RecoveredOperation, 0)
+	for id, op := range f.operations {
+		if op.Status != model.OperationStatusRunning || isResumable(op) || !olderThan(op.UpdatedAt, now, runningLongerThan) {
+			continue
+		}
+		f.setOperationStatus(id, model.OperationStatusFailed, cause)
+		failed = append(failed, recoveredOperation(op))
+	}
+	return failed, nil
+}
+
+// RecoverLostContainerDeliveries finds pending container operations whose
+// message is gone. One whose outbox record was published or discarded longer
+// ago than olderThan has the record marked pending again. One whose container
+// row is gone, and so its outbox record with it, and that was last updated
+// longer ago than olderThan is ended: done for a delete, failed with cause
+// otherwise.
+func (f *ContainerStoreFake) RecoverLostContainerDeliveries(_ context.Context, cause error, age time.Duration) (model.LostDeliveryRecovery, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.faults.RecoverLostContainerDeliveries.take(); err != nil {
+		return model.LostDeliveryRecovery{}, err
+	}
+	now := time.Now()
+	result := model.LostDeliveryRecovery{Republished: []model.RecoveredOperation{}, Ended: []model.RecoveredOperation{}}
+	for i := range f.outbox {
+		item := &f.outbox[i]
+		op := f.operations[item.OperationID]
+		if op.Status != model.OperationStatusPending || !isSettledOutbox(item.Status) || !olderThan(item.UpdatedAt, now, age) {
+			continue
+		}
+		item.Status = model.ContainerOutboxStatusPending
+		item.UpdatedAt = now
+		result.Republished = append(result.Republished, recoveredOperation(op))
+	}
+	for id, op := range f.operations {
+		if op.ResourceType != model.ResourceTypeContainer || op.Status != model.OperationStatusPending || !olderThan(op.UpdatedAt, now, age) {
+			continue
+		}
+		if _, exists := f.containers[op.ResourceID]; exists {
+			continue
+		}
+		if op.Operation == model.OperationDelete {
+			f.setOperationStatus(id, model.OperationStatusDone, nil)
+		} else {
+			f.setOperationStatus(id, model.OperationStatusFailed, cause)
+		}
+		result.Ended = append(result.Ended, recoveredOperation(op))
+	}
+	return result, nil
+}
+
+// BackdateOperation moves the operation's last update age into the past.
+func (f *ContainerStoreFake) BackdateOperation(_ context.Context, id uuid.UUID, age time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	op, ok := f.operations[id]
+	if !ok {
+		return apperrors.ErrNotFound
+	}
+	op.UpdatedAt = op.UpdatedAt.Add(-age)
+	f.operations[id] = op
+	return nil
+}
+
+// BackdateContainerOutbox moves the last update of the operation's outbox
+// record age into the past.
+func (f *ContainerStoreFake) BackdateContainerOutbox(_ context.Context, operationID uuid.UUID, age time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.outbox {
+		if f.outbox[i].OperationID == operationID {
+			f.outbox[i].UpdatedAt = f.outbox[i].UpdatedAt.Add(-age)
+			return nil
+		}
+	}
+	return apperrors.ErrNotFound
 }
 
 // CancelActiveCreateAndDeleteContainer fails the container's active create
@@ -782,6 +887,35 @@ func (f *ContainerStoreFake) setOutboxStatus(id uuid.UUID, status string, cause 
 
 func isContainerCreate(op model.ResourceOperation) bool {
 	return op.ResourceType == model.ResourceTypeContainer && op.Operation == model.OperationCreate
+}
+
+// isResumable reports whether an interrupted running operation returns to the
+// queue instead of failing.
+func isResumable(op model.ResourceOperation) bool {
+	switch op.ResourceType {
+	case model.ResourceTypeContainer:
+		return op.Operation == model.OperationCreate
+	case model.ResourceTypeVolume:
+		return op.Operation == model.OperationCreate || op.Operation == model.OperationDelete
+	case model.ResourceTypeImage:
+		return op.Operation == model.OperationDelete
+	}
+	return false
+}
+
+// isSettledOutbox reports whether the relay is done with an outbox record.
+func isSettledOutbox(status string) bool {
+	return status == model.ContainerOutboxStatusPublished || status == model.ContainerOutboxStatusDiscarded
+}
+
+// olderThan reports whether at is more than age before now; a zero age
+// matches everything.
+func olderThan(at, now time.Time, age time.Duration) bool {
+	return age <= 0 || at.Before(now.Add(-age))
+}
+
+func recoveredOperation(op model.ResourceOperation) model.RecoveredOperation {
+	return model.RecoveredOperation{ID: op.ID, ResourceType: op.ResourceType, ResourceID: op.ResourceID, Operation: op.Operation}
 }
 
 func isActiveOperation(status string) bool {

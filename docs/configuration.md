@@ -283,7 +283,7 @@ Builder сохраняет результат выполнения в `BUILD_STO
 | `CONTAINER_MEMORY_SWAP_MULTIPLIER`, `BUILD_MEMORY_SWAP_MULTIPLIER` | `2`, `2` | Память плюс swap как кратное лимита, `1..10` |
 | `MAX_LOG_FILES`, `BUILD_PIDS_LIMIT` | `3`, `512` | Число файлов журнала контейнера; предел процессов сборки |
 | `MAX_QUEUED_CONTAINER_CREATES_PER_USER` | `5` | Создания контейнеров одного пользователя в очереди; `0` — без предела. Развёртывание Compose с большим числом сервисов ждёт очереди, а не завершается ошибкой |
-| `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES` | `2`, `3`, `30` | Обработчики операций контейнеров, томов и образов |
+| `CONTAINER_CREATE_WORKER_COUNT`, `CONTAINER_CREATE_MAX_ATTEMPTS`, `CONTAINER_CREATE_TIMEOUT_MINUTES` | `2`, `3`, `30` | Обработчики операций контейнеров, томов и образов; таймаут ограничивает каждую доставку операции, а операция, выполняющаяся дольше таймаута плюс 5 минут, восстанавливается автоматически |
 | `CONTAINER_CREATE_OUTBOX_INTERVAL_SECONDS`, `CONTAINER_CREATE_OUTBOX_BATCH_SIZE` | `1`, `10` | Отправка операций контейнеров, томов и образов в очередь |
 | `BUILD_OUTBOX_INTERVAL_SECONDS`, `BUILD_OUTBOX_BATCH_SIZE`, `BUILD_CANCEL_POLL_INTERVAL_SECONDS` | `1`, `10`, `2` | Отправка сборок в очередь; опрос отмены в Builder |
 | `COMPOSE_DEPLOY_WORKER_COUNT`, `COMPOSE_DEPLOY_MAX_ATTEMPTS`, `COMPOSE_OUTBOX_INTERVAL_SECONDS`, `COMPOSE_OUTBOX_BATCH_SIZE`, `COMPOSE_COORDINATOR_INTERVAL_SECONDS` | `2`, `3`, `1`, `10`, `2` | Обработчики и координатор Compose |

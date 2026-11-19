@@ -362,7 +362,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	coregrpc.RegisterStatsAPI(gRPCServer, statsService)
 	containerCreateWorker := service.NewContainerCreateWorker(contService, cfg.ConfigManager, logger)
-	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, logger)
+	resourceLifecycleWorker := service.NewResourceLifecycleWorker(volService, imgService, cfg.ConfigManager, logger)
 	composeCoordinator, err := compose.NewDeploymentCoordinator(compose.DeploymentCoordinatorDeps{
 		Deployments:       projRepo,
 		Builds:            buildRepo,
@@ -384,6 +384,17 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	reportsUsageWorker := service.NewReportsUsageWorker(reportService, logger)
 	retentionWorker := service.NewRetentionWorker(repository.NewRetentionRepository(db), logger)
+	operationRecoveryWorker, err := service.NewOperationRecoveryWorker(service.OperationRecoveryWorkerDeps{
+		Containers:  contRepo,
+		Resources:   resourceLifecycleRepo,
+		Deployments: projRepo,
+		Config:      cfg.ConfigManager,
+		Logger:      logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 
 	startWorkers(ctx, wg,
 		func(ctx context.Context) {
@@ -399,6 +410,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		projService.RunLifecycleCoordinator,
 		reportsUsageWorker.Run,
 		retentionWorker.Run,
+		operationRecoveryWorker.Run,
 	)
 	startWorkers(ctx, wg, outboxWorkers(outboxPublisher, buildRepo, projRepo, contRepo, resourceLifecycleRepo, cfg.ConfigManager, logger)...)
 	composeConsumer.Run(ctx, cfg.ConfigManager.Get().ComposeDeployWorkerCount, orchestrator.HandleDeploymentMessage)

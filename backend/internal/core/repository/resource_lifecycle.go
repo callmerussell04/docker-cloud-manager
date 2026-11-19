@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -21,48 +22,139 @@ func NewResourceLifecycleRepository(db *pgxpool.Pool) *ResourceLifecycleReposito
 	return &ResourceLifecycleRepository{db: db}
 }
 
-// RecoverInterruptedOperations runs before lifecycle publishers and consumers start.
-// Docker names and Registry references are stable, so workers can repeat side effects.
-func (r *ResourceLifecycleRepository) RecoverInterruptedOperations(ctx context.Context, cause error) (int64, error) {
+// resumableResourceOperation matches, on resource_operations aliased op, the
+// volume and image operations recovery returns to the queue: volume create
+// and delete, and image delete. Its parameters are numbered from first.
+func resumableResourceOperation(first int) string {
+	return fmt.Sprintf(`((op.resource_type = $%[1]d AND op.operation IN ($%[2]d, $%[3]d)) OR (op.resource_type = $%[4]d AND op.operation = $%[3]d))`,
+		first, first+1, first+2, first+3)
+}
+
+func resumableResourceOperationArgs() []any {
+	return []any{model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage}
+}
+
+// RecoverInterruptedOperations returns running volume create and delete and
+// image delete operations in scope to pending, returning their attempt when
+// the scope says so, and marks outbox records pending with their original
+// message identity. Docker names and Registry references are stable, so
+// workers can repeat side effects. Without an age bound, as at startup before
+// publishers and consumers run, the records of every pending such operation
+// are marked too, because a published message may have been acknowledged
+// before shutdown; with one, as in the operation recovery pass, only the
+// recovered operations' records.
+func (r *ResourceLifecycleRepository) RecoverInterruptedOperations(ctx context.Context, cause error, scope model.OperationRecoveryScope) ([]model.RecoveredOperation, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("begin resource operation recovery: %w", err)
+		return nil, fmt.Errorf("begin resource operation recovery: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// A process interruption is not a failed external attempt. Return its budget
-	// so even a crash on the last attempt can confirm an already applied effect.
-	res, err := tx.Exec(ctx, `
-		UPDATE resource_operations
-		SET status = $1, attempts = GREATEST(attempts - 1, 0), last_error = $2, updated_at = NOW()
-		WHERE status = $3 AND (
-			(resource_type = $4 AND operation IN ($5, $6)) OR
-			(resource_type = $7 AND operation = $6)
-		)
-	`, model.OperationStatusPending, nullableError(cause), model.OperationStatusRunning,
-		model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage)
+	args := append([]any{model.OperationStatusPending, nullableError(cause), model.OperationStatusRunning, scope.ReturnAttempt, ageSeconds(scope.RunningLongerThan)},
+		resumableResourceOperationArgs()...)
+	rows, err := tx.Query(ctx, `
+		UPDATE resource_operations op
+		SET status = $1,
+			attempts = CASE WHEN $4 THEN GREATEST(op.attempts - 1, 0) ELSE op.attempts END,
+			last_error = $2, updated_at = NOW()
+		WHERE op.status = $3
+			AND `+claimedBefore("op.updated_at", 5)+`
+			AND `+resumableResourceOperation(6)+`
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, args...)
 	if err != nil {
-		return 0, fmt.Errorf("requeue interrupted resource operations: %w", err)
+		return nil, fmt.Errorf("requeue interrupted resource operations: %w", err)
 	}
-	count := res.RowsAffected()
-	// Include pending operations whose published message may have been ACKed
-	// before shutdown. Preserve resource state and the original message identity.
+	recovered, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return nil, fmt.Errorf("requeue interrupted resource operations: %w", err)
+	}
+	args = append([]any{model.ResourceOutboxStatusPending, nullableError(cause), model.OperationStatusPending, ageSeconds(scope.RunningLongerThan), recoveredIDs(recovered)},
+		resumableResourceOperationArgs()...)
 	if _, err := tx.Exec(ctx, `
 		UPDATE resource_lifecycle_queue_outbox o
 		SET status = $1, published_at = NULL, last_error = $2, updated_at = NOW()
 		FROM resource_operations op
-		WHERE o.operation_id = op.id AND op.status = $3 AND (
-			(op.resource_type = $4 AND op.operation IN ($5, $6)) OR
-			(op.resource_type = $7 AND op.operation = $6)
-		)
-	`, model.ResourceOutboxStatusPending, nullableError(cause), model.OperationStatusPending,
-		model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage); err != nil {
-		return 0, fmt.Errorf("requeue resource lifecycle outbox: %w", err)
+		WHERE o.operation_id = op.id AND op.status = $3
+			AND ($4::double precision = 0 OR op.id = ANY($5))
+			AND `+resumableResourceOperation(6)+`
+	`, args...); err != nil {
+		return nil, fmt.Errorf("requeue resource lifecycle outbox: %w", err)
 	}
 	if err := commitTx(ctx, tx, "resource operation recovery"); err != nil {
-		return 0, err
+		return nil, err
 	}
-	return count, nil
+	return recovered, nil
+}
+
+// RecoverLostResourceDeliveries finds pending volume and image operations
+// whose message is no longer in the queue, judged on the database clock. One
+// whose outbox record was published or discarded longer ago than olderThan,
+// and whose resource row exists, has the record returned to pending with its
+// payload, for the relay to publish again. One whose resource row is gone,
+// that was last updated longer ago than olderThan and whose record the relay
+// no longer owns is ended: done for a delete, failed with cause otherwise.
+// Without that, the relay would discard it again on every pass.
+func (r *ResourceLifecycleRepository) RecoverLostResourceDeliveries(ctx context.Context, cause error, olderThan time.Duration) (model.LostDeliveryRecovery, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("resource recover lost deliveries", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const resourceExists = `CASE op.resource_type
+			WHEN $1 THEN EXISTS (SELECT 1 FROM volumes v WHERE v.id = op.resource_id)
+			WHEN $2 THEN EXISTS (SELECT 1 FROM images i WHERE i.id = op.resource_id)
+			ELSE TRUE
+		END`
+	rows, err := tx.Query(ctx, `
+		UPDATE resource_lifecycle_queue_outbox o
+		SET status = $3, published_at = NULL, updated_at = NOW()
+		FROM resource_operations op
+		WHERE o.operation_id = op.id
+			AND op.status = $4
+			AND o.status IN ($5, $6)
+			AND `+updatedBefore("o.updated_at", 7)+`
+			AND `+resourceExists+`
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, model.ResourceTypeVolume, model.ResourceTypeImage, model.ResourceOutboxStatusPending, model.OperationStatusPending,
+		model.ResourceOutboxStatusPublished, model.ResourceOutboxStatusDiscarded, ageSeconds(olderThan))
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("resource recover lost deliveries", err)
+	}
+	republished, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("resource recover lost deliveries", err)
+	}
+	rows, err = tx.Query(ctx, `
+		UPDATE resource_operations op
+		SET status = CASE WHEN op.operation = $3 THEN $4 ELSE $5 END,
+			last_error = CASE WHEN op.operation = $3 THEN NULL ELSE $6 END,
+			updated_at = NOW()
+		WHERE op.resource_type IN ($1, $2)
+			AND op.status = $7
+			AND `+updatedBefore("op.updated_at", 8)+`
+			AND NOT `+resourceExists+`
+			AND NOT EXISTS (
+				SELECT 1 FROM resource_lifecycle_queue_outbox o
+				WHERE o.operation_id = op.id
+					AND (o.status IN ($9, $10) OR NOT `+updatedBefore("o.updated_at", 8)+`)
+			)
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, model.ResourceTypeVolume, model.ResourceTypeImage, model.OperationDelete, model.OperationStatusDone, model.OperationStatusFailed,
+		nullableError(cause), model.OperationStatusPending, ageSeconds(olderThan),
+		model.ResourceOutboxStatusPending, model.ResourceOutboxStatusPublishing)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("resource recover lost deliveries", err)
+	}
+	ended, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("resource recover lost deliveries", err)
+	}
+	if err := commitTx(ctx, tx, "recover lost resource deliveries"); err != nil {
+		return model.LostDeliveryRecovery{}, err
+	}
+	return model.LostDeliveryRecovery{Republished: republished, Ended: ended}, nil
 }
 
 func (r *ResourceLifecycleRepository) CreateQueuedVolume(ctx context.Context, vol model.Volume, op model.ResourceOperation, outbox model.ResourceLifecycleOutbox) error {

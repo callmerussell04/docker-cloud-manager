@@ -24,6 +24,7 @@ packages:
       BuildRepository: {}
       BuildVolumeDiskRepository: {}
       CapacityChecker: {}
+      ComposeDeliveryRecoveryStore: {}
       ComposeOutboxConfigProvider: {}
       ComposeOutboxRepository: {}
       ConfigManager: {}
@@ -65,8 +66,11 @@ packages:
       RegistryTokenSigner: {}
       ReportsRepository: {}
       ReportUserDirectory: {}
+      ResourceImageExecutor: {}
+      ResourceOperationRecoveryStore: {}
       ResourceOutboxConfigProvider: {}
       ResourceOutboxRepository: {}
+      ResourceVolumeExecutor: {}
       RootfsQuotaReader: {}
       StagedObjectRepository: {}
       StatsBuildRepository: {}

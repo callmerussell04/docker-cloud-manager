@@ -109,7 +109,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 							RegistryAuth: repos.RegistryAuthorization(t),
 						})
 						require.NoError(t, err)
-						return volumes, images, service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
+						return volumes, images, service.NewResourceLifecycleWorker(volumes, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 					}
 					volumes, images, worker := newWorker()
 					switch kind {
@@ -136,11 +136,11 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, model.OperationStatusRunning, op.Status)
 					// The normal startup fallback must not fail resumable resource operations.
-					_, err = repos.Containers.FailInterruptedNonResumableOperations(ctx, errors.New("core restarted"))
+					_, err = repos.Containers.FailInterruptedNonResumableOperations(ctx, errors.New("core restarted"), 0)
 					require.NoError(t, err)
-					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
+					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"), startupRecovery)
 					require.NoError(t, err)
-					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted again"))
+					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted again"), startupRecovery)
 					require.NoError(t, err)
 					op, err = lifecycle.GetOperationByID(ctx, opID)
 					require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestResourceOperationsResumeAfterRestart(t *testing.T) {
 					}
 					// ACK loss and duplicate outbox publication never repeat terminal work.
 					require.NoError(t, worker.HandleMessage(ctx, msg))
-					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("later restart"))
+					_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("later restart"), startupRecovery)
 					require.NoError(t, err)
 					pending, err := lifecycle.LeasePendingResourceOutbox(ctx, 10)
 					require.NoError(t, err)
@@ -239,7 +239,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 						require.NoError(t, repos.Images.Delete(ctx, resourceID))
 					}
 				}
-				_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
+				_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"), startupRecovery)
 				require.NoError(t, err)
 				outbox, err = lifecycle.LeasePendingResourceOutbox(ctx, 10)
 				require.NoError(t, err)
@@ -273,7 +273,7 @@ func TestResourceRecoveryPreservesCommittedResourceState(t *testing.T) {
 				}
 				var msg queue.ResourceLifecycleMessage
 				require.NoError(t, json.Unmarshal(outbox[0].Payload, &msg))
-				worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
+				worker := service.NewResourceLifecycleWorker(volumes, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 				require.NoError(t, worker.HandleMessage(ctx, msg))
 				require.NoError(t, worker.HandleMessage(ctx, msg))
 				op, err := lifecycle.GetOperationByID(ctx, opID)
@@ -306,9 +306,9 @@ func TestResourceRecoveryPolicy(t *testing.T) {
 				VALUES ($1, $2, $3, $4, $5, $6)`,
 				id, tc.resource, uuid.New(), uuid.New(), tc.operation, tc.initial)
 			require.NoError(t, err)
-			_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
+			_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"), startupRecovery)
 			require.NoError(t, err)
-			_, err = repos.Containers.FailInterruptedNonResumableOperations(ctx, errors.New("core restarted"))
+			_, err = repos.Containers.FailInterruptedNonResumableOperations(ctx, errors.New("core restarted"), 0)
 			require.NoError(t, err)
 			op, err := lifecycle.GetOperationByID(ctx, id)
 			require.NoError(t, err)
@@ -374,7 +374,7 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			_, claimed, err := lifecycle.ClaimPendingOperation(ctx, opID, 3)
 			require.NoError(t, err)
 			require.True(t, claimed)
-			_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"))
+			_, err = lifecycle.RecoverInterruptedOperations(ctx, errors.New("core restarted"), startupRecovery)
 			require.NoError(t, err)
 
 			conn, err := amqp.Dial(url)
@@ -387,8 +387,10 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			// Services write the production exchange into outbox rows; route it to this test's queue.
 			publisher := coretest.RoutedPublisher{Publisher: rabbitmq.NewPublisher(url, topology), Topology: topology}
 			defer func() { _ = publisher.Close() }() // test teardown; the publisher is reconnect-safe and nothing is pending
-			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
-			consumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(url, "recovery-test", topology, coretest.DiscardLogger()))
+			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
+			consumerCfg := rabbitmq.ResourceConsumerConfig(url, "recovery-test", topology, coretest.DiscardLogger())
+			consumerCfg.RetryDelay = 10 * time.Millisecond
+			consumer := platformrabbitmq.NewConsumer(consumerCfg)
 			results := make(chan error, 10)
 			consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ResourceLifecycleMessage) error {
 				err := worker.HandleMessage(ctx, msg)
@@ -444,6 +446,9 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 		})
 	}
 }
+
+// startupRecovery is the scope Core's startup recovery passes.
+var startupRecovery = model.OperationRecoveryScope{ReturnAttempt: true}
 
 func newRecoveryVolumeService(t *testing.T, repos coretest.CoreRepositories, docker service.VolumeDockerAPI, cfg service.ConfigManager, lifecycle service.VolumeLifecycleRepository) *service.VolumeService {
 	t.Helper()

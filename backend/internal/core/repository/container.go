@@ -800,53 +800,142 @@ func (r *ContainerRepository) HasActiveOperation(ctx context.Context, resourceTy
 	return exists, err
 }
 
-func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Context, cause error) (int64, error) {
+// RecoverInterruptedContainerCreates returns running container creates in
+// scope to pending, returning their attempt when the scope says so, and marks
+// outbox records pending so their messages are published again. Without an
+// age bound, as at startup, every pending create's record is marked;
+// with one, as in the operation recovery pass, only the recovered creates'
+// records, so a create still waiting for its message is not published twice.
+func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Context, cause error, scope model.OperationRecoveryScope) ([]model.RecoveredOperation, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return 0, wrapOp("container recover interrupted container creates", err)
+		return nil, wrapOp("container recover interrupted container creates", err)
 	}
 	defer tx.Rollback(ctx)
 
-	res, err := tx.Exec(ctx, `
+	rows, err := tx.Query(ctx, `
 		UPDATE resource_operations
-		SET status = $1, last_error = $2, updated_at = NOW()
+		SET status = $1,
+			attempts = CASE WHEN $6 THEN GREATEST(attempts - 1, 0) ELSE attempts END,
+			last_error = $2, updated_at = NOW()
 		WHERE resource_type = $3
 			AND operation = $4
 			AND status = $5
-	`, model.OperationStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusRunning)
+			AND `+claimedBefore("updated_at", 7)+`
+		RETURNING id, resource_type, resource_id, operation
+	`, model.OperationStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusRunning,
+		scope.ReturnAttempt, ageSeconds(scope.RunningLongerThan))
 	if err != nil {
-		return 0, wrapOp("container recover interrupted container creates", err)
+		return nil, wrapOp("container recover interrupted container creates", err)
 	}
-	rows := res.RowsAffected()
+	recovered, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return nil, wrapOp("container recover interrupted container creates", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE container_lifecycle_queue_outbox
-		SET status = $1, last_error = $2, updated_at = NOW()
+		SET status = $1, published_at = NULL, last_error = $2, updated_at = NOW()
 		WHERE operation_id IN (
 			SELECT id FROM resource_operations
 			WHERE resource_type = $3
 				AND operation = $4
-				AND status = $1
+				AND status = $5
+				AND ($6::double precision = 0 OR id = ANY($7))
 		)
-	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate); err != nil {
-		return 0, wrapOp("container recover interrupted container creates", err)
+	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusPending,
+		ageSeconds(scope.RunningLongerThan), recoveredIDs(recovered)); err != nil {
+		return nil, wrapOp("container recover interrupted container creates", err)
 	}
-	return rows, commitTx(ctx, tx, "recover interrupted container creates")
+	if err := commitTx(ctx, tx, "recover interrupted container creates"); err != nil {
+		return nil, err
+	}
+	return recovered, nil
 }
 
-func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.Context, cause error) (int64, error) {
-	res, err := r.db.Exec(ctx, `
+// FailInterruptedNonResumableOperations fails every running operation that
+// is not resumable (anything but a container create, a volume create or
+// delete and an image delete) and was claimed longer ago than
+// runningLongerThan on the database clock; zero fails them all. Resource rows
+// are untouched: with no active operation, state sync records what Docker
+// reports.
+func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.Context, cause error, runningLongerThan time.Duration) ([]model.RecoveredOperation, error) {
+	rows, err := r.db.Query(ctx, `
 		UPDATE resource_operations
 		SET status = $1, last_error = $2, updated_at = NOW()
 		WHERE status = $3
 			AND NOT (resource_type = $4 AND operation = $5)
 			AND NOT (resource_type = $6 AND operation IN ($5, $7))
 			AND NOT (resource_type = $8 AND operation = $7)
+			AND `+claimedBefore("updated_at", 9)+`
+		RETURNING id, resource_type, resource_id, operation
 	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning,
-		model.ResourceTypeContainer, model.OperationCreate, model.ResourceTypeVolume, model.OperationDelete, model.ResourceTypeImage)
+		model.ResourceTypeContainer, model.OperationCreate, model.ResourceTypeVolume, model.OperationDelete, model.ResourceTypeImage,
+		ageSeconds(runningLongerThan))
 	if err != nil {
-		return 0, wrapOp("container fail interrupted non resumable operations", err)
+		return nil, wrapOp("container fail interrupted non resumable operations", err)
 	}
-	return res.RowsAffected(), nil
+	failed, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return nil, wrapOp("container fail interrupted non resumable operations", err)
+	}
+	return failed, nil
+}
+
+// RecoverLostContainerDeliveries finds pending container operations whose
+// message is no longer in the queue, judged on the database clock. One whose
+// outbox record was published or discarded longer ago than olderThan has the
+// record returned to pending with its payload, for the relay to publish
+// again. One whose container row is gone (its outbox record cascades with
+// it) and that was last updated longer ago than olderThan is ended: done for
+// a delete, failed with cause otherwise.
+func (r *ContainerRepository) RecoverLostContainerDeliveries(ctx context.Context, cause error, olderThan time.Duration) (model.LostDeliveryRecovery, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("container recover lost deliveries", err)
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		UPDATE container_lifecycle_queue_outbox o
+		SET status = $1, published_at = NULL, updated_at = NOW()
+		FROM resource_operations op
+		WHERE o.operation_id = op.id
+			AND op.status = $2
+			AND o.status IN ($3, $4)
+			AND `+updatedBefore("o.updated_at", 5)+`
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, model.ContainerOutboxStatusPending, model.OperationStatusPending,
+		model.ContainerOutboxStatusPublished, model.ContainerOutboxStatusDiscarded, ageSeconds(olderThan))
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("container recover lost deliveries", err)
+	}
+	republished, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("container recover lost deliveries", err)
+	}
+	rows, err = tx.Query(ctx, `
+		UPDATE resource_operations op
+		SET status = CASE WHEN op.operation = $1 THEN $2 ELSE $3 END,
+			last_error = CASE WHEN op.operation = $1 THEN NULL ELSE $4 END,
+			updated_at = NOW()
+		WHERE op.resource_type = $5
+			AND op.status = $6
+			AND `+updatedBefore("op.updated_at", 7)+`
+			AND NOT EXISTS (SELECT 1 FROM containers c WHERE c.id = op.resource_id)
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, model.OperationDelete, model.OperationStatusDone, model.OperationStatusFailed, nullableError(cause),
+		model.ResourceTypeContainer, model.OperationStatusPending, ageSeconds(olderThan))
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("container recover lost deliveries", err)
+	}
+	ended, err := collectRecoveredOperations(rows)
+	if err != nil {
+		return model.LostDeliveryRecovery{}, wrapOp("container recover lost deliveries", err)
+	}
+	if err := commitTx(ctx, tx, "recover lost container deliveries"); err != nil {
+		return model.LostDeliveryRecovery{}, err
+	}
+	return model.LostDeliveryRecovery{Republished: republished, Ended: ended}, nil
 }
 
 func (r *ContainerRepository) GetMountsByContainerID(ctx context.Context, containerID uuid.UUID) ([]model.VolumeMountParams, error) {

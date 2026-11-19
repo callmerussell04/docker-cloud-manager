@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/repository"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
@@ -46,20 +47,22 @@ func recoverInterruptedWork(ctx context.Context, orchestrator *compose.Orchestra
 		logger.Warn("failed to recover interrupted compose deployments", "error", err)
 	}
 	operationCause := errors.New("operation interrupted by core service restart")
-	if recovered, err := resources.RecoverInterruptedOperations(ctx, operationCause); err != nil {
+	// A process interruption is not a failed attempt, so resource operations
+	// get theirs back; container creates keep it, as they always have.
+	if recovered, err := resources.RecoverInterruptedOperations(ctx, operationCause, model.OperationRecoveryScope{ReturnAttempt: true}); err != nil {
 		return fmt.Errorf("recover interrupted resource operations: %w", err)
-	} else if recovered > 0 {
-		logger.Warn("requeued interrupted volume and image operations", "count", recovered)
+	} else if len(recovered) > 0 {
+		logger.Warn("requeued interrupted volume and image operations", "count", len(recovered))
 	}
-	if recovered, err := containers.RecoverInterruptedContainerCreates(ctx, operationCause); err != nil {
+	if recovered, err := containers.RecoverInterruptedContainerCreates(ctx, operationCause, model.OperationRecoveryScope{}); err != nil {
 		logger.Warn("failed to recover interrupted container create operations", "error", err)
-	} else if recovered > 0 {
-		logger.Warn("requeued interrupted container create operations", "count", recovered)
+	} else if len(recovered) > 0 {
+		logger.Warn("requeued interrupted container create operations", "count", len(recovered))
 	}
-	if recovered, err := containers.FailInterruptedNonResumableOperations(ctx, operationCause); err != nil {
+	if recovered, err := containers.FailInterruptedNonResumableOperations(ctx, operationCause, 0); err != nil {
 		logger.Warn("failed to mark interrupted non-resumable operations", "error", err)
-	} else if recovered > 0 {
-		logger.Warn("failed interrupted non-resumable operations", "count", recovered)
+	} else if len(recovered) > 0 {
+		logger.Warn("failed interrupted non-resumable operations", "count", len(recovered))
 	}
 	return nil
 }

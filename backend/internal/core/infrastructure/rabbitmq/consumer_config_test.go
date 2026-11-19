@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
@@ -48,6 +49,7 @@ func TestComposeConsumerConfig(t *testing.T) {
 	require.Equal(t, "request", cfg.RequestID(msg))
 	require.Equal(t, []any{"job_id", "job", "project_id", "project"}, cfg.LogFields(msg))
 	requireCorePermanentRule(t, cfg.IsPermanent)
+	require.Equal(t, 5*time.Second, cfg.RetryDelay)
 }
 
 func TestContainerConsumerConfig(t *testing.T) {
@@ -59,6 +61,7 @@ func TestContainerConsumerConfig(t *testing.T) {
 	require.Equal(t, "request", cfg.RequestID(msg))
 	require.Equal(t, []any{"container_id", "container", "operation_id", "operation"}, cfg.LogFields(msg))
 	requireCorePermanentRule(t, cfg.IsPermanent)
+	require.Equal(t, 5*time.Second, cfg.RetryDelay)
 }
 
 func TestResourceConsumerConfig(t *testing.T) {
@@ -70,6 +73,7 @@ func TestResourceConsumerConfig(t *testing.T) {
 	require.Equal(t, "request", cfg.RequestID(msg))
 	require.Equal(t, []any{"resource_type", "volume", "resource_id", "resource", "operation_id", "operation"}, cfg.LogFields(msg))
 	requireCorePermanentRule(t, cfg.IsPermanent)
+	require.Equal(t, 5*time.Second, cfg.RetryDelay)
 }
 
 func TestCoreConsumerConfigsUseGivenInstanceID(t *testing.T) {

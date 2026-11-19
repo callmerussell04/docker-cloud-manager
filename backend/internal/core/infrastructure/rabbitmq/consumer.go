@@ -3,11 +3,16 @@ package rabbitmq
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
 	platformrabbitmq "github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/rabbitmq"
 )
+
+// retryDelay is how long a Core worker holds a message that failed with a
+// retryable error before returning it to its queue.
+const retryDelay = 5 * time.Second
 
 // ComposeConsumerConfig describes the Compose deployment workload. Every Core
 // consumer declares the whole topology.
@@ -24,7 +29,8 @@ func ComposeConsumerConfig(url, instanceID string, topology Topology, logger *sl
 		LogFields: func(msg queue.DeploymentMessage) []any {
 			return []any{"job_id", msg.JobID, "project_id", msg.ProjectID}
 		},
-		Logger: consumerLogger(logger, "compose_queue_consumer", instanceID),
+		Logger:     consumerLogger(logger, "compose_queue_consumer", instanceID),
+		RetryDelay: retryDelay,
 	}
 }
 
@@ -42,7 +48,8 @@ func ContainerConsumerConfig(url, instanceID string, topology Topology, logger *
 		LogFields: func(msg queue.ContainerLifecycleMessage) []any {
 			return []any{"container_id", msg.ContainerID, "operation_id", msg.OperationID}
 		},
-		Logger: consumerLogger(logger, "container_queue_consumer", instanceID),
+		Logger:     consumerLogger(logger, "container_queue_consumer", instanceID),
+		RetryDelay: retryDelay,
 	}
 }
 
@@ -60,7 +67,8 @@ func ResourceConsumerConfig(url, instanceID string, topology Topology, logger *s
 		LogFields: func(msg queue.ResourceLifecycleMessage) []any {
 			return []any{"resource_type", msg.ResourceType, "resource_id", msg.ResourceID, "operation_id", msg.OperationID}
 		},
-		Logger: consumerLogger(logger, "resource_queue_consumer", instanceID),
+		Logger:     consumerLogger(logger, "resource_queue_consumer", instanceID),
+		RetryDelay: retryDelay,
 	}
 }
 

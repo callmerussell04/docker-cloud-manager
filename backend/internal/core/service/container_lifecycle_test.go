@@ -642,8 +642,8 @@ func TestQueuedCreateCanceledByDeleteKeepsTheCancellation(t *testing.T) {
 }
 
 // A create that cannot read whether its operation is still running stops
-// without settling it: the operation stays running for restart recovery
-// instead of being failed on a read error.
+// without settling it: the operation stays running for the operation
+// recovery pass or restart recovery instead of being failed on a read error.
 func TestQueuedCreateLeavesOperationRunningWhenItsFenceCannotBeRead(t *testing.T) {
 	ctx := context.Background()
 	store := newContainerStore()

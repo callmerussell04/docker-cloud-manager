@@ -20,7 +20,8 @@ import (
 // Once Expose records the new generation, the database points at the new
 // Docker container. A later write failure must leave that container in place,
 // still remove the previous generation, and reach the queue consumer with the
-// operation left running for restart recovery.
+// operation left running for the operation recovery pass or restart
+// recovery.
 func TestContainerServiceQueuedExposeKeepsRecordedGenerationWhenLaterWriteFails(t *testing.T) {
 	writeErr := apperrors.Wrap(apperrors.ErrUnavailable, "database unavailable", errors.New("connection reset"))
 	for _, tc := range []struct {
@@ -87,7 +88,7 @@ func TestContainerServiceQueuedExposeKeepsRecordedGenerationWhenLaterWriteFails(
 			require.Equal(t, []string{"old-docker"}, removed, "only the previous generation is removed")
 			gotOp, opErr := store.GetOperationByID(ctx, operationID)
 			require.NoError(t, opErr)
-			require.Equal(t, model.OperationStatusRunning, gotOp.Status, "the operation stays running until restart recovery")
+			require.Equal(t, model.OperationStatusRunning, gotOp.Status, "the operation stays running until the operation recovery pass or restart recovery")
 			require.Equal(t, tc.wantStatus, got.Status, "no error status is written over the recorded generation")
 			require.Nil(t, got.LastError)
 		})

@@ -266,7 +266,7 @@ func (f *ComposeFixture) RunResourceOperations(t *testing.T) int {
 	ctx := context.Background()
 	items, err := f.Repos.Lifecycle.LeasePendingResourceOutbox(ctx, 50)
 	require.NoError(t, err)
-	worker := service.NewResourceLifecycleWorker(f.Volumes, f.Images, DiscardLogger())
+	worker := service.NewResourceLifecycleWorker(f.Volumes, f.Images, f.Config, DiscardLogger())
 	for _, item := range items {
 		require.NoError(t, f.Repos.Lifecycle.MarkResourceOutboxPublished(ctx, item.ID))
 		var msg queue.ResourceLifecycleMessage
@@ -274,6 +274,21 @@ func (f *ComposeFixture) RunResourceOperations(t *testing.T) int {
 		require.NoError(t, worker.HandleMessage(ctx, msg))
 	}
 	return len(items)
+}
+
+// RecoverOperations runs one pass of the operation recovery worker over the
+// fixture's repositories, as Core does every minute.
+func (f *ComposeFixture) RecoverOperations(t *testing.T) {
+	t.Helper()
+	worker, err := service.NewOperationRecoveryWorker(service.OperationRecoveryWorkerDeps{
+		Containers:  f.Repos.Containers,
+		Resources:   f.Repos.Lifecycle,
+		Deployments: f.Repos.Projects,
+		Config:      f.Config,
+		Logger:      DiscardLogger(),
+	})
+	require.NoError(t, err)
+	worker.RunPass(context.Background())
 }
 
 // tickingDeploymentStore is the production deployment store, except that

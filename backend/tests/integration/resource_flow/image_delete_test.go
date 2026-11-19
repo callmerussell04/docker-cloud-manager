@@ -101,7 +101,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 			require.Equal(t, ownerID.String(), message.OwnerID)
 			require.NoError(t, lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
 			operationID := uuid.MustParse(message.OperationID)
-			worker := service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
+			worker := service.NewResourceLifecycleWorker(nil, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 			if tc.retry {
 				err := worker.HandleMessage(ctx, message)
 				require.ErrorIs(t, err, apperrors.ErrUnavailable)
@@ -128,7 +128,7 @@ func TestQueuedImageDeletionRetainsOwnershipUntilRegistryConfirmsRemoval(t *test
 					RegistryAuth: repos.RegistryAuthorization(t),
 				})
 				require.NoError(t, err)
-				worker = service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
+				worker = service.NewResourceLifecycleWorker(nil, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 				failedAttempt.Store(false)
 			}
 			require.NoError(t, worker.HandleMessage(ctx, message))
@@ -334,7 +334,7 @@ func newFencedImageDeletion(t *testing.T) *fencedImageDeletion {
 		RegistryAuth: f.repos.RegistryAuthorization(t),
 	})
 	require.NoError(t, err)
-	f.worker = service.NewResourceLifecycleWorker(nil, f.images, coretest.DiscardLogger())
+	f.worker = service.NewResourceLifecycleWorker(nil, f.images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 	return f
 }
 
@@ -442,7 +442,7 @@ func TestStalledRegistryReleasesAdmissionAfterLockBudget(t *testing.T) {
 	require.Len(t, outbox, 1)
 	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
-	worker := service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger())
+	worker := service.NewResourceLifecycleWorker(nil, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 	deleted := make(chan error, 1)
 	go func() { deleted <- worker.HandleMessage(ctx, message) }()
 

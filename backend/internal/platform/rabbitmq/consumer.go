@@ -32,6 +32,10 @@ type ConsumerConfig[M any] struct {
 	// LogFields returns the slog key-value pairs identifying a failed message.
 	LogFields func(msg M) []any
 	Logger    *slog.Logger
+	// RetryDelay is how long a worker holds a delivery whose handler failed
+	// with a retryable error before returning it to the queue. It spaces the
+	// redeliveries the broker counts against its delivery limit.
+	RetryDelay time.Duration
 }
 
 // Consumer runs manually acknowledged workers with prefetch 1. Each worker
@@ -144,13 +148,28 @@ func (c *Consumer[M]) handleDelivery(ctx context.Context, delivery amqp.Delivery
 	msgCtx := logging.ContextWithRequestID(ctx, c.cfg.RequestID(msg))
 	if err := handler(msgCtx, msg); err != nil {
 		c.logger.With(c.cfg.LogFields(msg)...).ErrorContext(msgCtx, "queue message failed", "error", err)
-		c.nack(msgCtx, delivery, !c.cfg.IsPermanent(err))
+		requeue := !c.cfg.IsPermanent(err)
+		if requeue {
+			c.waitBeforeRetry(ctx)
+		}
+		c.nack(msgCtx, delivery, requeue)
 		return
 	}
 	// A failed ack means the channel closed, so the broker redelivers the
 	// message to the idempotent handler.
 	if err := delivery.Ack(false); err != nil {
 		c.logger.WarnContext(msgCtx, "failed to acknowledge queue message", "error", err)
+	}
+}
+
+// waitBeforeRetry holds the delivery for RetryDelay, or until ctx ends so
+// that shutdown returns the delivery at once.
+func (c *Consumer[M]) waitBeforeRetry(ctx context.Context) {
+	timer := time.NewTimer(c.cfg.RetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
 	}
 }
 

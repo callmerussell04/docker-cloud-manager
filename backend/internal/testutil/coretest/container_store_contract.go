@@ -42,13 +42,28 @@ type ContainerStore interface {
 	MarkContainerOutboxPublished(ctx context.Context, id uuid.UUID) error
 	MarkContainerOutboxPending(ctx context.Context, id uuid.UUID, cause error) error
 	MarkContainerOutboxDiscarded(ctx context.Context, id uuid.UUID, cause error) error
-	RecoverInterruptedContainerCreates(ctx context.Context, cause error) (int64, error)
+	RecoverInterruptedContainerCreates(ctx context.Context, cause error, scope model.OperationRecoveryScope) ([]model.RecoveredOperation, error)
+	FailInterruptedNonResumableOperations(ctx context.Context, cause error, runningLongerThan time.Duration) ([]model.RecoveredOperation, error)
+	RecoverLostContainerDeliveries(ctx context.Context, cause error, olderThan time.Duration) (model.LostDeliveryRecovery, error)
 	CancelActiveCreateAndDeleteContainer(ctx context.Context, containerID uuid.UUID, cause error) error
 	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
+	ContainerStoreBackdater
+}
+
+// ContainerStoreBackdater ages rows on the store's own clock, so a contract
+// test can produce an operation claimed long ago or an outbox record
+// published long ago. It is test support: the Postgres runner provides it
+// with a statement, not the repository.
+type ContainerStoreBackdater interface {
+	// BackdateOperation moves the operation's last update age into the past.
+	BackdateOperation(ctx context.Context, id uuid.UUID, age time.Duration) error
+	// BackdateContainerOutbox moves the last update of the operation's outbox
+	// record age into the past.
+	BackdateContainerOutbox(ctx context.Context, operationID uuid.UUID, age time.Duration) error
 }
 
 // RunContainerStoreContract runs the container store behaviour tests against
@@ -81,6 +96,18 @@ func RunContainerStoreContract(t *testing.T, newStore func(t *testing.T) Contain
 	})
 	t.Run("interrupted-create recovery", func(t *testing.T) {
 		testInterruptedCreateRecovery(t, newStore(t))
+	})
+	t.Run("expired operation recovery", func(t *testing.T) {
+		testExpiredOperationRecovery(t, newStore(t))
+	})
+	t.Run("interrupted non-resumable operations fail", func(t *testing.T) {
+		testInterruptedNonResumableOperationsFail(t, newStore(t))
+	})
+	t.Run("lost delivery recovery", func(t *testing.T) {
+		testLostDeliveryRecovery(t, newStore(t))
+	})
+	t.Run("lost delivery of an operation whose container is gone", func(t *testing.T) {
+		testLostDeliveryOfRemovedContainer(t, newStore(t))
 	})
 	t.Run("cancel and delete of an active create", func(t *testing.T) {
 		testCancelActiveCreateAndDelete(t, newStore(t))
@@ -452,9 +479,9 @@ func testInterruptedCreateRecovery(t *testing.T, store ContainerStore) {
 	publishOutbox(t, store)
 	claimOperation(t, store, start.ID)
 
-	recovered, err := store.RecoverInterruptedContainerCreates(ctx, errContractCause)
+	recovered, err := store.RecoverInterruptedContainerCreates(ctx, errContractCause, model.OperationRecoveryScope{})
 	require.NoError(t, err)
-	require.EqualValues(t, 1, recovered)
+	require.Equal(t, []model.RecoveredOperation{recoveredOf(interrupted)}, recovered)
 
 	// The interrupted create is pending again with its attempt kept and the cause recorded.
 	op := getOperation(t, store, interrupted.ID)
@@ -475,9 +502,232 @@ func testInterruptedCreateRecovery(t *testing.T, store ContainerStore) {
 	claimed := claimOperation(t, store, interrupted.ID)
 	require.Equal(t, 2, claimed.Attempts)
 
-	recovered, err = store.RecoverInterruptedContainerCreates(ctx, errContractCause)
+	recovered, err = store.RecoverInterruptedContainerCreates(ctx, errContractCause, model.OperationRecoveryScope{})
 	require.NoError(t, err)
-	require.EqualValues(t, 1, recovered)
+	require.Len(t, recovered, 1)
+}
+
+// The handler deadline plus headroom, and ages on either side of it.
+const (
+	contractExpiry    = 35 * time.Minute
+	contractExpired   = 40 * time.Minute
+	contractNotExpiry = 30 * time.Minute
+	contractLostAfter = 5 * time.Minute
+)
+
+func testExpiredOperationRecovery(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	// An expired create: claimed long ago and its message already published.
+	_, expired := saveQueuedCreate(t, store, ownerID)
+	publishOutbox(t, store)
+	claimOperation(t, store, expired.ID)
+	backdateOperation(t, store, expired.ID, contractExpired)
+	// A create a worker may still be acting on.
+	_, recent := saveQueuedCreate(t, store, ownerID)
+	publishOutbox(t, store)
+	claimOperation(t, store, recent.ID)
+	backdateOperation(t, store, recent.ID, contractNotExpiry)
+	// A create waiting for its published message, which a pass must not
+	// publish again, unlike startup recovery.
+	_, waiting := saveQueuedCreate(t, store, ownerID)
+	publishOutbox(t, store)
+
+	recovered, err := store.RecoverInterruptedContainerCreates(ctx, errContractCause, model.OperationRecoveryScope{RunningLongerThan: contractExpiry})
+	require.NoError(t, err)
+	require.Equal(t, []model.RecoveredOperation{recoveredOf(expired)}, recovered)
+
+	// The expired create is pending again without returning its attempt.
+	op := getOperation(t, store, expired.ID)
+	require.Equal(t, model.OperationStatusPending, op.Status)
+	require.Equal(t, 1, op.Attempts)
+	require.Equal(t, errContractCause.Error(), deref(op.LastError))
+	require.Equal(t, model.OperationStatusRunning, getOperation(t, store, recent.ID).Status)
+	require.Equal(t, model.OperationStatusPending, getOperation(t, store, waiting.ID).Status)
+
+	// Only the expired create's message is published again, with its identity.
+	leased := leaseOutbox(t, store, 10)
+	require.Len(t, leased, 1)
+	require.Equal(t, expired.ID, leased[0].OperationID)
+	require.JSONEq(t, string(contractOutbox(expired).Payload), string(leased[0].Payload))
+
+	// Startup recovery returns the interrupted attempt instead.
+	claimOperation(t, store, expired.ID)
+	_, err = store.RecoverInterruptedContainerCreates(ctx, errContractCause, model.OperationRecoveryScope{ReturnAttempt: true})
+	require.NoError(t, err)
+	require.Equal(t, 1, getOperation(t, store, expired.ID).Attempts)
+}
+
+func testInterruptedNonResumableOperationsFail(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	type queued struct {
+		container model.Container
+		op        model.ResourceOperation
+	}
+	queue := func(operation, status, desired string, age time.Duration) queued {
+		c := contractContainer(ownerID, model.ContainerStatusRunning)
+		require.NoError(t, store.Save(ctx, c))
+		op := contractOperation(c, operation)
+		require.NoError(t, store.QueueContainerOperation(ctx, c.ID, status, desired, op, contractOutbox(op)))
+		publishOutbox(t, store)
+		claimOperation(t, store, op.ID)
+		backdateOperation(t, store, op.ID, age)
+		return queued{container: getContainer(t, store, c.ID), op: op}
+	}
+	expired := []queued{
+		queue(model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, contractExpired),
+		queue(model.OperationStop, model.ContainerStatusStopping, model.ContainerStatusExited, contractExpired),
+		queue(model.OperationDelete, model.ContainerStatusDeleting, model.ContainerStatusDeleting, contractExpired),
+		queue(model.OperationExpose, model.ContainerStatusExposing, model.ContainerStatusRunning, contractExpired),
+	}
+	recent := queue(model.OperationStart, model.ContainerStatusStarting, model.ContainerStatusRunning, contractNotExpiry)
+	_, create := saveQueuedCreate(t, store, ownerID)
+	claimOperation(t, store, create.ID)
+	backdateOperation(t, store, create.ID, contractExpired)
+
+	failed, err := store.FailInterruptedNonResumableOperations(ctx, errContractCause, contractExpiry)
+	require.NoError(t, err)
+
+	want := make([]model.RecoveredOperation, 0, len(expired))
+	for _, q := range expired {
+		want = append(want, recoveredOf(q.op))
+		op := getOperation(t, store, q.op.ID)
+		require.Equal(t, model.OperationStatusFailed, op.Status)
+		require.Equal(t, errContractCause.Error(), deref(op.LastError))
+		// The container row is untouched; state sync records what Docker reports.
+		got := getContainer(t, store, q.container.ID)
+		require.Equal(t, q.container.Status, got.Status)
+		require.Equal(t, q.container.DesiredStatus, got.DesiredStatus)
+	}
+	require.ElementsMatch(t, want, failed)
+	require.Equal(t, model.OperationStatusRunning, getOperation(t, store, recent.op.ID).Status)
+	require.Equal(t, model.OperationStatusRunning, getOperation(t, store, create.ID).Status, "a create is resumable")
+
+	// Without an age bound, as at startup, every non-resumable operation fails.
+	failed, err = store.FailInterruptedNonResumableOperations(ctx, errContractCause, 0)
+	require.NoError(t, err)
+	require.Equal(t, []model.RecoveredOperation{recoveredOf(recent.op)}, failed)
+}
+
+func testLostDeliveryRecovery(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	queue := func(operation string) model.ResourceOperation {
+		c := contractContainer(ownerID, model.ContainerStatusExited)
+		require.NoError(t, store.Save(ctx, c))
+		op := contractOperation(c, operation)
+		require.NoError(t, store.QueueContainerOperation(ctx, c.ID, model.ContainerStatusStarting, model.ContainerStatusRunning, op, contractOutbox(op)))
+		return op
+	}
+	// Published long ago and still pending: its message is gone.
+	published := queue(model.OperationStart)
+	publishOutbox(t, store)
+	backdateOutbox(t, store, published.ID, contractExpired)
+	// Discarded by the relay long ago and still pending.
+	discarded := queue(model.OperationStop)
+	discardOutbox(t, store)
+	backdateOutbox(t, store, discarded.ID, contractExpired)
+	// Published recently: the message may still be queued.
+	recent := queue(model.OperationExpose)
+	publishOutbox(t, store)
+	backdateOutbox(t, store, recent.ID, contractLostAfter-time.Minute)
+	// A running operation with an old published record belongs to its worker.
+	running := queue(model.OperationDelete)
+	publishOutbox(t, store)
+	claimOperation(t, store, running.ID)
+	backdateOutbox(t, store, running.ID, contractExpired)
+	// Records the relay still owns: pending, and leased for publishing.
+	publishing := queue(model.OperationStart)
+	leaseOutbox(t, store, 10)
+	backdateOutbox(t, store, publishing.ID, contractExpired)
+	unpublished := queue(model.OperationStop)
+	backdateOutbox(t, store, unpublished.ID, contractExpired)
+
+	got, err := store.RecoverLostContainerDeliveries(ctx, errContractCause, contractLostAfter)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []model.RecoveredOperation{recoveredOf(published), recoveredOf(discarded)}, got.Republished)
+	require.Empty(t, got.Ended)
+
+	// The republished records are leased again with their message identity.
+	// The pending record and the stale lease are leased by the relay's own
+	// rules, as they always were.
+	leased := leaseOutbox(t, store, 10)
+	byOperation := make(map[uuid.UUID]model.ContainerLifecycleOutbox, len(leased))
+	for _, item := range leased {
+		byOperation[item.OperationID] = item
+	}
+	require.Len(t, byOperation, 4)
+	require.JSONEq(t, string(contractOutbox(published).Payload), string(byOperation[published.ID].Payload))
+	require.JSONEq(t, string(contractOutbox(discarded).Payload), string(byOperation[discarded.ID].Payload))
+	require.Contains(t, byOperation, unpublished.ID)
+	require.Contains(t, byOperation, publishing.ID)
+	for _, id := range []uuid.UUID{published.ID, discarded.ID, recent.ID, publishing.ID, unpublished.ID} {
+		require.Equal(t, model.OperationStatusPending, getOperation(t, store, id).Status)
+	}
+	require.Equal(t, model.OperationStatusRunning, getOperation(t, store, running.ID).Status)
+}
+
+func testLostDeliveryOfRemovedContainer(t *testing.T, store ContainerStore) {
+	ctx := context.Background()
+	ownerID := uuid.New()
+	queueAndRemove := func(operation string, age time.Duration) model.ResourceOperation {
+		c := contractContainer(ownerID, model.ContainerStatusExited)
+		require.NoError(t, store.Save(ctx, c))
+		op := contractOperation(c, operation)
+		require.NoError(t, store.QueueContainerOperation(ctx, c.ID, model.ContainerStatusDeleting, model.ContainerStatusDeleting, op, contractOutbox(op)))
+		publishOutbox(t, store)
+		// Removing the row removes its outbox record with it.
+		require.NoError(t, store.Delete(ctx, c.ID))
+		backdateOperation(t, store, op.ID, age)
+		return op
+	}
+	deleted := queueAndRemove(model.OperationDelete, contractExpired)
+	started := queueAndRemove(model.OperationStart, contractExpired)
+	recent := queueAndRemove(model.OperationStop, contractLostAfter-time.Minute)
+
+	got, err := store.RecoverLostContainerDeliveries(ctx, errContractCause, contractLostAfter)
+	require.NoError(t, err)
+	require.Empty(t, got.Republished)
+	require.ElementsMatch(t, []model.RecoveredOperation{recoveredOf(deleted), recoveredOf(started)}, got.Ended)
+
+	// A delete whose container is gone is done; anything else failed.
+	require.Equal(t, model.OperationStatusDone, getOperation(t, store, deleted.ID).Status)
+	op := getOperation(t, store, started.ID)
+	require.Equal(t, model.OperationStatusFailed, op.Status)
+	require.Equal(t, errContractCause.Error(), deref(op.LastError))
+	require.Equal(t, model.OperationStatusPending, getOperation(t, store, recent.ID).Status)
+	require.False(t, hasActiveOperation(t, store, deleted.ResourceID))
+}
+
+func recoveredOf(op model.ResourceOperation) model.RecoveredOperation {
+	return model.RecoveredOperation{ID: op.ID, ResourceType: op.ResourceType, ResourceID: op.ResourceID, Operation: op.Operation}
+}
+
+func backdateOperation(t *testing.T, store ContainerStore, id uuid.UUID, age time.Duration) {
+	t.Helper()
+	require.NoError(t, store.BackdateOperation(context.Background(), id, age))
+}
+
+func backdateOutbox(t *testing.T, store ContainerStore, operationID uuid.UUID, age time.Duration) {
+	t.Helper()
+	require.NoError(t, store.BackdateContainerOutbox(context.Background(), operationID, age))
+}
+
+// discardOutbox leases and discards every pending outbox record, as the relay
+// does for a message it decides not to publish.
+func discardOutbox(t *testing.T, store ContainerStore) {
+	t.Helper()
+	for _, item := range leaseOutbox(t, store, 100) {
+		require.NoError(t, store.MarkContainerOutboxDiscarded(context.Background(), item.ID, nil))
+	}
+}
+
+func hasActiveOperation(t *testing.T, store ContainerStore, containerID uuid.UUID) bool {
+	t.Helper()
+	active, err := store.HasActiveOperation(context.Background(), model.ResourceTypeContainer, containerID)
+	require.NoError(t, err)
+	return active
 }
 
 func testCancelActiveCreateAndDelete(t *testing.T, store ContainerStore) {

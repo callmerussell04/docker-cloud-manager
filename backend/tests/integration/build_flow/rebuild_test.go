@@ -422,7 +422,7 @@ func (e *rebuildEnv) deleteImage(t *testing.T, images *service.ImageService, lif
 	var message queue.ResourceLifecycleMessage
 	require.NoError(t, json.Unmarshal(outbox[0].Payload, &message))
 	require.NoError(t, lifecycle.MarkResourceOutboxPublished(ctx, outbox[0].ID))
-	return service.NewResourceLifecycleWorker(nil, images, coretest.DiscardLogger()).HandleMessage(ctx, message)
+	return service.NewResourceLifecycleWorker(nil, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger()).HandleMessage(ctx, message)
 }
 
 // Two images of one repository with identical content are independent:

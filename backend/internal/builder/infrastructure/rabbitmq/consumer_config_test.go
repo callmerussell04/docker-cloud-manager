@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/builder/infrastructure/rabbitmq"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
@@ -29,6 +30,7 @@ func TestBuildConsumerConfig(t *testing.T) {
 	require.Equal(t, "builder-a-1", rabbitmq.BuildConsumerConfig("", "a", platformrabbitmq.Queue{}, nil).ConsumerTag(1))
 	require.Equal(t, "request", cfg.RequestID(msg))
 	require.Equal(t, []any{"build_id", "build"}, cfg.LogFields(msg))
+	require.Equal(t, 5*time.Second, cfg.RetryDelay)
 }
 
 func TestBuildConsumerConfigConsumesConfiguredQueue(t *testing.T) {

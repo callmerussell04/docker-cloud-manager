@@ -209,9 +209,9 @@ func (s *ImageService) executeQueuedImageDelete(ctx context.Context, operationID
 }
 
 // completeImageOperation records the operation's terminal status. A failed
-// write leaves the operation running until restart recovery requeues it, so
-// the error is returned for the resource queue consumer to log with the
-// operation ID.
+// write leaves the operation running until the operation recovery pass or
+// restart recovery requeues it, so the error is returned for the resource
+// queue consumer to log with the operation ID.
 func (s *ImageService) completeImageOperation(ctx context.Context, operationID uuid.UUID, status string, cause error) error {
 	if err := s.lifecycle.CompleteOperation(context.WithoutCancel(ctx), operationID, status, cause); err != nil {
 		return fmt.Errorf("record image operation %s status: %w", status, err)

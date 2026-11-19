@@ -70,6 +70,12 @@ func newHarness(t *testing.T) *harness {
 // stops it too, so a failing test cannot leak the worker.
 func (h *harness) run(t *testing.T, handler func(context.Context, testMessage) error) func() {
 	t.Helper()
+	return h.runWithRetryDelay(t, time.Millisecond, handler)
+}
+
+// runWithRetryDelay is run with the wait before a failed message is returned.
+func (h *harness) runWithRetryDelay(t *testing.T, retryDelay time.Duration, handler func(context.Context, testMessage) error) func() {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	consumer := rabbitmq.NewConsumer(rabbitmq.ConsumerConfig[testMessage]{
 		URL:         h.url,
@@ -80,6 +86,7 @@ func (h *harness) run(t *testing.T, handler func(context.Context, testMessage) e
 		RequestID:   func(msg testMessage) string { return msg.RequestID },
 		LogFields:   func(msg testMessage) []any { return []any{"message_id", msg.ID} },
 		Logger:      slog.New(slog.DiscardHandler),
+		RetryDelay:  retryDelay,
 	})
 	consumer.Run(ctx, 1, handler)
 	stop := func() {
@@ -209,6 +216,85 @@ func TestConsumerRequeuesTransientError(t *testing.T) {
 	stop()
 	require.EqualValues(t, 2, attempts.Load())
 	h.requireNoMessage(t, h.queue.Name)
+	h.requireNoMessage(t, h.queue.DLQ)
+}
+
+func TestConsumerDeadLettersPermanentErrorWithoutRetryDelay(t *testing.T) {
+	h := newHarness(t)
+	h.runWithRetryDelay(t, time.Minute, func(context.Context, testMessage) error {
+		return errPermanent
+	})
+
+	h.publishMessage(t, testMessage{ID: "permanent"})
+
+	h.requireDeadLetter(t, `{"id":"permanent","request_id":""}`)
+}
+
+// A worker holds a retryably failed delivery for the retry delay instead of
+// returning it at once, and shutdown returns it without waiting the delay out.
+func TestConsumerHoldsTransientErrorForTheRetryDelayAndReturnsItOnStop(t *testing.T) {
+	h := newHarness(t)
+	var attempts atomic.Int32
+	failed := make(chan struct{}, 1)
+	stop := h.runWithRetryDelay(t, time.Minute, func(context.Context, testMessage) error {
+		attempts.Add(1)
+		failed <- struct{}{}
+		return errors.New("temporary downstream failure")
+	})
+
+	h.publishMessage(t, testMessage{ID: "held"})
+	receive(t, failed)
+
+	require.Never(t, func() bool { return attempts.Load() > 1 }, 300*time.Millisecond, 50*time.Millisecond, "the delivery is held, not redelivered")
+	h.requireNoMessage(t, h.queue.Name)
+	// stop fails the test unless the worker exits well within the delay.
+	stop()
+	require.Eventually(t, func() bool {
+		msg, ok, err := h.ch.Get(h.queue.Name, true)
+		return err == nil && ok && string(msg.Body) == `{"id":"held","request_id":""}`
+	}, 5*time.Second, 50*time.Millisecond, "the held delivery must return to the queue")
+	h.requireNoMessage(t, h.queue.DLQ)
+}
+
+// RabbitMQ 4 counts only deliveries returned by a closed channel or
+// connection against a quorum queue's delivery limit of 20, and dead-letters
+// the message on the next return. This is how a queued operation loses its
+// message: a worker that keeps dying or losing its connection mid-message.
+func TestQueueDeadLettersMessageAbandonedPastTheDeliveryLimit(t *testing.T) {
+	h := newHarness(t)
+	conn, err := amqp.Dial(h.url)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() }) // test teardown; broker close failure is not actionable
+
+	h.publishMessage(t, testMessage{ID: "lost"})
+	for range 21 {
+		ch, err := conn.Channel()
+		require.NoError(t, err)
+		require.NoError(t, ch.Qos(1, 0, false))
+		deliveries, err := ch.Consume(h.queue.Name, "", false, false, false, false, nil)
+		require.NoError(t, err)
+		receive(t, deliveries)
+		// Closing the channel with the delivery unacknowledged abandons it.
+		require.NoError(t, ch.Close())
+	}
+
+	h.requireDeadLetter(t, `{"id":"lost","request_id":""}`)
+}
+
+// A retryable failure is returned with a requeue, which RabbitMQ 4 does not
+// count against the delivery limit: the message is never dead-lettered by
+// failing, and only the retry delay spaces its attempts.
+func TestConsumerNeverDeadLettersRepeatedTransientError(t *testing.T) {
+	h := newHarness(t)
+	var attempts atomic.Int32
+	h.run(t, func(context.Context, testMessage) error {
+		attempts.Add(1)
+		return errors.New("database unreachable")
+	})
+
+	h.publishMessage(t, testMessage{ID: "kept"})
+
+	require.Eventually(t, func() bool { return attempts.Load() > 25 }, 10*time.Second, 10*time.Millisecond)
 	h.requireNoMessage(t, h.queue.DLQ)
 }
 

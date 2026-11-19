@@ -115,7 +115,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, ownerID.String(), message.OwnerID)
 	require.Equal(t, model.ResourceTypeVolume, message.ResourceType)
 	require.Equal(t, model.OperationCreate, message.Operation)
-	worker := service.NewResourceLifecycleWorker(volumes, images, coretest.DiscardLogger())
+	worker := service.NewResourceLifecycleWorker(volumes, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 	require.NoError(t, worker.HandleMessage(ctx, message))
 	operation, err := lifecycle.GetOperationByID(ctx, uuid.MustParse(message.OperationID))
 	require.NoError(t, err)

@@ -465,6 +465,39 @@ func (r *ProjectRepository) ListActiveComposeDeploymentJobs(ctx context.Context,
 	return jobs, rows.Err()
 }
 
+// RepublishLostComposeDeliveries finds Compose deployment jobs that wait for
+// a message no longer in the queue, judged on the database clock: a job that
+// is queued, or was canceled while queued (canceling, never started), whose
+// outbox record was published or discarded longer ago than olderThan. The
+// record returns to pending with its payload, for the relay to publish again;
+// the delivery then runs the job or carries out its cancellation. A started
+// job is left to its worker and to startup recovery.
+func (r *ProjectRepository) RepublishLostComposeDeliveries(ctx context.Context, olderThan time.Duration) ([]model.RecoveredDeployment, error) {
+	rows, err := r.db.Query(ctx, `
+		UPDATE compose_deployment_queue_outbox o
+		SET status = $1, published_at = NULL, updated_at = NOW()
+		FROM compose_deployment_jobs j
+		WHERE o.job_id = j.id
+			AND (j.status = $2 OR (j.status = $3 AND j.stage = '' AND j.started_at IS NULL))
+			AND o.status IN ($4, $5)
+			AND `+updatedBefore("o.updated_at", 6)+`
+		RETURNING j.id, j.project_id
+	`, model.ComposeOutboxStatusPending, model.ComposeDeploymentStatusQueued, model.ComposeDeploymentStatusCanceling,
+		model.ComposeOutboxStatusPublished, model.ComposeOutboxStatusDiscarded, ageSeconds(olderThan))
+	if err != nil {
+		return nil, wrapOp("project republish lost compose deliveries", err)
+	}
+	recovered, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (model.RecoveredDeployment, error) {
+		var d model.RecoveredDeployment
+		err := row.Scan(&d.JobID, &d.ProjectID)
+		return d, err
+	})
+	if err != nil {
+		return nil, wrapOp("project republish lost compose deliveries", err)
+	}
+	return recovered, nil
+}
+
 func (r *ProjectRepository) RecoverInterruptedComposeDeployments(ctx context.Context, maxAttempts int, errorMessage string) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {

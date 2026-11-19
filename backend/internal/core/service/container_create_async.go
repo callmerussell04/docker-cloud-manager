@@ -66,8 +66,7 @@ func (w *ContainerCreateWorker) HandleMessage(ctx context.Context, msg queue.Con
 	if err != nil {
 		return apperrors.New(apperrors.ErrBadRequest, "invalid container id")
 	}
-	timeout := time.Duration(w.cfg.Get().ContainerCreateTimeoutMinutes) * time.Minute
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	runCtx, cancel := context.WithTimeout(ctx, handlerDeadline(w.cfg.Get()))
 	defer cancel()
 	return w.service.ExecuteQueuedContainerOperation(runCtx, operationID, containerID, msg)
 }
@@ -311,9 +310,9 @@ func (s *ContainerService) ensureOperationRunning(ctx context.Context, operation
 }
 
 // completeQueuedOperation records the operation's terminal status. A failed
-// write leaves the operation running until restart recovery settles it, so the
-// error is returned for the container queue consumer to log with the operation
-// ID.
+// write leaves the operation running until the operation recovery pass or
+// restart recovery settles it, so the error is returned for the container
+// queue consumer to log with the operation ID.
 func (s *ContainerService) completeQueuedOperation(ctx context.Context, repo containerCreateWorkerRepository, operationID uuid.UUID, status string, cause error) error {
 	if err := repo.CompleteOperation(context.WithoutCancel(ctx), operationID, status, cause); err != nil {
 		return fmt.Errorf("record container operation %s status: %w", status, err)
