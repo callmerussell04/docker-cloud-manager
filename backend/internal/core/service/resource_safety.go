@@ -8,7 +8,7 @@ import (
 )
 
 type StagedObjectRepository interface {
-	Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error
+	Reserve(ctx context.Context, reservation model.StagedObjectReservation) error
 	UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error
 	Release(ctx context.Context, objectKey string) error
 	ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error)

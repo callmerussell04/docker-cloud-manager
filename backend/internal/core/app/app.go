@@ -242,6 +242,8 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		BuildJobs:         buildService,
 		Images:            imgService,
 		StagedObjects:     stagedRepo,
+		CapacityLock:      contRepo,
+		ReservedDisk:      service.NewReservedDiskReader(imgRepo, volRepo),
 		DiskMetrics:       metricsProvider,
 		HostDiskPath:      cfg.HostDiskPath,
 		Quotas:            userQuotas,

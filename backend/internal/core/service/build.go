@@ -212,6 +212,18 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 	if hostDiskPath == "" {
 		hostDiskPath = "/"
 	}
+	staging, err := stagedsource.New(stagedsource.Deps{
+		Repository:   deps.StagedObjects,
+		CapacityLock: deps.CapacityLock,
+		Quotas:       deps.Quotas,
+		ReservedDisk: NewReservedDiskReader(deps.Images, deps.VolumeRepo),
+		DiskMetrics:  deps.DiskMetrics,
+		HostDiskPath: deps.HostDiskPath,
+		Config:       deps.Config,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build service: %w", err)
+	}
 	return &BuildService{
 		repo:         deps.Repository,
 		imageRepo:    deps.Images,
@@ -223,14 +235,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		cfg:          deps.Config,
 		objectStore:  deps.ObjectStore,
 		deployments:  deps.Deployments,
-		staging: stagedsource.New(stagedsource.Deps{
-			Repository:   deps.StagedObjects,
-			Quotas:       deps.Quotas,
-			ReservedDisk: reservedDiskSource{images: deps.Images, volumes: deps.VolumeRepo},
-			DiskMetrics:  deps.DiskMetrics,
-			HostDiskPath: deps.HostDiskPath,
-			Config:       deps.Config,
-		}),
+		staging:      staging,
 		containers:   deps.Containers,
 		capacityLock: deps.CapacityLock,
 		diskMetrics:  deps.DiskMetrics,
@@ -292,15 +297,14 @@ func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.U
 	return nil
 }
 
-// reserveStagedBuildArchive reserves a staged build archive. A build counts the
-// owner's reserved disk plus staged bytes against the disk quota.
+// reserveStagedBuildArchive reserves a staged build archive by the one staged
+// disk rule. The caller holds no capacity lock.
 func (s *BuildService) reserveStagedBuildArchive(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
 	return s.staging.Reserve(ctx, stagedsource.Reservation{
 		OwnerID:   ownerID,
 		ObjectKey: objectKey,
 		Kind:      model.StagedObjectKindBuildArchive,
 		Bytes:     bytesReserved,
-		Rule:      stagedsource.CountReservedAndStaged,
 	})
 }
 

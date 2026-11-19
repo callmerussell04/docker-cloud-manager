@@ -53,7 +53,7 @@ func buildServiceDeps(t *testing.T) service.BuildServiceDeps {
 	volumes := coremocks.NewBuildVolumeDiskRepository(t)
 	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 	staged := coremocks.NewStagedObjectRepository(t)
-	staged.EXPECT().Reserve(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	staged.EXPECT().Reserve(mock.Anything, mock.Anything).Return(nil).Maybe()
 	staged.EXPECT().Release(mock.Anything, mock.Anything).Return(nil).Maybe()
 	staged.EXPECT().ActiveBytesByOwner(mock.Anything, mock.Anything).Return(int64(0), nil).Maybe()
 	containers := coremocks.NewBuildContainerReservationRepository(t)

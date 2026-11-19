@@ -69,7 +69,7 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	registry := coremocks.NewImageRegistryAPI(t)
 	staged := coremocks.NewStagedObjectRepository(t)
 	staged.EXPECT().ActiveBytesByOwner(mock.Anything, mock.Anything).Return(int64(0), nil)
-	staged.EXPECT().Reserve(mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	staged.EXPECT().Reserve(mock.Anything, mock.Anything).Return(nil).Once()
 	svc := newTestBuildService(t, service.BuildServiceDeps{
 		Repository:    repo,
 		Images:        imageRepo,

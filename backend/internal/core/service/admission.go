@@ -167,8 +167,8 @@ type admissionSources struct {
 	userReservations userReservationReader
 	system           systemReservationReader
 	builds           activeSystemBuildCounter
-	images           diskQuotaImageRepository
-	volumes          diskQuotaVolumeRepository
+	images           DiskQuotaImageRepository
+	volumes          DiskQuotaVolumeRepository
 	volumePromise    volumePromiseReader
 	hostMetrics      HostMetricsProvider
 	diskMetrics      HostDiskMetricsProvider

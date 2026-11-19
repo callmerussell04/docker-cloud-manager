@@ -44,6 +44,8 @@ func rejectingGitOrchestrator(t *testing.T) *compose.Orchestrator {
 	deps, _ := composeOrchestratorDeps(t, repo, composeTestConfig())
 	deps.ObjectStore = composemocks.NewObjectStorage(t)
 	deps.StagedObjects = composemocks.NewStagedObjectRepository(t)
+	deps.CapacityLock = composemocks.NewCapacityLock(t)
+	deps.ReservedDisk = composemocks.NewReservedDiskReader(t)
 	o, err := compose.NewOrchestrator(deps)
 	require.NoError(t, err)
 	return o

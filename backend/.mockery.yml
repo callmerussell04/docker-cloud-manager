@@ -106,9 +106,11 @@ packages:
     interfaces:
       ActiveComposeDeploymentCounter: {}
       CapacityChecker: {}
+      CapacityLock: {}
       ContainerService: {}
       ObjectStorage: {}
       ProjectRepository: {}
+      ReservedDiskReader: {}
       StagedObjectRepository: {}
   github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/stagedsource:
     config:
@@ -117,6 +119,7 @@ packages:
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
     interfaces:
+      CapacityLock: {}
       HostDiskMetrics: {}
       Repository: {}
       ReservedDiskReader: {}

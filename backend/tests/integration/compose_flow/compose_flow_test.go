@@ -244,6 +244,33 @@ func TestComposeDeploymentFailsWhenItsVolumesDoNotFitTheDiskQuota(t *testing.T) 
 	require.Empty(t, stackContainers(t, f, projectID))
 }
 
+// TestComposeUploadIsRefusedAtAFullDiskQuota pins the one staged disk rule for
+// Compose: the owner's reserved disk counts beside their staged bytes and the
+// source's maximum size, so an owner whose volumes leave less of the disk
+// quota than a source may take cannot stage one.
+func TestComposeUploadIsRefusedAtAFullDiskQuota(t *testing.T) {
+	ctx := context.Background()
+	cfg := coretest.IntegrationConfig()
+	f := coretest.NewComposeFixture(t, cfg)
+	// The fixture's owner has a 4096 MB disk quota; one volume leaves 1 MiB
+	// of it, less than the 10 MiB a source is reserved for.
+	require.Greater(t, cfg.ComposeUploadMaxBytes, int64(1<<20))
+	require.NoError(t, f.Repos.Volumes.Save(ctx, model.Volume{
+		ID: uuid.New(), OwnerID: f.OwnerID, Name: "full", DockerName: "vol_full",
+		Status: model.VolumeStatusAvailable, SizeBytes: 4095 << 20,
+	}))
+
+	_, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "web", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": webCompose,
+	})))
+
+	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
+	require.Equal(t, apperrors.LimitUserDisk, apperrors.LimitOf(err))
+	staged, err := f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
+	require.NoError(t, err)
+	require.Zero(t, staged, "nothing is staged")
+}
+
 // stackDocker records the runtime specs Docker is asked to create.
 type stackDocker struct {
 	mu      sync.Mutex

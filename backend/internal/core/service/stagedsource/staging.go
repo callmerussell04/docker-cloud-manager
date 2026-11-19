@@ -6,7 +6,9 @@ package stagedsource
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
@@ -14,24 +16,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// QuotaRule chooses what the staged disk quota check counts against the
-// owner's disk quota besides the staged bytes.
-type QuotaRule int
-
-const (
-	// CountReservedAndStaged counts the owner's reserved disk (images and
-	// volumes) plus staged bytes, including the incoming bytes. Builds use it.
-	CountReservedAndStaged QuotaRule = iota + 1
-	// CountStagedOnly counts staged bytes only, including the incoming bytes.
-	// Compose ingestion uses it: the containers, volumes and builds a
-	// deployment creates are admitted by their own services later, so only
-	// staged objects could bypass the regular disk checks.
-	CountStagedOnly
-)
-
-// Repository stores staged-object reservations.
+// Repository stores staged-object reservations. Reserve only inserts: the
+// limits are checked by Staging under the owner capacity lock.
 type Repository interface {
-	Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error
+	Reserve(ctx context.Context, reservation model.StagedObjectReservation) error
 	UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error
 	Release(ctx context.Context, objectKey string) error
 	ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -45,6 +33,14 @@ type QuotaProvider interface {
 // ReservedDiskReader reads the disk an owner already reserves, in bytes.
 type ReservedDiskReader interface {
 	ReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
+// CapacityLock is the owner capacity lock. The staged disk quota check and the
+// reservation insert run under it, so they are serialised with every other
+// admission of the same owner. It waits in Core's lock pool, never in the
+// query pool.
+type CapacityLock interface {
+	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
 }
 
 // HostDiskMetrics reads host disk usage for the disk floor.
@@ -61,11 +57,12 @@ type ConfigProvider interface {
 const unlimitedDiskQuotaBytes = math.MaxInt64
 
 // Deps are the capabilities staging needs. A nil Repository turns staging off:
-// nothing is reserved, resized or released and no quota is checked. A nil
-// Quotas counts no disk quota. ReservedDisk is required only by
-// CountReservedAndStaged. A nil DiskMetrics turns the host disk floor off.
+// nothing is reserved, resized or released and no limit is checked. With a
+// Repository, CapacityLock, ReservedDisk and Config are required. A nil Quotas
+// counts no disk quota. A nil DiskMetrics turns the host disk floor off.
 type Deps struct {
 	Repository   Repository
+	CapacityLock CapacityLock
 	Quotas       QuotaProvider
 	ReservedDisk ReservedDiskReader
 	DiskMetrics  HostDiskMetrics
@@ -77,6 +74,7 @@ type Deps struct {
 // disk quota and the projected host disk floor.
 type Staging struct {
 	repo         Repository
+	capacityLock CapacityLock
 	quotas       QuotaProvider
 	reservedDisk ReservedDiskReader
 	diskMetrics  HostDiskMetrics
@@ -84,14 +82,44 @@ type Staging struct {
 	cfg          ConfigProvider
 }
 
-func New(deps Deps) *Staging {
+// New builds staging from deps. It rejects a Repository without its required
+// capacity lock, reserved disk reader or config, including typed nils.
+func New(deps Deps) (*Staging, error) {
+	if deps.Repository != nil && !isNil(deps.Repository) {
+		required := []struct {
+			name  string
+			value any
+		}{
+			{"capacity lock", deps.CapacityLock},
+			{"reserved disk reader", deps.ReservedDisk},
+			{"config", deps.Config},
+		}
+		for _, dependency := range required {
+			if dependency.value == nil || isNil(dependency.value) {
+				return nil, fmt.Errorf("staged source: %s is required", dependency.name)
+			}
+		}
+	} else {
+		deps.Repository = nil
+	}
 	return &Staging{
 		repo:         deps.Repository,
+		capacityLock: deps.CapacityLock,
 		quotas:       deps.Quotas,
 		reservedDisk: deps.ReservedDisk,
 		diskMetrics:  deps.DiskMetrics,
 		hostDiskPath: deps.HostDiskPath,
 		cfg:          deps.Config,
+	}, nil
+}
+
+func isNil(value any) bool {
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
 	}
 }
 
@@ -101,12 +129,15 @@ type Reservation struct {
 	ObjectKey string
 	Kind      string
 	Bytes     int64
-	Rule      QuotaRule
 }
 
-// Reserve checks the staged disk quota under r.Rule and then reserves the
-// staged bytes within MaxStagedSourceBytesPerUser. Negative sizes reserve
-// zero. An empty object key reserves nothing.
+// Reserve admits and reserves a staged object by the one staged disk rule,
+// under the owner capacity lock: the owner's reserved disk plus their staged
+// bytes plus Bytes must fit the disk quota (user_disk), then their staged bytes
+// plus Bytes must fit MaxStagedSourceBytesPerUser (staged_source_bytes). The
+// insert runs before the lock is released. Negative sizes reserve zero. An
+// empty object key reserves nothing. The caller must not hold a capacity lock:
+// the lock pool has one connection, so a nested acquisition never returns.
 func (s *Staging) Reserve(ctx context.Context, r Reservation) error {
 	if s.repo == nil || r.ObjectKey == "" {
 		return nil
@@ -114,7 +145,12 @@ func (s *Staging) Reserve(ctx context.Context, r Reservation) error {
 	if r.Bytes < 0 {
 		r.Bytes = 0
 	}
-	if err := s.checkDiskQuota(ctx, r.OwnerID, r.Bytes, r.Rule); err != nil {
+	unlock, err := s.capacityLock.AcquireOwnerCapacityLock(ctx, r.OwnerID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := s.checkLimits(ctx, r.OwnerID, r.Bytes); err != nil {
 		return err
 	}
 	return s.repo.Reserve(ctx, model.StagedObjectReservation{
@@ -123,40 +159,29 @@ func (s *Staging) Reserve(ctx context.Context, r Reservation) error {
 		ObjectKey:     r.ObjectKey,
 		Kind:          r.Kind,
 		BytesReserved: r.Bytes,
-	}, s.cfg.Get().MaxStagedSourceBytesPerUser)
+	})
 }
 
-// checkDiskQuota is the one staged disk quota check. Each rule keeps the read
-// order its caller has always used.
-func (s *Staging) checkDiskQuota(ctx context.Context, ownerID uuid.UUID, incomingBytes int64, rule QuotaRule) error {
-	var quotaBytes, usedBytes, stagedBytes int64
-	var err error
-	switch rule {
-	case CountReservedAndStaged:
-		if s.reservedDisk == nil {
-			return errors.New("staged source: reserved disk reader is required to count reserved disk")
-		}
-		if quotaBytes, err = s.diskQuotaBytes(ctx, ownerID); err != nil {
-			return err
-		}
-		if usedBytes, err = s.reservedDisk.ReservedDiskBytes(ctx, ownerID); err != nil {
-			return err
-		}
-		if stagedBytes, err = s.repo.ActiveBytesByOwner(ctx, ownerID); err != nil {
-			return err
-		}
-	case CountStagedOnly:
-		if stagedBytes, err = s.repo.ActiveBytesByOwner(ctx, ownerID); err != nil {
-			return err
-		}
-		if quotaBytes, err = s.diskQuotaBytes(ctx, ownerID); err != nil {
-			return err
-		}
-	default:
-		return errors.New("staged source: unknown disk quota rule")
+// checkLimits is the one staged disk rule. The caller holds the owner
+// capacity lock.
+func (s *Staging) checkLimits(ctx context.Context, ownerID uuid.UUID, incomingBytes int64) error {
+	quotaBytes, err := s.diskQuotaBytes(ctx, ownerID)
+	if err != nil {
+		return err
 	}
-	if usedBytes+stagedBytes+incomingBytes > quotaBytes {
+	reservedBytes, err := s.reservedDisk.ReservedDiskBytes(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	stagedBytes, err := s.repo.ActiveBytesByOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if reservedBytes+stagedBytes+incomingBytes > quotaBytes {
 		return apperrors.Exceeded(apperrors.LimitUserDisk)
+	}
+	if maxStaged := s.cfg.Get().MaxStagedSourceBytesPerUser; maxStaged > 0 && stagedBytes+incomingBytes > maxStaged {
+		return apperrors.Exceeded(apperrors.LimitStagedSourceBytes)
 	}
 	return nil
 }

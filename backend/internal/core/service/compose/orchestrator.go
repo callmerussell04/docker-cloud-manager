@@ -66,10 +66,22 @@ type ResourceRepository interface {
 }
 
 type StagedObjectRepository interface {
-	Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error
+	Reserve(ctx context.Context, reservation model.StagedObjectReservation) error
 	UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error
 	Release(ctx context.Context, objectKey string) error
 	ActiveBytesByOwner(ctx context.Context, ownerID uuid.UUID) (int64, error)
+}
+
+// CapacityLock is the owner capacity lock the staged-source module holds while
+// it admits and reserves a Compose source.
+type CapacityLock interface {
+	AcquireOwnerCapacityLock(ctx context.Context, ownerID uuid.UUID) (func(), error)
+}
+
+// ReservedDiskReader reads the disk an owner already reserves, in bytes, which
+// a staged source counts against the disk quota beside the staged bytes.
+type ReservedDiskReader interface {
+	ReservedDiskBytes(ctx context.Context, ownerID uuid.UUID) (int64, error)
 }
 
 type VolumeService interface {
@@ -176,10 +188,14 @@ type OrchestratorDeps struct {
 	BuildJobs         BuildJobCreator
 	Images            ImageCleaner
 	StagedObjects     StagedObjectRepository
-	DiskMetrics       HostDiskMetricsProvider
-	HostDiskPath      string
-	Quotas            QuotaProvider
-	Logger            *slog.Logger
+	// CapacityLock and ReservedDisk are required with StagedObjects: the
+	// staged disk rule counts reserved disk under the owner capacity lock.
+	CapacityLock CapacityLock
+	ReservedDisk ReservedDiskReader
+	DiskMetrics  HostDiskMetricsProvider
+	HostDiskPath string
+	Quotas       QuotaProvider
+	Logger       *slog.Logger
 }
 
 func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
@@ -195,6 +211,18 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 			return nil, fmt.Errorf("compose orchestrator: %s is required", dependency.name)
 		}
 	}
+	staging, err := stagedsource.New(stagedsource.Deps{
+		Repository:   deps.StagedObjects,
+		CapacityLock: deps.CapacityLock,
+		Quotas:       deps.Quotas,
+		ReservedDisk: deps.ReservedDisk,
+		DiskMetrics:  deps.DiskMetrics,
+		HostDiskPath: deps.HostDiskPath,
+		Config:       deps.Config,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("compose orchestrator: %w", err)
+	}
 	return &Orchestrator{
 		parser:            NewParser(),
 		projectRepo:       deps.Projects,
@@ -207,15 +235,9 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 		cfg:               deps.Config,
 		imageCleaner:      deps.Images,
 		objectStore:       deps.ObjectStore,
-		staging: stagedsource.New(stagedsource.Deps{
-			Repository:   deps.StagedObjects,
-			Quotas:       deps.Quotas,
-			DiskMetrics:  deps.DiskMetrics,
-			HostDiskPath: deps.HostDiskPath,
-			Config:       deps.Config,
-		}),
-		builderClient: NewLocalBuilderClient(deps.ObjectStore, deps.BuildJobs),
-		logger:        logging.WithComponent(deps.Logger, "compose_orchestrator"),
+		staging:           staging,
+		builderClient:     NewLocalBuilderClient(deps.ObjectStore, deps.BuildJobs),
+		logger:            logging.WithComponent(deps.Logger, "compose_orchestrator"),
 	}, nil
 }
 
@@ -594,15 +616,14 @@ func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uui
 	return o.capacity.CheckCapacity(ctx, ownerID, requestedRAM, requestedCPU, 0)
 }
 
-// reserveComposeSource reserves a staged Compose source. Compose ingestion
-// counts staged bytes only against the disk quota.
+// reserveComposeSource reserves a staged Compose source by the one staged
+// disk rule. The caller holds no capacity lock.
 func (o *Orchestrator) reserveComposeSource(ctx context.Context, ownerID uuid.UUID, objectKey string, bytesReserved int64) error {
 	return o.staging.Reserve(ctx, stagedsource.Reservation{
 		OwnerID:   ownerID,
 		ObjectKey: objectKey,
 		Kind:      model.StagedObjectKindComposeSource,
 		Bytes:     bytesReserved,
-		Rule:      stagedsource.CountStagedOnly,
 	})
 }
 

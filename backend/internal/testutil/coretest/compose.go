@@ -159,6 +159,8 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 		BuildJobs:         f.Builds,
 		Images:            f.Images,
 		StagedObjects:     repos.Staged,
+		CapacityLock:      repos.Containers,
+		ReservedDisk:      service.NewReservedDiskReader(repos.Images, repos.Volumes),
 		DiskMetrics:       diskMetrics,
 		HostDiskPath:      "/",
 		Quotas:            quotas,

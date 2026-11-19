@@ -20,44 +20,23 @@ func NewStagedObjectRepository(db *pgxpool.Pool) *StagedObjectRepository {
 	return &StagedObjectRepository{db: db}
 }
 
-func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.StagedObjectReservation, maxBytesPerUser int64) error {
-	tx, err := r.db.Begin(ctx)
-	if err != nil {
-		return wrapOp("staged object reserve", err)
-	}
-	defer tx.Rollback(ctx)
-
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, "dcm:staged:"+reservation.OwnerID.String()); err != nil {
-		return wrapOp("staged object reserve", err)
-	}
-
-	if maxBytesPerUser > 0 {
-		var used int64
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(SUM(bytes_reserved), 0)
-			FROM staged_object_reservations
-			WHERE owner_id = $1 AND status = $2
-		`, reservation.OwnerID, model.StagedObjectStatusActive).Scan(&used); err != nil {
-			return wrapOp("staged object reserve", err)
-		}
-		if used+reservation.BytesReserved > maxBytesPerUser {
-			return apperrors.Exceeded(apperrors.LimitStagedSourceBytes)
-		}
-	}
-
+// Reserve inserts an active staged-object reservation. It checks no limit and
+// takes no lock: the staged-source module checks the disk quota and the staged
+// bytes cap under the owner capacity lock before calling it. A reservation
+// already recorded for the object key is kept.
+func (r *StagedObjectRepository) Reserve(ctx context.Context, reservation model.StagedObjectReservation) error {
 	status := reservation.Status
 	if status == "" {
 		status = model.StagedObjectStatusActive
 	}
-	if _, err := tx.Exec(ctx, `
+	if _, err := r.db.Exec(ctx, `
 		INSERT INTO staged_object_reservations (id, owner_id, object_key, kind, bytes_reserved, status)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (object_key) DO NOTHING
 	`, reservation.ID, reservation.OwnerID, reservation.ObjectKey, reservation.Kind, reservation.BytesReserved, status); err != nil {
 		return wrapOp("staged object reserve", err)
 	}
-
-	return commitTx(ctx, tx, "reserve staged object")
+	return nil
 }
 
 func (r *StagedObjectRepository) UpdateBytes(ctx context.Context, objectKey string, bytesReserved int64) error {

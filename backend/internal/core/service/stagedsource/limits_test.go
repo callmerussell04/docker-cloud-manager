@@ -37,7 +37,7 @@ func TestCheckHostDiskFloorCountsTheProjectedWrite(t *testing.T) {
 			cfg.HostMinFreeDiskBytes = 200 * mb
 			metrics := stagedsourcemocks.NewHostDiskMetrics(t)
 			metrics.EXPECT().GetDiskUsage(scenario.wantPath).Return(model.HostDiskStats{FreeBytes: scenario.freeBytes}, scenario.statErr).Once()
-			staging := stagedsource.New(stagedsource.Deps{DiskMetrics: metrics, HostDiskPath: scenario.path, Config: coretest.StaticConfig{Config: cfg}})
+			staging := newStaging(t, stagedsource.Deps{DiskMetrics: metrics, HostDiskPath: scenario.path, Config: coretest.StaticConfig{Config: cfg}})
 
 			err := staging.CheckHostDiskFloor(scenario.projected)
 
@@ -53,10 +53,10 @@ func TestCheckHostDiskFloorCountsTheProjectedWrite(t *testing.T) {
 func TestCheckHostDiskFloorIsOffWithoutMetricsOrFloor(t *testing.T) {
 	cfg := coretest.IntegrationConfig()
 	cfg.HostMinFreeDiskBytes = 200 * mb
-	require.NoError(t, stagedsource.New(stagedsource.Deps{Config: coretest.StaticConfig{Config: cfg}}).CheckHostDiskFloor(mb))
+	require.NoError(t, newStaging(t, stagedsource.Deps{Config: coretest.StaticConfig{Config: cfg}}).CheckHostDiskFloor(mb))
 
 	cfg.HostMinFreeDiskBytes = 0
-	staging := stagedsource.New(stagedsource.Deps{DiskMetrics: stagedsourcemocks.NewHostDiskMetrics(t), Config: coretest.StaticConfig{Config: cfg}})
+	staging := newStaging(t, stagedsource.Deps{DiskMetrics: stagedsourcemocks.NewHostDiskMetrics(t), Config: coretest.StaticConfig{Config: cfg}})
 	require.NoError(t, staging.CheckHostDiskFloor(mb))
 }
 

@@ -321,36 +321,36 @@ func TestProjectRepositoryRecoverStageEmptyKeepsOriginalError(t *testing.T) {
 	require.Equal(t, originalErr, *project.ErrorMessage)
 }
 
-func TestStagedObjectRepositoryReserveQuotaAndRelease(t *testing.T) {
+// TestStagedObjectRepositoryReserveAndRelease pins the store alone: Reserve
+// inserts without a limit (the staged-source module checks the limits under
+// the owner capacity lock), keeps an existing reservation for the same key,
+// and Release ends it once.
+func TestStagedObjectRepositoryReserveAndRelease(t *testing.T) {
 	ctx := context.Background()
 	db := dbtest.OpenCorePostgres(t)
 	repo := repository.NewStagedObjectRepository(db)
 	ownerID := uuid.New()
 
-	err := repo.Reserve(ctx, model.StagedObjectReservation{
-		ID:            uuid.New(),
-		OwnerID:       ownerID,
-		ObjectKey:     "build-archives/demo.zip",
-		Kind:          model.StagedObjectKindBuildArchive,
-		BytesReserved: 128,
-	}, 256)
-	require.NoError(t, err)
+	reserve := func(key string, bytes int64) {
+		t.Helper()
+		require.NoError(t, repo.Reserve(ctx, model.StagedObjectReservation{
+			ID:            uuid.New(),
+			OwnerID:       ownerID,
+			ObjectKey:     key,
+			Kind:          model.StagedObjectKindBuildArchive,
+			BytesReserved: bytes,
+		}))
+	}
+	reserve("build-archives/demo.zip", 128)
+	reserve("build-archives/large.zip", 1<<40)
+	reserve("build-archives/demo.zip", 512)
 
 	used, err := repo.ActiveBytesByOwner(ctx, ownerID)
 	require.NoError(t, err)
-	require.EqualValues(t, 128, used)
-
-	err = repo.Reserve(ctx, model.StagedObjectReservation{
-		ID:            uuid.New(),
-		OwnerID:       ownerID,
-		ObjectKey:     "build-archives/too-large.zip",
-		Kind:          model.StagedObjectKindBuildArchive,
-		BytesReserved: 129,
-	}, 256)
-	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
-	require.Equal(t, apperrors.LimitStagedSourceBytes, apperrors.LimitOf(err))
+	require.EqualValues(t, 128+(1<<40), used)
 
 	require.NoError(t, repo.Release(ctx, "build-archives/demo.zip"))
+	require.NoError(t, repo.Release(ctx, "build-archives/large.zip"))
 	used, err = repo.ActiveBytesByOwner(ctx, ownerID)
 	require.NoError(t, err)
 	require.Zero(t, used)

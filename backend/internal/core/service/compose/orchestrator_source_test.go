@@ -32,6 +32,8 @@ func TestReleaseComposeSourceDeletesObjectAndReleasesReservation(t *testing.T) {
 				Config:            coretest.StaticConfig{Config: composeTestConfig()},
 				ObjectStore:       store,
 				StagedObjects:     staged,
+				CapacityLock:      composemocks.NewCapacityLock(t),
+				ReservedDisk:      composemocks.NewReservedDiskReader(t),
 				Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 			})
 			require.NoError(t, err)

@@ -106,19 +106,18 @@ func TestBuildServiceAdmission(t *testing.T) {
 func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 	const archiveKey = "build-archives/copied.zip"
 	const archiveSize = int64(5 << 20)
-	stagedFull := apperrors.Exceeded(apperrors.LimitStagedSourceBytes)
 	statFailure := errors.New("object storage unavailable")
 	scenarios := []struct {
 		name        string
 		quotaDiskMB int64
+		stagedBytes int64
 		statErr     error
-		reserveErr  error
 		wantErr     error
 		wantMessage string
 		wantLimit   apperrors.Limit
 	}{
 		{name: "reserves the stat size", quotaDiskMB: 1024},
-		{name: "staged quota exceeded", quotaDiskMB: 1024, reserveErr: stagedFull, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "staged source quota exceeded", wantLimit: apperrors.LimitStagedSourceBytes},
+		{name: "staged quota exceeded", quotaDiskMB: 1024, stagedBytes: 60 << 20, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "staged source quota exceeded", wantLimit: apperrors.LimitStagedSourceBytes},
 		{name: "disk quota exceeded", quotaDiskMB: 1, wantErr: apperrors.ErrQuotaExceeded, wantMessage: "user disk quota exceeded", wantLimit: apperrors.LimitUserDisk},
 		{name: "stat fails", statErr: statFailure, wantErr: statFailure},
 	}
@@ -134,16 +133,16 @@ func TestBuildServiceReserveBuildArchiveEnforcesStagedQuota(t *testing.T) {
 			staged := coremocks.NewStagedObjectRepository(t)
 			if scenario.statErr == nil {
 				images.EXPECT().GetUserImageBytes(mock.Anything, owner).Return(int64(0), nil).Once()
-				staged.EXPECT().ActiveBytesByOwner(mock.Anything, owner).Return(int64(0), nil).Once()
+				staged.EXPECT().ActiveBytesByOwner(mock.Anything, owner).Return(scenario.stagedBytes, nil).Once()
 			}
-			if scenario.statErr == nil && scenario.quotaDiskMB > 1 {
-				staged.EXPECT().Reserve(mock.Anything, mock.Anything, cfg.MaxStagedSourceBytesPerUser).
-					Run(func(_ context.Context, reservation model.StagedObjectReservation, _ int64) {
+			if scenario.statErr == nil && scenario.wantErr == nil {
+				staged.EXPECT().Reserve(mock.Anything, mock.Anything).
+					Run(func(_ context.Context, reservation model.StagedObjectReservation) {
 						require.Equal(t, owner, reservation.OwnerID)
 						require.Equal(t, archiveKey, reservation.ObjectKey)
 						require.Equal(t, model.StagedObjectKindBuildArchive, reservation.Kind)
 						require.Equal(t, archiveSize, reservation.BytesReserved)
-					}).Return(scenario.reserveErr).Once()
+					}).Return(nil).Once()
 			}
 			svc := newTestBuildService(t, service.BuildServiceDeps{
 				Repository:    newBuildRepository(t),

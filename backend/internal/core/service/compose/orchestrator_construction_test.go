@@ -37,8 +37,32 @@ func TestOrchestratorAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *t
 	require.NotNil(t, orchestrator)
 }
 
+// TestOrchestratorRequiresTheStagingLockWithStagedObjects pins that Compose
+// cannot stage sources without the owner capacity lock and the reserved disk
+// reader the one staged disk rule needs.
+func TestOrchestratorRequiresTheStagingLockWithStagedObjects(t *testing.T) {
+	valid := func(t *testing.T) compose.OrchestratorDeps {
+		deps, _ := composeOrchestratorDeps(t, composemocks.NewProjectRepository(t), composeTestConfig())
+		deps.StagedObjects = composemocks.NewStagedObjectRepository(t)
+		deps.CapacityLock = composemocks.NewCapacityLock(t)
+		deps.ReservedDisk = composemocks.NewReservedDiskReader(t)
+		return deps
+	}
+	depstest.RequireRejectsMissing(t, valid, compose.NewOrchestrator, map[string]string{
+		"CapacityLock": "capacity lock",
+		"ReservedDisk": "reserved disk reader",
+	})
+
+	orchestrator, err := compose.NewOrchestrator(valid(t))
+	require.NoError(t, err)
+	require.NotNil(t, orchestrator)
+}
+
 // Production adapters keep satisfying the orchestrator's admission contracts.
 var _ compose.ActiveComposeDeploymentCounter = (*repository.ProjectRepository)(nil)
 var _ compose.CapacityChecker = (*service.ContainerService)(nil)
 var _ compose.BuildJobCreator = (*service.BuildService)(nil)
 var _ compose.ObjectStorage = (*objectstorage.LazyStorage)(nil)
+var _ compose.CapacityLock = (*repository.ContainerRepository)(nil)
+var _ compose.ReservedDiskReader = service.ReservedDiskReader{}
+var _ compose.StagedObjectRepository = (*repository.StagedObjectRepository)(nil)
