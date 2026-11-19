@@ -64,17 +64,17 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	})
 	require.NoError(t, err)
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
-		Repository:   repos.Containers,
-		Builds:       repos.Builds,
-		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
-		Volumes:      repos.Volumes,
-		Images:       repos.Images,
-		Docker:       containerDocker,
-		Metrics:      metrics,
-		Config:       cfg,
-		Quotas:       quotas,
-		HostDiskPath: "",
-		Logger:       coretest.DiscardLogger(),
+		Repository:     repos.Containers,
+		Builds:         repos.Builds,
+		DiskMetrics:    coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:        repos.Volumes,
+		Images:         repos.Images,
+		Docker:         containerDocker,
+		Metrics:        metrics,
+		Config:         cfg,
+		Quotas:         quotas,
+		DockerDataPath: "",
+		Logger:         coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
 	images, err := service.NewImageService(service.ImageServiceDeps{
@@ -237,17 +237,17 @@ func TestResourceFlowQuotaExceeded(t *testing.T) {
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(16), nil).Maybe()
 
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
-		Repository:   repos.Containers,
-		Builds:       repos.Builds,
-		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
-		Volumes:      repos.Volumes,
-		Images:       repos.Images,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Metrics:      metrics,
-		Config:       cfg,
-		Quotas:       quotas,
-		HostDiskPath: "",
-		Logger:       coretest.DiscardLogger(),
+		Repository:     repos.Containers,
+		Builds:         repos.Builds,
+		DiskMetrics:    coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:        repos.Volumes,
+		Images:         repos.Images,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Metrics:        metrics,
+		Config:         cfg,
+		Quotas:         quotas,
+		DockerDataPath: "",
+		Logger:         coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
 

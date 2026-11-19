@@ -447,15 +447,16 @@ func admissionContainerService(t *testing.T, w admissionWorld, ownerID uuid.UUID
 	volumes := coremocks.NewContainerVolumeRepository(t)
 	volumes.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(w.reservedVolumeBytes, nil).Maybe()
 	return newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:  store,
-		Volumes:     volumes,
-		Images:      images,
-		Metrics:     admissionHostMetrics(t),
-		DiskMetrics: admissionDiskMetrics(t, w),
-		Config:      cfg,
-		Quotas:      w.quotas(t, ownerID, cfg),
-		Builds:      builds,
-		Logger:      slog.New(slog.DiscardHandler),
+		Repository:     store,
+		Volumes:        volumes,
+		Images:         images,
+		Metrics:        admissionHostMetrics(t),
+		DiskMetrics:    admissionDiskMetrics(t, w),
+		DockerDataPath: admissionDockerDataPath,
+		Config:         cfg,
+		Quotas:         w.quotas(t, ownerID, cfg),
+		Builds:         builds,
+		Logger:         slog.New(slog.DiscardHandler),
 	})
 }
 
@@ -472,15 +473,16 @@ func admissionVolumeService(t *testing.T, w admissionWorld, ownerID uuid.UUID, s
 	repo.EXPECT().GetUnusedVolumePromiseBytes(mock.Anything).Return(w.unusedVolumePromiseBytes, nil).Maybe()
 	lifecycle := &volumeLifecycleFake{}
 	svc := newTestVolumeService(t, service.VolumeServiceDeps{
-		Repository:   repo,
-		Docker:       coremocks.NewVolumeDockerAPI(t),
-		Config:       cfg,
-		Lifecycle:    lifecycle,
-		Quotas:       w.quotas(t, ownerID, cfg),
-		ImageRepo:    images,
-		DiskMetrics:  admissionDiskMetrics(t, w),
-		CapacityLock: store,
-		Logger:       slog.New(slog.DiscardHandler),
+		Repository:     repo,
+		Docker:         coremocks.NewVolumeDockerAPI(t),
+		Config:         cfg,
+		Lifecycle:      lifecycle,
+		Quotas:         w.quotas(t, ownerID, cfg),
+		ImageRepo:      images,
+		DiskMetrics:    admissionDiskMetrics(t, w),
+		DockerDataPath: admissionDockerDataPath,
+		CapacityLock:   store,
+		Logger:         slog.New(slog.DiscardHandler),
 	})
 	return svc, lifecycle
 }
@@ -493,10 +495,14 @@ func admissionHostMetrics(t *testing.T) *coremocks.HostMetricsProvider {
 	return metrics
 }
 
+// admissionDockerDataPath is Docker's data directory as Core sees it. Every
+// entry point's disk floor measures it, and the disk mock answers no other path.
+const admissionDockerDataPath = "/host/var/lib/docker"
+
 func admissionDiskMetrics(t *testing.T, w admissionWorld) *coremocks.HostDiskMetricsProvider {
 	t.Helper()
 	disk := coremocks.NewHostDiskMetricsProvider(t)
-	disk.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: w.diskFreeBytes}, nil).Maybe()
+	disk.EXPECT().GetDiskUsage(admissionDockerDataPath).Return(model.HostDiskStats{FreeBytes: w.diskFreeBytes}, nil).Maybe()
 	return disk
 }
 
@@ -637,6 +643,7 @@ func admitBuildCreation(t *testing.T, w admissionWorld) (bool, error) {
 	deps.Containers = store
 	deps.HostMetrics = admissionHostMetrics(t)
 	deps.DiskMetrics = admissionDiskMetrics(t, w)
+	deps.DockerDataPath = admissionDockerDataPath
 	deps.Quotas = w.quotas(t, ownerID, cfg)
 	images := coremocks.NewBuildImageRepository(t)
 	images.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(w.usedDiskMB<<20, nil).Maybe()
@@ -713,13 +720,14 @@ func TestConcurrentContainerCreatesAreSerialisedByTheCapacityLock(t *testing.T) 
 		images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 		static := coretest.StaticConfig{Config: cfg}
 		svc := newTestContainerService(t, service.ContainerServiceDeps{
-			Repository:  store,
-			Images:      images,
-			Metrics:     admissionHostMetrics(t),
-			DiskMetrics: admissionDiskMetrics(t, w),
-			Config:      static,
-			Quotas:      w.quotas(t, ownerID, static),
-			Logger:      slog.New(slog.DiscardHandler),
+			Repository:     store,
+			Images:         images,
+			Metrics:        admissionHostMetrics(t),
+			DiskMetrics:    admissionDiskMetrics(t, w),
+			DockerDataPath: admissionDockerDataPath,
+			Config:         static,
+			Quotas:         w.quotas(t, ownerID, static),
+			Logger:         slog.New(slog.DiscardHandler),
 		})
 		ctx := accessscope.WithUserScope(context.Background(), ownerID, "", "")
 

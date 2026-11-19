@@ -133,23 +133,23 @@ type BuildInitResult struct {
 }
 
 type BuildService struct {
-	repo         BuildRepository
-	imageRepo    BuildImageRepository
-	volumeRepo   BuildVolumeDiskRepository
-	registryAPI  BuildImageMetadataAPI
-	imageCache   BuildImageCache
-	quotas       UserQuotaProvider
-	cfg          BuildConfigProvider
-	objectStore  BuildObjectStore
-	deployments  BuildDeploymentCanceler
-	staging      *stagedsource.Staging
-	containers   BuildContainerReservationRepository
-	capacityLock BuildCapacityLock
-	diskMetrics  HostDiskMetricsProvider
-	hostMetrics  HostMetricsProvider
-	hostDiskPath string
-	registryAuth BuildRegistryAuthorizer
-	logger       *slog.Logger
+	repo           BuildRepository
+	imageRepo      BuildImageRepository
+	volumeRepo     BuildVolumeDiskRepository
+	registryAPI    BuildImageMetadataAPI
+	imageCache     BuildImageCache
+	quotas         UserQuotaProvider
+	cfg            BuildConfigProvider
+	objectStore    BuildObjectStore
+	deployments    BuildDeploymentCanceler
+	staging        *stagedsource.Staging
+	containers     BuildContainerReservationRepository
+	capacityLock   BuildCapacityLock
+	diskMetrics    HostDiskMetricsProvider
+	hostMetrics    HostMetricsProvider
+	dockerDataPath string
+	registryAuth   BuildRegistryAuthorizer
+	logger         *slog.Logger
 }
 
 // BuildServiceDeps requires admission, persistence and Registry authorization
@@ -174,8 +174,10 @@ type BuildServiceDeps struct {
 	CapacityLock BuildCapacityLock
 	DiskMetrics  HostDiskMetricsProvider
 	HostMetrics  HostMetricsProvider
-	HostDiskPath string
-	RegistryAuth BuildRegistryAuthorizer
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	RegistryAuth   BuildRegistryAuthorizer
 }
 
 type createBuildJobInput struct {
@@ -209,40 +211,40 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 			return nil, fmt.Errorf("build service: %s is required", dependency.name)
 		}
 	}
-	hostDiskPath := deps.HostDiskPath
-	if hostDiskPath == "" {
-		hostDiskPath = "/"
+	dockerDataPath := deps.DockerDataPath
+	if dockerDataPath == "" {
+		dockerDataPath = "/"
 	}
 	staging, err := stagedsource.New(stagedsource.Deps{
-		Repository:   deps.StagedObjects,
-		CapacityLock: deps.CapacityLock,
-		Quotas:       deps.Quotas,
-		ReservedDisk: NewReservedDiskReader(deps.Images, deps.VolumeRepo),
-		DiskMetrics:  deps.DiskMetrics,
-		HostDiskPath: deps.HostDiskPath,
-		Config:       deps.Config,
+		Repository:     deps.StagedObjects,
+		CapacityLock:   deps.CapacityLock,
+		Quotas:         deps.Quotas,
+		ReservedDisk:   NewReservedDiskReader(deps.Images, deps.VolumeRepo),
+		DiskMetrics:    deps.DiskMetrics,
+		DockerDataPath: deps.DockerDataPath,
+		Config:         deps.Config,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build service: %w", err)
 	}
 	return &BuildService{
-		repo:         deps.Repository,
-		imageRepo:    deps.Images,
-		registryAPI:  deps.Registry,
-		imageCache:   deps.Docker,
-		quotas:       deps.Quotas,
-		registryAuth: deps.RegistryAuth,
-		volumeRepo:   deps.VolumeRepo,
-		cfg:          deps.Config,
-		objectStore:  deps.ObjectStore,
-		deployments:  deps.Deployments,
-		staging:      staging,
-		containers:   deps.Containers,
-		capacityLock: deps.CapacityLock,
-		diskMetrics:  deps.DiskMetrics,
-		hostMetrics:  deps.HostMetrics,
-		hostDiskPath: hostDiskPath,
-		logger:       logging.WithComponent(deps.Logger, "build_service"),
+		repo:           deps.Repository,
+		imageRepo:      deps.Images,
+		registryAPI:    deps.Registry,
+		imageCache:     deps.Docker,
+		quotas:         deps.Quotas,
+		registryAuth:   deps.RegistryAuth,
+		volumeRepo:     deps.VolumeRepo,
+		cfg:            deps.Config,
+		objectStore:    deps.ObjectStore,
+		deployments:    deps.Deployments,
+		staging:        staging,
+		containers:     deps.Containers,
+		capacityLock:   deps.CapacityLock,
+		diskMetrics:    deps.DiskMetrics,
+		hostMetrics:    deps.HostMetrics,
+		dockerDataPath: dockerDataPath,
+		logger:         logging.WithComponent(deps.Logger, "build_service"),
 	}, nil
 }
 
@@ -270,15 +272,15 @@ func (s *BuildService) getUserReservedDiskBytes(ctx context.Context, ownerID uui
 func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error {
 	cfg := s.buildConfig()
 	sources := admissionSources{
-		quotas:       s.quotas,
-		system:       s.containers,
-		builds:       s.repo,
-		images:       s.imageRepo,
-		volumes:      s.volumeRepo,
-		hostMetrics:  s.hostMetrics,
-		diskMetrics:  s.diskMetrics,
-		hostDiskPath: s.hostDiskPath,
-		logger:       s.logger,
+		quotas:         s.quotas,
+		system:         s.containers,
+		builds:         s.repo,
+		images:         s.imageRepo,
+		volumes:        s.volumeRepo,
+		hostMetrics:    s.hostMetrics,
+		diskMetrics:    s.diskMetrics,
+		dockerDataPath: s.dockerDataPath,
+		logger:         s.logger,
 	}
 	return sources.admit(ctx, ownerID, admissionRequest{builds: 1}, cfg, "build")
 }
@@ -705,7 +707,7 @@ func (s *BuildService) readClaimCap(ctx context.Context, buildID uuid.UUID, cfg 
 	if cfg.HostMinFreeDiskBytes <= 0 {
 		return buildClaimCap(cfg, 0)
 	}
-	stats, err := s.diskMetrics.GetDiskUsage(s.hostDiskPath)
+	stats, err := s.diskMetrics.GetDiskUsage(s.dockerDataPath)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "build claim refused: failed to read host disk", "build_id", buildID, "error", err)
 		return 0

@@ -176,14 +176,15 @@ func TestContainerCreateMountsOnlyAvailableVolumes(t *testing.T) {
 			images := newContainerImageRepository(t)
 			images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
-				Repository:  store,
-				Volumes:     volumes,
-				Images:      images,
-				Metrics:     admissionHostMetrics(t),
-				DiskMetrics: admissionDiskMetrics(t, w),
-				Config:      cfg,
-				Quotas:      w.quotas(t, ownerID, cfg),
-				Logger:      slog.New(slog.DiscardHandler),
+				Repository:     store,
+				Volumes:        volumes,
+				Images:         images,
+				Metrics:        admissionHostMetrics(t),
+				DiskMetrics:    admissionDiskMetrics(t, w),
+				DockerDataPath: admissionDockerDataPath,
+				Config:         cfg,
+				Quotas:         w.quotas(t, ownerID, cfg),
+				Logger:         slog.New(slog.DiscardHandler),
 			})
 
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), model.ContainerCreateParams{
@@ -316,14 +317,15 @@ func TestAContainerStartedTooEarlyCompletesItsCreateAndStarts(t *testing.T) {
 	images := newContainerImageRepository(t)
 	images.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil).Maybe()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:  store,
-		Images:      images,
-		Docker:      dockerAPI,
-		Metrics:     admissionHostMetrics(t),
-		DiskMetrics: admissionDiskMetrics(t, w),
-		Config:      cfg,
-		Quotas:      w.quotas(t, ownerID, cfg),
-		Logger:      slog.New(slog.DiscardHandler),
+		Repository:     store,
+		Images:         images,
+		Docker:         dockerAPI,
+		Metrics:        admissionHostMetrics(t),
+		DiskMetrics:    admissionDiskMetrics(t, w),
+		DockerDataPath: admissionDockerDataPath,
+		Config:         cfg,
+		Quotas:         w.quotas(t, ownerID, cfg),
+		Logger:         slog.New(slog.DiscardHandler),
 	})
 	userCtx := accessscope.WithUserScope(ctx, ownerID, "", "")
 

@@ -41,17 +41,17 @@ func newFailingCompletionWorker(t *testing.T, f *coretest.ComposeFixture) *servi
 	diskMetrics := coremocks.NewHostDiskMetricsProvider(t)
 	diskMetrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{TotalBytes: 1 << 41, FreeBytes: 1 << 40}, nil).Maybe()
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
-		Repository:   failingCompletion{ContainerRepository: f.Repos.Containers},
-		Volumes:      f.Repos.Volumes,
-		Images:       f.Repos.Images,
-		Docker:       f.ContainerDocker,
-		Metrics:      hostMetrics,
-		DiskMetrics:  diskMetrics,
-		Config:       f.Config,
-		Quotas:       f.Repos.UserQuotas(t, f.Config),
-		Builds:       f.Repos.Builds,
-		HostDiskPath: "/",
-		Logger:       coretest.DiscardLogger(),
+		Repository:     failingCompletion{ContainerRepository: f.Repos.Containers},
+		Volumes:        f.Repos.Volumes,
+		Images:         f.Repos.Images,
+		Docker:         f.ContainerDocker,
+		Metrics:        hostMetrics,
+		DiskMetrics:    diskMetrics,
+		Config:         f.Config,
+		Quotas:         f.Repos.UserQuotas(t, f.Config),
+		Builds:         f.Repos.Builds,
+		DockerDataPath: "/",
+		Logger:         coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
 	return service.NewContainerCreateWorker(containers, f.Config, coretest.DiscardLogger())

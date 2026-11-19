@@ -46,21 +46,21 @@ func newRebuildEnv(t *testing.T) *rebuildEnv {
 	registry := coremocks.NewImageRegistryAPI(t)
 	docker := coremocks.NewBuildImageCache(t)
 	builds, err := service.NewBuildService(service.BuildServiceDeps{
-		Repository:    repos.Builds,
-		RegistryAuth:  repos.RegistryAuthorization(t),
-		Images:        repos.Images,
-		Registry:      registry,
-		Docker:        docker,
-		Quotas:        repos.UserQuotas(t, cfg),
-		Logger:        coretest.DiscardLogger(),
-		Containers:    repos.Containers,
-		CapacityLock:  repos.Containers,
-		HostMetrics:   hostMetrics,
-		VolumeRepo:    repos.Volumes,
-		Config:        cfg,
-		StagedObjects: repos.Staged,
-		DiskMetrics:   disk,
-		HostDiskPath:  "/",
+		Repository:     repos.Builds,
+		RegistryAuth:   repos.RegistryAuthorization(t),
+		Images:         repos.Images,
+		Registry:       registry,
+		Docker:         docker,
+		Quotas:         repos.UserQuotas(t, cfg),
+		Logger:         coretest.DiscardLogger(),
+		Containers:     repos.Containers,
+		CapacityLock:   repos.Containers,
+		HostMetrics:    hostMetrics,
+		VolumeRepo:     repos.Volumes,
+		Config:         cfg,
+		StagedObjects:  repos.Staged,
+		DiskMetrics:    disk,
+		DockerDataPath: "/",
 	})
 	require.NoError(t, err)
 	return &rebuildEnv{repos: repos, ownerID: ownerID, builds: builds, registry: registry, docker: docker, cfg: cfg}

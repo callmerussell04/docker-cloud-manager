@@ -286,15 +286,16 @@ func TestDeactivationStopRecordsItsReasonUntilTheNextStart(t *testing.T) {
 	builds := coremocks.NewActiveSystemBuildCounter(t)
 	builds.EXPECT().CountActive(mock.Anything).Return(0, nil).Maybe()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:  env.store,
-		Images:      images,
-		Docker:      docker,
-		Metrics:     admissionHostMetrics(t),
-		DiskMetrics: admissionDiskMetrics(t, w),
-		Config:      cfg,
-		Quotas:      w.quotas(t, ownerID, cfg),
-		Builds:      builds,
-		Logger:      slog.New(slog.DiscardHandler),
+		Repository:     env.store,
+		Images:         images,
+		Docker:         docker,
+		Metrics:        admissionHostMetrics(t),
+		DiskMetrics:    admissionDiskMetrics(t, w),
+		DockerDataPath: admissionDockerDataPath,
+		Config:         cfg,
+		Quotas:         w.quotas(t, ownerID, cfg),
+		Builds:         builds,
+		Logger:         slog.New(slog.DiscardHandler),
 	})
 	require.NoError(t, service.NewContainerCreateWorker(svc, cfg, slog.New(slog.DiscardHandler)).HandleMessage(ctx, msg))
 

@@ -71,7 +71,7 @@ packages:
       ResourceOutboxConfigProvider: {}
       ResourceOutboxRepository: {}
       ResourceVolumeExecutor: {}
-      RootfsQuotaReader: {}
+      DockerHostReader: {}
       StagedObjectRepository: {}
       StatsBuildRepository: {}
       StatsContainerRepository: {}

@@ -58,19 +58,21 @@ type ComposePlanAdmission struct {
 }
 
 // ComposePlanAdmissionDeps are what a Compose plan is admitted against. Every
-// dependency but HostDiskPath and Logger is required.
+// dependency but DockerDataPath and Logger is required.
 type ComposePlanAdmissionDeps struct {
-	Containers   ComposePlanContainerRepository
-	Volumes      ComposePlanVolumeRepository
-	Builds       ComposePlanBuildRepository
-	Images       DiskQuotaImageRepository
-	Deployments  ComposeDeploymentCounter
-	Quotas       UserQuotaProvider
-	HostMetrics  HostMetricsProvider
-	DiskMetrics  HostDiskMetricsProvider
-	HostDiskPath string
-	Config       ConfigManager
-	Logger       *slog.Logger
+	Containers  ComposePlanContainerRepository
+	Volumes     ComposePlanVolumeRepository
+	Builds      ComposePlanBuildRepository
+	Images      DiskQuotaImageRepository
+	Deployments ComposeDeploymentCounter
+	Quotas      UserQuotaProvider
+	HostMetrics HostMetricsProvider
+	DiskMetrics HostDiskMetricsProvider
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	Config         ConfigManager
+	Logger         *slog.Logger
 }
 
 func NewComposePlanAdmission(deps ComposePlanAdmissionDeps) (*ComposePlanAdmission, error) {
@@ -102,7 +104,7 @@ func NewComposePlanAdmission(deps ComposePlanAdmissionDeps) (*ComposePlanAdmissi
 			volumePromise:    deps.Volumes,
 			hostMetrics:      deps.HostMetrics,
 			diskMetrics:      deps.DiskMetrics,
-			hostDiskPath:     deps.HostDiskPath,
+			dockerDataPath:   deps.DockerDataPath,
 			logger:           logging.WithComponent(deps.Logger, "compose_plan_admission"),
 		},
 	}, nil

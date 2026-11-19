@@ -278,7 +278,7 @@ func TestAdapterCreateContainerRefusesAnImageWithoutAnID(t *testing.T) {
 // The root filesystem cap is a storage option only some storage setups honour;
 // on others Docker accepts it and ignores it. The status tells an
 // administrator which kind of host this is.
-func TestAdapterReadRootfsQuotaStatus(t *testing.T) {
+func TestAdapterReadDockerHostClassifiesTheRootfsQuota(t *testing.T) {
 	tests := []struct {
 		name    string
 		info    dockertest.Response
@@ -344,9 +344,9 @@ func TestAdapterReadRootfsQuotaStatus(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
 
-			status, err := adapter.ReadRootfsQuotaStatus(context.Background())
+			host, err := adapter.ReadDockerHost(context.Background())
 
-			require.Equal(t, tt.want, status)
+			require.Equal(t, tt.want, host.RootfsQuota)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -355,6 +355,23 @@ func TestAdapterReadRootfsQuotaStatus(t *testing.T) {
 			require.Len(t, daemon.Requests("/info"), 1)
 		})
 	}
+}
+
+// The same read reports the daemon's data directory, which Core checks against
+// DOCKER_DATA_ROOT at startup.
+func TestAdapterReadDockerHostReportsTheDaemonRootDirectory(t *testing.T) {
+	daemon := dockertest.Serve(t, map[string]dockertest.Response{
+		"GET /info": dockertest.OK(`{"Driver":"overlay2","DriverStatus":[["Backing Filesystem","xfs"]],"DockerRootDir":"/srv/docker"}`),
+	})
+	adapter, err := docker.NewAdapter()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = adapter.Close() }) // test teardown; close failure is not actionable
+
+	host, err := adapter.ReadDockerHost(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, model.DockerHost{RootfsQuota: model.RootfsQuotaEnforced, RootDir: "/srv/docker"}, host)
+	require.Len(t, daemon.Requests("/info"), 1, "one bounded read serves both")
 }
 
 // A volume is given a size only when Core asks for one: that is what turns

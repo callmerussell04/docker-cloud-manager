@@ -391,38 +391,44 @@ func (a *Adapter) Close() error {
 // image store is a containerd snapshotter, which ignores the size option.
 const containerdSnapshotterDriverType = "io.containerd.snapshotter.v1"
 
-// ReadRootfsQuotaStatus reports whether Docker enforces the root filesystem
-// size option (StorageOpt "size") on this host, judged from its storage
-// driver. Overlay2 on XFS counts as enforced because Docker refuses the option
-// there when the mount lacks project quotas, so a created container has its
-// cap. A failed read is RootfsQuotaUnknown with the error.
-func (a *Adapter) ReadRootfsQuotaStatus(ctx context.Context) (model.RootfsQuotaStatus, error) {
+// ReadDockerHost reads docker info once: the daemon's data directory, and
+// whether Docker enforces the root filesystem size option (StorageOpt "size")
+// on this host, judged from its storage driver. A failed read is
+// RootfsQuotaUnknown with no root directory, and the error.
+func (a *Adapter) ReadDockerHost(ctx context.Context) (model.DockerHost, error) {
 	info, err := a.cli.Info(ctx)
 	if err != nil {
-		return model.RootfsQuotaUnknown, fmt.Errorf("read docker info: %w", err)
+		return model.DockerHost{RootfsQuota: model.RootfsQuotaUnknown}, fmt.Errorf("read docker info: %w", err)
 	}
-	status := make(map[string]string, len(info.DriverStatus))
-	for _, pair := range info.DriverStatus {
+	return model.DockerHost{RootfsQuota: rootfsQuotaStatus(info.Driver, info.DriverStatus), RootDir: info.DockerRootDir}, nil
+}
+
+// rootfsQuotaStatus classifies a storage driver. Overlay2 on XFS counts as
+// enforced because Docker refuses the size option there when the mount lacks
+// project quotas, so a created container has its cap.
+func rootfsQuotaStatus(driver string, driverStatus [][2]string) model.RootfsQuotaStatus {
+	status := make(map[string]string, len(driverStatus))
+	for _, pair := range driverStatus {
 		status[strings.ToLower(pair[0])] = pair[1]
 	}
 	if status["driver-type"] == containerdSnapshotterDriverType {
-		return model.RootfsQuotaNotEnforced, nil
+		return model.RootfsQuotaNotEnforced
 	}
-	switch info.Driver {
+	switch driver {
 	case "overlay2":
 		backing, reported := status["backing filesystem"]
 		switch {
 		case !reported:
-			return model.RootfsQuotaUnknown, nil
+			return model.RootfsQuotaUnknown
 		case strings.EqualFold(backing, "xfs"):
-			return model.RootfsQuotaEnforced, nil
+			return model.RootfsQuotaEnforced
 		default:
-			return model.RootfsQuotaNotEnforced, nil
+			return model.RootfsQuotaNotEnforced
 		}
 	case "btrfs", "zfs", "devicemapper":
-		return model.RootfsQuotaEnforced, nil
+		return model.RootfsQuotaEnforced
 	default:
-		return model.RootfsQuotaUnknown, nil
+		return model.RootfsQuotaUnknown
 	}
 }
 

@@ -22,9 +22,9 @@ func TestContainerCreateRejectsRegistryHostsBeforeAdmission(t *testing.T) {
 		t.Run(image, func(t *testing.T) {
 			docker := coremocks.NewContainerDockerAPI(t)
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
-				Docker:       docker,
-				HostDiskPath: "",
-				Logger:       slog.Default(),
+				Docker:         docker,
+				DockerDataPath: "",
+				Logger:         slog.Default(),
 			})
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.ContainerCreateParams{Name: "web", ImageTag: image})
 			require.ErrorIs(t, err, apperrors.ErrBadRequest)
@@ -61,12 +61,12 @@ func TestQueuedContainerImageSourcePolicy(t *testing.T) {
 			config.RegistryPublicURL = "registry.internal:5000"
 			cfg := coretest.StaticConfig{Config: config}
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
-				Repository:   repo,
-				Images:       images,
-				Docker:       docker,
-				Config:       cfg,
-				HostDiskPath: "",
-				Logger:       slog.Default(),
+				Repository:     repo,
+				Images:         images,
+				Docker:         docker,
+				Config:         cfg,
+				DockerDataPath: "",
+				Logger:         slog.Default(),
 			})
 			id, opID := uuid.New(), uuid.New()
 			op := model.ResourceOperation{ID: opID, ResourceID: id, ResourceType: model.ResourceTypeContainer, Operation: model.OperationCreate, Status: model.OperationStatusRunning}
@@ -213,13 +213,14 @@ func TestContainerCreateResolvesATagUnderRebuild(t *testing.T) {
 			config.RegistryPublicURL = "registry.internal:5000"
 			cfg := coretest.StaticConfig{Config: config}
 			svc := newTestContainerService(t, service.ContainerServiceDeps{
-				Repository:  newContainerStore(),
-				Images:      images,
-				Metrics:     admissionHostMetrics(t),
-				DiskMetrics: admissionDiskMetrics(t, w),
-				Config:      cfg,
-				Quotas:      w.quotas(t, owner, cfg),
-				Logger:      slog.New(slog.DiscardHandler),
+				Repository:     newContainerStore(),
+				Images:         images,
+				Metrics:        admissionHostMetrics(t),
+				DiskMetrics:    admissionDiskMetrics(t, w),
+				DockerDataPath: admissionDockerDataPath,
+				Config:         cfg,
+				Quotas:         w.quotas(t, owner, cfg),
+				Logger:         slog.New(slog.DiscardHandler),
 			})
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), owner, "", ""), model.ContainerCreateParams{Name: "web", ImageTag: "app"})
 			if tc.wantMessage == "" {
@@ -279,7 +280,7 @@ func TestContainerCreateRejectsTwoMountsAtOnePath(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// No store, volume or Docker call is expected: the request is refused before any of them.
-			svc := newTestContainerService(t, service.ContainerServiceDeps{HostDiskPath: "", Logger: slog.Default()})
+			svc := newTestContainerService(t, service.ContainerServiceDeps{DockerDataPath: "", Logger: slog.Default()})
 
 			id, err := svc.Create(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), model.ContainerCreateParams{
 				Name: "web", ImageTag: "nginx:latest",

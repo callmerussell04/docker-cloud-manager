@@ -388,18 +388,18 @@ func TestVolumeServiceCreateRejectsHostDiskFloor(t *testing.T) {
 			cfg := coretest.StaticConfig{Config: cfgData}
 			lifecycle := &volumeLifecycleFake{}
 			svc := newTestVolumeService(t, service.VolumeServiceDeps{
-				Repository:   repo,
-				Docker:       coremocks.NewVolumeDockerAPI(t),
-				Config:       cfg,
-				Lifecycle:    lifecycle,
-				Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
-				ImageRepo:    imageRepo,
-				DiskMetrics:  metrics,
-				HostDiskPath: "/host"})
+				Repository:     repo,
+				Docker:         coremocks.NewVolumeDockerAPI(t),
+				Config:         cfg,
+				Lifecycle:      lifecycle,
+				Quotas:         testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 1000, RAMMB: 1024, DiskMB: 1024}}),
+				ImageRepo:      imageRepo,
+				DiskMetrics:    metrics,
+				DockerDataPath: "/host/var/lib/docker"})
 			imageRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(0), nil)
 			repo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(0), nil)
 			repo.EXPECT().GetUnusedVolumePromiseBytes(mock.Anything).Return(int64(1<<30), nil)
-			metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{FreeBytes: 2 << 30}, nil)
+			metrics.EXPECT().GetDiskUsage("/host/var/lib/docker").Return(model.HostDiskStats{FreeBytes: 2 << 30}, nil)
 
 			err := tc.create(accessscope.WithUserScope(context.Background(), ownerID, "", ""), svc, repo, ownerID)
 

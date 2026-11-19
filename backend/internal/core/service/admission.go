@@ -171,7 +171,7 @@ type admissionSources struct {
 	volumePromise    volumePromiseReader
 	hostMetrics      HostMetricsProvider
 	diskMetrics      HostDiskMetricsProvider
-	hostDiskPath     string
+	dockerDataPath   string
 	logger           *slog.Logger
 }
 
@@ -254,7 +254,7 @@ func (s admissionSources) readHostLedger(ctx context.Context, ledger *reservatio
 		}
 	}
 	if s.diskMetrics != nil && cfg.HostMinFreeDiskBytes > 0 {
-		path := s.hostDiskPath
+		path := s.dockerDataPath
 		if path == "" {
 			path = "/"
 		}

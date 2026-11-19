@@ -36,17 +36,17 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	containerDocker := coremocks.NewContainerDockerAPI(t)
 	containerDocker.EXPECT().RemoveNetwork(mock.Anything, mock.Anything).Return(nil).Maybe()
 	containers, err := service.NewContainerService(service.ContainerServiceDeps{
-		Repository:   repos.Containers,
-		Builds:       repos.Builds,
-		DiskMetrics:  coremocks.NewHostDiskMetricsProvider(t),
-		Volumes:      repos.Volumes,
-		Images:       repos.Images,
-		Docker:       containerDocker,
-		Metrics:      metrics,
-		Config:       cfg,
-		Quotas:       quotas,
-		HostDiskPath: "",
-		Logger:       coretest.DiscardLogger(),
+		Repository:     repos.Containers,
+		Builds:         repos.Builds,
+		DiskMetrics:    coremocks.NewHostDiskMetricsProvider(t),
+		Volumes:        repos.Volumes,
+		Images:         repos.Images,
+		Docker:         containerDocker,
+		Metrics:        metrics,
+		Config:         cfg,
+		Quotas:         quotas,
+		DockerDataPath: "",
+		Logger:         coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
 	volumes, err := service.NewVolumeService(service.VolumeServiceDeps{

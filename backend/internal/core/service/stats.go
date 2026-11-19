@@ -78,25 +78,26 @@ type StatsMetricsProvider interface {
 }
 
 type StatsService struct {
-	contRepo     StatsContainerRepository
-	volRepo      StatsVolumeRepository
-	imgRepo      StatsImageRepository
-	buildRepo    StatsBuildRepository
-	projRepo     StatsProjectRepository
-	metrics      StatsMetricsProvider
-	hostDiskPath string
-	cfg          ConfigManager
-	quotas       UserQuotaProvider
-	borrowed     StatsBorrowedMemory
-	rootfsQuota  StatsRootfsQuota
-	volumeSize   StatsVolumeSizeMode
+	contRepo       StatsContainerRepository
+	volRepo        StatsVolumeRepository
+	imgRepo        StatsImageRepository
+	buildRepo      StatsBuildRepository
+	projRepo       StatsProjectRepository
+	metrics        StatsMetricsProvider
+	dockerDataPath string
+	cfg            ConfigManager
+	quotas         UserQuotaProvider
+	borrowed       StatsBorrowedMemory
+	rootfsQuota    StatsRootfsQuota
+	volumeSize     StatsVolumeSizeMode
 	// hostLedger reads the host part of the reservation ledger the way
 	// admission does, for monitoring's admission status.
 	hostLedger admissionSources
 }
 
-// StatsServiceDeps are what the stats service reads. An empty HostDiskPath
-// measures "/". Logger is optional.
+// StatsServiceDeps are what the stats service reads. Monitoring's disk figures
+// describe the filesystem of DockerDataPath, Docker's data directory as Core
+// sees it; empty measures "/". Logger is optional.
 type StatsServiceDeps struct {
 	Containers     StatsContainerRepository
 	Volumes        StatsVolumeRepository
@@ -104,7 +105,7 @@ type StatsServiceDeps struct {
 	Builds         StatsBuildRepository
 	Projects       StatsProjectRepository
 	Metrics        StatsMetricsProvider
-	HostDiskPath   string
+	DockerDataPath string
 	Config         ConfigManager
 	Quotas         UserQuotaProvider
 	Borrowed       StatsBorrowedMemory
@@ -128,30 +129,30 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 			return nil, fmt.Errorf("stats service: %s is required", dependency.name)
 		}
 	}
-	hostDiskPath := deps.HostDiskPath
-	if hostDiskPath == "" {
-		hostDiskPath = "/"
+	dockerDataPath := deps.DockerDataPath
+	if dockerDataPath == "" {
+		dockerDataPath = "/"
 	}
 	return &StatsService{
-		contRepo:     deps.Containers,
-		volRepo:      deps.Volumes,
-		imgRepo:      deps.Images,
-		buildRepo:    deps.Builds,
-		projRepo:     deps.Projects,
-		metrics:      deps.Metrics,
-		hostDiskPath: hostDiskPath,
-		cfg:          deps.Config,
-		quotas:       deps.Quotas,
-		borrowed:     deps.Borrowed,
-		rootfsQuota:  deps.RootfsQuota,
-		volumeSize:   deps.VolumeSizeMode,
+		contRepo:       deps.Containers,
+		volRepo:        deps.Volumes,
+		imgRepo:        deps.Images,
+		buildRepo:      deps.Builds,
+		projRepo:       deps.Projects,
+		metrics:        deps.Metrics,
+		dockerDataPath: dockerDataPath,
+		cfg:            deps.Config,
+		quotas:         deps.Quotas,
+		borrowed:       deps.Borrowed,
+		rootfsQuota:    deps.RootfsQuota,
+		volumeSize:     deps.VolumeSizeMode,
 		hostLedger: admissionSources{
-			system:       deps.Containers,
-			builds:       deps.Builds,
-			hostMetrics:  deps.Metrics,
-			diskMetrics:  deps.Metrics,
-			hostDiskPath: hostDiskPath,
-			logger:       logging.WithComponent(deps.Logger, "stats"),
+			system:         deps.Containers,
+			builds:         deps.Builds,
+			hostMetrics:    deps.Metrics,
+			diskMetrics:    deps.Metrics,
+			dockerDataPath: dockerDataPath,
+			logger:         logging.WithComponent(deps.Logger, "stats"),
 		},
 	}, nil
 }
@@ -234,7 +235,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetMemoryStats: %w", err)
 	}
 
-	disk, err := s.metrics.GetDiskUsage(s.hostDiskPath)
+	disk, err := s.metrics.GetDiskUsage(s.dockerDataPath)
 	if err != nil {
 		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetDiskUsage: %w", err)
 	}

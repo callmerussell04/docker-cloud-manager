@@ -53,10 +53,10 @@ func TestContainerServiceCleanupUserNetworkIfUnusedRemovesNetwork(t *testing.T) 
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Docker:         dockerAPI,
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	var removed []string
 
@@ -74,10 +74,10 @@ func TestContainerServiceCleanupUserNetworkIfUnusedKeepsNetwork(t *testing.T) {
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Docker:         dockerAPI,
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(1, nil)
@@ -90,10 +90,10 @@ func TestContainerServiceAdminScopeDeleteCleansUserNetwork(t *testing.T) {
 	containerID := uuid.New()
 	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   store,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     store,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id"})
 
@@ -106,14 +106,14 @@ func TestContainerServiceListFiltersByOwnerScopeAndProject(t *testing.T) {
 	projectID := uuid.New()
 	repo := newContainerRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Images:       newContainerImageRepository(t),
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Metrics:      coremocks.NewHostMetricsProvider(t),
-		Config:       testConfig(),
-		Quotas:       testQuotas(t, nil, nil),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Images:         newContainerImageRepository(t),
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Metrics:        coremocks.NewHostMetricsProvider(t),
+		Config:         testConfig(),
+		Quotas:         testQuotas(t, nil, nil),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 
 	repo.EXPECT().
@@ -150,14 +150,14 @@ func newContainerCreateService(t *testing.T, ownerID uuid.UUID) (*coremocks.Cont
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(2), nil)
 	imageRepo.EXPECT().FindByOwnerAndTag(mock.Anything, mock.Anything, mock.Anything).Return(model.Image{}, false, nil)
 	return repo, newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Images:       imageRepo,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Metrics:      metrics,
-		Config:       cfg,
-		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Images:         imageRepo,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Metrics:        metrics,
+		Config:         cfg,
+		Quotas:         testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 }
 

@@ -41,12 +41,12 @@ func (s *ContainerService) admit(ctx context.Context, ownerID uuid.UUID, req adm
 		volumes:          s.volumeRepo,
 		hostMetrics:      s.metrics,
 		diskMetrics:      s.diskMetrics,
-		hostDiskPath:     s.hostDiskPath,
+		dockerDataPath:   s.dockerDataPath,
 		logger:           s.logger,
 	}
 	return sources.admit(ctx, ownerID, req, s.config.Get(), "container")
 }
 
 func (s *ContainerService) checkHostDiskCapacity() error {
-	return stagedsource.CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.config.Get().HostMinFreeDiskBytes, 0)
+	return stagedsource.CheckHostDiskFloor(s.diskMetrics, s.dockerDataPath, s.config.Get().HostMinFreeDiskBytes, 0)
 }

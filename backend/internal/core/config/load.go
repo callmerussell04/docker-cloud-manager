@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
@@ -31,7 +32,14 @@ type Bootstrap struct {
 	// GatewayToken and BuilderToken identify the callers Core accepts.
 	GatewayToken string
 	BuilderToken string
-	HostDiskPath string
+	// HostPathPrefix is where host paths appear inside Core: /host in Compose,
+	// / when Core runs on the host. Volume usage scans read Docker's mountpoints
+	// under it.
+	HostPathPrefix string
+	// DockerDataRoot is the Docker daemon's data directory on the host, the
+	// only host directory mounted into Core. Host disk figures describe the
+	// filesystem it lives on.
+	DockerDataRoot string
 	// TenantCgroupParent is the cgroup Docker places user containers under.
 	// Empty keeps Docker's default parent.
 	TenantCgroupParent string
@@ -103,10 +111,11 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 			SigningKeyFile:         required.Get("REGISTRY_SIGNING_KEY_FILE"),
 			Issuer:                 required.Get("REGISTRY_TOKEN_ISSUER"),
 		},
-		ObjectStorage: objectstorage.LoadConfig(lookup, required),
-		Port:          envconfig.Int(lookup, "CORE_GRPC_PORT", 50052),
-		HTTPPort:      envconfig.Int(lookup, "CORE_HTTP_PORT", 8083),
-		HostDiskPath:  envconfig.String(lookup, "CORE_HOST_DISK_PATH", "/"),
+		ObjectStorage:  objectstorage.LoadConfig(lookup, required),
+		Port:           envconfig.Int(lookup, "CORE_GRPC_PORT", 50052),
+		HTTPPort:       envconfig.Int(lookup, "CORE_HTTP_PORT", 8083),
+		HostPathPrefix: envconfig.String(lookup, "CORE_HOST_DISK_PATH", "/"),
+		DockerDataRoot: envconfig.NonEmpty(lookup, "DOCKER_DATA_ROOT", DefaultDockerDataRoot),
 
 		TenantCgroupParent: envconfig.String(lookup, "TENANT_CGROUP_PARENT", ""),
 		HTTP: HTTPServer{
@@ -129,6 +138,11 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 	if err := required.Err(); err != nil {
 		return Settings{}, err
 	}
+	dockerDataRoot, err := cleanDockerDataRoot(bootstrap.DockerDataRoot)
+	if err != nil {
+		return Settings{}, err
+	}
+	bootstrap.DockerDataRoot = dockerDataRoot
 	if err := envconfig.Distinct(
 		envconfig.Setting{Key: "CORE_SERVICE_TOKEN", Value: bootstrap.ServiceToken},
 		envconfig.Setting{Key: "GATEWAY_SERVICE_TOKEN", Value: bootstrap.GatewayToken},
@@ -137,6 +151,26 @@ func Load(lookup envconfig.Lookup) (Settings, error) {
 		return Settings{}, err
 	}
 	return Settings{Bootstrap: bootstrap, Runtime: loadRuntime(lookup, baseDomain)}, nil
+}
+
+// DefaultDockerDataRoot is the Docker daemon's default data directory.
+const DefaultDockerDataRoot = "/var/lib/docker"
+
+// cleanDockerDataRoot accepts an absolute host directory other than the root:
+// mounting the root would hand Core the whole host filesystem again.
+func cleanDockerDataRoot(value string) (string, error) {
+	cleaned := filepath.Clean(value)
+	if !filepath.IsAbs(cleaned) || cleaned == string(filepath.Separator) {
+		return "", &envconfig.InvalidError{Key: "DOCKER_DATA_ROOT", Reason: "must be an absolute path to a directory other than /"}
+	}
+	return cleaned, nil
+}
+
+// DockerDataPath is where Core reads Docker's data directory: DockerDataRoot
+// under HostPathPrefix. Host disk figures (the admission and staged-source disk
+// floors and monitoring) are read at this path.
+func (b Bootstrap) DockerDataPath() string {
+	return filepath.Join(b.HostPathPrefix, b.DockerDataRoot)
 }
 
 // loadRuntime reads the runtime settings a new config file starts from, and

@@ -98,7 +98,13 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	warnWithoutTenantCgroupParent(appLogger, cfg.TenantCgroupParent)
-	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostDiskPath), docker.WithCgroupParent(cfg.TenantCgroupParent), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
+	// Host disk figures describe the filesystem Docker writes to.
+	dockerDataPath := cfg.DockerDataPath()
+	dockerAdapter, err := docker.NewAdapter(docker.WithHostPathPrefix(cfg.HostPathPrefix), docker.WithCgroupParent(cfg.TenantCgroupParent), docker.WithPullAuthorization(pullAuthorization(registry.auth, cfg.ConfigManager)))
+	if err != nil {
+		return nil, err
+	}
+	rootfsQuota, err := service.CheckDockerHost(context.Background(), dockerAdapter, service.DockerDataDir{Root: cfg.DockerDataRoot, Path: dockerDataPath}, appLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -130,24 +136,24 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Repository: contRepo, Volumes: volRepo,
 		Images: imgRepo, Docker: dockerAdapter,
 		Metrics: metricsProvider, DiskMetrics: metricsProvider, Config: cfg.ConfigManager,
-		Quotas: userQuotas, Builds: buildRepo, HostDiskPath: cfg.HostDiskPath,
+		Quotas: userQuotas, Builds: buildRepo, DockerDataPath: dockerDataPath,
 		Logger: logger,
 	})
 	if err != nil {
 		return nil, err
 	}
 	volService, err := service.NewVolumeService(service.VolumeServiceDeps{
-		Repository:   volRepo,
-		Docker:       dockerAdapter,
-		Config:       cfg.ConfigManager,
-		Lifecycle:    resourceLifecycleRepo,
-		Quotas:       userQuotas,
-		ImageRepo:    imgRepo,
-		DiskMetrics:  metricsProvider,
-		CapacityLock: contRepo,
-		SizeMode:     volumeSizeEnforcement,
-		HostDiskPath: cfg.HostDiskPath,
-		Logger:       logger,
+		Repository:     volRepo,
+		Docker:         dockerAdapter,
+		Config:         cfg.ConfigManager,
+		Lifecycle:      resourceLifecycleRepo,
+		Quotas:         userQuotas,
+		ImageRepo:      imgRepo,
+		DiskMetrics:    metricsProvider,
+		CapacityLock:   contRepo,
+		SizeMode:       volumeSizeEnforcement,
+		DockerDataPath: dockerDataPath,
+		Logger:         logger,
 	})
 	if err != nil {
 		return nil, err
@@ -166,22 +172,22 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	}
 	objectStore := objectstorage.NewLazyStorage(cfg.ObjectStorage)
 	buildService, err := service.NewBuildService(service.BuildServiceDeps{
-		Repository:    buildRepo,
-		Images:        imgRepo,
-		Registry:      registry.adapter,
-		Docker:        dockerAdapter,
-		Quotas:        userQuotas,
-		Logger:        logger,
-		RegistryAuth:  registry.auth,
-		VolumeRepo:    volRepo,
-		Config:        cfg.ConfigManager,
-		ObjectStore:   objectStore,
-		StagedObjects: stagedRepo,
-		Containers:    contRepo,
-		CapacityLock:  contRepo,
-		DiskMetrics:   metricsProvider,
-		HostMetrics:   metricsProvider,
-		HostDiskPath:  cfg.HostDiskPath,
+		Repository:     buildRepo,
+		Images:         imgRepo,
+		Registry:       registry.adapter,
+		Docker:         dockerAdapter,
+		Quotas:         userQuotas,
+		Logger:         logger,
+		RegistryAuth:   registry.auth,
+		VolumeRepo:     volRepo,
+		Config:         cfg.ConfigManager,
+		ObjectStore:    objectStore,
+		StagedObjects:  stagedRepo,
+		Containers:     contRepo,
+		CapacityLock:   contRepo,
+		DiskMetrics:    metricsProvider,
+		HostMetrics:    metricsProvider,
+		DockerDataPath: dockerDataPath,
 	})
 	if err != nil {
 		return nil, err
@@ -230,40 +236,40 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	wg := &sync.WaitGroup{}
 
 	composePlanAdmission, err := service.NewComposePlanAdmission(service.ComposePlanAdmissionDeps{
-		Containers:   contRepo,
-		Volumes:      volRepo,
-		Builds:       buildRepo,
-		Images:       imgRepo,
-		Deployments:  projRepo,
-		Quotas:       userQuotas,
-		HostMetrics:  metricsProvider,
-		DiskMetrics:  metricsProvider,
-		HostDiskPath: cfg.HostDiskPath,
-		Config:       cfg.ConfigManager,
-		Logger:       logger,
+		Containers:     contRepo,
+		Volumes:        volRepo,
+		Builds:         buildRepo,
+		Images:         imgRepo,
+		Deployments:    projRepo,
+		Quotas:         userQuotas,
+		HostMetrics:    metricsProvider,
+		DiskMetrics:    metricsProvider,
+		DockerDataPath: dockerDataPath,
+		Config:         cfg.ConfigManager,
+		Logger:         logger,
 	})
 	if err != nil {
 		cancel()
 		return nil, err
 	}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:      projRepo,
-		PlanAdmission: composePlanAdmission,
-		Config:        cfg.ConfigManager,
-		Builds:        buildRepo,
-		Resources:     resourceRepo,
-		Volumes:       volService,
-		Containers:    contService,
-		ObjectStore:   objectStore,
-		BuildJobs:     buildService,
-		Images:        imgService,
-		StagedObjects: stagedRepo,
-		CapacityLock:  contRepo,
-		ReservedDisk:  service.NewReservedDiskReader(imgRepo, volRepo),
-		DiskMetrics:   metricsProvider,
-		HostDiskPath:  cfg.HostDiskPath,
-		Quotas:        userQuotas,
-		Logger:        logger,
+		Projects:       projRepo,
+		PlanAdmission:  composePlanAdmission,
+		Config:         cfg.ConfigManager,
+		Builds:         buildRepo,
+		Resources:      resourceRepo,
+		Volumes:        volService,
+		Containers:     contService,
+		ObjectStore:    objectStore,
+		BuildJobs:      buildService,
+		Images:         imgService,
+		StagedObjects:  stagedRepo,
+		CapacityLock:   contRepo,
+		ReservedDisk:   service.NewReservedDiskReader(imgRepo, volRepo),
+		DiskMetrics:    metricsProvider,
+		DockerDataPath: dockerDataPath,
+		Quotas:         userQuotas,
+		Logger:         logger,
 	})
 	if err != nil {
 		cancel()
@@ -349,10 +355,9 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		cancel()
 		return nil, err
 	}
-	rootfsQuota := service.CheckRootfsQuota(ctx, dockerAdapter, appLogger)
 	statsService, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Quotas: userQuotas,
+		Metrics: metricsProvider, DockerDataPath: dockerDataPath, Config: cfg.ConfigManager, Quotas: userQuotas,
 		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSizeEnforcement,
 		Logger: logger,
 	})

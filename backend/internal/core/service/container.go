@@ -126,36 +126,38 @@ type ProjectStatusUpdater interface {
 }
 
 type ContainerService struct {
-	repo         ContainerRepository
-	volumeRepo   ContainerVolumeRepository
-	imageRepo    ContainerImageRepository
-	dockerAPI    ContainerDockerAPI
-	metrics      HostMetricsProvider
-	diskMetrics  HostDiskMetricsProvider
-	config       ConfigManager
-	quotas       UserQuotaProvider
-	projects     ProjectStatusUpdater
-	auditor      AuditRecorder
-	builds       activeSystemBuildCounter
-	hostDiskPath string
-	logger       *slog.Logger
+	repo           ContainerRepository
+	volumeRepo     ContainerVolumeRepository
+	imageRepo      ContainerImageRepository
+	dockerAPI      ContainerDockerAPI
+	metrics        HostMetricsProvider
+	diskMetrics    HostDiskMetricsProvider
+	config         ConfigManager
+	quotas         UserQuotaProvider
+	projects       ProjectStatusUpdater
+	auditor        AuditRecorder
+	builds         activeSystemBuildCounter
+	dockerDataPath string
+	logger         *slog.Logger
 }
 
 // ContainerServiceDeps declares the capabilities needed by admission and lifecycle work.
 // Audit is best effort. Projects is wired separately to resolve the project/container cycle.
 type ContainerServiceDeps struct {
-	Repository   ContainerRepository
-	Volumes      ContainerVolumeRepository
-	Images       ContainerImageRepository
-	Docker       ContainerDockerAPI
-	Metrics      HostMetricsProvider
-	DiskMetrics  HostDiskMetricsProvider
-	Config       ConfigManager
-	Quotas       UserQuotaProvider
-	Builds       activeSystemBuildCounter
-	HostDiskPath string
-	Logger       *slog.Logger
-	Audit        AuditRecorder
+	Repository  ContainerRepository
+	Volumes     ContainerVolumeRepository
+	Images      ContainerImageRepository
+	Docker      ContainerDockerAPI
+	Metrics     HostMetricsProvider
+	DiskMetrics HostDiskMetricsProvider
+	Config      ConfigManager
+	Quotas      UserQuotaProvider
+	Builds      activeSystemBuildCounter
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	Logger         *slog.Logger
+	Audit          AuditRecorder
 }
 
 func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
@@ -177,7 +179,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		repo: deps.Repository, volumeRepo: deps.Volumes, imageRepo: deps.Images,
 		dockerAPI: deps.Docker, metrics: deps.Metrics, diskMetrics: deps.DiskMetrics,
 		config: deps.Config, quotas: deps.Quotas, builds: deps.Builds,
-		hostDiskPath: deps.HostDiskPath, auditor: deps.Audit,
+		dockerDataPath: deps.DockerDataPath, auditor: deps.Audit,
 		logger: logging.WithComponent(deps.Logger, "container_service"),
 	}, nil
 }

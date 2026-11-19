@@ -66,20 +66,22 @@ type Deps struct {
 	Quotas       QuotaProvider
 	ReservedDisk ReservedDiskReader
 	DiskMetrics  HostDiskMetrics
-	HostDiskPath string
-	Config       ConfigProvider
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	Config         ConfigProvider
 }
 
 // Staging reserves, resizes and releases staged objects and checks the staged
 // disk quota and the projected host disk floor.
 type Staging struct {
-	repo         Repository
-	capacityLock CapacityLock
-	quotas       QuotaProvider
-	reservedDisk ReservedDiskReader
-	diskMetrics  HostDiskMetrics
-	hostDiskPath string
-	cfg          ConfigProvider
+	repo           Repository
+	capacityLock   CapacityLock
+	quotas         QuotaProvider
+	reservedDisk   ReservedDiskReader
+	diskMetrics    HostDiskMetrics
+	dockerDataPath string
+	cfg            ConfigProvider
 }
 
 // New builds staging from deps. It rejects a Repository without its required
@@ -103,13 +105,13 @@ func New(deps Deps) (*Staging, error) {
 		deps.Repository = nil
 	}
 	return &Staging{
-		repo:         deps.Repository,
-		capacityLock: deps.CapacityLock,
-		quotas:       deps.Quotas,
-		reservedDisk: deps.ReservedDisk,
-		diskMetrics:  deps.DiskMetrics,
-		hostDiskPath: deps.HostDiskPath,
-		cfg:          deps.Config,
+		repo:           deps.Repository,
+		capacityLock:   deps.CapacityLock,
+		quotas:         deps.Quotas,
+		reservedDisk:   deps.ReservedDisk,
+		diskMetrics:    deps.DiskMetrics,
+		dockerDataPath: deps.DockerDataPath,
+		cfg:            deps.Config,
 	}, nil
 }
 

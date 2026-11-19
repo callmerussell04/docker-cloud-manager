@@ -80,6 +80,13 @@ const (
 	RootfsQuotaUnknown     RootfsQuotaStatus = "unknown"
 )
 
+// DockerHost is what Core reads from the Docker daemon once at startup.
+type DockerHost struct {
+	RootfsQuota RootfsQuotaStatus
+	// RootDir is the daemon's data directory on the host. Empty when unread.
+	RootDir string
+}
+
 // VolumeSizeMode says how volume sizes are enforced for new volumes.
 type VolumeSizeMode string
 

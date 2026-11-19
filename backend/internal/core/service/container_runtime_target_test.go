@@ -19,8 +19,8 @@ func TestContainerServiceGetRuntimeTargetAllowsOwner(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		HostDiskPath: "",
+		Repository:     repo,
+		DockerDataPath: "",
 	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -44,8 +44,8 @@ func TestContainerServiceGetRuntimeTargetHidesOtherOwners(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		HostDiskPath: "",
+		Repository:     repo,
+		DockerDataPath: "",
 	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{
@@ -64,8 +64,8 @@ func TestContainerServiceGetRuntimeTargetAllowsAdmin(t *testing.T) {
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		HostDiskPath: "",
+		Repository:     repo,
+		DockerDataPath: "",
 	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning}, nil)
@@ -79,8 +79,8 @@ func TestContainerServiceGetRuntimeTargetRejectsUnavailableContainer(t *testing.
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		HostDiskPath: "",
+		Repository:     repo,
+		DockerDataPath: "",
 	})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, Status: model.ContainerStatusMissing}, nil).Once()

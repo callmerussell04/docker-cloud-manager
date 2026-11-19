@@ -9,7 +9,7 @@ import (
 // CheckHostDiskFloor rejects a write of projectedWriteBytes that would leave
 // less than HostMinFreeDiskBytes free on the host disk.
 func (s *Staging) CheckHostDiskFloor(projectedWriteBytes int64) error {
-	return CheckHostDiskFloor(s.diskMetrics, s.hostDiskPath, s.cfg.Get().HostMinFreeDiskBytes, projectedWriteBytes)
+	return CheckHostDiskFloor(s.diskMetrics, s.dockerDataPath, s.cfg.Get().HostMinFreeDiskBytes, projectedWriteBytes)
 }
 
 // CheckHostDiskFloor is the projected host disk floor check for staging and

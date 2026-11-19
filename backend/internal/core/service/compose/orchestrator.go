@@ -196,9 +196,11 @@ type OrchestratorDeps struct {
 	CapacityLock CapacityLock
 	ReservedDisk ReservedDiskReader
 	DiskMetrics  HostDiskMetricsProvider
-	HostDiskPath string
-	Quotas       QuotaProvider
-	Logger       *slog.Logger
+	// DockerDataPath is Docker's data directory as Core sees it; the host disk
+	// floor measures its filesystem.
+	DockerDataPath string
+	Quotas         QuotaProvider
+	Logger         *slog.Logger
 }
 
 func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
@@ -215,13 +217,13 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 		}
 	}
 	staging, err := stagedsource.New(stagedsource.Deps{
-		Repository:   deps.StagedObjects,
-		CapacityLock: deps.CapacityLock,
-		Quotas:       deps.Quotas,
-		ReservedDisk: deps.ReservedDisk,
-		DiskMetrics:  deps.DiskMetrics,
-		HostDiskPath: deps.HostDiskPath,
-		Config:       deps.Config,
+		Repository:     deps.StagedObjects,
+		CapacityLock:   deps.CapacityLock,
+		Quotas:         deps.Quotas,
+		ReservedDisk:   deps.ReservedDisk,
+		DiskMetrics:    deps.DiskMetrics,
+		DockerDataPath: deps.DockerDataPath,
+		Config:         deps.Config,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compose orchestrator: %w", err)

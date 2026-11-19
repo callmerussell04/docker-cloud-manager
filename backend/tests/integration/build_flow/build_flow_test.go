@@ -292,22 +292,22 @@ func newBuildServiceWithDisk(t *testing.T, repos coretest.CoreRepositories, owne
 	imageCache.EXPECT().RemoveImage(mock.Anything, mock.Anything, false).Return(nil).Maybe()
 
 	svc, err := service.NewBuildService(service.BuildServiceDeps{
-		Repository:    repos.Builds,
-		RegistryAuth:  repos.RegistryAuthorization(t),
-		Images:        repos.Images,
-		Registry:      registry,
-		Docker:        imageCache,
-		Quotas:        repos.UserQuotas(t, cfg),
-		Logger:        coretest.DiscardLogger(),
-		Containers:    repos.Containers,
-		CapacityLock:  repos.Containers,
-		HostMetrics:   hostMetrics,
-		VolumeRepo:    repos.Volumes,
-		Config:        cfg,
-		ObjectStore:   store,
-		StagedObjects: repos.Staged,
-		DiskMetrics:   metrics,
-		HostDiskPath:  "/",
+		Repository:     repos.Builds,
+		RegistryAuth:   repos.RegistryAuthorization(t),
+		Images:         repos.Images,
+		Registry:       registry,
+		Docker:         imageCache,
+		Quotas:         repos.UserQuotas(t, cfg),
+		Logger:         coretest.DiscardLogger(),
+		Containers:     repos.Containers,
+		CapacityLock:   repos.Containers,
+		HostMetrics:    hostMetrics,
+		VolumeRepo:     repos.Volumes,
+		Config:         cfg,
+		ObjectStore:    store,
+		StagedObjects:  repos.Staged,
+		DiskMetrics:    metrics,
+		DockerDataPath: "/",
 	})
 	require.NoError(t, err)
 	return svc

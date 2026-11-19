@@ -26,8 +26,8 @@ func TestCheckHostDiskFloorCountsTheProjectedWrite(t *testing.T) {
 		statErr   error
 		wantErr   error
 	}{
-		{name: "room after the write", path: "/data", wantPath: "/data", freeBytes: 300 * mb, projected: 100 * mb},
-		{name: "write would cross the floor", path: "/data", wantPath: "/data", freeBytes: 250 * mb, projected: 100 * mb, wantErr: apperrors.ErrHostExhausted},
+		{name: "room after the write", path: "/host/var/lib/docker", wantPath: "/host/var/lib/docker", freeBytes: 300 * mb, projected: 100 * mb},
+		{name: "write would cross the floor", path: "/host/var/lib/docker", wantPath: "/host/var/lib/docker", freeBytes: 250 * mb, projected: 100 * mb, wantErr: apperrors.ErrHostExhausted},
 		{name: "negative write counts as none", wantPath: "/", freeBytes: 200 * mb, projected: -mb},
 		{name: "metrics fail", wantPath: "/", statErr: metricsFailure, wantErr: metricsFailure},
 	}
@@ -37,7 +37,7 @@ func TestCheckHostDiskFloorCountsTheProjectedWrite(t *testing.T) {
 			cfg.HostMinFreeDiskBytes = 200 * mb
 			metrics := stagedsourcemocks.NewHostDiskMetrics(t)
 			metrics.EXPECT().GetDiskUsage(scenario.wantPath).Return(model.HostDiskStats{FreeBytes: scenario.freeBytes}, scenario.statErr).Once()
-			staging := newStaging(t, stagedsource.Deps{DiskMetrics: metrics, HostDiskPath: scenario.path, Config: coretest.StaticConfig{Config: cfg}})
+			staging := newStaging(t, stagedsource.Deps{DiskMetrics: metrics, DockerDataPath: scenario.path, Config: coretest.StaticConfig{Config: cfg}})
 
 			err := staging.CheckHostDiskFloor(scenario.projected)
 

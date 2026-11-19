@@ -29,11 +29,11 @@ func TestContainerServiceExposeQueuesOperationWithoutDockerCall(t *testing.T) {
 	containerID := uuid.New()
 	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   store,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       testConfig(),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     store,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Config:         testConfig(),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	saveContainer(t, store, model.Container{
 		ID:               containerID,
@@ -56,11 +56,11 @@ func TestContainerServiceCreateReportsDomainPrefixConflict(t *testing.T) {
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Docker:       dockerAPI,
-		Config:       testConfig(),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Docker:         dockerAPI,
+		Config:         testConfig(),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 
 	repo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(0, nil)
@@ -81,11 +81,11 @@ func TestContainerServiceExposeReportsDomainPrefixConflict(t *testing.T) {
 	containerID := uuid.New()
 	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   store,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       testConfig(),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     store,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Config:         testConfig(),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	saveContainer(t, store, model.Container{
 		ID:       containerID,
@@ -115,11 +115,11 @@ func TestContainerServiceExposeRejectsBlockedDomainPrefixAndAuditsFailure(t *tes
 	cfgValue.BlockedDomainPrefixPatterns = []string{"preview-[0-9]+"}
 	cfg := coretest.StaticConfig{Config: cfgValue}
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   store,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       cfg,
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     store,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Config:         cfg,
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)
@@ -153,7 +153,7 @@ func TestContainerServiceDeleteQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	store := newContainerStore()
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), DockerDataPath: "", Logger: slog.Default()})
 	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker"})
 
 	require.NoError(t, svc.Delete(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID))
@@ -166,7 +166,7 @@ func TestContainerServiceStopQueuesOperationWithoutDockerCall(t *testing.T) {
 	ownerID := uuid.New()
 	containerID := uuid.New()
 	store := newContainerStore()
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: store, Docker: coremocks.NewContainerDockerAPI(t), Config: testConfig(), DockerDataPath: "", Logger: slog.Default()})
 	saveContainer(t, store, model.Container{ID: containerID, OwnerID: ownerID, DockerID: "docker-id", Status: model.ContainerStatusRunning})
 
 	err := svc.Stop(accessscope.WithUserScope(context.Background(), ownerID, "", ""), containerID)
@@ -228,7 +228,7 @@ func TestContainerServiceStartRejectsMissingContainerWithoutDockerCall(t *testin
 	containerID := uuid.New()
 	repo := newContainerRepository(t)
 	dockerAPI := coremocks.NewContainerDockerAPI(t)
-	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: testConfig(), HostDiskPath: "", Logger: slog.Default()})
+	svc := newTestContainerService(t, service.ContainerServiceDeps{Repository: repo, Docker: dockerAPI, Config: testConfig(), DockerDataPath: "", Logger: slog.Default()})
 
 	repo.EXPECT().GetByID(mock.Anything, containerID).Return(model.Container{ID: containerID, OwnerID: ownerID, DockerID: "missing-docker", Status: model.ContainerStatusMissing}, nil)
 
@@ -253,14 +253,14 @@ func TestContainerServiceCreateQueuesOperation(t *testing.T) {
 	cfgValue.ContainerTTLHours = 24
 	cfg := coretest.StaticConfig{Config: cfgValue}
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   repo,
-		Images:       imageRepo,
-		Docker:       dockerAPI,
-		Metrics:      metrics,
-		Config:       cfg,
-		Quotas:       testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     repo,
+		Images:         imageRepo,
+		Docker:         dockerAPI,
+		Metrics:        metrics,
+		Config:         cfg,
+		Quotas:         testQuotas(t, cfg, map[uuid.UUID]model.UserQuota{ownerID: {CPUMillicores: 2000, RAMMB: 1024, DiskMB: 1024}}),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	ctx, cancel := context.WithCancel(accessscope.WithUserScope(context.Background(), ownerID, "", ""))
 	defer cancel()
@@ -328,11 +328,11 @@ func TestContainerServiceExposePreservesNetworkAlias(t *testing.T) {
 	containerID := uuid.New()
 	store := newContainerStore()
 	svc := newTestContainerService(t, service.ContainerServiceDeps{
-		Repository:   store,
-		Docker:       coremocks.NewContainerDockerAPI(t),
-		Config:       testConfig(),
-		HostDiskPath: "",
-		Logger:       slog.Default(),
+		Repository:     store,
+		Docker:         coremocks.NewContainerDockerAPI(t),
+		Config:         testConfig(),
+		DockerDataPath: "",
+		Logger:         slog.Default(),
 	})
 	auditor := &recordingAuditRecorder{}
 	svc.SetAuditRecorder(auditor)

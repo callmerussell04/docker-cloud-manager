@@ -414,6 +414,7 @@ services:
       CORE_GRPC_PORT: "50052"
       CORE_HTTP_PORT: "8083"
       CORE_HOST_DISK_PATH: "${CORE_HOST_DISK_PATH:-/host}"
+      DOCKER_DATA_ROOT: "${DOCKER_DATA_ROOT:-/var/lib/docker}"
       TENANT_CGROUP_PARENT: "${TENANT_CGROUP_PARENT:-}"
     volumes:
       - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/ca.crt:/run/dcm-registry/ca.crt:ro
@@ -422,7 +423,9 @@ services:
       - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.crt:/run/dcm-registry/signing.crt:ro
       - ${REGISTRY_CERTS_DIR:?REGISTRY_CERTS_DIR is required}/signing.key:/run/dcm-registry/signing.key:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - /:/host:ro
+      # Only Docker's data directory of the host, at the same path under the
+      # host prefix: host disk figures and volume usage scans read it there.
+      - ${DOCKER_DATA_ROOT:-/var/lib/docker}:${CORE_HOST_DISK_PATH:-/host}${DOCKER_DATA_ROOT:-/var/lib/docker}:ro
       - core_config_data:/app/config
     networks:
       dcm_net:

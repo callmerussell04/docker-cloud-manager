@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/envconfig"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/envtest"
 	"github.com/stretchr/testify/assert"
@@ -42,17 +43,18 @@ func TestLoadBootstrapDefaults(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, config.Bootstrap{
-		Port:          50052,
-		HTTPPort:      8083,
-		DBURL:         "postgres://u:" + secret + "@db/core",
-		RabbitMQURL:   "amqp://u:" + secret + "@mq",
-		SSOTarget:     "sso:50051",
-		ServiceToken:  "core-" + secret,
-		GatewayToken:  "gateway-" + secret,
-		BuilderToken:  "builder-" + secret,
-		HostDiskPath:  "/",
-		ObjectStorage: objectstorage.Config{Endpoint: "minio:9000", Bucket: "dcm-builds", AccessKey: secret, SecretKey: secret},
-		ClickHouse:    config.ClickHouse{Database: "dcm_reports"},
+		Port:           50052,
+		HTTPPort:       8083,
+		DBURL:          "postgres://u:" + secret + "@db/core",
+		RabbitMQURL:    "amqp://u:" + secret + "@mq",
+		SSOTarget:      "sso:50051",
+		ServiceToken:   "core-" + secret,
+		GatewayToken:   "gateway-" + secret,
+		BuilderToken:   "builder-" + secret,
+		HostPathPrefix: "/",
+		DockerDataRoot: "/var/lib/docker",
+		ObjectStorage:  objectstorage.Config{Endpoint: "minio:9000", Bucket: "dcm-builds", AccessKey: secret, SecretKey: secret},
+		ClickHouse:     config.ClickHouse{Database: "dcm_reports"},
 		Registry: config.Registry{
 			Authority:              "registry:5000",
 			BackendURL:             "https://registry-backend:5000",
@@ -111,12 +113,16 @@ func TestLoadOverrides(t *testing.T) {
 	values["TELEMETRY_SHUTDOWN_TIMEOUT_SECONDS"] = "7"
 	values["TELEMETRY_MAX_GLOBAL_LOG_STREAMS"] = "12"
 	values["TELEMETRY_MAX_GLOBAL_TERMINAL_SESSIONS"] = "not-a-number"
+	values["CORE_HOST_DISK_PATH"] = "/host"
+	values["DOCKER_DATA_ROOT"] = "/srv/docker/"
 
 	settings, err := config.Load(envtest.Lookup(values))
 
 	require.NoError(t, err)
 	assert.Equal(t, 6000, settings.Bootstrap.Port)
 	assert.Equal(t, "dcm-tenants.slice", settings.Bootstrap.TenantCgroupParent)
+	assert.Equal(t, "/srv/docker", settings.Bootstrap.DockerDataRoot)
+	assert.Equal(t, "/host/srv/docker", settings.Bootstrap.DockerDataPath(), "host disk figures read Docker's data directory under the host prefix")
 	assert.Equal(t, 7*time.Second, settings.Bootstrap.HTTP.ShutdownTimeout)
 	assert.Equal(t, 12, settings.Bootstrap.Streams.MaxLogStreams)
 	assert.Equal(t, 50, settings.Bootstrap.Streams.MaxTerminalSessions, "an invalid optional value keeps its default")
@@ -164,4 +170,34 @@ func assertJSON(t *testing.T, value any) string {
 
 func TestLoadRefusesSharedServiceCredentialsWithoutValues(t *testing.T) {
 	envtest.AssertDistinct(t, config.Load, requiredEnv(), []string{"CORE_SERVICE_TOKEN", "GATEWAY_SERVICE_TOKEN", "BUILDER_SERVICE_TOKEN"})
+}
+
+// Core measures host disk at Docker's data directory and mounts only it, so a
+// value that names no single host directory below the root stops startup. The
+// error names the setting and never the value, which may come from a template.
+func TestLoadRejectsADockerDataRootThatIsNotAnAbsoluteDirectoryBelowTheRoot(t *testing.T) {
+	for _, value := range []string{"var/lib/" + secret, "./" + secret, "/", "/" + secret + "/.."} {
+		t.Run(value, func(t *testing.T) {
+			values := requiredEnv()
+			values["DOCKER_DATA_ROOT"] = value
+
+			_, err := config.Load(envtest.Lookup(values))
+
+			var invalid *envconfig.InvalidError
+			require.ErrorAs(t, err, &invalid)
+			assert.Equal(t, "DOCKER_DATA_ROOT", invalid.Key)
+			assert.NotContains(t, err.Error(), secret)
+		})
+	}
+}
+
+func TestLoadTreatsAnEmptyDockerDataRootAsUnset(t *testing.T) {
+	values := requiredEnv()
+	values["DOCKER_DATA_ROOT"] = ""
+
+	settings, err := config.Load(envtest.Lookup(values))
+
+	require.NoError(t, err)
+	assert.Equal(t, "/var/lib/docker", settings.Bootstrap.DockerDataRoot)
+	assert.Equal(t, "/var/lib/docker", settings.Bootstrap.DockerDataPath(), "with the default prefix Core reads the host path itself")
 }

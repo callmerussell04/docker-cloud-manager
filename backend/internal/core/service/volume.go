@@ -80,34 +80,35 @@ type VolumeDockerAPI interface {
 }
 
 type VolumeService struct {
-	repo         VolumeRepository
-	dockerAPI    VolumeDockerAPI
-	cfg          ConfigManager
-	quotas       UserQuotaProvider
-	imageRepo    volumeImageDiskRepository
-	diskMetrics  HostDiskMetricsProvider
-	hostDiskPath string
-	lifecycle    VolumeLifecycleRepository
-	capacityLock VolumeCapacityLock
-	sizeMode     VolumeSizeModeReader
-	logger       *slog.Logger
+	repo           VolumeRepository
+	dockerAPI      VolumeDockerAPI
+	cfg            ConfigManager
+	quotas         UserQuotaProvider
+	imageRepo      volumeImageDiskRepository
+	diskMetrics    HostDiskMetricsProvider
+	dockerDataPath string
+	lifecycle      VolumeLifecycleRepository
+	capacityLock   VolumeCapacityLock
+	sizeMode       VolumeSizeModeReader
+	logger         *slog.Logger
 }
 
 // VolumeServiceDeps contains the mandatory lifecycle and admission capabilities.
-// An empty HostDiskPath uses the host filesystem root for disk admission.
+// DockerDataPath is where Core reads Docker's data directory; disk admission
+// measures its filesystem. Empty measures "/".
 // Logger is optional.
 type VolumeServiceDeps struct {
-	Repository   VolumeRepository
-	Docker       VolumeDockerAPI
-	Config       ConfigManager
-	Lifecycle    VolumeLifecycleRepository
-	Quotas       UserQuotaProvider
-	ImageRepo    volumeImageDiskRepository
-	DiskMetrics  HostDiskMetricsProvider
-	CapacityLock VolumeCapacityLock
-	SizeMode     VolumeSizeModeReader
-	HostDiskPath string
-	Logger       *slog.Logger
+	Repository     VolumeRepository
+	Docker         VolumeDockerAPI
+	Config         ConfigManager
+	Lifecycle      VolumeLifecycleRepository
+	Quotas         UserQuotaProvider
+	ImageRepo      volumeImageDiskRepository
+	DiskMetrics    HostDiskMetricsProvider
+	CapacityLock   VolumeCapacityLock
+	SizeMode       VolumeSizeModeReader
+	DockerDataPath string
+	Logger         *slog.Logger
 }
 
 func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
@@ -126,17 +127,17 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		}
 	}
 	return &VolumeService{
-		repo:         deps.Repository,
-		dockerAPI:    deps.Docker,
-		cfg:          deps.Config,
-		lifecycle:    deps.Lifecycle,
-		quotas:       deps.Quotas,
-		imageRepo:    deps.ImageRepo,
-		diskMetrics:  deps.DiskMetrics,
-		hostDiskPath: deps.HostDiskPath,
-		capacityLock: deps.CapacityLock,
-		sizeMode:     deps.SizeMode,
-		logger:       logging.WithComponent(deps.Logger, "volume_service"),
+		repo:           deps.Repository,
+		dockerAPI:      deps.Docker,
+		cfg:            deps.Config,
+		lifecycle:      deps.Lifecycle,
+		quotas:         deps.Quotas,
+		imageRepo:      deps.ImageRepo,
+		diskMetrics:    deps.DiskMetrics,
+		dockerDataPath: deps.DockerDataPath,
+		capacityLock:   deps.CapacityLock,
+		sizeMode:       deps.SizeMode,
+		logger:         logging.WithComponent(deps.Logger, "volume_service"),
 	}, nil
 }
 
@@ -146,13 +147,13 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 // owner capacity lock.
 func (s *VolumeService) admitVolumeSize(ctx context.Context, ownerID uuid.UUID, sizeBytes int64, cfg config.SystemConfig) error {
 	sources := admissionSources{
-		quotas:        s.quotas,
-		images:        s.imageRepo,
-		volumes:       s.repo,
-		volumePromise: s.repo,
-		diskMetrics:   s.diskMetrics,
-		hostDiskPath:  s.hostDiskPath,
-		logger:        s.logger,
+		quotas:         s.quotas,
+		images:         s.imageRepo,
+		volumes:        s.repo,
+		volumePromise:  s.repo,
+		diskMetrics:    s.diskMetrics,
+		dockerDataPath: s.dockerDataPath,
+		logger:         s.logger,
 	}
 	return sources.admit(ctx, ownerID, admissionRequest{volumeBytes: sizeBytes}, cfg, "volume")
 }

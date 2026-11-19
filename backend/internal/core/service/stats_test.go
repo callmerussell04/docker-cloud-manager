@@ -92,7 +92,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	}, nil)
 	metrics.EXPECT().GetTotalMemory().Return(int64(10*bytesPerMBForTest), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(4), nil)
-	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{
+	metrics.EXPECT().GetDiskUsage("/host/var/lib/docker").Return(model.HostDiskStats{
 		TotalBytes: 2000,
 		UsedBytes:  1500,
 		FreeBytes:  500,
@@ -106,7 +106,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	volumeSize.EXPECT().VolumeSizeMode().Return(model.VolumeSizeEnforced)
 	svc, err := service.NewStatsService(service.StatsServiceDeps{
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
-		Metrics: metrics, HostDiskPath: "/host", Config: cfg, Quotas: testQuotas(t, nil, nil), Borrowed: borrowed,
+		Metrics: metrics, DockerDataPath: "/host/var/lib/docker", Config: cfg, Quotas: testQuotas(t, nil, nil), Borrowed: borrowed,
 		RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSize,
 	})
 	require.NoError(t, err)
