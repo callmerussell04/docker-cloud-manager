@@ -87,7 +87,7 @@ func loseContainerMessages(t *testing.T, f *coretest.ComposeFixture) {
 	for _, item := range items {
 		require.NoError(t, f.Repos.Containers.MarkContainerOutboxPublished(ctx, item.ID))
 	}
-	_, err = f.Repos.DB.Exec(ctx, `UPDATE container_lifecycle_queue_outbox SET updated_at = NOW() - INTERVAL '6 minutes'`)
+	_, err = f.Repos.DB.Exec(ctx, `UPDATE container_lifecycle_queue_outbox SET updated_at = NOW() - INTERVAL '36 minutes'`)
 	require.NoError(t, err)
 }
 

@@ -22,19 +22,20 @@ import (
 )
 
 // With the default 30-minute handler deadline an operation expires 35 minutes
-// after its claim, and a message published 5 minutes ago counts as lost.
+// after its claim, and a message published 35 minutes ago counts as lost: one
+// published 30 minutes ago may still wait in the queue behind long operations.
 const (
 	recoveryExpired   = 40 * time.Minute
 	recoveryNotExpiry = 30 * time.Minute
-	recoveryLost      = 6 * time.Minute
-	recoveryNotLost   = 3 * time.Minute
+	recoveryLost      = 40 * time.Minute
+	recoveryNotLost   = 30 * time.Minute
 )
 
 // The pass's bounds with the default handler deadline: an operation expires
-// 35 minutes after its claim, and a message counts as lost after 5 minutes.
+// 35 minutes after its claim, and a message counts as lost after as long.
 var (
 	productionExpiry = model.OperationRecoveryScope{RunningLongerThan: 35 * time.Minute}
-	productionLost   = 5 * time.Minute
+	productionLost   = 35 * time.Minute
 )
 
 func causeIs(message string) any {

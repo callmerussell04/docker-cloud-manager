@@ -21,10 +21,6 @@ const (
 	// running operation counts as expired, covering the detached write
 	// budgets a worker may still spend after its deadline.
 	operationExpiryHeadroom = 5 * time.Minute
-	// lostDeliveryAge is how long a published or discarded outbox record of a
-	// waiting operation or deployment stays untouched before its message
-	// counts as lost.
-	lostDeliveryAge = 5 * time.Minute
 )
 
 // The recovery causes are fixed, safe messages that name no value.
@@ -120,6 +116,13 @@ func (c recoveryCounts) total() int {
 func (w *OperationRecoveryWorker) RunPass(ctx context.Context) {
 	expiredAfter := handlerDeadline(w.cfg.Get()) + operationExpiryHeadroom
 	expired := model.OperationRecoveryScope{RunningLongerThan: expiredAfter}
+	// A message counts as lost only after the same bound. A delivery can wait
+	// in the queue behind long operations (two workers per queue by default,
+	// each operation up to the handler deadline), and a shorter bound would
+	// publish a duplicate of such a message on every pass. Losses are rare: a
+	// requeued message is never dead-lettered, only one abandoned by twenty
+	// closed channels, so waiting this long costs little.
+	lostAfter := expiredAfter
 	var counts recoveryCounts
 
 	if ops, err := w.resources.RecoverInterruptedOperations(ctx, errExpiredOperationRequeued, expired); w.ok(ctx, "requeue expired volume and image operations", err) {
@@ -131,15 +134,15 @@ func (w *OperationRecoveryWorker) RunPass(ctx context.Context) {
 	if ops, err := w.containers.FailInterruptedNonResumableOperations(ctx, errExpiredOperationFailed, expiredAfter); w.ok(ctx, "fail expired operations", err) {
 		counts.failed += w.logRecovered(ctx, ops, "failed")
 	}
-	if lost, err := w.containers.RecoverLostContainerDeliveries(ctx, errOperationResourceGone, lostDeliveryAge); w.ok(ctx, "recover lost container deliveries", err) {
+	if lost, err := w.containers.RecoverLostContainerDeliveries(ctx, errOperationResourceGone, lostAfter); w.ok(ctx, "recover lost container deliveries", err) {
 		counts.republished += w.logRecovered(ctx, lost.Republished, "republished")
 		counts.ended += w.logRecovered(ctx, lost.Ended, "ended")
 	}
-	if lost, err := w.resources.RecoverLostResourceDeliveries(ctx, errOperationResourceGone, lostDeliveryAge); w.ok(ctx, "recover lost volume and image deliveries", err) {
+	if lost, err := w.resources.RecoverLostResourceDeliveries(ctx, errOperationResourceGone, lostAfter); w.ok(ctx, "recover lost volume and image deliveries", err) {
 		counts.republished += w.logRecovered(ctx, lost.Republished, "republished")
 		counts.ended += w.logRecovered(ctx, lost.Ended, "ended")
 	}
-	if deployments, err := w.deployments.RepublishLostComposeDeliveries(ctx, lostDeliveryAge); w.ok(ctx, "republish lost compose deliveries", err) {
+	if deployments, err := w.deployments.RepublishLostComposeDeliveries(ctx, lostAfter); w.ok(ctx, "republish lost compose deliveries", err) {
 		for _, d := range deployments {
 			w.logger.WarnContext(ctx, "republished lost compose deployment delivery", "job_id", d.JobID, "project_id", d.ProjectID)
 		}

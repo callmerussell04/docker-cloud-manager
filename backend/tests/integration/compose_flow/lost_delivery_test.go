@@ -27,7 +27,7 @@ func loseComposeDelivery(t *testing.T, f *coretest.ComposeFixture, name string) 
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	require.NoError(t, f.Repos.Projects.MarkComposeOutboxPublished(ctx, items[0].ID))
-	_, err = f.Repos.DB.Exec(ctx, `UPDATE compose_deployment_queue_outbox SET updated_at = NOW() - INTERVAL '6 minutes' WHERE job_id = $1`, job.ID)
+	_, err = f.Repos.DB.Exec(ctx, `UPDATE compose_deployment_queue_outbox SET updated_at = NOW() - INTERVAL '36 minutes' WHERE job_id = $1`, job.ID)
 	require.NoError(t, err)
 	return job
 }
