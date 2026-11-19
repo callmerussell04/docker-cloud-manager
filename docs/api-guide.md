@@ -124,7 +124,7 @@ curl -sS -b cookies.txt -c cookies.txt \
 | `disk_floor` | `host_exhausted` | `503` | свободное место на диске сервера; для создания тома — вместе с неиспользованной частью размеров всех томов |
 | `containers_per_user` | `limit_exceeded` | `409` | число контейнеров пользователя |
 | `volumes_per_user` | `limit_exceeded` | `409` | число томов пользователя |
-| `queued_container_creates` | `limit_exceeded` | `409` | число одновременно создаваемых контейнеров |
+| `queued_container_creates` | `limit_exceeded` | `409` | число одновременно создаваемых контейнеров; развёртывание Compose при этом ограничении не завершается ошибкой, а ждёт очереди |
 | `queued_builds` | `limit_exceeded` | `409` | число сборок в очереди |
 | `queued_compose_deployments` | `limit_exceeded` | `409` | число развёртываний Compose в очереди |
 

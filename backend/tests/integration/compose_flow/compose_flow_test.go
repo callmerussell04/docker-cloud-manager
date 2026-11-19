@@ -137,6 +137,76 @@ func TestComposeDeploymentRunsToDone(t *testing.T) {
 	}
 }
 
+// queuedCreateBound is the queued create bound
+// TestComposeDeploymentWaitsForTheCreateQueue sets; sixServiceCompose has one
+// service more.
+const queuedCreateBound = 5
+
+const sixServiceCompose = `
+services:
+  s1:
+    image: nginx:latest
+  s2:
+    image: nginx:latest
+  s3:
+    image: nginx:latest
+  s4:
+    image: nginx:latest
+  s5:
+    image: nginx:latest
+  s6:
+    image: nginx:latest
+`
+
+// A project with more services than the queued create bound waits for the
+// create queue instead of failing at its sixth create, and deploys.
+func TestComposeDeploymentWaitsForTheCreateQueue(t *testing.T) {
+	ctx := context.Background()
+	cfg := coretest.IntegrationConfig()
+	cfg.MaxQueuedContainerCreatesPerUser = queuedCreateBound
+	f := coretest.NewComposeFixture(t, cfg)
+	f.ContainerDocker.EXPECT().EnsureUserNetwork(mock.Anything, mock.Anything).Return("network", nil).Times(queuedCreateBound + 1)
+	f.ContainerDocker.EXPECT().ImageExists(mock.Anything, mock.Anything).Return(true, nil).Times(queuedCreateBound + 1)
+	f.ContainerDocker.EXPECT().CreateContainer(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, spec model.ContainerRuntimeSpec) (string, error) {
+			return "docker-" + spec.NetworkAlias, nil
+		}).Times(queuedCreateBound + 1)
+	f.ContainerDocker.EXPECT().UpdateContainerResources(mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(queuedCreateBound + 1)
+	f.ContainerDocker.EXPECT().StartContainer(mock.Anything, mock.Anything).Return(nil).Times(queuedCreateBound + 1)
+
+	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+		"docker-compose.yml": sixServiceCompose,
+	})))
+	require.NoError(t, err)
+	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
+	require.NoError(t, err)
+	require.NoError(t, f.Deliver(t))
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+
+	// Five creates fill the queue; the sixth is refused and the job waits.
+	f.Tick(t)
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+	require.Len(t, stackContainers(t, f, projectID), queuedCreateBound)
+	require.Equal(t, queuedCreateBound, f.RunContainerOperations(t))
+
+	// The queue has drained; the next pass creates the sixth service.
+	f.Tick(t)
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+	require.Len(t, stackContainers(t, f, projectID), queuedCreateBound+1)
+	require.Equal(t, 1, f.RunContainerOperations(t))
+
+	f.Tick(t)
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageStarting, model.ProjectStatusDeploying)
+	f.Tick(t)
+	require.Equal(t, queuedCreateBound+1, f.RunContainerOperations(t))
+	f.Tick(t)
+
+	requireDeployment(t, f, job.ID, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStageStarting, model.ProjectStatusRunning)
+	for service, container := range stackContainers(t, f, projectID) {
+		require.Equal(t, model.ContainerStatusRunning, container.Status, service)
+	}
+}
+
 // A Compose volume is admitted like any other: when the default size does not
 // fit the owner's 4096 MB disk quota, the deployment fails with the quota
 // error and creates nothing in Docker.

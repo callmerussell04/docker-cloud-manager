@@ -374,6 +374,21 @@ type coordinatorContainers struct {
 	// removed holds containers whose queued delete finished; deleting one
 	// again reports not found.
 	removed map[uuid.UUID]bool
+	// queuedCreateBound, when positive, plays the per-owner bound on queued
+	// creates: a create is queued as pending, and refused with
+	// queued_container_creates while that many are still pending.
+	// finishQueuedCreates plays the create worker.
+	queuedCreateBound int
+	// refusal, when set, refuses every create once refusal.after creates
+	// have been made.
+	refusal *createRefusal
+}
+
+// createRefusal is a create error the fake returns after a number of
+// successful creates.
+type createRefusal struct {
+	after int
+	err   error
 }
 
 func newCoordinatorContainers(items map[uuid.UUID]model.Container) *coordinatorContainers {
@@ -396,6 +411,16 @@ func (c *coordinatorContainers) Start(_ context.Context, id uuid.UUID) error {
 func (c *coordinatorContainers) Create(ctx context.Context, params model.ContainerCreateParams) (uuid.UUID, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.refusal != nil && len(c.created) >= c.refusal.after {
+		return uuid.Nil, c.refusal.err
+	}
+	status := model.ContainerStatusCreated
+	if c.queuedCreateBound > 0 {
+		if c.countStatusLocked(model.ContainerStatusPending) >= c.queuedCreateBound {
+			return uuid.Nil, apperrors.Exceeded(apperrors.LimitQueuedContainerCreates)
+		}
+		status = model.ContainerStatusPending
+	}
 	id := uuid.New()
 	if len(c.nextCreateIDs) > 0 {
 		id = c.nextCreateIDs[0]
@@ -408,8 +433,31 @@ func (c *coordinatorContainers) Create(ctx context.Context, params model.Contain
 	c.createScopes = append(c.createScopes, scope)
 	c.createRequestIDs = append(c.createRequestIDs, logging.RequestIDFromContext(ctx))
 	c.created = append(c.created, params)
-	c.containers[id] = model.Container{ID: id, ProjectID: params.ProjectID, Name: params.Name, Status: model.ContainerStatusCreated}
+	c.containers[id] = model.Container{ID: id, ProjectID: params.ProjectID, Name: params.Name, Status: status}
 	return id, nil
+}
+
+// finishQueuedCreates plays the create worker: every pending container is
+// created.
+func (c *coordinatorContainers) finishQueuedCreates() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for id, item := range c.containers {
+		if item.Status == model.ContainerStatusPending {
+			item.Status = model.ContainerStatusCreated
+			c.containers[id] = item
+		}
+	}
+}
+
+func (c *coordinatorContainers) countStatusLocked(status string) int {
+	n := 0
+	for _, item := range c.containers {
+		if item.Status == status {
+			n++
+		}
+	}
+	return n
 }
 
 // Delete queues the delete of an existing container; finishDeletes completes it.

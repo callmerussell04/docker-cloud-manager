@@ -236,6 +236,124 @@ func TestComposeDeploymentJobDependencyWaitSurvivesRestart(t *testing.T) {
 	require.Contains(t, *w.store.job.ErrorMessage, "dependency db")
 }
 
+// sixServiceCompose has one service more than the queued create bound the
+// create queue tests use.
+const sixServiceCompose = `
+services:
+  s1:
+    image: nginx:latest
+  s2:
+    image: nginx:latest
+  s3:
+    image: nginx:latest
+  s4:
+    image: nginx:latest
+  s5:
+    image: nginx:latest
+  s6:
+    image: nginx:latest
+`
+
+const queuedCreateBound = 5
+
+// A project with more services than the queued create bound waits for the
+// create queue and deploys.
+func TestComposeDeploymentJobWaitsForTheCreateQueue(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.containers.queuedCreateBound = queuedCreateBound
+	w.deploy(t, sixServiceCompose)
+	require.NoError(t, w.deliver(t))
+	w.tickUntilStage(t, model.ComposeDeploymentStageCreating)
+
+	// The sixth create is refused by the queue bound; the job waits.
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+	require.Equal(t, queuedCreateBound, w.containers.count())
+	require.Len(t, w.persistedResources(t).ContainerIDs, queuedCreateBound, "created services are saved")
+
+	// The queue drains; the next pass creates the last service.
+	w.containers.finishQueuedCreates()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+	require.Equal(t, queuedCreateBound+1, w.containers.count())
+	w.containers.finishQueuedCreates()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageStarting, model.ProjectStatusDeploying)
+
+	w.tick(t)
+	w.containers.runQueuedStarts()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusSucceeded, model.ComposeDeploymentStageStarting, model.ProjectStatusRunning)
+	require.Len(t, w.containers.created, queuedCreateBound+1)
+	w.requireSourceReleased(t)
+}
+
+// A create refused by the owner's container limit fails the deployment with
+// that limit named, and so does any other create error; the services already
+// created are rolled back.
+func TestComposeDeploymentJobFailsWhenACreateIsRefused(t *testing.T) {
+	cases := map[string]struct {
+		err     error
+		message string
+	}{
+		"containers per user": {
+			err:     apperrors.Exceeded(apperrors.LimitContainersPerUser),
+			message: "maximum number of containers reached",
+		},
+		"another error": {
+			err:     errTransientDatabase,
+			message: "database unavailable",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newDeploymentWorld(t)
+			w.containers.refusal = &createRefusal{after: 2, err: tc.err}
+			w.deploy(t, sixServiceCompose)
+			require.NoError(t, w.deliver(t))
+			w.tickUntilStage(t, model.ComposeDeploymentStageCreating)
+
+			w.tick(t)
+			w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+			require.Len(t, w.containers.deleted, 2, "the created services are deleted")
+			w.containers.finishDeletes()
+			w.tick(t)
+
+			w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+			require.NotNil(t, w.store.job.ErrorMessage)
+			require.Contains(t, *w.store.job.ErrorMessage, tc.message)
+			require.Zero(t, w.containers.count())
+			w.requireSourceReleased(t)
+		})
+	}
+}
+
+// A deployment still waiting for the create queue fails at the pipeline
+// deadline.
+func TestComposeDeploymentJobWaitingForTheCreateQueueEndsAtThePipelineDeadline(t *testing.T) {
+	w := newDeploymentWorld(t)
+	w.containers.queuedCreateBound = queuedCreateBound
+	w.deploy(t, sixServiceCompose)
+	require.NoError(t, w.deliver(t))
+	w.tickUntilStage(t, model.ComposeDeploymentStageCreating)
+	w.tick(t)
+
+	w.clock.advance(pipelineTimeout)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageCreating, model.ProjectStatusDeploying)
+
+	w.clock.advance(time.Second)
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusRunning, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	w.containers.finishDeletes()
+	w.tick(t)
+	w.requireJob(t, model.ComposeDeploymentStatusFailed, model.ComposeDeploymentStageRollingBack, model.ProjectStatusFailed)
+	require.NotNil(t, w.store.job.ErrorMessage)
+	require.Equal(t, "compose deployment timed out after 30 minutes", *w.store.job.ErrorMessage)
+	require.Zero(t, w.containers.count())
+	w.requireSourceReleased(t)
+}
+
 // A deployment stuck outside a dependency wait fails and rolls back once it
 // has run longer than compose_pipeline_timeout_minutes.
 func TestComposeDeploymentJobFailsAfterPipelineTimeout(t *testing.T) {

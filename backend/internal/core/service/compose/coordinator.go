@@ -308,6 +308,12 @@ func (c *DeploymentCoordinator) advanceCreating(ctx context.Context, job model.C
 		}
 		createParams := c.containerCreateParams(job.ProjectID, plan.ProjectName, srv, resources.VolumeIDs)
 		containerID, err := c.containers.Create(ctx, createParams)
+		if apperrors.LimitOf(err) == apperrors.LimitQueuedContainerCreates {
+			// The owner's create queue is full. Each created service is
+			// already saved, so a later pass creates the rest once earlier
+			// creates finish; the pipeline deadline bounds the wait.
+			return nil
+		}
 		if err != nil {
 			return c.failJob(ctx, job, plan, resources, fmt.Errorf("failed to create service %s: %w", srv.Name, err))
 		}
