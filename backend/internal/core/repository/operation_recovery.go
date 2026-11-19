@@ -29,6 +29,42 @@ func ageSeconds(age time.Duration) float64 {
 	return max(age, 0).Seconds()
 }
 
+// The resumable-kind rule: recovery returns a container create, a volume
+// create or delete and an image delete to the queue, and fails every other
+// interrupted operation. These three helpers are the one place it is
+// written; each matches on resource_operations aliased op, with parameters
+// numbered from first.
+
+// resumableContainerOperation matches the container operation recovery
+// returns to the queue: a create.
+func resumableContainerOperation(first int) string {
+	return fmt.Sprintf(`(op.resource_type = $%d AND op.operation = $%d)`, first, first+1)
+}
+
+func resumableContainerOperationArgs() []any {
+	return []any{model.ResourceTypeContainer, model.OperationCreate}
+}
+
+// resumableResourceOperation matches the volume and image operations
+// recovery returns to the queue: volume create and delete, and image delete.
+func resumableResourceOperation(first int) string {
+	return fmt.Sprintf(`((op.resource_type = $%[1]d AND op.operation IN ($%[2]d, $%[3]d)) OR (op.resource_type = $%[4]d AND op.operation = $%[3]d))`,
+		first, first+1, first+2, first+3)
+}
+
+func resumableResourceOperationArgs() []any {
+	return []any{model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage}
+}
+
+// resumableOperation matches every operation recovery returns to the queue.
+func resumableOperation(first int) string {
+	return "(" + resumableContainerOperation(first) + " OR " + resumableResourceOperation(first+2) + ")"
+}
+
+func resumableOperationArgs() []any {
+	return append(resumableContainerOperationArgs(), resumableResourceOperationArgs()...)
+}
+
 // collectRecoveredOperations reads rows of id, resource_type, resource_id and
 // operation, and closes them.
 func collectRecoveredOperations(rows pgx.Rows) ([]model.RecoveredOperation, error) {

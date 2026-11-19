@@ -46,7 +46,8 @@ func TestRabbitMQContainerConsumerPermanentNack(t *testing.T) {
 	ch := openChannel(t, url)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	consumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(url, "test-"+uuid.NewString()[:8], topology, coretest.DiscardLogger()))
+	consumer, err := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(url, "test-"+uuid.NewString()[:8], topology, coretest.DiscardLogger()))
+	require.NoError(t, err)
 	handled := make(chan queue.ContainerLifecycleMessage, 1)
 	consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ContainerLifecycleMessage) error {
 		handled <- msg

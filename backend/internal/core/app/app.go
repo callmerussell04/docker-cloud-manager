@@ -217,9 +217,18 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	reportService := service.NewReportService(reportsRepo, reportSnapshotRepo, ssoClient, cfg.ConfigManager, logger)
 	contService.SetAuditRecorder(reportService)
 	outboxPublisher := rabbitmq.NewPublisher(cfg.RabbitMQURL, rabbitmq.Topology{})
-	composeConsumer := platformrabbitmq.NewConsumer(rabbitmq.ComposeConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
-	containerConsumer := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
-	resourceConsumer := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	composeConsumer, err := platformrabbitmq.NewConsumer(rabbitmq.ComposeConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	if err != nil {
+		return nil, err
+	}
+	containerConsumer, err := platformrabbitmq.NewConsumer(rabbitmq.ContainerConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	if err != nil {
+		return nil, err
+	}
+	resourceConsumer, err := platformrabbitmq.NewConsumer(rabbitmq.ResourceConsumerConfig(cfg.RabbitMQURL, "core", rabbitmq.Topology{}, logger))
+	if err != nil {
+		return nil, err
+	}
 
 	authenticator, err := internalauth.NewAuthenticator(coregrpc.CallerPolicies(coregrpc.CallerCredentials{
 		Gateway: cfg.GatewayToken, Builder: cfg.BuilderToken,

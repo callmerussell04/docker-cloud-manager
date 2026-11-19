@@ -110,7 +110,8 @@ func TestBuilderFinalizationSurvivesCoreOutageAndWorkerRestart(t *testing.T) {
 			var deliveries atomic.Int32
 			consumerCfg := builderrabbit.BuildConsumerConfig(url, uuid.NewString(), buildQueue, coretest.DiscardLogger())
 			consumerCfg.RetryDelay = 10 * time.Millisecond
-			consumer := platformrabbitmq.NewConsumer(consumerCfg)
+			consumer, err := platformrabbitmq.NewConsumer(consumerCfg)
+			require.NoError(t, err)
 			consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 				attempt := deliveries.Add(1)
 				if attempt > 1 {

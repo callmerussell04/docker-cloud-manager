@@ -33,8 +33,10 @@ type ConsumerConfig[M any] struct {
 	LogFields func(msg M) []any
 	Logger    *slog.Logger
 	// RetryDelay is how long a worker holds a delivery whose handler failed
-	// with a retryable error before returning it to the queue. It spaces the
-	// redeliveries the broker counts against its delivery limit.
+	// with a retryable error before returning it to the queue. A requeue does
+	// not count against a quorum queue's delivery limit, so without the wait a
+	// failing message would be redelivered in a tight loop. It must be
+	// positive.
 	RetryDelay time.Duration
 }
 
@@ -46,8 +48,13 @@ type Consumer[M any] struct {
 	wg     sync.WaitGroup
 }
 
-func NewConsumer[M any](cfg ConsumerConfig[M]) *Consumer[M] {
-	return &Consumer[M]{cfg: cfg, logger: cfg.Logger.With("queue", cfg.Queue)}
+// NewConsumer refuses a configuration without a positive RetryDelay, which
+// would bring back the tight redelivery loop.
+func NewConsumer[M any](cfg ConsumerConfig[M]) (*Consumer[M], error) {
+	if cfg.RetryDelay <= 0 {
+		return nil, fmt.Errorf("%s queue consumer: retry delay must be positive", cfg.Queue)
+	}
+	return &Consumer[M]{cfg: cfg, logger: cfg.Logger.With("queue", cfg.Queue)}, nil
 }
 
 // Run starts the workers, at least one, and returns immediately. They stop when

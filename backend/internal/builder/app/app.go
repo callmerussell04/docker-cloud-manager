@@ -94,8 +94,11 @@ func New(cfg config.Bootstrap, logger *slog.Logger) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create builder service: %w", err)
 	}
+	queueConsumer, err := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(cfg.RabbitMQURL, cfg.InstanceID, platformrabbitmq.Queue{}, logger))
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	queueConsumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(cfg.RabbitMQURL, cfg.InstanceID, platformrabbitmq.Queue{}, logger))
 
 	return &App{
 		coreConn:       coreConn,

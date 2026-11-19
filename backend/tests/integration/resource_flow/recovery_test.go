@@ -390,7 +390,8 @@ func TestRecoveredResourceDeliveryRetriesAndACKs(t *testing.T) {
 			worker := service.NewResourceLifecycleWorker(volumes, images, coretest.StaticConfig{Config: coretest.IntegrationConfig()}, coretest.DiscardLogger())
 			consumerCfg := rabbitmq.ResourceConsumerConfig(url, "recovery-test", topology, coretest.DiscardLogger())
 			consumerCfg.RetryDelay = 10 * time.Millisecond
-			consumer := platformrabbitmq.NewConsumer(consumerCfg)
+			consumer, err := platformrabbitmq.NewConsumer(consumerCfg)
+			require.NoError(t, err)
 			results := make(chan error, 10)
 			consumer.Run(ctx, 1, func(ctx context.Context, msg queue.ResourceLifecycleMessage) error {
 				err := worker.HandleMessage(ctx, msg)

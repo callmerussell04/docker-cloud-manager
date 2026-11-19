@@ -813,18 +813,18 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 	}
 	defer tx.Rollback(ctx)
 
+	args := append([]any{model.OperationStatusPending, nullableError(cause), model.OperationStatusRunning, scope.ReturnAttempt, ageSeconds(scope.RunningLongerThan)},
+		resumableContainerOperationArgs()...)
 	rows, err := tx.Query(ctx, `
-		UPDATE resource_operations
+		UPDATE resource_operations op
 		SET status = $1,
-			attempts = CASE WHEN $6 THEN GREATEST(attempts - 1, 0) ELSE attempts END,
+			attempts = CASE WHEN $4 THEN GREATEST(op.attempts - 1, 0) ELSE op.attempts END,
 			last_error = $2, updated_at = NOW()
-		WHERE resource_type = $3
-			AND operation = $4
-			AND status = $5
-			AND `+claimedBefore("updated_at", 7)+`
-		RETURNING id, resource_type, resource_id, operation
-	`, model.OperationStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusRunning,
-		scope.ReturnAttempt, ageSeconds(scope.RunningLongerThan))
+		WHERE op.status = $3
+			AND `+claimedBefore("op.updated_at", 5)+`
+			AND `+resumableContainerOperation(6)+`
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, args...)
 	if err != nil {
 		return nil, wrapOp("container recover interrupted container creates", err)
 	}
@@ -832,18 +832,18 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 	if err != nil {
 		return nil, wrapOp("container recover interrupted container creates", err)
 	}
+	args = append([]any{model.ContainerOutboxStatusPending, nullableError(cause), model.OperationStatusPending, ageSeconds(scope.RunningLongerThan), recoveredIDs(recovered)},
+		resumableContainerOperationArgs()...)
 	if _, err := tx.Exec(ctx, `
 		UPDATE container_lifecycle_queue_outbox
 		SET status = $1, published_at = NULL, last_error = $2, updated_at = NOW()
 		WHERE operation_id IN (
-			SELECT id FROM resource_operations
-			WHERE resource_type = $3
-				AND operation = $4
-				AND status = $5
-				AND ($6::double precision = 0 OR id = ANY($7))
+			SELECT op.id FROM resource_operations op
+			WHERE op.status = $3
+				AND ($4::double precision = 0 OR op.id = ANY($5))
+				AND `+resumableContainerOperation(6)+`
 		)
-	`, model.ContainerOutboxStatusPending, nullableError(cause), model.ResourceTypeContainer, model.OperationCreate, model.OperationStatusPending,
-		ageSeconds(scope.RunningLongerThan), recoveredIDs(recovered)); err != nil {
+	`, args...); err != nil {
 		return nil, wrapOp("container recover interrupted container creates", err)
 	}
 	if err := commitTx(ctx, tx, "recover interrupted container creates"); err != nil {
@@ -859,18 +859,16 @@ func (r *ContainerRepository) RecoverInterruptedContainerCreates(ctx context.Con
 // are untouched: with no active operation, state sync records what Docker
 // reports.
 func (r *ContainerRepository) FailInterruptedNonResumableOperations(ctx context.Context, cause error, runningLongerThan time.Duration) ([]model.RecoveredOperation, error) {
+	args := append([]any{model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning, ageSeconds(runningLongerThan)},
+		resumableOperationArgs()...)
 	rows, err := r.db.Query(ctx, `
-		UPDATE resource_operations
+		UPDATE resource_operations op
 		SET status = $1, last_error = $2, updated_at = NOW()
-		WHERE status = $3
-			AND NOT (resource_type = $4 AND operation = $5)
-			AND NOT (resource_type = $6 AND operation IN ($5, $7))
-			AND NOT (resource_type = $8 AND operation = $7)
-			AND `+claimedBefore("updated_at", 9)+`
-		RETURNING id, resource_type, resource_id, operation
-	`, model.OperationStatusFailed, nullableError(cause), model.OperationStatusRunning,
-		model.ResourceTypeContainer, model.OperationCreate, model.ResourceTypeVolume, model.OperationDelete, model.ResourceTypeImage,
-		ageSeconds(runningLongerThan))
+		WHERE op.status = $3
+			AND `+claimedBefore("op.updated_at", 4)+`
+			AND NOT `+resumableOperation(5)+`
+		RETURNING op.id, op.resource_type, op.resource_id, op.operation
+	`, args...)
 	if err != nil {
 		return nil, wrapOp("container fail interrupted non resumable operations", err)
 	}

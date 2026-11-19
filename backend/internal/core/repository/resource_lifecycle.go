@@ -22,18 +22,6 @@ func NewResourceLifecycleRepository(db *pgxpool.Pool) *ResourceLifecycleReposito
 	return &ResourceLifecycleRepository{db: db}
 }
 
-// resumableResourceOperation matches, on resource_operations aliased op, the
-// volume and image operations recovery returns to the queue: volume create
-// and delete, and image delete. Its parameters are numbered from first.
-func resumableResourceOperation(first int) string {
-	return fmt.Sprintf(`((op.resource_type = $%[1]d AND op.operation IN ($%[2]d, $%[3]d)) OR (op.resource_type = $%[4]d AND op.operation = $%[3]d))`,
-		first, first+1, first+2, first+3)
-}
-
-func resumableResourceOperationArgs() []any {
-	return []any{model.ResourceTypeVolume, model.OperationCreate, model.OperationDelete, model.ResourceTypeImage}
-}
-
 // RecoverInterruptedOperations returns running volume create and delete and
 // image delete operations in scope to pending, returning their attempt when
 // the scope says so, and marks outbox records pending with their original

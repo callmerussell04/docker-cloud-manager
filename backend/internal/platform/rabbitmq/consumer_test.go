@@ -77,7 +77,7 @@ func (h *harness) run(t *testing.T, handler func(context.Context, testMessage) e
 func (h *harness) runWithRetryDelay(t *testing.T, retryDelay time.Duration, handler func(context.Context, testMessage) error) func() {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	consumer := rabbitmq.NewConsumer(rabbitmq.ConsumerConfig[testMessage]{
+	consumer, err := rabbitmq.NewConsumer(rabbitmq.ConsumerConfig[testMessage]{
 		URL:         h.url,
 		Queue:       h.queue.Name,
 		ConsumerTag: func(workerID int) string { return h.queue.Name + "-consumer" },
@@ -88,6 +88,7 @@ func (h *harness) runWithRetryDelay(t *testing.T, retryDelay time.Duration, hand
 		Logger:      slog.New(slog.DiscardHandler),
 		RetryDelay:  retryDelay,
 	})
+	require.NoError(t, err)
 	consumer.Run(ctx, 1, handler)
 	stop := func() {
 		cancel()
@@ -217,6 +218,21 @@ func TestConsumerRequeuesTransientError(t *testing.T) {
 	require.EqualValues(t, 2, attempts.Load())
 	h.requireNoMessage(t, h.queue.Name)
 	h.requireNoMessage(t, h.queue.DLQ)
+}
+
+// A consumer without a positive retry delay would redeliver a failing message
+// in a tight loop, because a requeue does not count against the delivery
+// limit, so construction refuses it. No broker is needed.
+func TestNewConsumerRefusesANonPositiveRetryDelay(t *testing.T) {
+	for _, delay := range []time.Duration{0, -time.Second} {
+		consumer, err := rabbitmq.NewConsumer(rabbitmq.ConsumerConfig[testMessage]{
+			Queue:      "dcm.test",
+			Logger:     slog.New(slog.DiscardHandler),
+			RetryDelay: delay,
+		})
+		require.Error(t, err, "retry delay %s", delay)
+		require.Nil(t, consumer)
+	}
 }
 
 func TestConsumerDeadLettersPermanentErrorWithoutRetryDelay(t *testing.T) {

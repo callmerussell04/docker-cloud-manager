@@ -24,7 +24,8 @@ func TestConsumerAcksValidBuildMessageSmoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	handled := make(chan buildqueue.ImageBuildMessage, 1)
-	consumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-ack", queue, slog.Default()))
+	consumer, err := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-ack", queue, slog.Default()))
+	require.NoError(t, err)
 	consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 		handled <- msg
 		return nil
@@ -55,7 +56,8 @@ func TestConsumerDoesNotRequeuePermanentErrorsSmoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	handled := make(chan struct{}, 1)
-	consumer := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-nack", queue, slog.Default()))
+	consumer, err := platformrabbitmq.NewConsumer(rabbitmq.BuildConsumerConfig(url, "test-nack", queue, slog.Default()))
+	require.NoError(t, err)
 	consumer.Run(ctx, 1, func(ctx context.Context, msg buildqueue.ImageBuildMessage) error {
 		handled <- struct{}{}
 		return apperrors.ErrBadRequest

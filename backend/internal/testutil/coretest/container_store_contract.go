@@ -551,7 +551,9 @@ func testExpiredOperationRecovery(t *testing.T, store ContainerStore) {
 	require.Equal(t, expired.ID, leased[0].OperationID)
 	require.JSONEq(t, string(contractOutbox(expired).Payload), string(leased[0].Payload))
 
-	// Startup recovery returns the interrupted attempt instead.
+	// With ReturnAttempt the statement gives the interrupted attempt back. Volume
+	// and image startup recovery asks for that; container startup recovery and
+	// the pass do not, but the statement honours the scope for every kind.
 	claimOperation(t, store, expired.ID)
 	_, err = store.RecoverInterruptedContainerCreates(ctx, errContractCause, model.OperationRecoveryScope{ReturnAttempt: true})
 	require.NoError(t, err)
