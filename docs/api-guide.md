@@ -126,7 +126,7 @@ curl -sS -b cookies.txt -c cookies.txt \
 | `volumes_per_user` | `limit_exceeded` | `409` | число томов пользователя |
 | `queued_container_creates` | `limit_exceeded` | `409` | число одновременно создаваемых контейнеров; развёртывание Compose при этом ограничении не завершается ошибкой, а ждёт очереди |
 | `queued_builds` | `limit_exceeded` | `409` | число сборок в очереди |
-| `queued_compose_deployments` | `limit_exceeded` | `409` | число развёртываний Compose в очереди |
+| `queued_compose_deployments` | `limit_exceeded` | `409` | число развёртываний Compose в очереди; проверяется до загрузки архива или клонирования |
 
 Имена ограничений не меняются. Клиент должен допускать появление новых значений.
 
@@ -231,6 +231,8 @@ curl -sS \
   }' \
   http://dcm.example.com/api/v1/projects/compose/git
 ```
+
+Оба запроса проверяют весь план развёртывания до постановки в очередь и отклоняют его с полем `limit` первого нарушенного ограничения: `queued_compose_deployments`, `containers_per_user`, `volumes_per_user`, `queued_builds`, затем `user_memory`, `user_cpu`, `user_disk`, `host_memory`, `host_cpu`, `disk_floor`. Ограничение очереди проверяется до приёма архива или клонирования. Порядок и правила описаны в [руководстве по Compose](compose-guide.md#проверка-при-приёме).
 
 ## Logs через SSE
 

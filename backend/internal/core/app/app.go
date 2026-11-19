@@ -229,10 +229,27 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
+	composePlanAdmission, err := service.NewComposePlanAdmission(service.ComposePlanAdmissionDeps{
+		Containers:   contRepo,
+		Volumes:      volRepo,
+		Builds:       buildRepo,
+		Images:       imgRepo,
+		Deployments:  projRepo,
+		Quotas:       userQuotas,
+		HostMetrics:  metricsProvider,
+		DiskMetrics:  metricsProvider,
+		HostDiskPath: cfg.HostDiskPath,
+		Config:       cfg.ConfigManager,
+		Logger:       logger,
+	})
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
 		Projects:          projRepo,
 		DeploymentCounter: projRepo,
-		Capacity:          contService,
+		Capacity:          composePlanAdmission,
 		Config:            cfg.ConfigManager,
 		Builds:            buildRepo,
 		Resources:         resourceRepo,

@@ -207,41 +207,31 @@ func TestComposeDeploymentWaitsForTheCreateQueue(t *testing.T) {
 	}
 }
 
-// A Compose volume is admitted like any other: when the default size does not
-// fit the owner's 4096 MB disk quota, the deployment fails with the quota
-// error and creates nothing in Docker.
-func TestComposeDeploymentFailsWhenItsVolumesDoNotFitTheDiskQuota(t *testing.T) {
+// A Compose plan's volumes are admitted at ingestion: when the default size
+// does not fit the owner's 4096 MB disk quota, the deployment is refused with
+// the user disk limit before any job is queued, and its staged source is
+// released.
+func TestComposeDeploymentIsRefusedAtIngestionWhenItsVolumesDoNotFitTheDiskQuota(t *testing.T) {
 	ctx := context.Background()
 	cfg := coretest.IntegrationConfig()
 	cfg.DefaultVolumeSizeBytes = 5 << 30
 	f := coretest.NewComposeFixture(t, cfg)
 
-	projectID, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
+	_, err := f.Orchestrator.StartDeployment(f.OwnerContext(), "stack", "compose.zip", "", bytes.NewReader(coretest.ComposeZip(t, map[string]string{
 		"docker-compose.yml": stackCompose,
 	})))
-	require.NoError(t, err)
-	job, err := f.Repos.Projects.GetActiveComposeDeploymentJobByProjectID(ctx, projectID)
-	require.NoError(t, err)
-	require.NoError(t, f.Deliver(t))
 
-	for range 3 {
-		f.Tick(t)
-		if job, err = f.Repos.Projects.GetComposeDeploymentJob(ctx, job.ID); err == nil && job.Status == model.ComposeDeploymentStatusFailed {
-			break
-		}
-	}
-
+	require.ErrorIs(t, err, apperrors.ErrQuotaExceeded)
+	require.Equal(t, apperrors.LimitUserDisk, apperrors.LimitOf(err))
+	projects, _, err := f.Repos.Projects.List(ctx, model.ListOptions{OwnerID: &f.OwnerID})
 	require.NoError(t, err)
-	require.Equal(t, model.ComposeDeploymentStatusFailed, job.Status)
-	require.NotNil(t, job.ErrorMessage)
-	require.Contains(t, *job.ErrorMessage, "user disk quota exceeded")
-	project, err := f.Repos.Projects.GetByID(ctx, projectID)
+	require.Empty(t, projects, "no project or job is queued")
+	staged, err := f.Repos.Staged.ActiveBytesByOwner(ctx, f.OwnerID)
 	require.NoError(t, err)
-	require.Equal(t, model.ProjectStatusFailed, project.Status)
+	require.Zero(t, staged, "the staged source is released")
 	volumes, _, err := f.Repos.Volumes.List(ctx, model.ListOptions{OwnerID: &f.OwnerID})
 	require.NoError(t, err)
 	require.Empty(t, volumes, "no volume is recorded")
-	require.Empty(t, stackContainers(t, f, projectID))
 }
 
 // TestComposeUploadIsRefusedAtAFullDiskQuota pins the one staged disk rule for

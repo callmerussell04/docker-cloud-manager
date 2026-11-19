@@ -925,6 +925,6 @@ func (s *composeObjects) NewReaderAt(_ context.Context, objectKey string) (io.Re
 
 type admitAllCapacity struct{}
 
-func (admitAllCapacity) CheckCapacity(context.Context, uuid.UUID, int64, int64, int64) error {
-	return nil
+func (admitAllCapacity) AdmitPlan(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
+	return commit(ctx)
 }

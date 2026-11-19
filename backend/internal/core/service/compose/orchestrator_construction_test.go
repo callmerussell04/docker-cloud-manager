@@ -60,7 +60,7 @@ func TestOrchestratorRequiresTheStagingLockWithStagedObjects(t *testing.T) {
 
 // Production adapters keep satisfying the orchestrator's admission contracts.
 var _ compose.ActiveComposeDeploymentCounter = (*repository.ProjectRepository)(nil)
-var _ compose.CapacityChecker = (*service.ContainerService)(nil)
+var _ compose.CapacityChecker = (*service.ComposePlanAdmission)(nil)
 var _ compose.BuildJobCreator = (*service.BuildService)(nil)
 var _ compose.ObjectStorage = (*objectstorage.LazyStorage)(nil)
 var _ compose.CapacityLock = (*repository.ContainerRepository)(nil)

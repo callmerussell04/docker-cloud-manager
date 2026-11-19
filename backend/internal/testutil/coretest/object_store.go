@@ -29,6 +29,13 @@ func (m *MemoryObjects) Has(key string) bool {
 	return ok
 }
 
+// Len reports how many objects are stored.
+func (m *MemoryObjects) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.objects)
+}
+
 // Put stores data at key, as another component writing the store would.
 func (m *MemoryObjects) Put(key string, data []byte) {
 	m.mu.Lock()

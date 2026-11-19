@@ -58,3 +58,21 @@ func IsValidComposeDependencyCondition(condition string) bool {
 		return false
 	}
 }
+
+// ComposePlanDemand is what a Compose deployment's plan asks of its owner and
+// of the host, admitted once at ingestion. Nothing is reserved by it: each
+// later create, volume create, build and start is admitted again.
+type ComposePlanDemand struct {
+	// Services is how many containers the plan creates.
+	Services int
+	// MemoryBytes and CPUMillicores sum the services' reservations: each
+	// service's own figure, or the default.
+	MemoryBytes   int64
+	CPUMillicores int64
+	// ManagedVolumeNames are the distinct names of the plan's managed
+	// volumes. A name the owner already has is reused; every other one is
+	// created at the default volume size.
+	ManagedVolumeNames []string
+	// Builds is how many image builds the plan queues.
+	Builds int
+}

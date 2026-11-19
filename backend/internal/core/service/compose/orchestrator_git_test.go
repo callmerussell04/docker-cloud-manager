@@ -96,7 +96,10 @@ func composeOrchestratorDeps(t *testing.T, repo *composemocks.ProjectRepository,
 	counter := composemocks.NewActiveComposeDeploymentCounter(t)
 	counter.EXPECT().CountActiveComposeDeploymentsByOwner(mock.Anything, mock.Anything).Return(0, nil).Maybe()
 	capacity := composemocks.NewCapacityChecker(t)
-	capacity.EXPECT().CheckCapacity(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	capacity.EXPECT().AdmitPlan(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
+			return commit(ctx)
+		}).Maybe()
 	return compose.OrchestratorDeps{
 		Projects:          repo,
 		DeploymentCounter: counter,

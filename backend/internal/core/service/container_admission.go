@@ -13,7 +13,7 @@ type CapacityChecker interface {
 
 // CheckCapacity admits memory, CPU and a projected disk write for ownerID
 // under the owner capacity lock, and releases the lock: it reserves nothing.
-// Project start preflight and Compose deployment use it.
+// Project start preflight uses it.
 func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error {
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {

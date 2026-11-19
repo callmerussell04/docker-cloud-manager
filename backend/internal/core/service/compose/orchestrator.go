@@ -99,10 +99,15 @@ type ContainerService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
-// CapacityChecker preflights a deployment's estimated RAM/CPU against host and
-// owner capacity.
+// CapacityChecker admits a deployment's whole plan for the owner in ctx's
+// access scope. Under the
+// owner capacity lock it checks the queued deployments, container, volume and
+// queued build limits and the admission limits, rejects at the first limit
+// exceeded, and otherwise runs commit before the lock is released, so the
+// queued deployments limit holds with the job insert. commit must not take a
+// capacity lock itself. Nothing is reserved.
 type CapacityChecker interface {
-	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error
+	AdmitPlan(ctx context.Context, demand model.ComposePlanDemand, commit func(context.Context) error) error
 }
 
 type DockerAPI interface {
@@ -171,7 +176,7 @@ type preparedDeploymentSource struct {
 
 // OrchestratorDeps contains the capabilities Compose source ingestion needs.
 // Projects, DeploymentCounter, Capacity and Config are required because they
-// enforce the queued-deployment limit and the RAM/CPU preflight. The remaining
+// enforce the queued-deployment limit and admit the whole plan. The remaining
 // integrations are optional: without ObjectStore deployments are unavailable,
 // without BuildJobs image builds are unavailable, and without Resources
 // interrupted-deployment cleanup is skipped.
@@ -263,6 +268,9 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	if err != nil {
 		return uuid.Nil, err
 	}
+	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+		return uuid.Nil, err
+	}
 	if err := o.staging.CheckHostDiskFloor(o.cfg.Get().ComposeUploadMaxBytes); err != nil {
 		return uuid.Nil, err
 	}
@@ -319,6 +327,9 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 	if err != nil {
 		return uuid.Nil, err
 	}
+	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+		return uuid.Nil, err
+	}
 	if err := o.staging.CheckHostDiskFloor(o.cfg.Get().GitMaxRepositoryBytes); err != nil {
 		return uuid.Nil, err
 	}
@@ -355,51 +366,34 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 	return o.createDeploymentJob(ctx, projectName, model.ComposeSourceTypeGit, prepared.SourceObjectKey, source.ComposeFile, prepared)
 }
 
+// createDeploymentJob parses the staged source and queues its deployment job
+// once the plan's whole demand is admitted. The job insert is the admission's
+// commit step, so it runs under the owner capacity lock. A rejected source is
+// deleted and its reservation released.
 func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sourceType, sourceObjectKey, composeFile string, prepared preparedDeploymentSource) (uuid.UUID, error) {
-	ownerID, err := accessscope.RequireUserOwner(ctx)
-	if err != nil {
+	reject := func(err error) (uuid.UUID, error) {
 		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
 		cancel()
 		return uuid.Nil, err
+	}
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return reject(err)
 	}
 	cfg := o.cfg.Get()
 	parsedProject, err := o.parseComposeProject(ctx, projectName, prepared.ComposeYAML, prepared.ComposeBaseDir, cfg.ReservedDomainPrefixes, cfg.BlockedDomainPrefixPatterns)
 	if err != nil {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, err
+		return reject(err)
 	}
 	if len(parsedProject.Services) == 0 {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose project must define at least one service")
-	}
-	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, err
-	}
-	if err := o.ensureDeploymentCapacity(ctx, ownerID, parsedProject); err != nil {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, err
+		return reject(apperrors.New(apperrors.ErrBadRequest, "compose project must define at least one service"))
 	}
 	if composeRequiresBuild(parsedProject) && !prepared.Archive {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, apperrors.New(apperrors.ErrBadRequest, "compose build requires an archive source")
+		return reject(apperrors.New(apperrors.ErrBadRequest, "compose build requires an archive source"))
 	}
-	if composeRequiresBuild(parsedProject) && !o.cfg.Get().ImageBuildsEnabled {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage)
+	if composeRequiresBuild(parsedProject) && !cfg.ImageBuildsEnabled {
+		return reject(apperrors.New(apperrors.ErrUnavailable, imageBuildsUnavailableMessage))
 	}
 
 	projectID := uuid.New()
@@ -411,20 +405,16 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		Name:    projectName,
 		Status:  model.ProjectStatusBuilding,
 	}
-	now := time.Now()
 	msg := queue.DeploymentMessage{
 		JobID:     jobID.String(),
 		ProjectID: projectID.String(),
 		OwnerID:   ownerID.String(),
 		RequestID: requestID,
-		CreatedAt: now.Unix(),
+		CreatedAt: time.Now().Unix(),
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, fmt.Errorf("failed to marshal compose queue message: %w", err)
+		return reject(fmt.Errorf("failed to marshal compose queue message: %w", err))
 	}
 	job := model.ComposeDeploymentJob{
 		ID:              jobID,
@@ -444,11 +434,11 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 		Payload:    payload,
 		Status:     model.ComposeOutboxStatusPending,
 	}
-	if err := o.projectRepo.CreateWithComposeDeploymentJob(ctx, p, job, outbox); err != nil {
-		cleanupCtx, cancel := cleanupctx.Detached(ctx)
-		o.deleteComposeSourceObject(cleanupCtx, sourceObjectKey)
-		cancel()
-		return uuid.Nil, err
+	insertJob := func(ctx context.Context) error {
+		return o.projectRepo.CreateWithComposeDeploymentJob(ctx, p, job, outbox)
+	}
+	if err := o.capacity.AdmitPlan(ctx, composePlanDemand(parsedProject, cfg), insertJob); err != nil {
+		return reject(err)
 	}
 	o.logger.InfoContext(ctx, "compose deployment queued", "project_id", projectID, "job_id", jobID, "owner_id", ownerID, "source_type", sourceType)
 
@@ -578,6 +568,9 @@ func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName stri
 	return o.parser.ParseAndValidateWithBaseAndBlocked(ctx, projectName, composeYAML, reservedDomainPrefixes, blockedDomainPrefixPatterns, composeBaseDir)
 }
 
+// ensureComposeQueueLimit refuses an owner who already has the allowed queued
+// deployments, before any upload or clone. It holds no lock: the plan
+// admission checks the limit again with the job insert.
 func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
 	limit := o.cfg.Get().MaxQueuedComposeDeploysPerUser
 	if limit <= 0 {
@@ -593,15 +586,11 @@ func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid
 	return nil
 }
 
-func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uuid.UUID, project *model.ComposeProject) error {
-	if err := o.staging.CheckHostDiskFloor(0); err != nil {
-		return err
-	}
-	if project == nil {
-		return nil
-	}
-	cfg := o.cfg.Get()
-	var requestedRAM, requestedCPU int64
+// composePlanDemand is what project asks of its owner and the host: one
+// container per service with its own reservations or the defaults, its
+// managed volumes by distinct name, and one build per service that builds.
+func composePlanDemand(project *model.ComposeProject, cfg config.SystemConfig) model.ComposePlanDemand {
+	demand := model.ComposePlanDemand{Services: len(project.Services)}
 	for _, srv := range project.Services {
 		memory, cpu := cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation
 		if srv.MemoryReservationMB > 0 {
@@ -610,10 +599,21 @@ func (o *Orchestrator) ensureDeploymentCapacity(ctx context.Context, ownerID uui
 		if srv.CPUReservationMillicores > 0 {
 			cpu = srv.CPUReservationMillicores
 		}
-		requestedRAM += memory
-		requestedCPU += cpu
+		demand.MemoryBytes += memory
+		demand.CPUMillicores += cpu
+		if srv.BuildContext != "" {
+			demand.Builds++
+		}
 	}
-	return o.capacity.CheckCapacity(ctx, ownerID, requestedRAM, requestedCPU, 0)
+	seen := make(map[string]bool, len(project.Volumes))
+	for _, vol := range project.Volumes {
+		if vol.External || seen[vol.Name] {
+			continue
+		}
+		seen[vol.Name] = true
+		demand.ManagedVolumeNames = append(demand.ManagedVolumeNames, vol.Name)
+	}
+	return demand
 }
 
 // reserveComposeSource reserves a staged Compose source by the one staged

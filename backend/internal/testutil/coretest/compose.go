@@ -145,11 +145,26 @@ func NewComposeFixture(t *testing.T, cfg config.SystemConfig) *ComposeFixture {
 	})
 	require.NoError(t, err)
 
+	planAdmission, err := service.NewComposePlanAdmission(service.ComposePlanAdmissionDeps{
+		Containers:   repos.Containers,
+		Volumes:      repos.Volumes,
+		Builds:       repos.Builds,
+		Images:       repos.Images,
+		Deployments:  repos.Projects,
+		Quotas:       quotas,
+		HostMetrics:  hostMetrics,
+		DiskMetrics:  diskMetrics,
+		HostDiskPath: "/",
+		Config:       f.Config,
+		Logger:       logger,
+	})
+	require.NoError(t, err)
+
 	resources := ProjectResources{Containers: repos.Containers, Volumes: repos.Volumes}
 	f.Orchestrator, err = compose.NewOrchestrator(compose.OrchestratorDeps{
 		Projects:          repos.Projects,
 		DeploymentCounter: repos.Projects,
-		Capacity:          f.Containers,
+		Capacity:          planAdmission,
 		Config:            f.Config,
 		Builds:            repos.Builds,
 		Resources:         resources,
