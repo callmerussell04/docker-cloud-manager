@@ -3,16 +3,17 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
-
-const bytesPerMB = 1024 * 1024
 
 type StatsContainerRepository interface {
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
@@ -67,11 +68,13 @@ type StatsProjectRepository interface {
 	CountAll(ctx context.Context) (int, error)
 }
 
+// StatsMetricsProvider measures the host. GetTotalMemory, GetLogicalCPUs and
+// GetDiskUsage are also what admission reads, through the reservation ledger.
 type StatsMetricsProvider interface {
 	GetCPULoad() (float64, error)
 	GetMemoryStats() (model.HostMemoryStats, error)
-	GetLogicalCPUs() (int64, error)
-	GetDiskUsage(path string) (model.HostDiskStats, error)
+	HostMetricsProvider
+	HostDiskMetricsProvider
 }
 
 type StatsService struct {
@@ -87,10 +90,13 @@ type StatsService struct {
 	borrowed     StatsBorrowedMemory
 	rootfsQuota  StatsRootfsQuota
 	volumeSize   StatsVolumeSizeMode
+	// hostLedger reads the host part of the reservation ledger the way
+	// admission does, for monitoring's admission status.
+	hostLedger admissionSources
 }
 
 // StatsServiceDeps are what the stats service reads. An empty HostDiskPath
-// measures "/".
+// measures "/". Logger is optional.
 type StatsServiceDeps struct {
 	Containers     StatsContainerRepository
 	Volumes        StatsVolumeRepository
@@ -104,6 +110,7 @@ type StatsServiceDeps struct {
 	Borrowed       StatsBorrowedMemory
 	RootfsQuota    StatsRootfsQuota
 	VolumeSizeMode StatsVolumeSizeMode
+	Logger         *slog.Logger
 }
 
 func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
@@ -117,7 +124,7 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		{"rootfs quota status", deps.RootfsQuota}, {"volume size mode", deps.VolumeSizeMode},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("stats service: %s is required", dependency.name)
 		}
 	}
@@ -138,6 +145,14 @@ func NewStatsService(deps StatsServiceDeps) (*StatsService, error) {
 		borrowed:     deps.Borrowed,
 		rootfsQuota:  deps.RootfsQuota,
 		volumeSize:   deps.VolumeSizeMode,
+		hostLedger: admissionSources{
+			system:       deps.Containers,
+			builds:       deps.Builds,
+			hostMetrics:  deps.Metrics,
+			diskMetrics:  deps.Metrics,
+			hostDiskPath: hostDiskPath,
+			logger:       logging.WithComponent(deps.Logger, "stats"),
+		},
 	}, nil
 }
 
@@ -156,7 +171,7 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	if err != nil {
 		return model.UserStats{}, err
 	}
-	stats.RamQuotaBytes = quota.RAMMB * bytesPerMB
+	stats.RamQuotaBytes = quota.RAMMB * model.BytesPerMB
 	stats.RamUsedBytes, err = s.contRepo.GetUserReservedMemory(ctx, ownerID)
 	if err != nil {
 		return model.UserStats{}, err
@@ -224,25 +239,12 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetDiskUsage: %w", err)
 	}
 
-	logicalCPUs, err := s.metrics.GetLogicalCPUs()
-	if err != nil {
-		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetLogicalCPUs: %w", err)
-	}
-
-	reservedMemory, err := s.contRepo.GetTotalSystemReservedMemory(ctx)
-	if err != nil {
-		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalSystemReservedMemory: %w", err)
-	}
-	reservedCPU, err := s.contRepo.GetTotalSystemReservedCPU(ctx)
-	if err != nil {
-		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: GetTotalSystemReservedCPU: %w", err)
-	}
-	activeBuilds, err := s.buildRepo.CountActive(ctx)
-	if err != nil {
-		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: CountActive: %w", err)
-	}
 	cfg := s.monitoringConfig()
-	buildSlots := reservedBuildSlots(int64(activeBuilds), cfg)
+	var ledger reservationLedger
+	if err := s.hostLedger.readHostLedger(ctx, &ledger, admissionRequest{}, cfg); err != nil {
+		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: read reservation ledger: %w", err)
+	}
+	buildSlots := reservedBuildSlots(ledger.activeBuilds, cfg)
 
 	imageUsedBytes, err := s.imgRepo.GetTotalImageBytes(ctx)
 	if err != nil {
@@ -283,16 +285,7 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		return model.SystemMonitoring{}, fmt.Errorf("system monitoring: count projects: %w", err)
 	}
 
-	admissionStatus, admissionReasons := admissionState(reservationLedger{
-		systemReservedMemoryBytes:   reservedMemory,
-		systemReservedCPUMillicores: reservedCPU,
-		activeBuilds:                int64(activeBuilds),
-		hostCounted:                 true,
-		hostMemoryBytes:             memory.TotalBytes,
-		hostLogicalCPUs:             logicalCPUs,
-		diskFloorCounted:            cfg.HostMinFreeDiskBytes > 0,
-		diskFreeBytes:               disk.FreeBytes,
-	}, cfg)
+	admissionStatus, admissionReasons := admissionState(ledger, cfg)
 
 	return model.SystemMonitoring{
 		CPUPercent:                    cpuPercent,
@@ -302,9 +295,9 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		DiskTotalBytes:                disk.TotalBytes,
 		DiskUsedBytes:                 disk.UsedBytes,
 		DiskFreeBytes:                 disk.FreeBytes,
-		DCMReservedMemoryBytes:        reservedMemory,
+		DCMReservedMemoryBytes:        ledger.systemReservedMemoryBytes,
 		DCMReservedBuildMemoryBytes:   buildSlots * cfg.BuildMemoryBytes,
-		DCMReservedCPUMillicores:      reservedCPU,
+		DCMReservedCPUMillicores:      ledger.systemReservedCPUMillicores,
 		DCMReservedBuildCPUMillicores: buildSlots * max(cfg.BuildCPUMillicores, 0),
 		DCMBorrowedMemoryBytes:        s.borrowed.BorrowedMemoryBytes(),
 		RootfsQuotaStatus:             s.rootfsQuota.RootfsQuotaStatus(),
@@ -356,9 +349,9 @@ var admissionReasons = map[apperrors.Limit]string{
 func (s *StatsService) monitoringConfig() config.SystemConfig {
 	if s.cfg == nil {
 		return config.SystemConfig{
-			DefaultMemoryReservation: 256 * bytesPerMB,
+			DefaultMemoryReservation: 256 * model.BytesPerMB,
 			OvercommitFactor:         1,
-			BuildMemoryBytes:         512 * bytesPerMB,
+			BuildMemoryBytes:         512 * model.BytesPerMB,
 			MaxConcurrentBuilds:      2,
 		}
 	}

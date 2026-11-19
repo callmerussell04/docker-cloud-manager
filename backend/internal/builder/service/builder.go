@@ -17,6 +17,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 type FileManager interface {
@@ -157,7 +158,7 @@ func NewBuilderService(deps BuilderServiceDeps) (*BuilderService, error) {
 		{"results", deps.Results}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("builder service: %s is required", dependency.name)
 		}
 	}

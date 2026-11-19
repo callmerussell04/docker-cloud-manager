@@ -104,11 +104,10 @@ packages:
       mockname: "{{.InterfaceName | camelcase}}"
       filename: "{{.InterfaceName | snakecase}}.go"
     interfaces:
-      ActiveComposeDeploymentCounter: {}
-      CapacityChecker: {}
       CapacityLock: {}
       ContainerService: {}
       ObjectStorage: {}
+      PlanAdmission: {}
       ProjectRepository: {}
       ReservedDiskReader: {}
       StagedObjectRepository: {}

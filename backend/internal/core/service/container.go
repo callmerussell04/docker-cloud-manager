@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/auditlog"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
 )
@@ -168,7 +169,7 @@ func NewContainerService(deps ContainerServiceDeps) (*ContainerService, error) {
 		{"config", deps.Config}, {"quotas", deps.Quotas}, {"builds", deps.Builds},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("container service: %s is required", dependency.name)
 		}
 	}
@@ -259,14 +260,8 @@ func (s *ContainerService) Create(ctx context.Context, params model.ContainerCre
 		}
 
 	}
-	if cfg.MaxQueuedContainerCreatesPerUser > 0 {
-		queued, err := s.repo.CountActiveCreateOperationsByOwner(ctx, ownerID)
-		if err != nil {
-			return uuid.Nil, err
-		}
-		if queued >= cfg.MaxQueuedContainerCreatesPerUser {
-			return uuid.Nil, apperrors.Exceeded(apperrors.LimitQueuedContainerCreates)
-		}
+	if err := checkQueuedLimit(ctx, ownerID, s.repo.CountActiveCreateOperationsByOwner, 1, cfg.MaxQueuedContainerCreatesPerUser, apperrors.LimitQueuedContainerCreates); err != nil {
+		return uuid.Nil, err
 	}
 
 	if err := s.admit(ctx, ownerID, admissionRequest{memoryBytes: reqMem, cpuMillicores: reqCPU, chargesUser: true}); err != nil {
@@ -551,8 +546,8 @@ func (s *ContainerService) startAdmissionRequest(c model.Container) admissionReq
 	}
 	cfg := s.config.Get()
 	return admissionRequest{
-		memoryBytes:   normalizeMemoryReservation(c.BaseMemoryReservation, cfg),
-		cpuMillicores: normalizeCPUReservation(c.BaseCPUReservation, cfg),
+		memoryBytes:   cfg.MemoryReservationOrDefault(c.BaseMemoryReservation),
+		cpuMillicores: cfg.CPUReservationOrDefault(c.BaseCPUReservation),
 		chargesUser:   true,
 	}
 }

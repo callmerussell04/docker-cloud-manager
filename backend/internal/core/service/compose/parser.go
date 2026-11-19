@@ -22,8 +22,6 @@ import (
 
 type Parser struct{}
 
-const bytesPerMB = int64(1 << 20)
-
 var supportedComposeServiceKeys = map[string]struct{}{
 	"build":           {},
 	"command":         {},
@@ -597,9 +595,9 @@ func serviceReservation(srv *types.ServiceConfig) (memoryMB, millicores int64, e
 	}
 	if memoryBytes != 0 {
 		if memoryBytes < config.MinMemoryReservationBytes || memoryBytes > config.MaxMemoryReservationBytes {
-			return 0, 0, fmt.Errorf("%w: memory reservation for service %s must be between 16 MiB and 1 TiB", apperrors.ErrBadRequest, srv.Name)
+			return 0, 0, fmt.Errorf("%w: memory reservation for service %s must be %s", apperrors.ErrBadRequest, srv.Name, config.MemoryReservationRange())
 		}
-		memoryMB = (memoryBytes + bytesPerMB - 1) / bytesPerMB
+		memoryMB = model.BytesToMBRoundedUp(memoryBytes)
 	}
 	if cores != 0 {
 		// compose-go keeps cpus as float32, so 0.01 arrives as 9.9999998
@@ -609,7 +607,7 @@ func serviceReservation(srv *types.ServiceConfig) (memoryMB, millicores int64, e
 		// for NaN, so NaN is rejected too.
 		scaled := math.Round(cores*1000*1000) / 1000
 		if !(scaled >= float64(config.MinCPUReservationMillicores) && scaled <= float64(config.MaxCPUReservationMillicores)) {
-			return 0, 0, fmt.Errorf("%w: cpu reservation for service %s must be between 0.01 cores and the largest cpu quota", apperrors.ErrBadRequest, srv.Name)
+			return 0, 0, fmt.Errorf("%w: cpu reservation for service %s must be %s", apperrors.ErrBadRequest, srv.Name, config.CPUReservationRangeInCores())
 		}
 		millicores = int64(math.Round(scaled))
 	}

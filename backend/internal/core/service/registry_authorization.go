@@ -12,6 +12,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -66,7 +67,7 @@ func NewRegistryAuthorization(deps RegistryAuthorizationDeps) (*RegistryAuthoriz
 		{"repository", deps.Repository}, {"users", deps.Users}, {"signer", deps.Signer},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("registry authorization: %s is required", dependency.name)
 		}
 	}

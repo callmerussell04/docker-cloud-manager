@@ -125,7 +125,7 @@ func TestContainerServiceAdmissionPropagatesLockFailure(t *testing.T) {
 			case "start":
 				err = svc.Start(ctx, id)
 			case "check capacity":
-				err = svc.CheckCapacity(ctx, owner, 128, 250, 0)
+				err = svc.CheckCapacity(ctx, owner, 128, 250)
 			}
 			require.ErrorIs(t, err, apperrors.ErrUnavailable)
 		})

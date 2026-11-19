@@ -8,13 +8,13 @@ import (
 )
 
 type CapacityChecker interface {
-	CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error
+	CheckCapacity(ctx context.Context, ownerID uuid.UUID, memoryBytes, cpuMillicores int64) error
 }
 
-// CheckCapacity admits memory, CPU and a projected disk write for ownerID
-// under the owner capacity lock, and releases the lock: it reserves nothing.
-// Project start preflight uses it.
-func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID, requestedRam int64, requestedCPU int64, projectedDiskWriteBytes int64) error {
+// CheckCapacity admits memory and CPU for ownerID under the owner capacity
+// lock, and releases the lock: it reserves nothing. Project start preflight
+// uses it.
+func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID, memoryBytes, cpuMillicores int64) error {
 	unlock, err := s.acquireOwnerCapacityLock(ctx, ownerID)
 	if err != nil {
 		return err
@@ -23,10 +23,9 @@ func (s *ContainerService) CheckCapacity(ctx context.Context, ownerID uuid.UUID,
 		defer unlock()
 	}
 	return s.admit(ctx, ownerID, admissionRequest{
-		memoryBytes:    requestedRam,
-		cpuMillicores:  requestedCPU,
-		chargesUser:    true,
-		diskWriteBytes: projectedDiskWriteBytes,
+		memoryBytes:   memoryBytes,
+		cpuMillicores: cpuMillicores,
+		chargesUser:   true,
 	})
 }
 

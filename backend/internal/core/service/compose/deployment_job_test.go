@@ -714,18 +714,17 @@ func newDeploymentWorld(t *testing.T) *deploymentWorld {
 		},
 	}}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:          w.store,
-		DeploymentCounter: w.store,
-		Capacity:          admitAllCapacity{},
-		Config:            cfg,
-		Builds:            w.builds,
-		Resources:         w.resources,
-		Volumes:           w.volumes,
-		Containers:        w.containers,
-		ObjectStore:       w.objects,
-		BuildJobs:         w.builds,
-		Images:            w.images,
-		Logger:            logger,
+		Projects:      w.store,
+		PlanAdmission: admitEveryPlan{},
+		Config:        cfg,
+		Builds:        w.builds,
+		Resources:     w.resources,
+		Volumes:       w.volumes,
+		Containers:    w.containers,
+		ObjectStore:   w.objects,
+		BuildJobs:     w.builds,
+		Images:        w.images,
+		Logger:        logger,
 	})
 	require.NoError(t, err)
 	w.coordDeps = compose.DeploymentCoordinatorDeps{
@@ -923,8 +922,10 @@ func (s *composeObjects) NewReaderAt(_ context.Context, objectKey string) (io.Re
 	return bytes.NewReader(data), int64(len(data)), nil
 }
 
-type admitAllCapacity struct{}
+type admitEveryPlan struct{}
 
-func (admitAllCapacity) AdmitPlan(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
+func (admitEveryPlan) CheckDeploymentQueue(context.Context) error { return nil }
+
+func (admitEveryPlan) AdmitPlan(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
 	return commit(ctx)
 }

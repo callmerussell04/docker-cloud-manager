@@ -93,20 +93,18 @@ func composeOrchestratorDeps(t *testing.T, repo *composemocks.ProjectRepository,
 		Return(nil).
 		Maybe()
 	configProvider := coretest.StaticConfig{Config: cfg}
-	counter := composemocks.NewActiveComposeDeploymentCounter(t)
-	counter.EXPECT().CountActiveComposeDeploymentsByOwner(mock.Anything, mock.Anything).Return(0, nil).Maybe()
-	capacity := composemocks.NewCapacityChecker(t)
-	capacity.EXPECT().AdmitPlan(mock.Anything, mock.Anything, mock.Anything).
+	admission := composemocks.NewPlanAdmission(t)
+	admission.EXPECT().CheckDeploymentQueue(mock.Anything).Return(nil).Maybe()
+	admission.EXPECT().AdmitPlan(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, _ model.ComposePlanDemand, commit func(context.Context) error) error {
 			return commit(ctx)
 		}).Maybe()
 	return compose.OrchestratorDeps{
-		Projects:          repo,
-		DeploymentCounter: counter,
-		Capacity:          capacity,
-		Config:            configProvider,
-		ObjectStore:       objectStore,
-		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Projects:      repo,
+		PlanAdmission: admission,
+		Config:        configProvider,
+		ObjectStore:   objectStore,
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, objects
 }
 

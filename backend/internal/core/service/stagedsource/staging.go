@@ -8,11 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -85,7 +85,7 @@ type Staging struct {
 // New builds staging from deps. It rejects a Repository without its required
 // capacity lock, reserved disk reader or config, including typed nils.
 func New(deps Deps) (*Staging, error) {
-	if deps.Repository != nil && !isNil(deps.Repository) {
+	if !nilcheck.IsNil(deps.Repository) {
 		required := []struct {
 			name  string
 			value any
@@ -95,7 +95,7 @@ func New(deps Deps) (*Staging, error) {
 			{"config", deps.Config},
 		}
 		for _, dependency := range required {
-			if dependency.value == nil || isNil(dependency.value) {
+			if nilcheck.IsNil(dependency.value) {
 				return nil, fmt.Errorf("staged source: %s is required", dependency.name)
 			}
 		}
@@ -111,16 +111,6 @@ func New(deps Deps) (*Staging, error) {
 		hostDiskPath: deps.HostDiskPath,
 		cfg:          deps.Config,
 	}, nil
-}
-
-func isNil(value any) bool {
-	v := reflect.ValueOf(value)
-	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return v.IsNil()
-	default:
-		return false
-	}
 }
 
 // Reservation asks to reserve Bytes for a staged object under ObjectKey.

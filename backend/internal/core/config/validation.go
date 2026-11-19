@@ -21,7 +21,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		return fmt.Errorf("reserved system memory must not be negative")
 	}
 	if cfg.DefaultMemoryReservation < MinMemoryReservationBytes {
-		return fmt.Errorf("default memory reservation must be at least 16 MiB")
+		return fmt.Errorf("default memory reservation must be at least %s", MinMemoryReservation())
 	}
 	if cfg.OvercommitFactor <= 0 || cfg.OvercommitFactor > 10 {
 		return fmt.Errorf("overcommit factor must be between 0 and 10")
@@ -33,7 +33,7 @@ func ValidateSystemConfig(cfg SystemConfig) error {
 		return fmt.Errorf("reserved system cpu must not be negative")
 	}
 	if cfg.DefaultCPUReservation < MinCPUReservationMillicores {
-		return fmt.Errorf("default cpu reservation must be at least 10 millicores")
+		return fmt.Errorf("default cpu reservation must be at least %d millicores", MinCPUReservationMillicores)
 	}
 	if cfg.CPUOvercommitFactor <= 0 || cfg.CPUOvercommitFactor > 10 {
 		return fmt.Errorf("cpu overcommit factor must be between 0 and 10")

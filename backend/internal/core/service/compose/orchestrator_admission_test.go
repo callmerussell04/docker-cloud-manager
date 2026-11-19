@@ -15,6 +15,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/compose"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/service/userquota"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/testutil/coretest"
@@ -345,22 +346,22 @@ func TestStartGitDeploymentRefusesAFullQueueBeforeCloning(t *testing.T) {
 	require.Equal(t, apperrors.LimitQueuedComposeDeployments, apperrors.LimitOf(err))
 }
 
-// fullQueueDeps are orchestrator dependencies for an owner holding both of
-// their two queued deployments. The object store and the plan admission
-// expect no call.
+// fullQueueDeps are orchestrator dependencies for an owner whose queued
+// deployments the plan admission finds full. The object store expects no
+// call and the plan admission no AdmitPlan.
 func fullQueueDeps(t *testing.T, owner uuid.UUID) compose.OrchestratorDeps {
 	t.Helper()
-	cfg := composeTestConfig()
-	cfg.MaxQueuedComposeDeploysPerUser = 2
-	counter := composemocks.NewActiveComposeDeploymentCounter(t)
-	counter.EXPECT().CountActiveComposeDeploymentsByOwner(mock.Anything, owner).Return(2, nil).Once()
+	admission := composemocks.NewPlanAdmission(t)
+	admission.EXPECT().CheckDeploymentQueue(mock.MatchedBy(func(ctx context.Context) bool {
+		scoped, err := accessscope.RequireUserOwner(ctx)
+		return err == nil && scoped == owner
+	})).Return(apperrors.Exceeded(apperrors.LimitQueuedComposeDeployments)).Once()
 	return compose.OrchestratorDeps{
-		Projects:          composemocks.NewProjectRepository(t),
-		DeploymentCounter: counter,
-		Capacity:          composemocks.NewCapacityChecker(t),
-		Config:            coretest.StaticConfig{Config: cfg},
-		ObjectStore:       composemocks.NewObjectStorage(t),
-		Logger:            coretest.DiscardLogger(),
+		Projects:      composemocks.NewProjectRepository(t),
+		PlanAdmission: admission,
+		Config:        coretest.StaticConfig{Config: composeTestConfig()},
+		ObjectStore:   composemocks.NewObjectStorage(t),
+		Logger:        coretest.DiscardLogger(),
 	}
 }
 
@@ -400,7 +401,8 @@ volumes:
 	cfg.DefaultCPUReservation = 500
 	repo := composemocks.NewProjectRepository(t)
 	deps, _ := composeOrchestratorDeps(t, repo, cfg)
-	capacity := composemocks.NewCapacityChecker(t)
+	admission := composemocks.NewPlanAdmission(t)
+	admission.EXPECT().CheckDeploymentQueue(mock.Anything).Return(nil).Once()
 	want := model.ComposePlanDemand{
 		Services:           3,
 		MemoryBytes:        1024<<20 + 2*256<<20,
@@ -408,8 +410,8 @@ volumes:
 		ManagedVolumeNames: []string{"proj_data"},
 		Builds:             1,
 	}
-	capacity.EXPECT().AdmitPlan(mock.Anything, want, mock.Anything).Return(nil).Once()
-	deps.Capacity = capacity
+	admission.EXPECT().AdmitPlan(mock.Anything, want, mock.Anything).Return(nil).Once()
+	deps.PlanAdmission = admission
 	o, err := compose.NewOrchestrator(deps)
 	require.NoError(t, err)
 
@@ -480,12 +482,11 @@ func newPlanHarness(t *testing.T, w planWorld, adjust ...func(*config.SystemConf
 		}).Maybe()
 	objects := coretest.NewMemoryObjects()
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:          repo,
-		DeploymentCounter: deployments,
-		Capacity:          admission,
-		Config:            static,
-		ObjectStore:       objects,
-		Logger:            coretest.DiscardLogger(),
+		Projects:      repo,
+		PlanAdmission: admission,
+		Config:        static,
+		ObjectStore:   objects,
+		Logger:        coretest.DiscardLogger(),
 	})
 	require.NoError(t, err)
 	return &planHarness{orchestrator: orchestrator, deployments: deployments, images: images, objects: objects, ctx: ctx}

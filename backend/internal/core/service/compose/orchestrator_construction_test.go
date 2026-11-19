@@ -18,20 +18,18 @@ func TestOrchestratorRejectsMissingAdmissionDependencies(t *testing.T) {
 		return deps
 	}
 	depstest.RequireRejectsMissing(t, valid, compose.NewOrchestrator, map[string]string{
-		"Projects":          "projects",
-		"DeploymentCounter": "deployment counter",
-		"Capacity":          "capacity",
-		"Config":            "config",
+		"Projects":      "projects",
+		"PlanAdmission": "plan admission",
+		"Config":        "config",
 	})
 }
 
 func TestOrchestratorAcceptsRequiredDependenciesWithoutOptionalIntegrations(t *testing.T) {
 	deps, _ := composeOrchestratorDeps(t, composemocks.NewProjectRepository(t), composeTestConfig())
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:          deps.Projects,
-		DeploymentCounter: deps.DeploymentCounter,
-		Capacity:          deps.Capacity,
-		Config:            deps.Config,
+		Projects:      deps.Projects,
+		PlanAdmission: deps.PlanAdmission,
+		Config:        deps.Config,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, orchestrator)
@@ -59,8 +57,7 @@ func TestOrchestratorRequiresTheStagingLockWithStagedObjects(t *testing.T) {
 }
 
 // Production adapters keep satisfying the orchestrator's admission contracts.
-var _ compose.ActiveComposeDeploymentCounter = (*repository.ProjectRepository)(nil)
-var _ compose.CapacityChecker = (*service.ComposePlanAdmission)(nil)
+var _ compose.PlanAdmission = (*service.ComposePlanAdmission)(nil)
 var _ compose.BuildJobCreator = (*service.BuildService)(nil)
 var _ compose.ObjectStorage = (*objectstorage.LazyStorage)(nil)
 var _ compose.CapacityLock = (*repository.ContainerRepository)(nil)

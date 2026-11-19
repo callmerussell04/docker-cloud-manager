@@ -247,24 +247,23 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	orchestrator, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-		Projects:          projRepo,
-		DeploymentCounter: projRepo,
-		Capacity:          composePlanAdmission,
-		Config:            cfg.ConfigManager,
-		Builds:            buildRepo,
-		Resources:         resourceRepo,
-		Volumes:           volService,
-		Containers:        contService,
-		ObjectStore:       objectStore,
-		BuildJobs:         buildService,
-		Images:            imgService,
-		StagedObjects:     stagedRepo,
-		CapacityLock:      contRepo,
-		ReservedDisk:      service.NewReservedDiskReader(imgRepo, volRepo),
-		DiskMetrics:       metricsProvider,
-		HostDiskPath:      cfg.HostDiskPath,
-		Quotas:            userQuotas,
-		Logger:            logger,
+		Projects:      projRepo,
+		PlanAdmission: composePlanAdmission,
+		Config:        cfg.ConfigManager,
+		Builds:        buildRepo,
+		Resources:     resourceRepo,
+		Volumes:       volService,
+		Containers:    contService,
+		ObjectStore:   objectStore,
+		BuildJobs:     buildService,
+		Images:        imgService,
+		StagedObjects: stagedRepo,
+		CapacityLock:  contRepo,
+		ReservedDisk:  service.NewReservedDiskReader(imgRepo, volRepo),
+		DiskMetrics:   metricsProvider,
+		HostDiskPath:  cfg.HostDiskPath,
+		Quotas:        userQuotas,
+		Logger:        logger,
 	})
 	if err != nil {
 		cancel()
@@ -355,6 +354,7 @@ func New(cfg Config, logger *slog.Logger) (*App, error) {
 		Containers: contRepo, Volumes: volRepo, Images: imgRepo, Builds: buildRepo, Projects: projRepo,
 		Metrics: metricsProvider, HostDiskPath: cfg.HostDiskPath, Config: cfg.ConfigManager, Quotas: userQuotas,
 		Borrowed: memoryPressureWorker, RootfsQuota: rootfsQuota, VolumeSizeMode: volumeSizeEnforcement,
+		Logger: logger,
 	})
 	if err != nil {
 		cancel()

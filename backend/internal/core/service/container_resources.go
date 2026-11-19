@@ -21,8 +21,8 @@ const (
 // memory pressure worker moves it, between the standard limit and the boost
 // ceiling.
 func containerResources(c model.Container, cfg config.SystemConfig) model.ContainerResourceUpdate {
-	memory := normalizeMemoryReservation(c.BaseMemoryReservation, cfg)
-	cpu := normalizeCPUReservation(c.BaseCPUReservation, cfg)
+	memory := cfg.MemoryReservationOrDefault(c.BaseMemoryReservation)
+	cpu := cfg.CPUReservationOrDefault(c.BaseCPUReservation)
 	return model.ContainerResourceUpdate{
 		MemoryLimitBytes:     memory * max(cfg.MaxBurstMultiplier, 1),
 		MemoryReservation:    memory,
@@ -36,27 +36,13 @@ func containerResources(c model.Container, cfg config.SystemConfig) model.Contai
 // memoryBoostCeiling is the highest memory limit memory boost may give a
 // running container: its reservation times MemoryBoostMultiplier.
 func memoryBoostCeiling(c model.Container, cfg config.SystemConfig) int64 {
-	return normalizeMemoryReservation(c.BaseMemoryReservation, cfg) * cfg.MemoryBoostMultiplier
+	return cfg.MemoryReservationOrDefault(c.BaseMemoryReservation) * cfg.MemoryBoostMultiplier
 }
 
 // cpuBoostCeiling is the highest CPU quota CPU boost may give a running
 // container: its reservation times CPUBoostMultiplier.
 func cpuBoostCeiling(c model.Container, cfg config.SystemConfig) int64 {
-	return cpuQuotaFromMillicores(normalizeCPUReservation(c.BaseCPUReservation, cfg)*cfg.CPUBoostMultiplier, cfg.ContainerCPUPeriod)
-}
-
-func normalizeMemoryReservation(value int64, cfg config.SystemConfig) int64 {
-	if value > 0 {
-		return value
-	}
-	return cfg.DefaultMemoryReservation
-}
-
-func normalizeCPUReservation(value int64, cfg config.SystemConfig) int64 {
-	if value > 0 {
-		return value
-	}
-	return cfg.DefaultCPUReservation
+	return cpuQuotaFromMillicores(cfg.CPUReservationOrDefault(c.BaseCPUReservation)*cfg.CPUBoostMultiplier, cfg.ContainerCPUPeriod)
 }
 
 func cpuQuotaFromMillicores(millicores, period int64) int64 {
@@ -82,18 +68,17 @@ func cpuSharesForReservation(cpuReservation int64, cfg config.SystemConfig) int6
 // whose message does not echo it. A figure above the owner's quota is within
 // the bounds and left to admission.
 func chosenReservation(params model.ContainerCreateParams, cfg config.SystemConfig) (memoryBytes, cpuMillicores int64, err error) {
-	memoryBytes, cpuMillicores = cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation
 	if mb := params.MemoryReservationMB; mb != 0 {
-		if mb < config.MinMemoryReservationBytes/bytesPerMB || mb > config.MaxMemoryReservationBytes/bytesPerMB {
-			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "memory reservation must be between 16 MiB and 1 TiB")
+		if mb < config.MinMemoryReservationBytes/model.BytesPerMB || mb > config.MaxMemoryReservationBytes/model.BytesPerMB {
+			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "memory reservation must be "+config.MemoryReservationRange())
 		}
-		memoryBytes = mb * bytesPerMB
+		memoryBytes = mb * model.BytesPerMB
 	}
 	if mc := params.CPUReservationMillicores; mc != 0 {
 		if mc < config.MinCPUReservationMillicores || mc > config.MaxCPUReservationMillicores {
-			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "cpu reservation must be between 10 millicores and the largest cpu quota")
+			return 0, 0, apperrors.New(apperrors.ErrBadRequest, "cpu reservation must be "+config.CPUReservationRange())
 		}
 		cpuMillicores = mc
 	}
-	return memoryBytes, cpuMillicores, nil
+	return cfg.MemoryReservationOrDefault(memoryBytes), cfg.CPUReservationOrDefault(cpuMillicores), nil
 }

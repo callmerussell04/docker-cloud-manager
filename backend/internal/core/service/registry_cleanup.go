@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -54,7 +55,7 @@ func NewRegistryCleanupWorker(deps RegistryCleanupWorkerDeps) (*RegistryCleanupW
 		{"repository", deps.Repository}, {"images", deps.Images}, {"registry", deps.Registry}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("registry cleanup worker: %s is required", dependency.name)
 		}
 	}

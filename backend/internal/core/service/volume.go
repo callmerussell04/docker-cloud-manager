@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
@@ -120,7 +121,7 @@ func NewVolumeService(deps VolumeServiceDeps) (*VolumeService, error) {
 		{"capacity lock", deps.CapacityLock}, {"volume size mode", deps.SizeMode},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("volume service: %s is required", dependency.name)
 		}
 	}

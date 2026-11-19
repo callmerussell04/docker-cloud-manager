@@ -12,6 +12,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 // AccountDeactivatedStopReason is the last error of a container the platform
@@ -78,7 +79,7 @@ func NewWorkloadSuspension(deps WorkloadSuspensionDeps) (*WorkloadSuspension, er
 		{"deployments", deps.Deployments}, {"deployment canceler", deps.DeploymentCanceler},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("workload suspension: %s is required", dependency.name)
 		}
 	}

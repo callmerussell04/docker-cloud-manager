@@ -10,12 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"reflect"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -50,10 +50,10 @@ type Service struct {
 
 // New rejects an absent store or config, including a typed nil.
 func New(store Store, cfg ConfigProvider) (*Service, error) {
-	if isNil(store) {
+	if nilcheck.IsNil(store) {
 		return nil, errors.New("user quotas: store is required")
 	}
-	if isNil(cfg) {
+	if nilcheck.IsNil(cfg) {
 		return nil, errors.New("user quotas: config is required")
 	}
 	return &Service{store: store, config: cfg}, nil
@@ -153,19 +153,6 @@ func validateLimits(limits model.UserQuotaLimits) (model.UserQuota, error) {
 		return model.UserQuota{}, apperrors.New(apperrors.ErrBadRequest, "memory and disk quotas must be positive")
 	}
 	return model.UserQuota{CPUMillicores: config.CPUMillicores(cpu), RAMMB: limits.RAMMB, DiskMB: limits.DiskMB}, nil
-}
-
-func isNil(dependency any) bool {
-	if dependency == nil {
-		return true
-	}
-	value := reflect.ValueOf(dependency)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
 }
 
 // defaultQuota is the quota of an owner without a custom quota.

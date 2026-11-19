@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 type ImageRepository interface {
@@ -98,7 +99,7 @@ func NewImageService(deps ImageServiceDeps) (*ImageService, error) {
 		{"registry authorization", deps.RegistryAuth},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("image service: %s is required", dependency.name)
 		}
 	}

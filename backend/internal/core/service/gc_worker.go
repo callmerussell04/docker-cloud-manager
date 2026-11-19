@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -104,7 +105,7 @@ func NewGCWorker(deps GCWorkerDeps) (*GCWorker, error) {
 		{"registry gc", deps.RegistryGC}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("gc worker: %s is required", dependency.name)
 		}
 	}
@@ -116,7 +117,7 @@ func NewGCWorker(deps GCWorkerDeps) (*GCWorker, error) {
 		cfg:        deps.Config,
 		logger:     logging.WithComponent(deps.Logger, "gc_worker"),
 	}
-	if deps.StagedObjects != nil && !isNilServiceDependency(deps.StagedObjects) && deps.Objects != nil && !isNilServiceDependency(deps.Objects) {
+	if !nilcheck.IsNil(deps.StagedObjects) && !nilcheck.IsNil(deps.Objects) {
 		w.stagedRepo, w.objectStore = deps.StagedObjects, deps.Objects
 	}
 	return w, nil

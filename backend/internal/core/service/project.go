@@ -14,6 +14,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/google/uuid"
 )
@@ -96,7 +97,7 @@ func NewProjectService(deps ProjectServiceDeps) (*ProjectService, error) {
 		{"volumes", deps.Volumes}, {"capacity", deps.Capacity}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("project service: %s is required", dependency.name)
 		}
 	}
@@ -245,20 +246,19 @@ func (s *ProjectService) ensureStartCapacity(ctx context.Context, p model.Projec
 	if err != nil {
 		return err
 	}
-	requestedRam := int64(0)
-	requestedCPU := int64(0)
+	var memoryBytes, cpuMillicores int64
 	cfg := s.cfg.Get()
 	for _, container := range containers {
 		if container.Status == model.ContainerStatusMissing || container.Status == model.ContainerStatusError || container.ReservesCapacity() {
 			continue
 		}
-		requestedRam += normalizeMemoryReservation(container.BaseMemoryReservation, cfg)
-		requestedCPU += normalizeCPUReservation(container.BaseCPUReservation, cfg)
+		memoryBytes += cfg.MemoryReservationOrDefault(container.BaseMemoryReservation)
+		cpuMillicores += cfg.CPUReservationOrDefault(container.BaseCPUReservation)
 	}
-	if requestedRam <= 0 && requestedCPU <= 0 {
+	if memoryBytes <= 0 && cpuMillicores <= 0 {
 		return nil
 	}
-	return s.capacity.CheckCapacity(ctx, p.OwnerID, requestedRam, requestedCPU, 0)
+	return s.capacity.CheckCapacity(ctx, p.OwnerID, memoryBytes, cpuMillicores)
 }
 
 func (s *ProjectService) RefreshProjectStatus(ctx context.Context, projectID uuid.UUID) error {

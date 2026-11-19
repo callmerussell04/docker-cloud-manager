@@ -6,6 +6,7 @@ import (
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 // SystemVolumeSizeSupport asks the host whether it can enforce volume sizes.
@@ -36,7 +37,7 @@ func NewSystemService(deps SystemServiceDeps) (*SystemService, error) {
 		{"host capacity", deps.HostCapacity},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("system service: %s is required", dependency.name)
 		}
 	}

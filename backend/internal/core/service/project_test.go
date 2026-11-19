@@ -72,7 +72,7 @@ func TestProjectServiceStartPreflightsStoppedContainersBeforeQueueing(t *testing
 		// A container on its way to start without desiring running takes new capacity.
 		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusStarting, DesiredStatus: model.ContainerStatusExited, BaseMemoryReservation: 32, BaseCPUReservation: 50},
 	}, nil)
-	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(416), int64(800), int64(0)).Return(nil).Once()
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(416), int64(800)).Return(nil).Once()
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, (*string)(nil)).Return(nil).Once()
 
 	require.NoError(t, svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID))
@@ -90,7 +90,7 @@ func TestProjectServiceStartRejectsInsufficientCapacity(t *testing.T) {
 	resources.EXPECT().GetByProjectID(mock.Anything, projectID).Return([]model.Container{
 		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusExited, BaseMemoryReservation: 256},
 	}, nil)
-	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(256), int64(250), int64(0)).Return(apperrors.ErrHostExhausted)
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(256), int64(250)).Return(apperrors.ErrHostExhausted)
 
 	err := svc.Start(accessscope.WithUserScope(context.Background(), ownerID, "", ""), projectID)
 	require.ErrorIs(t, err, apperrors.ErrHostExhausted)
@@ -108,7 +108,7 @@ func TestProjectServiceStartAllowsAdminAndChecksOwnerCapacity(t *testing.T) {
 	resources.EXPECT().GetByProjectID(mock.Anything, projectID).Return([]model.Container{
 		{ID: uuid.New(), OwnerID: ownerID, Status: model.ContainerStatusExited, BaseMemoryReservation: 64, BaseCPUReservation: 100},
 	}, nil)
-	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(64), int64(100), int64(0)).Return(nil).Once()
+	capacity.EXPECT().CheckCapacity(mock.Anything, ownerID, int64(64), int64(100)).Return(nil).Once()
 	repo.EXPECT().UpdateStatus(mock.Anything, projectID, model.ProjectStatusStarting, (*string)(nil)).Return(nil).Once()
 
 	require.NoError(t, svc.Start(accessscope.WithAdminScope(context.Background(), uuid.New(), "", ""), projectID))

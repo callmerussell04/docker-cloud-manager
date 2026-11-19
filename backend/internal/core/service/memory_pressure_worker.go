@@ -16,6 +16,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/queue"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -136,7 +137,7 @@ func NewMemoryPressureWorker(deps MemoryPressureWorkerDeps) (*MemoryPressureWork
 		{"quotas", deps.Quotas}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("memory pressure worker: %s is required", dependency.name)
 		}
 	}
@@ -436,7 +437,7 @@ func (w *MemoryPressureWorker) memoryQuotas(ctx context.Context, owners []uuid.U
 			w.logger.WarnContext(ctx, "failed to read user memory quota", "user_id", owner, "error", err)
 			continue
 		}
-		quotaBytes[owner] = quota.RAMMB * bytesPerMB
+		quotaBytes[owner] = quota.RAMMB * model.BytesPerMB
 	}
 	return quotaBytes, nil
 }

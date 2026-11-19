@@ -137,6 +137,7 @@ func monitoringInWorld(t *testing.T, w admissionWorld) *service.StatsService {
 	metrics := coremocks.NewStatsMetricsProvider(t)
 	metrics.EXPECT().GetCPULoad().Return(0, nil)
 	metrics.EXPECT().GetMemoryStats().Return(model.HostMemoryStats{TotalBytes: admissionHostMemoryBytes}, nil)
+	metrics.EXPECT().GetTotalMemory().Return(admissionHostMemoryBytes, nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(admissionHostCPUs, nil)
 	metrics.EXPECT().GetDiskUsage(mock.Anything).Return(model.HostDiskStats{FreeBytes: w.diskFreeBytes}, nil)
 	borrowed := coremocks.NewStatsBorrowedMemory(t)

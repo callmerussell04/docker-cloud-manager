@@ -90,6 +90,7 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 		UsedBytes:      600,
 		AvailableBytes: 400,
 	}, nil)
+	metrics.EXPECT().GetTotalMemory().Return(int64(10*bytesPerMBForTest), nil)
 	metrics.EXPECT().GetLogicalCPUs().Return(int64(4), nil)
 	metrics.EXPECT().GetDiskUsage("/host").Return(model.HostDiskStats{
 		TotalBytes: 2000,

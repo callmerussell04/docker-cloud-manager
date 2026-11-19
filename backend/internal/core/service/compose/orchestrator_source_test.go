@@ -26,15 +26,14 @@ func TestReleaseComposeSourceDeletesObjectAndReleasesReservation(t *testing.T) {
 			staged := composemocks.NewStagedObjectRepository(t)
 			staged.EXPECT().Release(mock.Anything, objectKey).Return(releaseErr).Once()
 			orch, err := compose.NewOrchestrator(compose.OrchestratorDeps{
-				Projects:          composemocks.NewProjectRepository(t),
-				DeploymentCounter: composemocks.NewActiveComposeDeploymentCounter(t),
-				Capacity:          composemocks.NewCapacityChecker(t),
-				Config:            coretest.StaticConfig{Config: composeTestConfig()},
-				ObjectStore:       store,
-				StagedObjects:     staged,
-				CapacityLock:      composemocks.NewCapacityLock(t),
-				ReservedDisk:      composemocks.NewReservedDiskReader(t),
-				Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+				Projects:      composemocks.NewProjectRepository(t),
+				PlanAdmission: composemocks.NewPlanAdmission(t),
+				Config:        coretest.StaticConfig{Config: composeTestConfig()},
+				ObjectStore:   store,
+				StagedObjects: staged,
+				CapacityLock:  composemocks.NewCapacityLock(t),
+				ReservedDisk:  composemocks.NewReservedDiskReader(t),
+				Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 			})
 			require.NoError(t, err)
 

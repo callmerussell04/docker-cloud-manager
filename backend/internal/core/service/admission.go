@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/model"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/google/uuid"
 )
@@ -14,10 +15,10 @@ type admissionRequest struct {
 	memoryBytes   int64
 	cpuMillicores int64
 	// builds is how many image builds the request queues. A build asks for no
-	// memoryBytes, cpuMillicores or diskWriteBytes of its own: it takes a
-	// build slot, and every occupied slot then holds its memory and CPU. The
-	// slot's BuildMaxDiskBytes of disk is held at the claim (buildClaimCap),
-	// not here, so a build waits for disk instead of being refused.
+	// memoryBytes or cpuMillicores of its own: it takes a build slot, and
+	// every occupied slot then holds its memory and CPU. The slot's
+	// BuildMaxDiskBytes of disk is held at the claim (buildClaimCap), not
+	// here, so a build waits for disk instead of being refused.
 	builds int64
 	// chargesUser reports whether the memory and CPU count against the
 	// owner's quotas. Builds reserve host capacity only.
@@ -28,8 +29,6 @@ type admissionRequest struct {
 	// already counts its reservation, so a limit it now exceeds was exceeded
 	// before the request.
 	reservationHeld bool
-	// diskWriteBytes is what the work is projected to write to host disk.
-	diskWriteBytes int64
 	// volumeBytes is the size of the volumes the request creates. It is
 	// reserved against the owner's disk quota and promised by the host disk:
 	// with the unused volume promise of every existing volume it must leave
@@ -130,7 +129,7 @@ func checkAdmission(ledger reservationLedger, req admissionRequest, cfg config.S
 		}
 	}
 	if ledger.diskFloorCounted {
-		remaining := ledger.diskFreeBytes - max(req.diskWriteBytes, 0) - projectedVolumePromiseBytes(ledger, req)
+		remaining := ledger.diskFreeBytes - projectedVolumePromiseBytes(ledger, req)
 		if remaining < cfg.HostMinFreeDiskBytes {
 			return admissionVerdict{limit: apperrors.LimitDiskFloor, projected: remaining, capacity: cfg.HostMinFreeDiskBytes}
 		}
@@ -204,7 +203,7 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, req
 		return ledger, err
 	}
 	if req.chargesUser {
-		ledger.userMemoryQuotaBytes = quota.RAMMB * bytesPerMB
+		ledger.userMemoryQuotaBytes = quota.RAMMB * model.BytesPerMB
 		ledger.userCPUQuotaMillicores = quota.CPUMillicores
 		if ledger.userReservedMemoryBytes, err = s.userReservations.GetUserReservedMemory(ctx, ownerID); err != nil {
 			return ledger, err
@@ -220,28 +219,38 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, req
 			return ledger, err
 		}
 	}
+	return ledger, s.readHostLedger(ctx, &ledger, req, cfg)
+}
+
+// readHostLedger reads the host part of the ledger into ledger: system
+// reservations, active builds and host memory and CPU when host metrics are
+// wired, and free disk, with the unused volume promise for a request that
+// creates volumes, when cfg enables the disk floor. Monitoring reads its
+// ledger here too, so its admission status cannot drift from a request's.
+func (s admissionSources) readHostLedger(ctx context.Context, ledger *reservationLedger, req admissionRequest, cfg config.SystemConfig) error {
+	var err error
 	if s.hostMetrics != nil {
 		ledger.hostCounted = true
 		if ledger.systemReservedMemoryBytes, err = s.system.GetTotalSystemReservedMemory(ctx); err != nil {
 			s.logReadFailure(ctx, "failed to calculate total system reserved memory", err)
-			return ledger, apperrors.ErrInternal
+			return apperrors.ErrInternal
 		}
 		if ledger.systemReservedCPUMillicores, err = s.system.GetTotalSystemReservedCPU(ctx); err != nil {
 			s.logReadFailure(ctx, "failed to calculate total system reserved cpu", err)
-			return ledger, apperrors.ErrInternal
+			return apperrors.ErrInternal
 		}
 		activeBuilds, err := s.builds.CountActive(ctx)
 		if err != nil {
-			return ledger, err
+			return err
 		}
 		ledger.activeBuilds = int64(activeBuilds)
 		if ledger.hostMemoryBytes, err = s.hostMetrics.GetTotalMemory(); err != nil {
 			s.logReadFailure(ctx, "failed to get system memory", err)
-			return ledger, apperrors.ErrInternal
+			return apperrors.ErrInternal
 		}
 		if ledger.hostLogicalCPUs, err = s.hostMetrics.GetLogicalCPUs(); err != nil {
 			s.logReadFailure(ctx, "failed to get system cpu count", err)
-			return ledger, apperrors.ErrInternal
+			return apperrors.ErrInternal
 		}
 	}
 	if s.diskMetrics != nil && cfg.HostMinFreeDiskBytes > 0 {
@@ -251,17 +260,17 @@ func (s admissionSources) readLedger(ctx context.Context, ownerID uuid.UUID, req
 		}
 		stats, err := s.diskMetrics.GetDiskUsage(path)
 		if err != nil {
-			return ledger, err
+			return err
 		}
 		ledger.diskFloorCounted = true
 		ledger.diskFreeBytes = stats.FreeBytes
 		if req.volumeBytes > 0 && s.volumePromise != nil {
 			if ledger.unusedVolumePromiseBytes, err = s.volumePromise.GetUnusedVolumePromiseBytes(ctx); err != nil {
-				return ledger, err
+				return err
 			}
 		}
 	}
-	return ledger, nil
+	return nil
 }
 
 func (s admissionSources) logReadFailure(ctx context.Context, msg string, err error) {

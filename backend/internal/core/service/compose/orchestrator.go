@@ -24,6 +24,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -42,12 +43,6 @@ type ProjectRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status string, errMsg *string) error
 	SaveComposeDeploymentPlan(ctx context.Context, id uuid.UUID, stage string, planJSON, resourceMapJSON []byte) error
 	UpdateComposeDeploymentProgress(ctx context.Context, id uuid.UUID, projectID uuid.UUID, projectStatus string, stage string, planJSON, resourceMapJSON []byte) error
-}
-
-// ActiveComposeDeploymentCounter counts an owner's queued and running Compose
-// deployments for the queued-deployment limit.
-type ActiveComposeDeploymentCounter interface {
-	CountActiveComposeDeploymentsByOwner(ctx context.Context, ownerID uuid.UUID) (int, error)
 }
 
 type BuildRepository interface {
@@ -99,14 +94,19 @@ type ContainerService interface {
 	GetByID(ctx context.Context, id uuid.UUID) (model.Container, error)
 }
 
-// CapacityChecker admits a deployment's whole plan for the owner in ctx's
-// access scope. Under the
-// owner capacity lock it checks the queued deployments, container, volume and
-// queued build limits and the admission limits, rejects at the first limit
-// exceeded, and otherwise runs commit before the lock is released, so the
-// queued deployments limit holds with the job insert. commit must not take a
+// PlanAdmission admits a deployment for the owner in ctx's access scope.
+//
+// CheckDeploymentQueue refuses an owner who already has the allowed queued
+// deployments, without a lock, before an upload or a clone is accepted.
+//
+// AdmitPlan admits the deployment's whole plan. Under the owner capacity lock
+// it checks the queued deployments, container, volume and queued build
+// limits and the admission limits, rejects at the first limit exceeded, and
+// otherwise runs commit before the lock is released, so the queued
+// deployments limit holds with the job insert. commit must not take a
 // capacity lock itself. Nothing is reserved.
-type CapacityChecker interface {
+type PlanAdmission interface {
+	CheckDeploymentQueue(ctx context.Context) error
 	AdmitPlan(ctx context.Context, demand model.ComposePlanDemand, commit func(context.Context) error) error
 }
 
@@ -141,20 +141,19 @@ type BuilderClient interface {
 }
 
 type Orchestrator struct {
-	parser            *Parser
-	projectRepo       ProjectRepository
-	deploymentCounter ActiveComposeDeploymentCounter
-	capacity          CapacityChecker
-	buildRepo         BuildRepository
-	resourceRepo      ResourceRepository
-	volumeService     VolumeService
-	contService       ContainerService
-	cfg               ConfigProvider
-	imageCleaner      ImageCleaner
-	objectStore       ObjectStorage
-	staging           *stagedsource.Staging
-	builderClient     BuilderClient
-	logger            *slog.Logger
+	parser        *Parser
+	projectRepo   ProjectRepository
+	planAdmission PlanAdmission
+	buildRepo     BuildRepository
+	resourceRepo  ResourceRepository
+	volumeService VolumeService
+	contService   ContainerService
+	cfg           ConfigProvider
+	imageCleaner  ImageCleaner
+	objectStore   ObjectStorage
+	staging       *stagedsource.Staging
+	builderClient BuilderClient
+	logger        *slog.Logger
 }
 
 const (
@@ -175,24 +174,23 @@ type preparedDeploymentSource struct {
 }
 
 // OrchestratorDeps contains the capabilities Compose source ingestion needs.
-// Projects, DeploymentCounter, Capacity and Config are required because they
-// enforce the queued-deployment limit and admit the whole plan. The remaining
+// Projects, PlanAdmission and Config are required because they enforce the
+// queued-deployment limit and admit the whole plan. The remaining
 // integrations are optional: without ObjectStore deployments are unavailable,
 // without BuildJobs image builds are unavailable, and without Resources
 // interrupted-deployment cleanup is skipped.
 type OrchestratorDeps struct {
-	Projects          ProjectRepository
-	DeploymentCounter ActiveComposeDeploymentCounter
-	Capacity          CapacityChecker
-	Config            ConfigProvider
-	Builds            BuildRepository
-	Resources         ResourceRepository
-	Volumes           VolumeService
-	Containers        ContainerService
-	ObjectStore       ObjectStorage
-	BuildJobs         BuildJobCreator
-	Images            ImageCleaner
-	StagedObjects     StagedObjectRepository
+	Projects      ProjectRepository
+	PlanAdmission PlanAdmission
+	Config        ConfigProvider
+	Builds        BuildRepository
+	Resources     ResourceRepository
+	Volumes       VolumeService
+	Containers    ContainerService
+	ObjectStore   ObjectStorage
+	BuildJobs     BuildJobCreator
+	Images        ImageCleaner
+	StagedObjects StagedObjectRepository
 	// CapacityLock and ReservedDisk are required with StagedObjects: the
 	// staged disk rule counts reserved disk under the owner capacity lock.
 	CapacityLock CapacityLock
@@ -208,11 +206,11 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 		name  string
 		value any
 	}{
-		{"projects", deps.Projects}, {"deployment counter", deps.DeploymentCounter},
-		{"capacity", deps.Capacity}, {"config", deps.Config},
+		{"projects", deps.Projects}, {"plan admission", deps.PlanAdmission},
+		{"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("compose orchestrator: %s is required", dependency.name)
 		}
 	}
@@ -229,20 +227,19 @@ func NewOrchestrator(deps OrchestratorDeps) (*Orchestrator, error) {
 		return nil, fmt.Errorf("compose orchestrator: %w", err)
 	}
 	return &Orchestrator{
-		parser:            NewParser(),
-		projectRepo:       deps.Projects,
-		deploymentCounter: deps.DeploymentCounter,
-		capacity:          deps.Capacity,
-		buildRepo:         deps.Builds,
-		resourceRepo:      deps.Resources,
-		volumeService:     deps.Volumes,
-		contService:       deps.Containers,
-		cfg:               deps.Config,
-		imageCleaner:      deps.Images,
-		objectStore:       deps.ObjectStore,
-		staging:           staging,
-		builderClient:     NewLocalBuilderClient(deps.ObjectStore, deps.BuildJobs),
-		logger:            logging.WithComponent(deps.Logger, "compose_orchestrator"),
+		parser:        NewParser(),
+		projectRepo:   deps.Projects,
+		planAdmission: deps.PlanAdmission,
+		buildRepo:     deps.Builds,
+		resourceRepo:  deps.Resources,
+		volumeService: deps.Volumes,
+		contService:   deps.Containers,
+		cfg:           deps.Config,
+		imageCleaner:  deps.Images,
+		objectStore:   deps.ObjectStore,
+		staging:       staging,
+		builderClient: NewLocalBuilderClient(deps.ObjectStore, deps.BuildJobs),
+		logger:        logging.WithComponent(deps.Logger, "compose_orchestrator"),
 	}, nil
 }
 
@@ -268,7 +265,7 @@ func (o *Orchestrator) StartDeployment(ctx context.Context, projectName, archive
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+	if err := o.planAdmission.CheckDeploymentQueue(ctx); err != nil {
 		return uuid.Nil, err
 	}
 	if err := o.staging.CheckHostDiskFloor(o.cfg.Get().ComposeUploadMaxBytes); err != nil {
@@ -327,7 +324,7 @@ func (o *Orchestrator) StartGitDeployment(ctx context.Context, projectName strin
 	if err != nil {
 		return uuid.Nil, err
 	}
-	if err := o.ensureComposeQueueLimit(ctx, ownerID); err != nil {
+	if err := o.planAdmission.CheckDeploymentQueue(ctx); err != nil {
 		return uuid.Nil, err
 	}
 	if err := o.staging.CheckHostDiskFloor(o.cfg.Get().GitMaxRepositoryBytes); err != nil {
@@ -437,7 +434,7 @@ func (o *Orchestrator) createDeploymentJob(ctx context.Context, projectName, sou
 	insertJob := func(ctx context.Context) error {
 		return o.projectRepo.CreateWithComposeDeploymentJob(ctx, p, job, outbox)
 	}
-	if err := o.capacity.AdmitPlan(ctx, composePlanDemand(parsedProject, cfg), insertJob); err != nil {
+	if err := o.planAdmission.AdmitPlan(ctx, composePlanDemand(parsedProject, cfg), insertJob); err != nil {
 		return reject(err)
 	}
 	o.logger.InfoContext(ctx, "compose deployment queued", "project_id", projectID, "job_id", jobID, "owner_id", ownerID, "source_type", sourceType)
@@ -568,39 +565,14 @@ func (o *Orchestrator) parseComposeProject(ctx context.Context, projectName stri
 	return o.parser.ParseAndValidateWithBaseAndBlocked(ctx, projectName, composeYAML, reservedDomainPrefixes, blockedDomainPrefixPatterns, composeBaseDir)
 }
 
-// ensureComposeQueueLimit refuses an owner who already has the allowed queued
-// deployments, before any upload or clone. It holds no lock: the plan
-// admission checks the limit again with the job insert.
-func (o *Orchestrator) ensureComposeQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
-	limit := o.cfg.Get().MaxQueuedComposeDeploysPerUser
-	if limit <= 0 {
-		return nil
-	}
-	count, err := o.deploymentCounter.CountActiveComposeDeploymentsByOwner(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	if count >= limit {
-		return apperrors.Exceeded(apperrors.LimitQueuedComposeDeployments)
-	}
-	return nil
-}
-
 // composePlanDemand is what project asks of its owner and the host: one
 // container per service with its own reservations or the defaults, its
 // managed volumes by distinct name, and one build per service that builds.
 func composePlanDemand(project *model.ComposeProject, cfg config.SystemConfig) model.ComposePlanDemand {
 	demand := model.ComposePlanDemand{Services: len(project.Services)}
 	for _, srv := range project.Services {
-		memory, cpu := cfg.DefaultMemoryReservation, cfg.DefaultCPUReservation
-		if srv.MemoryReservationMB > 0 {
-			memory = srv.MemoryReservationMB * bytesPerMB
-		}
-		if srv.CPUReservationMillicores > 0 {
-			cpu = srv.CPUReservationMillicores
-		}
-		demand.MemoryBytes += memory
-		demand.CPUMillicores += cpu
+		demand.MemoryBytes += cfg.MemoryReservationOrDefault(srv.MemoryReservationMB * model.BytesPerMB)
+		demand.CPUMillicores += cfg.CPUReservationOrDefault(srv.CPUReservationMillicores)
 		if srv.BuildContext != "" {
 			demand.Builds++
 		}

@@ -22,6 +22,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/gitsource"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/imageref"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/objectstorage"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/validation"
 	"github.com/google/uuid"
@@ -204,7 +205,7 @@ func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
 		{"registry authorization", deps.RegistryAuth},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("build service: %s is required", dependency.name)
 		}
 	}
@@ -280,21 +281,6 @@ func (s *BuildService) admitBuild(ctx context.Context, ownerID uuid.UUID) error 
 		logger:       s.logger,
 	}
 	return sources.admit(ctx, ownerID, admissionRequest{builds: 1}, cfg, "build")
-}
-
-func (s *BuildService) ensureBuildQueueLimit(ctx context.Context, ownerID uuid.UUID) error {
-	cfg := s.buildConfig()
-	if cfg.MaxQueuedBuildsPerUser <= 0 {
-		return nil
-	}
-	count, err := s.repo.CountActiveByOwner(ctx, ownerID)
-	if err != nil {
-		return err
-	}
-	if count >= cfg.MaxQueuedBuildsPerUser {
-		return apperrors.Exceeded(apperrors.LimitQueuedBuilds)
-	}
-	return nil
 }
 
 // reserveStagedBuildArchive reserves a staged build archive by the one staged
@@ -625,7 +611,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 	if unlock != nil {
 		defer unlock()
 	}
-	if err := s.ensureBuildQueueLimit(ctx, ownerID); err != nil {
+	if err := checkQueuedLimit(ctx, ownerID, s.repo.CountActiveByOwner, 1, s.buildConfig().MaxQueuedBuildsPerUser, apperrors.LimitQueuedBuilds); err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
 	if err := s.admitBuild(ctx, ownerID); err != nil {

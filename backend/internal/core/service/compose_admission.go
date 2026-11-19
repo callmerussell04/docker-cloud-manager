@@ -11,6 +11,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -84,7 +85,7 @@ func NewComposePlanAdmission(deps ComposePlanAdmissionDeps) (*ComposePlanAdmissi
 		{"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilServiceDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("compose plan admission: %s is required", dependency.name)
 		}
 	}
@@ -147,19 +148,29 @@ func (a *ComposePlanAdmission) AdmitPlan(ctx context.Context, demand model.Compo
 	return commit(ctx)
 }
 
+// CheckDeploymentQueue refuses the owner in ctx's access scope when they
+// already have the allowed queued Compose deployments. It takes no lock: it is
+// the cheap refusal ingestion makes before accepting an upload or a clone, and
+// AdmitPlan checks the same limit again under the lock with the job insert.
+func (a *ComposePlanAdmission) CheckDeploymentQueue(ctx context.Context) error {
+	ownerID, err := accessscope.RequireUserOwner(ctx)
+	if err != nil {
+		return err
+	}
+	return a.checkDeploymentQueue(ctx, ownerID, a.config.Get())
+}
+
+func (a *ComposePlanAdmission) checkDeploymentQueue(ctx context.Context, ownerID uuid.UUID, cfg config.SystemConfig) error {
+	return checkQueuedLimit(ctx, ownerID, a.deployments.CountActiveComposeDeploymentsByOwner, 1, cfg.MaxQueuedComposeDeploysPerUser, apperrors.LimitQueuedComposeDeployments)
+}
+
 // checkCounts checks, in order, the owner's queued Compose deployments,
 // their containers with the plan's services, their volumes with the plan's
 // new volumes, and their queued builds with the plan's builds, and returns
 // how many volumes the plan creates.
 func (a *ComposePlanAdmission) checkCounts(ctx context.Context, ownerID uuid.UUID, demand model.ComposePlanDemand, cfg config.SystemConfig) (int, error) {
-	if cfg.MaxQueuedComposeDeploysPerUser > 0 {
-		queued, err := a.deployments.CountActiveComposeDeploymentsByOwner(ctx, ownerID)
-		if err != nil {
-			return 0, err
-		}
-		if queued >= cfg.MaxQueuedComposeDeploysPerUser {
-			return 0, apperrors.Exceeded(apperrors.LimitQueuedComposeDeployments)
-		}
+	if err := a.checkDeploymentQueue(ctx, ownerID, cfg); err != nil {
+		return 0, err
 	}
 	containers, err := a.containers.CountByOwnerID(ctx, ownerID)
 	if err != nil {
@@ -181,13 +192,9 @@ func (a *ComposePlanAdmission) checkCounts(ctx context.Context, ownerID uuid.UUI
 			return 0, apperrors.Exceeded(apperrors.LimitVolumesPerUser)
 		}
 	}
-	if demand.Builds > 0 && cfg.MaxQueuedBuildsPerUser > 0 {
-		builds, err := a.builds.CountActiveByOwner(ctx, ownerID)
-		if err != nil {
+	if demand.Builds > 0 {
+		if err := checkQueuedLimit(ctx, ownerID, a.builds.CountActiveByOwner, demand.Builds, cfg.MaxQueuedBuildsPerUser, apperrors.LimitQueuedBuilds); err != nil {
 			return 0, err
-		}
-		if builds+demand.Builds > cfg.MaxQueuedBuildsPerUser {
-			return 0, apperrors.Exceeded(apperrors.LimitQueuedBuilds)
 		}
 	}
 	return newVolumes, nil

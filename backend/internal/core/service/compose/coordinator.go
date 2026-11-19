@@ -13,6 +13,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 	"github.com/google/uuid"
 )
 
@@ -103,7 +104,7 @@ func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordi
 		{"sources", deps.Sources}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if dependency.value == nil || isNilDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("compose deployment coordinator: %s is required", dependency.name)
 		}
 	}
@@ -124,10 +125,10 @@ func NewDeploymentCoordinator(deps DeploymentCoordinatorDeps) (*DeploymentCoordi
 	if coordinator.now == nil {
 		coordinator.now = time.Now
 	}
-	if deps.Auditor != nil && !isNilDependency(deps.Auditor) {
+	if !nilcheck.IsNil(deps.Auditor) {
 		coordinator.auditor = deps.Auditor
 	}
-	if deps.Users != nil && !isNilDependency(deps.Users) {
+	if !nilcheck.IsNil(deps.Users) {
 		coordinator.users = deps.Users
 	}
 	return coordinator, nil

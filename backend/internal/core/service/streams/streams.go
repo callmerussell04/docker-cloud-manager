@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"path"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +21,7 @@ import (
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/accessscope"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/apperrors"
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/logging"
+	"github.com/callmerussell04/docker-cloud-manager/backend/internal/platform/nilcheck"
 )
 
 // ContainerTargets resolves a container to its Docker runtime under the
@@ -72,7 +72,7 @@ func NewService(deps Deps) (*Service, error) {
 		{"container targets", deps.Targets}, {"docker", deps.Docker}, {"config", deps.Config},
 	}
 	for _, dependency := range required {
-		if isNilDependency(dependency.value) {
+		if nilcheck.IsNil(dependency.value) {
 			return nil, fmt.Errorf("container streams: %s is required", dependency.name)
 		}
 	}
@@ -314,19 +314,6 @@ func ParseSize(value string) (uint, error) {
 		return 0, fmt.Errorf("%w: invalid terminal size", apperrors.ErrBadRequest)
 	}
 	return uint(parsed), nil
-}
-
-func isNilDependency(dependency any) bool {
-	if dependency == nil {
-		return true
-	}
-	value := reflect.ValueOf(dependency)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
 }
 
 type releaseReadCloser struct {
