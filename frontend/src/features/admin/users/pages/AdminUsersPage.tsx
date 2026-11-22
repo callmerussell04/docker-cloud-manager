@@ -41,7 +41,7 @@ export function AdminUsersPage() {
           title={t('admin.users.title')}
           count={data?.total_count}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)}>{t('admin.users.create')}</ToolbarPrimary>}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('admin.users.create')} />}
         />
       }
     >

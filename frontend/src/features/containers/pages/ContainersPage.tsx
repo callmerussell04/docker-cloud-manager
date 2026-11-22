@@ -41,7 +41,7 @@ export function ContainersPage() {
           title={t('containers.title')}
           count={data?.total_count}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)}>{t('containers.create')}</ToolbarPrimary>}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('containers.create')} />}
         />
       }
     >

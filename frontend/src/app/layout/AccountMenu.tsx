@@ -9,17 +9,18 @@ import { useThemeStore } from '@/shared/lib/themeStore';
 import { cn } from '@/shared/lib/utils';
 import { Menu, MenuGroup, MenuItem, MenuSeparator } from '@/shared/ui/Menu';
 import { useToastStore } from '@/shared/ui/toastStore';
+import { useAccountName } from './useAccountName';
 
-// AccountMenu sits at the foot of the sidebar: the signed-in user, and in its
-// menu the appearance, the language and logging out.
-export function AccountMenu({ compact }: { compact: boolean }) {
+// AccountMenuItems are the account's choices: the appearance, the language
+// and logging out. The sidebar's AccountMenu and the phone tab bar's More
+// sheet both hold them.
+export function AccountMenuItems() {
   const t = useT();
   const navigate = useNavigate();
   const { theme, setTheme } = useThemeStore();
   const { language, setLanguage } = useLanguageStore();
-  const { logout, username } = useAuthStore();
+  const logout = useAuthStore((state) => state.logout);
   const addToast = useToastStore((state) => state.addToast);
-  const name = username || t('common.user');
 
   const handleLogout = async () => {
     try {
@@ -31,6 +32,29 @@ export function AccountMenu({ compact }: { compact: boolean }) {
       addToast(message, 'error');
     }
   };
+
+  return (
+    <>
+      <MenuGroup label={t('shell.appearance')}>
+        <MenuItem icon={Sun} checked={theme === 'light'} onSelect={() => setTheme('light')}>{t('shell.appearanceLight')}</MenuItem>
+        <MenuItem icon={Moon} checked={theme === 'dark'} onSelect={() => setTheme('dark')}>{t('shell.appearanceDark')}</MenuItem>
+      </MenuGroup>
+      <MenuSeparator />
+      <MenuGroup label={t('shell.language')}>
+        <MenuItem icon={Languages} checked={language === 'ru'} onSelect={() => setLanguage('ru')}>{t('language.ruName')}</MenuItem>
+        <MenuItem icon={Languages} checked={language === 'en'} onSelect={() => setLanguage('en')}>{t('language.enName')}</MenuItem>
+      </MenuGroup>
+      <MenuSeparator />
+      <MenuItem icon={LogOut} onSelect={handleLogout}>{t('shell.logout')}</MenuItem>
+    </>
+  );
+}
+
+// AccountMenu sits at the foot of the sidebar: the signed-in user, and in its
+// menu the appearance, the language and logging out.
+export function AccountMenu({ compact }: { compact: boolean }) {
+  const t = useT();
+  const name = useAccountName();
 
   return (
     <Menu
@@ -48,17 +72,7 @@ export function AccountMenu({ compact }: { compact: boolean }) {
         </>
       }
     >
-      <MenuGroup label={t('shell.appearance')}>
-        <MenuItem icon={Sun} checked={theme === 'light'} onSelect={() => setTheme('light')}>{t('shell.appearanceLight')}</MenuItem>
-        <MenuItem icon={Moon} checked={theme === 'dark'} onSelect={() => setTheme('dark')}>{t('shell.appearanceDark')}</MenuItem>
-      </MenuGroup>
-      <MenuSeparator />
-      <MenuGroup label={t('shell.language')}>
-        <MenuItem icon={Languages} checked={language === 'ru'} onSelect={() => setLanguage('ru')}>{t('language.ruName')}</MenuItem>
-        <MenuItem icon={Languages} checked={language === 'en'} onSelect={() => setLanguage('en')}>{t('language.enName')}</MenuItem>
-      </MenuGroup>
-      <MenuSeparator />
-      <MenuItem icon={LogOut} onSelect={handleLogout}>{t('shell.logout')}</MenuItem>
+      <AccountMenuItems />
     </Menu>
   );
 }

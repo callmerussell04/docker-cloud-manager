@@ -1,19 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sidebarExpanded, sizeClassFor } from './shell';
-
-describe('sizeClassFor', () => {
-  it.each([
-    [1440, 'wide'],
-    [1100, 'wide'],
-    [1099, 'medium'],
-    [768, 'medium'],
-    [700, 'medium'],
-    [699, 'phone'],
-    [390, 'phone'],
-  ] as const)('puts a %i px window in the %s class', (width, expected) => {
-    expect(sizeClassFor(width)).toBe(expected);
-  });
-});
+import { sidebarExpanded } from './shell';
 
 describe('sidebarExpanded', () => {
   it('starts labelled on wide windows and as an icon rail below them', () => {

@@ -43,6 +43,7 @@ export const common = {
   'shell.language': 'Язык',
   'shell.logout': 'Выйти',
   'shell.logoutFailed': 'Не удалось выйти из системы',
+  'shell.more': 'Ещё',
   'nav.dashboard': 'Дашборд',
   'nav.containers': 'Контейнеры',
   'nav.images': 'Образы',

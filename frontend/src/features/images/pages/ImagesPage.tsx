@@ -70,7 +70,7 @@ export function ImagesPage() {
           title={t('images.title')}
           count={(activeTab === 'images' ? imagesData : buildsData)?.total_count}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={handleRefresh} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>{t('images.build')}</ToolbarPrimary>}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled} label={t('images.build')} />}
         />
       }
     >

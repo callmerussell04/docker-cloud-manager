@@ -38,7 +38,7 @@ export function VolumesPage() {
           title={t('volumes.title')}
           count={data?.total_count}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)}>{t('volumes.create')}</ToolbarPrimary>}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('volumes.create')} />}
         />
       }
     >

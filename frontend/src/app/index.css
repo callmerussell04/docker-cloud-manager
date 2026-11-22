@@ -273,42 +273,101 @@
     background: var(--fill);
   }
 
+  /* A tab of the phone tab bar: an icon only, its name for assistive
+     technology. .tab-current marks More when the current page is in its
+     sheet. */
+  .tab {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    height: 100%;
+    border-radius: 9999px;
+    color: var(--label-2);
+  }
+
   /* The current page: a white lift with an accent icon in light. In dark a
      grey lift sinks into the grey glass, so the item takes the accent as its
      fill, with white icon and text on it. */
-  .nav-item[aria-current='page'] {
+  .nav-item[aria-current='page'],
+  .tab[aria-current='page'],
+  .tab-current {
     background: var(--lift);
     box-shadow: var(--lift-shadow);
     font-weight: 600;
   }
 
-  .nav-item[aria-current='page'] svg {
+  .nav-item[aria-current='page'] svg,
+  .tab[aria-current='page'] svg,
+  .tab-current svg {
     color: var(--accent-fill);
   }
 
-  .dark .nav-item[aria-current='page'] {
+  .dark .nav-item[aria-current='page'],
+  .dark .tab[aria-current='page'],
+  .dark .tab-current {
     background: color-mix(in srgb, var(--accent-fill) 62%, transparent);
     box-shadow: var(--lift-shadow);
     color: var(--on-accent);
   }
 
-  .dark .nav-item[aria-current='page'] svg {
+  .dark .nav-item[aria-current='page'] svg,
+  .dark .tab[aria-current='page'] svg,
+  .dark .tab-current svg {
     color: var(--on-accent);
   }
 
   /* Rows fade out as they scroll up beneath the floating toolbar, and sooner
      behind its title, which has no glass of its own. */
   .toolbar-fade {
+    --toolbar-bottom: 54px;
     -webkit-mask-image:
-      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) 30px, #000 66px),
+      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) calc(var(--toolbar-bottom) - 24px), #000 calc(var(--toolbar-bottom) + 12px)),
       radial-gradient(ellipse 250px 56px at 120px 30px, transparent 55%, #000 100%);
     -webkit-mask-composite: source-in;
     mask-image:
-      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) 30px, #000 66px),
+      linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) calc(var(--toolbar-bottom) - 24px), #000 calc(var(--toolbar-bottom) + 12px)),
       radial-gradient(ellipse 250px 56px at 120px 30px, transparent 55%, #000 100%);
     mask-composite: intersect;
     scrollbar-width: thin;
     scrollbar-color: var(--fill-hover) transparent;
+  }
+
+  /* The page's scroll area starts below the floating toolbar: one row of
+     40 px at 14 px from the top, or two rows when its pills stack. */
+  .page {
+    --toolbar-bottom: 54px;
+  }
+
+  .page:has(> header[data-rows='2']) {
+    --toolbar-bottom: 106px;
+  }
+
+  .page-scroll {
+    padding-top: calc(var(--toolbar-bottom) + 22px);
+  }
+
+  /* A menu on a phone rises from the bottom as a sheet over a dimmed page. */
+  .sheet-pop {
+    animation: sheet-pop 0.22s ease-out;
+  }
+
+  .sheet-scrim {
+    animation: sheet-scrim 0.22s ease-out;
+  }
+
+  @keyframes sheet-pop {
+    from {
+      opacity: 0;
+      translate: 0 40px;
+    }
+  }
+
+  @keyframes sheet-scrim {
+    from {
+      opacity: 0;
+    }
   }
 
   .menu-pop {

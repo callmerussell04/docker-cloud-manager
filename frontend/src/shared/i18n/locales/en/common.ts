@@ -45,6 +45,7 @@ export const common: Record<keyof typeof ru, string> = {
   'shell.language': 'Language',
   'shell.logout': 'Log out',
   'shell.logoutFailed': 'Failed to log out',
+  'shell.more': 'More',
   'nav.dashboard': 'Dashboard',
   'nav.containers': 'Containers',
   'nav.images': 'Images',

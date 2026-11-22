@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { sizeClassFor, type SizeClass } from './shell';
+import { sizeClassFor, type SizeClass } from './sizeClass';
 
 function subscribe(onChange: () => void) {
   window.addEventListener('resize', onChange);

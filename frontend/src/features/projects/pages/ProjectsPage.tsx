@@ -45,7 +45,7 @@ export function ProjectsPage() {
           title={t('projects.title')}
           count={data?.total_count}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)}>{t('projects.deploy')}</ToolbarPrimary>}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('projects.deploy')} />}
         />
       }
     >

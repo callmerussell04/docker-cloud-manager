@@ -1,20 +1,12 @@
-// The shell's layout rules, by window width. See docs/agent-context/product-frontend.md,
-// "Shell".
+// The shell's sidebar rules. The size classes and content-width rules are in
+// shared/lib/sizeClass.ts. See docs/agent-context/product-frontend.md, "Shell".
+
+import type { SizeClass } from '@/shared/lib/sizeClass';
 
 // The sidebar's widths, labelled and as an icon rail, and its inset from the
 // window's edge; PageLayout places the content beside it.
 export const sidebarWidth = { expanded: 240, rail: 64 } as const;
 export const sidebarInset = 14;
-
-export type SizeClass = 'wide' | 'medium' | 'phone';
-
-// sizeClassFor names the window's size class: wide from 1100 px, medium from
-// 700 px, phone below that.
-export function sizeClassFor(width: number): SizeClass {
-  if (width >= 1100) return 'wide';
-  if (width >= 700) return 'medium';
-  return 'phone';
-}
 
 // SidebarChoice is the user's last collapse or expand, and the size class the
 // window was in when they made it.

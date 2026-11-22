@@ -1,8 +1,10 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronLeft, Loader2, type LucideIcon } from 'lucide-react';
+import { ChevronLeft, Loader2, Plus, type LucideIcon } from 'lucide-react';
+import { useSizeClass } from '@/shared/lib/useSizeClass';
 import { cn } from '@/shared/lib/utils';
 import { Glass } from './Glass';
+import { useShellLayout } from './shellLayout';
 
 interface ToolbarProps {
   title: string;
@@ -22,18 +24,35 @@ interface ToolbarProps {
 // Toolbar floats over the top of a page: the title with its count or status,
 // optional pills in the middle, then the page's actions and its primary
 // action. Rows scroll beneath it (see Page). Only its controls take the
-// pointer, so rows stay reachable between them.
+// pointer, so rows stay reachable between them. When the content is narrow
+// the pills move to a second row, which scrolls sideways, so the title is
+// never squeezed.
 export function Toolbar({ title, count, status, leading, pills, actions, primary }: ToolbarProps) {
+  const stacked = useShellLayout().toolbarStacked;
+  const twoRows = stacked && pills != null;
   return (
-    <header className="pointer-events-none absolute inset-x-3 top-3.5 z-10 grid h-10 grid-cols-[minmax(0,1fr)_auto_minmax(auto,1fr)] items-center gap-4">
-      <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+    <header
+      data-rows={twoRows ? 2 : 1}
+      className={cn(
+        'pointer-events-none absolute inset-x-3 top-3.5 z-10 grid items-center gap-x-4',
+        stacked ? 'grid-cols-[minmax(0,1fr)_auto]' : 'h-10 grid-cols-[minmax(0,1fr)_auto_minmax(auto,1fr)]',
+        twoRows && 'grid-rows-[40px_40px] gap-y-3',
+      )}
+    >
+      <div className="pointer-events-auto flex h-10 min-w-0 items-center gap-2">
         {leading}
         <h1 className="truncate text-[20px] font-bold tracking-[-0.022em] text-label">{title}</h1>
         {count !== undefined && <span className="text-[15px] font-medium tabular-nums text-label-3">{count}</span>}
         {status}
       </div>
-      <div className="pointer-events-auto col-start-2 min-w-0">{pills}</div>
-      <div className="pointer-events-auto col-start-3 flex items-center justify-end gap-2">
+      {stacked ? (
+        pills != null && (
+          <div className="pointer-events-auto col-span-2 row-start-2 -mx-3 -my-2 min-w-0 overflow-x-auto px-3 py-2 [scrollbar-width:none]">{pills}</div>
+        )
+      ) : (
+        <div className="pointer-events-auto col-start-2 min-w-0">{pills}</div>
+      )}
+      <div className={cn('pointer-events-auto flex items-center justify-end gap-2', stacked ? 'col-start-2 row-start-1' : 'col-start-3')}>
         {actions}
         {primary}
       </div>
@@ -66,24 +85,33 @@ export function ToolbarButton({ icon: Icon, label, busy = false, className, disa
   );
 }
 
-interface ToolbarPrimaryProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ToolbarPrimaryProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
+  // icon leads the label; the round phone button always shows a plus.
   icon?: LucideIcon;
+  // label is the button's text, and on a phone, where the button is a round
+  // plus, its accessible name and tooltip.
+  label: string;
 }
 
-// ToolbarPrimary is the page's primary action, in the accent.
-export function ToolbarPrimary({ icon: Icon, children, className, ...props }: ToolbarPrimaryProps) {
+// ToolbarPrimary is the page's primary action, in the accent. On a phone it
+// is a round plus button so the title keeps its room.
+export function ToolbarPrimary({ icon: Icon, label, className, ...props }: ToolbarPrimaryProps) {
+  const round = useSizeClass() === 'phone';
   return (
     <button
       type="button"
+      aria-label={round ? label : undefined}
+      title={round ? label : undefined}
       className={cn(
-        'inline-flex h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-accent-fill pl-3 pr-4 font-semibold text-on-accent',
+        'inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-full bg-accent-fill font-semibold text-on-accent',
         'shadow-[var(--primary-shadow)] hover:brightness-110 disabled:opacity-50',
+        round ? 'w-10 justify-center' : 'gap-1.5 pl-3 pr-4',
         className,
       )}
       {...props}
     >
-      {Icon && <Icon className="h-4 w-4" strokeWidth={2.4} />}
-      {children}
+      {round ? <Plus className="h-[18px] w-[18px]" strokeWidth={2.4} /> : Icon && <Icon className="h-4 w-4" strokeWidth={2.4} />}
+      {!round && label}
     </button>
   );
 }

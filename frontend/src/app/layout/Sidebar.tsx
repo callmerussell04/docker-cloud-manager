@@ -1,49 +1,14 @@
 import { useEffect, useRef, type Ref } from 'react';
 import { NavLink } from 'react-router-dom';
-import {
-  Activity,
-  BarChart3,
-  Box,
-  Disc,
-  HardDrive,
-  Layers,
-  LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Settings,
-  ShieldCheck,
-  Users,
-  type LucideIcon,
-} from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuthStore } from '@/shared/api/sessionStore';
-import { useT, type TranslationKey } from '@/shared/i18n';
+import { useT } from '@/shared/i18n';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { cn } from '@/shared/lib/utils';
 import { Glass } from '@/shared/ui/Glass';
 import { AccountMenu } from './AccountMenu';
+import { adminNavigation, navigation, type NavEntry } from './navigation';
 import { sidebarInset, sidebarWidth } from './shell';
-
-interface NavEntry {
-  nameKey: TranslationKey;
-  href: string;
-  icon: LucideIcon;
-}
-
-const navigation: NavEntry[] = [
-  { nameKey: 'nav.dashboard', href: '/', icon: LayoutDashboard },
-  { nameKey: 'nav.containers', href: '/containers', icon: Box },
-  { nameKey: 'nav.images', href: '/images', icon: Disc },
-  { nameKey: 'nav.volumes', href: '/volumes', icon: HardDrive },
-  { nameKey: 'nav.projects', href: '/projects', icon: Layers },
-];
-
-const adminNavigation: NavEntry[] = [
-  { nameKey: 'nav.systemMonitoring', href: '/admin/monitoring', icon: Activity },
-  { nameKey: 'nav.adminReports', href: '/admin/reports', icon: BarChart3 },
-  { nameKey: 'nav.adminResources', href: '/admin/resources', icon: ShieldCheck },
-  { nameKey: 'nav.adminUsers', href: '/admin/users', icon: Users },
-  { nameKey: 'nav.systemSettings', href: '/admin/settings', icon: Settings },
-];
 
 function NavGroup({ items, compact }: { items: NavEntry[]; compact: boolean }) {
   const t = useT();
