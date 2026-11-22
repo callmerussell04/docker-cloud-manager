@@ -1,5 +1,5 @@
 import { matchPath, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, Search } from 'lucide-react';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
@@ -13,8 +13,9 @@ import { useAccountName } from './useAccountName';
 // the most used pages as icons only, then More, whose sheet holds the other
 // pages, Administration for admins, and the account. The current page is
 // marked by its highlight alone; More takes the highlight when the current
-// page is in its sheet.
-export function TabBar() {
+// page is in its sheet. Search is its own round glass button beside the
+// capsule.
+export function TabBar({ onSearch }: { onSearch: () => void }) {
   const t = useT();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -32,35 +33,44 @@ export function TabBar() {
     </MenuItem>
   );
 
+  const searchLabel = t('search.open');
+
   return (
-    <Glass className="absolute inset-x-3 bottom-3 z-20 h-16 rounded-full p-[5px]">
-      <nav aria-label={t('shell.navigation')} className="flex h-full">
-        {tabs.map((entry) => {
-          const label = t(entry.nameKey);
-          return (
-            <NavLink key={entry.href} to={entry.href} end={entry.href === '/'} className="tab" aria-label={label} title={label}>
-              <entry.icon className="h-5 w-5" strokeWidth={1.8} />
-            </NavLink>
-          );
-        })}
-        <Menu
-          label={t('shell.more')}
-          iconOnly
-          triggerClassName={cn('tab', moreCurrent && 'tab-current')}
-          trigger={<MoreHorizontal className="h-5 w-5" strokeWidth={1.8} />}
-        >
-          {rest.map(moreItem)}
-          {isAdmin && (
-            <>
-              <MenuSeparator />
-              <MenuGroup label={t('common.admin')}>{adminNavigation.map(moreItem)}</MenuGroup>
-            </>
-          )}
-          <MenuSeparator />
-          <MenuLabel>{name}</MenuLabel>
-          <AccountMenuItems />
-        </Menu>
-      </nav>
-    </Glass>
+    <div className="absolute inset-x-3 bottom-3 z-20 flex h-16 gap-2.5">
+      <Glass className="h-full min-w-0 flex-1 rounded-full p-[5px]">
+        <nav aria-label={t('shell.navigation')} className="flex h-full">
+          {tabs.map((entry) => {
+            const label = t(entry.nameKey);
+            return (
+              <NavLink key={entry.href} to={entry.href} end={entry.href === '/'} className="tab" aria-label={label} title={label}>
+                <entry.icon className="h-5 w-5" strokeWidth={1.8} />
+              </NavLink>
+            );
+          })}
+          <Menu
+            label={t('shell.more')}
+            iconOnly
+            triggerClassName={cn('tab', moreCurrent && 'tab-current')}
+            trigger={<MoreHorizontal className="h-5 w-5" strokeWidth={1.8} />}
+          >
+            {rest.map(moreItem)}
+            {isAdmin && (
+              <>
+                <MenuSeparator />
+                <MenuGroup label={t('common.admin')}>{adminNavigation.map(moreItem)}</MenuGroup>
+              </>
+            )}
+            <MenuSeparator />
+            <MenuLabel>{name}</MenuLabel>
+            <AccountMenuItems />
+          </Menu>
+        </nav>
+      </Glass>
+      <Glass className="aspect-square h-full shrink-0 rounded-full p-[5px]">
+        <button type="button" className="tab w-full" aria-label={searchLabel} title={searchLabel} onClick={onSearch}>
+          <Search className="h-5 w-5" strokeWidth={1.8} />
+        </button>
+      </Glass>
+    </div>
   );
 }

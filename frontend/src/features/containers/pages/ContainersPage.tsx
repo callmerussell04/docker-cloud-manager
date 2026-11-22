@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, RefreshCcw, Box } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
+import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
 import { Page } from '@/shared/ui/Page';
 import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
 import { Pagination } from '@/shared/ui/Pagination';
@@ -20,7 +21,7 @@ import { getApiErrorMessage } from '@/shared/api/apiError';
 
 export function ContainersPage() {
   const t = useT();
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
   const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);

@@ -1,11 +1,13 @@
 import { useEffect, useRef, type Ref } from 'react';
 import { NavLink } from 'react-router-dom';
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
 import { BASE_DOMAIN } from '@/shared/lib/config';
 import { cn } from '@/shared/lib/utils';
 import { Glass } from '@/shared/ui/Glass';
+import { Kbd } from '@/shared/ui/Kbd';
+import { paletteShortcut } from '@/shared/ui/searchPalette';
 import { AccountMenu } from './AccountMenu';
 import { adminNavigation, navigation, type NavEntry } from './navigation';
 import { sidebarInset, sidebarWidth } from './shell';
@@ -38,14 +40,17 @@ function NavGroup({ items, compact }: { items: NavEntry[]; compact: boolean }) {
 interface SidebarProps {
   expanded: boolean;
   onToggle: () => void;
+  // onSearch opens the search palette.
+  onSearch: () => void;
   ref?: Ref<HTMLDivElement>;
 }
 
 // Sidebar floats as clearer glass through a cut-out in the window's frost:
-// the pages, then Administration for admins, and the account at its foot.
+// a search field that opens the search palette, the pages, then
+// Administration for admins, and the account at its foot.
 // Labelled, it has a collapse button that turns it into an icon rail, whose
 // expand button turns it back.
-export function Sidebar({ expanded, onToggle, ref }: SidebarProps) {
+export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
   const t = useT();
   const isAdmin = useAuthStore((state) => state.role) === 'admin';
   const compact = !expanded;
@@ -78,6 +83,30 @@ export function Sidebar({ expanded, onToggle, ref }: SidebarProps) {
     </button>
   );
 
+  const searchLabel = t('search.open');
+  const shortcut = paletteShortcut();
+  const search = (
+    <button
+      type="button"
+      className={cn(
+        'mb-3 flex shrink-0 items-center gap-[7px] rounded-[9px] bg-fill text-label-2 transition-colors hover:bg-fill-hover',
+        compact ? 'h-10 w-full justify-center' : 'h-[30px] px-2',
+      )}
+      aria-label={searchLabel}
+      aria-keyshortcuts={shortcut.aria}
+      title={`${searchLabel} (${shortcut.label})`}
+      onClick={onSearch}
+    >
+      <Search className={compact ? 'h-[18px] w-[18px]' : 'h-3.5 w-3.5'} strokeWidth={2} />
+      {!compact && (
+        <>
+          <span className="flex-1 text-left">{searchLabel}</span>
+          <Kbd>{shortcut.label}</Kbd>
+        </>
+      )}
+    </button>
+  );
+
   return (
     <Glass
       ref={ref}
@@ -92,6 +121,7 @@ export function Sidebar({ expanded, onToggle, ref }: SidebarProps) {
           {expanded && toggle}
         </div>
         {compact && <div className="mb-2.5">{toggle}</div>}
+        {search}
 
         <NavGroup items={navigation} compact={compact} />
 

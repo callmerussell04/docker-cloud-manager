@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 export function useDebouncedValue<T>(value: T, delayMs = 350) {
   const [debounced, setDebounced] = useState(value);
@@ -24,6 +25,33 @@ export function usePageOf(filters: readonly unknown[]) {
   const page = state.key === key ? state.page : 1;
   const setPage = (next: number) => setState({ key, page: next });
   return [page, setPage] as const;
+}
+
+// createDialogFlag is the search parameter that opens a list page's create
+// dialog, as /containers?new does.
+export const createDialogFlag = 'new';
+
+// useSearchFlag is a yes-or-no state kept in the URL as a search parameter
+// with no value, such as ?new for a page's create dialog, so a link (the
+// search palette's New container, for one) can open it. Setting it replaces
+// the history entry rather than adding one.
+export function useSearchFlag(name: string) {
+  const [params, setParams] = useSearchParams();
+  const on = params.has(name);
+  const set = useCallback(
+    (next: boolean) =>
+      setParams(
+        (current) => {
+          const updated = new URLSearchParams(current);
+          if (next) updated.set(name, '');
+          else updated.delete(name);
+          return updated;
+        },
+        { replace: true },
+      ),
+    [name, setParams],
+  );
+  return [on, set] as const;
 }
 
 function nowSeconds() {

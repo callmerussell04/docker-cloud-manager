@@ -1,10 +1,12 @@
 import { Outlet } from 'react-router-dom';
-import { Suspense, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { rowsCompact, toolbarStacked } from '@/shared/lib/sizeClass';
 import { useSizeClass } from '@/shared/lib/useSizeClass';
 import { FrostWindow } from '@/shared/ui/FrostWindow';
+import { isPaletteShortcut, onMac } from '@/shared/ui/searchPalette';
 import { ShellLayoutContext, type ShellLayout } from '@/shared/ui/shellLayout';
 import { PageFallback } from './PageFallback';
+import { ShellSearch } from './ShellSearch';
 import { Sidebar } from './Sidebar';
 import { TabBar } from './TabBar';
 import { sidebarExpanded, sidebarInset, sidebarWidth, type SidebarChoice } from './shell';
@@ -63,11 +65,26 @@ function useWidth(estimate: number) {
   return [ref, width] as const;
 }
 
+// useSearchShortcut opens and closes the search palette with Ctrl K (Cmd K on
+// a Mac) from anywhere on a signed-in page, the browser's own use of it aside.
+function useSearchShortcut(toggle: () => void) {
+  useEffect(() => {
+    const mac = onMac();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isPaletteShortcut(event, mac)) return;
+      event.preventDefault();
+      toggle();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [toggle]);
+}
+
 // PageLayout is the signed-in window: one frosted surface over the wallpaper,
 // the sidebar floating through a cut-out in it, and the page beside the
 // sidebar. On a phone the tab bar replaces the sidebar. Each page brings its
 // own floating toolbar (shared/ui/Page), which, like the page's rows, follows
-// the room the content area has.
+// the room the content area has. The search palette opens over it all.
 export function PageLayout() {
   const sizeClass = useSizeClass();
   const phone = sizeClass === 'phone';
@@ -75,6 +92,10 @@ export function PageLayout() {
   const expanded = sidebarExpanded(sizeClass, choice);
   const { frostRef, sidebarRef } = useSidebarCutout(!phone);
   const contentLeft = phone ? 0 : sidebarInset + (expanded ? sidebarWidth.expanded : sidebarWidth.rail);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
+  const closeSearch = useCallback(() => setSearchOpen(false), []);
+  useSearchShortcut(useCallback(() => setSearchOpen((value) => !value), []));
   const [mainRef, contentWidth] = useWidth(window.innerWidth - contentLeft);
   const layout = useMemo<ShellLayout>(
     () => ({ toolbarStacked: toolbarStacked(contentWidth), rowsCompact: rowsCompact(contentWidth), tabBar: phone }),
@@ -84,7 +105,7 @@ export function PageLayout() {
   return (
     <div className="relative isolate h-screen w-full overflow-hidden">
       <FrostWindow ref={frostRef} className="absolute inset-0 -z-10" />
-      {!phone && <Sidebar ref={sidebarRef} expanded={expanded} onToggle={() => setChoice({ sizeClass, expanded: !expanded })} />}
+      {!phone && <Sidebar ref={sidebarRef} expanded={expanded} onToggle={() => setChoice({ sizeClass, expanded: !expanded })} onSearch={openSearch} />}
       <main ref={mainRef} className="absolute inset-y-0 right-0" style={{ left: contentLeft }}>
         <ShellLayoutContext.Provider value={layout}>
           <Suspense fallback={<PageFallback />}>
@@ -92,7 +113,8 @@ export function PageLayout() {
           </Suspense>
         </ShellLayoutContext.Provider>
       </main>
-      {phone && <TabBar />}
+      {phone && <TabBar onSearch={openSearch} />}
+      <ShellSearch open={searchOpen} onClose={closeSearch} />
     </div>
   );
 }
