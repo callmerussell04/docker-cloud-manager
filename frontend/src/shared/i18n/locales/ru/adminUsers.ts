@@ -1,6 +1,5 @@
 export const adminUsers = {
   'admin.users.title': 'Пользователи',
-  'admin.users.subtitle': 'Роли, статус и квоты пользователей',
   'admin.users.create': 'Создать',
   'admin.users.username': 'Имя пользователя',
   'admin.users.emailId': 'Email / ID',

@@ -2,7 +2,6 @@ import type { volumes as ru } from '../ru/volumes';
 
 export const volumes: Record<keyof typeof ru, string> = {
   'volumes.title': 'Volumes',
-  'volumes.subtitle': 'Manage persistent storage',
   'volumes.create': 'Create volume',
   'volumes.name': 'Volume name',
   'volumes.statusDate': 'Status / Date',

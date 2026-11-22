@@ -26,6 +26,7 @@ export default {
         glass: { DEFAULT: 'var(--glass)', dense: 'var(--glass-dense)', sidebar: 'var(--glass-sidebar)' },
         frost: 'var(--frost)',
         scrim: 'var(--scrim)',
+        lift: 'var(--lift)',
         console: 'var(--console)',
         wallpaper: {
           0: 'var(--wallpaper-0)',

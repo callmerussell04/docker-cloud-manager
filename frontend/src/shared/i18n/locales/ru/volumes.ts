@@ -1,6 +1,5 @@
 export const volumes = {
   'volumes.title': 'Тома',
-  'volumes.subtitle': 'Управление постоянным хранилищем',
   'volumes.create': 'Создать том',
   'volumes.name': 'Имя тома',
   'volumes.statusDate': 'Статус / Дата',

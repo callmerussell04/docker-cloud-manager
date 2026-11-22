@@ -5,6 +5,8 @@ import { RefreshCcw, Save, Undo2 } from 'lucide-react';
 
 import { Card, CardContent } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar } from '@/shared/ui/Toolbar';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT, type TFunction } from '@/shared/i18n';
@@ -69,22 +71,30 @@ export function SystemSettingsPage() {
     }
   };
 
+  const titleOnly = <Toolbar title={t('admin.settings.title')} />;
+
   if (isLoading) {
-    return <div className="h-96 rounded-2xl bg-white/40 animate-pulse dark:bg-slate-900/40" />;
+    return (
+      <Page toolbar={titleOnly}>
+        <div className="h-96 rounded-2xl bg-white/40 animate-pulse dark:bg-slate-900/40" />
+      </Page>
+    );
   }
 
   if (isError) {
     const { message } = getApiErrorMessage(error, t('admin.settings.loadFailed'), t);
 
     return (
-      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-        <h1 className="text-xl font-semibold">{t('admin.settings.loadFailed')}</h1>
-        <p className="mt-2 text-sm">{message}</p>
-        <Button type="button" variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="mt-4">
-          <RefreshCcw className="mr-2 h-4 w-4" />
-          {t('common.refresh')}
-        </Button>
-      </div>
+      <Page toolbar={titleOnly}>
+        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+          <h2 className="text-xl font-semibold">{t('admin.settings.loadFailed')}</h2>
+          <p className="mt-2 text-sm">{message}</p>
+          <Button type="button" variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="mt-4">
+            <RefreshCcw className="mr-2 h-4 w-4" />
+            {t('common.refresh')}
+          </Button>
+        </div>
+      </Page>
     );
   }
 
@@ -110,14 +120,14 @@ export function SystemSettingsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('admin.settings.title')}</h1>
-          <p className="mt-1 text-slate-500 dark:text-slate-400">{t('admin.settings.subtitle')}</p>
-        </div>
-        <SearchInput value={search} onChange={setSearch} placeholder={t('admin.settings.searchPlaceholder')} />
-      </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.settings.title')}
+          actions={<SearchInput value={search} onChange={setSearch} placeholder={t('admin.settings.searchPlaceholder')} />}
+        />
+      }
+    >
 
       <form onSubmit={handleSubmit(onValid, onInvalid)} noValidate className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
         <div className="lg:sticky lg:top-6 lg:self-start">
@@ -202,7 +212,7 @@ export function SystemSettingsPage() {
           </div>
         </div>
       </form>
-    </div>
+    </Page>
   );
 }
 

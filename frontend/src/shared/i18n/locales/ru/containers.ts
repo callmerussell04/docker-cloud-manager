@@ -1,6 +1,5 @@
 export const containers = {
   'containers.title': 'Контейнеры',
-  'containers.subtitle': 'Управление вычислительными ресурсами',
   'containers.create': 'Создать контейнер',
   'containers.name': 'Контейнер',
   'containers.routing': 'Маршрутизация',

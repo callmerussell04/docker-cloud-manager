@@ -73,7 +73,7 @@ export function ProjectWithContainersRow({
                 onClick={() => refetch()}
                 isLoading={isFetching}
                 className="shrink-0 px-3 py-2"
-                title={t('common.refresh')}
+                title={t('common.refresh')} aria-label={t('common.refresh')}
               >
                 <RefreshCcw className="h-4 w-4" />
               </Button>

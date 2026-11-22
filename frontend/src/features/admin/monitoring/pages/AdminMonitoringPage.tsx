@@ -1,6 +1,5 @@
 import { Activity, AlertTriangle, Box, Cpu, Database, Disc, HardDrive, Layers, RefreshCcw, Server } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import { buildsHeldByDisk, withDefaults } from '../model';
@@ -9,6 +8,8 @@ import { MetricCard } from '../components/MetricCard';
 import { CountCard } from '../components/CountCard';
 import { RootfsQuotaCard, VolumeSizeModeCard } from '../components/HostStatusCards';
 import { ReservedCPUCard } from '../components/ReservedCPUCard';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
 
 function admissionReasonLabel(t: ReturnType<typeof useT>, reason: string) {
   switch (reason) {
@@ -33,22 +34,16 @@ export function AdminMonitoringPage() {
     : t('status.unknown');
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center gap-3">
-            <Activity className="w-8 h-8" />
-            {t('admin.monitoring.title')}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.monitoring.subtitle')}</p>
-          <p className="text-xs text-slate-500 dark:text-slate-500 mt-2">
-            {t('admin.monitoring.observedAt', { value: observedAt })}
-          </p>
-        </div>
-        <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
-          <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
-        </Button>
-      </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.monitoring.title')}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+        />
+      }
+    >
+      <p className="text-label-2">{t('admin.monitoring.observedAt', { value: observedAt })}</p>
+
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -160,6 +155,6 @@ export function AdminMonitoringPage() {
       ) : (
         <div className="text-center p-8 text-slate-500">{t('admin.monitoring.loadFailed')}</div>
       )}
-    </div>
+    </Page>
   );
 }

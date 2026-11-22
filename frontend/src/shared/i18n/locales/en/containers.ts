@@ -2,7 +2,6 @@ import type { containers as ru } from '../ru/containers';
 
 export const containers: Record<keyof typeof ru, string> = {
   'containers.title': 'Containers',
-  'containers.subtitle': 'Manage compute resources',
   'containers.create': 'Create container',
   'containers.name': 'Container',
   'containers.routing': 'Routing',

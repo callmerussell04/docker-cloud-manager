@@ -2,7 +2,6 @@ import type { adminUsers as ru } from '../ru/adminUsers';
 
 export const adminUsers: Record<keyof typeof ru, string> = {
   'admin.users.title': 'Users',
-  'admin.users.subtitle': 'User roles, status, and quotas',
   'admin.users.create': 'Create',
   'admin.users.username': 'Username',
   'admin.users.emailId': 'Email / ID',

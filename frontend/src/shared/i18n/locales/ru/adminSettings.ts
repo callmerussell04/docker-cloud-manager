@@ -1,6 +1,5 @@
 export const adminSettings = {
   'admin.settings.title': 'Настройки системы',
-  'admin.settings.subtitle': 'Рабочие настройки платформы. Изменения применяются без перезапуска.',
   'admin.settings.updated': 'Настройки сохранены',
   'admin.settings.updateFailed': 'Не удалось сохранить настройки',
   'admin.settings.loadFailed': 'Не удалось загрузить настройки',

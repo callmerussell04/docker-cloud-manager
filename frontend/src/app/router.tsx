@@ -49,7 +49,7 @@ export const router = createBrowserRouter([
     children: withPageErrors([
       { index: true, element: <DashboardPage /> },
       { path: 'containers', element: <ContainersPage /> },
-      { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" /> },
+      { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" backLabel="nav.containers" /> },
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesPage /> },
       { path: 'projects', element: <ProjectsPage /> },
@@ -62,7 +62,7 @@ export const router = createBrowserRouter([
           { path: 'reports', element: <AdminReportsPage /> },
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
-          { path: 'containers/:id', element: <ContainerDetailsPage scope="all" backTo="/admin/resources" /> },
+          { path: 'containers/:id', element: <ContainerDetailsPage scope="all" backTo="/admin/resources" backLabel="nav.adminResources" /> },
         ],
       },
     ]),

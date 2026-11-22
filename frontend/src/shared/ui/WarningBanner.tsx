@@ -24,6 +24,7 @@ export function WarningBanner({ children, className, dismissLabel = 'Dismiss', o
           type="button"
           onClick={onDismiss}
           aria-label={dismissLabel}
+          title={dismissLabel}
           className="rounded-md p-1 text-yellow-700 transition-colors hover:bg-yellow-100 hover:text-yellow-900 focus:outline-none focus:ring-2 focus:ring-yellow-500/40 dark:text-yellow-300 dark:hover:bg-yellow-900/40 dark:hover:text-yellow-100"
         >
           <X className="h-4 w-4" />

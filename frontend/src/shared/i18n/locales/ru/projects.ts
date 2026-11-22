@@ -1,6 +1,5 @@
 export const projects = {
   'projects.title': 'Docker Compose',
-  'projects.subtitle': 'Развертывание многоконтейнерных приложений',
   'projects.deploy': 'Развернуть',
   'projects.project': 'Проект',
   'projects.services': 'Сервисы',

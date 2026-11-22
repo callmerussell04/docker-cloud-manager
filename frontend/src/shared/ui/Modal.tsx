@@ -104,6 +104,7 @@ export function Modal({ isOpen, onClose, title, children, className, ...props }:
             onClick={onClose}
             className="p-1.5 rounded-full hover:bg-fill transition-colors shrink-0"
             aria-label={t('common.closeModal')}
+            title={t('common.closeModal')}
           >
             <X className="w-5 h-5 opacity-70" />
           </button>

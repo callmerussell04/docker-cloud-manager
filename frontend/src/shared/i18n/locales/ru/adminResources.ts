@@ -1,6 +1,5 @@
 export const adminResources = {
   'admin.resources.title': 'Все ресурсы системы',
-  'admin.resources.subtitle': 'Управление ресурсами всех пользователей платформы',
   'admin.resources.done': 'Действие выполнено',
   'admin.resources.actionFailed': 'Не удалось выполнить действие',
   'admin.resources.volumeDeleted': 'Том удален',

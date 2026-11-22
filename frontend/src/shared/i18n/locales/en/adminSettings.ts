@@ -2,7 +2,6 @@ import type { adminSettings as ru } from '../ru/adminSettings';
 
 export const adminSettings: Record<keyof typeof ru, string> = {
   'admin.settings.title': 'System settings',
-  'admin.settings.subtitle': 'Runtime settings of the platform. Changes apply without a restart.',
   'admin.settings.updated': 'Settings saved',
   'admin.settings.updateFailed': 'Failed to save settings',
   'admin.settings.loadFailed': 'Failed to load settings',

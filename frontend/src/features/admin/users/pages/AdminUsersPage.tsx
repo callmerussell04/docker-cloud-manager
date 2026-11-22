@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Edit, Gauge, Plus, PowerOff, RefreshCcw, RotateCcw, UserX, Users } from 'lucide-react';
+import { Edit, Gauge, Plus, PowerOff, RefreshCcw, RotateCcw, UserX } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
 import { Pagination } from '@/shared/ui/Pagination';
@@ -14,6 +14,8 @@ import { userTableLayout } from '../components/tableLayout';
 import { UserFormModal } from '../components/UserFormModal';
 import { UserQuotaModal } from '../components/UserQuotaModal';
 import { useAdminUsers, useDeactivateAdminUser, useReactivateAdminUser } from '../queries';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
 
 export function AdminUsersPage() {
   const [page, setPage] = useState(1);
@@ -33,25 +35,16 @@ export function AdminUsersPage() {
   const users = data?.items || [];
 
   return (
-    <div className="space-y-6 flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center gap-3">
-            <Users className="w-8 h-8" />
-            {t('admin.users.title')}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.users.subtitle')}</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
-            <RefreshCcw className="w-4 h-4" />
-          </Button>
-          <Button onClick={() => setIsCreateOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            {t('admin.users.create')}
-          </Button>
-        </div>
-      </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.users.title')}
+          count={data?.total_count}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)}>{t('admin.users.create')}</ToolbarPrimary>}
+        />
+      }
+    >
 
       <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
         <div className="overflow-x-auto flex-1">
@@ -169,6 +162,6 @@ export function AdminUsersPage() {
           }
         }}
       />
-    </div>
+    </Page>
   );
 }

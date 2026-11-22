@@ -88,7 +88,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           to={`/containers/${container.id}`}
           state={{ container }}
           className="p-2 rounded-lg bg-fill text-accent hover:bg-fill-hover transition-colors"
-          title={t('containers.stats')}
+          title={t('containers.stats')} aria-label={t('containers.stats')}
         >
           <Activity className="w-4 h-4" />
         </Link>
@@ -97,7 +97,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => onOpenTerminal(container)}
           disabled={blocked.terminal}
           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-          title={t('containers.terminal')}
+          title={t('containers.terminal')} aria-label={t('containers.terminal')}
         >
           <Terminal className="w-4 h-4" />
         </button>
@@ -105,7 +105,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         <button
           onClick={() => onViewLogs(container)}
           className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
-          title={t('containers.logs')}
+          title={t('containers.logs')} aria-label={t('containers.logs')}
         >
           <ScrollText className="w-4 h-4" />
         </button>
@@ -116,7 +116,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('start')}
           disabled={blocked.start || actionMutation.isPending}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.start')}
+          title={t('containers.start')} aria-label={t('containers.start')}
         >
           <Play className="w-4 h-4" />
         </button>
@@ -125,7 +125,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('stop')}
           disabled={blocked.stop || actionMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.stop')}
+          title={t('containers.stop')} aria-label={t('containers.stop')}
         >
           <Square className="w-4 h-4" />
         </button>
@@ -134,7 +134,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => onExpose(container)}
           disabled={blocked.expose || actionMutation.isPending}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.routingSettings')}
+          title={t('containers.routingSettings')} aria-label={t('containers.routingSettings')}
         >
           <Globe className="w-4 h-4" />
         </button>
@@ -143,7 +143,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
           onClick={() => handleAction('delete')}
           disabled={blocked.delete || actionMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')}
+          title={t('common.delete')} aria-label={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

@@ -63,7 +63,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
             type="button"
             onClick={onToggleExpanded}
             className="w-10 h-10 rounded-xl bg-fill text-label-2 hover:bg-fill-hover flex items-center justify-center shrink-0 transition-colors"
-            title={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')}
+            title={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')} aria-label={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')}
             aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
@@ -105,7 +105,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onClick={() => startMutation.mutate({ id: project.id, action: 'start' })}
           disabled={startMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'running'}
           className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.start')}
+          title={t('containers.start')} aria-label={t('containers.start')}
         >
           <Play className="w-4 h-4" />
         </button>
@@ -114,7 +114,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onClick={() => stopMutation.mutate({ id: project.id, action: 'stop' })}
           disabled={stopMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'stopped'}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.stop')}
+          title={t('containers.stop')} aria-label={t('containers.stop')}
         >
           <Square className="w-4 h-4" />
         </button>
@@ -123,7 +123,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
-          title={t('projects.cancel')}
+          title={t('projects.cancel')} aria-label={t('projects.cancel')}
         >
           <XCircle className="w-4 h-4" />
         </button>
@@ -132,7 +132,7 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           onClick={() => setConfirmAction('delete')}
           disabled={deleteMutation.isPending || isWorking}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')}
+          title={t('common.delete')} aria-label={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

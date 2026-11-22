@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Plus, RefreshCcw, Layers, Hammer } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
 import { Pagination } from '@/shared/ui/Pagination';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
 import { ImageRow } from '@/features/images/components/ImageRow';
@@ -62,30 +64,24 @@ export function ImagesPage() {
   const isLoading = activeTab === 'images' ? isLoadingImages : isLoadingBuilds;
 
   return (
-    <div className="space-y-6 flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('images.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            {t('images.pageSize', { size: formatBytes(totalSizeBytes) })}
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <SearchInput
-            placeholder={t('common.search')}
-            title={t('common.searchCurrentPage')}
-            value={search}
-            onChange={setSearch}
-          />
-          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={handleRefresh} isLoading={isFetching} className="px-3">
-            <RefreshCcw className="w-4 h-4" />
-          </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>
-            <Plus className="w-4 h-4 mr-2" />
-            {t('images.build')}
-          </Button>
-        </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('images.title')}
+          count={(activeTab === 'images' ? imagesData : buildsData)?.total_count}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={handleRefresh} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled}>{t('images.build')}</ToolbarPrimary>}
+        />
+      }
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-label-2">{t('images.pageSize', { size: formatBytes(totalSizeBytes) })}</p>
+        <SearchInput
+          placeholder={t('common.search')}
+          title={t('common.searchCurrentPage')}
+          value={search}
+          onChange={setSearch}
+        />
       </div>
 
       {isBuildDisabled && (
@@ -199,6 +195,6 @@ export function ImagesPage() {
         scope="own"
         onClose={() => setViewLogsBuild(null)}
       />
-    </div>
+    </Page>
   );
 }

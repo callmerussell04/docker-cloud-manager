@@ -1,6 +1,5 @@
 export const dashboard = {
   'dashboard.title': 'Дашборд',
-  'dashboard.subtitle': 'Сводка по использованию ресурсов платформы',
   'dashboard.usedPercent': 'Использовано {percent}%',
   'dashboard.ram': 'Оперативная память (RAM) (Зарезервировано)',
   'dashboard.cpu': 'Процессор (CPU) (Зарезервировано)',

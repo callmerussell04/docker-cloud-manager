@@ -84,7 +84,7 @@ export function BuildsTab() {
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={!canViewLogs}
-                  title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
+                  title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')} aria-label={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
                   onClick={() => setViewLogsBuild(build)}
                 >
                   <ScrollText className="w-4 h-4" />

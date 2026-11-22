@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from 'react';
+import { useCallback, type HTMLAttributes, type Ref } from 'react';
 import { cn } from '@/shared/lib/utils';
 import { useLens, type LensOptions } from './lens';
 
@@ -8,6 +8,7 @@ interface GlassProps extends HTMLAttributes<HTMLDivElement> {
   // material picks the fill: clear for controls, dense for menus, dialogs,
   // the search palette and the save bar, sidebar for the sidebar.
   material?: GlassMaterial;
+  ref?: Ref<HTMLDivElement>;
 }
 
 // Each material's class, and the blur and saturation its lens keeps in
@@ -24,7 +25,13 @@ const materials: Record<GlassMaterial, { className?: string; lens: LensOptions }
 // sidebar, toolbar pills, menus, the search palette, dialogs and notifications.
 // Content never sits on its own Glass, and Glass inside Glass would refract
 // nothing. In Chromium the backdrop bends at the rim; elsewhere it is blurred.
-export function Glass({ material = 'clear', className, ...props }: GlassProps) {
+export function Glass({ material = 'clear', className, ref, ...props }: GlassProps) {
   const lensRef = useLens<HTMLDivElement>(materials[material].lens);
-  return <div ref={lensRef} className={cn('glass', materials[material].className, className)} {...props} />;
+  // The lens and a caller's ref both see the element.
+  const setRef = useCallback((element: HTMLDivElement | null) => {
+    lensRef.current = element;
+    if (typeof ref === 'function') ref(element);
+    else if (ref) ref.current = element;
+  }, [lensRef, ref]);
+  return <div ref={setRef} className={cn('glass', materials[material].className, className)} {...props} />;
 }

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Plus, RefreshCcw, Layers } from 'lucide-react';
 
 import { Button } from '@/shared/ui/Button';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
 import { Pagination } from '@/shared/ui/Pagination';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
 import { ProjectWithContainersRow } from '@/features/projects/components/ProjectWithContainersRow';
@@ -37,28 +39,23 @@ export function ProjectsPage() {
   );
 
   return (
-    <div className="space-y-6 flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('projects.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('projects.subtitle')}</p>
-        </div>
-        
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <SearchInput
-            placeholder={t('common.search')}
-            title={t('common.searchCurrentPage')}
-            value={search}
-            onChange={setSearch}
-          />
-          <Button title={t('common.refresh')} aria-label={t('common.refresh')} variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
-            <RefreshCcw className="w-4 h-4" />
-          </Button>
-          <Button onClick={() => setIsCreateModalOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            {t('projects.deploy')}
-          </Button>
-        </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('projects.title')}
+          count={data?.total_count}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)}>{t('projects.deploy')}</ToolbarPrimary>}
+        />
+      }
+    >
+      <div className="flex justify-end">
+        <SearchInput
+          placeholder={t('common.search')}
+          title={t('common.searchCurrentPage')}
+          value={search}
+          onChange={setSearch}
+        />
       </div>
 
       {isBuildDisabled && (
@@ -135,6 +132,6 @@ export function ProjectsPage() {
       />
 
       {modals}
-    </div>
+    </Page>
   );
 }

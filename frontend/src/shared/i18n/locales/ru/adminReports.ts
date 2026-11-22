@@ -1,6 +1,5 @@
 export const adminReports = {
   'admin.reports.title': 'Отчеты',
-  'admin.reports.subtitle': 'Потребление ресурсов, активность пользователей и аудит действий',
   'admin.reports.auditEvents': 'События аудита',
   'admin.reports.failedActions': 'Ошибочные действия',
   'admin.reports.activeUsers': 'Активные пользователи',

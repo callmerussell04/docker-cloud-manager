@@ -2,7 +2,6 @@ import type { adminReports as ru } from '../ru/adminReports';
 
 export const adminReports: Record<keyof typeof ru, string> = {
   'admin.reports.title': 'Reports',
-  'admin.reports.subtitle': 'Resource consumption, user activity, and action audit',
   'admin.reports.auditEvents': 'Audit events',
   'admin.reports.failedActions': 'Failed actions',
   'admin.reports.activeUsers': 'Active users',

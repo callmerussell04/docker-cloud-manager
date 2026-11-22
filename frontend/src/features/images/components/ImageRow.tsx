@@ -60,7 +60,7 @@ export function ImageRow({ image }: ImageRowProps) {
           onClick={() => setIsConfirmOpen(true)}
           disabled={deleteMutation.isPending}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
-          title={t('common.delete')}
+          title={t('common.delete')} aria-label={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

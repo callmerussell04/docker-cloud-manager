@@ -1,6 +1,5 @@
 export const adminMonitoring = {
   'admin.monitoring.title': 'Мониторинг системы',
-  'admin.monitoring.subtitle': 'Текущая нагрузка сервера и ресурсы DCM',
   'admin.monitoring.observedAt': 'Обновлено: {value}',
   'admin.monitoring.cpu': 'Процессор',
   'admin.monitoring.currentLoad': 'текущая нагрузка',

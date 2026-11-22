@@ -2,7 +2,6 @@ import type { adminMonitoring as ru } from '../ru/adminMonitoring';
 
 export const adminMonitoring: Record<keyof typeof ru, string> = {
   'admin.monitoring.title': 'System monitoring',
-  'admin.monitoring.subtitle': 'Current host load and DCM resource usage',
   'admin.monitoring.observedAt': 'Updated: {value}',
   'admin.monitoring.cpu': 'CPU',
   'admin.monitoring.currentLoad': 'current load',

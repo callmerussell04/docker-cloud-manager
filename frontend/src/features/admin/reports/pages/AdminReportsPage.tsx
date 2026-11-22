@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { BarChart3, Boxes, Cpu, Filter, HardDrive, MemoryStick, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
+import { Boxes, Cpu, Filter, HardDrive, MemoryStick, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
 import { useToastStore } from '@/shared/ui/toastStore';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
@@ -77,39 +78,41 @@ export function AdminReportsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
-        <div>
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            <BarChart3 className="h-8 w-8 text-label-2" />
-            {t('admin.reports.title')}
-          </h1>
-          <p className="mt-1 text-slate-500 dark:text-slate-400">{t('admin.reports.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            {ranges.map((range) => (
-              <button
-                key={range.seconds}
-                type="button"
-                onClick={() => {
-                  setRangeSeconds(range.seconds);
-                  setWindowEnd(currentSeconds());
-                }}
-                className={`px-3 py-2 text-sm font-medium ${
-                  rangeSeconds === range.seconds
-                    ? 'bg-accent-fill text-on-accent'
-                    : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
-                }`}
-              >
-                {range.label}
-              </button>
-            ))}
-          </div>
-          <Button variant="secondary" onClick={refetchAll} isLoading={refreshSnapshots.isPending || overview.isFetching || users.isFetching || audit.isFetching} className="px-3">
-            <RefreshCcw className="mr-2 h-4 w-4" /> {t('admin.reports.refreshUsage')}
-          </Button>
-        </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.reports.title')}
+          actions={
+            <ToolbarButton
+              icon={RefreshCcw}
+              label={t('admin.reports.refreshUsage')}
+              busy={refreshSnapshots.isPending || overview.isFetching || users.isFetching || audit.isFetching}
+              onClick={refetchAll}
+            />
+          }
+        />
+      }
+    >
+      <div className="flex justify-end">
+        <div className="flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+          {ranges.map((range) => (
+            <button
+              key={range.seconds}
+              type="button"
+              onClick={() => {
+                setRangeSeconds(range.seconds);
+                setWindowEnd(currentSeconds());
+              }}
+              className={`px-3 py-2 text-sm font-medium ${
+                rangeSeconds === range.seconds
+                  ? 'bg-accent-fill text-on-accent'
+                  : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
+              }`}
+            >
+              {range.label}
+            </button>
+          ))}
+      </div>
       </div>
 
       {(overview.isError || users.isError) && (
@@ -159,6 +162,6 @@ export function AdminReportsPage() {
       />
 
       <UserUsageChartModal user={selectedUser} query={timeline} onClose={() => setSelectedUser(undefined)} />
-    </div>
+    </Page>
   );
 }

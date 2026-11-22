@@ -2,7 +2,6 @@ import type { projects as ru } from '../ru/projects';
 
 export const projects: Record<keyof typeof ru, string> = {
   'projects.title': 'Docker Compose',
-  'projects.subtitle': 'Deploy multi-container applications',
   'projects.deploy': 'Deploy',
   'projects.project': 'Project',
   'projects.services': 'Services',

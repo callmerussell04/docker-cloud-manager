@@ -1,6 +1,6 @@
-import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { Scope } from '@/shared/api/scope';
-import { Activity, ArrowLeft, Cpu, HardDrive, Network, Box, Terminal, ScrollText, Play, Square, Globe, Trash2 } from 'lucide-react';
+import { Activity, Cpu, HardDrive, Network, Box, Terminal, ScrollText, Play, Square, Globe, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
@@ -10,7 +10,9 @@ import { formatBytes } from '@/shared/lib/utils';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage, isNotFoundError } from '@/shared/api/apiError';
-import { useT } from '@/shared/i18n';
+import { useT, type TranslationKey } from '@/shared/i18n';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarBack } from '@/shared/ui/Toolbar';
 import {
   blockedContainerActions,
   borrowedMemoryBytes,
@@ -29,9 +31,11 @@ interface ContainerDetailsPageProps {
   // backTo is the list the back link returns to. The route supplies it, so
   // this page does not know the admin area's URLs.
   backTo: string;
+  // backLabel names that list on the back capsule.
+  backLabel: TranslationKey;
 }
 
-export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProps) {
+export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDetailsPageProps) {
   const t = useT();
   const { id } = useParams<{ id: string }>();
   const location = useLocation();
@@ -71,45 +75,36 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
     actionMutation.mutate({ id: container.id, action });
   };
 
+  const back = <ToolbarBack to={backTo} label={t(backLabel)} />;
+
   if (!container && containerQuery.isError) {
     return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <Link title={t('common.back')} aria-label={t('common.back')}
-            to={backTo}
-            className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <h1 className="text-3xl font-bold tracking-tight truncate">{snapshot?.name || id}</h1>
-        </div>
+      <Page toolbar={<Toolbar leading={back} title={snapshot?.name || id || ''} />}>
         <ErrorState
           title={t('containers.detailsLoadFailed')}
           message={getApiErrorMessage(containerQuery.error, t('containers.detailsLoadFailed'), t).message}
           onRetry={isNotFoundError(containerQuery.error) ? undefined : () => containerQuery.refetch()}
           isRetrying={containerQuery.isFetching}
         />
-      </div>
+      </Page>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <Page
+      toolbar={
+        <Toolbar
+          leading={back}
+          title={container?.name || id || ''}
+          status={container && <Badge variant={containerBadgeVariant(container.status)}>{containerStatusLabel(t, container.status)}</Badge>}
+        />
+      }
+    >
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link title={t('common.back')} aria-label={t('common.back')} 
-            to={backTo} 
-            className="p-2 rounded-xl bg-white/40 dark:bg-slate-800/40 hover:bg-white/60 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-700/50 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-tight">{container?.name || id}</h1>
-              {container && <Badge variant={containerBadgeVariant(container.status)}>{containerStatusLabel(t, container.status)}</Badge>}
-            </div>
             {container && (
-              <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} className="mt-2" />
+              <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} />
             )}
             {container && (
               <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
@@ -135,6 +130,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
               disabled={blocked.terminal}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               title={t('containers.terminal')}
+              aria-label={t('containers.terminal')}
             >
               <Terminal className="w-4 h-4" />
               <span className="hidden sm:inline font-medium text-sm">{t('containers.terminal')}</span>
@@ -143,6 +139,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
               onClick={() => openLogs(container)}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition-colors"
               title={t('containers.logs')}
+              aria-label={t('containers.logs')}
             >
               <ScrollText className="w-4 h-4" />
               <span className="hidden sm:inline font-medium text-sm">{t('containers.logs')}</span>
@@ -156,6 +153,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                   disabled={blocked.start || actionMutation.isPending}
                   onClick={() => handleContainerAction('start')}
                   title={t('containers.start')}
+                  aria-label={t('containers.start')}
                 >
                   <Play className="w-4 h-4 text-green-500" />
                   <span className="hidden lg:inline ml-2">{t('containers.start')}</span>
@@ -166,6 +164,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                   disabled={blocked.stop || actionMutation.isPending}
                   onClick={() => handleContainerAction('stop')}
                   title={t('containers.stop')}
+                  aria-label={t('containers.stop')}
                 >
                   <Square className="w-4 h-4 text-yellow-500" />
                   <span className="hidden lg:inline ml-2">{t('containers.stop')}</span>
@@ -176,6 +175,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                   disabled={blocked.expose || actionMutation.isPending}
                   onClick={() => openExpose(container)}
                   title={t('containers.routingSettings')}
+                  aria-label={t('containers.routingSettings')}
                 >
                   <Globe className="w-4 h-4 text-blue-500" />
                   <span className="hidden lg:inline ml-2">{t('containers.routingSettings')}</span>
@@ -186,6 +186,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                   disabled={blocked.delete || actionMutation.isPending}
                   onClick={() => handleContainerAction('delete')}
                   title={t('common.delete')}
+                  aria-label={t('common.delete')}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
@@ -318,6 +319,6 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
           );
         }}
       />
-    </div>
+    </Page>
   );
 }

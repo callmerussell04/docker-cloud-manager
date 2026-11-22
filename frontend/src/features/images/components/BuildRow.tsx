@@ -79,7 +79,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           onClick={() => onViewLogs(build)}
           disabled={!canViewLogs}
           className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 disabled:pointer-events-none transition-colors"
-          title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
+          title={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')} aria-label={canViewLogs ? t('images.viewLogs') : t('images.logsAfterFinish')}
         >
           <Terminal className="w-4 h-4" />
         </button>
@@ -88,7 +88,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           onClick={() => setConfirmAction('cancel')}
           disabled={!canCancel || cancelMutation.isPending}
           className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('images.cancelBuild')}
+          title={t('images.cancelBuild')} aria-label={t('images.cancelBuild')}
         >
           <XCircle className="w-4 h-4" />
         </button>
@@ -97,7 +97,7 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
           onClick={() => setConfirmAction('delete')}
           disabled={deleteMutation.isPending || !canDelete}
           className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')}
+          title={t('common.delete')} aria-label={t('common.delete')}
         >
           <Trash2 className="w-4 h-4" />
         </button>

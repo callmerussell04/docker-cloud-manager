@@ -30,6 +30,7 @@ export function ToastContainer() {
             onClick={() => removeToast(toast.id)}
             className="absolute right-3 top-3 opacity-70 transition-opacity hover:opacity-100"
             aria-label={t('common.closeToast')}
+            title={t('common.closeToast')}
           >
             <X className="w-4 h-4" />
           </button>

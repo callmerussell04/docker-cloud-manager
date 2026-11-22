@@ -1,8 +1,7 @@
 import { useState, type ComponentType } from 'react';
 import { useIsFetching, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { Box, Disc, Hammer, HardDrive, Layers, RefreshCcw, ShieldAlert } from 'lucide-react';
+import { Box, Disc, Hammer, HardDrive, Layers, RefreshCcw } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
 import { TabSwitcher } from '@/shared/ui/TabSwitcher';
 import { useT } from '@/shared/i18n';
 import { containerKeys } from '@/features/containers/queries';
@@ -14,6 +13,8 @@ import { VolumesTab } from '../components/VolumesTab';
 import { ImagesTab } from '../components/ImagesTab';
 import { BuildsTab } from '../components/BuildsTab';
 import { ProjectsTab } from '../components/ProjectsTab';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
 
 type Tab = 'containers' | 'volumes' | 'images' | 'builds' | 'projects';
 
@@ -33,20 +34,14 @@ export function AllResourcesPage() {
   const isFetching = useIsFetching({ queryKey: listKey }) > 0;
 
   return (
-    <div className="space-y-6 flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center gap-3">
-            <ShieldAlert className="w-8 h-8" />
-            {t('admin.resources.title')}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('admin.resources.subtitle')}</p>
-        </div>
-
-        <Button variant="secondary" onClick={() => queryClient.invalidateQueries({ queryKey: listKey })} isLoading={isFetching} className="px-3">
-          <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
-        </Button>
-      </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.resources.title')}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => queryClient.invalidateQueries({ queryKey: listKey })} />}
+        />
+      }
+    >
 
       <TabSwitcher
         activeTab={activeTab}
@@ -61,6 +56,6 @@ export function AllResourcesPage() {
       />
 
       <ActiveTab key={activeTab} />
-    </div>
+    </Page>
   );
 }

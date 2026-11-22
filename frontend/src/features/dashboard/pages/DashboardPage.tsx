@@ -1,12 +1,13 @@
 import { Activity, Box, Cpu, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { formatBytes } from '@/shared/lib/utils';
-import { Button } from '@/shared/ui/Button';
 import { useT } from '@/shared/i18n';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useDashboardStats } from '@/features/dashboard/queries';
 import { millicoresToCores } from '@/features/dashboard/model';
+import { Page } from '@/shared/ui/Page';
+import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
 
 export function DashboardPage() {
   const t = useT();
@@ -61,16 +62,14 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">{t('dashboard.title')}</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">{t('dashboard.subtitle')}</p>
-        </div>
-        <Button variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="px-3">
-          <RefreshCcw className="w-4 h-4 mr-2" /> {t('common.refresh')}
-        </Button>
-      </div>
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('dashboard.title')}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+        />
+      }
+    >
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -190,6 +189,6 @@ export function DashboardPage() {
       ) : (
         <div className="text-center p-8 text-slate-500">{t('dashboard.loadFailed')}</div>
       )}
-    </div>
+    </Page>
   );
 }
