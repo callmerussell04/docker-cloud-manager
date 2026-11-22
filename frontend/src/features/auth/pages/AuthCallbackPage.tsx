@@ -48,7 +48,8 @@ export function AuthCallbackPage() {
   }, [addToast, navigate, search, t]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 text-sm text-slate-500 dark:text-slate-400">
+    <div className="relative isolate min-h-screen flex items-center justify-center p-4 text-sm text-label-2">
+      <div aria-hidden className="frost-veil fixed inset-0 -z-10" />
       {t('auth.callback.loading')}
     </div>
   );

@@ -46,7 +46,7 @@ export function SettingRow({ setting, control, t }: {
       <div className="min-w-0 space-y-1">
         <div className="flex items-center gap-2">
           <Label htmlFor={setting.name}>{t(`admin.settings.field.${setting.name}.label`)}</Label>
-          {fieldState.isDirty && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-indigo-500" />}
+          {fieldState.isDirty && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-accent-fill" />}
         </div>
         <p id={descriptionId} className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
           {t(`admin.settings.field.${setting.name}.hint`)}
@@ -251,14 +251,14 @@ function Toggle({ id, describedBy, checked, onChange, t }: ControlProps & {
       aria-describedby={describedBy}
       onClick={() => onChange(!checked)}
       className={cn(
-        'flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500',
+        'flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-accent-fill',
         checked
-          ? 'border-indigo-300 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100'
+          ? 'border-separator bg-fill text-accent'
           : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300',
       )}
     >
       <span className="font-medium">{checked ? t('admin.settings.enabled') : t('admin.settings.disabled')}</span>
-      <span className={cn('relative h-6 w-11 rounded-full transition-colors', checked ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700')}>
+      <span className={cn('relative h-6 w-11 rounded-full transition-colors', checked ? 'bg-accent-fill' : 'bg-fill-hover')}>
         <span className={cn('absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-6' : 'translate-x-1')} />
       </span>
     </button>

@@ -62,14 +62,14 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
           <button
             type="button"
             onClick={onToggleExpanded}
-            className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 flex items-center justify-center shrink-0 transition-colors"
+            className="w-10 h-10 rounded-xl bg-fill text-label-2 hover:bg-fill-hover flex items-center justify-center shrink-0 transition-colors"
             title={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')}
             aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
           </button>
         ) : (
-          <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
             <Layers className="w-5 h-5" />
           </div>
         )}

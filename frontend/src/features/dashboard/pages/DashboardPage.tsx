@@ -13,9 +13,9 @@ export function DashboardPage() {
   const { data: stats, isLoading, isError, error, refetch, isFetching } = useDashboardStats();
 
   const getProgressColor = (percent: number) => {
-    if (percent < 70) return 'bg-indigo-500';
-    if (percent < 90) return 'bg-yellow-500';
-    return 'bg-red-500';
+    if (percent < 70) return 'bg-accent-fill';
+    if (percent < 90) return 'bg-orange';
+    return 'bg-red';
   };
 
   const renderProgressBar = (used: number, total: number, formatFn?: (val: number) => string) => {
@@ -91,7 +91,7 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Server className="w-5 h-5 text-indigo-500" />
+                  <Server className="w-5 h-5 text-label-2" />
                   {t('dashboard.ram')}
                 </CardTitle>
               </CardHeader>
@@ -103,7 +103,7 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Cpu className="w-5 h-5 text-amber-500" />
+                  <Cpu className="w-5 h-5 text-label-2" />
                   {t('dashboard.cpu')}
                 </CardTitle>
               </CardHeader>
@@ -115,7 +115,7 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Database className="w-5 h-5 text-emerald-500" />
+                  <Database className="w-5 h-5 text-label-2" />
                   {t('dashboard.disk')}
                 </CardTitle>
               </CardHeader>
@@ -127,7 +127,7 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <Box className="w-5 h-5 text-blue-500" />
+                  <Box className="w-5 h-5 text-label-2" />
                   {t('dashboard.containerLimit')}
                 </CardTitle>
               </CardHeader>
@@ -139,7 +139,7 @@ export function DashboardPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <HardDrive className="w-5 h-5 text-purple-500" />
+                  <HardDrive className="w-5 h-5 text-label-2" />
                   {t('dashboard.volumeLimit')}
                 </CardTitle>
               </CardHeader>
@@ -150,10 +150,10 @@ export function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4">
-            <Card className="bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-100 dark:border-indigo-900/50">
+            <Card>
               <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center shrink-0">
-                  <Activity className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
+                  <Activity className="w-6 h-6 text-label-2" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.runningContainers')}</p>
@@ -162,10 +162,10 @@ export function DashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/50">
+            <Card>
               <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center shrink-0">
-                  <Disc className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
+                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
+                  <Disc className="w-6 h-6 text-label-2" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.customImages')}</p>
@@ -174,10 +174,10 @@ export function DashboardPage() {
               </CardContent>
             </Card>
 
-            <Card className="bg-amber-50/50 dark:bg-amber-950/20 border-amber-100 dark:border-amber-900/50">
+            <Card>
               <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
-                  <Layers className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
+                  <Layers className="w-6 h-6 text-label-2" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.composeProjects')}</p>

@@ -31,7 +31,7 @@ export function AuditEventsTable({ query, filters, onFilterChange, page, onPageC
     <Card>
       <CardHeader className="space-y-3">
         <CardTitle className="flex items-center gap-2 text-lg">
-          <Activity className="h-5 w-5 text-indigo-500" />
+          <Activity className="h-5 w-5 text-label-2" />
           {t('admin.reports.auditEventsTable')}
         </CardTitle>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_160px_180px_160px]">

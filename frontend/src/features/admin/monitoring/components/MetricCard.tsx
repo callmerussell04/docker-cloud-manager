@@ -4,9 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { formatBytes } from '@/shared/lib/utils';
 
 function progressColor(percent: number) {
-  if (percent < 70) return 'bg-emerald-500';
-  if (percent < 90) return 'bg-yellow-500';
-  return 'bg-red-500';
+  if (percent < 70) return 'bg-accent-fill';
+  if (percent < 90) return 'bg-orange';
+  return 'bg-red';
 }
 
 /** A host metric with a usage bar. */
@@ -35,7 +35,7 @@ export function MetricCard({
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center gap-2">
-          <Icon className="w-5 h-5 text-indigo-500" />
+          <Icon className="w-5 h-5 text-label-2" />
           {title}
         </CardTitle>
       </CardHeader>

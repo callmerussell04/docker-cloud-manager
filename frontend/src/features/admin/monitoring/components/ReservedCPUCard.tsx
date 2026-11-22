@@ -16,7 +16,7 @@ export function ReservedCPUCard({ containerMillicores, buildMillicores }: { cont
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center gap-2">
-          <Cpu className="w-5 h-5 text-indigo-500" />
+          <Cpu className="w-5 h-5 text-label-2" />
           {t('admin.monitoring.reservedCPU')}
         </CardTitle>
       </CardHeader>

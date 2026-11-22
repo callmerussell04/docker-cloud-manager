@@ -214,7 +214,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-indigo-500" />
+              <Cpu className="w-5 h-5 text-label-2" />
               {t('containers.cpu')}
             </CardTitle>
           </CardHeader>
@@ -228,7 +228,7 @@ export function ContainerDetailsPage({ scope, backTo }: ContainerDetailsPageProp
                 </div>
                 <div className="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-3 border border-slate-200 dark:border-slate-700 overflow-hidden">
                   <div 
-                    className="bg-indigo-500 h-full rounded-full transition-all duration-500" 
+                    className="bg-accent-fill h-full rounded-full transition-all duration-500" 
                     style={{ width: `${Math.min(stats?.cpu_percentage || 0, 100)}%` }} 
                   />
                 </div>

@@ -73,7 +73,7 @@ function StatusRow({ label, description, enabled, value, t }: {
       <p className={cn(
         'self-start rounded-xl border px-4 py-2.5 text-sm font-medium',
         enabled
-          ? 'border-indigo-300 bg-indigo-50 text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100'
+          ? 'border-separator bg-fill text-accent'
           : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300',
       )}>
         {value ?? (enabled ? t('admin.settings.enabled') : t('admin.settings.disabled'))}

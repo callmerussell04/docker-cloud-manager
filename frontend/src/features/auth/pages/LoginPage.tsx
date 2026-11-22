@@ -60,7 +60,8 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="relative isolate min-h-screen flex flex-col">
+      <div aria-hidden className="frost-veil fixed inset-0 -z-10" />
       <AuthHeader />
 
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-10">
@@ -137,7 +138,7 @@ export function LoginPage() {
                 {t('auth.login.noAccount')}{' '}
                 <Link
                   to="/register"
-                  className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="font-medium text-accent hover:underline"
                 >
                   {t('auth.login.registerLink')}
                 </Link>

@@ -30,7 +30,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
           onClick={() => setIsVisible((value) => !value)}
           onMouseDown={(event) => event.preventDefault()}
           disabled={disabled}
-          className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-900/5 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:pointer-events-none disabled:opacity-50 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200"
+          className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-label-3 transition-colors hover:bg-fill hover:text-label focus:outline-none focus:ring-2 focus:ring-accent-fill disabled:pointer-events-none disabled:opacity-50"
           aria-label={label}
           title={label}
         >

@@ -4,13 +4,15 @@ import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { PageFallback } from './PageFallback';
 import { useT } from '@/shared/i18n';
+import { FrostWindow } from '@/shared/ui/FrostWindow';
 
 export function PageLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const t = useT();
 
   return (
-    <div className="flex h-screen w-full overflow-hidden text-slate-900 dark:text-slate-100">
+    <div className="relative isolate flex h-screen w-full overflow-hidden">
+      <FrostWindow className="absolute inset-0 -z-10" />
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden relative">
         <TopBar onMenuClick={() => setIsMobileNavOpen(true)} />
@@ -27,7 +29,7 @@ export function PageLayout() {
         <div className="fixed inset-0 z-[90] md:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/40"
+            className="absolute inset-0 bg-scrim"
             onClick={() => setIsMobileNavOpen(false)}
             aria-label={t('topbar.closeNavigation')}
           />

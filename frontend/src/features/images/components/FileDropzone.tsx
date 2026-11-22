@@ -31,7 +31,7 @@ export function FileDropzone({ file, accept, title, hint, removeLabel, onFileCha
 
       {file ? (
         <div className="flex flex-col items-center text-center">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 dark:bg-indigo-900/50 dark:text-indigo-400">
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-fill text-label-2">
             <CheckCircle2 className="h-6 w-6" />
           </div>
           <p className="font-medium">{file.name}</p>

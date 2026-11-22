@@ -31,7 +31,7 @@ function UsageChartPanel({
   return (
     <div className="rounded-lg border border-slate-200 bg-white/70 p-4 dark:border-slate-700 dark:bg-slate-900/50">
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-        <Icon className="h-4 w-4 text-indigo-500 dark:text-indigo-300" />
+        <Icon className="h-4 w-4 text-label-2" />
         {title}
       </div>
       <div className="h-64">
@@ -89,7 +89,7 @@ export function UserUsageChartModal({ user, query, onClose }: UserUsageChartModa
                   <YAxis tickFormatter={(value) => percentValue(Number(value))} width={64} />
                   <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
                   <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
-                  <Line name="cpu" type="monotone" dataKey="cpu" stroke="#f59e0b" dot={false} strokeWidth={2} />
+                  <Line name="cpu" type="monotone" dataKey="cpu" stroke="var(--series-4)" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </UsageChartPanel>
@@ -102,8 +102,8 @@ export function UserUsageChartModal({ user, query, onClose }: UserUsageChartModa
                   <YAxis tickFormatter={(value) => formatBytes(Number(value), 0)} width={76} />
                   <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
                   <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
-                  <Line name="actualMemory" type="monotone" dataKey="actualMemory" stroke="#10b981" dot={false} strokeWidth={2} />
-                  <Line name="reservedMemory" type="monotone" dataKey="reservedMemory" stroke="#0ea5e9" dot={false} strokeWidth={2} />
+                  <Line name="actualMemory" type="monotone" dataKey="actualMemory" stroke="var(--series-3)" dot={false} strokeWidth={2} />
+                  <Line name="reservedMemory" type="monotone" dataKey="reservedMemory" stroke="var(--series-1)" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </UsageChartPanel>
@@ -116,7 +116,7 @@ export function UserUsageChartModal({ user, query, onClose }: UserUsageChartModa
                   <YAxis tickFormatter={(value) => formatBytes(Number(value), 0)} width={76} />
                   <Tooltip formatter={(value, name, item) => chartTooltipValue(value, name, item, t)} />
                   <Legend formatter={(value) => chartSeriesLabel(t, String(value))} />
-                  <Line name="disk" type="monotone" dataKey="disk" stroke="#6366f1" dot={false} strokeWidth={2} />
+                  <Line name="disk" type="monotone" dataKey="disk" stroke="var(--series-5)" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </UsageChartPanel>

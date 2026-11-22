@@ -33,14 +33,14 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
   return (
     <aside
       className={cn(
-        "w-64 flex-col border-r border-white/20 bg-white/90 backdrop-blur-xl transition-colors dark:border-slate-700/50 dark:bg-slate-900/90",
-        mobile ? "flex h-full shadow-2xl" : "hidden shrink-0 md:flex"
+        "w-64 flex-col border-r border-separator transition-colors",
+        mobile ? "flex h-full glass-dense" : "hidden shrink-0 glass-sidebar md:flex"
       )}
     >
-      <div className="h-16 flex items-center px-6 border-b border-white/20 dark:border-slate-700/50">
-        <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+      <div className="h-16 flex items-center px-6 border-b border-separator">
+        <div className="flex items-center gap-2 text-label">
           <Box className="w-6 h-6 stroke-[2.5]" />
-          <span className="font-bold text-lg tracking-tight text-slate-900 dark:text-slate-100">
+          <span className="font-bold text-lg tracking-tight text-label">
             DCM
           </span>
         </div>
@@ -60,11 +60,11 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
                   isActive
-                    ? "bg-indigo-600/10 text-indigo-700 dark:text-indigo-300 shadow-sm border border-indigo-500/20"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                    ? "bg-fill-hover text-label"
+                    : "text-label-2 hover:bg-fill hover:text-label"
                 )}
               >
-                <item.icon className={cn("w-5 h-5", isActive ? "text-indigo-600 dark:text-indigo-400" : "")} />
+                <item.icon className={cn("w-5 h-5", isActive && "text-accent")} />
                 {t(item.nameKey as TranslationKey)}
               </Link>
             );
@@ -73,7 +73,7 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
 
         {role === 'admin' && (
           <div>
-            <div className="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            <div className="px-3 mb-2 text-xs font-semibold text-label-3 uppercase tracking-wider">
               {t('common.admin')}
             </div>
             <div className="space-y-1">
@@ -88,11 +88,11 @@ export function Sidebar({ mobile = false, onNavigate }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200",
                       isActive
-                        ? "bg-red-500/10 text-red-700 dark:text-red-400 shadow-sm border border-red-500/20"
-                        : "text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-slate-100"
+                    ? "bg-fill-hover text-label"
+                    : "text-label-2 hover:bg-fill hover:text-label"
                     )}
                   >
-                    <item.icon className={cn("w-5 h-5", isActive ? "text-red-600 dark:text-red-400" : "")} />
+                    <item.icon className={cn("w-5 h-5", isActive && "text-accent")} />
                     {t(item.nameKey as TranslationKey)}
                   </Link>
                 );

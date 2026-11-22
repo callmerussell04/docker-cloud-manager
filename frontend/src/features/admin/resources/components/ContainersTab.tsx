@@ -80,7 +80,7 @@ export function ContainersTab() {
                     href={`http://${c.domain_prefix}.${BASE_DOMAIN}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex min-w-0 items-center gap-2 text-indigo-600 transition-colors hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300"
+                    className="inline-flex min-w-0 items-center gap-2 text-accent transition-colors hover:underline"
                     title={`${c.domain_prefix}.${BASE_DOMAIN}:${c.internal_port}`}
                   >
                     <Globe className="h-4 w-4 shrink-0" />
@@ -99,7 +99,7 @@ export function ContainersTab() {
                 <div className="block truncate text-slate-400" title={c.docker_id}>{t('admin.resources.dockerIdLabel', { value: c.docker_id?.slice(0, 12) || 'N/A' })}</div>
               </div>
               <div className="flex gap-2 justify-end shrink-0">
-                <Link title={t('containers.stats')} aria-label={t('containers.stats')} to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors">
+                <Link title={t('containers.stats')} aria-label={t('containers.stats')} to={`/admin/containers/${c.id}`} state={{ container: c }} className="p-2 rounded-lg bg-fill text-accent hover:bg-fill-hover transition-colors">
                   <Activity className="w-4 h-4" />
                 </Link>
 

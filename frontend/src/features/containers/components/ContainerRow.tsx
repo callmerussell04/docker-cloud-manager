@@ -38,7 +38,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
   return (
     <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", containerTableLayout.grid, containerTableLayout.minWidth)}>
       <div className="flex items-center gap-4 min-w-0 pr-4">
-        <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
           <Box className="w-5 h-5" />
         </div>
         <div className="min-w-0 flex-1">
@@ -68,7 +68,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
             href={`http://${container.domain_prefix}.${BASE_DOMAIN}`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors min-w-0 w-full"
+            className="inline-flex items-center gap-2 text-accent hover:underline transition-colors min-w-0 w-full"
             title={`${container.domain_prefix}.${BASE_DOMAIN}:${container.internal_port}`}
           >
             <Globe className="w-4 h-4 shrink-0" />
@@ -87,7 +87,7 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         <Link
           to={`/containers/${container.id}`}
           state={{ container }}
-          className="p-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 transition-colors"
+          className="p-2 rounded-lg bg-fill text-accent hover:bg-fill-hover transition-colors"
           title={t('containers.stats')}
         >
           <Activity className="w-4 h-4" />

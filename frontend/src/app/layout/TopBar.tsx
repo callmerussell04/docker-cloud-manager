@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { getApiErrorMessage } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
+import { Glass } from '@/shared/ui/Glass';
 
 interface TopBarProps {
   onMenuClick?: () => void;
@@ -35,11 +36,11 @@ export function TopBar({ onMenuClick }: TopBarProps) {
   const languageOptions: Locale[] = ['ru', 'en'];
 
   return (
-    <header className="h-16 shrink-0 border-b border-white/20 dark:border-slate-700/50 bg-white/30 dark:bg-slate-900/30 backdrop-blur-xl flex items-center justify-between px-6 z-10 transition-colors">
+    <header className="h-16 shrink-0 flex items-center justify-between px-6 z-10">
       <div className="flex items-center gap-4">
         <button
           onClick={onMenuClick}
-          className="rounded-xl border border-white/50 bg-white/50 p-2.5 text-slate-700 transition-colors hover:bg-white/80 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-700/50 md:hidden"
+          className="glass rounded-full p-2.5 text-label-2 transition-colors hover:text-label md:hidden"
           aria-label={t('topbar.openNavigation')}
         >
           <Menu className="h-4 w-4" />
@@ -49,49 +50,50 @@ export function TopBar({ onMenuClick }: TopBarProps) {
       <div className="flex items-center gap-3">
         <button title={t('theme.switch')} aria-label={t('theme.switch')}
           onClick={toggleTheme}
-          className="p-2.5 rounded-xl bg-white/50 dark:bg-slate-800/50 hover:bg-white/80 dark:hover:bg-slate-700/50 border border-white/50 dark:border-slate-600/50 transition-colors text-slate-700 dark:text-slate-300"
+          className="glass rounded-full p-2.5 text-label-2 transition-colors hover:text-label"
         >
           {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
 
-        <div
-          className="flex items-center gap-1 rounded-xl border border-white/50 bg-white/50 p-1 text-slate-700 dark:border-slate-600/50 dark:bg-slate-800/50 dark:text-slate-300"
+        <Glass
+          className="flex items-center gap-1 rounded-full p-1 text-label-2"
           aria-label={t('language.switch')}
         >
-          <Languages className="ml-1 h-4 w-4 text-slate-500 dark:text-slate-400" />
+          <Languages className="ml-1 h-4 w-4 text-label-3" />
           {languageOptions.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => setLanguage(option)}
               className={cn(
-                "h-7 rounded-lg px-2 text-xs font-semibold transition-colors",
+                "h-7 rounded-full px-2.5 text-xs font-semibold transition-colors",
                 language === option
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-slate-600 hover:bg-white/70 dark:text-slate-300 dark:hover:bg-slate-700/70"
+                  ? "bg-accent-fill text-on-accent"
+                  : "text-label-2 hover:bg-fill"
               )}
               title={t('language.switch')}
             >
               {t(option === 'ru' ? 'language.ru' : 'language.en')}
             </button>
           ))}
-        </div>
+        </Glass>
 
-        <div className="h-8 w-px bg-slate-300/50 dark:bg-slate-700/50 mx-1" />
+        <div className="h-8 w-px bg-separator mx-1" />
 
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/40 dark:bg-slate-800/40 border border-white/50 dark:border-slate-700/50">
-          <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+        <Glass className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3">
+          <div className="w-7 h-7 rounded-full bg-fill flex items-center justify-center text-label-2">
             <User className="w-4 h-4" />
           </div>
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 hidden sm:block truncate max-w-[150px]">
+          <span className="text-sm font-medium text-label hidden sm:block truncate max-w-[150px]">
             {username || t('common.user')}
           </span>
-        </div>
+        </Glass>
 
         <button
           onClick={handleLogout}
-          className="p-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 transition-colors"
+          className="glass rounded-full p-2.5 text-label-2 transition-colors hover:text-red-text"
           title={t('topbar.logout')}
+          aria-label={t('topbar.logout')}
         >
           <LogOut className="w-4 h-4" />
         </button>

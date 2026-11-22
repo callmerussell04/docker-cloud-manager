@@ -147,11 +147,11 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
             <Input type="number" value={tail} onChange={(e) => setTail(e.target.value)} className="w-24 h-8" />
           </div>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+            <input type="checkbox" checked={timestamps} onChange={(e) => setTimestamps(e.target.checked)} className="rounded accent-accent-fill" />
             {t('containers.logsTimestamps')}
           </label>
           <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="rounded text-indigo-600 focus:ring-indigo-500" />
+            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} className="rounded accent-accent-fill" />
             {t('containers.logsFollow')}
           </label>
           <Button

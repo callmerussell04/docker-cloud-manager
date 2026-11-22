@@ -49,7 +49,6 @@ export function AllResourcesPage() {
       </div>
 
       <TabSwitcher
-        tone="danger"
         activeTab={activeTab}
         onChange={setActiveTab}
         items={[

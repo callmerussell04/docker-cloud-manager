@@ -51,9 +51,9 @@ export function SectionNav<Id extends string>({ items, active, onSelect, t }: {
               aria-current={item.id === active ? 'page' : undefined}
               onClick={() => onSelect(item.id)}
               className={cn(
-                'flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+                'flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-fill',
                 item.id === active
-                  ? 'bg-indigo-600 text-white shadow'
+                  ? 'bg-accent-fill text-on-accent shadow'
                   : 'text-slate-700 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-slate-800/60',
               )}
             >
@@ -67,8 +67,8 @@ export function SectionNav<Id extends string>({ items, active, onSelect, t }: {
                     item.invalid
                       ? 'bg-red-600 text-white'
                       : item.id === active
-                        ? 'bg-white text-indigo-700'
-                        : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-200',
+                        ? 'bg-on-accent text-accent'
+                        : 'bg-fill text-label-2',
                   )}
                 >
                   {item.invalid || item.changed}

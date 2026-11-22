@@ -6,7 +6,7 @@ import { cpuSummary, defaultContainerCapacity, formatBytes, memorySummary, type 
 
 function SummaryNote({ lines }: { lines: string[] }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 text-sm text-indigo-900 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-100">
+    <div className="flex items-start gap-3 rounded-xl border border-separator bg-fill p-3 text-sm text-label-2">
       <Info className="mt-0.5 h-4 w-4 shrink-0" />
       <p className="leading-relaxed">{lines.join(' ')}</p>
     </div>

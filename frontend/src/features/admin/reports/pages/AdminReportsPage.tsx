@@ -81,7 +81,7 @@ export function AdminReportsPage() {
       <div className="flex flex-col items-start justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            <BarChart3 className="h-8 w-8 text-indigo-600 dark:text-indigo-300" />
+            <BarChart3 className="h-8 w-8 text-label-2" />
             {t('admin.reports.title')}
           </h1>
           <p className="mt-1 text-slate-500 dark:text-slate-400">{t('admin.reports.subtitle')}</p>
@@ -98,7 +98,7 @@ export function AdminReportsPage() {
                 }}
                 className={`px-3 py-2 text-sm font-medium ${
                   rangeSeconds === range.seconds
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-accent-fill text-on-accent'
                     : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
                 }`}
               >
@@ -128,14 +128,14 @@ export function AdminReportsPage() {
 
       {!overview.isError && (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ReportMetricCard title={t('admin.reports.auditEvents')} value={numberValue(overview.data?.audit_events_total ?? 0)} icon={ShieldAlert} tone="indigo" />
-          <ReportMetricCard title={t('admin.reports.failedActions')} value={numberValue(overview.data?.failed_actions_total ?? 0)} icon={Filter} tone="amber" />
-          <ReportMetricCard title={t('admin.reports.activeUsers')} value={numberValue(overview.data?.active_users_total ?? 0)} icon={Users} tone="sky" />
-          <ReportMetricCard title={t('admin.reports.actualMemory')} value={formatBytes(overview.data?.memory_usage_bytes ?? 0)} icon={MemoryStick} tone="emerald" />
-          <ReportMetricCard title={t('admin.reports.reservedMemory')} value={formatBytes(overview.data?.reserved_memory_bytes ?? 0)} icon={MemoryStick} tone="sky" />
-          <ReportMetricCard title={t('admin.reports.cpu')} value={percentValue(overview.data?.cpu_percent ?? 0)} icon={Cpu} tone="indigo" />
-          <ReportMetricCard title={t('admin.reports.disk')} value={formatBytes(overview.data?.total_disk_bytes ?? 0)} icon={HardDrive} tone="emerald" />
-          <ReportMetricCard title={t('admin.reports.resourcesTotal')} value={numberValue(overview.data?.resources_total ?? 0)} icon={Boxes} tone="slate" />
+          <ReportMetricCard title={t('admin.reports.auditEvents')} value={numberValue(overview.data?.audit_events_total ?? 0)} icon={ShieldAlert} />
+          <ReportMetricCard title={t('admin.reports.failedActions')} value={numberValue(overview.data?.failed_actions_total ?? 0)} icon={Filter} />
+          <ReportMetricCard title={t('admin.reports.activeUsers')} value={numberValue(overview.data?.active_users_total ?? 0)} icon={Users} />
+          <ReportMetricCard title={t('admin.reports.actualMemory')} value={formatBytes(overview.data?.memory_usage_bytes ?? 0)} icon={MemoryStick} />
+          <ReportMetricCard title={t('admin.reports.reservedMemory')} value={formatBytes(overview.data?.reserved_memory_bytes ?? 0)} icon={MemoryStick} />
+          <ReportMetricCard title={t('admin.reports.cpu')} value={percentValue(overview.data?.cpu_percent ?? 0)} icon={Cpu} />
+          <ReportMetricCard title={t('admin.reports.disk')} value={formatBytes(overview.data?.total_disk_bytes ?? 0)} icon={HardDrive} />
+          <ReportMetricCard title={t('admin.reports.resourcesTotal')} value={numberValue(overview.data?.resources_total ?? 0)} icon={Boxes} />
         </div>
       )}
 

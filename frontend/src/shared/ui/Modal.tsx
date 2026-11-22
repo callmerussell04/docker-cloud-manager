@@ -2,7 +2,7 @@ import { type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, useEffec
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { Card } from './Card';
+import { Glass } from './Glass';
 import { useT } from '@/shared/i18n';
 
 interface ModalProps extends HTMLAttributes<HTMLDivElement> {
@@ -86,22 +86,23 @@ export function Modal({ isOpen, onClose, title, children, className, ...props }:
       aria-label={title}
     >
       <div 
-        className="absolute inset-0 bg-slate-900/20 dark:bg-black/40 backdrop-blur-sm animate-in fade-in"
+        className="absolute inset-0 bg-scrim animate-in fade-in"
         onClick={onClose}
       />
       
-      <Card 
+      <Glass
+        material="dense"
         className={cn(
-          "relative z-[101] flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden p-0 shadow-2xl animate-in zoom-in-95 slide-in-from-bottom-4",
+          "relative z-[101] flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl p-0 animate-in zoom-in-95 slide-in-from-bottom-4",
           className
         )}
         {...props}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200/70 px-6 py-4 dark:border-slate-700/60">
+        <div className="flex shrink-0 items-center justify-between border-b border-separator px-6 py-4">
           {title && <h2 className="text-xl font-semibold tracking-tight pr-4 truncate">{title}</h2>}
           <button
             onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-800/50 transition-colors shrink-0"
+            className="p-1.5 rounded-full hover:bg-fill transition-colors shrink-0"
             aria-label={t('common.closeModal')}
           >
             <X className="w-5 h-5 opacity-70" />
@@ -110,7 +111,7 @@ export function Modal({ isOpen, onClose, title, children, className, ...props }:
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
           {children}
         </div>
-      </Card>
+      </Glass>
     </div>,
     document.body
   );

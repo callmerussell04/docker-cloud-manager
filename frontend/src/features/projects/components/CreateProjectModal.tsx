@@ -202,7 +202,7 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
               onClick={() => setShowInfo(!showInfo)}
               className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium hover:bg-slate-100/50 dark:hover:bg-slate-700/30 transition-colors"
             >
-              <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400">
+              <div className="flex items-center gap-2 text-label-2">
                 <Info className="w-4 h-4" />
                 {t('projects.composeHelp')}
               </div>

@@ -178,7 +178,7 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
                 {errors.volume_mounts?.[index]?.mount_path && <p className="text-xs text-red-500 mt-1">{errors.volume_mounts[index]?.mount_path?.message}</p>}
               </div>
               <div className="flex items-center gap-2 h-10 px-2">
-                <input type="checkbox" id={`ro-${index}`} {...register(`volume_mounts.${index}.is_readonly`)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                <input type="checkbox" id={`ro-${index}`} {...register(`volume_mounts.${index}.is_readonly`)} className="rounded accent-accent-fill" />
                 <Label htmlFor={`ro-${index}`} className="text-xs cursor-pointer">RO</Label>
               </div>
               <Button title={t('common.delete')} aria-label={t('common.delete')} type="button" variant="danger" onClick={() => removeVol(index)} className="px-3 h-10">

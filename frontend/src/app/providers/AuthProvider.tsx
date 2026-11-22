@@ -42,8 +42,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6 dark:bg-slate-950">
-        <Card className="w-full max-w-md text-slate-900 dark:text-slate-100" role="alert">
+      <main className="flex min-h-screen items-center justify-center p-6">
+        <Card className="w-full max-w-md" role="alert">
           <CardHeader>
             <CardTitle className="text-lg">{t('auth.session.unavailable')}</CardTitle>
           </CardHeader>

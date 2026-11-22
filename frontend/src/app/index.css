@@ -2,8 +2,270 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens. Every colour the interface uses is a custom property here,
+ * redefined for dark mode, and exposed to Tailwind under the same name
+ * (tailwind.config.js), so components use names and never literals. The values
+ * are the token table of the redesign spec; src/app/tokens.test.ts holds them
+ * to it. See docs/agent-context/product-frontend.md, "Design system".
+ */
 @layer base {
+  :root {
+    --label: #1d1d1f;
+    --label-2: #5f5f66;
+    --label-3: #8e8e96;
+    --separator: rgba(0, 0, 0, 0.09);
+    --fill: rgba(90, 90, 100, 0.13);
+    --fill-hover: rgba(90, 90, 100, 0.22);
+    --accent: #2f5ea8;
+    --accent-fill: #3a6cc0;
+    --on-accent: #ffffff;
+    --green: #28a745;
+    --orange: #f08c00;
+    --red: #ff3b30;
+    --red-text: #c9241b;
+    --glass: rgba(255, 255, 255, 0.4);
+    --glass-dense: rgba(250, 250, 252, 0.78);
+    --frost: rgba(255, 255, 255, 0.56);
+    --frost-blur: 28px;
+    --frost-saturate: 125%;
+    --glass-sidebar: rgba(255, 255, 255, 0.36);
+    --console: #17191d;
+    --wallpaper-0: #eef3f9;
+    --wallpaper-3: #d8e3f1;
+    --wallpaper-1: #a9bfdc;
+    --wallpaper-2: #5f82b8;
+    --wallpaper-highlight: #ffffff;
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+
+    /* Material details: the specular rim (bright where light enters at the
+       top left, again where it leaves at the bottom right), the glass shadow,
+       the wallpaper's shadow, the scrim behind a dialog, and the solid surfaces that replace glass and
+       frost when the system asks for less transparency. */
+    --rim-enter: rgba(255, 255, 255, 1);
+    --rim-near: rgba(255, 255, 255, 0.55);
+    --rim-far: rgba(255, 255, 255, 0.22);
+    --rim-leave: rgba(255, 255, 255, 0.9);
+    --glass-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.1),
+      0 2px 6px rgba(0, 0, 0, 0.06),
+      0 18px 44px -12px rgba(0, 0, 0, 0.28),
+      inset 0 -10px 14px -12px rgba(0, 0, 0, 0.1);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.18);
+    --scrim: rgba(0, 0, 0, 0.18);
+    --solid: #f5f6f8;
+    --solid-window: #fbfbfc;
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', sans-serif;
+    --font-mono: 'SF Mono', 'Geist Mono Variable', ui-monospace, Menlo, monospace;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    --label: #f5f5f7;
+    --label-2: #b0b0b8;
+    --label-3: #7c7c85;
+    --separator: rgba(255, 255, 255, 0.1);
+    --fill: rgba(160, 160, 172, 0.2);
+    --fill-hover: rgba(160, 160, 172, 0.32);
+    --accent: #9fb6e0;
+    --accent-fill: #4a6db0;
+    --on-accent: #ffffff;
+    --green: #30d158;
+    --orange: #ff9f0a;
+    --red: #ff453a;
+    --red-text: #ff7a70;
+    --glass: rgba(90, 90, 98, 0.34);
+    --glass-dense: rgba(40, 40, 44, 0.76);
+    --frost: rgba(26, 26, 29, 0.4);
+    --frost-blur: 28px;
+    --frost-saturate: 100%;
+    --glass-sidebar: rgba(40, 40, 44, 0.3);
+    --console: #0d0e10;
+    --wallpaper-0: #08090b;
+    --wallpaper-3: #12161d;
+    --wallpaper-1: #1f2733;
+    --wallpaper-2: #33425a;
+    --wallpaper-highlight: #8ea2c4;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+
+    --rim-enter: rgba(255, 255, 255, 0.5);
+    --rim-near: rgba(255, 255, 255, 0.14);
+    --rim-far: rgba(255, 255, 255, 0.05);
+    --rim-leave: rgba(255, 255, 255, 0.26);
+    --glass-shadow:
+      0 0 0 0.5px rgba(0, 0, 0, 0.8),
+      0 20px 50px -12px rgba(0, 0, 0, 0.7),
+      inset 0 -10px 14px -12px rgba(0, 0, 0, 0.4);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.4);
+    --solid: #2a2a2e;
+    --solid-window: #161618;
+
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-slate-900 dark:to-indigo-950 text-slate-900 dark:text-slate-100 min-h-screen antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-300;
+    min-height: 100vh;
+    background: var(--wallpaper-0);
+    color: var(--label);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.38;
+    letter-spacing: -0.004em;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--accent-fill);
+    color: var(--on-accent);
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/*
+ * Material. The window is one frosted surface over the wallpaper and content
+ * sits directly on it; only floating controls are glass. The Glass, FrostWindow
+ * and Wallpaper components in src/shared/ui apply these classes.
+ */
+@layer components {
+  .wallpaper {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  .frost {
+    background: var(--frost);
+    -webkit-backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturate));
+    backdrop-filter: blur(var(--frost-blur)) saturate(var(--frost-saturate));
+  }
+
+  /* The wallpaper behind sign-in, blurred further to soft shapes. */
+  .frost-veil {
+    -webkit-backdrop-filter: blur(48px);
+    backdrop-filter: blur(48px);
+  }
+
+  /* Glass for floating controls. In Chromium, Glass adds an SVG displacement
+     map to the backdrop filter so the backdrop bends at the edge (lens.ts);
+     elsewhere this blur and saturation is all there is. */
+  .glass {
+    position: relative;
+    isolation: isolate;
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(14px) saturate(180%);
+    backdrop-filter: blur(14px) saturate(180%);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* Menus, dialogs, the search palette and the save bar: dense enough to read
+     long text on. */
+  .glass-dense {
+    background: var(--glass-dense);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+  }
+
+  /* The sidebar: clearer glass over the wallpaper itself. */
+  .glass-sidebar {
+    background: var(--glass-sidebar);
+    -webkit-backdrop-filter: blur(10px) saturate(170%);
+    backdrop-filter: blur(10px) saturate(170%);
+  }
+
+  /* Specular rim: a one-pixel gradient border, bright where light enters at
+     the top left and where it leaves at the bottom right. */
+  .glass::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, var(--rim-enter) 0%, var(--rim-near) 22%, var(--rim-far) 60%, var(--rim-leave) 100%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+
+  /* A pinned glass bar that rows pass beneath: the rim stays clear and bends
+     the rows while a dense core, feathered out before the rim, keeps the bar's
+     label legible. Put a .glass-core element first inside a .glass bar. */
+  .glass-core {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--glass-dense);
+    pointer-events: none;
+    -webkit-mask-image:
+      linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to right, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%),
+      linear-gradient(to bottom, transparent 0, #000 12px, #000 calc(100% - 12px), transparent 100%);
+    mask-composite: intersect;
+  }
+}
+
+/* The system's reduce-transparency setting turns every glass and frost
+   surface solid. !important also beats the backdrop filter Glass sets inline. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-dense,
+  .glass-sidebar {
+    background: var(--solid) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .glass-core {
+    display: none;
+  }
+
+  .frost {
+    background: var(--solid-window) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .frost-veil {
+    background: var(--wallpaper-0);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* The system's reduce-motion setting turns animations off. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }
