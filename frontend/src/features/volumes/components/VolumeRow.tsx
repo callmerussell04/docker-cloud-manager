@@ -1,5 +1,5 @@
 import { Trash2, HardDrive, AlertTriangle, Clock } from 'lucide-react';
-import { volumeStatusLabel, type VolumeData } from '../model';
+import { volumeDeleteConsequence, volumeStatusLabel, type VolumeData } from '../model';
 import { volumeTableLayout } from './tableLayouts';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
@@ -77,8 +77,8 @@ export function VolumeRow({ volume }: VolumeRowProps) {
         </button>
         <ConfirmDialog
           isOpen={isConfirmOpen}
-          title={t('confirm.title')}
-          message={t('volumes.deleteConfirm', { name: displayName })}
+          title={t('volumes.deleteConfirm', { name: displayName })}
+          message={volumeDeleteConsequence(t, volume)}
           confirmLabel={t('common.delete')}
           isLoading={deleteMutation.isPending}
           onCancel={() => setIsConfirmOpen(false)}

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { getSystemConfigFn, updateSystemConfigFn } from './api';
 
@@ -17,7 +17,7 @@ export function useSystemConfig() {
 
 export function useUpdateSystemConfig() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -27,10 +27,10 @@ export function useUpdateSystemConfig() {
       // keeps the form from falling back to the previous read while it reloads.
       queryClient.setQueryData(settingsKeys.systemConfig, saved);
       queryClient.invalidateQueries({ queryKey: settingsKeys.systemConfig });
-      addToast(t('admin.settings.updated'), 'success');
+      notify(t('admin.settings.updated'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('admin.settings.updateFailed'), t).message, 'error');
+      notify(t('admin.settings.updateFailed'), 'error', failureReason(error, t));
     },
   });
 }

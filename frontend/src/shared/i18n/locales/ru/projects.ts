@@ -34,6 +34,7 @@ export const projects = {
   'projects.forbiddenCustomNetworks': 'Создание кастомных networks (игнорируется, все сервисы в одной сети)',
   'projects.cancelConfirm': 'Отменить развертывание проекта "{name}"?',
   'projects.deleteConfirm': 'Удалить проект "{name}"?',
+  'projects.deleteConsequence': 'Его контейнеры будут удалены. Тома сохранятся и останутся в разделе «Тома».',
   'projects.deleted': 'Проект успешно удален',
   'projects.deleteFailed': 'Не удалось удалить проект',
   'projects.startSent': 'Команда запуска отправлена',

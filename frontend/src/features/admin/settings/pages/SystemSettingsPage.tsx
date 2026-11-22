@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { useForm, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { RefreshCcw, Save, Undo2 } from 'lucide-react';
+import { Save, Undo2 } from 'lucide-react';
 
 import { Card, CardContent } from '@/shared/ui/Card';
 import { Button } from '@/shared/ui/Button';
 import { Page } from '@/shared/ui/Page';
 import { Toolbar } from '@/shared/ui/Toolbar';
 import { SearchInput } from '@/shared/ui/SearchInput';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { useT, type TFunction } from '@/shared/i18n';
 import { useAuthConfig } from '@/features/auth/queries';
 import { sectionOf, sections, type SectionId, type SettingDef } from '../catalogue';
@@ -76,24 +78,20 @@ export function SystemSettingsPage() {
   if (isLoading) {
     return (
       <Page toolbar={titleOnly}>
-        <div className="h-96 rounded-2xl bg-white/40 animate-pulse dark:bg-slate-900/40" />
+        <LoadingRows rows={8} dot={false} columns={[1, 1]} />
       </Page>
     );
   }
 
   if (isError) {
-    const { message } = getApiErrorMessage(error, t('admin.settings.loadFailed'), t);
-
     return (
       <Page toolbar={titleOnly}>
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-          <h2 className="text-xl font-semibold">{t('admin.settings.loadFailed')}</h2>
-          <p className="mt-2 text-sm">{message}</p>
-          <Button type="button" variant="secondary" onClick={() => refetch()} isLoading={isFetching} className="mt-4">
-            <RefreshCcw className="mr-2 h-4 w-4" />
-            {t('common.refresh')}
-          </Button>
-        </div>
+        <ErrorState
+          title={t('admin.settings.loadFailed')}
+          message={failureReason(error, t)}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+        />
       </Page>
     );
   }

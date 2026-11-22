@@ -2,8 +2,8 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 
 import { Modal } from '@/shared/ui/Modal';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
-import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { type CreateVolumeForm, createVolumeSchema } from '../schemas';
 import { type CreateVolumeDTO, MIB } from '../model';
@@ -41,14 +41,11 @@ export function CreateVolumeModal({ isOpen, onClose }: CreateVolumeModalProps) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('volumes.create')} className="max-w-lg">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        <div className="space-y-2">
-          <Label htmlFor="name">{t('volumes.name')}</Label>
+        <Field label={t('volumes.name')} htmlFor="name" error={errors.name?.message as string | undefined}>
           <Input id="name" placeholder="data-volume" error={!!errors.name} {...register('name')} />
-          {errors.name && <p className="text-sm text-red-500">{errors.name?.message as string}</p>}
-        </div>
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="size_mib">{t('volumes.size')}</Label>
+        <Field label={t('volumes.size')} htmlFor="size_mib" hint={t('volumes.sizeHint')} error={errors.size_mib?.message as string | undefined}>
           <Input
             id="size_mib"
             type="number"
@@ -58,9 +55,7 @@ export function CreateVolumeModal({ isOpen, onClose }: CreateVolumeModalProps) {
             error={!!errors.size_mib}
             {...register('size_mib')}
           />
-          <p className="text-xs text-slate-500 dark:text-slate-400">{t('volumes.sizeHint')}</p>
-          {errors.size_mib && <p className="text-sm text-red-500">{errors.size_mib?.message as string}</p>}
-        </div>
+        </Field>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
           <Button type="button" variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>

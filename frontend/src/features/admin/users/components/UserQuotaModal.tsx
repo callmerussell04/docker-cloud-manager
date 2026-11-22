@@ -54,7 +54,7 @@ export function UserQuotaModal({ user, onClose }: { user: AdminUser | null; onCl
             <Input id="quota_disk_mb" type="number" {...register('quota_disk_mb', { valueAsNumber: true })} error={!!errors.quota_disk_mb} />
           </div>
         </div>
-        {firstError && <p className="text-sm text-red-600 dark:text-red-400">{firstError}</p>}
+        {firstError && <p className="text-xs leading-snug text-red-text">{firstError}</p>}
         <div className="flex justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-700/50">
           <Button
             type="button"

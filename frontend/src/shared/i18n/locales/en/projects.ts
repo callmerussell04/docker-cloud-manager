@@ -36,6 +36,7 @@ export const projects: Record<keyof typeof ru, string> = {
   'projects.forbiddenCustomNetworks': 'Custom networks creation (ignored; all services use one network)',
   'projects.cancelConfirm': 'Cancel deployment for project "{name}"?',
   'projects.deleteConfirm': 'Delete project "{name}"?',
+  'projects.deleteConsequence': 'Its containers are removed. Its volumes are kept under Volumes.',
   'projects.deleted': 'Project deleted',
   'projects.deleteFailed': 'Failed to delete project',
   'projects.startSent': 'Start command sent',

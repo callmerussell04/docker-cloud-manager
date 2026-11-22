@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { createVolumeFn, deleteVolumeFn, getVolumesFn } from './api';
 import { isVolumeBusy } from './model';
@@ -27,34 +27,34 @@ export function useVolumes<S extends Scope>(scope: S, page: number, limit: numbe
 
 export function useCreateVolume() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: createVolumeFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: volumeKeys.all });
-      addToast(t('volumes.created'), 'success');
+      notify(t('volumes.created'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('volumes.createFailed'), t).message, 'error');
+      notify(t('volumes.createFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useDeleteVolume(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: (id: string) => deleteVolumeFn({ scope, id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: volumeKeys.all });
-      addToast(t(scope === 'all' ? 'admin.resources.volumeDeleted' : 'volumes.deleted'), 'success');
+      notify(t(scope === 'all' ? 'admin.resources.volumeDeleted' : 'volumes.deleted'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('volumes.deleteFailed'), t).message, 'error');
+      notify(t('volumes.deleteFailed'), 'error', failureReason(error, t));
     },
   });
 }

@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
-import { RefreshCcw } from 'lucide-react';
-
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { Pagination } from '@/shared/ui/Pagination';
 import { cn } from '@/shared/lib/utils';
 
@@ -13,7 +12,7 @@ interface ResourceTableProps {
   isLoading: boolean;
   isFetching: boolean;
   error: { title: string; message: string; onRetry: () => void } | null;
-  empty: { icon: ReactNode; title: string; description: string };
+  empty: { title: string; description: string };
   itemCount: number;
   page: number;
   pageSize: number;
@@ -47,13 +46,11 @@ export function ResourceTable({
 
           <div className="flex flex-col flex-1">
             {isLoading ? (
-              <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
+              <LoadingRows />
             ) : error ? (
-              <div className="p-4">
-                <ErrorState title={error.title} message={error.message} onRetry={error.onRetry} isRetrying={isFetching} />
-              </div>
+              <ErrorState title={error.title} message={error.message} onRetry={error.onRetry} isRetrying={isFetching} />
             ) : itemCount === 0 ? (
-              <EmptyState icon={empty.icon} title={empty.title} description={empty.description} />
+              <EmptyState title={empty.title} description={empty.description} />
             ) : (
               children
             )}

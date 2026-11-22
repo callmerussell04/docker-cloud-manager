@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Layers, Play, Square, Trash2, XCircle } from 'lucide-react';
+import { AlertTriangle, Play, Square, Trash2, XCircle } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
@@ -47,7 +47,7 @@ export function ProjectsTab() {
         isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('projects.loadFailed'), message: getApiErrorMessage(error, t('projects.loadFailed'), t).message, onRetry: () => refetch() } : null}
-        empty={{ icon: <Layers className="h-8 w-8" />, title: t('projects.emptyTitle'), description: t('projects.emptyDescription') }}
+        empty={{ title: t('projects.emptyTitle'), description: t('projects.emptyDescription') }}
         itemCount={data?.items.length ?? 0}
         page={page}
         pageSize={pageSize}
@@ -106,7 +106,7 @@ export function ProjectsTab() {
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={action.isPending || !canCancelProject(p.status)}
-                  onClick={() => setConfirm({ message: t('projects.cancelConfirm', { name: p.name }), run: () => action.mutate({ id: p.id, action: 'cancel' }), confirmLabel: t('projects.cancel'), variant: 'secondary' })}
+                  onClick={() => setConfirm({ title: t('projects.cancelConfirm', { name: p.name }), run: () => action.mutate({ id: p.id, action: 'cancel' }), confirmLabel: t('projects.cancel'), variant: 'primary' })}
                 >
                   <XCircle className="w-4 h-4 text-orange-500" />
                 </Button>
@@ -114,7 +114,7 @@ export function ProjectsTab() {
                   variant="danger"
                   className="h-8 px-2"
                   disabled={action.isPending || isBusy}
-                  onClick={() => setConfirm({ message: t('projects.deleteConfirm', { name: p.name }), run: () => action.mutate({ id: p.id, action: 'delete' }) })}
+                  onClick={() => setConfirm({ title: t('projects.deleteConfirm', { name: p.name }), message: t('projects.deleteConsequence'), run: () => action.mutate({ id: p.id, action: 'delete' }) })}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

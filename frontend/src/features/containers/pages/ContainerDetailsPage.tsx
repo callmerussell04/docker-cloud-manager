@@ -9,7 +9,8 @@ import { Button } from '@/shared/ui/Button';
 import { formatBytes } from '@/shared/lib/utils';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { getApiErrorMessage, isNotFoundError } from '@/shared/api/apiError';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { failureReason, isNotFoundError } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
 import { Page } from '@/shared/ui/Page';
 import { Toolbar, ToolbarBack } from '@/shared/ui/Toolbar';
@@ -82,7 +83,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
       <Page toolbar={<Toolbar leading={back} title={snapshot?.name || id || ''} />}>
         <ErrorState
           title={t('containers.detailsLoadFailed')}
-          message={getApiErrorMessage(containerQuery.error, t('containers.detailsLoadFailed'), t).message}
+          message={failureReason(containerQuery.error, t)}
           onRetry={isNotFoundError(containerQuery.error) ? undefined : () => containerQuery.refetch()}
           isRetrying={containerQuery.isFetching}
         />
@@ -198,7 +199,8 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
 
       {running && statsQuery.isError && (
         <ErrorState
-          message={getApiErrorMessage(statsQuery.error, t('containers.statsLoadFailed'), t).message}
+          title={t('containers.statsLoadFailed')}
+          message={failureReason(statsQuery.error, t)}
           onRetry={() => statsQuery.refetch()}
           isRetrying={statsQuery.isFetching}
         />
@@ -221,7 +223,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="h-16 animate-pulse bg-slate-200 dark:bg-slate-800 rounded-lg" />
+              <LoadingRows rows={2} dot={false} columns={[1]} />
             ) : (
               <div className="space-y-4">
                 <div className="flex justify-between items-end">
@@ -247,7 +249,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="h-16 animate-pulse bg-slate-200 dark:bg-slate-800 rounded-lg" />
+              <LoadingRows rows={2} dot={false} columns={[1]} />
             ) : (
               <div className="space-y-4">
                 <div className="flex justify-between items-end">
@@ -285,7 +287,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
           </CardHeader>
           <CardContent>
             {isLoading ? (
-              <div className="h-16 animate-pulse bg-slate-200 dark:bg-slate-800 rounded-lg" />
+              <LoadingRows rows={2} dot={false} columns={[1]} />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
@@ -306,8 +308,8 @@ export function ContainerDetailsPage({ scope, backTo, backLabel }: ContainerDeta
 
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}
-        title={t('confirm.title')}
-        message={t('containers.deleteConfirm', { name: container?.name || id || '' })}
+        title={t('containers.deleteConfirm', { name: container?.name || id || '' })}
+        message={t('containers.deleteConsequence')}
         confirmLabel={t('common.delete')}
         isLoading={actionMutation.isPending}
         onCancel={() => setIsDeleteConfirmOpen(false)}

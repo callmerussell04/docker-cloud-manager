@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import {
   createAdminUserFn,
@@ -28,24 +28,24 @@ export function useAdminUsers(page: number, limit: number) {
 
 export function useCreateAdminUser() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: createAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(t('admin.users.created'), 'success');
+      notify(t('admin.users.created'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('admin.users.createFailed'), t).message, 'error');
+      notify(t('admin.users.createFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useUpdateAdminUser() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -54,24 +54,24 @@ export function useUpdateAdminUser() {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
       // An update that deactivates the account also stops its workloads.
       if (!data.workloads) {
-        addToast(t('admin.users.updated'), 'success');
+        notify(t('admin.users.updated'), 'success');
       } else if (data.workloads.remaining > 0) {
-        addToast(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
+        notify(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
       } else {
-        addToast(t('admin.users.deactivatedWorkloadsStopped'), 'success');
+        notify(t('admin.users.deactivatedWorkloadsStopped'), 'success');
       }
     },
     onError: (error: unknown) => {
       // The account may be saved as deactivated even though its workloads were not stopped.
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(getApiErrorMessage(error, t('admin.users.updateFailed'), t).message, 'error');
+      notify(t('admin.users.updateFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useDeactivateAdminUser() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -79,66 +79,66 @@ export function useDeactivateAdminUser() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
       if (data.workloads.remaining > 0) {
-        addToast(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
+        notify(t('admin.users.deactivatedWorkloadsRemain', { count: data.workloads.remaining }), 'info');
         return;
       }
-      addToast(t('admin.users.deactivatedWorkloadsStopped'), 'success');
+      notify(t('admin.users.deactivatedWorkloadsStopped'), 'success');
     },
     onError: (error: unknown) => {
       // The account may be deactivated even though its workloads were not stopped.
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(getApiErrorMessage(error, t('admin.users.deactivateFailed'), t).message, 'error');
+      notify(t('admin.users.deactivateFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useReactivateAdminUser() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: reactivateAdminUserFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(t('admin.users.activated'), 'success');
+      notify(t('admin.users.activated'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('admin.users.activateFailed'), t).message, 'error');
+      notify(t('admin.users.activateFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useSetAdminUserQuota() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: setAdminUserQuotaFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(t('admin.users.quotaSaved'), 'success');
+      notify(t('admin.users.quotaSaved'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('admin.users.quotaSaveFailed'), t).message, 'error');
+      notify(t('admin.users.quotaSaveFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useResetAdminUserQuota() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: resetAdminUserQuotaFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: userKeys.all });
-      addToast(t('admin.users.quotaReset'), 'success');
+      notify(t('admin.users.quotaReset'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('admin.users.quotaResetFailed'), t).message, 'error');
+      notify(t('admin.users.quotaResetFailed'), 'error', failureReason(error, t));
     },
   });
 }

@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import { queryRoots } from '@/shared/api/queryRoots';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage, isNotFoundError } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason, isNotFoundError } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
 import {
   actionContainerFn,
@@ -72,24 +72,24 @@ export function useContainerStats(scope: Scope, id: string | undefined, running:
 
 export function useCreateContainer() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: createContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
-      addToast(t('containers.created'), 'success');
+      notify(t('containers.created'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('containers.createFailed'), t).message, 'error');
+      notify(t('containers.createFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useContainerAction(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -98,19 +98,19 @@ export function useContainerAction(scope: Scope) {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
       // A container's state is part of its project's state.
       queryClient.invalidateQueries({ queryKey: queryRoots.projects });
-      addToast(scope === 'all'
+      notify(scope === 'all'
         ? t('admin.resources.done')
         : t('containers.actionSent', { action: t(`containers.action.${variables.action}` as TranslationKey) }), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t(scope === 'all' ? 'admin.resources.actionFailed' : 'containers.actionFailed'), t).message, 'error');
+      notify(t(scope === 'all' ? 'admin.resources.actionFailed' : 'containers.actionFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useExposeContainer() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -119,10 +119,10 @@ export function useExposeContainer() {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
       // A container's state is part of its project's state.
       queryClient.invalidateQueries({ queryKey: queryRoots.projects });
-      addToast(t('containers.routingUpdated'), 'success');
+      notify(t('containers.routingUpdated'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('containers.routingUpdateFailed'), t).message, 'error');
+      notify(t('containers.routingUpdateFailed'), 'error', failureReason(error, t));
     },
   });
 }

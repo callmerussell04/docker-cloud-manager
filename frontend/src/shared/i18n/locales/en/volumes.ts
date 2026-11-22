@@ -13,6 +13,8 @@ export const volumes: Record<keyof typeof ru, string> = {
   'volumes.deleted': 'Volume deleted',
   'volumes.deleteFailed': 'Failed to delete volume',
   'volumes.deleteConfirm': 'Delete volume "{name}"?',
+  'volumes.deleteConsequence': 'Its {size} of data is removed for good.',
+  'volumes.deleteConsequenceUnmeasured': 'Its data is removed for good.',
   'volumes.size': 'Size, MiB',
   'volumes.sizeDefault': 'Default size',
   'volumes.sizeHint': 'Reserved from your disk quota at creation and cannot be changed later. Leave empty for the default size.',

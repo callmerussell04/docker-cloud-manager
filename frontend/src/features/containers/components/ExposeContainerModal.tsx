@@ -4,8 +4,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
 import { Modal } from '@/shared/ui/Modal';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
-import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { exposeContainerSchema } from '../schemas';
 import type { ContainerData } from '../model';
@@ -52,22 +52,17 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
   return (
     <Modal isOpen={!!container} onClose={onClose} title={t('containers.exposeTitle', { name: container?.name || '' })}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
-        <div className="space-y-2">
-          <Label htmlFor="domain_prefix">{t('containers.domainPrefix')}</Label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="domain_prefix"
-              placeholder="my-app"
-              error={!!errors.domain_prefix}
-              {...register('domain_prefix')}
-            />
-            <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.{BASE_DOMAIN}</span>
-          </div>
-          {errors.domain_prefix && <p className="text-sm text-red-500">{errors.domain_prefix.message}</p>}
-        </div>
+        <Field label={t('containers.domainPrefix')} htmlFor="domain_prefix" error={errors.domain_prefix?.message as string | undefined}>
+          <Input
+            id="domain_prefix"
+            placeholder="my-app"
+            suffix={`.${BASE_DOMAIN}`}
+            error={!!errors.domain_prefix}
+            {...register('domain_prefix')}
+          />
+        </Field>
 
-        <div className="space-y-2">
-          <Label htmlFor="internal_port">{t('containers.internalContainerPort')}</Label>
+        <Field label={t('containers.internalContainerPort')} htmlFor="internal_port" hint={t('containers.internalPortHint')} error={errors.internal_port?.message as string | undefined}>
           <Input
             id="internal_port"
             type="number"
@@ -75,9 +70,7 @@ export function ExposeContainerModal({ container, onClose }: ExposeContainerModa
             error={!!errors.internal_port}
             {...register('internal_port')}
           />
-          <p className="text-xs text-slate-500">{t('containers.internalPortHint')}</p>
-          {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port.message}</p>}
-        </div>
+        </Field>
 
         <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-100 dark:border-blue-900/50 mt-4 text-sm text-blue-800 dark:text-blue-300">
           {t('containers.recreateNotice')}

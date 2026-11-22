@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
 import { formatBytes } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { failureReason } from '@/shared/api/apiError';
 import { useDashboardStats } from '@/features/dashboard/queries';
 import { millicoresToCores } from '@/features/dashboard/model';
 import { Page } from '@/shared/ui/Page';
@@ -72,15 +73,11 @@ export function DashboardPage() {
     >
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-48 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />
-          ))}
-        </div>
+        <LoadingRows rows={6} dot={false} columns={[1, 2]} />
       ) : isError ? (
         <ErrorState
           title={t('dashboard.loadFailed')}
-          message={getApiErrorMessage(error, t('dashboard.loadFailed'), t).message}
+          message={failureReason(error, t)}
           onRetry={() => refetch()}
           isRetrying={isFetching}
         />
@@ -187,7 +184,7 @@ export function DashboardPage() {
           </div>
         </>
       ) : (
-        <div className="text-center p-8 text-slate-500">{t('dashboard.loadFailed')}</div>
+        <ErrorState title={t('dashboard.loadFailed')} onRetry={() => refetch()} isRetrying={isFetching} />
       )}
     </Page>
   );

@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import { queryRoots } from '@/shared/api/queryRoots';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
 import { containerKeys } from '@/features/containers/queries';
 import { buildKeys } from '@/features/images/queries';
@@ -33,7 +33,7 @@ export function useProjects<S extends Scope>(scope: S, page: number, limit: numb
 
 export function useCreateProject() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -42,10 +42,10 @@ export function useCreateProject() {
     ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
-      addToast(t('projects.deployed'), 'success');
+      notify(t('projects.deployed'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('projects.deployFailed'), t).message, 'error');
+      notify(t('projects.deployFailed'), 'error', failureReason(error, t));
     },
   });
 }
@@ -59,7 +59,7 @@ const ownActionMessages: Record<ProjectAction, { success: TranslationKey; failur
 
 export function useProjectAction(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -68,11 +68,11 @@ export function useProjectAction(scope: Scope) {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
-      addToast(t(scope === 'all' ? 'admin.resources.done' : ownActionMessages[variables.action].success), 'success');
+      notify(t(scope === 'all' ? 'admin.resources.done' : ownActionMessages[variables.action].success), 'success');
     },
     onError: (error: unknown, variables) => {
       const fallback = scope === 'all' ? 'admin.resources.actionFailed' : ownActionMessages[variables.action].failure;
-      addToast(getApiErrorMessage(error, t(fallback), t).message, 'error');
+      notify(t(fallback), 'error', failureReason(error, t));
     },
   });
 }

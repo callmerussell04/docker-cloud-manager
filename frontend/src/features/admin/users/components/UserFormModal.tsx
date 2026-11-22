@@ -7,7 +7,7 @@ import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Modal } from '@/shared/ui/Modal';
 import { Select } from '@/shared/ui/Select';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { useT } from '@/shared/i18n';
 import { type AdminUser, providerManagedFields } from '../model';
 import { type AdminUserForm, adminUserSchema } from '../schemas';
@@ -15,7 +15,7 @@ import { useCreateAdminUser, useUpdateAdminUser } from '../queries';
 
 /** Creates a user, or edits one when a user is given. */
 export function UserFormModal({ isOpen, user, onClose }: { isOpen: boolean; user: AdminUser | null; onClose: () => void }) {
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const isEdit = !!user;
   const t = useT();
   // Fields the identity provider owns are shown but not editable: the server
@@ -51,7 +51,7 @@ export function UserFormModal({ isOpen, user, onClose }: { isOpen: boolean; user
 
   const onSubmit = (data: AdminUserForm) => {
     if (!isEdit && !data.password) {
-      addToast(t('validation.passwordRequired'), 'error');
+      notify(t('validation.passwordRequired'), 'error');
       return;
     }
     const payload = { ...data, password: data.password || undefined };

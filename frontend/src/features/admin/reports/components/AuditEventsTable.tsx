@@ -6,6 +6,7 @@ import { Pagination } from '@/shared/ui/Pagination';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { auditDetails, type AuditEventsResponse } from '../model';
 import { auditActionLabel, auditActions, auditPageSize, auditResourceTypes } from './reportFormat';
+import { EmptyState } from '@/shared/ui/EmptyState';
 
 export interface AuditFilterValues {
   search: string;
@@ -105,7 +106,7 @@ export function AuditEventsTable({ query, filters, onFilterChange, page, onPageC
             </tbody>
           </table>
           {!query.isLoading && (query.data?.events.length ?? 0) === 0 && (
-            <div className="py-10 text-center text-slate-500">{t('admin.reports.emptyAudit')}</div>
+            <EmptyState title={t('admin.reports.emptyAudit')} />
           )}
         </div>
       </CardContent>

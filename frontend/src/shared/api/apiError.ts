@@ -123,6 +123,13 @@ export function getApiErrorMessage(error: unknown, fallback: string, t?: TFuncti
   return { message: fallback };
 }
 
+// failureReason is the reason an error notification shows under its title:
+// the mapped message for the error, or undefined when the mapping has nothing
+// more specific to say. It is never raw server text.
+export function failureReason(error: unknown, t: TFunction): string | undefined {
+  return getApiErrorMessage(error, '', t).message || undefined;
+}
+
 // isNotFoundError reports whether a request failed because the resource does
 // not exist, or is not the caller's to see.
 export function isNotFoundError(error: unknown) {

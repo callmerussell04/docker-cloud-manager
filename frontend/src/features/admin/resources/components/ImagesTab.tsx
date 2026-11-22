@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, Disc, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
@@ -46,7 +46,7 @@ export function ImagesTab() {
         isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('images.loadFailed'), message: getApiErrorMessage(error, t('images.loadFailed'), t).message, onRetry: () => refetch() } : null}
-        empty={{ icon: <Disc className="h-8 w-8" />, title: t('images.noImages'), description: t('images.noImagesDescription') }}
+        empty={{ title: t('images.noImages'), description: t('images.noImagesDescription') }}
         itemCount={data?.items.length ?? 0}
         page={page}
         pageSize={pageSize}
@@ -81,7 +81,7 @@ export function ImagesTab() {
                 variant="danger"
                 className="h-8 px-2"
                 disabled={deleteImage.isPending}
-                onClick={() => setConfirm({ message: t('images.deleteConfirm', { name: img.tag }), run: () => deleteImage.mutate(img.id) })}
+                onClick={() => setConfirm({ title: t('images.deleteConfirm', { name: img.tag }), run: () => deleteImage.mutate(img.id) })}
               >
                 <Trash2 className="w-4 h-4" />
               </Button>

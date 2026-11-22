@@ -5,23 +5,23 @@ import { useMutation } from '@tanstack/react-query';
 import { KeyRound } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
-import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { AuthHeader } from '@/features/auth/components/AuthHeader';
 import { PasswordInput } from '@/shared/ui/PasswordInput';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { loginFn } from '@/features/auth/api';
 import { type LoginData, createLoginSchema } from '@/features/auth/schemas';
 import { useAuthConfig } from '@/features/auth/queries';
 import { providerAvailability } from '@/features/auth/model';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { API_URL } from '@/shared/lib/config';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
   const { data: authConfig } = useAuthConfig();
   const localLoginEnabled = authConfig?.local_login_enabled ?? true;
@@ -40,12 +40,11 @@ export function LoginPage() {
     mutationFn: loginFn,
     // loginFn has already handed the token to the session.
     onSuccess: () => {
-      addToast(t('auth.login.success'), 'success');
+      notify(t('auth.login.success'), 'success');
       navigate('/');
     },
     onError: (error: unknown) => {
-      const { message } = getApiErrorMessage(error, t('auth.login.failed'), t);
-      addToast(message, 'error');
+      notify(t('auth.login.failed'), 'error', failureReason(error, t));
     },
   });
 
@@ -96,8 +95,7 @@ export function LoginPage() {
 
             {localLoginEnabled && (
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
-                <div className="space-y-2">
-                  <Label htmlFor="username">{t('form.username')}</Label>
+                <Field label={t('form.username')} htmlFor="username" error={errors.username?.message as string | undefined}>
                   <Input
                     id="username"
                     type="text"
@@ -105,23 +103,16 @@ export function LoginPage() {
                     error={!!errors.username}
                     {...register('username')}
                   />
-                  {errors.username && (
-                    <p className="text-sm text-red-500">{errors.username.message}</p>
-                  )}
-                </div>
+                </Field>
 
-                <div className="space-y-2">
-                  <Label htmlFor="password">{t('form.password')}</Label>
+                <Field label={t('form.password')} htmlFor="password" error={errors.password?.message as string | undefined}>
                   <PasswordInput
                     id="password"
                     placeholder="••••••••"
                     error={!!errors.password}
                     {...register('password')}
                   />
-                  {errors.password && (
-                    <p className="text-sm text-red-500">{errors.password.message}</p>
-                  )}
-                </div>
+                </Field>
 
                 <Button
                   type="submit"

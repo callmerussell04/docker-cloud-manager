@@ -4,11 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Info, ChevronDown } from 'lucide-react';
 
 import { Modal } from '@/shared/ui/Modal';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { type CreateProjectForm, createProjectSchema } from '../schemas';
 import type { BuildAvailability } from '@/features/images/model';
 import { cn } from '@/shared/lib/utils';
@@ -46,7 +47,7 @@ function isRawComposeFile(fileName: string) {
 }
 
 export function CreateProjectModal({ isOpen, onClose, buildAvailability }: CreateProjectModalProps) {
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
@@ -66,17 +67,17 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
 
   const onSubmit = (data: CreateProjectForm) => {
     if (sourceMode === 'archive' && !file) {
-      addToast(t('validation.fileRequired'), 'error');
+      notify(t('validation.fileRequired'), 'error');
       return;
     }
 
     if (sourceMode === 'git') {
       if (isGitDisabled) {
-        addToast(t('common.gitUnavailable'), 'error');
+        notify(t('common.gitUnavailable'), 'error');
         return;
       }
       if (!data.repo_url?.trim()) {
-        addToast(t('validation.gitUrlRequired'), 'error');
+        notify(t('validation.gitUrlRequired'), 'error');
         return;
       }
       mutation.mutate({
@@ -116,7 +117,7 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
     const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
 
     if (!validTypes.includes(selected.type) && !isValidExt) {
-      addToast(t('validation.projectFileType'), 'error');
+      notify(t('validation.projectFileType'), 'error');
       return;
     }
 
@@ -140,11 +141,9 @@ export function CreateProjectModal({ isOpen, onClose, buildAvailability }: Creat
             </WarningBanner>
           )}
           
-          <div className="space-y-2">
-            <Label htmlFor="project_name">{t('projects.projectName')}</Label>
+          <Field label={t('projects.projectName')} htmlFor="project_name" error={errors.project_name?.message as string | undefined}>
             <Input id="project_name" placeholder="my-compose-app" error={!!errors.project_name} {...register('project_name')} />
-            {errors.project_name && <p className="text-sm text-red-500">{errors.project_name?.message as string}</p>}
-          </div>
+          </Field>
 
           <SourceModeSwitch
             value={sourceMode}

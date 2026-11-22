@@ -103,11 +103,10 @@ export function BuildRow({ build, onViewLogs }: BuildRowProps) {
         </button>
         <ConfirmDialog
           isOpen={confirmAction !== null}
-          title={t('confirm.title')}
-          message={confirmAction === 'cancel' ? t('images.cancelBuildConfirm', { id: build.id }) : t('images.deleteBuildConfirm', { id: build.id })}
+          title={confirmAction === 'cancel' ? t('images.cancelBuildConfirm', { id: build.id }) : t('images.deleteBuildConfirm', { id: build.id })}
           confirmLabel={confirmAction === 'cancel' ? t('images.cancelBuild') : t('common.delete')}
           isLoading={cancelMutation.isPending || deleteMutation.isPending}
-          variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
+          variant={confirmAction === 'cancel' ? 'primary' : 'danger'}
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => {
             if (confirmAction === 'cancel') {

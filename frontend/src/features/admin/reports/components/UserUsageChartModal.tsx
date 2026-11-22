@@ -17,7 +17,8 @@ import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import type { UserUsageReportItem, UserUsageTimelineResponse } from '../model';
 import { chartSeriesLabel, chartTooltipValue, percentValue } from './reportFormat';
-import { UsageErrorBanner } from './UsageErrorBanner';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
 
 function UsageChartPanel({
   title,
@@ -68,16 +69,14 @@ export function UserUsageChartModal({ user, query, onClose }: UserUsageChartModa
     >
       <div className="space-y-6">
         {query.isError && (
-          <UsageErrorBanner
-            message={t('admin.reports.timelineLoadFailed')}
+          <ErrorState
+            title={t('admin.reports.timelineLoadFailed')}
             onRetry={() => query.refetch()}
             isRetrying={query.isFetching}
           />
         )}
         {!query.isError && !query.isLoading && (query.data?.points.length ?? 0) === 0 && (
-          <div className="rounded-lg border border-slate-200 px-4 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-            {t('admin.reports.emptyTimeline')}
-          </div>
+          <EmptyState title={t('admin.reports.emptyTimeline')} />
         )}
         {!query.isError && (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">

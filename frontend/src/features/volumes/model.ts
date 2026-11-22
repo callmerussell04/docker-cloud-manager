@@ -1,5 +1,6 @@
 import type { Scope } from '@/shared/api/scope';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
+import { formatBytes } from '@/shared/lib/utils';
 
 export interface VolumeData {
   id: string;
@@ -46,4 +47,12 @@ const statusKeys: Record<string, TranslationKey> = {
 
 export function volumeStatusLabel(t: TFunction, status?: string) {
   return labelFor(t, statusKeys, status);
+}
+
+// volumeDeleteConsequence names what deleting the volume loses: its data,
+// with its size once usage has been measured.
+export function volumeDeleteConsequence(t: TFunction, volume: Pick<VolumeData, 'used_bytes' | 'usage_observed_at'>) {
+  return volume.usage_observed_at > 0
+    ? t('volumes.deleteConsequence', { size: formatBytes(volume.used_bytes) })
+    : t('volumes.deleteConsequenceUnmeasured');
 }

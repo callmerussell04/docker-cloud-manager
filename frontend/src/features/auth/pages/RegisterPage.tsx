@@ -3,20 +3,20 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
-import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { AuthHeader } from '@/features/auth/components/AuthHeader';
 import { PasswordInput } from '@/shared/ui/PasswordInput';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { registerFn } from '@/features/auth/api';
 import { type RegisterData, createRegisterSchema } from '@/features/auth/schemas';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 
 export function RegisterPage() {
   const navigate = useNavigate();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   const {
@@ -30,12 +30,11 @@ export function RegisterPage() {
   const mutation = useMutation({
     mutationFn: registerFn,
     onSuccess: () => {
-      addToast(t('auth.register.success'), 'success');
+      notify(t('auth.register.success'), 'success');
       navigate('/login');
     },
     onError: (error: unknown) => {
-      const { message } = getApiErrorMessage(error, t('auth.register.failed'), t);
-      addToast(message, 'error');
+      notify(t('auth.register.failed'), 'error', failureReason(error, t));
     },
   });
 
@@ -58,8 +57,7 @@ export function RegisterPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">{t('form.username')}</Label>
+              <Field label={t('form.username')} htmlFor="username" error={errors.username?.message as string | undefined}>
                 <Input
                   id="username"
                   type="text"
@@ -67,13 +65,9 @@ export function RegisterPage() {
                   error={!!errors.username}
                   {...register('username')}
                 />
-                {errors.username && (
-                  <p className="text-sm text-red-500">{errors.username.message}</p>
-                )}
-              </div>
+              </Field>
 
-              <div className="space-y-2">
-                <Label htmlFor="email">{t('form.email')}</Label>
+              <Field label={t('form.email')} htmlFor="email" error={errors.email?.message as string | undefined}>
                 <Input
                   id="email"
                   type="email"
@@ -81,23 +75,16 @@ export function RegisterPage() {
                   error={!!errors.email}
                   {...register('email')}
                 />
-                {errors.email && (
-                  <p className="text-sm text-red-500">{errors.email.message}</p>
-                )}
-              </div>
+              </Field>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">{t('form.password')}</Label>
+              <Field label={t('form.password')} htmlFor="password" error={errors.password?.message as string | undefined}>
                 <PasswordInput
                   id="password"
                   placeholder="••••••••"
                   error={!!errors.password}
                   {...register('password')}
                 />
-                {errors.password && (
-                  <p className="text-sm text-red-500">{errors.password.message}</p>
-                )}
-              </div>
+              </Field>
 
               <Button
                 type="submit"

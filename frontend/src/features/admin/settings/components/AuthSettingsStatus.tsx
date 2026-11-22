@@ -1,5 +1,6 @@
 import type { TFunction } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { type AuthConfig, unreachableProviders } from '@/features/auth/model';
 
 /** Shows the sign-in settings, which come from bootstrap configuration and cannot be changed here. */
@@ -10,10 +11,10 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
   t: TFunction;
 }) {
   if (isLoading) {
-    return <div className="h-24 animate-pulse rounded-xl bg-white/40 dark:bg-slate-900/40" />;
+    return <LoadingRows rows={2} dot={false} columns={[1]} />;
   }
   if (isError) {
-    return <p className="py-5 text-sm text-red-600 dark:text-red-400">{t('admin.settings.authStatusUnavailable')}</p>;
+    return <p className="py-5 text-red-text">{t('admin.settings.authStatusUnavailable')}</p>;
   }
 
   const providers = authConfig?.oidc_providers.map((provider) => provider.name).filter(Boolean) ?? [];

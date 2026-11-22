@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Plus, RefreshCcw, Layers } from 'lucide-react';
+import { Plus, RefreshCcw } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
 import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
 import { Page } from '@/shared/ui/Page';
 import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
@@ -18,8 +17,9 @@ import { useBuildAvailability } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
 
 export function ProjectsPage() {
   const t = useT();
@@ -78,24 +78,14 @@ export function ProjectsPage() {
 
             <div className="flex flex-col">
               {isLoading ? (
-                [...Array(5)].map((_, i) => (
-                  <div key={i} className="flex gap-4 p-4 items-center border-b border-white/20 dark:border-slate-700/50">
-                    <div className="w-10 h-10 rounded-xl bg-slate-200/50 dark:bg-slate-700/50 animate-pulse shrink-0" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-4 bg-slate-200/50 dark:bg-slate-700/50 rounded w-1/3 animate-pulse" />
-                      <div className="h-3 bg-slate-200/50 dark:bg-slate-700/50 rounded w-1/2 animate-pulse" />
-                    </div>
-                  </div>
-                ))
+                <LoadingRows columns={[1.2, 0.6, 1, 0.8, 0.4]} />
               ) : isError ? (
-                <div className="p-4">
-                  <ErrorState
+                <ErrorState
                     title={t('projects.loadFailed')}
-                    message={getApiErrorMessage(error, t('projects.loadFailed'), t).message}
+                    message={failureReason(error, t)}
                     onRetry={() => refetch()}
                     isRetrying={isFetching}
                   />
-                </div>
               ) : filteredProjects.length > 0 ? (
                 filteredProjects.map((project) => (
                   <ProjectWithContainersRow
@@ -107,13 +97,12 @@ export function ProjectsPage() {
                   />
                 ))
               ) : search && projects.length > 0 ? (
-                <NoMatchesState />
+                <NoMatchesState query={search} onClear={() => setSearch('')} />
               ) : (
                 <EmptyState
-                  icon={<Layers className="h-8 w-8" />}
                   title={t('projects.emptyTitle')}
                   description={t('projects.emptyDescription')}
-                  action={<Button onClick={() => setIsCreateModalOpen(true)}>{t('projects.deploy')}</Button>}
+                  action={{ label: t('projects.deploy'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
                 />
               )}
             </div>

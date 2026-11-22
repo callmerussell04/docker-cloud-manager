@@ -7,7 +7,8 @@ import { useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import type { UserUsageReportItem, UserUsageReportResponse } from '../model';
 import { numberValue, percentValue, userPageSize } from './reportFormat';
-import { UsageErrorBanner } from './UsageErrorBanner';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
 
 interface UserUsageTableProps {
   query: UseQueryResult<UserUsageReportResponse>;
@@ -98,15 +99,15 @@ export function UserUsageTable({ query, search, onSearchChange, sort, onSortChan
           </table>
           {query.isError && (
             <div className="py-6">
-              <UsageErrorBanner
-                message={t('admin.reports.usersLoadFailed')}
+              <ErrorState
+                title={t('admin.reports.usersLoadFailed')}
                 onRetry={() => query.refetch()}
                 isRetrying={query.isFetching}
               />
             </div>
           )}
           {!query.isError && !query.isLoading && (query.data?.users.length ?? 0) === 0 && (
-            <div className="py-10 text-center text-slate-500">{t('admin.reports.emptyUsers')}</div>
+            <EmptyState title={t('admin.reports.emptyUsers')} />
           )}
         </div>
       </CardContent>

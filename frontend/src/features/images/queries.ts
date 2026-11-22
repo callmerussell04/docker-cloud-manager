@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import {
   cancelBuildFn,
@@ -76,7 +76,7 @@ export function useBuildLogs(scope: Scope, id: string | undefined, enabled: bool
 
 export function useCreateBuild() {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -87,34 +87,34 @@ export function useCreateBuild() {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
       // A build has an image record from the moment it is queued.
       queryClient.invalidateQueries({ queryKey: imageKeys.all });
-      addToast(t('images.buildStarted'), 'success');
+      notify(t('images.buildStarted'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('images.buildStartFailed'), t).message, 'error');
+      notify(t('images.buildStartFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useDeleteImage(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
     mutationFn: (id: string) => deleteImageFn({ scope, id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: imageKeys.all });
-      addToast(t(scope === 'all' ? 'admin.resources.imageDeleted' : 'images.deleted'), 'success');
+      notify(t(scope === 'all' ? 'admin.resources.imageDeleted' : 'images.deleted'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('images.deleteFailed'), t).message, 'error');
+      notify(t('images.deleteFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useDeleteBuild(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -123,17 +123,17 @@ export function useDeleteBuild(scope: Scope) {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
       // A build has an image record from the moment it is queued.
       queryClient.invalidateQueries({ queryKey: imageKeys.all });
-      addToast(t(scope === 'all' ? 'admin.resources.buildDeleted' : 'images.buildRecordDeleted'), 'success');
+      notify(t(scope === 'all' ? 'admin.resources.buildDeleted' : 'images.buildRecordDeleted'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('images.deleteBuildRecordFailed'), t).message, 'error');
+      notify(t('images.deleteBuildRecordFailed'), 'error', failureReason(error, t));
     },
   });
 }
 
 export function useCancelBuild(scope: Scope) {
   const queryClient = useQueryClient();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   return useMutation({
@@ -142,10 +142,10 @@ export function useCancelBuild(scope: Scope) {
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
       // A build has an image record from the moment it is queued.
       queryClient.invalidateQueries({ queryKey: imageKeys.all });
-      addToast(t('images.cancelBuildRequested'), 'success');
+      notify(t('images.cancelBuildRequested'), 'success');
     },
     onError: (error: unknown) => {
-      addToast(getApiErrorMessage(error, t('images.cancelBuildFailed'), t).message, 'error');
+      notify(t('images.cancelBuildFailed'), 'error', failureReason(error, t));
     },
   });
 }

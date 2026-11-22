@@ -1,13 +1,16 @@
-import { type InputHTMLAttributes, forwardRef } from 'react';
+import { type InputHTMLAttributes, type ReactNode, forwardRef } from 'react';
 import { cn } from '@/shared/lib/utils';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: boolean;
+  // suffix follows the field on its line, such as the base domain after a
+  // subdomain.
+  suffix?: ReactNode;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, error, ...props }, ref) => {
-    return (
+  ({ className, error, suffix, ...props }, ref) => {
+    const input = (
       <input
         ref={ref}
         className={cn(
@@ -17,6 +20,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
         {...props}
       />
+    );
+    if (!suffix) return input;
+    return (
+      <div className="flex items-center gap-2">
+        {input}
+        <span className="whitespace-nowrap text-label-2">{suffix}</span>
+      </div>
     );
   }
 );

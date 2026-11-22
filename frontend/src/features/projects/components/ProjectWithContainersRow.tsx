@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Box, RefreshCcw } from 'lucide-react';
+import { Box } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { useContainers } from '@/features/containers/queries';
 import type { ContainerData } from '@/features/containers/model';
 import { isProjectBusy, type ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 
 interface ProjectWithContainersRowProps {
@@ -53,30 +54,15 @@ export function ProjectWithContainersRow({
       {isExpanded && (
         <div className="bg-slate-50/40 dark:bg-slate-950/20">
           {isLoading ? (
-            <div className="space-y-2 px-6 py-4">
-              {[...Array(2)].map((_, i) => (
-                <div key={i} className="flex items-center gap-4">
-                  <div className="h-9 w-9 shrink-0 rounded-xl bg-slate-200/60 dark:bg-slate-700/60 animate-pulse" />
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="h-4 w-1/3 rounded bg-slate-200/60 dark:bg-slate-700/60 animate-pulse" />
-                    <div className="h-3 w-1/2 rounded bg-slate-200/60 dark:bg-slate-700/60 animate-pulse" />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <LoadingRows rows={2} className="px-4 py-2" />
           ) : isError ? (
-            <div className="flex items-center justify-between gap-4 px-6 py-4 text-sm text-red-600 dark:text-red-400">
-              <span className="truncate">{getApiErrorMessage(error, t('containers.loadFailed'), t).message}</span>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => refetch()}
-                isLoading={isFetching}
-                className="shrink-0 px-3 py-2"
-                title={t('common.refresh')} aria-label={t('common.refresh')}
-              >
-                <RefreshCcw className="h-4 w-4" />
-              </Button>
+            <div className="px-4">
+              <ErrorState
+                title={t('containers.loadFailed')}
+                message={failureReason(error, t)}
+                onRetry={() => refetch()}
+                isRetrying={isFetching}
+              />
             </div>
           ) : containers.length > 0 ? (
             <div className="flex flex-col">

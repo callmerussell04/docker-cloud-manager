@@ -98,7 +98,7 @@ export function SettingRow({ setting, control, t }: {
             suffix={t('admin.settings.unit.cores')}
           />
         )}
-        {error && <p role="alert" className="text-xs font-medium text-red-600 dark:text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-xs leading-snug text-red-text">{error}</p>}
       </div>
     </div>
   );

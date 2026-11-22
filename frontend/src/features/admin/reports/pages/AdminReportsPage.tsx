@@ -3,8 +3,8 @@ import { Boxes, Cpu, Filter, HardDrive, MemoryStick, RefreshCcw, ShieldAlert, Us
 
 import { Page } from '@/shared/ui/Page';
 import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
-import { useToastStore } from '@/shared/ui/toastStore';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { failureReason } from '@/shared/api/apiError';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import type { UserUsageReportItem } from '../model';
@@ -12,7 +12,7 @@ import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUs
 import { useDebouncedValue, useNowSeconds, usePageOf } from '@/shared/lib/hooks';
 import { auditPageSize, numberValue, percentValue, rangeParams, ranges, userPageSize } from '../components/reportFormat';
 import { ReportMetricCard } from '../components/ReportMetricCard';
-import { UsageErrorBanner } from '../components/UsageErrorBanner';
+import { ErrorState } from '@/shared/ui/ErrorState';
 import { UserUsageTable } from '../components/UserUsageTable';
 import { AuditEventsTable, type AuditFilterValues } from '../components/AuditEventsTable';
 import { UserUsageChartModal } from '../components/UserUsageChartModal';
@@ -23,7 +23,7 @@ function currentSeconds() {
 
 export function AdminReportsPage() {
   const t = useT();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const locale = useLocale();
   const [rangeSeconds, setRangeSeconds] = useState(ranges[1].seconds);
   const [sort, setSort] = useState('disk');
@@ -66,7 +66,7 @@ export function AdminReportsPage() {
     // Moving the window changes every report's query key, which reloads them.
     refreshSnapshots.mutate(undefined, {
       onSuccess: () => setWindowEnd(currentSeconds()),
-      onError: (error) => addToast(getApiErrorMessage(error, t('admin.reports.refreshFailed'), t).message, 'error'),
+      onError: (error) => notify(t('admin.reports.refreshFailed'), 'error', failureReason(error, t)),
     });
   };
   const retryUsage = () => {
@@ -116,8 +116,8 @@ export function AdminReportsPage() {
       </div>
 
       {(overview.isError || users.isError) && (
-        <UsageErrorBanner
-          message={t('admin.reports.usageLoadFailed')}
+        <ErrorState
+          title={t('admin.reports.usageLoadFailed')}
           onRetry={retryUsage}
           isRetrying={overview.isFetching || users.isFetching || timeline.isFetching}
         />

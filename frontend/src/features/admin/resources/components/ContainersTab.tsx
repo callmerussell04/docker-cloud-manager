@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, AlertTriangle, Box, ExternalLink, Globe, Play, ScrollText, Square, Terminal, Trash2 } from 'lucide-react';
+import { Activity, AlertTriangle, ExternalLink, Globe, Play, ScrollText, Square, Terminal, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
@@ -49,7 +49,7 @@ export function ContainersTab() {
         isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('containers.loadFailed'), message: getApiErrorMessage(error, t('containers.loadFailed'), t).message, onRetry: () => refetch() } : null}
-        empty={{ icon: <Box className="h-8 w-8" />, title: t('containers.emptyTitle'), description: t('containers.emptyDescription') }}
+        empty={{ title: t('containers.emptyTitle'), description: t('containers.emptyDescription') }}
         itemCount={data?.items.length ?? 0}
         page={page}
         pageSize={pageSize}
@@ -127,7 +127,7 @@ export function ContainersTab() {
                   variant="danger"
                   className="h-8 px-2"
                   disabled={action.isPending || blocked.delete}
-                  onClick={() => setConfirm({ message: t('containers.deleteConfirm', { name: c.name }), run: () => action.mutate({ id: c.id, action: 'delete' }) })}
+                  onClick={() => setConfirm({ title: t('containers.deleteConfirm', { name: c.name }), message: t('containers.deleteConsequence'), run: () => action.mutate({ id: c.id, action: 'delete' }) })}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

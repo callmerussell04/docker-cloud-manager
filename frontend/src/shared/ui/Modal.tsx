@@ -1,119 +1,38 @@
-import { type HTMLAttributes, type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { Glass } from './Glass';
+import { Dialog } from './Dialog';
 import { useT } from '@/shared/i18n';
 
-interface ModalProps extends HTMLAttributes<HTMLDivElement> {
+interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
+  className?: string;
+  children: ReactNode;
 }
 
-const focusableSelector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-export function Modal({ isOpen, onClose, title, children, className, ...props }: ModalProps) {
+// Modal is a Dialog with a title bar and a close button, for forms.
+export function Modal({ isOpen, onClose, title, children, className }: ModalProps) {
   const t = useT();
 
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // Focus moves into the dialog when it opens and returns to where it was
-  // when the dialog closes.
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const dialog = dialogRef.current;
-    if (dialog && !dialog.contains(document.activeElement)) dialog.focus();
-    return () => previous?.focus();
-  }, [isOpen]);
-
-  // Tab stays inside the dialog.
-  const keepFocusInside = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const dialog = dialogRef.current;
-    if (event.key !== 'Tab' || !dialog) return;
-    const focusable = dialog.querySelectorAll<HTMLElement>(focusableSelector);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || active === dialog)) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div
-      ref={dialogRef}
-      tabIndex={-1}
-      onKeyDown={keepFocusInside}
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 outline-none"
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-    >
-      <div 
-        className="absolute inset-0 bg-scrim animate-in fade-in"
-        onClick={onClose}
-      />
-      
-      <Glass
-        material="dense"
-        className={cn(
-          "relative z-[101] flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl p-0 animate-in zoom-in-95 slide-in-from-bottom-4",
-          className
-        )}
-        {...props}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-separator px-6 py-4">
-          {title && <h2 className="text-xl font-semibold tracking-tight pr-4 truncate">{title}</h2>}
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-fill transition-colors shrink-0"
-            aria-label={t('common.closeModal')}
-            title={t('common.closeModal')}
-          >
-            <X className="w-5 h-5 opacity-70" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-6">
-          {children}
-        </div>
-      </Glass>
-    </div>,
-    document.body
+  return (
+    <Dialog isOpen={isOpen} onClose={onClose} label={title} className={cn('max-w-lg rounded-2xl', className)}>
+      <div className="flex shrink-0 items-center justify-between border-b border-separator px-6 py-4">
+        {title && <h2 className="truncate pr-4 text-xl font-semibold tracking-tight">{title}</h2>}
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto shrink-0 rounded-full p-1.5 transition-colors hover:bg-fill"
+          aria-label={t('common.closeModal')}
+          title={t('common.closeModal')}
+        >
+          <X className="h-5 w-5 opacity-70" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        {children}
+      </div>
+    </Dialog>
   );
 }

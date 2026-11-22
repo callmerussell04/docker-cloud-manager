@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { AlertTriangle, HardDrive, Trash2 } from 'lucide-react';
+import { AlertTriangle, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
 import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
 import { useLocale, useT } from '@/shared/i18n';
-import { volumeStatusLabel } from '@/features/volumes/model';
+import { volumeDeleteConsequence, volumeStatusLabel } from '@/features/volumes/model';
 import { useDeleteVolume, useVolumes } from '@/features/volumes/queries';
 import { formatDateTime, ownerName, resourceRowClass, statusVariant } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
@@ -45,7 +45,7 @@ export function VolumesTab() {
         isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('volumes.loadFailed'), message: getApiErrorMessage(error, t('volumes.loadFailed'), t).message, onRetry: () => refetch() } : null}
-        empty={{ icon: <HardDrive className="h-8 w-8" />, title: t('volumes.emptyTitle'), description: t('volumes.emptyDescription') }}
+        empty={{ title: t('volumes.emptyTitle'), description: t('volumes.emptyDescription') }}
         itemCount={data?.items.length ?? 0}
         page={page}
         pageSize={pageSize}
@@ -79,7 +79,7 @@ export function VolumesTab() {
                 variant="danger"
                 className="h-8 px-2"
                 disabled={deleteVolume.isPending}
-                onClick={() => setConfirm({ message: t('volumes.deleteConfirm', { name: v.name || v.id }), run: () => deleteVolume.mutate(v.id) })}
+                onClick={() => setConfirm({ title: t('volumes.deleteConfirm', { name: v.name || v.id }), message: volumeDeleteConsequence(t, v), run: () => deleteVolume.mutate(v.id) })}
               >
                 <Trash2 className="w-4 h-4" />
               </Button>

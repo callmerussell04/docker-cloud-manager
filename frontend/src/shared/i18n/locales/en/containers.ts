@@ -35,6 +35,7 @@ export const containers: Record<keyof typeof ru, string> = {
   'containers.actionSent': '{action} command sent',
   'containers.actionFailed': 'Failed to perform action',
   'containers.deleteConfirm': 'Delete container "{name}"?',
+  'containers.deleteConsequence': 'It is stopped and removed. Its volumes and their data are kept.',
   'containers.autoStopIn': 'Auto-stop in {time}',
   'containers.autoStopSoon': 'Stopping soon',
   'containers.autoStopDisabled': 'Auto-stop disabled',

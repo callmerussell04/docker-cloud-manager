@@ -3,10 +3,12 @@ import { useT } from '@/shared/i18n';
 
 // A confirmation an all-users table asks for before it runs an action.
 export interface ConfirmRequest {
-  message: string;
+  // title is the question; message, when set, says what the action costs.
+  title: string;
+  message?: string;
   run: () => void;
   confirmLabel?: string;
-  variant?: 'danger' | 'secondary';
+  variant?: 'danger' | 'primary';
 }
 
 interface ResourceConfirmDialogProps {
@@ -21,8 +23,8 @@ export function ResourceConfirmDialog({ request, isLoading, onClose }: ResourceC
   return (
     <ConfirmDialog
       isOpen={!!request}
-      title={t('confirm.title')}
-      message={request?.message || ''}
+      title={request?.title || ''}
+      message={request?.message}
       confirmLabel={request?.confirmLabel || t('common.delete')}
       variant={request?.variant || 'danger'}
       isLoading={isLoading}

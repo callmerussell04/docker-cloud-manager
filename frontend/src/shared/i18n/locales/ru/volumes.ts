@@ -11,6 +11,8 @@ export const volumes = {
   'volumes.deleted': 'Том успешно удален',
   'volumes.deleteFailed': 'Не удалось удалить том',
   'volumes.deleteConfirm': 'Удалить том "{name}"?',
+  'volumes.deleteConsequence': 'Его данные ({size}) будут удалены безвозвратно.',
+  'volumes.deleteConsequenceUnmeasured': 'Его данные будут удалены безвозвратно.',
   'volumes.size': 'Размер, MiB',
   'volumes.sizeDefault': 'Размер по умолчанию',
   'volumes.sizeHint': 'Резервируется из вашей дисковой квоты при создании и потом не меняется. Оставьте пустым для размера по умолчанию.',

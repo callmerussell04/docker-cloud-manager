@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Hammer, ScrollText, Trash2, XCircle } from 'lucide-react';
+import { ScrollText, Trash2, XCircle } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
 import { Button } from '@/shared/ui/Button';
@@ -54,7 +54,7 @@ export function BuildsTab() {
         isLoading={isLoading}
         isFetching={isFetching}
         error={isError ? { title: t('images.loadBuildsFailed'), message: getApiErrorMessage(error, t('images.loadBuildsFailed'), t).message, onRetry: () => refetch() } : null}
-        empty={{ icon: <Hammer className="h-8 w-8" />, title: t('images.emptyBuilds'), description: t('images.emptyBuildsDescription') }}
+        empty={{ title: t('images.emptyBuilds'), description: t('images.emptyBuildsDescription') }}
         itemCount={data?.items.length ?? 0}
         page={page}
         pageSize={pageSize}
@@ -93,7 +93,7 @@ export function BuildsTab() {
                   variant="secondary"
                   className="h-8 px-2"
                   disabled={!canCancel || cancelBuild.isPending}
-                  onClick={() => setConfirm({ message: t('images.cancelBuildConfirm', { id: build.id }), run: () => cancelBuild.mutate(build.id), confirmLabel: t('images.cancelBuild'), variant: 'secondary' })}
+                  onClick={() => setConfirm({ title: t('images.cancelBuildConfirm', { id: build.id }), run: () => cancelBuild.mutate(build.id), confirmLabel: t('images.cancelBuild'), variant: 'primary' })}
                 >
                   <XCircle className="w-4 h-4 text-yellow-500" />
                 </Button>
@@ -101,7 +101,7 @@ export function BuildsTab() {
                   variant="danger"
                   className="h-8 px-2"
                   disabled={canCancel || deleteBuild.isPending}
-                  onClick={() => setConfirm({ message: t('images.deleteBuildConfirm', { id: build.id }), run: () => deleteBuild.mutate(build.id) })}
+                  onClick={() => setConfirm({ title: t('images.deleteBuildConfirm', { id: build.id }), run: () => deleteBuild.mutate(build.id) })}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>

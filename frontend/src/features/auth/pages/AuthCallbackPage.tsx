@@ -2,14 +2,14 @@ import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { refreshSession } from '@/shared/api/client';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { useT } from '@/shared/i18n';
 import { callbackResult } from '../model';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
 
   useEffect(() => {
@@ -18,7 +18,7 @@ export function AuthCallbackPage() {
 
     // A failed sign-in has no session to refresh: show why and go back to the login page.
     if (!result.ok) {
-      addToast(t(result.message), 'error');
+      notify(t(result.message), 'error');
       navigate('/login', { replace: true });
       return;
     }
@@ -34,7 +34,7 @@ export function AuthCallbackPage() {
         }
       } catch {
         if (!canceled) {
-          addToast(t('auth.callback.failed'), 'error');
+          notify(t('auth.callback.failed'), 'error');
           navigate('/login', { replace: true });
         }
       }
@@ -45,7 +45,7 @@ export function AuthCallbackPage() {
     return () => {
       canceled = true;
     };
-  }, [addToast, navigate, search, t]);
+  }, [notify, navigate, search, t]);
 
   return (
     <div className="relative isolate min-h-screen flex items-center justify-center p-4 text-sm text-label-2">

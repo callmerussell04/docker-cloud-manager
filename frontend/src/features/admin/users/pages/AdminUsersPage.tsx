@@ -6,7 +6,8 @@ import { Pagination } from '@/shared/ui/Pagination';
 import { Badge } from '@/shared/ui/Badge';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { failureReason } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { userStatusLabel, type AdminUser } from '../model';
@@ -59,12 +60,12 @@ export function AdminUsersPage() {
             </div>
 
             {isLoading ? (
-              <div className="p-12 flex justify-center opacity-50"><RefreshCcw className="w-8 h-8 animate-spin" /></div>
+              <LoadingRows columns={[1, 1.2, 0.5, 0.5, 0.7, 0.6]} />
             ) : isError ? (
               <div className="p-4">
                 <ErrorState
                   title={t('admin.users.loadFailed')}
-                  message={getApiErrorMessage(error, t('admin.users.loadFailed'), t).message}
+                  message={failureReason(error, t)}
                   onRetry={() => refetch()}
                   isRetrying={isFetching}
                 />
@@ -147,12 +148,12 @@ export function AdminUsersPage() {
       <UserQuotaModal user={quotaUser} onClose={() => setQuotaUser(null)} />
       <ConfirmDialog
         isOpen={!!deactivateUser}
-        title={t('confirm.title')}
-        message={
+        title={
           stopWorkloadsOnly
-            ? t('admin.users.stopWorkloadsConfirm', { name: deactivateUser?.username || '' })
-            : t('admin.users.deactivateConfirm', { name: deactivateUser?.username || '' })
+            ? t('admin.users.stopWorkloadsTitle', { name: deactivateUser?.username || '' })
+            : t('admin.users.deactivateTitle', { name: deactivateUser?.username || '' })
         }
+        message={stopWorkloadsOnly ? t('admin.users.stopWorkloadsConfirm') : t('admin.users.deactivateConfirm')}
         confirmLabel={stopWorkloadsOnly ? t('admin.users.stopWorkloads') : t('admin.users.deactivate')}
         isLoading={deactivateMutation.isPending}
         onCancel={() => setDeactivateUser(null)}

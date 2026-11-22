@@ -9,6 +9,9 @@ import { CountCard } from '../components/CountCard';
 import { RootfsQuotaCard, VolumeSizeModeCard } from '../components/HostStatusCards';
 import { ReservedCPUCard } from '../components/ReservedCPUCard';
 import { Page } from '@/shared/ui/Page';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { failureReason } from '@/shared/api/apiError';
 import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
 
 function admissionReasonLabel(t: ReturnType<typeof useT>, reason: string) {
@@ -27,7 +30,7 @@ function admissionReasonLabel(t: ReturnType<typeof useT>, reason: string) {
 export function AdminMonitoringPage() {
   const t = useT();
   const locale = useLocale();
-  const { data, isLoading, isFetching, refetch } = useSystemMonitoring();
+  const { data, isLoading, isFetching, error, refetch } = useSystemMonitoring();
   const stats = withDefaults(data);
   const observedAt = stats.observed_at
     ? new Date(stats.observed_at * 1000).toLocaleString(dateLocale(locale))
@@ -46,11 +49,7 @@ export function AdminMonitoringPage() {
 
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-48 bg-white/40 dark:bg-slate-900/40 rounded-2xl animate-pulse" />
-          ))}
-        </div>
+        <LoadingRows rows={6} dot={false} columns={[1, 2]} />
       ) : data ? (
         <>
           {stats.admission_status === 'blocked' && (
@@ -153,7 +152,12 @@ export function AdminMonitoringPage() {
           </div>
         </>
       ) : (
-        <div className="text-center p-8 text-slate-500">{t('admin.monitoring.loadFailed')}</div>
+        <ErrorState
+          title={t('admin.monitoring.loadFailed')}
+          message={failureReason(error, t)}
+          onRetry={() => refetch()}
+          isRetrying={isFetching}
+        />
       )}
     </Page>
   );

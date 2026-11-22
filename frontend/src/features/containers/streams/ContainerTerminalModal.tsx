@@ -5,10 +5,10 @@ import '@xterm/xterm/css/xterm.css';
 import { Modal } from '@/shared/ui/Modal';
 import { containerStreamPath, getTerminalTicketFn } from '../api';
 import { WS_URL } from '@/shared/lib/config';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import type { ContainerData } from '../model';
 import type { Scope } from '@/shared/api/scope';
-import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
+import { failureReason, getServerErrorMessage } from '@/shared/api/apiError';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
 
@@ -26,7 +26,7 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
   const dataDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const resizeDisposableRef = useRef<{ dispose: () => void } | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
   const tRef = useTRef();
 
@@ -108,8 +108,7 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
           }
         });
       } catch (error) {
-        const { message } = getApiErrorMessage(error, tRef.current('containers.terminalTicketFailed'), tRef.current);
-        addToast(message, 'error');
+        notify(tRef.current('containers.terminalTicketFailed'), 'error', failureReason(error, tRef.current));
         onClose();
       }
     };
@@ -133,7 +132,7 @@ export function ContainerTerminalModal({ container, scope, onClose }: ContainerT
       }
       term.dispose();
     };
-  }, [container, scope, addToast, onClose, tRef]);
+  }, [container, scope, notify, onClose, tRef]);
 
   if (!container) return null;
 

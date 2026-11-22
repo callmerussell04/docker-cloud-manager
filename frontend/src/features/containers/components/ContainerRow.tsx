@@ -149,8 +149,8 @@ export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }
         </button>
         <ConfirmDialog
           isOpen={isDeleteConfirmOpen}
-          title={t('confirm.title')}
-          message={t('containers.deleteConfirm', { name: container.name })}
+          title={t('containers.deleteConfirm', { name: container.name })}
+          message={t('containers.deleteConsequence')}
           confirmLabel={t('common.delete')}
           isLoading={actionMutation.isPending}
           onCancel={() => setIsDeleteConfirmOpen(false)}

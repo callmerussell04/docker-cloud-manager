@@ -33,6 +33,7 @@ export const containers = {
   'containers.actionSent': 'Команда {action} успешно отправлена',
   'containers.actionFailed': 'Не удалось выполнить действие',
   'containers.deleteConfirm': 'Удалить контейнер "{name}"?',
+  'containers.deleteConsequence': 'Контейнер будет остановлен и удалён. Его тома и их данные сохранятся.',
   'containers.autoStopIn': 'Автоостановка через {time}',
   'containers.autoStopSoon': 'Скоро остановится',
   'containers.autoStopDisabled': 'Автоостановка отключена',

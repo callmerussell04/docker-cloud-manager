@@ -4,11 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 
 import { Modal } from '@/shared/ui/Modal';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
 import { WarningBanner } from '@/shared/ui/WarningBanner';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { type CreateBuildForm, createBuildSchema } from '../schemas';
 import { formatBytes } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
@@ -26,7 +27,7 @@ interface CreateBuildModalProps {
 type CreateBuildValues = z.output<ReturnType<typeof createBuildSchema>>;
 
 export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: CreateBuildModalProps) {
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
   
   const [file, setFile] = useState<File | null>(null);
@@ -51,7 +52,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
 
   const onSubmit = (data: CreateBuildValues) => {
     if (sourceMode === 'archive' && !file) {
-      addToast(t('validation.archiveRequired'), 'error');
+      notify(t('validation.archiveRequired'), 'error');
       return;
     }
 
@@ -64,11 +65,11 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
 
     if (sourceMode === 'git') {
       if (isGitDisabled) {
-        addToast(t('common.gitUnavailable'), 'error');
+        notify(t('common.gitUnavailable'), 'error');
         return;
       }
       if (!data.repo_url?.trim()) {
-        addToast(t('validation.gitUrlRequired'), 'error');
+        notify(t('validation.gitUrlRequired'), 'error');
         return;
       }
       mutation.mutate({
@@ -117,7 +118,7 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
     const isValidExt = validExtensions.some(ext => selected.name.toLowerCase().endsWith(ext));
 
     if (!validTypes.includes(selected.type) && !isValidExt) {
-      addToast(t('validation.buildFileType'), 'error');
+      notify(t('validation.buildFileType'), 'error');
       return;
     }
 
@@ -173,11 +174,9 @@ export function CreateBuildModal({ isOpen, onClose, onSuccessSwitchTab }: Create
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="tag">{t('images.imageTag')}</Label>
+          <Field label={t('images.imageTag')} htmlFor="tag" error={errors.tag?.message as string | undefined}>
             <Input id="tag" placeholder="my-app:v1" error={!!errors.tag} {...register('tag')} />
-            {errors.tag && <p className="text-sm text-red-500">{errors.tag?.message as string}</p>}
-          </div>
+          </Field>
 
           <div className="space-y-2">
             <Label htmlFor="context">{t('images.buildContext')}</Label>

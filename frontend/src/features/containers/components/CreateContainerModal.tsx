@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, Trash2 } from 'lucide-react';
 
 import { Modal } from '@/shared/ui/Modal';
+import { Field } from '@/shared/ui/Field';
 import { Input } from '@/shared/ui/Input';
 import { Label } from '@/shared/ui/Label';
 import { Button } from '@/shared/ui/Button';
@@ -84,15 +85,17 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t('containers.createTitle')} className="max-w-3xl">
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <datalist id="image-suggestions">
+          {images.map(img => (
+            <option key={img.id} value={img.tag} />
+          ))}
+        </datalist>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">{t('containers.containerName')}</Label>
+          <Field label={t('containers.containerName')} htmlFor="name" error={errors.name?.message as string | undefined}>
             <Input id="name" placeholder="my-app" error={!!errors.name} {...register('name')} />
-            {errors.name && <p className="text-sm text-red-500">{errors.name?.message as string}</p>}
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="image_tag">{t('containers.image')}</Label>
+          <Field label={t('containers.image')} htmlFor="image_tag" hint={t('containers.imageHint')} error={errors.image_tag?.message as string | undefined}>
             <Input 
               id="image_tag" 
               list="image-suggestions" 
@@ -100,50 +103,32 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
               error={!!errors.image_tag} 
               {...register('image_tag')} 
             />
-            <datalist id="image-suggestions">
-              {images.map(img => (
-                <option key={img.id} value={img.tag} />
-              ))}
-            </datalist>
-            <p className="text-xs text-slate-500">{t('containers.imageHint')}</p>
-            {errors.image_tag && <p className="text-sm text-red-500">{errors.image_tag?.message as string}</p>}
-          </div>
+          </Field>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
           <h4 className="font-medium">{t('containers.routingOptional')}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="domain_prefix">{t('containers.domainPrefix')}</Label>
-              <div className="flex items-center gap-2">
-                <Input id="domain_prefix" placeholder="my-app" error={!!errors.domain_prefix} {...register('domain_prefix')} />
-                <span className="text-slate-500 dark:text-slate-400 whitespace-nowrap">.{BASE_DOMAIN}</span>
-              </div>
-              {errors.domain_prefix && <p className="text-sm text-red-500">{errors.domain_prefix?.message as string}</p>}
-            </div>
+            <Field label={t('containers.domainPrefix')} htmlFor="domain_prefix" error={errors.domain_prefix?.message as string | undefined}>
+              <Input id="domain_prefix" placeholder="my-app" suffix={`.${BASE_DOMAIN}`} error={!!errors.domain_prefix} {...register('domain_prefix')} />
+            </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="internal_port">{t('containers.internalPort')}</Label>
+            <Field label={t('containers.internalPort')} htmlFor="internal_port" error={errors.internal_port?.message as string | undefined}>
               <Input id="internal_port" type="number" placeholder="80" error={!!errors.internal_port} {...register('internal_port')} />
-              {errors.internal_port && <p className="text-sm text-red-500">{errors.internal_port?.message as string}</p>}
-            </div>
+            </Field>
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700/50 space-y-4">
           <h4 className="font-medium">{t('containers.reservationOptional')}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="memory_reservation_mb">{t('containers.memoryReservation')}</Label>
+            <Field label={t('containers.memoryReservation')} htmlFor="memory_reservation_mb" error={errors.memory_reservation_mb?.message as string | undefined}>
               <Input id="memory_reservation_mb" type="number" min={16} step={1} placeholder={t('containers.reservationDefault')} error={!!errors.memory_reservation_mb} {...register('memory_reservation_mb')} />
-              {errors.memory_reservation_mb && <p className="text-sm text-red-500">{errors.memory_reservation_mb?.message as string}</p>}
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <Label htmlFor="cpu_reservation_cores">{t('containers.cpuReservation')}</Label>
+            <Field label={t('containers.cpuReservation')} htmlFor="cpu_reservation_cores" error={errors.cpu_reservation_cores?.message as string | undefined}>
               <Input id="cpu_reservation_cores" type="number" min={0.01} step="any" placeholder={t('containers.reservationDefault')} error={!!errors.cpu_reservation_cores} {...register('cpu_reservation_cores')} />
-              {errors.cpu_reservation_cores && <p className="text-sm text-red-500">{errors.cpu_reservation_cores?.message as string}</p>}
-            </div>
+            </Field>
           </div>
           <p className="text-xs text-slate-500">{t('containers.reservationHint')}</p>
         </div>
@@ -165,17 +150,19 @@ export function CreateContainerModal({ isOpen, onClose }: CreateContainerModalPr
           {volFields.map((field, index) => (
             <div key={field.id} className="flex gap-2 items-start flex-wrap md:flex-nowrap">
               <div className="flex-1 min-w-[200px]">
-                <Select {...register(`volume_mounts.${index}.volume_id`)}>
-                  <option value="">{t('containers.selectVolume')}</option>
-                  {volumes.map(vol => (
-                    <option key={vol.id} value={vol.id}>{vol.name || `volume-${vol.id.slice(0, 8)}`}</option>
-                  ))}
-                </Select>
-                {errors.volume_mounts?.[index]?.volume_id && <p className="text-xs text-red-500 mt-1">{errors.volume_mounts[index]?.volume_id?.message}</p>}
+                <Field error={errors.volume_mounts?.[index]?.volume_id?.message}>
+                  <Select {...register(`volume_mounts.${index}.volume_id`)}>
+                    <option value="">{t('containers.selectVolume')}</option>
+                    {volumes.map(vol => (
+                      <option key={vol.id} value={vol.id}>{vol.name || `volume-${vol.id.slice(0, 8)}`}</option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
               <div className="flex-1 min-w-[150px]">
-                <Input placeholder="/app/data" {...register(`volume_mounts.${index}.mount_path`)} />
-                {errors.volume_mounts?.[index]?.mount_path && <p className="text-xs text-red-500 mt-1">{errors.volume_mounts[index]?.mount_path?.message}</p>}
+                <Field error={errors.volume_mounts?.[index]?.mount_path?.message}>
+                  <Input placeholder="/app/data" {...register(`volume_mounts.${index}.mount_path`)} />
+                </Field>
               </div>
               <div className="flex items-center gap-2 h-10 px-2">
                 <input type="checkbox" id={`ro-${index}`} {...register(`volume_mounts.${index}.is_readonly`)} className="rounded accent-accent-fill" />

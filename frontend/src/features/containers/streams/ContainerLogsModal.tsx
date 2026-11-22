@@ -5,10 +5,10 @@ import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
 import { containerStreamPath, getLogsTicketFn } from '../api';
 import { API_URL } from '@/shared/lib/config';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import type { ContainerData } from '../model';
 import type { Scope } from '@/shared/api/scope';
-import { getApiErrorMessage, getServerErrorMessage } from '@/shared/api/apiError';
+import { failureReason, getServerErrorMessage } from '@/shared/api/apiError';
 import type { TFunction } from '@/shared/i18n';
 import { useT, useTRef } from '@/shared/i18n';
 import { ConnectionStatus } from '@/shared/ui/ConnectionStatus';
@@ -33,7 +33,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
   const [isConnected, setIsConnected] = useState(false);
   const scrollRef = useRef<HTMLPreElement>(null);
   const esRef = useRef<EventSource | null>(null);
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
   const t = useT();
   const tRef = useTRef();
 
@@ -76,7 +76,9 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
         });
 
         es.addEventListener('error', (event) => {
-          addToast(getStreamErrorMessage('data' in event ? event.data : undefined, tRef.current('containers.logsStreamError'), tRef.current), 'error');
+          const title = tRef.current('containers.logsStreamError');
+          const reason = getStreamErrorMessage('data' in event ? event.data : undefined, title, tRef.current);
+          notify(title, 'error', reason === title ? undefined : reason);
           es.close();
           setIsConnected(false);
         });
@@ -91,8 +93,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
           setIsConnected(false);
         };
       } catch (error) {
-        const { message } = getApiErrorMessage(error, tRef.current('containers.logsTicketFailed'), tRef.current);
-        addToast(message, 'error');
+        notify(tRef.current('containers.logsTicketFailed'), 'error', failureReason(error, tRef.current));
         onClose();
       }
     };
@@ -106,7 +107,7 @@ export function ContainerLogsModal({ container, scope, onClose }: ContainerLogsM
         esRef.current.close();
       }
     };
-  }, [container, scope, appliedTail, appliedTimestamps, appliedFollow, addToast, onClose, tRef]);
+  }, [container, scope, appliedTail, appliedTimestamps, appliedFollow, notify, onClose, tRef]);
 
   useEffect(() => {
     if (follow && scrollRef.current) {

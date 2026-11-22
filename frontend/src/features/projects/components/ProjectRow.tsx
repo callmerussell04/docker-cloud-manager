@@ -138,11 +138,11 @@ export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRow
         </button>
         <ConfirmDialog
           isOpen={confirmAction !== null}
-          title={t('confirm.title')}
-          message={confirmAction === 'cancel' ? t('projects.cancelConfirm', { name: project.name }) : t('projects.deleteConfirm', { name: project.name })}
+          title={confirmAction === 'cancel' ? t('projects.cancelConfirm', { name: project.name }) : t('projects.deleteConfirm', { name: project.name })}
+          message={confirmAction === 'cancel' ? undefined : t('projects.deleteConsequence')}
           confirmLabel={confirmAction === 'cancel' ? t('projects.cancel') : t('common.delete')}
           isLoading={cancelMutation.isPending || deleteMutation.isPending}
-          variant={confirmAction === 'cancel' ? 'secondary' : 'danger'}
+          variant={confirmAction === 'cancel' ? 'primary' : 'danger'}
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => {
             if (confirmAction === 'cancel') {

@@ -1,14 +1,14 @@
 import { ChevronsUpDown, Languages, LogOut, Moon, Sun } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { leaveForProviderSignOut, logoutFn } from '@/features/auth/api';
-import { getApiErrorMessage } from '@/shared/api/apiError';
+import { failureReason } from '@/shared/api/apiError';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
 import { useLanguageStore } from '@/shared/lib/languageStore';
 import { useThemeStore } from '@/shared/lib/themeStore';
 import { cn } from '@/shared/lib/utils';
 import { Menu, MenuGroup, MenuItem, MenuSeparator } from '@/shared/ui/Menu';
-import { useToastStore } from '@/shared/ui/toastStore';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { useAccountName } from './useAccountName';
 
 // AccountMenuItems are the account's choices: the appearance, the language
@@ -20,7 +20,7 @@ export function AccountMenuItems() {
   const { theme, setTheme } = useThemeStore();
   const { language, setLanguage } = useLanguageStore();
   const logout = useAuthStore((state) => state.logout);
-  const addToast = useToastStore((state) => state.addToast);
+  const notify = useNotificationStore((state) => state.notify);
 
   const handleLogout = async () => {
     try {
@@ -28,8 +28,7 @@ export function AccountMenuItems() {
       logout();
       if (!leaveForProviderSignOut(destination)) navigate('/login');
     } catch (error) {
-      const { message } = getApiErrorMessage(error, t('shell.logoutFailed'), t);
-      addToast(message, 'error');
+      notify(t('shell.logoutFailed'), 'error', failureReason(error, t));
     }
   };
 

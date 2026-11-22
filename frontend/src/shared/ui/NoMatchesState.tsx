@@ -1,16 +1,21 @@
-import { SearchX } from 'lucide-react';
-import { EmptyState } from '@/shared/ui/EmptyState';
 import { useT } from '@/shared/i18n';
+import { StateMessage } from './StateMessage';
 
-// NoMatchesState is shown when a list page has rows but the search hides all
-// of them, so it is not mistaken for an empty list.
-export function NoMatchesState() {
+interface NoMatchesStateProps {
+  query: string;
+  onClear: () => void;
+}
+
+// NoMatchesState is shown when a list has rows but the search hides all of
+// them, so it is not mistaken for an empty list. It offers Clear the search.
+export function NoMatchesState({ query, onClear }: NoMatchesStateProps) {
   const t = useT();
   return (
-    <EmptyState
-      icon={<SearchX className="h-8 w-8" />}
-      title={t('common.noMatches')}
+    <StateMessage
+      role="status"
+      title={query.trim() ? t('common.noMatchesFor', { query: query.trim() }) : t('common.noMatches')}
       description={t('common.noMatchesDescription')}
+      action={{ label: t('common.clearSearch'), onClick: onClear }}
     />
   );
 }

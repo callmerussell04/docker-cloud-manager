@@ -4,7 +4,7 @@ import { router } from '@/app/router';
 import { AuthProvider } from '@/app/providers/AuthProvider';
 import { ThemeProvider } from '@/app/providers/ThemeProvider';
 import { LanguageProvider } from '@/app/providers/LanguageProvider';
-import { ToastContainer } from '@/shared/ui/Toast';
+import { Notifications } from '@/shared/ui/Notifications';
 import { Wallpaper } from '@/shared/ui/Wallpaper';
 
 const queryClient = new QueryClient({
@@ -24,7 +24,7 @@ export function App() {
         <LanguageProvider>
           <AuthProvider>
             <RouterProvider router={router} />
-            <ToastContainer />
+            <Notifications />
           </AuthProvider>
         </LanguageProvider>
       </ThemeProvider>

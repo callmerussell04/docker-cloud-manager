@@ -66,8 +66,7 @@ export function ImageRow({ image }: ImageRowProps) {
         </button>
         <ConfirmDialog
           isOpen={isConfirmOpen}
-          title={t('confirm.title')}
-          message={t('images.deleteConfirm', { name: image.tag })}
+          title={t('images.deleteConfirm', { name: image.tag })}
           confirmLabel={t('common.delete')}
           isLoading={deleteMutation.isPending}
           onCancel={() => setIsConfirmOpen(false)}
