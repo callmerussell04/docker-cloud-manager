@@ -84,4 +84,11 @@ export const common = {
   'error.pageTitle': 'Что-то пошло не так',
   'error.pageMessage': 'Не удалось показать страницу. Перезагрузите её, чтобы попробовать снова.',
   'error.reload': 'Перезагрузить',
+  'common.age.minute': '{count} мин',
+  'common.age.hour': '{count} ч',
+  'common.age.day': '{count} дн',
+  'common.age.month': '{count} мес',
+  'common.age.year': '{count} г',
+  'common.sortedAscending': 'по возрастанию',
+  'common.sortedDescending': 'по убыванию',
 } as const;

@@ -1,162 +1,160 @@
-import { Play, Square, Trash2, Globe, ExternalLink, Box, Activity, Terminal, ScrollText, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/shared/ui/Badge';
-import { blockedContainerActions, containerBadgeVariant, containerStatusLabel, type ContainerData } from '../model';
-import { BASE_DOMAIN } from '@/shared/lib/config';
-import { Link } from 'react-router-dom';
-import { containerTableLayout } from './tableLayouts';
-import { cn } from '@/shared/lib/utils';
-import { useT } from '@/shared/i18n';
-import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useContainerAction } from '../queries';
-import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
-import { ContainerTTLTimer } from './ContainerTTLTimer';
+import { ExternalLink, Globe, Layers, Play, ScrollText, Square, Terminal, Trash2 } from 'lucide-react';
+import { getServerErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { BASE_DOMAIN } from '@/shared/lib/config';
+import { useNowSeconds } from '@/shared/lib/hooks';
+import { cn, formatBytes } from '@/shared/lib/utils';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
+import { MenuItem, MenuSeparator } from '@/shared/ui/Menu';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Dot } from '@/shared/ui/StatusDot';
+import { blockedContainerActions, containerStatusLabel, containerTone, type ContainerData } from '../model';
+import { useContainerAction } from '../queries';
+import { containerListLayout } from './listLayout';
+import { useAutoStopLabel } from './useAutoStopLabel';
 
 interface ContainerRowProps {
   container: ContainerData;
-  onExpose: (container: ContainerData) => void;
+  // project names the Compose project the container belongs to, shown as a
+  // tag beside its name; leave it out where the project is already known.
+  project?: string;
+  onOpen: (container: ContainerData) => void;
   onViewLogs: (container: ContainerData) => void;
   onOpenTerminal: (container: ContainerData) => void;
+  // onExpose opens routing settings; only the user's own containers have it.
+  onExpose?: (container: ContainerData) => void;
 }
 
-export function ContainerRow({ container, onExpose, onViewLogs, onOpenTerminal }: ContainerRowProps) {
+// ContainerRow is a container's line in a list: its name and image (and its
+// project), its status with the failure or auto-stop after it, its address,
+// its memory reservation and its age. The row opens the container; its menu
+// holds every action, and a wide window shows logs, terminal and start or
+// stop on the hovered row. Compact rows are the name, then status and age.
+export function ContainerRow({ container, project, onOpen, onViewLogs, onOpenTerminal, onExpose }: ContainerRowProps) {
   const t = useT();
+  const compact = useShellLayout().rowsCompact;
+  const now = useNowSeconds(60_000);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const actionMutation = useContainerAction('own');
-  const containerError = getServerErrorMessage(container.last_error, t);
+  const autoStop = useAutoStopLabel(container.status, container.ttl_deadline);
 
+  const running = container.status === 'running';
   const blocked = blockedContainerActions(container.status);
+  const busy = actionMutation.isPending;
+  const failure = getServerErrorMessage(container.last_error, t);
+  const statusLabel = containerStatusLabel(t, container.status);
+  const age = ageOf(container.created_at, now);
+  const ageLabel = t(`common.age.${age.unit}`, { count: age.count });
+  const toggle = running
+    ? { icon: Square, label: t('containers.stop'), disabled: blocked.stop || busy, run: () => actionMutation.mutate({ id: container.id, action: 'stop' }) }
+    : { icon: Play, label: t('containers.start'), disabled: blocked.start || busy, run: () => actionMutation.mutate({ id: container.id, action: 'start' }) };
 
-  const handleAction = (action: 'start' | 'stop' | 'delete') => {
-    if (action === 'delete') {
-      setIsDeleteConfirmOpen(true);
-      return;
-    }
-    actionMutation.mutate({ id: container.id, action });
-  };
+  const detail = failure ? (
+    <span className="text-red-text">{failure}</span>
+  ) : autoStop ? (
+    <span className="text-label-2">{autoStop}</span>
+  ) : null;
+
+  const title = (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className={cn('truncate font-semibold', compact ? 'text-[15px]' : 'text-[13.5px]')} title={container.name}>
+        {container.name}
+      </span>
+      {project !== undefined && (
+        <span
+          title={t('containers.projectTag', { name: project })}
+          className="inline-flex h-[18px] max-w-[45%] shrink-0 items-center gap-1 rounded-full bg-fill px-[7px] text-[11px] font-semibold text-label-2"
+        >
+          <Layers aria-hidden className="h-[11px] w-[11px] shrink-0" />
+          <span className="truncate">{project}</span>
+        </span>
+      )}
+    </div>
+  );
+
+  const address = container.domain_prefix ? `${container.domain_prefix}.${BASE_DOMAIN}` : '';
+
+  const menu = (
+    <RowMenu label={t('containers.rowActions', { name: container.name })} sheetTitle={container.name}>
+      <MenuItem icon={ScrollText} onSelect={() => onViewLogs(container)}>{t('containers.logs')}</MenuItem>
+      <MenuItem icon={Terminal} disabled={blocked.terminal} onSelect={() => onOpenTerminal(container)}>{t('containers.terminal')}</MenuItem>
+      <MenuItem icon={toggle.icon} disabled={toggle.disabled} onSelect={toggle.run}>{toggle.label}</MenuItem>
+      {address && (
+        <MenuItem icon={ExternalLink} onSelect={() => window.open(`http://${address}`, '_blank', 'noopener,noreferrer')}>{t('containers.openAddress')}</MenuItem>
+      )}
+      {onExpose && (
+        <MenuItem icon={Globe} disabled={blocked.expose || busy} onSelect={() => onExpose(container)}>{t('containers.routingSettings')}</MenuItem>
+      )}
+      <MenuSeparator />
+      <MenuItem icon={Trash2} danger disabled={blocked.delete || busy} onSelect={() => setIsDeleteConfirmOpen(true)}>{t('common.delete')}</MenuItem>
+    </RowMenu>
+  );
+
+  const quick = (
+    <>
+      <RowQuickAction icon={ScrollText} label={t('containers.logs')} onClick={() => onViewLogs(container)} />
+      <RowQuickAction icon={Terminal} label={t('containers.terminal')} disabled={blocked.terminal} onClick={() => onOpenTerminal(container)} />
+      <RowQuickAction icon={toggle.icon} label={toggle.label} disabled={toggle.disabled} onClick={toggle.run} />
+    </>
+  );
+
+  const confirm = (
+    <ConfirmDialog
+      isOpen={isDeleteConfirmOpen}
+      title={t('containers.deleteConfirm', { name: container.name })}
+      message={t('containers.deleteConsequence')}
+      confirmLabel={t('common.delete')}
+      isLoading={busy}
+      onCancel={() => setIsDeleteConfirmOpen(false)}
+      onConfirm={() => actionMutation.mutate({ id: container.id, action: 'delete' }, { onSuccess: () => setIsDeleteConfirmOpen(false) })}
+    />
+  );
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", containerTableLayout.grid, containerTableLayout.minWidth)}>
-      <div className="flex items-center gap-4 min-w-0 pr-4">
-        <div className="w-10 h-10 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
-          <Box className="w-5 h-5" />
-        </div>
+    <ListRow template={compact ? containerListLayout.compact : containerListLayout.wide} onOpen={() => onOpen(container)}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <Dot tone={containerTone(container.status)} />
         <div className="min-w-0 flex-1">
-          <Link to={`/containers/${container.id}`} state={{ container }} className="font-semibold text-base block truncate hover:underline text-slate-900 dark:text-slate-100" title={container.name}>
-            {container.name}
-          </Link>
-          <p className="text-xs text-slate-500 dark:text-slate-400 block truncate" title={container.image_tag}>
-            {container.image_tag}
-          </p>
+          {title}
+          {compact ? (
+            <div className="mt-0.5 truncate text-[12.5px] text-label-2">
+              <span className="text-label">{statusLabel}</span>
+              {detail && <> · {detail}</>}
+              {' · '}
+              {ageLabel}
+            </div>
+          ) : (
+            <div className="truncate font-mono text-[11.5px] text-label-3" title={container.image_tag}>{container.image_tag}</div>
+          )}
         </div>
       </div>
-
-      <div className="min-w-0 shrink-0">
-        <Badge variant={containerBadgeVariant(container.status)}>{containerStatusLabel(t, container.status)}</Badge>
-        <ContainerTTLTimer status={container.status} ttlDeadline={container.ttl_deadline} />
-        {containerError && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate mt-1" title={containerError}>
-            <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{containerError}</span>
+      {!compact && (
+        <>
+          <div className="truncate" title={failure || autoStop || statusLabel}>
+            {statusLabel}
+            {detail && <> · {detail}</>}
           </div>
-        )}
-      </div>
-
-      <div className="min-w-0 flex items-center text-sm text-slate-600 dark:text-slate-300 pr-4">
-        {container.domain_prefix ? (
-          <a 
-            href={`http://${container.domain_prefix}.${BASE_DOMAIN}`}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 text-accent hover:underline transition-colors min-w-0 w-full"
-            title={`${container.domain_prefix}.${BASE_DOMAIN}:${container.internal_port}`}
-          >
-            <Globe className="w-4 h-4 shrink-0" />
-            <span className="truncate">{container.domain_prefix}.{BASE_DOMAIN}</span>
-            <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
-          </a>
-        ) : (
-          <div className="flex items-center gap-2 text-slate-400 min-w-0" title={t('common.notRouted')}>
-            <Globe className="w-4 h-4 shrink-0" />
-            <span className="truncate">{t('common.notRouted')}</span>
+          <div className="min-w-0 truncate">
+            {address && (
+              <a
+                href={`http://${address}`}
+                target="_blank"
+                rel="noreferrer"
+                title={t('containers.addressTitle', { address, port: container.internal_port })}
+                onClick={(event) => event.stopPropagation()}
+                className="font-medium text-accent hover:underline"
+              >
+                {address}
+              </a>
+            )}
           </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 justify-end shrink-0">
-        <Link
-          to={`/containers/${container.id}`}
-          state={{ container }}
-          className="p-2 rounded-lg bg-fill text-accent hover:bg-fill-hover transition-colors"
-          title={t('containers.stats')} aria-label={t('containers.stats')}
-        >
-          <Activity className="w-4 h-4" />
-        </Link>
-
-        <button
-          onClick={() => onOpenTerminal(container)}
-          disabled={blocked.terminal}
-          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-          title={t('containers.terminal')} aria-label={t('containers.terminal')}
-        >
-          <Terminal className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => onViewLogs(container)}
-          className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
-          title={t('containers.logs')} aria-label={t('containers.logs')}
-        >
-          <ScrollText className="w-4 h-4" />
-        </button>
-
-        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-        <button
-          onClick={() => handleAction('start')}
-          disabled={blocked.start || actionMutation.isPending}
-          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.start')} aria-label={t('containers.start')}
-        >
-          <Play className="w-4 h-4" />
-        </button>
-        
-        <button
-          onClick={() => handleAction('stop')}
-          disabled={blocked.stop || actionMutation.isPending}
-          className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.stop')} aria-label={t('containers.stop')}
-        >
-          <Square className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => onExpose(container)}
-          disabled={blocked.expose || actionMutation.isPending}
-          className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.routingSettings')} aria-label={t('containers.routingSettings')}
-        >
-          <Globe className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => handleAction('delete')}
-          disabled={blocked.delete || actionMutation.isPending}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')} aria-label={t('common.delete')}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-        <ConfirmDialog
-          isOpen={isDeleteConfirmOpen}
-          title={t('containers.deleteConfirm', { name: container.name })}
-          message={t('containers.deleteConsequence')}
-          confirmLabel={t('common.delete')}
-          isLoading={actionMutation.isPending}
-          onCancel={() => setIsDeleteConfirmOpen(false)}
-          onConfirm={() => actionMutation.mutate({ id: container.id, action: 'delete' }, { onSuccess: () => setIsDeleteConfirmOpen(false) })}
-        />
-      </div>
-    </div>
+          <div className={cn('tabular-nums', !running && 'text-label-3')}>{formatBytes(container.memory_reservation_bytes, 1)}</div>
+        </>
+      )}
+      <RowEnd age={ageLabel} quick={quick} menu={<>{menu}{confirm}</>} />
+    </ListRow>
   );
 }

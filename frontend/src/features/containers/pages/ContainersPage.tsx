@@ -1,39 +1,128 @@
-import { useState } from 'react';
 import { Plus, RefreshCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
-import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
-import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
-import { Pagination } from '@/shared/ui/Pagination';
-import { ContainerRow } from '@/features/containers/components/ContainerRow';
-import { CreateContainerModal } from '@/features/containers/components/CreateContainerModal';
-import { useContainerModals } from '@/features/containers/components/useContainerModals';
-import { containerTableLayout } from '../components/tableLayouts';
-import { cn } from '@/shared/lib/utils';
-import { useT } from '@/shared/i18n';
-import { useContainers } from '@/features/containers/queries';
-import { SearchInput } from '@/shared/ui/SearchInput';
-import { NoMatchesState } from '@/shared/ui/NoMatchesState';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
-import { ErrorState } from '@/shared/ui/ErrorState';
 import { failureReason } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { createDialogFlag, useListState, useSearchFlag } from '@/shared/lib/hooks';
+import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
+import { Page } from '@/shared/ui/Page';
+import { Pagination } from '@/shared/ui/Pagination';
+import { Pills } from '@/shared/ui/Pills';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { StateMessage } from '@/shared/ui/StateMessage';
+import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { ContainerRow } from '../components/ContainerRow';
+import { CreateContainerModal } from '../components/CreateContainerModal';
+import { containerListLayout } from '../components/listLayout';
+import { useContainerModals } from '../components/useContainerModals';
+import {
+  containerFilterCounts,
+  containerFilters,
+  containerSortKeys,
+  defaultContainerSort,
+  filterContainers,
+  sortContainers,
+  type ContainerData,
+  type ContainerFilter,
+  type ContainerSortKey,
+} from '../model';
+import { useContainers } from '../queries';
 
-export function ContainersPage() {
+const listSpec: ListStateSpec<ContainerFilter, ContainerSortKey> = {
+  filters: containerFilters,
+  sortKeys: containerSortKeys,
+  defaultSort: defaultContainerSort,
+};
+
+// One page holds a user's whole list as the quota usually allows it; the
+// filter, its counts, the sort and the search apply to the page shown.
+const pageSize = 100;
+
+function matchesSearch(container: ContainerData, search: string) {
+  const query = search.trim().toLowerCase();
+  return !query || container.name.toLowerCase().includes(query) || container.image_tag.toLowerCase().includes(query);
+}
+
+interface ContainersPageProps {
+  // projectName names a Compose project by its ID, for the tag beside its
+  // containers; undefined while the projects are not known.
+  projectName?: (projectId: string) => string | undefined;
+}
+
+export function ContainersPage({ projectName }: ContainersPageProps) {
   const t = useT();
+  const navigate = useNavigate();
+  const compact = useShellLayout().rowsCompact;
   const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
   const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const limit = 20;
+  const [view, changeView] = useListState(listSpec);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', page, limit);
-  const containers = data?.items || [];
+  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', view.page, pageSize);
+  const containers = data?.items ?? [];
+  const searched = containers.filter((container) => matchesSearch(container, view.search));
+  const counts = containerFilterCounts(searched);
+  const shown = sortContainers(filterContainers(searched, view.filter), view.sort);
 
-  const filteredContainers = containers.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase()) || 
-    c.image_tag.toLowerCase().includes(search.toLowerCase())
-  );
+  const columns: ListColumn<ContainerSortKey>[] = [
+    { key: 'name', label: t('containers.name') },
+    { key: 'status', label: t('common.status') },
+    { key: 'address', label: t('containers.column.address') },
+    { key: 'memory', label: t('containers.column.memory') },
+    { key: 'created', label: t('containers.column.created'), end: true },
+  ];
+
+  const openContainer = (container: ContainerData) => navigate(`/containers/${container.id}`, { state: { container } });
+  const projectOf = (container: ContainerData) =>
+    container.project_id ? (projectName?.(container.project_id) ?? t('containers.composeTag')) : undefined;
+
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.5, 1.2, 1, 0.4, 0.5]} />;
+    if (isError) {
+      return <ErrorState title={t('containers.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    }
+    if (containers.length === 0) {
+      return (
+        <EmptyState
+          title={t('containers.emptyTitle')}
+          description={t('containers.emptyDescription')}
+          action={{ label: t('containers.create'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
+        />
+      );
+    }
+    if (shown.length === 0 && searched.length === 0) {
+      return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    }
+    if (shown.length === 0) {
+      return (
+        <StateMessage
+          role="status"
+          title={t('containers.filterEmpty')}
+          description={t('containers.filterEmptyDescription')}
+          action={{ label: t('containers.showAll'), onClick: () => changeView({ filter: 'all' }) }}
+        />
+      );
+    }
+    return (
+      <List label={t('containers.title')}>
+        {shown.map((container) => (
+          <ContainerRow
+            key={container.id}
+            container={container}
+            project={projectOf(container)}
+            onOpen={openContainer}
+            onViewLogs={openLogs}
+            onOpenTerminal={openTerminal}
+            onExpose={openExpose}
+          />
+        ))}
+      </List>
+    );
+  };
 
   return (
     <Page
@@ -41,73 +130,35 @@ export function ContainersPage() {
         <Toolbar
           title={t('containers.title')}
           count={data?.total_count}
+          pills={
+            <div className="flex items-center gap-2">
+              <Pills
+                label={t('containers.filterLabel')}
+                value={view.filter}
+                onChange={(filter) => changeView({ filter })}
+                items={containerFilters.map((filter) => ({ id: filter, label: t(`containers.filter.${filter}`), count: counts[filter] }))}
+              />
+              <ToolbarSearch label={t('containers.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+            </div>
+          }
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
           primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('containers.create')} />}
         />
       }
-    >
-      <div className="flex justify-end">
-        <SearchInput
-          placeholder={t('common.search')}
-          title={t('common.searchCurrentPage')}
-          value={search}
-          onChange={setSearch}
+      head={(isLoading || shown.length > 0) && (
+        <ListHead
+          columns={columns}
+          template={containerListLayout.wide}
+          sort={view.sort}
+          onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })}
         />
-      </div>
+      )}
+      className="space-y-2"
+    >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <div className={containerTableLayout.minWidth}>
-            <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", containerTableLayout.grid)}>
-              <div className="flex items-center gap-4"><div className="w-10 shrink-0" /><div>{t('containers.name')}</div></div>
-              <div>{t('common.status')}</div>
-              <div>{t('containers.routing')}</div>
-              <div className="flex justify-end">{t('common.actions')}</div>
-            </div>
-
-            <div className="flex flex-col">
-              {isLoading ? (
-                <LoadingRows columns={[1.5, 0.8, 1, 0.6]} />
-              ) : isError ? (
-                <ErrorState
-                    title={t('containers.loadFailed')}
-                    message={failureReason(error, t)}
-                    onRetry={() => refetch()}
-                    isRetrying={isFetching}
-                  />
-              ) : filteredContainers.length > 0 ? (
-                filteredContainers.map((container) => (
-                  <ContainerRow 
-                    key={container.id} 
-                    container={container} 
-                    onExpose={openExpose}
-                    onViewLogs={openLogs}
-                    onOpenTerminal={openTerminal}
-                  />
-                ))
-              ) : search && containers.length > 0 ? (
-                <NoMatchesState query={search} onClear={() => setSearch('')} />
-              ) : (
-                <EmptyState
-                  title={t('containers.emptyTitle')}
-                  description={t('containers.emptyDescription')}
-                  action={{ label: t('containers.create'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-        {data && (
-          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />
-          </div>
-        )}
-      </div>
-
-      <CreateContainerModal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)} 
-      />
+      <CreateContainerModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
 
       {modals}
     </Page>

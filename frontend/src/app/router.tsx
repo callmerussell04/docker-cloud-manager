@@ -15,7 +15,7 @@ const LoginPage = page(() => import('@/features/auth/pages/LoginPage'), 'LoginPa
 const RegisterPage = page(() => import('@/features/auth/pages/RegisterPage'), 'RegisterPage');
 const AuthCallbackPage = page(() => import('@/features/auth/pages/AuthCallbackPage'), 'AuthCallbackPage');
 const DashboardPage = page(() => import('@/features/dashboard/pages/DashboardPage'), 'DashboardPage');
-const ContainersPage = page(() => import('@/features/containers/pages/ContainersPage'), 'ContainersPage');
+const ContainersRoute = page(() => import('@/app/routes/ContainersRoute'), 'ContainersRoute');
 const ContainerDetailsPage = page(() => import('@/features/containers/pages/ContainerDetailsPage'), 'ContainerDetailsPage');
 const ImagesPage = page(() => import('@/features/images/pages/ImagesPage'), 'ImagesPage');
 const VolumesPage = page(() => import('@/features/volumes/pages/VolumesPage'), 'VolumesPage');
@@ -48,7 +48,7 @@ export const router = createBrowserRouter([
     errorElement: <RouteError fullScreen />,
     children: withPageErrors([
       { index: true, element: <DashboardPage /> },
-      { path: 'containers', element: <ContainersPage /> },
+      { path: 'containers', element: <ContainersRoute /> },
       { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" backLabel="nav.containers" /> },
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesPage /> },

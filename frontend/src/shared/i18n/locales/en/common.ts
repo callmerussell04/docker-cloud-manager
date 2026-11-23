@@ -86,4 +86,11 @@ export const common: Record<keyof typeof ru, string> = {
   'error.pageTitle': 'Something went wrong',
   'error.pageMessage': 'The page could not be shown. Reload it to try again.',
   'error.reload': 'Reload',
+  'common.age.minute': '{count} min',
+  'common.age.hour': '{count} h',
+  'common.age.day': '{count} d',
+  'common.age.month': '{count} mo',
+  'common.age.year': '{count} y',
+  'common.sortedAscending': 'sorted ascending',
+  'common.sortedDescending': 'sorted descending',
 };

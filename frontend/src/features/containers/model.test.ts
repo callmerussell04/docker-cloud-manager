@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerNeedsPolling, containerNeedsWatching, formatCores, isContainerBusy, type ContainerData } from './model';
+import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerFilterCounts, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, filterContainers, sortContainers, formatCores, isContainerBusy, type ContainerData } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
   return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0, memory_reservation_bytes: 256 * 1024 ** 2, cpu_reservation_millicores: 250 };
@@ -128,5 +128,100 @@ describe('formatCores', () => {
     [1500, '1.5'],
   ])('%i millicores show as %s cores', (millicores, cores) => {
     expect(formatCores(millicores)).toBe(cores);
+  });
+});
+
+describe('containerTone', () => {
+  test.each([
+    ['running', 'ok'],
+    ['error', 'bad'],
+    ['missing', 'bad'],
+    ['exited', 'idle'],
+    ['created', 'idle'],
+    ['pending', 'busy'],
+    ['creating', 'busy'],
+    ['starting', 'busy'],
+    ['stopping', 'busy'],
+    ['exposing', 'busy'],
+    ['deleting', 'busy'],
+    ['reconciling', 'busy'],
+    ['something-new', 'busy'],
+  ])('%s is %s', (status, tone) => {
+    expect(containerTone(status)).toBe(tone);
+  });
+});
+
+describe('the status filter', () => {
+  const rows = [
+    { ...container('running'), id: 'run-1' },
+    { ...container('running'), id: 'run-2' },
+    { ...container('exited'), id: 'exited' },
+    { ...container('created'), id: 'created' },
+    { ...container('error'), id: 'error' },
+    { ...container('missing'), id: 'missing' },
+    { ...container('starting'), id: 'starting' },
+  ];
+  const ids = (list: ContainerData[]) => list.map((item) => item.id);
+
+  test('All keeps every container', () => {
+    expect(ids(filterContainers(rows, 'all'))).toEqual(['run-1', 'run-2', 'exited', 'created', 'error', 'missing', 'starting']);
+  });
+
+  test('Running keeps running containers', () => {
+    expect(ids(filterContainers(rows, 'running'))).toEqual(['run-1', 'run-2']);
+  });
+
+  test('Stopped keeps exited and created containers', () => {
+    expect(ids(filterContainers(rows, 'stopped'))).toEqual(['exited', 'created']);
+  });
+
+  test('Attention keeps failing and busy containers', () => {
+    expect(ids(filterContainers(rows, 'attention'))).toEqual(['error', 'missing', 'starting']);
+  });
+
+  test('counts each filter over the whole list', () => {
+    expect(containerFilterCounts(rows)).toEqual({ all: 7, running: 2, stopped: 2, attention: 3 });
+  });
+
+  test('an empty list counts zero everywhere', () => {
+    expect(containerFilterCounts([])).toEqual({ all: 0, running: 0, stopped: 0, attention: 0 });
+  });
+});
+
+describe('sortContainers', () => {
+  const MiB = 1024 * 1024;
+  const row = (id: string, status: string, extra: Partial<ContainerData> = {}): ContainerData => ({ ...container(status), id, name: id, ...extra });
+  const ids = (list: ContainerData[]) => list.map((item) => item.id);
+
+  test('starts with failing containers, then changing, running and at rest', () => {
+    const rows = [row('exited', 'exited'), row('running', 'running'), row('starting', 'starting'), row('error', 'error'), row('created', 'created'), row('missing', 'missing')];
+    expect(defaultContainerSort).toEqual({ key: 'status', ascending: true });
+    expect(ids(sortContainers(rows, defaultContainerSort))).toEqual(['error', 'missing', 'starting', 'running', 'created', 'exited']);
+  });
+
+  test('orders containers with the same status by name, whichever way status sorts', () => {
+    const rows = [row('b', 'running'), row('c', 'error'), row('a', 'running')];
+    expect(ids(sortContainers(rows, { key: 'status', ascending: true }))).toEqual(['c', 'a', 'b']);
+    expect(ids(sortContainers(rows, { key: 'status', ascending: false }))).toEqual(['a', 'b', 'c']);
+  });
+
+  test('sorts by name', () => {
+    const rows = [row('web-10', 'running'), row('api', 'running'), row('web-2', 'running')];
+    expect(ids(sortContainers(rows, { key: 'name', ascending: true }))).toEqual(['api', 'web-2', 'web-10']);
+  });
+
+  test('sorts by address, with unpublished containers last', () => {
+    const rows = [row('none', 'running'), row('shop', 'running', { domain_prefix: 'shop' }), row('api', 'running', { domain_prefix: 'api' })];
+    expect(ids(sortContainers(rows, { key: 'address', ascending: true }))).toEqual(['api', 'shop', 'none']);
+  });
+
+  test('sorts by memory reservation', () => {
+    const rows = [row('mid', 'running', { memory_reservation_bytes: 512 * MiB }), row('small', 'running', { memory_reservation_bytes: 128 * MiB }), row('big', 'running', { memory_reservation_bytes: 1024 * MiB })];
+    expect(ids(sortContainers(rows, { key: 'memory', ascending: false }))).toEqual(['big', 'mid', 'small']);
+  });
+
+  test('sorts by creation, newest first when ascending, as the age column reads', () => {
+    const rows = [row('old', 'running', { created_at: 100 }), row('new', 'running', { created_at: 300 }), row('mid', 'running', { created_at: 200 })];
+    expect(ids(sortContainers(rows, { key: 'created', ascending: true }))).toEqual(['new', 'mid', 'old']);
   });
 });

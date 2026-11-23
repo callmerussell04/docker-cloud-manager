@@ -1,5 +1,7 @@
 import type { Scope } from '@/shared/api/scope';
 import type { BadgeVariant } from '@/shared/ui/Badge';
+import type { StatusTone } from '@/shared/ui/StatusDot';
+import { sortRows, type ListSort } from '@/shared/lib/listState';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface ContainerData {
@@ -110,6 +112,77 @@ export function containerNeedsPolling(container: ContainerData) {
 // container can stop on its own.
 export function containerNeedsWatching(container: ContainerData) {
   return isContainerBusy(container.status) || container.status === 'running';
+}
+
+// containerTone is what a container's status means to the user: running is
+// ok, error and missing are failing, exited and created are at rest, and every
+// other status, including one this client does not know, is changing.
+export function containerTone(status: string): StatusTone {
+  if (status === 'running') return 'ok';
+  if (status === 'error' || status === 'missing') return 'bad';
+  if (status === 'exited' || status === 'created') return 'idle';
+  return 'busy';
+}
+
+// ContainerFilter is the containers list's status filter.
+export type ContainerFilter = 'all' | 'running' | 'stopped' | 'attention';
+
+export const containerFilters: readonly ContainerFilter[] = ['all', 'running', 'stopped', 'attention'];
+
+const filterTones: Record<ContainerFilter, readonly StatusTone[]> = {
+  all: ['ok', 'bad', 'busy', 'idle'],
+  running: ['ok'],
+  stopped: ['idle'],
+  attention: ['bad', 'busy'],
+};
+
+// filterContainers keeps the containers a status filter shows: Running the
+// running ones, Stopped those at rest, Attention those failing or changing.
+export function filterContainers<C extends ContainerData>(containers: readonly C[], filter: ContainerFilter): C[] {
+  return containers.filter((container) => filterTones[filter].includes(containerTone(container.status)));
+}
+
+// containerFilterCounts is how many containers each status filter shows.
+export function containerFilterCounts(containers: readonly ContainerData[]): Record<ContainerFilter, number> {
+  const counts: Record<ContainerFilter, number> = { all: 0, running: 0, stopped: 0, attention: 0 };
+  for (const filter of containerFilters) {
+    counts[filter] = filterContainers(containers, filter).length;
+  }
+  return counts;
+}
+
+// ContainerSortKey is a containers list column.
+export type ContainerSortKey = 'name' | 'status' | 'address' | 'memory' | 'created';
+
+export const containerSortKeys: readonly ContainerSortKey[] = ['name', 'status', 'address', 'memory', 'created'];
+
+// The list starts with failing containers first.
+export const defaultContainerSort: ListSort<ContainerSortKey> = { key: 'status', ascending: true };
+
+const toneRank: Record<StatusTone, number> = { bad: 0, busy: 1, ok: 2, idle: 3 };
+
+function containerSortValue(container: ContainerData, key: ContainerSortKey): string | number {
+  switch (key) {
+    case 'name':
+      return container.name;
+    case 'status':
+      return toneRank[containerTone(container.status)];
+    case 'address':
+      // Published addresses first, by name; an unpublished container after them.
+      return container.domain_prefix ? `0${container.domain_prefix}` : '1';
+    case 'memory':
+      return container.memory_reservation_bytes;
+    case 'created':
+      // The column reads as an age, so ascending is the youngest first.
+      return -container.created_at;
+  }
+}
+
+// sortContainers orders a containers list by one column. Ascending status is
+// failing first, then changing, running, and at rest. Containers that tie
+// keep name order, whichever way the column sorts.
+export function sortContainers<C extends ContainerData>(containers: readonly C[], sort: ListSort<ContainerSortKey>): C[] {
+  return sortRows(containers, (container) => [containerSortValue(container, sort.key), container.name, container.id], sort.ascending);
 }
 
 export interface BlockedContainerActions {

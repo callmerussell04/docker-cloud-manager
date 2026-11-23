@@ -321,7 +321,8 @@
   /* Rows fade out as they scroll up beneath the floating toolbar, and sooner
      behind its title, which has no glass of its own. */
   .toolbar-fade {
-    --toolbar-bottom: 54px;
+    /* --toolbar-bottom comes from .page, which knows how many rows the
+       toolbar has; setting it here would hide that. */
     -webkit-mask-image:
       linear-gradient(to bottom, transparent 0, rgba(0, 0, 0, 0.5) calc(var(--toolbar-bottom) - 24px), #000 calc(var(--toolbar-bottom) + 12px)),
       radial-gradient(ellipse 250px 56px at 120px 30px, transparent 55%, #000 100%);
@@ -345,7 +346,51 @@
   }
 
   .page-scroll {
-    padding-top: calc(var(--toolbar-bottom) + 22px);
+    padding-top: calc(var(--toolbar-bottom) + var(--head-height, 0px) + 22px);
+    scrollbar-gutter: stable;
+  }
+
+  /* A list's column labels stay fixed under the toolbar, outside the scroll
+     area, and rows scrolling up vanish entirely before they reach them. The
+     slot keeps the same scrollbar gutter as the scroll area, so each label
+     stays over its column. Compact rows have no labels; the slot is empty. */
+  .list-head-slot {
+    top: calc(var(--toolbar-bottom) + 12px);
+    overflow: hidden;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+  }
+
+  .page:has(> .list-head-slot:not(:empty)) {
+    --head-height: 40px;
+  }
+
+  .page:has(> .list-head-slot:not(:empty)) > .toolbar-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--toolbar-bottom) + 42px), #000 calc(var(--toolbar-bottom) + 56px));
+    mask-image: linear-gradient(to bottom, transparent 0, transparent calc(var(--toolbar-bottom) + 42px), #000 calc(var(--toolbar-bottom) + 56px));
+  }
+
+  /* Rows are parted by a hairline that starts after the status dot and
+     disappears around a hovered row. */
+  .list-row + .list-row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 12px;
+    left: 38px;
+    height: 1px;
+    background: var(--separator);
+  }
+
+  .list-row:hover::before,
+  .list-row:hover + .list-row::before {
+    opacity: 0;
+  }
+
+  @keyframes status-pulse {
+    50% {
+      opacity: 0.35;
+    }
   }
 
   /* A menu on a phone rises from the bottom as a sheet over a dimmed page. */

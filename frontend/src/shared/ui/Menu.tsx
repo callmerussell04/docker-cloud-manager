@@ -218,10 +218,14 @@ interface MenuItemProps {
   checked?: boolean;
   // current marks the item that leads to the page already open.
   current?: boolean;
+  // disabled shows the item but skips it: arrow keys pass over it.
+  disabled?: boolean;
+  // danger marks an action that destroys something, in red.
+  danger?: boolean;
 }
 
 // MenuItem runs its action and closes the menu.
-export function MenuItem({ icon: Icon, children, onSelect, checked, current }: MenuItemProps) {
+export function MenuItem({ icon: Icon, children, onSelect, checked, current, disabled, danger }: MenuItemProps) {
   const { close, sheet } = useContext(MenuContext);
   const choice = checked !== undefined;
   return (
@@ -231,6 +235,7 @@ export function MenuItem({ icon: Icon, children, onSelect, checked, current }: M
       aria-checked={choice ? checked : undefined}
       aria-current={current ? 'page' : undefined}
       tabIndex={-1}
+      disabled={disabled}
       onClick={() => {
         close();
         onSelect();
@@ -239,13 +244,14 @@ export function MenuItem({ icon: Icon, children, onSelect, checked, current }: M
         'group flex w-full items-center gap-[9px] text-left outline-none',
         sheet ? 'h-[46px] rounded-[14px] px-3.5 text-[15px]' : 'h-[30px] rounded-[9px] px-[9px]',
         'focus-visible:bg-accent-fill focus-visible:text-on-accent hover:bg-accent-fill hover:text-on-accent',
-        'text-label',
+        danger ? 'text-red-text hover:bg-red focus-visible:bg-red' : 'text-label',
         current && 'font-semibold',
+        'disabled:pointer-events-none disabled:opacity-40',
       )}
     >
       {Icon && (
         <Icon
-          className={cn('h-[15px] w-[15px] shrink-0 group-hover:text-on-accent group-focus-visible:text-on-accent', current ? 'text-accent' : 'text-label-2')}
+          className={cn('h-[15px] w-[15px] shrink-0 group-hover:text-on-accent group-focus-visible:text-on-accent', current ? 'text-accent' : danger ? 'text-red-text' : 'text-label-2')}
           strokeWidth={1.8}
         />
       )}

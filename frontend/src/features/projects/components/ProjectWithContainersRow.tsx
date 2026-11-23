@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Box } from 'lucide-react';
 
 import { ErrorState } from '@/shared/ui/ErrorState';
+import { List } from '@/shared/ui/List';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { useContainers } from '@/features/containers/queries';
@@ -25,6 +27,7 @@ export function ProjectWithContainersRow({
   onOpenTerminal,
 }: ProjectWithContainersRowProps) {
   const t = useT();
+  const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(true);
   // A deploying, starting or stopping project changes its containers, so the
   // list keeps refreshing even while it is still empty.
@@ -65,17 +68,18 @@ export function ProjectWithContainersRow({
               />
             </div>
           ) : containers.length > 0 ? (
-            <div className="flex flex-col">
+            <List label={project.name}>
               {containers.map((container) => (
                 <ContainerRow
                   key={container.id}
                   container={container}
+                  onOpen={(opened) => navigate(`/containers/${opened.id}`, { state: { container: opened } })}
                   onExpose={onExpose}
                   onViewLogs={onViewLogs}
                   onOpenTerminal={onOpenTerminal}
                 />
               ))}
-            </div>
+            </List>
           ) : (
             <div className="flex items-center gap-3 px-6 py-4 text-sm text-slate-500 dark:text-slate-400">
               <Box className="h-4 w-4 shrink-0" />

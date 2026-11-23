@@ -24,8 +24,8 @@ export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: 
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex flex-col gap-3 border-t border-white/20 px-4 py-3 dark:border-slate-700/50 sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-sm text-slate-500 dark:text-slate-400">
+    <div className="flex flex-col gap-3 px-2.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="text-label-2">
         {t('pagination.summary', {
           from: (currentPage - 1) * pageSize + 1,
           to: Math.min(currentPage * pageSize, totalItems),
@@ -43,7 +43,7 @@ export function Pagination({ currentPage, totalItems, pageSize, onPageChange }: 
         >
           <ChevronLeft className="w-4 h-4" />
         </Button>
-        <span className="text-sm font-medium text-slate-700 dark:text-slate-300 w-10 text-center">
+        <span className="w-10 text-center font-medium tabular-nums text-label">
           {currentPage}
         </span>
         <Button

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { readListState, writeListState, type ListState, type ListStateSpec } from './listState';
 
 export function useDebouncedValue<T>(value: T, delayMs = 350) {
   const [debounced, setDebounced] = useState(value);
@@ -52,6 +53,21 @@ export function useSearchFlag(name: string) {
     [name, setParams],
   );
   return [on, set] as const;
+}
+
+// useListState keeps a list's filter, sort, page and search in the URL, so
+// refreshing the page or sharing its link shows the same rows. A change
+// replaces the history entry rather than adding one. spec must be stable, as
+// a module constant is.
+export function useListState<F extends string, K extends string>(spec: ListStateSpec<F, K>) {
+  const [params, setParams] = useSearchParams();
+  const state = readListState(params, spec);
+  const change = useCallback(
+    (next: Partial<ListState<F, K>>) =>
+      setParams((current) => writeListState(current, { ...readListState(current, spec), ...next }, spec), { replace: true }),
+    [setParams, spec],
+  );
+  return [state, change] as const;
 }
 
 function nowSeconds() {
