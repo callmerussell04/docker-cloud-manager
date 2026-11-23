@@ -431,6 +431,15 @@ message ImageData {
   string status = 8;
   string last_error = 9;
   int64 size_bytes = 10;
+  // The containers created from the image, by name. Core refuses to delete
+  // an image while any container uses it.
+  repeated ImageUser used_by = 11;
+}
+
+// ImageUser is a container created from an image.
+message ImageUser {
+  string container_id = 1;
+  string name = 2;
 }
 
 message ImageListResponse {
@@ -509,6 +518,12 @@ message BuildData {
   // The user tag the build was queued for. image_id is empty once the
   // build's image record has been deleted.
   string tag = 12;
+  // Where the build's context came from: "archive" (source_location is the
+  // file name) or "git" (the repository URL, and source_ref the ref asked
+  // for). Empty for a Compose project's build.
+  string source_kind = 13;
+  string source_location = 14;
+  string source_ref = 15;
 }
 
 message BuildListResponse {

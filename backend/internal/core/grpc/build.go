@@ -193,6 +193,9 @@ func buildToProto(b model.Build, ownerUsername string) *coreapi.BuildData {
 		OwnerUsername:      ownerUsername,
 		ProjectId:          projectID,
 		ProjectServiceName: b.ProjectServiceName,
+		SourceKind:         b.Source.Kind,
+		SourceLocation:     b.Source.Location,
+		SourceRef:          b.Source.Ref,
 	}
 }
 

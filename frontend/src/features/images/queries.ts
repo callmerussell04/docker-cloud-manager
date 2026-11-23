@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import { useNotificationStore } from '@/shared/ui/notificationStore';
-import { failureReason } from '@/shared/api/apiError';
+import { failureReason, isNotFoundError } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import {
   cancelBuildFn,
@@ -11,11 +11,12 @@ import {
   deleteBuildFn,
   deleteImageFn,
   getBuildAvailabilityFn,
+  getBuildFn,
   getBuildLogsFn,
   getBuildsFn,
   getImagesFn,
 } from './api';
-import { isBuildActive, isImageBusy, type CreateBuildGitPayload } from './model';
+import { buildLogsAvailable, isBuildActive, isImageBusy, type BuildData, type CreateBuildGitPayload } from './model';
 
 export const imageKeys = {
   all: ['images'] as const,
@@ -28,6 +29,7 @@ export const buildKeys = {
   all: ['builds'] as const,
   lists: (scope: Scope) => [...buildKeys.all, scope, 'list'] as const,
   list: (scope: Scope, params: PageParams) => [...buildKeys.lists(scope), params] as const,
+  detail: (scope: Scope, id: string) => [...buildKeys.all, scope, 'detail', id] as const,
   logs: (scope: Scope, id: string | undefined) => [...buildKeys.all, scope, 'logs', id] as const,
 };
 
@@ -55,6 +57,31 @@ export function useBuilds<S extends Scope>(scope: S, page: number, limit: number
       return builds.some((build) => isBuildActive(build.status)) ? 5000 : false;
     },
   });
+}
+
+// useBuild reads one build, showing the snapshot it was opened with until its
+// current state arrives, and repeats every 5 s while it is queued or
+// running. A build that is gone stops it.
+export function useBuild(scope: Scope, id: string, snapshot?: BuildData) {
+  return useQuery({
+    queryKey: buildKeys.detail(scope, id),
+    queryFn: (): Promise<BuildData> => getBuildFn(scope, id),
+    enabled: !!id,
+    placeholderData: snapshot,
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
+    refetchInterval: (query) => {
+      // A failed read waits for Try again rather than repeating.
+      if (query.state.error) return false;
+      const build = query.state.data;
+      return !build || isBuildActive(build.status) ? 5000 : false;
+    },
+  });
+}
+
+// useFinishedBuildLog reads a build's log once the build has finished and
+// stored it; Builder uploads it only at the end.
+export function useFinishedBuildLog(scope: Scope, build: Pick<BuildData, 'id' | 'status'>) {
+  return useBuildLogs(scope, build.id, buildLogsAvailable(build.status));
 }
 
 export function useBuildAvailability(enabled = true) {

@@ -162,6 +162,7 @@ func imagesToDTO(items []model.Image) []dto.ImageDTO {
 			CreatedAt:     item.CreatedAt,
 			OwnerID:       item.OwnerID,
 			OwnerUsername: item.OwnerUsername,
+			UsedBy:        imageUsersToDTO(item.UsedBy),
 		})
 	}
 	return result
@@ -177,7 +178,16 @@ func imagesToUserDTO(items []model.Image) []dto.UserImageDTO {
 			Status:    item.Status,
 			LastError: item.LastError,
 			CreatedAt: item.CreatedAt,
+			UsedBy:    imageUsersToDTO(item.UsedBy),
 		})
+	}
+	return result
+}
+
+func imageUsersToDTO(items []model.ImageUser) []dto.ImageUserDTO {
+	result := make([]dto.ImageUserDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.ImageUserDTO{ID: item.ContainerID, Name: item.Name})
 	}
 	return result
 }
@@ -185,40 +195,54 @@ func imagesToUserDTO(items []model.Image) []dto.UserImageDTO {
 func buildsToDTO(items []model.Build) []dto.BuildDTO {
 	result := make([]dto.BuildDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.BuildDTO{
-			ID:                 item.ID,
-			ImageID:            item.ImageID,
-			Tag:                item.Tag,
-			ProjectID:          item.ProjectID,
-			ProjectServiceName: item.ProjectServiceName,
-			Status:             item.Status,
-			CreatedAt:          item.CreatedAt,
-			StartedAt:          item.StartedAt,
-			FinishedAt:         item.FinishedAt,
-			LogObjectKey:       item.LogObjectKey,
-			OwnerID:            item.OwnerID,
-			OwnerUsername:      item.OwnerUsername,
-		})
+		result = append(result, buildToDTO(item))
 	}
 	return result
+}
+
+func buildToDTO(item model.Build) dto.BuildDTO {
+	return dto.BuildDTO{
+		ID:                 item.ID,
+		ImageID:            item.ImageID,
+		Tag:                item.Tag,
+		ProjectID:          item.ProjectID,
+		ProjectServiceName: item.ProjectServiceName,
+		SourceKind:         item.SourceKind,
+		SourceLocation:     item.SourceLocation,
+		SourceRef:          item.SourceRef,
+		Status:             item.Status,
+		CreatedAt:          item.CreatedAt,
+		StartedAt:          item.StartedAt,
+		FinishedAt:         item.FinishedAt,
+		LogObjectKey:       item.LogObjectKey,
+		OwnerID:            item.OwnerID,
+		OwnerUsername:      item.OwnerUsername,
+	}
 }
 
 func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
 	result := make([]dto.UserBuildDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.UserBuildDTO{
-			ID:                 item.ID,
-			ImageID:            item.ImageID,
-			Tag:                item.Tag,
-			ProjectID:          item.ProjectID,
-			ProjectServiceName: item.ProjectServiceName,
-			Status:             item.Status,
-			CreatedAt:          item.CreatedAt,
-			StartedAt:          item.StartedAt,
-			FinishedAt:         item.FinishedAt,
-		})
+		result = append(result, buildToUserDTO(item))
 	}
 	return result
+}
+
+func buildToUserDTO(item model.Build) dto.UserBuildDTO {
+	return dto.UserBuildDTO{
+		ID:                 item.ID,
+		ImageID:            item.ImageID,
+		Tag:                item.Tag,
+		ProjectID:          item.ProjectID,
+		ProjectServiceName: item.ProjectServiceName,
+		SourceKind:         item.SourceKind,
+		SourceLocation:     item.SourceLocation,
+		SourceRef:          item.SourceRef,
+		Status:             item.Status,
+		CreatedAt:          item.CreatedAt,
+		StartedAt:          item.StartedAt,
+		FinishedAt:         item.FinishedAt,
+	}
 }
 
 func projectsToDTO(items []model.Project) []dto.ProjectDTO {

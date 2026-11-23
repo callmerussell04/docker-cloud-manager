@@ -1,78 +1,139 @@
-import { Trash2, Disc, AlertTriangle } from 'lucide-react';
-import { Badge } from '@/shared/ui/Badge';
-import { imageStatusLabel, type ImageData } from '../model';
-import { imageTableLayout } from './tableLayouts';
-import { cn, formatBytes } from '@/shared/lib/utils';
-import { dateLocale, useLocale, useT } from '@/shared/i18n';
-import { useDeleteImage } from '../queries';
-import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { useState } from 'react';
+import { Copy, Hammer, Play, Trash2 } from 'lucide-react';
 import { getServerErrorMessage } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { useNowSeconds } from '@/shared/lib/hooks';
+import { cn, formatBytes } from '@/shared/lib/utils';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
+import { MenuItem, MenuNote, MenuSeparator } from '@/shared/ui/Menu';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Dot } from '@/shared/ui/StatusDot';
+import {
+  imageDeleteBlock,
+  imageNameLines,
+  imageStatusLabel,
+  imageTone,
+  imageUserNames,
+  imageUsersLabel,
+  isImageAvailable,
+  type ImageData,
+} from '../model';
+import { useDeleteImage } from '../queries';
+import { imageListLayout } from './listLayout';
 
 interface ImageRowProps {
   image: ImageData;
+  // onRun opens the create container dialog with the image.
+  onRun: (image: ImageData) => void;
+  // onBuildAgain opens the build dialog for the image's tag; left out while
+  // builds are off.
+  onBuildAgain?: (image: ImageData) => void;
 }
 
-export function ImageRow({ image }: ImageRowProps) {
+// ImageRow is an image's line in the list: its repository and tag with the
+// registry path beneath, its status with the failure after it, the
+// containers using it, its size and its age. An image has no page, so the
+// row opens nothing; its menu holds Run a container, Build again, Copy the
+// tag and Delete, disabled with the reason while a container uses the image
+// or it is not ready. Compact rows are the name, then status, size and age.
+export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
   const t = useT();
-  const locale = useLocale();
+  const compact = useShellLayout().rowsCompact;
+  const now = useNowSeconds(60_000);
+  const notify = useNotificationStore((state) => state.notify);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const lastError = getServerErrorMessage(image.last_error, t);
   const deleteMutation = useDeleteImage('own');
 
-  const formattedDate = new Date(image.created_at * 1000).toLocaleDateString(dateLocale(locale), {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
+  const { name, path } = imageNameLines(image.tag);
+  const failure = getServerErrorMessage(image.last_error, t);
+  const statusLabel = imageStatusLabel(t, image.status);
+  const age = ageOf(image.created_at, now);
+  const ageLabel = t(`common.age.${age.unit}`, { count: age.count });
+  const users = imageUsersLabel(t, image.used_by);
+  const deleteBlock = imageDeleteBlock(image);
+  const deleteReason = deleteBlock === 'inUse'
+    ? t('images.deleteBlockedInUse', { names: imageUserNames(image.used_by) })
+    : deleteBlock === 'failed' ? t('images.deleteBlockedFailed')
+      : deleteBlock === 'busy' ? t('images.deleteBlockedBusy') : undefined;
+  const available = isImageAvailable(image.status);
+  const size = image.size_bytes > 0 ? formatBytes(image.size_bytes, 1) : '';
+  const detail = failure ? <span className="text-red-text">{failure}</span> : null;
+
+  const copyTag = () => {
+    if (!navigator.clipboard) {
+      notify(t('images.copyFailed'), 'error');
+      return;
+    }
+    navigator.clipboard.writeText(image.tag).then(
+      () => notify(t('images.tagCopied'), 'success'),
+      () => notify(t('images.copyFailed'), 'error'),
+    );
+  };
+
+  const menu = (
+    <RowMenu label={t('images.rowActions', { name: image.tag })} sheetTitle={name}>
+      <MenuItem icon={Play} disabled={!available} onSelect={() => onRun(image)}>{t('images.run')}</MenuItem>
+      {onBuildAgain && <MenuItem icon={Hammer} onSelect={() => onBuildAgain(image)}>{t('images.buildAgain')}</MenuItem>}
+      <MenuItem icon={Copy} onSelect={copyTag}>{t('images.copyTag')}</MenuItem>
+      <MenuSeparator />
+      <MenuItem icon={Trash2} danger disabled={!!deleteBlock || deleteMutation.isPending} title={deleteReason} onSelect={() => setIsConfirmOpen(true)}>
+        {t('common.delete')}
+      </MenuItem>
+      {deleteReason && <MenuNote>{deleteReason}</MenuNote>}
+    </RowMenu>
+  );
+
+  const confirm = (
+    <ConfirmDialog
+      isOpen={isConfirmOpen}
+      title={t('images.deleteConfirm', { name: image.tag })}
+      message={t('images.deleteConsequence')}
+      confirmLabel={t('common.delete')}
+      isLoading={deleteMutation.isPending}
+      onCancel={() => setIsConfirmOpen(false)}
+      onConfirm={() => deleteMutation.mutate(image.id, { onSuccess: () => setIsConfirmOpen(false) })}
+    />
+  );
+
+  const quick = <RowQuickAction icon={Play} label={t('images.run')} disabled={!available} onClick={() => onRun(image)} />;
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0", imageTableLayout.grid, imageTableLayout.minWidth)}>
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="w-10 h-10 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
-          <Disc className="w-5 h-5" />
-        </div>
+    <ListRow template={compact ? imageListLayout.compact : imageListLayout.wide}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <Dot tone={imageTone(image.status)} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-base truncate" title={image.tag}>{image.tag}</h3>
+          <div className={cn('truncate font-semibold', compact ? 'text-[15px]' : 'text-[13.5px]')} title={image.tag}>
+            {name}
+          </div>
+          {compact ? (
+            <div className="mt-0.5 truncate text-[12.5px] text-label-2">
+              <span className="text-label">{statusLabel}</span>
+              {detail && <> · {detail}</>}
+              {size && ` · ${size}`}
+              {' · '}
+              {ageLabel}
+            </div>
+          ) : (
+            path && <div className="truncate text-[11.5px] text-label-3" title={path}>{path}</div>
+          )}
         </div>
       </div>
-
-      <div className="min-w-0 text-sm">
-        <Badge variant="info">{formatBytes(image.size_bytes)}</Badge>
-      </div>
-
-      <div className="min-w-0 text-sm">
-        <Badge variant={image.status === 'available' ? 'success' : image.status === 'error' || image.status === 'missing' ? 'error' : 'default'}>
-          {imageStatusLabel(t, image.status)}
-        </Badge>
-      </div>
-
-      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
-        {formattedDate}
-        {lastError && (
-          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 truncate" title={lastError}>
-            <AlertTriangle className="w-3 h-3 shrink-0" />
-            <span className="truncate">{lastError}</span>
+      {!compact && (
+        <>
+          <div className="truncate" title={failure || statusLabel}>
+            {statusLabel}
+            {detail && <> · {detail}</>}
           </div>
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 justify-end shrink-0">
-        <button
-          onClick={() => setIsConfirmOpen(true)}
-          disabled={deleteMutation.isPending}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors"
-          title={t('common.delete')} aria-label={t('common.delete')}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-        <ConfirmDialog
-          isOpen={isConfirmOpen}
-          title={t('images.deleteConfirm', { name: image.tag })}
-          confirmLabel={t('common.delete')}
-          isLoading={deleteMutation.isPending}
-          onCancel={() => setIsConfirmOpen(false)}
-          onConfirm={() => deleteMutation.mutate(image.id, { onSuccess: () => setIsConfirmOpen(false) })}
-        />
-      </div>
-    </div>
+          <div className={cn('truncate', !users && 'text-label-3')} title={imageUserNames(image.used_by) || undefined}>
+            {users ?? t('images.notUsed')}
+          </div>
+          <div className="truncate tabular-nums">{size}</div>
+        </>
+      )}
+      <RowEnd age={ageLabel} quick={quick} menu={<>{menu}{confirm}</>} />
+    </ListRow>
   );
 }

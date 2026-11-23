@@ -45,6 +45,33 @@ func (h *CoreHandler) listBuilds(c *gin.Context, mapItems func([]model.Build) an
 	})
 }
 
+// GetBuild serves one of the user's builds.
+func (h *CoreHandler) GetBuild(c *gin.Context) {
+	h.writeBuild(c, func(item model.Build) any {
+		return buildToUserDTO(item)
+	})
+}
+
+// AdminGetBuild serves any user's build with its operational fields.
+func (h *CoreHandler) AdminGetBuild(c *gin.Context) {
+	h.writeBuild(c, func(item model.Build) any {
+		return buildToDTO(item)
+	})
+}
+
+func (h *CoreHandler) writeBuild(c *gin.Context, mapItem func(model.Build) any) {
+	buildID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+	build, err := h.service.GetBuild(c.Request.Context(), buildID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, mapItem(build))
+}
+
 func (h *CoreHandler) CancelBuild(c *gin.Context) {
 	h.cancelBuild(c, "build cancellation requested")
 }

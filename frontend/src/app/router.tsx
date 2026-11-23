@@ -18,6 +18,7 @@ const DashboardPage = page(() => import('@/features/dashboard/pages/DashboardPag
 const ContainersRoute = page(() => import('@/app/routes/ContainersRoute'), 'ContainersRoute');
 const ContainerRoute = page(() => import('@/app/routes/ContainerRoute'), 'ContainerRoute');
 const ImagesPage = page(() => import('@/features/images/pages/ImagesPage'), 'ImagesPage');
+const BuildPage = page(() => import('@/features/images/pages/BuildPage'), 'BuildPage');
 const VolumesRoute = page(() => import('@/app/routes/VolumesRoute'), 'VolumesRoute');
 const ProjectsPage = page(() => import('@/features/projects/pages/ProjectsPage'), 'ProjectsPage');
 const ProjectPage = page(() => import('@/features/projects/pages/ProjectPage'), 'ProjectPage');
@@ -52,6 +53,7 @@ export const router = createBrowserRouter([
       { path: 'containers', element: <ContainersRoute /> },
       { path: 'containers/:id', element: <ContainerRoute scope="own" backTo="/containers" backLabel="nav.containers" /> },
       { path: 'images', element: <ImagesPage /> },
+      { path: 'images/builds/:id', element: <BuildPage scope="own" backTo="/images?tab=builds" backLabel="images.backToBuilds" /> },
       { path: 'volumes', element: <VolumesRoute /> },
       { path: 'projects', element: <ProjectsPage /> },
       { path: 'projects/:id', element: <ProjectPage scope="own" backTo="/projects" backLabel="nav.projects" containersPath="/containers" /> },

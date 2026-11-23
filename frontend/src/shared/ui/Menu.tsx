@@ -222,10 +222,12 @@ interface MenuItemProps {
   disabled?: boolean;
   // danger marks an action that destroys something, in red.
   danger?: boolean;
+  // title is the item's tooltip, such as why it is disabled.
+  title?: string;
 }
 
 // MenuItem runs its action and closes the menu.
-export function MenuItem({ icon: Icon, children, onSelect, checked, current, disabled, danger }: MenuItemProps) {
+export function MenuItem({ icon: Icon, children, onSelect, checked, current, disabled, danger, title }: MenuItemProps) {
   const { close, sheet } = useContext(MenuContext);
   const choice = checked !== undefined;
   return (
@@ -236,6 +238,7 @@ export function MenuItem({ icon: Icon, children, onSelect, checked, current, dis
       aria-current={current ? 'page' : undefined}
       tabIndex={-1}
       disabled={disabled}
+      title={title}
       onClick={() => {
         close();
         onSelect();

@@ -8,6 +8,12 @@ CREATE TABLE builds (
     image_id UUID REFERENCES images(id) ON DELETE SET NULL,
     project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
     project_service_name VARCHAR(100),
+    -- Where the build's context came from: an uploaded archive (its file
+    -- name) or a Git repository (its URL and the ref asked for). A Compose
+    -- project's build has none; its project and service name it.
+    source_kind VARCHAR(16) NOT NULL DEFAULT '' CHECK (source_kind IN ('', 'archive', 'git')),
+    source_location TEXT NOT NULL DEFAULT '',
+    source_ref TEXT NOT NULL DEFAULT '',
     status VARCHAR(32) NOT NULL CHECK (status IN (
         'pending', 'running', 'success', 'canceled', 'failed', 'failed_timeout',
         'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal')),

@@ -61,13 +61,34 @@ type Build struct {
 	OwnerID            uuid.UUID
 	ProjectID          *uuid.UUID
 	ProjectServiceName string
-	OwnerUsername      string
-	Status             string
-	LogObjectKey       string
-	ArchiveObjectKey   string
-	CreatedAt          time.Time
-	StartedAt          time.Time
-	FinishedAt         *time.Time
+	// Source is where the build's context came from; empty for a Compose
+	// project's build.
+	Source           BuildSource
+	OwnerUsername    string
+	Status           string
+	LogObjectKey     string
+	ArchiveObjectKey string
+	CreatedAt        time.Time
+	StartedAt        time.Time
+	FinishedAt       *time.Time
+}
+
+// Build source kinds.
+const (
+	BuildSourceArchive = "archive"
+	BuildSourceGit     = "git"
+)
+
+// BuildSource is where a build's context came from: an uploaded archive or a
+// Git repository.
+type BuildSource struct {
+	// Kind is BuildSourceArchive or BuildSourceGit.
+	Kind string
+	// Location is the archive's file name or the repository URL.
+	Location string
+	// Ref is the Git ref asked for; empty for an archive or the default
+	// branch.
+	Ref string
 }
 
 type BuildQueueOutbox struct {

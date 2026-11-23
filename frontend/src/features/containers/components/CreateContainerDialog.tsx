@@ -40,14 +40,17 @@ interface CreateContainerDialogProps {
   // memory is the user's memory quota and what they already reserve, for the
   // quota bar; undefined while it is not known.
   memory?: MemoryQuota;
+  // initialImage is the image the dialog starts with, as an image's Run a
+  // container gives it; the name follows it as it would a chosen image.
+  initialImage?: string;
 }
 
 // CreateContainerDialog creates a container in four steps: Image, Publishing,
 // Settings (resources, environment variables, volume mounts) and Review. Its
 // state starts over each time it opens.
-export function CreateContainerDialog({ isOpen, onClose, memory }: CreateContainerDialogProps) {
+export function CreateContainerDialog({ isOpen, onClose, memory, initialImage }: CreateContainerDialogProps) {
   if (!isOpen) return null;
-  return <CreateContainerFlow onClose={onClose} memory={memory} />;
+  return <CreateContainerFlow onClose={onClose} memory={memory} initialImage={initialImage} />;
 }
 
 const emptyForm: CreateContainerForm = {
@@ -78,7 +81,7 @@ function toDTO(values: CreateContainerValues): CreateContainerDTO {
   return dto;
 }
 
-function CreateContainerFlow({ onClose, memory }: Omit<CreateContainerDialogProps, 'isOpen'>) {
+function CreateContainerFlow({ onClose, memory, initialImage }: Omit<CreateContainerDialogProps, 'isOpen'>) {
   const t = useT();
   const [step, setStep] = useState(0);
   // The furthest step reached; going back leaves the later ones clickable.
@@ -90,7 +93,7 @@ function CreateContainerFlow({ onClose, memory }: Omit<CreateContainerDialogProp
   // The name follows the image until the user types their own.
   const [nameEdited, setNameEdited] = useState(false);
   const { register, control, getValues, setValue, setError, clearErrors, setFocus, subscribe, formState: { errors } } = useForm<CreateContainerForm>({
-    defaultValues: emptyForm,
+    defaultValues: initialImage ? { ...emptyForm, image_tag: initialImage, name: nameFromImage(initialImage) } : emptyForm,
   });
   const values = useWatch({ control }) as CreateContainerForm;
   const mutation = useCreateContainer();

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/core/config"
@@ -190,6 +191,7 @@ type createBuildJobInput struct {
 	RequestID          string
 	ProjectID          *uuid.UUID
 	ProjectServiceName string
+	Source             model.BuildSource
 }
 
 func NewBuildService(deps BuildServiceDeps) (*BuildService, error) {
@@ -425,7 +427,16 @@ func (s *BuildService) CreateBuildFromArchive(ctx context.Context, input BuildAr
 	}
 	s.updateStagedBuildArchiveBytes(ctx, archiveObjectKey)
 
-	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, input.ContextDir, input.Dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	buildID, _, err := s.createBuildJob(ctx, createBuildJobInput{
+		Tag:              input.Tag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       input.ContextDir,
+		Dockerfile:       input.Dockerfile,
+		BuildArgs:        input.BuildArgs,
+		RequestID:        logging.RequestIDFromContext(ctx),
+		Source:           model.BuildSource{Kind: model.BuildSourceArchive, Location: input.ArchiveName},
+	})
 	if err != nil {
 		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
@@ -546,7 +557,16 @@ func (s *BuildService) CreateBuildFromGit(ctx context.Context, input BuildGitInp
 		return BuildInitResult{}, err
 	}
 
-	buildID, _, err := s.CreateBuildJob(ctx, input.Tag, archiveObjectKey, logObjectKey, contextDir, dockerfile, input.BuildArgs, logging.RequestIDFromContext(ctx))
+	buildID, _, err := s.createBuildJob(ctx, createBuildJobInput{
+		Tag:              input.Tag,
+		ArchiveObjectKey: archiveObjectKey,
+		LogObjectKey:     logObjectKey,
+		ContextDir:       contextDir,
+		Dockerfile:       dockerfile,
+		BuildArgs:        input.BuildArgs,
+		RequestID:        logging.RequestIDFromContext(ctx),
+		Source:           model.BuildSource{Kind: model.BuildSourceGit, Location: strings.TrimSpace(input.RepoURL), Ref: strings.TrimSpace(input.Ref)},
+	})
 	if err != nil {
 		cleanupCtx, cancel := cleanupctx.Detached(ctx)
 		_ = s.objectStore.DeleteObject(cleanupCtx, archiveObjectKey) // best-effort removal of the rejected upload; the admission error is returned
@@ -658,6 +678,7 @@ func (s *BuildService) createBuildJob(ctx context.Context, input createBuildJobI
 		OwnerID:            ownerID,
 		ProjectID:          input.ProjectID,
 		ProjectServiceName: input.ProjectServiceName,
+		Source:             input.Source,
 		Status:             model.BuildStatusPending,
 		LogObjectKey:       input.LogObjectKey,
 		ArchiveObjectKey:   input.ArchiveObjectKey,

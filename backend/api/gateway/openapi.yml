@@ -783,6 +783,20 @@ paths:
                     format: int64
 
   /builds/{id}:
+    get:
+      summary: Get one of the current user's builds
+      tags: [Builds]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The build
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserBuild'
+        '404':
+          description: No such build, or it belongs to another user
     delete:
       summary: Delete a build record
       tags: [Builds]
@@ -1620,6 +1634,20 @@ paths:
                     type: integer
 
   /admin/builds/{id}:
+    get:
+      summary: Admin get any build
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The build with its owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Build'
+        '404':
+          description: No such build
     delete:
       summary: Admin delete any build record
       tags: [Admin]
@@ -2563,6 +2591,11 @@ components:
         created_at:
           type: integer
           format: int64
+        used_by:
+          type: array
+          description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ImageUser'
 
     Image:
       type: object
@@ -2588,6 +2621,22 @@ components:
           format: uuid
         owner_username:
           type: string
+        used_by:
+          type: array
+          description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/ImageUser'
+
+    ImageUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The container's ID.
+        name:
+          type: string
+          description: The container's name.
 
     # BUILDS
     BuildImageGitRequest:
@@ -2641,6 +2690,16 @@ components:
           format: uuid
         project_service_name:
           type: string
+        source_kind:
+          type: string
+          enum: [archive, git]
+          description: Where the build's context came from. Omitted for a Compose project's build, which project_id and project_service_name name.
+        source_location:
+          type: string
+          description: The uploaded archive's file name, or the Git repository URL.
+        source_ref:
+          type: string
+          description: The Git ref asked for; omitted for an archive or the repository's default branch.
         status:
           type: string
         created_at:
@@ -2673,6 +2732,16 @@ components:
           format: uuid
         project_service_name:
           type: string
+        source_kind:
+          type: string
+          enum: [archive, git]
+          description: Where the build's context came from. Omitted for a Compose project's build, which project_id and project_service_name name.
+        source_location:
+          type: string
+          description: The uploaded archive's file name, or the Git repository URL.
+        source_ref:
+          type: string
+          description: The Git ref asked for; omitted for an archive or the repository's default branch.
         status:
           type: string
         created_at:

@@ -153,3 +153,32 @@ func TestBuildOutboxPublishedRowNeverReturnsToPending(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, entries)
 }
+
+func TestBuildKeepsWhereItsSourceCameFrom(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	builds := repository.NewBuildRepository(db, db)
+	owner := uuid.New()
+	imageID := uuid.New()
+	buildID := uuid.New()
+	source := model.BuildSource{Kind: model.BuildSourceGit, Location: "https://github.com/acme/app.git", Ref: "main"}
+	require.NoError(t, builds.CreateQueuedBuild(ctx,
+		model.Image{ID: imageID, RegistryTag: imageID.String(), OwnerID: owner, Tag: "app:v1"},
+		model.Build{ID: buildID, ImageID: imageID, OwnerID: owner, Status: model.BuildStatusPending, Source: source},
+		model.BuildQueueOutbox{ID: uuid.New(), BuildID: buildID, Exchange: "x", RoutingKey: "k", Payload: []byte(`{}`)}))
+	projectBuildID, _ := queueTaggedBuild(t, db, owner, "web:v1")
+
+	build, err := builds.GetByID(ctx, buildID)
+	require.NoError(t, err)
+	require.Equal(t, source, build.Source)
+	listed, _, err := builds.List(ctx, model.ListOptions{OwnerID: &owner, Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, listed, 2)
+	for _, b := range listed {
+		if b.ID == projectBuildID {
+			require.Zero(t, b.Source, "a build queued without a source has none")
+		} else {
+			require.Equal(t, source, b.Source)
+		}
+	}
+}

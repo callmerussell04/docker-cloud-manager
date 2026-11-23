@@ -122,6 +122,7 @@ func TestBuildServiceCreateBuildFromArchiveUploadsAndCreatesJob(t *testing.T) {
 	require.Len(t, uploaded, 1)
 	require.Equal(t, uploaded[0], queuedBuild.ArchiveObjectKey)
 	require.NotEmpty(t, queuedBuild.LogObjectKey)
+	require.Equal(t, model.BuildSource{Kind: model.BuildSourceArchive, Location: "source.zip"}, queuedBuild.Source, "an uploaded build records its archive's name")
 }
 
 func TestBuildServiceOpenBuildLogsChecksScopedAccessBeforeObjectStore(t *testing.T) {

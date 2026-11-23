@@ -30,3 +30,42 @@ func TestImageDiskIsCountedInBytes(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 700_000+5<<20+1+9, total)
 }
+
+func TestImageListNamesTheContainersUsingEachImage(t *testing.T) {
+	ctx := context.Background()
+	db := dbtest.OpenCorePostgres(t)
+	images := repository.NewImageRepository(db)
+	containers := repository.NewContainerRepository(db, db)
+	owner := uuid.New()
+	other := uuid.New()
+	usedID := uuid.New()
+	freeID := uuid.New()
+	require.NoError(t, images.Save(ctx, model.Image{ID: usedID, OwnerID: owner, Tag: "shop:v1", RegistryTag: "a", Status: model.ImageStatusAvailable}))
+	require.NoError(t, images.Save(ctx, model.Image{ID: freeID, OwnerID: owner, Tag: "shop:v2", RegistryTag: "b", Status: model.ImageStatusAvailable}))
+	save := func(ownerID uuid.UUID, name string) uuid.UUID {
+		id := uuid.New()
+		require.NoError(t, containers.SaveWithMountsOperationAndOutbox(ctx, model.Container{
+			ID:            id,
+			OwnerID:       ownerID,
+			DockerID:      "docker-" + id.String()[:8],
+			Name:          name,
+			ImageTag:      "shop:v1",
+			Status:        model.ContainerStatusRunning,
+			DesiredStatus: model.ContainerStatusRunning,
+		}, nil, model.ResourceOperation{}, model.ContainerLifecycleOutbox{}, false, false))
+		return id
+	}
+	web := save(owner, "web")
+	api := save(owner, "api")
+	save(other, "theirs")
+
+	listed, _, err := images.List(ctx, model.ListOptions{OwnerID: &owner, Limit: 10})
+	require.NoError(t, err)
+	usedBy := map[string][]model.ImageUser{}
+	for _, img := range listed {
+		usedBy[img.Tag] = img.UsedBy
+	}
+	require.Equal(t, []model.ImageUser{{ContainerID: api, Name: "api"}, {ContainerID: web, Name: "web"}}, usedBy["shop:v1"],
+		"an image names its owner's containers created from its tag, in name order, and not another user's")
+	require.Empty(t, usedBy["shop:v2"], "an image no container uses names none")
+}

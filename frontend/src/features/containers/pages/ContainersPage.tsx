@@ -1,9 +1,9 @@
 import { Plus, RefreshCcw } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
-import { createDialogFlag, useListState, useSearchFlag } from '@/shared/lib/hooks';
+import { createDialogFlag, createWithImageParam, useListState } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -64,7 +64,20 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
   const t = useT();
   const navigate = useNavigate();
   const compact = useShellLayout().rowsCompact;
-  const [isCreateOpen, setIsCreateOpen] = useSearchFlag(createDialogFlag);
+  // ?new opens the create dialog, and ?image (from an image's Run a
+  // container) is the image it starts with; closing it drops both.
+  const [params, setParams] = useSearchParams();
+  const isCreateOpen = params.has(createDialogFlag);
+  const initialImage = params.get(createWithImageParam) ?? undefined;
+  const setIsCreateOpen = (open: boolean) => setParams((current) => {
+    const updated = new URLSearchParams(current);
+    if (open) updated.set(createDialogFlag, '');
+    else {
+      updated.delete(createDialogFlag);
+      updated.delete(createWithImageParam);
+    }
+    return updated;
+  }, { replace: true });
   const { openExpose, modals } = useContainerModals('own');
   const [view, changeView] = useListState(listSpec);
 
@@ -163,7 +176,7 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
       {content()}
       {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <CreateContainerDialog isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} memory={memory} />
+      <CreateContainerDialog isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} memory={memory} initialImage={initialImage} />
 
       {modals}
     </Page>

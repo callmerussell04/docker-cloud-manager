@@ -21,6 +21,11 @@ export const getBuildsFn = async <S extends Scope>(scope: S, page = 1, limit = 2
   return { items: response.data.builds || [], total_count: response.data.total_count || 0 };
 };
 
+export const getBuildFn = async <S extends Scope>(scope: S, id: string): Promise<BuildOf<S>> => {
+  const response = await privateApi.get<BuildOf<S>>(scopedPath(scope, `/builds/${id}`));
+  return response.data;
+};
+
 export const deleteBuildFn = async ({ scope, id }: { scope: Scope; id: string }): Promise<void> => {
   await privateApi.delete(scopedPath(scope, `/builds/${id}`));
 };

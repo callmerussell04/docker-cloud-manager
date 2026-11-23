@@ -149,7 +149,49 @@ func (r *ImageRepository) List(ctx context.Context, opts model.ListOptions) ([]m
 		}
 		images = append(images, img)
 	}
-	return images, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if err := r.fillUsedBy(ctx, images); err != nil {
+		return nil, 0, err
+	}
+	return images, total, nil
+}
+
+// fillUsedBy sets each image's UsedBy to the containers its owner created
+// from its tag, the rule ImageService.Delete's in-use refusal checks, in name
+// order, with one query for the whole page.
+func (r *ImageRepository) fillUsedBy(ctx context.Context, images []model.Image) error {
+	if len(images) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(images))
+	index := make(map[uuid.UUID]int, len(images))
+	for i, img := range images {
+		ids[i] = img.ID
+		index[img.ID] = i
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT i.id, c.id, c.name
+		FROM images i
+		JOIN containers c ON c.owner_id = i.owner_id AND c.image_tag = i.tag
+		WHERE i.id = ANY($1)
+		ORDER BY c.name, c.id
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("list image users: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var imageID uuid.UUID
+		var user model.ImageUser
+		if err := rows.Scan(&imageID, &user.ContainerID, &user.Name); err != nil {
+			return fmt.Errorf("scan image user: %w", err)
+		}
+		i := index[imageID]
+		images[i].UsedBy = append(images[i].UsedBy, user)
+	}
+	return rows.Err()
 }
 
 func (r *ImageRepository) CountAll(ctx context.Context) (int, error) {

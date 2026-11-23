@@ -32,6 +32,11 @@ export function usePageOf(filters: readonly unknown[]) {
 // dialog, as /containers?new does.
 export const createDialogFlag = 'new';
 
+// createWithImageParam names, beside createDialogFlag, the image a create
+// container dialog starts with, as /containers?new&image=shop:v1 does for an
+// image's Run a container.
+export const createWithImageParam = 'image';
+
 // useSearchFlag is a yes-or-no state kept in the URL as a search parameter
 // with no value, such as ?new for a page's create dialog, so a link (the
 // search palette's New container, for one) can open it. Setting it replaces

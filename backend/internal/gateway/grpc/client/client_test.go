@@ -156,6 +156,27 @@ func TestCoreClientMapsGetProject(t *testing.T) {
 	require.ErrorIs(t, err, apperrors.ErrNotFound)
 }
 
+func TestCoreClientMapsImageUsersAndBuildSource(t *testing.T) {
+	imageSrv := &coreImageServer{}
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterImageAPIServer(server, imageSrv)
+	})
+	coreClient := client.NewCoreClient(conn)
+
+	images, err := coreClient.ListImages(context.Background(), 1, 20)
+	require.NoError(t, err)
+	require.Len(t, images.Images, 2)
+	require.Equal(t, []model.ImageUser{{ContainerID: "container-id", Name: "web"}}, images.Images[0].UsedBy)
+	require.Empty(t, images.Images[1].UsedBy)
+
+	build, err := coreClient.GetBuild(context.Background(), "build-id")
+	require.NoError(t, err)
+	require.Equal(t, "build-id", imageSrv.gotBuildID)
+	require.Equal(t, "git", build.SourceKind)
+	require.Equal(t, "https://github.com/acme/app.git", build.SourceLocation)
+	require.Equal(t, "main", build.SourceRef)
+}
+
 func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	containerSrv := &coreContainerServer{}
 	systemSrv := &coreSystemServer{}
@@ -478,6 +499,23 @@ func (s *coreContainerServer) GetContainer(_ context.Context, req *coreapi.Conta
 
 func (s *coreContainerServer) GetContainerStats(context.Context, *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
 	return &coreapi.ContainerStatsResponse{CpuPercentage: 12.5, MemoryUsageBytes: 1024, MemoryLimitBytes: 3072, MemoryStandardLimitBytes: 2048}, nil
+}
+
+type coreImageServer struct {
+	coreapi.UnimplementedImageAPIServer
+	gotBuildID string
+}
+
+func (s *coreImageServer) ListImages(context.Context, *coreapi.PaginationRequest) (*coreapi.PaginatedImageResponse, error) {
+	return &coreapi.PaginatedImageResponse{Images: []*coreapi.ImageData{
+		{Id: "used", Tag: "shop:v1", UsedBy: []*coreapi.ImageUser{{ContainerId: "container-id", Name: "web"}}},
+		{Id: "free", Tag: "shop:v2"},
+	}, TotalCount: 2}, nil
+}
+
+func (s *coreImageServer) GetBuild(_ context.Context, req *coreapi.BuildActionRequest) (*coreapi.BuildData, error) {
+	s.gotBuildID = req.GetBuildId()
+	return &coreapi.BuildData{Id: req.GetBuildId(), SourceKind: "git", SourceLocation: "https://github.com/acme/app.git", SourceRef: "main"}, nil
 }
 
 type coreProjectServer struct {

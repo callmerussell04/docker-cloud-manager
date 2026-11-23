@@ -25,8 +25,8 @@ func NewBuildRepository(db, lockDB *pgxpool.Pool) *BuildRepository {
 
 func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 	query := `
-		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12)
+		INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12, $13, $14, $15)
 	`
 	finishedAt := b.FinishedAt
 
@@ -45,6 +45,9 @@ func (r *BuildRepository) Save(ctx context.Context, b model.Build) error {
 		nullTimeIfZero(b.StartedAt),
 		finishedAt,
 		b.Tag,
+		b.Source.Kind,
+		b.Source.Location,
+		b.Source.Ref,
 	)
 	return err
 }
@@ -73,8 +76,8 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 
 	finishedAt := build.FinishedAt
 	if _, err := tx.Exec(ctx, `
-			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12)
+			INSERT INTO builds (id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9, clock_timestamp()), $10, $11, $12, $13, $14, $15)
 		`,
 		build.ID,
 		build.ImageID,
@@ -88,6 +91,9 @@ func (r *BuildRepository) CreateQueuedBuild(ctx context.Context, img model.Image
 		nullTimeIfZero(build.StartedAt),
 		finishedAt,
 		img.Tag,
+		build.Source.Kind,
+		build.Source.Location,
+		build.Source.Ref,
 	); err != nil {
 		return wrapOp("build create queued build", err)
 	}
@@ -433,7 +439,7 @@ func (r *BuildRepository) MarkBuildOutboxDiscarded(ctx context.Context, id uuid.
 }
 
 // buildColumns is the column list scanBuild reads.
-const buildColumns = `id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag`
+const buildColumns = `id, image_id, owner_id, project_id, project_service_name, status, log_object_key, archive_object_key, created_at, started_at, finished_at, tag, source_kind, source_location, source_ref`
 
 // scanBuild reads one build. A build whose image record was deleted has no
 // image reference, which the model carries as uuid.Nil.
@@ -444,7 +450,7 @@ func scanBuild(s scanner) (model.Build, error) {
 	var startedAt *time.Time
 	var projectID *string
 	var projectServiceName *string
-	if err := s.Scan(&b.ID, &imageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt, &b.Tag); err != nil {
+	if err := s.Scan(&b.ID, &imageID, &b.OwnerID, &projectID, &projectServiceName, &b.Status, &b.LogObjectKey, &b.ArchiveObjectKey, &b.CreatedAt, &startedAt, &finishedAt, &b.Tag, &b.Source.Kind, &b.Source.Location, &b.Source.Ref); err != nil {
 		return model.Build{}, err
 	}
 	b.ImageID = valueOrZero(imageID)

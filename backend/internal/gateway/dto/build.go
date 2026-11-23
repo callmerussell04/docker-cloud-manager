@@ -6,6 +6,9 @@ type BuildDTO struct {
 	Tag                string `json:"tag"`
 	ProjectID          string `json:"project_id,omitempty"`
 	ProjectServiceName string `json:"project_service_name,omitempty"`
+	SourceKind         string `json:"source_kind,omitempty"`
+	SourceLocation     string `json:"source_location,omitempty"`
+	SourceRef          string `json:"source_ref,omitempty"`
 	Status             string `json:"status"`
 	CreatedAt          int64  `json:"created_at"`
 	StartedAt          int64  `json:"started_at"`
@@ -21,6 +24,9 @@ type UserBuildDTO struct {
 	Tag                string `json:"tag"`
 	ProjectID          string `json:"project_id,omitempty"`
 	ProjectServiceName string `json:"project_service_name,omitempty"`
+	SourceKind         string `json:"source_kind,omitempty"`
+	SourceLocation     string `json:"source_location,omitempty"`
+	SourceRef          string `json:"source_ref,omitempty"`
 	Status             string `json:"status"`
 	CreatedAt          int64  `json:"created_at"`
 	StartedAt          int64  `json:"started_at"`

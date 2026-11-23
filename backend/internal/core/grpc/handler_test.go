@@ -355,6 +355,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	ownerID := uuid.New()
 	imageID := uuid.New()
 	buildID := uuid.New()
+	imageUserID := uuid.New()
 	finishedAt := time.Unix(200, 0)
 	imageLogic := coregrpcmocks.NewMockImageLogic(t)
 	buildLogic := coregrpcmocks.NewMockBuildLogic(t)
@@ -365,6 +366,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		OwnerID:      ownerID,
 		Status:       model.BuildStatusRunning,
 		LogObjectKey: "build-logs/demo.log",
+		Source:       model.BuildSource{Kind: model.BuildSourceGit, Location: "https://github.com/acme/app.git", Ref: "main"},
 		StartedAt:    time.Unix(150, 0),
 		FinishedAt:   &finishedAt,
 	}
@@ -375,6 +377,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		SizeBytes: 12<<20 + 1,
 		Status:    model.ImageStatusAvailable,
 		CreatedAt: time.Unix(100, 0),
+		UsedBy:    []model.ImageUser{{ContainerID: imageUserID, Name: "web"}},
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil).Maybe()
 	buildLogic.EXPECT().StartBuildRecord(mock.Anything, buildID).Return(build, true, nil)
@@ -401,6 +404,9 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	require.Len(t, images.Images, 1)
 	require.Equal(t, "alice", images.Images[0].OwnerUsername)
 	require.Equal(t, int64(12<<20+1), images.Images[0].SizeBytes)
+	require.Len(t, images.Images[0].UsedBy, 1)
+	require.Equal(t, imageUserID.String(), images.Images[0].UsedBy[0].ContainerId)
+	require.Equal(t, "web", images.Images[0].UsedBy[0].Name)
 
 	started, err := client.StartBuildRecord(systemCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
@@ -410,6 +416,9 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	buildResp, err := client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
 	require.Equal(t, "build-logs/demo.log", buildResp.LogObjectKey)
+	require.Equal(t, model.BuildSourceGit, buildResp.SourceKind)
+	require.Equal(t, "https://github.com/acme/app.git", buildResp.SourceLocation)
+	require.Equal(t, "main", buildResp.SourceRef)
 	require.Equal(t, finishedAt.Unix(), buildResp.FinishedAt)
 
 	_, err = client.CompleteBuildRecord(systemCtx, &coreapi.CompleteBuildRequest{BuildId: buildID.String(), ImageId: imageID.String(), Status: model.BuildStatusSuccess, SizeMb: 20})

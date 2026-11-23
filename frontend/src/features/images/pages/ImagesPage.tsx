@@ -1,192 +1,286 @@
-import { useEffect, useState } from 'react';
-import { Plus, RefreshCcw, Layers, Hammer } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, RefreshCcw } from 'lucide-react';
 
-import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
-import { Pagination } from '@/shared/ui/Pagination';
-import { WarningBanner } from '@/shared/ui/WarningBanner';
-import { ImageRow } from '@/features/images/components/ImageRow';
-import { BuildRow } from '@/features/images/components/BuildRow';
-import { CreateBuildModal } from '@/features/images/components/CreateBuildModal';
-import { BuildLogsModal } from '@/features/images/components/BuildLogsModal';
-import { type BuildData } from '@/features/images/model';
-import { cn, formatBytes } from '@/shared/lib/utils';
-import { imageTableLayout, buildTableLayout } from '../components/tableLayouts';
-import { useT } from '@/shared/i18n';
-import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
-import { useBuildAvailability, useBuilds, useImages } from '@/features/images/queries';
-import { SearchInput } from '@/shared/ui/SearchInput';
-import { TabSwitcher } from '@/shared/ui/TabSwitcher';
-import { NoMatchesState } from '@/shared/ui/NoMatchesState';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
-import { ErrorState } from '@/shared/ui/ErrorState';
 import { failureReason } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { createDialogFlag, createWithImageParam, useListState, useNowSeconds, useSearchFlag } from '@/shared/lib/hooks';
+import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
+import { Page } from '@/shared/ui/Page';
+import { Pagination } from '@/shared/ui/Pagination';
+import { Pills } from '@/shared/ui/Pills';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { BuildImageDialog } from '../components/BuildImageDialog';
+import { BuildRow } from '../components/BuildRow';
+import { ImageRow } from '../components/ImageRow';
+import { buildListLayout, imageListLayout } from '../components/listLayout';
+import {
+  activeBuildCount,
+  buildAgainFrom,
+  buildSortKeys,
+  defaultBuildSort,
+  defaultImageSort,
+  imageSortKeys,
+  matchesBuildSearch,
+  matchesImageSearch,
+  sortBuilds,
+  sortImages,
+  type BuildAgain,
+  type BuildData,
+  type BuildSortKey,
+  type ImageData,
+  type ImageSortKey,
+} from '../model';
+import { useBuildAvailability, useBuilds, useImages } from '../queries';
 
+// The page's two lists, switched by the toolbar's pills and kept in the URL
+// as ?tab=builds (Images is the default and left out).
 type Tab = 'images' | 'builds';
+const tabParam = 'tab';
+
+// Neither list has a filter; its one filter value keeps the URL state shape
+// every list shares.
+const imageListSpec: ListStateSpec<'all', ImageSortKey> = { filters: ['all'], sortKeys: imageSortKeys, defaultSort: defaultImageSort };
+const buildListSpec: ListStateSpec<'all', BuildSortKey> = { filters: ['all'], sortKeys: buildSortKeys, defaultSort: defaultBuildSort };
+
+// One page holds a user's whole list in the usual case; the sort and the
+// search apply to the page shown.
+const pageSize = 100;
 
 export function ImagesPage() {
   const t = useT();
-  const [activeTab, setActiveTab] = useState<Tab>('images');
-  const [search, setSearch] = useState('');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
-  const [viewLogsBuild, setViewLogsBuild] = useState<BuildData | null>(null);
-  const [imagesPage, setImagesPage] = useState(1);
-  const [buildsPage, setBuildsPage] = useState(1);
-  const limit = 20;
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get(tabParam) === 'builds' ? 'builds' : 'images';
+  const [isBuildOpen, setIsBuildOpen] = useSearchFlag(createDialogFlag);
+  const [buildAgain, setBuildAgain] = useState<BuildAgain | undefined>();
 
-  const { data: imagesData, isLoading: isLoadingImages, isError: isImagesError, error: imagesError, refetch: refetchImages, isFetching: isFetchingImages } = useImages('own', imagesPage, limit);
-  const images = imagesData?.items || [];
-
-  const { data: buildsData, isLoading: isLoadingBuilds, isError: isBuildsError, error: buildsError, refetch: refetchBuilds, isFetching: isFetchingBuilds } = useBuilds('own', buildsPage, limit, { polling: activeTab === 'builds' });
-  const builds = buildsData?.items || [];
-
-  const { data: buildAvailability } = useBuildAvailability();
-  const isBuildDisabled = buildAvailability?.enabled === false;
+  const { data: availability } = useBuildAvailability();
+  const buildsOff = availability?.enabled === false;
   // A link that asks for the build dialog (?new) while builds are off opens
   // nothing, so the flag is dropped.
   useEffect(() => {
-    if (isCreateModalOpen && isBuildDisabled) setIsCreateModalOpen(false);
-  }, [isCreateModalOpen, isBuildDisabled, setIsCreateModalOpen]);
+    if (isBuildOpen && buildsOff) setIsBuildOpen(false);
+  }, [isBuildOpen, buildsOff, setIsBuildOpen]);
 
-  const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
-  const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()) || (b.tag || '').toLowerCase().includes(search.toLowerCase()));
+  // The builds' first page counts the active ones for the pill and gives
+  // Build again its source, so it is read on both tabs whatever page the
+  // Builds list shows; it polls while a build is active.
+  const firstBuilds = useBuilds('own', 1, pageSize);
+  const activeBuilds = activeBuildCount(firstBuilds.data?.items ?? []);
+  const buildsQuery = useBuilds('own', tab === 'builds' ? readPage(params) : 1, pageSize, { enabled: tab === 'builds' });
 
-  const totalSizeBytes = images.reduce((sum, img) => sum + img.size_bytes, 0);
+  // Switching lists starts the other one fresh: its own sort, page and
+  // search.
+  const changeTab = (next: Tab) => setParams(() => {
+    const updated = new URLSearchParams();
+    if (next === 'builds') updated.set(tabParam, 'builds');
+    return updated;
+  }, { replace: true });
 
-  const handleTabChange = (tab: Tab) => {
-    setActiveTab(tab);
-    setSearch('');
-    if (tab === 'images') setImagesPage(1);
-    else setBuildsPage(1);
+  const openBuild = (initial?: BuildAgain) => {
+    setBuildAgain(initial);
+    setIsBuildOpen(true);
   };
 
-  const handleRefresh = () => {
-    if (activeTab === 'images') refetchImages();
-    else refetchBuilds();
+  const runImage = (image: ImageData) => {
+    const search = new URLSearchParams();
+    search.set(createDialogFlag, '');
+    search.set(createWithImageParam, image.tag);
+    navigate(`/containers?${search.toString()}`);
   };
 
-  const isFetching = activeTab === 'images' ? isFetchingImages : isFetchingBuilds;
-  const isLoading = activeTab === 'images' ? isLoadingImages : isLoadingBuilds;
+  const openBuildPage = (build: BuildData) => navigate(`/images/builds/${build.id}`, { state: { build } });
+
+  const pills = (
+    <Pills
+      label={t('images.tabsLabel')}
+      value={tab}
+      onChange={changeTab}
+      items={[
+        { id: 'images', label: t('images.tab.images') },
+        { id: 'builds', label: t('images.tab.builds'), count: activeBuilds > 0 ? activeBuilds : undefined },
+      ]}
+    />
+  );
+
+  const primary = (
+    <ToolbarPrimary
+      icon={Plus}
+      onClick={() => openBuild()}
+      disabled={buildsOff}
+      {...(buildsOff ? { title: t('images.buildUnavailable') } : {})}
+      label={t('images.buildImage')}
+    />
+  );
+
+  return (
+    <>
+      {tab === 'images' ? (
+        <ImagesList
+          pills={pills}
+          primary={primary}
+          onRun={runImage}
+          onBuildAgain={buildsOff ? undefined : (image) => openBuild(buildAgainFrom(image, firstBuilds.data?.items ?? []))}
+          onBuild={buildsOff ? undefined : () => openBuild()}
+        />
+      ) : (
+        <BuildsList pills={pills} primary={primary} query={buildsQuery} onOpen={openBuildPage} onBuild={buildsOff ? undefined : () => openBuild()} />
+      )}
+      <BuildImageDialog
+        isOpen={isBuildOpen && !buildsOff}
+        initial={buildAgain}
+        onClose={() => {
+          setIsBuildOpen(false);
+          setBuildAgain(undefined);
+        }}
+        onBuilt={(id) => navigate(`/images/builds/${id}`)}
+      />
+    </>
+  );
+}
+
+function readPage(params: URLSearchParams) {
+  const page = Number(params.get('page'));
+  return Number.isInteger(page) && page >= 1 ? page : 1;
+}
+
+interface ImagesListProps {
+  pills: ReactNode;
+  primary: ReactNode;
+  onRun: (image: ImageData) => void;
+  onBuildAgain?: (image: ImageData) => void;
+  onBuild?: () => void;
+}
+
+function ImagesList({ pills, primary, onRun, onBuildAgain, onBuild }: ImagesListProps) {
+  const t = useT();
+  const compact = useShellLayout().rowsCompact;
+  const [view, changeView] = useListState(imageListSpec);
+  const { data, isLoading, isError, error, refetch, isFetching } = useImages('own', view.page, pageSize);
+  const images = data?.items ?? [];
+  const shown = sortImages(images.filter((image) => matchesImageSearch(image, view.search)), view.sort);
+
+  const columns: ListColumn<ImageSortKey>[] = [
+    { key: 'name', label: t('images.column.image') },
+    { key: 'status', label: t('common.status') },
+    { key: 'usedBy', label: t('images.column.usedBy') },
+    { key: 'size', label: t('images.column.size') },
+    { key: 'created', label: t('images.column.created'), end: true },
+  ];
+
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.4, 0.9, 1, 0.6, 0.5]} />;
+    if (isError) return <ErrorState title={t('images.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (images.length === 0) {
+      return (
+        <EmptyState
+          title={t('images.noImages')}
+          description={t('images.noImagesDescription')}
+          action={onBuild ? { label: t('images.buildFirst'), icon: Plus, onClick: onBuild } : undefined}
+        />
+      );
+    }
+    if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    return (
+      <List label={t('images.tab.images')}>
+        {shown.map((image) => <ImageRow key={image.id} image={image} onRun={onRun} onBuildAgain={onBuildAgain} />)}
+      </List>
+    );
+  };
 
   return (
     <Page
       toolbar={
         <Toolbar
           title={t('images.title')}
-          count={(activeTab === 'images' ? imagesData : buildsData)?.total_count}
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={handleRefresh} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} disabled={isBuildDisabled} label={t('images.build')} />}
+          count={data?.total_count}
+          pills={<>{pills}<ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} /></>}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          primary={primary}
         />
       }
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-label-2">{t('images.pageSize', { size: formatBytes(totalSizeBytes) })}</p>
-        <SearchInput
-          placeholder={t('common.search')}
-          title={t('common.searchCurrentPage')}
-          value={search}
-          onChange={setSearch}
-        />
-      </div>
-
-      {isBuildDisabled && (
-        <WarningBanner className="shrink-0">
-          {t('images.buildUnavailable')}
-        </WarningBanner>
+      head={(isLoading || shown.length > 0) && (
+        <ListHead columns={columns} template={imageListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
       )}
+      className="space-y-2"
+    >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
+    </Page>
+  );
+}
 
-      <TabSwitcher
-        activeTab={activeTab}
-        onChange={handleTabChange}
-        items={[
-          { id: 'images', label: t('images.myImages'), icon: Layers },
-          { id: 'builds', label: t('images.buildHistory'), icon: Hammer },
-        ]}
-      />
+interface BuildsListProps {
+  pills: ReactNode;
+  primary: ReactNode;
+  query: ReturnType<typeof useBuilds<'own'>>;
+  onOpen: (build: BuildData) => void;
+  onBuild?: () => void;
+}
 
-      <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <div className={activeTab === 'images' ? imageTableLayout.minWidth : buildTableLayout.minWidth}>
-            {activeTab === 'images' ? (
-              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", imageTableLayout.grid)}>
-                <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('images.tag')}</div></div>
-                <div>{t('images.size')}</div>
-                <div>{t('common.status')}</div>
-                <div>{t('images.createdAt')}</div>
-                <div className="flex justify-end">{t('common.actions')}</div>
-              </div>
-            ) : (
-              <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", buildTableLayout.grid)}>
-                <div>ID</div>
-                <div>{t('common.status')}</div>
-                <div>{t('images.duration')}</div>
-                <div>{t('images.startedAt')}</div>
-                <div className="flex justify-end">{t('common.actions')}</div>
-              </div>
-            )}
+function BuildsList({ pills, primary, query, onOpen, onBuild }: BuildsListProps) {
+  const t = useT();
+  const compact = useShellLayout().rowsCompact;
+  const [view, changeView] = useListState(buildListSpec);
+  // Sorting by how long a build has taken counts a running one up to now.
+  const now = useNowSeconds(10_000);
+  const { data, isLoading, isError, error, refetch, isFetching } = query;
+  const builds = data?.items ?? [];
+  const shown = sortBuilds(builds.filter((build) => matchesBuildSearch(build, view.search)), view.sort, now);
 
-            <div className="flex flex-col">
-              {isLoading ? (
-                <LoadingRows columns={[1.5, 0.6, 0.6, 0.8, 0.4]} />
-              ) : activeTab === 'images' && isImagesError ? (
-                <ErrorState title={t('images.loadFailed')} message={failureReason(imagesError, t)} onRetry={() => refetchImages()} isRetrying={isFetchingImages} />
-              ) : activeTab === 'builds' && isBuildsError ? (
-                <ErrorState title={t('images.loadBuildsFailed')} message={failureReason(buildsError, t)} onRetry={() => refetchBuilds()} isRetrying={isFetchingBuilds} />
-              ) : activeTab === 'images' ? (
-                filteredImages.length > 0 ? (
-                  filteredImages.map((image) => (
-                    <ImageRow key={image.id} image={image} />
-                  ))
-                ) : search && images.length > 0 ? (
-                  <NoMatchesState query={search} onClear={() => setSearch('')} />
-                ) : (
-                  <EmptyState
-                    title={t('images.noImages')}
-                    description={t('images.noImagesDescription')}
-                    action={isBuildDisabled ? undefined : { label: t('images.buildFirst'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
-                  />
-                )
-              ) : (
-                filteredBuilds.length > 0 ? (
-                  filteredBuilds.map((build) => (
-                    <BuildRow key={build.id} build={build} onViewLogs={setViewLogsBuild} />
-                  ))
-                ) : search && builds.length > 0 ? (
-                  <NoMatchesState query={search} onClear={() => setSearch('')} />
-                ) : (
-                  <EmptyState
-                    title={t('images.emptyBuilds')}
-                    description={t('images.emptyBuildsDescription')}
-                  />
-                )
-              )}
-            </div>
-          </div>
-        </div>
-        {activeTab === 'images' && imagesData && (
-          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <Pagination currentPage={imagesPage} pageSize={limit} totalItems={imagesData.total_count} onPageChange={setImagesPage} />
-          </div>
-        )}
-        {activeTab === 'builds' && buildsData && (
-          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <Pagination currentPage={buildsPage} pageSize={limit} totalItems={buildsData.total_count} onPageChange={setBuildsPage} />
-          </div>
-        )}
-      </div>
+  const columns: ListColumn<BuildSortKey>[] = [
+    { key: 'tag', label: t('images.column.build') },
+    { key: 'purpose', label: t('images.column.for') },
+    { key: 'status', label: t('common.status') },
+    { key: 'duration', label: t('images.column.took') },
+    { key: 'queued', label: t('images.column.queued'), end: true },
+  ];
 
-      <CreateBuildModal 
-        isOpen={isCreateModalOpen && !isBuildDisabled}
-        onClose={() => setIsCreateModalOpen(false)}
-        onSuccessSwitchTab={() => setActiveTab('builds')}
-      />
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.2, 1.2, 1, 0.6, 0.5]} />;
+    if (isError) return <ErrorState title={t('images.loadBuildsFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (builds.length === 0) {
+      return (
+        <EmptyState
+          title={t('images.emptyBuilds')}
+          description={t('images.emptyBuildsDescription')}
+          action={onBuild ? { label: t('images.buildFirst'), icon: Plus, onClick: onBuild } : undefined}
+        />
+      );
+    }
+    if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    return (
+      <List label={t('images.tab.builds')}>
+        {shown.map((build) => <BuildRow key={build.id} build={build} onOpen={() => onOpen(build)} />)}
+      </List>
+    );
+  };
 
-      <BuildLogsModal 
-        build={viewLogsBuild}
-        scope="own"
-        onClose={() => setViewLogsBuild(null)}
-      />
+  return (
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('images.title')}
+          count={data?.total_count}
+          pills={<>{pills}<ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} /></>}
+          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          primary={primary}
+        />
+      }
+      head={(isLoading || shown.length > 0) && (
+        <ListHead columns={columns} template={buildListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
+      )}
+      className="space-y-2"
+    >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
     </Page>
   );
 }
