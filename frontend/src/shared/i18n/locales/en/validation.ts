@@ -25,4 +25,5 @@ export const validation: Record<keyof typeof ru, string> = {
   'validation.portRange': 'Enter a port from 1 to 65535',
   'validation.portRequired': 'Enter the port the app listens on',
   'validation.memoryOverQuota': 'Only {free} of your memory quota is free. Reserve less, or free some memory first.',
+  'validation.diskOverQuota': 'Only {free} of your disk quota is free. Choose a smaller size, or free some space first.',
 };

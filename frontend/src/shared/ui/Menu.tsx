@@ -290,3 +290,14 @@ export function MenuLabel({ children }: { children: ReactNode }) {
   const { sheet } = useContext(MenuContext);
   return <div role="presentation" className={cn('truncate', headingClass(sheet))}>{children}</div>;
 }
+
+// MenuNote is a short line of explanation in a menu, such as why the item
+// above it is disabled.
+export function MenuNote({ children }: { children: ReactNode }) {
+  const { sheet } = useContext(MenuContext);
+  return (
+    <p className={cn('leading-snug text-label-3', sheet ? 'px-3.5 pb-2 text-[13px]' : 'max-w-[260px] px-[9px] pb-1.5 text-[11.5px]')}>
+      {children}
+    </p>
+  );
+}

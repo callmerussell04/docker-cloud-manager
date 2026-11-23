@@ -28,6 +28,16 @@ type Volume struct {
 	// checks the size periodically.
 	SizeEnforced bool
 	CreatedAt    time.Time
+	// UsedBy names the containers that mount the volume, by name. Only a
+	// volume list fills it; Core refuses to delete a volume while it is
+	// non-empty.
+	UsedBy []VolumeUser
+}
+
+// VolumeUser is a container that mounts a volume.
+type VolumeUser struct {
+	ContainerID uuid.UUID
+	Name        string
 }
 
 // VolumeUsageScan is the resumable progress of one volume usage measurement.

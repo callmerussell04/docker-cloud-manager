@@ -131,6 +131,8 @@ func TestCoreClientMapsVolumeSizes(t *testing.T) {
 	require.EqualValues(t, 1<<30, volumes.Volumes[0].SizeBytes)
 	require.False(t, volumes.Volumes[0].SizeEnforced)
 	require.True(t, volumes.Volumes[1].SizeEnforced)
+	require.Equal(t, []model.VolumeUser{{ContainerID: "container-id", Name: "web"}}, volumes.Volumes[0].UsedBy)
+	require.Empty(t, volumes.Volumes[1].UsedBy)
 }
 
 func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
@@ -469,7 +471,7 @@ func (s *coreVolumeServer) CreateVolume(_ context.Context, req *coreapi.CreateVo
 
 func (s *coreVolumeServer) ListVolumes(context.Context, *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
 	return &coreapi.PaginatedVolumeResponse{Volumes: []*coreapi.VolumeData{
-		{Id: "measured", Name: "data", SizeBytes: 1 << 30, UsedBytes: 10},
+		{Id: "measured", Name: "data", SizeBytes: 1 << 30, UsedBytes: 10, UsedBy: []*coreapi.VolumeUser{{ContainerId: "container-id", Name: "web"}}},
 		{Id: "enforced", Name: "logs", SizeBytes: 2 << 30, SizeEnforced: true},
 	}, TotalCount: 2}, nil
 }

@@ -81,7 +81,9 @@ export function List({ label, children }: ListProps) {
 interface ListRowProps {
   // template is the grid of the row's cells; ListHead takes the same one.
   template: string;
-  onOpen: () => void;
+  // onOpen opens the row's item; leave it out for an item with no page, whose
+  // row is then not a target and its menu holds everything.
+  onOpen?: () => void;
   children: ReactNode;
 }
 
@@ -91,7 +93,7 @@ interface ListRowProps {
 export function ListRow({ template, onOpen, children }: ListRowProps) {
   const compact = useShellLayout().rowsCompact;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
+    if (!onOpen || event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onOpen();
@@ -100,12 +102,13 @@ export function ListRow({ template, onOpen, children }: ListRowProps) {
   return (
     <div
       role="listitem"
-      tabIndex={0}
+      tabIndex={onOpen ? 0 : undefined}
       onClick={onOpen}
-      onKeyDown={onKeyDown}
+      onKeyDown={onOpen && onKeyDown}
       style={{ gridTemplateColumns: template } as CSSProperties}
       className={cn(
-        'list-row group/row relative grid cursor-pointer items-center rounded-[13px] hover:bg-fill focus-visible:outline-offset-[-2px]',
+        'list-row group/row relative grid items-center rounded-[13px] focus-visible:outline-offset-[-2px]',
+        onOpen && 'cursor-pointer hover:bg-fill',
         compact ? 'min-h-[62px] gap-2 py-2.5 pl-3.5 pr-1' : 'h-[54px] gap-[18px] pl-4 pr-2.5',
       )}
     >

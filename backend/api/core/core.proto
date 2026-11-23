@@ -472,6 +472,15 @@ message VolumeData {
   // Whether the kernel enforces size_bytes; otherwise it is checked
   // periodically.
   bool size_enforced = 12;
+  // The containers that mount the volume, by name. Core refuses to delete a
+  // volume while any container mounts it.
+  repeated VolumeUser used_by = 13;
+}
+
+// VolumeUser is a container that mounts a volume.
+message VolumeUser {
+  string container_id = 1;
+  string name = 2;
 }
 
 message VolumeListResponse {

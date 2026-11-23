@@ -23,4 +23,5 @@ export const validation = {
   'validation.portRange': 'Укажите порт от 1 до 65535',
   'validation.portRequired': 'Укажите порт, который слушает приложение',
   'validation.memoryOverQuota': 'Свободно только {free} вашей квоты памяти. Уменьшите резервирование или освободите память.',
+  'validation.diskOverQuota': 'В вашей дисковой квоте свободно только {free}. Выберите размер меньше или сначала освободите место.',
 } as const;

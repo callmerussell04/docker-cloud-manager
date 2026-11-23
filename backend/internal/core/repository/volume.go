@@ -288,7 +288,48 @@ func (r *VolumeRepository) List(ctx context.Context, opts model.ListOptions) ([]
 		}
 		volumes = append(volumes, v)
 	}
-	return volumes, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	if err := r.fillUsedBy(ctx, volumes); err != nil {
+		return nil, 0, err
+	}
+	return volumes, total, nil
+}
+
+// fillUsedBy sets each volume's UsedBy to the containers mounting it, in
+// name order, with one query for the whole page.
+func (r *VolumeRepository) fillUsedBy(ctx context.Context, volumes []model.Volume) error {
+	if len(volumes) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(volumes))
+	index := make(map[uuid.UUID]int, len(volumes))
+	for i, v := range volumes {
+		ids[i] = v.ID
+		index[v.ID] = i
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT vm.volume_id, c.id, c.name
+		FROM volume_mounts vm
+		JOIN containers c ON c.id = vm.container_id
+		WHERE vm.volume_id = ANY($1)
+		ORDER BY c.name, c.id
+	`, ids)
+	if err != nil {
+		return fmt.Errorf("list volume users: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var volumeID uuid.UUID
+		var user model.VolumeUser
+		if err := rows.Scan(&volumeID, &user.ContainerID, &user.Name); err != nil {
+			return fmt.Errorf("scan volume user: %w", err)
+		}
+		i := index[volumeID]
+		volumes[i].UsedBy = append(volumes[i].UsedBy, user)
+	}
+	return rows.Err()
 }
 
 func (r *VolumeRepository) UpdateUsage(ctx context.Context, id uuid.UUID, usedBytes int64) error {

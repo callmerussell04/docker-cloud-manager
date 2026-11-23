@@ -1,36 +1,84 @@
-import { useState } from 'react';
 import { Plus, RefreshCcw } from 'lucide-react';
 
-import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
-import { Pagination } from '@/shared/ui/Pagination';
-import { VolumeRow } from '@/features/volumes/components/VolumeRow';
-import { CreateVolumeModal } from '@/features/volumes/components/CreateVolumeModal';
-import { volumeTableLayout } from '../components/tableLayouts';
-import { cn } from '@/shared/lib/utils';
-import { useT } from '@/shared/i18n';
-import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
-import { useVolumes } from '@/features/volumes/queries';
-import { SearchInput } from '@/shared/ui/SearchInput';
-import { NoMatchesState } from '@/shared/ui/NoMatchesState';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
-import { ErrorState } from '@/shared/ui/ErrorState';
 import { failureReason } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { createDialogFlag, useListState, useSearchFlag } from '@/shared/lib/hooks';
+import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
+import { Page } from '@/shared/ui/Page';
+import { Pagination } from '@/shared/ui/Pagination';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { CreateVolumeDialog } from '../components/CreateVolumeDialog';
+import { volumeListLayout } from '../components/listLayout';
+import { VolumeRow } from '../components/VolumeRow';
+import type { DiskQuota } from '../createFlow';
+import { defaultVolumeSort, matchesVolumeSearch, sortVolumes, volumeSortKeys, type VolumeSortKey } from '../model';
+import { useVolumes } from '../queries';
 
-export function VolumesPage() {
+// The volumes list has no filter; its one filter value keeps the URL state
+// shape every list shares.
+const listSpec: ListStateSpec<'all', VolumeSortKey> = {
+  filters: ['all'],
+  sortKeys: volumeSortKeys,
+  defaultSort: defaultVolumeSort,
+};
+
+// One page holds a user's whole list as the volume quota usually allows it;
+// the sort and the search apply to the page shown.
+const pageSize = 100;
+
+interface VolumesPageProps {
+  // disk is the user's disk quota and what they reserve, for the create
+  // dialog's quota bar; undefined while it is not known.
+  disk?: DiskQuota;
+}
+
+export function VolumesPage({ disk }: VolumesPageProps) {
   const t = useT();
-  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const limit = 20;
+  const compact = useShellLayout().rowsCompact;
+  const [isCreateOpen, setIsCreateOpen] = useSearchFlag(createDialogFlag);
+  const [view, changeView] = useListState(listSpec);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useVolumes('own', page, limit);
-  const volumes = data?.items || [];
+  const { data, isLoading, isError, error, refetch, isFetching } = useVolumes('own', view.page, pageSize);
+  const volumes = data?.items ?? [];
+  const shown = sortVolumes(volumes.filter((volume) => matchesVolumeSearch(volume, view.search)), view.sort);
 
-  const filteredVolumes = volumes.filter(v => 
-    (v.name || '').toLowerCase().includes(search.toLowerCase()) || v.id.toLowerCase().includes(search.toLowerCase()) || v.status.toLowerCase().includes(search.toLowerCase())
-  );
+  const columns: ListColumn<VolumeSortKey>[] = [
+    { key: 'name', label: t('volumes.column.volume') },
+    { key: 'status', label: t('common.status') },
+    { key: 'size', label: t('volumes.column.size') },
+    { key: 'usedBy', label: t('volumes.column.usedBy') },
+    { key: 'created', label: t('volumes.column.created'), end: true },
+  ];
+
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.3, 0.9, 0.9, 1, 0.5]} />;
+    if (isError) {
+      return <ErrorState title={t('volumes.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    }
+    if (volumes.length === 0) {
+      return (
+        <EmptyState
+          title={t('volumes.emptyTitle')}
+          description={t('volumes.emptyDescription')}
+          action={{ label: t('volumes.create'), icon: Plus, onClick: () => setIsCreateOpen(true) }}
+        />
+      );
+    }
+    if (shown.length === 0) {
+      return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    }
+    return (
+      <List label={t('volumes.title')}>
+        {shown.map((volume) => <VolumeRow key={volume.id} volume={volume} />)}
+      </List>
+    );
+  };
 
   return (
     <Page
@@ -38,68 +86,25 @@ export function VolumesPage() {
         <Toolbar
           title={t('volumes.title')}
           count={data?.total_count}
+          pills={<ToolbarSearch label={t('volumes.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('volumes.create')} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('volumes.create')} />}
         />
       }
-    >
-      <div className="flex justify-end">
-        <SearchInput
-          placeholder={t('common.search')}
-          title={t('common.searchCurrentPage')}
-          value={search}
-          onChange={setSearch}
+      head={(isLoading || shown.length > 0) && (
+        <ListHead
+          columns={columns}
+          template={volumeListLayout.wide}
+          sort={view.sort}
+          onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })}
         />
-      </div>
+      )}
+      className="space-y-2"
+    >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <div className={volumeTableLayout.minWidth}>
-            <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", volumeTableLayout.grid)}>
-              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('volumes.name')}</div></div>
-              <div>{t('common.status')}</div>
-              <div>{t('volumes.usage')}</div>
-              <div>{t('images.createdAt')}</div>
-              <div className="flex justify-end">{t('common.actions')}</div>
-            </div>
-
-            <div className="flex flex-col">
-              {isLoading ? (
-                <LoadingRows columns={[1.5, 0.6, 0.8, 0.8, 0.3]} />
-              ) : isError ? (
-                <ErrorState
-                    title={t('volumes.loadFailed')}
-                    message={failureReason(error, t)}
-                    onRetry={() => refetch()}
-                    isRetrying={isFetching}
-                  />
-              ) : filteredVolumes.length > 0 ? (
-                filteredVolumes.map((volume) => (
-                  <VolumeRow key={volume.id} volume={volume} />
-                ))
-              ) : search && volumes.length > 0 ? (
-                <NoMatchesState query={search} onClear={() => setSearch('')} />
-              ) : (
-                <EmptyState
-                  title={t('volumes.emptyTitle')}
-                  description={t('volumes.emptyDescription')}
-                  action={{ label: t('volumes.create'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-        {data && (
-          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />
-          </div>
-        )}
-      </div>
-
-      <CreateVolumeModal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)} 
-      />
+      <CreateVolumeDialog isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} disk={disk} />
     </Page>
   );
 }

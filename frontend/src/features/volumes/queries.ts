@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
+import { queryRoots } from '@/shared/api/queryRoots';
 import type { Scope } from '@/shared/api/scope';
 import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { failureReason } from '@/shared/api/apiError';
@@ -34,6 +35,8 @@ export function useCreateVolume() {
     mutationFn: createVolumeFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: volumeKeys.all });
+      // The volume's size counts against the disk quota the dashboard shows.
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
       notify(t('volumes.created'), 'success');
     },
     onError: (error: unknown) => {
@@ -51,6 +54,7 @@ export function useDeleteVolume(scope: Scope) {
     mutationFn: (id: string) => deleteVolumeFn({ scope, id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: volumeKeys.all });
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
       notify(t(scope === 'all' ? 'admin.resources.volumeDeleted' : 'volumes.deleted'), 'success');
     },
     onError: (error: unknown) => {

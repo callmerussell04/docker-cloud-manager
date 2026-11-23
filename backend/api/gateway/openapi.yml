@@ -2464,6 +2464,22 @@ components:
           format: uuid
         owner_username:
           type: string
+        used_by:
+          type: array
+          description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/VolumeUser'
+
+    VolumeUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The container's ID.
+        name:
+          type: string
+          description: The container's name.
 
     UserVolume:
       type: object
@@ -2493,6 +2509,11 @@ components:
         created_at:
           type: integer
           format: int64
+        used_by:
+          type: array
+          description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
+          items:
+            $ref: '#/components/schemas/VolumeUser'
 
     # IMAGES
     UserImage:

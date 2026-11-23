@@ -117,7 +117,16 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 			CreatedAt:       item.CreatedAt,
 			OwnerID:         item.OwnerID,
 			OwnerUsername:   item.OwnerUsername,
+			UsedBy:          volumeUsersToDTO(item.UsedBy),
 		})
+	}
+	return result
+}
+
+func volumeUsersToDTO(items []model.VolumeUser) []dto.VolumeUserDTO {
+	result := make([]dto.VolumeUserDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.VolumeUserDTO{ID: item.ContainerID, Name: item.Name})
 	}
 	return result
 }
@@ -135,6 +144,7 @@ func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
 			SizeBytes:       item.SizeBytes,
 			SizeEnforced:    item.SizeEnforced,
 			CreatedAt:       item.CreatedAt,
+			UsedBy:          volumeUsersToDTO(item.UsedBy),
 		})
 	}
 	return result

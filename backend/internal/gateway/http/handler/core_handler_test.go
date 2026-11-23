@@ -135,12 +135,14 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	resp = perform(router, http.MethodPost, "/volumes", `{"name":"sized","size_bytes":33554432}`, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id", SizeBytes: 1073741824, SizeEnforced: true}}, TotalCount: 1}, nil).Twice()
+	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id", SizeBytes: 1073741824, SizeEnforced: true, UsedBy: []model.VolumeUser{{ContainerID: "container-id", Name: "web"}}}, {ID: "free-id", Name: "free"}}, TotalCount: 2}, nil).Twice()
 	resp = perform(router, http.MethodGet, "/volumes", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"name":"data"`)
 	require.Contains(t, resp.Body.String(), `"size_bytes":1073741824`)
 	require.Contains(t, resp.Body.String(), `"size_enforced":true`)
+	require.Contains(t, resp.Body.String(), `"used_by":[{"id":"container-id","name":"web"}]`)
+	require.Contains(t, resp.Body.String(), `"used_by":[]`, "a volume no container mounts names an empty list")
 	require.NotContains(t, resp.Body.String(), "owner_id")
 	require.NotContains(t, resp.Body.String(), "docker_name")
 	resp = perform(router, http.MethodGet, "/admin/volumes", ``, nil)
@@ -148,6 +150,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Contains(t, resp.Body.String(), "owner_id")
 	require.Contains(t, resp.Body.String(), "docker_name")
 	require.Contains(t, resp.Body.String(), `"size_bytes":1073741824`)
+	require.Contains(t, resp.Body.String(), `"used_by":[{"id":"container-id","name":"web"}]`)
 
 	svc.EXPECT().DeleteVolume(mock.Anything, volumeID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/volumes/"+volumeID, ``, nil)

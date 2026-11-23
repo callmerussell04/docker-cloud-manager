@@ -235,6 +235,7 @@ func TestContainerGRPCHandlerMapsStats(t *testing.T) {
 func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	ownerID := uuid.New()
 	volumeID := uuid.New()
+	containerID := uuid.New()
 	logic := coregrpcmocks.NewMockVolumeLogic(t)
 	users := coregrpcmocks.NewMockUserDirectory(t)
 	var createParams model.VolumeCreateParams
@@ -253,6 +254,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 		CreatedAt:  time.Unix(321, 0),
 		UsedBytes:  128,
 		SizeBytes:  64 << 20,
+		UsedBy:     []model.VolumeUser{{ContainerID: containerID, Name: "web"}},
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	logic.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
@@ -276,6 +278,9 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 	require.EqualValues(t, 128, listResp.Volumes[0].UsedBytes)
 	require.EqualValues(t, 64<<20, listResp.Volumes[0].SizeBytes)
 	require.False(t, listResp.Volumes[0].SizeEnforced)
+	require.Len(t, listResp.Volumes[0].UsedBy, 1)
+	require.Equal(t, containerID.String(), listResp.Volumes[0].UsedBy[0].ContainerId)
+	require.Equal(t, "web", listResp.Volumes[0].UsedBy[0].Name)
 
 	_, err = client.DeleteVolume(ctx, &coreapi.VolumeActionRequest{VolumeId: volumeID.String()})
 	require.NoError(t, err)
