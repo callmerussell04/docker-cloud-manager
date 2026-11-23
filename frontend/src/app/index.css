@@ -31,6 +31,14 @@
     --frost-saturate: 125%;
     --glass-sidebar: rgba(255, 255, 255, 0.36);
     --console: #17191d;
+    /* The console is dark in both themes, so the text and controls on it
+       keep one set of values. */
+    --console-label: #e6e8ec;
+    --console-label-2: #a3a9b5;
+    --console-label-3: #6b7280;
+    --console-fill: rgba(255, 255, 255, 0.08);
+    --console-fill-hover: rgba(255, 255, 255, 0.14);
+    --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
     --wallpaper-0: #eef3f9;
     --wallpaper-3: #d8e3f1;
     --wallpaper-1: #a9bfdc;
@@ -93,6 +101,14 @@
     --frost-saturate: 100%;
     --glass-sidebar: rgba(40, 40, 44, 0.3);
     --console: #0d0e10;
+    /* The console is dark in both themes, so the text and controls on it
+       keep one set of values. */
+    --console-label: #e6e8ec;
+    --console-label-2: #a3a9b5;
+    --console-label-3: #6b7280;
+    --console-fill: rgba(255, 255, 255, 0.08);
+    --console-fill-hover: rgba(255, 255, 255, 0.14);
+    --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
     --wallpaper-0: #08090b;
     --wallpaper-3: #12161d;
     --wallpaper-1: #1f2733;

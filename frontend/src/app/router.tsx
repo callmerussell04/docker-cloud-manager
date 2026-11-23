@@ -16,7 +16,7 @@ const RegisterPage = page(() => import('@/features/auth/pages/RegisterPage'), 'R
 const AuthCallbackPage = page(() => import('@/features/auth/pages/AuthCallbackPage'), 'AuthCallbackPage');
 const DashboardPage = page(() => import('@/features/dashboard/pages/DashboardPage'), 'DashboardPage');
 const ContainersRoute = page(() => import('@/app/routes/ContainersRoute'), 'ContainersRoute');
-const ContainerDetailsPage = page(() => import('@/features/containers/pages/ContainerDetailsPage'), 'ContainerDetailsPage');
+const ContainerRoute = page(() => import('@/app/routes/ContainerRoute'), 'ContainerRoute');
 const ImagesPage = page(() => import('@/features/images/pages/ImagesPage'), 'ImagesPage');
 const VolumesPage = page(() => import('@/features/volumes/pages/VolumesPage'), 'VolumesPage');
 const ProjectsPage = page(() => import('@/features/projects/pages/ProjectsPage'), 'ProjectsPage');
@@ -49,7 +49,7 @@ export const router = createBrowserRouter([
     children: withPageErrors([
       { index: true, element: <DashboardPage /> },
       { path: 'containers', element: <ContainersRoute /> },
-      { path: 'containers/:id', element: <ContainerDetailsPage scope="own" backTo="/containers" backLabel="nav.containers" /> },
+      { path: 'containers/:id', element: <ContainerRoute scope="own" backTo="/containers" backLabel="nav.containers" /> },
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesPage /> },
       { path: 'projects', element: <ProjectsPage /> },
@@ -62,7 +62,7 @@ export const router = createBrowserRouter([
           { path: 'reports', element: <AdminReportsPage /> },
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
-          { path: 'containers/:id', element: <ContainerDetailsPage scope="all" backTo="/admin/resources" backLabel="nav.adminResources" /> },
+          { path: 'containers/:id', element: <ContainerRoute scope="all" backTo="/admin/resources" backLabel="nav.adminResources" /> },
         ],
       },
     ]),

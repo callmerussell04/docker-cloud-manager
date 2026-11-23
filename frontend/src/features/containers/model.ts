@@ -243,3 +243,46 @@ export function containerStatusLabel(t: TFunction, status?: string) {
 // formatCores shows a CPU figure in millicores as cores, with up to three
 // decimals ("0.25", "2").
 export const formatCores = (millicores: number) => String(Number((millicores / 1000).toFixed(3)));
+
+// UsageSample is one reading of a running container's stats, as the
+// container page charts it.
+export interface UsageSample {
+  cpu: number;
+  memory: number;
+}
+
+// usageHistoryLength is how many samples the container page keeps: about
+// three minutes at the stats poll's three seconds.
+export const usageHistoryLength = 60;
+
+// appendUsageSample adds a sample to the history the page has taken since it
+// opened, dropping the oldest once it is full. A history starts empty: the
+// API reports only current usage, and none is invented.
+export function appendUsageSample(history: readonly UsageSample[], sample: UsageSample): UsageSample[] {
+  return [...history, sample].slice(-usageHistoryLength);
+}
+
+// ConsoleView is what the container page's console shows.
+export type ConsoleView = 'logs' | 'terminal';
+
+// consoleViewParam is the search parameter that holds it, as ?view=terminal.
+export const consoleViewParam = 'view';
+
+// consoleViewOf reads the console's view from the page's URL: the logs,
+// unless the link asks for the terminal.
+export function consoleViewOf(params: URLSearchParams): ConsoleView {
+  return params.get(consoleViewParam) === 'terminal' ? 'terminal' : 'logs';
+}
+
+// consoleViewSearch is the search part of a link that opens the container
+// page on a view; the logs are the default and need none.
+export function consoleViewSearch(view: ConsoleView): string {
+  return view === 'logs' ? '' : `?${consoleViewParam}=${view}`;
+}
+
+// containerPagePath is the link to a container's page under the list path
+// its route lives at (/containers, or /admin/containers on the admin
+// pages), opened on a view: the logs unless asked.
+export function containerPagePath(listPath: string, id: string, view: ConsoleView = 'logs'): string {
+  return `${listPath}/${id}${consoleViewSearch(view)}`;
+}

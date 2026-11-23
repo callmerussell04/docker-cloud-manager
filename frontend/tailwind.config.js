@@ -27,7 +27,11 @@ export default {
         frost: 'var(--frost)',
         scrim: 'var(--scrim)',
         lift: 'var(--lift)',
-        console: 'var(--console)',
+        console: {
+          DEFAULT: 'var(--console)',
+          label: { DEFAULT: 'var(--console-label)', 2: 'var(--console-label-2)', 3: 'var(--console-label-3)' },
+          fill: { DEFAULT: 'var(--console-fill)', hover: 'var(--console-fill-hover)' },
+        },
         wallpaper: {
           0: 'var(--wallpaper-0)',
           1: 'var(--wallpaper-1)',

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerFilterCounts, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, filterContainers, sortContainers, formatCores, isContainerBusy, type ContainerData } from './model';
+import { blockedContainerActions, borrowedMemoryBytes, containerBadgeVariant, containerFilterCounts, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, filterContainers, sortContainers, formatCores, isContainerBusy, appendUsageSample, consoleViewOf, consoleViewSearch, containerPagePath, usageHistoryLength, type ContainerData, type UsageSample } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
   return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0, memory_reservation_bytes: 256 * 1024 ** 2, cpu_reservation_millicores: 250 };
@@ -223,5 +223,47 @@ describe('sortContainers', () => {
   test('sorts by creation, newest first when ascending, as the age column reads', () => {
     const rows = [row('old', 'running', { created_at: 100 }), row('new', 'running', { created_at: 300 }), row('mid', 'running', { created_at: 200 })];
     expect(ids(sortContainers(rows, { key: 'created', ascending: true }))).toEqual(['new', 'mid', 'old']);
+  });
+});
+
+describe('appendUsageSample', () => {
+  const sample = (cpu: number): UsageSample => ({ cpu, memory: cpu * 1024 });
+
+  test('starts a history from nothing with the first sample', () => {
+    expect(appendUsageSample([], sample(4))).toEqual([sample(4)]);
+  });
+
+  test('adds a sample after the ones before it without changing them', () => {
+    const before = [sample(1), sample(2)];
+    expect(appendUsageSample(before, sample(3))).toEqual([sample(1), sample(2), sample(3)]);
+    expect(before).toEqual([sample(1), sample(2)]);
+  });
+
+  test('drops the oldest sample once the history is full', () => {
+    const full = Array.from({ length: usageHistoryLength }, (_, index) => sample(index));
+    const next = appendUsageSample(full, sample(999));
+    expect(next).toHaveLength(usageHistoryLength);
+    expect(next[0]).toEqual(sample(1));
+    expect(next.at(-1)).toEqual(sample(999));
+  });
+});
+
+describe('consoleViewOf', () => {
+  test('opens the logs unless the link asks for the terminal', () => {
+    expect(consoleViewOf(new URLSearchParams(''))).toBe('logs');
+    expect(consoleViewOf(new URLSearchParams('view=logs'))).toBe('logs');
+    expect(consoleViewOf(new URLSearchParams('view=terminal'))).toBe('terminal');
+    expect(consoleViewOf(new URLSearchParams('view=shell'))).toBe('logs');
+  });
+
+  test('links to the terminal with ?view=terminal and to the logs with nothing', () => {
+    expect(consoleViewSearch('terminal')).toBe('?view=terminal');
+    expect(consoleViewSearch('logs')).toBe('');
+    expect(consoleViewOf(new URLSearchParams(consoleViewSearch('terminal')))).toBe('terminal');
+  });
+
+  test('links to a container page under its list, on the logs unless asked', () => {
+    expect(containerPagePath('/containers', 'c1')).toBe('/containers/c1');
+    expect(containerPagePath('/admin/containers', 'c1', 'terminal')).toBe('/admin/containers/c1?view=terminal');
   });
 });

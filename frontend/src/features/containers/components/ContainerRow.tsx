@@ -11,7 +11,7 @@ import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
 import { MenuItem, MenuSeparator } from '@/shared/ui/Menu';
 import { useShellLayout } from '@/shared/ui/shellLayout';
 import { Dot } from '@/shared/ui/StatusDot';
-import { blockedContainerActions, containerStatusLabel, containerTone, type ContainerData } from '../model';
+import { blockedContainerActions, containerStatusLabel, containerTone, type ConsoleView, type ContainerData } from '../model';
 import { useContainerAction } from '../queries';
 import { containerListLayout } from './listLayout';
 import { useAutoStopLabel } from './useAutoStopLabel';
@@ -21,9 +21,9 @@ interface ContainerRowProps {
   // project names the Compose project the container belongs to, shown as a
   // tag beside its name; leave it out where the project is already known.
   project?: string;
-  onOpen: (container: ContainerData) => void;
-  onViewLogs: (container: ContainerData) => void;
-  onOpenTerminal: (container: ContainerData) => void;
+  // onOpen opens the container's page, on its logs or, when asked, its
+  // terminal.
+  onOpen: (container: ContainerData, view?: ConsoleView) => void;
   // onExpose opens routing settings; only the user's own containers have it.
   onExpose?: (container: ContainerData) => void;
 }
@@ -33,7 +33,7 @@ interface ContainerRowProps {
 // its memory reservation and its age. The row opens the container; its menu
 // holds every action, and a wide window shows logs, terminal and start or
 // stop on the hovered row. Compact rows are the name, then status and age.
-export function ContainerRow({ container, project, onOpen, onViewLogs, onOpenTerminal, onExpose }: ContainerRowProps) {
+export function ContainerRow({ container, project, onOpen, onExpose }: ContainerRowProps) {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const now = useNowSeconds(60_000);
@@ -79,8 +79,8 @@ export function ContainerRow({ container, project, onOpen, onViewLogs, onOpenTer
 
   const menu = (
     <RowMenu label={t('containers.rowActions', { name: container.name })} sheetTitle={container.name}>
-      <MenuItem icon={ScrollText} onSelect={() => onViewLogs(container)}>{t('containers.logs')}</MenuItem>
-      <MenuItem icon={Terminal} disabled={blocked.terminal} onSelect={() => onOpenTerminal(container)}>{t('containers.terminal')}</MenuItem>
+      <MenuItem icon={ScrollText} onSelect={() => onOpen(container, 'logs')}>{t('containers.logs')}</MenuItem>
+      <MenuItem icon={Terminal} disabled={blocked.terminal} onSelect={() => onOpen(container, 'terminal')}>{t('containers.terminal')}</MenuItem>
       <MenuItem icon={toggle.icon} disabled={toggle.disabled} onSelect={toggle.run}>{toggle.label}</MenuItem>
       {address && (
         <MenuItem icon={ExternalLink} onSelect={() => window.open(`http://${address}`, '_blank', 'noopener,noreferrer')}>{t('containers.openAddress')}</MenuItem>
@@ -95,8 +95,8 @@ export function ContainerRow({ container, project, onOpen, onViewLogs, onOpenTer
 
   const quick = (
     <>
-      <RowQuickAction icon={ScrollText} label={t('containers.logs')} onClick={() => onViewLogs(container)} />
-      <RowQuickAction icon={Terminal} label={t('containers.terminal')} disabled={blocked.terminal} onClick={() => onOpenTerminal(container)} />
+      <RowQuickAction icon={ScrollText} label={t('containers.logs')} onClick={() => onOpen(container, 'logs')} />
+      <RowQuickAction icon={Terminal} label={t('containers.terminal')} disabled={blocked.terminal} onClick={() => onOpen(container, 'terminal')} />
       <RowQuickAction icon={toggle.icon} label={toggle.label} disabled={toggle.disabled} onClick={toggle.run} />
     </>
   );

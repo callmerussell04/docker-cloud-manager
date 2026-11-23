@@ -160,13 +160,24 @@ export function ToolbarPrimary({ icon: Icon, label, className, ...props }: Toolb
 }
 
 // ToolbarBack is the glass capsule that leads a resource page back to its
-// list, labelled with the list's name.
+// list, labelled with the list's name. On a phone it is a round button with
+// the arrow alone, the name its accessible name and tooltip, so the title
+// keeps its room.
 export function ToolbarBack({ to, label }: { to: string; label: string }) {
+  const round = useSizeClass() === 'phone';
   return (
     <Glass className="shrink-0 rounded-full">
-      <Link to={to} className="flex h-10 items-center gap-0.5 rounded-full pl-2 pr-3.5 font-[550] text-label transition-colors hover:bg-lift">
+      <Link
+        to={to}
+        aria-label={round ? label : undefined}
+        title={round ? label : undefined}
+        className={cn(
+          'flex h-10 items-center rounded-full font-[550] text-label transition-colors hover:bg-lift',
+          round ? 'w-10 justify-center' : 'gap-0.5 pl-2 pr-3.5',
+        )}
+      >
         <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2.2} />
-        {label}
+        {!round && label}
       </Link>
     </Glass>
   );

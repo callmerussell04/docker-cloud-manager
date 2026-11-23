@@ -7,7 +7,7 @@ import { List } from '@/shared/ui/List';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { useContainers } from '@/features/containers/queries';
-import type { ContainerData } from '@/features/containers/model';
+import { containerPagePath, type ContainerData } from '@/features/containers/model';
 import { isProjectBusy, type ProjectData } from '../model';
 import { ProjectRow } from './ProjectRow';
 import { failureReason } from '@/shared/api/apiError';
@@ -16,15 +16,11 @@ import { useT } from '@/shared/i18n';
 interface ProjectWithContainersRowProps {
   project: ProjectData;
   onExpose: (container: ContainerData) => void;
-  onViewLogs: (container: ContainerData) => void;
-  onOpenTerminal: (container: ContainerData) => void;
 }
 
 export function ProjectWithContainersRow({
   project,
   onExpose,
-  onViewLogs,
-  onOpenTerminal,
 }: ProjectWithContainersRowProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -73,10 +69,8 @@ export function ProjectWithContainersRow({
                 <ContainerRow
                   key={container.id}
                   container={container}
-                  onOpen={(opened) => navigate(`/containers/${opened.id}`, { state: { container: opened } })}
+                  onOpen={(opened, view) => navigate(containerPagePath('/containers', opened.id, view), { state: { container: opened } })}
                   onExpose={onExpose}
-                  onViewLogs={onViewLogs}
-                  onOpenTerminal={onOpenTerminal}
                 />
               ))}
             </List>

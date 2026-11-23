@@ -24,7 +24,7 @@ import { failureReason } from '@/shared/api/apiError';
 export function ProjectsPage() {
   const t = useT();
   const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
-  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
+  const { openExpose, modals } = useContainerModals('own');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;
@@ -92,8 +92,6 @@ export function ProjectsPage() {
                     key={project.id}
                     project={project}
                     onExpose={openExpose}
-                    onViewLogs={openLogs}
-                    onOpenTerminal={openTerminal}
                   />
                 ))
               ) : search && projects.length > 0 ? (

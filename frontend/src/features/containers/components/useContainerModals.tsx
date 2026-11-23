@@ -1,40 +1,17 @@
-import { Suspense, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Scope } from '@/shared/api/scope';
 import type { ContainerData } from '../model';
-import { ContainerLogsModal } from '../streams/ContainerLogsModal';
-import { LazyContainerTerminalModal } from '../streams/LazyContainerTerminalModal';
 import { ExposeContainerModal } from './ExposeContainerModal';
 
-// useContainerModals owns which container the logs, terminal and routing
-// modals show, and renders them; place `modals` once in the page. Routing is
-// changed only on the user's own containers.
+// useContainerModals owns which container the routing settings dialog shows,
+// and renders it; place `modals` once in the page. Routing is changed only on
+// the user's own containers. Logs and the terminal live on the container
+// page, not in dialogs.
 export function useContainerModals(scope: Scope) {
-  const [logsContainer, setLogsContainer] = useState<ContainerData | null>(null);
-  const [terminalContainer, setTerminalContainer] = useState<ContainerData | null>(null);
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
-  // Stable callbacks, so an open stream does not reconnect when the page re-renders.
-  const closeLogs = useCallback(() => setLogsContainer(null), []);
-  const closeTerminal = useCallback(() => setTerminalContainer(null), []);
   const closeExpose = useCallback(() => setExposeContainer(null), []);
 
-  const modals = (
-    <>
-      <ContainerLogsModal container={logsContainer} scope={scope} onClose={closeLogs} />
-      {terminalContainer && (
-        <Suspense fallback={null}>
-          <LazyContainerTerminalModal container={terminalContainer} scope={scope} onClose={closeTerminal} />
-        </Suspense>
-      )}
-      {scope === 'own' && (
-        <ExposeContainerModal container={exposeContainer} onClose={closeExpose} />
-      )}
-    </>
-  );
+  const modals = scope === 'own' ? <ExposeContainerModal container={exposeContainer} onClose={closeExpose} /> : null;
 
-  return {
-    openLogs: setLogsContainer,
-    openTerminal: setTerminalContainer,
-    openExpose: setExposeContainer,
-    modals,
-  };
+  return { openExpose: setExposeContainer, modals };
 }

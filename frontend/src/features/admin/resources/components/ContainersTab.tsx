@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Activity, AlertTriangle, ExternalLink, Globe, Play, ScrollText, Square, Terminal, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/Badge';
@@ -9,8 +9,7 @@ import { BASE_DOMAIN } from '@/shared/lib/config';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
 import { ContainerTTLTimer } from '@/features/containers/components/ContainerTTLTimer';
-import { useContainerModals } from '@/features/containers/components/useContainerModals';
-import { blockedContainerActions, containerBadgeVariant, containerStatusLabel } from '@/features/containers/model';
+import { blockedContainerActions, containerPagePath, containerBadgeVariant, containerStatusLabel, type AdminContainerData, type ConsoleView } from '@/features/containers/model';
 import { useContainerAction, useContainers } from '@/features/containers/queries';
 import { ownerName, resourceRowClass } from './resourceDisplay';
 import { ResourceTable } from './ResourceTable';
@@ -27,7 +26,10 @@ const pageSize = 20;
 export function ContainersTab() {
   const t = useT();
   const [page, setPage] = useState(1);
-  const { openLogs, openTerminal, modals } = useContainerModals('all');
+  const navigate = useNavigate();
+  // Logs and the terminal open on the container's page.
+  const openConsole = (container: AdminContainerData, view: ConsoleView) =>
+    navigate(containerPagePath('/admin/containers', container.id, view), { state: { container } });
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const { data, isLoading, isFetching, isError, error, refetch } = useContainers('all', page, pageSize);
   const action = useContainerAction('all');
@@ -104,7 +106,7 @@ export function ContainersTab() {
                 </Link>
 
                 <button
-                  onClick={() => openTerminal(c)}
+                  onClick={() => openConsole(c, 'terminal')}
                   disabled={blocked.terminal}
                   className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                   title={t('containers.terminal')} aria-label={t('containers.terminal')}
@@ -113,7 +115,7 @@ export function ContainersTab() {
                 </button>
 
                 <button title={t('containers.logs')} aria-label={t('containers.logs')}
-                  onClick={() => openLogs(c)}
+                  onClick={() => openConsole(c, 'logs')}
                   className="p-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 transition-colors"
                 >
                   <ScrollText className="w-4 h-4" />
@@ -137,7 +139,6 @@ export function ContainersTab() {
         })}
       </ResourceTable>
 
-      {modals}
       <ResourceConfirmDialog request={confirm} isLoading={action.isPending} onClose={() => setConfirm(null)} />
     </>
   );

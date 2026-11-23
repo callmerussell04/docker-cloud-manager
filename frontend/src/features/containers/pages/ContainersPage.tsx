@@ -24,9 +24,11 @@ import {
   containerFilterCounts,
   containerFilters,
   containerSortKeys,
+  containerPagePath,
   defaultContainerSort,
   filterContainers,
   sortContainers,
+  type ConsoleView,
   type ContainerData,
   type ContainerFilter,
   type ContainerSortKey,
@@ -59,7 +61,7 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
   const navigate = useNavigate();
   const compact = useShellLayout().rowsCompact;
   const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
-  const { openLogs, openTerminal, openExpose, modals } = useContainerModals('own');
+  const { openExpose, modals } = useContainerModals('own');
   const [view, changeView] = useListState(listSpec);
 
   const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', view.page, pageSize);
@@ -76,7 +78,8 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
     { key: 'created', label: t('containers.column.created'), end: true },
   ];
 
-  const openContainer = (container: ContainerData) => navigate(`/containers/${container.id}`, { state: { container } });
+  const openContainer = (container: ContainerData, view?: ConsoleView) =>
+    navigate(containerPagePath('/containers', container.id, view), { state: { container } });
   const projectOf = (container: ContainerData) =>
     container.project_id ? (projectName?.(container.project_id) ?? t('containers.composeTag')) : undefined;
 
@@ -115,8 +118,6 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
             container={container}
             project={projectOf(container)}
             onOpen={openContainer}
-            onViewLogs={openLogs}
-            onOpenTerminal={openTerminal}
             onExpose={openExpose}
           />
         ))}
