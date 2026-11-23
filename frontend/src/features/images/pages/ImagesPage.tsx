@@ -201,7 +201,12 @@ function ImagesList({ pills, primary, onRun, onBuildAgain, onBuild }: ImagesList
         <Toolbar
           title={t('images.title')}
           count={data?.total_count}
-          pills={<>{pills}<ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} /></>}
+          pills={
+            <div className="flex items-center gap-2">
+              {pills}
+              <ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+            </div>
+          }
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
           primary={primary}
         />
@@ -269,7 +274,12 @@ function BuildsList({ pills, primary, query, onOpen, onBuild }: BuildsListProps)
         <Toolbar
           title={t('images.title')}
           count={data?.total_count}
-          pills={<>{pills}<ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} /></>}
+          pills={
+            <div className="flex items-center gap-2">
+              {pills}
+              <ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+            </div>
+          }
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
           primary={primary}
         />
