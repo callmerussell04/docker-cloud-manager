@@ -1,191 +1,202 @@
-import { Activity, Box, Cpu, HardDrive, Layers, Disc, Database, Server, RefreshCcw } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
+import { ChevronRight, Disc, Layers, type LucideIcon } from 'lucide-react';
+import { useT, type TFunction } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
-import { useT } from '@/shared/i18n';
+import { useSizeClass } from '@/shared/lib/useSizeClass';
+import { failureReason, getServerErrorMessage } from '@/shared/api/apiError';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
-import { failureReason } from '@/shared/api/apiError';
-import { useDashboardStats } from '@/features/dashboard/queries';
-import { millicoresToCores } from '@/features/dashboard/model';
 import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar } from '@/shared/ui/Toolbar';
+import { useContainers } from '@/features/containers/queries';
+import {
+  containerNeedsPolling,
+  containerPagePath,
+  containerStatusLabel,
+  containerTone,
+  holdsMemoryReservation,
+  type ContainerData,
+} from '@/features/containers/model';
+import { useProjects } from '@/features/projects/queries';
+import { useDashboardStats } from '../queries';
+import { memoryMapParts, projectSeries, type DashboardStats } from '../model';
+import { MemoryMap, MemoryMapHead, type LegendEntry, type MapHolder } from '../components/MemoryMap';
+import { AttentionColumn, type AttentionItem } from '../components/AttentionColumn';
+import { QuotaBar } from '../components/QuotaBar';
+import { NewMenu } from '../components/NewMenu';
 
+// The dashboard reads the first page of the containers list, as the list
+// itself does, and one page of projects for their names.
+const pageSize = 100;
+const containersPath = '/containers';
+
+const megabytes = (value: number) => formatBytes(value * 1024 * 1024, 1);
+
+function attentionItem(t: TFunction, container: ContainerData): AttentionItem {
+  const tone = containerTone(container.status);
+  const failure = tone === 'bad' ? getServerErrorMessage(container.last_error, t) : undefined;
+  return {
+    id: container.id,
+    name: container.name,
+    tone,
+    detail: failure ?? containerStatusLabel(t, container.status),
+    to: containerPagePath(containersPath, container.id),
+  };
+}
+
+function CountLink({ to, icon: Icon, label }: { to: string; icon: LucideIcon; label: string }) {
+  return (
+    <Link to={to} className="inline-flex items-center gap-1.5 font-[550] text-accent hover:underline">
+      <Icon aria-hidden className="h-[15px] w-[15px]" strokeWidth={2} />
+      {label}
+      <ChevronRight aria-hidden className="h-3.5 w-3.5" strokeWidth={2.2} />
+    </Link>
+  );
+}
+
+function Quotas({ stats }: { stats: DashboardStats }) {
+  const t = useT();
+  return (
+    <div className="grid gap-x-7 gap-y-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]">
+      <QuotaBar label={t('dashboard.quota.disk')} used={stats.disk_used_mb} total={stats.disk_quota_mb} format={megabytes} />
+      <QuotaBar
+        label={t('dashboard.quota.containers', { running: stats.containers_running })}
+        used={stats.containers_total}
+        total={stats.containers_quota}
+      />
+      <QuotaBar label={t('dashboard.quota.volumes')} used={stats.volumes_total} total={stats.volumes_quota} />
+      <div className="col-span-full flex flex-wrap gap-x-5 gap-y-2">
+        <CountLink to="/images" icon={Disc} label={t('dashboard.images', { count: stats.images_total })} />
+        <CountLink to="/projects" icon={Layers} label={t('dashboard.projects', { count: stats.projects_total })} />
+      </div>
+    </div>
+  );
+}
+
+function LoadingDashboard() {
+  return (
+    <div aria-hidden className="grid gap-5">
+      <div className="h-11 w-72 max-w-full animate-[status-pulse_1.4s_ease-in-out_infinite] rounded-[12px] bg-fill" />
+      <div className="h-[min(52vh,440px)] min-h-[240px] animate-[status-pulse_1.4s_ease-in-out_infinite] rounded-[18px] bg-fill" />
+    </div>
+  );
+}
+
+// DashboardPage leads with where the user's memory goes: a map of the memory
+// quota with a block per container that holds memory, beside a column of the
+// containers that need the user. Below the map are the other quotas and links
+// to images and Compose projects; each number appears once. New in the
+// toolbar opens the four create actions.
 export function DashboardPage() {
   const t = useT();
-  const { data: stats, isLoading, isError, error, refetch, isFetching } = useDashboardStats();
+  const sizeClass = useSizeClass();
+  const { rowsCompact } = useShellLayout();
+  const wide = sizeClass === 'wide' && !rowsCompact;
+  const containers = useContainers('own', 1, pageSize);
+  const items = containers.data?.items;
+  // The figures follow the list while it polls, so the map's total and its
+  // blocks change together.
+  const polling = !!items?.some(containerNeedsPolling);
+  const stats = useDashboardStats(true, polling);
+  const projects = useProjects('own', 1, pageSize, { polling: false });
 
-  const getProgressColor = (percent: number) => {
-    if (percent < 70) return 'bg-accent-fill';
-    if (percent < 90) return 'bg-orange';
-    return 'bg-red';
+  const view = useMemo(() => {
+    const list = items ?? [];
+    const names = new Map(projects.data?.items.map((project) => [project.id, project.name]));
+    const series = projectSeries([
+      ...(projects.data?.items.map((project) => project.id) ?? []),
+      ...list.flatMap((container) => (container.project_id ? [container.project_id] : [])),
+    ]);
+    const holding = list.filter(holdsMemoryReservation);
+    const holders: MapHolder[] = holding.map((container) => ({
+      id: container.id,
+      bytes: container.memory_reservation_bytes,
+      name: container.name,
+      to: containerPagePath(containersPath, container.id),
+      series: container.project_id ? series.get(container.project_id) : undefined,
+    }));
+    const legend: LegendEntry[] = [];
+    const seen = new Set<string>();
+    for (const container of holding) {
+      const key = container.project_id ?? '';
+      if (seen.has(key) || container.memory_reservation_bytes <= 0) continue;
+      seen.add(key);
+      legend.push(
+        container.project_id
+          ? { key, label: names.get(container.project_id) ?? t('containers.composeTag'), series: series.get(container.project_id) }
+          : { key, label: t('containers.standalone') },
+      );
+    }
+    // Projects in series order, then Standalone.
+    legend.sort((a, b) => (a.series ?? Infinity) - (b.series ?? Infinity) || a.label.localeCompare(b.label));
+    return {
+      holders,
+      legend,
+      failing: list.filter((container) => containerTone(container.status) === 'bad').map((container) => attentionItem(t, container)),
+      changing: list.filter((container) => containerTone(container.status) === 'busy').map((container) => attentionItem(t, container)),
+    };
+  }, [items, projects.data, t]);
+
+  const parts = useMemo(
+    () => (stats.data ? memoryMapParts(view.holders, stats.data.ram_used_bytes, stats.data.ram_quota_bytes) : []),
+    [view.holders, stats.data],
+  );
+
+  const failed = stats.isError ? stats : containers.isError ? containers : undefined;
+  const retry = () => {
+    if (stats.isError) stats.refetch();
+    if (containers.isError) containers.refetch();
   };
 
-  const renderProgressBar = (used: number, total: number, formatFn?: (val: number) => string) => {
-    const safeUsed = used || 0;
-    const safeTotal = total || 0;
-    const percent = safeTotal > 0 ? (safeUsed / safeTotal) * 100 : 0;
-    const formattedUsed = formatFn ? formatFn(safeUsed) : safeUsed;
-    const formattedTotal = formatFn ? formatFn(safeTotal) : safeTotal;
-
-    return (
-      <div className="space-y-3 mt-4">
-        <div className="flex justify-between items-end">
-          <span className="text-3xl font-semibold">{formattedUsed}</span>
-          <span className="text-sm text-slate-500 dark:text-slate-400 mb-1">/ {formattedTotal}</span>
+  let content;
+  if (failed) {
+    content = (
+      <ErrorState
+        title={t('dashboard.loadFailed')}
+        message={failureReason(failed.error, t)}
+        onRetry={retry}
+        isRetrying={stats.isFetching || containers.isFetching}
+      />
+    );
+  } else if (!stats.data || !items) {
+    content = <LoadingDashboard />;
+  } else {
+    const head = (
+      <MemoryMapHead
+        usedBytes={stats.data.ram_used_bytes}
+        quotaBytes={stats.data.ram_quota_bytes}
+        legend={view.legend}
+        other={parts.some((part) => part.kind === 'other')}
+      />
+    );
+    const map = <MemoryMap parts={parts} />;
+    const attention = <AttentionColumn failing={view.failing} changing={view.changing} />;
+    const quotas = <Quotas stats={stats.data} />;
+    content = wide ? (
+      <div className="grid grid-cols-[minmax(0,1fr)_300px] items-start gap-x-7 gap-y-5">
+        <div className="grid min-w-0 gap-5">
+          {head}
+          {map}
+          {quotas}
         </div>
-        <div className="w-full bg-slate-200/50 dark:bg-slate-800 rounded-full h-3 border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div 
-            className={`h-full rounded-full transition-all duration-1000 ease-out ${getProgressColor(percent)}`} 
-            style={{ width: `${Math.min(percent, 100)}%` }} 
-          />
+        <aside aria-label={t('dashboard.attention.label')} className="pt-1">{attention}</aside>
+      </div>
+    ) : (
+      <div className="grid gap-6">
+        <div className="grid gap-4">
+          {head}
+          {map}
         </div>
-        <div className="text-right text-xs text-slate-500">
-          {t('dashboard.usedPercent', { percent: percent.toFixed(1) })}
-        </div>
+        <aside aria-label={t('dashboard.attention.label')}>{attention}</aside>
+        {quotas}
       </div>
     );
-  };
-
-  const safeStats = {
-    ram_used_bytes: stats?.ram_used_bytes || 0,
-    ram_quota_bytes: stats?.ram_quota_bytes || 0,
-    cpu_used_millicores: stats?.cpu_used_millicores || 0,
-    cpu_quota_millicores: stats?.cpu_quota_millicores || 0,
-    disk_used_mb: stats?.disk_used_mb || 0,
-    disk_quota_mb: stats?.disk_quota_mb || 0,
-    containers_total: stats?.containers_total || 0,
-    containers_quota: stats?.containers_quota || 0,
-    volumes_total: stats?.volumes_total || 0,
-    volumes_quota: stats?.volumes_quota || 0,
-    containers_running: stats?.containers_running || 0,
-    images_total: stats?.images_total || 0,
-    projects_total: stats?.projects_total || 0,
-  };
+  }
 
   return (
-    <Page
-      toolbar={
-        <Toolbar
-          title={t('dashboard.title')}
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-        />
-      }
-    >
-
-      {isLoading ? (
-        <LoadingRows rows={6} dot={false} columns={[1, 2]} />
-      ) : isError ? (
-        <ErrorState
-          title={t('dashboard.loadFailed')}
-          message={failureReason(error, t)}
-          onRetry={() => refetch()}
-          isRetrying={isFetching}
-        />
-      ) : stats ? (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Server className="w-5 h-5 text-label-2" />
-                  {t('dashboard.ram')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderProgressBar(safeStats.ram_used_bytes, safeStats.ram_quota_bytes, formatBytes)}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Cpu className="w-5 h-5 text-label-2" />
-                  {t('dashboard.cpu')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderProgressBar(safeStats.cpu_used_millicores, safeStats.cpu_quota_millicores, (val) => t('dashboard.cores', { cores: millicoresToCores(val) }))}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Database className="w-5 h-5 text-label-2" />
-                  {t('dashboard.disk')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderProgressBar(safeStats.disk_used_mb, safeStats.disk_quota_mb, (val) => `${val} MB`)}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Box className="w-5 h-5 text-label-2" />
-                  {t('dashboard.containerLimit')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderProgressBar(safeStats.containers_total, safeStats.containers_quota)}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <HardDrive className="w-5 h-5 text-label-2" />
-                  {t('dashboard.volumeLimit')}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {renderProgressBar(safeStats.volumes_total, safeStats.volumes_quota)}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-4">
-            <Card>
-              <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
-                  <Activity className="w-6 h-6 text-label-2" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.runningContainers')}</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.containers_running}</h3>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
-                  <Disc className="w-6 h-6 text-label-2" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.customImages')}</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.images_total}</h3>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6 flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-fill flex items-center justify-center shrink-0">
-                  <Layers className="w-6 h-6 text-label-2" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{t('dashboard.composeProjects')}</p>
-                  <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{safeStats.projects_total}</h3>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </>
-      ) : (
-        <ErrorState title={t('dashboard.loadFailed')} onRetry={() => refetch()} isRetrying={isFetching} />
-      )}
+    <Page toolbar={<Toolbar title={t('dashboard.title')} primary={<NewMenu />} />}>
+      {content}
     </Page>
   );
 }

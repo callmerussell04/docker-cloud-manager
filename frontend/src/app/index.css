@@ -403,6 +403,22 @@
     opacity: 0;
   }
 
+  /* The memory map's blocks take their project's colour from --tint; the
+     free part is hatched. */
+  .memory-block {
+    background-color: color-mix(in srgb, var(--tint) 82%, transparent);
+    transition: filter 0.15s;
+  }
+
+  .memory-block:hover {
+    filter: brightness(1.08);
+  }
+
+  .memory-free {
+    background-image: repeating-linear-gradient(135deg, transparent 0 8px, var(--fill-hover) 8px 9px);
+    box-shadow: inset 0 0 0 1.5px var(--separator);
+  }
+
   @keyframes status-pulse {
     50% {
       opacity: 0.35;

@@ -13,6 +13,7 @@ const allowedFeatureImports = {
   admin: ['auth', 'containers', 'images', 'volumes', 'projects'],
   projects: ['containers', 'images'],
   containers: ['images', 'volumes'],
+  dashboard: ['containers', 'projects'],
 }
 
 // no-restricted-imports also applies to type-only imports.

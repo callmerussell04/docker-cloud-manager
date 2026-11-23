@@ -9,6 +9,7 @@ import { CreateVolumeModal } from '@/features/volumes/components/CreateVolumeMod
 import { volumeTableLayout } from '../components/tableLayouts';
 import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
+import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
 import { useVolumes } from '@/features/volumes/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
@@ -19,7 +20,7 @@ import { failureReason } from '@/shared/api/apiError';
 
 export function VolumesPage() {
   const t = useT();
-  const[isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const limit = 20;

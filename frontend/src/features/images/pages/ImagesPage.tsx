@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, RefreshCcw, Layers, Hammer } from 'lucide-react';
 
 import { Page } from '@/shared/ui/Page';
@@ -13,6 +13,7 @@ import { type BuildData } from '@/features/images/model';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { imageTableLayout, buildTableLayout } from '../components/tableLayouts';
 import { useT } from '@/shared/i18n';
+import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
 import { useBuildAvailability, useBuilds, useImages } from '@/features/images/queries';
 import { SearchInput } from '@/shared/ui/SearchInput';
 import { TabSwitcher } from '@/shared/ui/TabSwitcher';
@@ -28,7 +29,7 @@ export function ImagesPage() {
   const t = useT();
   const [activeTab, setActiveTab] = useState<Tab>('images');
   const [search, setSearch] = useState('');
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
   const [viewLogsBuild, setViewLogsBuild] = useState<BuildData | null>(null);
   const [imagesPage, setImagesPage] = useState(1);
   const [buildsPage, setBuildsPage] = useState(1);
@@ -42,6 +43,11 @@ export function ImagesPage() {
 
   const { data: buildAvailability } = useBuildAvailability();
   const isBuildDisabled = buildAvailability?.enabled === false;
+  // A link that asks for the build dialog (?new) while builds are off opens
+  // nothing, so the flag is dropped.
+  useEffect(() => {
+    if (isCreateModalOpen && isBuildDisabled) setIsCreateModalOpen(false);
+  }, [isCreateModalOpen, isBuildDisabled, setIsCreateModalOpen]);
 
   const filteredImages = images.filter(i => i.tag.toLowerCase().includes(search.toLowerCase()));
   const filteredBuilds = builds.filter(b => b.id.toLowerCase().includes(search.toLowerCase()) || (b.tag || '').toLowerCase().includes(search.toLowerCase()));
@@ -171,7 +177,7 @@ export function ImagesPage() {
       </div>
 
       <CreateBuildModal 
-        isOpen={isCreateModalOpen} 
+        isOpen={isCreateModalOpen && !isBuildDisabled}
         onClose={() => setIsCreateModalOpen(false)}
         onSuccessSwitchTab={() => setActiveTab('builds')}
       />

@@ -114,6 +114,14 @@ export function containerNeedsWatching(container: ContainerData) {
   return isContainerBusy(container.status) || container.status === 'running';
 }
 
+// holdsMemoryReservation reports whether a container's memory reservation
+// counts against its owner's quota: while it runs or is on its way to
+// running, unless Docker has lost it. It is Core's rule for the reserved
+// memory the dashboard reports.
+export function holdsMemoryReservation(container: ContainerData) {
+  return container.status !== 'missing' && (container.status === 'running' || container.desired_status === 'running');
+}
+
 // containerTone is what a container's status means to the user: running is
 // ok, error and missing are failing, exited and created are at rest, and every
 // other status, including one this client does not know, is changing.
