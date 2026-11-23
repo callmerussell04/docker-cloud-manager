@@ -223,6 +223,19 @@ func (s *ProjectService) Cancel(ctx context.Context, projectID uuid.UUID) error 
 	return s.deployments.CancelDeployment(ctx, projectID)
 }
 
+// Get returns one project the caller's scope may read. Another user's project
+// is reported as not found.
+func (s *ProjectService) Get(ctx context.Context, projectID uuid.UUID) (model.Project, error) {
+	p, err := s.repo.GetByID(ctx, projectID)
+	if err != nil {
+		return model.Project{}, err
+	}
+	if err := accessscope.RequireOwnerAccess(ctx, p.OwnerID); err != nil {
+		return model.Project{}, err
+	}
+	return p, nil
+}
+
 func (s *ProjectService) List(ctx context.Context, limit, offset int) ([]model.Project, int, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {

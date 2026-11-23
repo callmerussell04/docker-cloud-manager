@@ -10,6 +10,11 @@ export const getProjectsFn = async <S extends Scope>(scope: S, page = 1, limit =
   return { items: response.data.projects || [], total_count: response.data.total_count || 0 };
 };
 
+export const getProjectFn = async <S extends Scope>(scope: S, id: string): Promise<ProjectOf<S>> => {
+  const response = await privateApi.get<ProjectOf<S>>(scopedPath(scope, `/projects/${id}`));
+  return response.data;
+};
+
 export const createProjectFn = async (formData: FormData): Promise<{ project_id: string }> => {
   const response = await privateApi.post('/projects/compose', formData, {
     headers: {

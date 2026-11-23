@@ -1,158 +1,116 @@
-import { ChevronDown, ChevronRight, Layers, Square, Trash2, AlertTriangle, Loader2, Play, XCircle } from 'lucide-react';
-import { Badge } from '@/shared/ui/Badge';
-import { canCancelProject, isProjectBusy, projectStatusLabel, type ProjectData } from '../model';
-import { projectTableLayout } from './tableLayouts';
-import { cn } from '@/shared/lib/utils';
-import { dateLocale, useLocale, useT } from '@/shared/i18n';
-import { getServerErrorMessage } from '@/shared/api/apiError';
-import { useProjectAction } from '../queries';
-import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
-import { useState } from 'react';
+import { Trash2 } from 'lucide-react';
+import { useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { BASE_DOMAIN } from '@/shared/lib/config';
+import { useNowSeconds } from '@/shared/lib/hooks';
+import { cn, formatBytes } from '@/shared/lib/utils';
+import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
+import { MenuItem, MenuSeparator } from '@/shared/ui/Menu';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Dot } from '@/shared/ui/StatusDot';
+import { containerTone } from '@/features/containers/model';
+import { projectSummary, projectTone, serviceSummary, shownSource, type ProjectListItem } from '../model';
+import { projectListLayout } from './listLayout';
+import { ProjectSourceLine } from './ProjectSourceLine';
+import { useProjectActions } from './useProjectActions';
 
 interface ProjectRowProps {
-  project: ProjectData;
-  isExpanded?: boolean;
-  onToggleExpanded?: () => void;
+  item: ProjectListItem;
+  onOpen: () => void;
 }
 
-export function ProjectRow({ project, isExpanded, onToggleExpanded }: ProjectRowProps) {
+// ProjectRow is a project's line in the list: its name and source (when the
+// API gives it), a dot per service with how many run (or the failure, or the
+// step a deployment is on), its first address and how many more, the memory
+// its services reserve, and its age. The row opens the project; its menu
+// holds Start or Stop, Cancel deployment while that is possible, and Delete.
+// Compact rows are the name, then the state line and age.
+export function ProjectRow({ item, onOpen }: ProjectRowProps) {
+  const { project, services } = item;
   const t = useT();
-  const locale = useLocale();
-  const [confirmAction, setConfirmAction] = useState<'cancel' | 'delete' | null>(null);
-  // One mutation per action, so a pending action disables only its own button.
-  const deleteMutation = useProjectAction('own');
-  const startMutation = useProjectAction('own');
-  const stopMutation = useProjectAction('own');
-  const cancelMutation = useProjectAction('own');
+  const compact = useShellLayout().rowsCompact;
+  const now = useNowSeconds(60_000);
+  const actions = useProjectActions('own', project);
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'running': return <Badge variant="success">{projectStatusLabel(t, status)}</Badge>;
-      case 'stopped': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
-      case 'building': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
-      case 'deploying': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
-      case 'canceling': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
-      case 'canceled': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
-      case 'starting': return <Badge variant="info" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
-      case 'stopping': return <Badge variant="warning" className="flex gap-1.5"><Loader2 className="w-3 h-3 animate-spin"/>{projectStatusLabel(t, status)}</Badge>;
-      case 'deleting': return <Badge variant="warning">{projectStatusLabel(t, status)}</Badge>;
-      case 'pending': return <Badge variant="default">{projectStatusLabel(t, status)}</Badge>;
-      case 'failed': return <Badge variant="error">{projectStatusLabel(t, status)}</Badge>;
-      default: return <Badge variant="default">{status}</Badge>;
-    }
-  };
+  const summary = serviceSummary(services);
+  const state = projectSummary(t, project, services);
+  const age = ageOf(project.created_at, now);
+  const ageLabel = t(`common.age.${age.unit}`, { count: age.count });
+  const address = summary.addresses[0] ? `${summary.addresses[0]}.${BASE_DOMAIN}` : '';
+  const source = shownSource(project.source);
 
-  const formattedDate = new Date(project.created_at * 1000).toLocaleDateString(dateLocale(locale), {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
-  });
+  const stateLine = <span className={cn(state.bad && 'text-red-text')}>{state.text}</span>;
 
-  const isWorking = isProjectBusy(project.status);
-  const isCanceled = project.status === 'canceled';
-  const canCancel = canCancelProject(project.status);
-  const projectError = getServerErrorMessage(project.error_message || project.last_error, t);
+  const menu = (
+    <RowMenu label={t('projects.rowActions', { name: project.name })} sheetTitle={project.name}>
+      <MenuItem icon={actions.primary.icon} disabled={actions.primary.disabled} onSelect={actions.primary.run}>{actions.primary.label}</MenuItem>
+      <MenuSeparator />
+      <MenuItem icon={Trash2} danger disabled={actions.deleteDisabled} onSelect={actions.requestDelete}>{t('common.delete')}</MenuItem>
+    </RowMenu>
+  );
+
+  const quick = (
+    <RowQuickAction icon={actions.primary.icon} label={actions.primary.label} disabled={actions.primary.disabled} onClick={actions.primary.run} />
+  );
 
   return (
-    <div className={cn("grid gap-4 p-4 items-center hover:bg-white/20 dark:hover:bg-slate-800/30 transition-colors border-b border-white/20 dark:border-slate-700/50 last:border-0 relative", projectTableLayout.grid, projectTableLayout.minWidth)}>
-      {project.status === 'failed' && (
-        <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
-      )}
-      
-      <div className="flex items-center gap-3 min-w-0 pl-1">
-        {onToggleExpanded ? (
-          <button
-            type="button"
-            onClick={onToggleExpanded}
-            className="w-10 h-10 rounded-xl bg-fill text-label-2 hover:bg-fill-hover flex items-center justify-center shrink-0 transition-colors"
-            title={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')} aria-label={isExpanded ? t('projects.collapseContainers') : t('projects.expandContainers')}
-            aria-expanded={isExpanded}
-          >
-            {isExpanded ? <ChevronDown className="w-5 h-5" /> : <ChevronRight className="w-5 h-5" />}
-          </button>
-        ) : (
-          <div className="w-10 h-10 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
-            <Layers className="w-5 h-5" />
-          </div>
-        )}
+    <ListRow template={compact ? projectListLayout.compact : projectListLayout.wide} onOpen={onOpen}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <Dot tone={projectTone(project.status, services)} />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-base truncate" title={project.name}>{project.name}</h3>
+          <div className={cn('truncate font-semibold', compact ? 'text-[15px]' : 'text-[13.5px]')} title={project.name}>
+            {project.name}
+          </div>
+          {compact ? (
+            <div className="mt-0.5 truncate text-[12.5px] text-label-2">
+              {stateLine}
+              {' · '}
+              {ageLabel}
+            </div>
+          ) : (
+            source && (
+              <div className="min-w-0 text-[11.5px] text-label-3">
+                <ProjectSourceLine source={source} />
+              </div>
+            )
+          )}
         </div>
       </div>
-
-      <div className="min-w-0">
-        {getStatusBadge(project.status)}
-      </div>
-
-      <div className="min-w-0 flex items-center">
-        {project.status === 'failed' && projectError ? (
-          <div 
-            className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 truncate max-w-full cursor-help"
-            title={projectError}
-          >
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span className="truncate">{projectError}</span>
+      {!compact && (
+        <>
+          <div className="flex min-w-0 items-center gap-2">
+            {services.length > 0 && (
+              <span aria-hidden className="flex shrink-0 items-center gap-[3px]">
+                {services.map((service) => <Dot key={service.id} tone={containerTone(service.status)} />)}
+              </span>
+            )}
+            <span className="truncate" title={state.text}>{stateLine}</span>
           </div>
-        ) : (
-          <span className="text-slate-400 dark:text-slate-500">-</span>
-        )}
-      </div>
-
-      <div className="min-w-0 text-sm text-slate-500 dark:text-slate-400 truncate" title={formattedDate}>
-        {formattedDate}
-      </div>
-
-      <div className="flex items-center gap-2 justify-end shrink-0">
-        <button
-          onClick={() => startMutation.mutate({ id: project.id, action: 'start' })}
-          disabled={startMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'running'}
-          className="p-2 rounded-lg bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400 dark:hover:bg-green-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.start')} aria-label={t('containers.start')}
-        >
-          <Play className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => stopMutation.mutate({ id: project.id, action: 'stop' })}
-          disabled={stopMutation.isPending || isWorking || isCanceled || project.status === 'failed' || project.status === 'stopped'}
-          className="p-2 rounded-lg bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:hover:bg-yellow-900/50 disabled:opacity-50 transition-colors"
-          title={t('containers.stop')} aria-label={t('containers.stop')}
-        >
-          <Square className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => setConfirmAction('cancel')}
-          disabled={!canCancel || cancelMutation.isPending}
-          className="p-2 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 disabled:opacity-50 transition-colors"
-          title={t('projects.cancel')} aria-label={t('projects.cancel')}
-        >
-          <XCircle className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={() => setConfirmAction('delete')}
-          disabled={deleteMutation.isPending || isWorking}
-          className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50 disabled:opacity-50 transition-colors ml-2"
-          title={t('common.delete')} aria-label={t('common.delete')}
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
-        <ConfirmDialog
-          isOpen={confirmAction !== null}
-          title={confirmAction === 'cancel' ? t('projects.cancelConfirm', { name: project.name }) : t('projects.deleteConfirm', { name: project.name })}
-          message={confirmAction === 'cancel' ? undefined : t('projects.deleteConsequence')}
-          confirmLabel={confirmAction === 'cancel' ? t('projects.cancel') : t('common.delete')}
-          isLoading={cancelMutation.isPending || deleteMutation.isPending}
-          variant={confirmAction === 'cancel' ? 'primary' : 'danger'}
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={() => {
-            if (confirmAction === 'cancel') {
-              cancelMutation.mutate({ id: project.id, action: 'cancel' }, { onSuccess: () => setConfirmAction(null) });
-            } else if (confirmAction === 'delete') {
-              deleteMutation.mutate({ id: project.id, action: 'delete' }, { onSuccess: () => setConfirmAction(null) });
-            }
-          }}
-        />
-      </div>
-    </div>
+          <div className="min-w-0 truncate">
+            {address && (
+              <>
+                <a
+                  href={`http://${address}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={address}
+                  onClick={(event) => event.stopPropagation()}
+                  className="font-medium text-accent hover:underline"
+                >
+                  {address}
+                </a>
+                {summary.addresses.length > 1 && (
+                  <span className="text-label-3"> {t('projects.moreAddresses', { count: summary.addresses.length - 1 })}</span>
+                )}
+              </>
+            )}
+          </div>
+          <div className={cn('tabular-nums', project.status !== 'running' && 'text-label-3')}>
+            {summary.total > 0 ? formatBytes(summary.memoryBytes, 1) : ''}
+          </div>
+        </>
+      )}
+      <RowEnd age={ageLabel} quick={quick} menu={<>{menu}{actions.dialogs}</>} />
+    </ListRow>
   );
 }

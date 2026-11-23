@@ -9,6 +9,7 @@ export const validation: Record<keyof typeof ru, string> = {
   'validation.quotaPositive': 'Enter a positive number (CPU from 0.001 to 1,000,000 cores)',
   'validation.nameRequired': 'Name is required',
   'validation.projectNameRequired': 'Project name is required',
+  'validation.projectNameFormat': 'Start with a letter or digit, then use letters, digits, dots, hyphens or underscores, up to 63 characters.',
   'validation.imageRequired': 'Image is required',
   'validation.keyRequired': 'Key is required',
   'validation.volumeRequired': 'Select a volume',

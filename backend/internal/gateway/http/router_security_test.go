@@ -70,6 +70,7 @@ var adminRoutePermissions = []struct {
 	{method: http.MethodPost, route: "/api/v1/admin/builds/:id/cancel", permission: permissions.BuildsAdminDelete},
 	{method: http.MethodDelete, route: "/api/v1/admin/builds/:id", permission: permissions.BuildsAdminDelete},
 	{method: http.MethodGet, route: "/api/v1/admin/projects", permission: permissions.ProjectsAdminList},
+	{method: http.MethodGet, route: "/api/v1/admin/projects/:id", permission: permissions.ProjectsAdminList},
 	{method: http.MethodDelete, route: "/api/v1/admin/projects/:id", permission: permissions.ProjectsAdminDelete},
 	{method: http.MethodPost, route: "/api/v1/admin/projects/:id/start", permission: permissions.ProjectsAdminStart},
 	{method: http.MethodPost, route: "/api/v1/admin/projects/:id/stop", permission: permissions.ProjectsAdminStop},

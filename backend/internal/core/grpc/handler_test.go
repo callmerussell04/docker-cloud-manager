@@ -483,6 +483,64 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	require.Equal(t, int64(999), systemStats.ObservedAt)
 }
 
+func TestProjectGRPCHandlerMapsGet(t *testing.T) {
+	ownerID := uuid.New()
+	errMsg := "build failed"
+	project := model.Project{
+		ID: uuid.New(), OwnerID: ownerID, Name: "shop", Status: model.ProjectStatusFailed,
+		ErrorMessage: &errMsg, CreatedAt: time.Unix(100, 0),
+	}
+	logic := coregrpcmocks.NewMockProjectLogic(t)
+	logic.EXPECT().Get(mock.Anything, project.ID).Return(project, nil)
+	users := coregrpcmocks.NewMockUserDirectory(t)
+	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
+	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+		coregrpc.RegisterProjectAPI(s, logic, users)
+	})
+
+	got, err := coreapi.NewProjectAPIClient(conn).GetProject(userScopeContext(ownerID), &coreapi.ProjectActionRequest{ProjectId: project.ID.String()})
+
+	require.NoError(t, err)
+	require.Equal(t, project.ID.String(), got.GetId())
+	require.Equal(t, "shop", got.GetName())
+	require.Equal(t, model.ProjectStatusFailed, got.GetStatus())
+	require.Equal(t, errMsg, got.GetErrorMessage())
+	require.Equal(t, errMsg, got.GetLastError())
+	require.EqualValues(t, 100, got.GetCreatedAt())
+	require.Equal(t, ownerID.String(), got.GetOwnerId())
+	require.Equal(t, "alice", got.GetOwnerUsername())
+}
+
+func TestProjectGRPCHandlerGetRejectsBadRequests(t *testing.T) {
+	projectID := uuid.New()
+	tests := []struct {
+		name     string
+		ctx      context.Context
+		id       string
+		logicErr error
+		want     codes.Code
+	}{
+		{name: "malformed id", ctx: userScopeContext(uuid.New()), id: "not-a-uuid", want: codes.InvalidArgument},
+		{name: "system scope", ctx: systemScopeContext(), id: projectID.String(), want: codes.PermissionDenied},
+		{name: "not found", ctx: userScopeContext(uuid.New()), id: projectID.String(), logicErr: apperrors.ErrNotFound, want: codes.NotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logic := coregrpcmocks.NewMockProjectLogic(t)
+			if tt.logicErr != nil {
+				logic.EXPECT().Get(mock.Anything, projectID).Return(model.Project{}, tt.logicErr)
+			}
+			conn := newCoreGRPCConn(t, func(s *grpc.Server) {
+				coregrpc.RegisterProjectAPI(s, logic, nil)
+			})
+
+			_, err := coreapi.NewProjectAPIClient(conn).GetProject(tt.ctx, &coreapi.ProjectActionRequest{ProjectId: tt.id})
+
+			require.Equal(t, tt.want, status.Code(err))
+		})
+	}
+}
+
 func TestReportGRPCHandlerMapsReportsAndAudit(t *testing.T) {
 	ownerID := uuid.New()
 	actorID := uuid.New()

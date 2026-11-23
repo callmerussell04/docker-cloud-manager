@@ -1,43 +1,104 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCcw } from 'lucide-react';
 
-import { createDialogFlag, useSearchFlag } from '@/shared/lib/hooks';
-import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
-import { Pagination } from '@/shared/ui/Pagination';
-import { WarningBanner } from '@/shared/ui/WarningBanner';
-import { ProjectWithContainersRow } from '@/features/projects/components/ProjectWithContainersRow';
-import { CreateProjectModal } from '@/features/projects/components/CreateProjectModal';
-import { useContainerModals } from '@/features/containers/components/useContainerModals';
-import { projectTableLayout } from '../components/tableLayouts';
-import { cn } from '@/shared/lib/utils';
-import { useT } from '@/shared/i18n';
-import { useProjects } from '@/features/projects/queries';
-import { useBuildAvailability } from '@/features/images/queries';
-import { SearchInput } from '@/shared/ui/SearchInput';
-import { NoMatchesState } from '@/shared/ui/NoMatchesState';
-import { EmptyState } from '@/shared/ui/EmptyState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
-import { ErrorState } from '@/shared/ui/ErrorState';
 import { failureReason } from '@/shared/api/apiError';
+import { useT } from '@/shared/i18n';
+import { createDialogFlag, useListState, useSearchFlag } from '@/shared/lib/hooks';
+import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
+import { Page } from '@/shared/ui/Page';
+import { Pagination } from '@/shared/ui/Pagination';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { useContainers } from '@/features/containers/queries';
+import { DeployProjectDialog } from '../components/DeployProjectDialog';
+import { projectListLayout } from '../components/listLayout';
+import { ProjectRow } from '../components/ProjectRow';
+import {
+  defaultProjectSort,
+  isProjectBusy,
+  matchesProjectSearch,
+  projectSortKeys,
+  servicesByProject,
+  sortProjects,
+  type ProjectSortKey,
+} from '../model';
+import { useProjects } from '../queries';
 
+// The projects list has no filter; its one filter value keeps the URL state
+// shape every list shares.
+const listSpec: ListStateSpec<'all', ProjectSortKey> = {
+  filters: ['all'],
+  sortKeys: projectSortKeys,
+  defaultSort: defaultProjectSort,
+};
+
+// One page holds a user's whole list as usual quotas allow it; the sort and
+// the search apply to the page shown.
+const pageSize = 100;
+
+// ProjectsPage lists the user's Compose projects with their services, which
+// come from the first 100 containers (the server's largest page): a service
+// beyond it is not counted, which no usual account reaches.
 export function ProjectsPage() {
   const t = useT();
-  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
-  const { openExpose, modals } = useContainerModals('own');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const limit = 20;
+  const navigate = useNavigate();
+  const compact = useShellLayout().rowsCompact;
+  const [isDeployOpen, setIsDeployOpen] = useSearchFlag(createDialogFlag);
+  const [view, changeView] = useListState(listSpec);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useProjects('own', page, limit);
-  const projects = data?.items || [];
+  const { data, isLoading, isError, error, refetch, isFetching } = useProjects('own', view.page, pageSize);
+  const projects = useMemo(() => data?.items ?? [], [data]);
+  // A project that deploys, starts or stops changes its containers, so they
+  // keep refreshing with it.
+  const containers = useContainers('own', 1, 100, { polling: projects.some((project) => isProjectBusy(project.status)) });
+  const services = useMemo(() => servicesByProject(containers.data?.items ?? []), [containers.data]);
 
-  const { data: buildAvailability } = useBuildAvailability();
-  const isBuildDisabled = buildAvailability?.enabled === false;
+  const items = projects.map((project) => ({ project, services: services.get(project.id) ?? [] }));
+  const shown = sortProjects(items.filter((item) => matchesProjectSearch(item, view.search)), view.sort);
 
-  const filteredProjects = projects.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const columns: ListColumn<ProjectSortKey>[] = [
+    { key: 'name', label: t('projects.project') },
+    { key: 'services', label: t('projects.services') },
+    { key: 'address', label: t('projects.column.address') },
+    { key: 'memory', label: t('projects.column.memory') },
+    { key: 'created', label: t('projects.column.created'), end: true },
+  ];
+
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.4, 1.3, 1, 0.5, 0.5]} />;
+    if (isError) {
+      return <ErrorState title={t('projects.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    }
+    if (projects.length === 0) {
+      return (
+        <EmptyState
+          title={t('projects.emptyTitle')}
+          description={t('projects.emptyDescription')}
+          action={{ label: t('projects.deployTitle'), icon: Plus, onClick: () => setIsDeployOpen(true) }}
+        />
+      );
+    }
+    if (shown.length === 0) {
+      return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    }
+    return (
+      <List label={t('projects.title')}>
+        {shown.map((item) => (
+          <ProjectRow
+            key={item.project.id}
+            item={item}
+            onOpen={() => navigate(`/projects/${item.project.id}`, { state: { project: item.project } })}
+          />
+        ))}
+      </List>
+    );
+  };
 
   return (
     <Page
@@ -45,81 +106,35 @@ export function ProjectsPage() {
         <Toolbar
           title={t('projects.title')}
           count={data?.total_count}
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('projects.deploy')} />}
+          pills={<ToolbarSearch label={t('projects.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
+          actions={
+            <ToolbarButton
+              icon={RefreshCcw}
+              label={t('common.refresh')}
+              busy={isFetching || containers.isFetching}
+              onClick={() => {
+                void refetch();
+                void containers.refetch();
+              }}
+            />
+          }
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsDeployOpen(true)} label={t('projects.deployTitle')} />}
         />
       }
-    >
-      <div className="flex justify-end">
-        <SearchInput
-          placeholder={t('common.search')}
-          title={t('common.searchCurrentPage')}
-          value={search}
-          onChange={setSearch}
+      head={(isLoading || shown.length > 0) && (
+        <ListHead
+          columns={columns}
+          template={projectListLayout.wide}
+          sort={view.sort}
+          onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })}
         />
-      </div>
-
-      {isBuildDisabled && (
-        <WarningBanner className="shrink-0">
-          {t('projects.composeBuildUnavailable')}
-        </WarningBanner>
       )}
+      className="space-y-2"
+    >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <div className={projectTableLayout.minWidth}>
-            <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500 dark:text-slate-400", projectTableLayout.grid)}>
-              <div className="flex items-center gap-3"><div className="w-10 shrink-0" /><div>{t('projects.projectName')}</div></div>
-              <div>{t('common.status')}</div>
-              <div>{t('status.error')}</div>
-              <div>{t('projects.createdAt')}</div>
-              <div className="flex justify-end">{t('common.actions')}</div>
-            </div>
-
-            <div className="flex flex-col">
-              {isLoading ? (
-                <LoadingRows columns={[1.2, 0.6, 1, 0.8, 0.4]} />
-              ) : isError ? (
-                <ErrorState
-                    title={t('projects.loadFailed')}
-                    message={failureReason(error, t)}
-                    onRetry={() => refetch()}
-                    isRetrying={isFetching}
-                  />
-              ) : filteredProjects.length > 0 ? (
-                filteredProjects.map((project) => (
-                  <ProjectWithContainersRow
-                    key={project.id}
-                    project={project}
-                    onExpose={openExpose}
-                  />
-                ))
-              ) : search && projects.length > 0 ? (
-                <NoMatchesState query={search} onClear={() => setSearch('')} />
-              ) : (
-                <EmptyState
-                  title={t('projects.emptyTitle')}
-                  description={t('projects.emptyDescription')}
-                  action={{ label: t('projects.deploy'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
-                />
-              )}
-            </div>
-          </div>
-        </div>
-        {data && (
-          <div className="shrink-0 bg-slate-50/50 dark:bg-slate-800/50">
-            <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />
-          </div>
-        )}
-      </div>
-
-      <CreateProjectModal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)} 
-        buildAvailability={buildAvailability}
-      />
-
-      {modals}
+      <DeployProjectDialog isOpen={isDeployOpen} onClose={() => setIsDeployOpen(false)} />
     </Page>
   );
 }

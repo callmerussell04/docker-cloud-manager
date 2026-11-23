@@ -15,6 +15,7 @@ type ProjectService interface {
 	StopProject(ctx context.Context, projectID string) error
 	CancelProject(ctx context.Context, projectID string) error
 	ListProjects(ctx context.Context, page, limit int) (model.PaginatedProjects, error)
+	GetProject(ctx context.Context, projectID string) (model.Project, error)
 }
 
 func (h *CoreHandler) GetProjects(c *gin.Context) {
@@ -44,6 +45,33 @@ func (h *CoreHandler) listProjects(c *gin.Context, mapItems func([]model.Project
 		"projects":    mapItems(resp.Projects),
 		"total_count": resp.TotalCount,
 	})
+}
+
+func (h *CoreHandler) GetProject(c *gin.Context) {
+	h.writeProject(c, func(item model.Project) any {
+		return projectToUserDTO(item)
+	})
+}
+
+func (h *CoreHandler) AdminGetProject(c *gin.Context) {
+	h.writeProject(c, func(item model.Project) any {
+		return projectToDTO(item)
+	})
+}
+
+func (h *CoreHandler) writeProject(c *gin.Context, mapItem func(model.Project) any) {
+	projectID, ok := pathUUID(c, "id")
+	if !ok {
+		return
+	}
+
+	project, err := h.service.GetProject(c.Request.Context(), projectID)
+	if err != nil {
+		h.handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, mapItem(project))
 }
 
 func (h *CoreHandler) DeleteProject(c *gin.Context) {

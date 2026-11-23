@@ -972,6 +972,7 @@ var VolumeAPI_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	ProjectAPI_ListProjects_FullMethodName  = "/core.ProjectAPI/ListProjects"
+	ProjectAPI_GetProject_FullMethodName    = "/core.ProjectAPI/GetProject"
 	ProjectAPI_DeleteProject_FullMethodName = "/core.ProjectAPI/DeleteProject"
 	ProjectAPI_StartProject_FullMethodName  = "/core.ProjectAPI/StartProject"
 	ProjectAPI_StopProject_FullMethodName   = "/core.ProjectAPI/StopProject"
@@ -983,6 +984,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ProjectAPIClient interface {
 	ListProjects(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedProjectResponse, error)
+	GetProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*ProjectData, error)
 	DeleteProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StartProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*Empty, error)
@@ -1001,6 +1003,16 @@ func (c *projectAPIClient) ListProjects(ctx context.Context, in *PaginationReque
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaginatedProjectResponse)
 	err := c.cc.Invoke(ctx, ProjectAPI_ListProjects_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *projectAPIClient) GetProject(ctx context.Context, in *ProjectActionRequest, opts ...grpc.CallOption) (*ProjectData, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectData)
+	err := c.cc.Invoke(ctx, ProjectAPI_GetProject_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,6 +1064,7 @@ func (c *projectAPIClient) CancelProject(ctx context.Context, in *ProjectActionR
 // for forward compatibility.
 type ProjectAPIServer interface {
 	ListProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error)
+	GetProject(context.Context, *ProjectActionRequest) (*ProjectData, error)
 	DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StartProject(context.Context, *ProjectActionRequest) (*Empty, error)
 	StopProject(context.Context, *ProjectActionRequest) (*Empty, error)
@@ -1068,6 +1081,9 @@ type UnimplementedProjectAPIServer struct{}
 
 func (UnimplementedProjectAPIServer) ListProjects(context.Context, *PaginationRequest) (*PaginatedProjectResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListProjects not implemented")
+}
+func (UnimplementedProjectAPIServer) GetProject(context.Context, *ProjectActionRequest) (*ProjectData, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetProject not implemented")
 }
 func (UnimplementedProjectAPIServer) DeleteProject(context.Context, *ProjectActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteProject not implemented")
@@ -1116,6 +1132,24 @@ func _ProjectAPI_ListProjects_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ProjectAPIServer).ListProjects(ctx, req.(*PaginationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ProjectAPI_GetProject_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectActionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectAPIServer).GetProject(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectAPI_GetProject_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectAPIServer).GetProject(ctx, req.(*ProjectActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1202,6 +1236,10 @@ var ProjectAPI_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListProjects",
 			Handler:    _ProjectAPI_ListProjects_Handler,
+		},
+		{
+			MethodName: "GetProject",
+			Handler:    _ProjectAPI_GetProject_Handler,
 		},
 		{
 			MethodName: "DeleteProject",

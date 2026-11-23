@@ -7,6 +7,7 @@ export const validation = {
   'validation.quotaPositive': 'Введите положительное число (CPU от 0.001 до 1 000 000 ядер)',
   'validation.nameRequired': 'Имя обязательно',
   'validation.projectNameRequired': 'Имя проекта обязательно',
+  'validation.projectNameFormat': 'Начните с буквы или цифры; дальше — буквы, цифры, точка, дефис или подчёркивание, до 63 символов.',
   'validation.imageRequired': 'Укажите образ',
   'validation.keyRequired': 'Ключ обязателен',
   'validation.volumeRequired': 'Выберите том',

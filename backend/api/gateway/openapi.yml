@@ -915,6 +915,20 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
 
   /projects/{id}:
+    get:
+      summary: Get one of the current user's compose projects
+      tags: [Projects]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The project
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProject'
+        '404':
+          description: No such project, or it belongs to another user
     delete:
       summary: Delete a compose project and its resources
       tags: [Projects]
@@ -1672,6 +1686,20 @@ paths:
                     type: integer
 
   /admin/projects/{id}:
+    get:
+      summary: Admin get any project
+      tags: [Admin]
+      parameters:
+        - $ref: '#/components/parameters/IdParam'
+      responses:
+        '200':
+          description: The project with its owner
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: No such project
     delete:
       summary: Admin delete any project
       tags: [Admin]

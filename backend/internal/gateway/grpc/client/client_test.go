@@ -135,6 +135,27 @@ func TestCoreClientMapsVolumeSizes(t *testing.T) {
 	require.Empty(t, volumes.Volumes[1].UsedBy)
 }
 
+func TestCoreClientMapsGetProject(t *testing.T) {
+	projectSrv := &coreProjectServer{}
+	conn := newGRPCConn(t, func(server *grpc.Server) {
+		coreapi.RegisterProjectAPIServer(server, projectSrv)
+	})
+	coreClient := client.NewCoreClient(conn)
+
+	project, err := coreClient.GetProject(context.Background(), "project-id")
+
+	require.NoError(t, err)
+	require.Equal(t, "project-id", projectSrv.gotID)
+	require.Equal(t, model.Project{
+		ID: "project-id", Name: "shop", Status: "failed", ErrorMessage: "build failed", LastError: "build failed",
+		CreatedAt: 100, OwnerID: "owner-id", OwnerUsername: "alice",
+	}, project)
+
+	projectSrv.err = status.Error(codes.NotFound, apperrors.ErrNotFound.Error())
+	_, err = coreClient.GetProject(context.Background(), "project-id")
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
 func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	containerSrv := &coreContainerServer{}
 	systemSrv := &coreSystemServer{}
@@ -457,6 +478,23 @@ func (s *coreContainerServer) GetContainer(_ context.Context, req *coreapi.Conta
 
 func (s *coreContainerServer) GetContainerStats(context.Context, *coreapi.ContainerActionRequest) (*coreapi.ContainerStatsResponse, error) {
 	return &coreapi.ContainerStatsResponse{CpuPercentage: 12.5, MemoryUsageBytes: 1024, MemoryLimitBytes: 3072, MemoryStandardLimitBytes: 2048}, nil
+}
+
+type coreProjectServer struct {
+	coreapi.UnimplementedProjectAPIServer
+	gotID string
+	err   error
+}
+
+func (s *coreProjectServer) GetProject(_ context.Context, req *coreapi.ProjectActionRequest) (*coreapi.ProjectData, error) {
+	s.gotID = req.GetProjectId()
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &coreapi.ProjectData{
+		Id: "project-id", Name: "shop", Status: "failed", ErrorMessage: "build failed", LastError: "build failed",
+		CreatedAt: 100, OwnerId: "owner-id", OwnerUsername: "alice",
+	}, nil
 }
 
 type coreVolumeServer struct {

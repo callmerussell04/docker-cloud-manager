@@ -224,33 +224,41 @@ func buildsToUserDTO(items []model.Build) []dto.UserBuildDTO {
 func projectsToDTO(items []model.Project) []dto.ProjectDTO {
 	result := make([]dto.ProjectDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.ProjectDTO{
-			ID:            item.ID,
-			Name:          item.Name,
-			Status:        item.Status,
-			ErrorMessage:  item.ErrorMessage,
-			LastError:     item.LastError,
-			CreatedAt:     item.CreatedAt,
-			OwnerID:       item.OwnerID,
-			OwnerUsername: item.OwnerUsername,
-		})
+		result = append(result, projectToDTO(item))
 	}
 	return result
+}
+
+func projectToDTO(item model.Project) dto.ProjectDTO {
+	return dto.ProjectDTO{
+		ID:            item.ID,
+		Name:          item.Name,
+		Status:        item.Status,
+		ErrorMessage:  item.ErrorMessage,
+		LastError:     item.LastError,
+		CreatedAt:     item.CreatedAt,
+		OwnerID:       item.OwnerID,
+		OwnerUsername: item.OwnerUsername,
+	}
 }
 
 func projectsToUserDTO(items []model.Project) []dto.UserProjectDTO {
 	result := make([]dto.UserProjectDTO, 0, len(items))
 	for _, item := range items {
-		result = append(result, dto.UserProjectDTO{
-			ID:           item.ID,
-			Name:         item.Name,
-			Status:       item.Status,
-			ErrorMessage: item.ErrorMessage,
-			LastError:    item.LastError,
-			CreatedAt:    item.CreatedAt,
-		})
+		result = append(result, projectToUserDTO(item))
 	}
 	return result
+}
+
+func projectToUserDTO(item model.Project) dto.UserProjectDTO {
+	return dto.UserProjectDTO{
+		ID:           item.ID,
+		Name:         item.Name,
+		Status:       item.Status,
+		ErrorMessage: item.ErrorMessage,
+		LastError:    item.LastError,
+		CreatedAt:    item.CreatedAt,
+	}
 }
 
 func systemConfigFromDTO(data dto.SystemConfigDTO) model.SystemConfig {

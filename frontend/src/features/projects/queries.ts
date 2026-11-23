@@ -3,17 +3,18 @@ import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import { queryRoots } from '@/shared/api/queryRoots';
 import { useNotificationStore } from '@/shared/ui/notificationStore';
-import { failureReason } from '@/shared/api/apiError';
+import { failureReason, isNotFoundError } from '@/shared/api/apiError';
 import { useT, type TranslationKey } from '@/shared/i18n';
 import { containerKeys } from '@/features/containers/queries';
 import { buildKeys } from '@/features/images/queries';
-import { actionProjectFn, createProjectFn, createProjectFromGitFn, getProjectsFn } from './api';
-import { isProjectBusy, type CreateProjectGitPayload, type ProjectAction } from './model';
+import { actionProjectFn, createProjectFn, createProjectFromGitFn, getProjectFn, getProjectsFn } from './api';
+import { isProjectBusy, type CreateProjectGitPayload, type ProjectAction, type ProjectData } from './model';
 
 export const projectKeys = {
   all: queryRoots.projects,
   lists: (scope: Scope) => [...projectKeys.all, scope, 'list'] as const,
   list: (scope: Scope, params: PageParams) => [...projectKeys.lists(scope), params] as const,
+  detail: (scope: Scope, id: string) => [...projectKeys.all, scope, 'detail', id] as const,
 };
 
 // useProjects polls while a project is in a transitional state, unless
@@ -27,6 +28,24 @@ export function useProjects<S extends Scope>(scope: S, page: number, limit: numb
       if (!enabled || !polling) return false;
       const projects = query.state.data?.items || [];
       return projects.some((project) => isProjectBusy(project.status)) ? 5000 : false;
+    },
+  });
+}
+
+// useProject reads one project and keeps it current while a worker is
+// changing it. `snapshot` is shown until the first answer arrives. A project
+// that no longer exists is not asked for again.
+export function useProject(scope: Scope, id: string | undefined, snapshot?: ProjectData) {
+  return useQuery({
+    queryKey: projectKeys.detail(scope, id || ''),
+    queryFn: (): Promise<ProjectData> => getProjectFn(scope, id as string),
+    enabled: !!id,
+    placeholderData: snapshot,
+    retry: (failureCount, error) => !isNotFoundError(error) && failureCount < 1,
+    refetchInterval: (query) => {
+      if (isNotFoundError(query.state.error)) return false;
+      const project = query.state.data;
+      return !project || isProjectBusy(project.status) ? 5000 : false;
     },
   });
 }
@@ -68,6 +87,8 @@ export function useProjectAction(scope: Scope) {
       queryClient.invalidateQueries({ queryKey: projectKeys.all });
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
       queryClient.invalidateQueries({ queryKey: buildKeys.all });
+      // A project's containers reserve memory against the dashboard's quota.
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
       notify(t(scope === 'all' ? 'admin.resources.done' : ownActionMessages[variables.action].success), 'success');
     },
     onError: (error: unknown, variables) => {

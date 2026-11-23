@@ -20,6 +20,7 @@ const ContainerRoute = page(() => import('@/app/routes/ContainerRoute'), 'Contai
 const ImagesPage = page(() => import('@/features/images/pages/ImagesPage'), 'ImagesPage');
 const VolumesRoute = page(() => import('@/app/routes/VolumesRoute'), 'VolumesRoute');
 const ProjectsPage = page(() => import('@/features/projects/pages/ProjectsPage'), 'ProjectsPage');
+const ProjectPage = page(() => import('@/features/projects/pages/ProjectPage'), 'ProjectPage');
 const AllResourcesPage = page(() => import('@/features/admin/resources/pages/AllResourcesPage'), 'AllResourcesPage');
 const AdminMonitoringPage = page(() => import('@/features/admin/monitoring/pages/AdminMonitoringPage'), 'AdminMonitoringPage');
 const AdminReportsPage = page(() => import('@/features/admin/reports/pages/AdminReportsPage'), 'AdminReportsPage');
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: 'images', element: <ImagesPage /> },
       { path: 'volumes', element: <VolumesRoute /> },
       { path: 'projects', element: <ProjectsPage /> },
+      { path: 'projects/:id', element: <ProjectPage scope="own" backTo="/projects" backLabel="nav.projects" containersPath="/containers" /> },
       {
         path: 'admin',
         element: <AdminRoute />,

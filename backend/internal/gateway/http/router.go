@@ -117,6 +117,7 @@ func registerUserRoutes(protected *gin.RouterGroup, cfg Config, limiter *middlew
 
 	projects := protected.Group("/projects")
 	projects.GET("", deps.CoreHandler.GetProjects)
+	projects.GET("/:id", deps.CoreHandler.GetProject)
 	projects.DELETE("/:id", deps.CoreHandler.DeleteProject)
 	projects.POST("/:id/start", deps.CoreHandler.StartProject)
 	projects.POST("/:id/stop", deps.CoreHandler.StopProject)
@@ -171,6 +172,7 @@ func registerAdminRoutes(v1 *gin.RouterGroup, deps RouterDeps) {
 	admin.DELETE("/builds/:id", adminPermission(deps, permissions.BuildsAdminDelete), deps.CoreHandler.AdminDeleteBuild)
 
 	admin.GET("/projects", adminPermission(deps, permissions.ProjectsAdminList), deps.CoreHandler.ListAdminProjects)
+	admin.GET("/projects/:id", adminPermission(deps, permissions.ProjectsAdminList), deps.CoreHandler.AdminGetProject)
 	admin.DELETE("/projects/:id", adminPermission(deps, permissions.ProjectsAdminDelete), deps.CoreHandler.AdminDeleteProject)
 	admin.POST("/projects/:id/start", adminPermission(deps, permissions.ProjectsAdminStart), deps.CoreHandler.AdminStartProject)
 	admin.POST("/projects/:id/stop", adminPermission(deps, permissions.ProjectsAdminStop), deps.CoreHandler.AdminStopProject)

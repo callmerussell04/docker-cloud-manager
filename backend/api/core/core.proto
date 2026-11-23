@@ -37,6 +37,7 @@ service VolumeAPI {
 
 service ProjectAPI {
   rpc ListProjects (PaginationRequest) returns (PaginatedProjectResponse);
+  rpc GetProject (ProjectActionRequest) returns (ProjectData);
   rpc DeleteProject (ProjectActionRequest) returns (Empty);
   rpc StartProject (ProjectActionRequest) returns (Empty);
   rpc StopProject (ProjectActionRequest) returns (Empty);

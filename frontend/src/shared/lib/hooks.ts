@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { readListState, writeListState, type ListState, type ListStateSpec } from './listState';
 
@@ -85,4 +85,19 @@ export function useNowSeconds(intervalMs = 30_000) {
   }, [intervalMs]);
 
   return now;
+}
+
+// useElementWidth is an element's width, kept current as it changes (an
+// observer reports once as it starts); until then it is the estimate given.
+// The ref is a callback, so an element that is replaced is measured in turn.
+export function useElementWidth<E extends HTMLElement = HTMLElement>(estimate: number) {
+  const [element, setElement] = useState<E | null>(null);
+  const [width, setWidth] = useState(estimate);
+  useLayoutEffect(() => {
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return [setElement, width] as const;
 }

@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useElementWidth } from '@/shared/lib/hooks';
 import { rowsCompact, toolbarStacked } from '@/shared/lib/sizeClass';
 import { useSizeClass } from '@/shared/lib/useSizeClass';
 import { FrostWindow } from '@/shared/ui/FrostWindow';
@@ -50,21 +51,6 @@ function useSidebarCutout(hasSidebar: boolean) {
   return { frostRef, sidebarRef };
 }
 
-// useWidth is an element's width, kept current as it changes (an observer
-// reports once as it starts); until then it is the estimate given.
-function useWidth(estimate: number) {
-  const ref = useRef<HTMLElement>(null);
-  const [width, setWidth] = useState(estimate);
-  useLayoutEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, width] as const;
-}
-
 // useSearchShortcut opens and closes the search palette with Ctrl K (Cmd K on
 // a Mac) from anywhere on a signed-in page, the browser's own use of it aside.
 function useSearchShortcut(toggle: () => void) {
@@ -96,7 +82,7 @@ export function PageLayout() {
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
   useSearchShortcut(useCallback(() => setSearchOpen((value) => !value), []));
-  const [mainRef, contentWidth] = useWidth(window.innerWidth - contentLeft);
+  const [mainRef, contentWidth] = useElementWidth(window.innerWidth - contentLeft);
   const layout = useMemo<ShellLayout>(
     () => ({ toolbarStacked: toolbarStacked(contentWidth), rowsCompact: rowsCompact(contentWidth), tabBar: phone }),
     [contentWidth, phone],

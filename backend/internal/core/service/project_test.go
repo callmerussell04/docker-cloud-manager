@@ -17,6 +17,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// One project is readable by its owner and by an administrator. To any other
+// user it does not exist, so the answer never confirms the ID.
+func TestProjectServiceGetAppliesOwnerAccess(t *testing.T) {
+	owner := uuid.New()
+	p := model.Project{ID: uuid.New(), OwnerID: owner, Name: "shop", Status: model.ProjectStatusRunning}
+	tests := []struct {
+		name    string
+		ctx     context.Context
+		wantErr error
+	}{
+		{name: "owner", ctx: accessscope.WithUserScope(context.Background(), owner, "", "")},
+		{name: "administrator", ctx: accessscope.WithAdminScope(context.Background(), uuid.New(), "", "")},
+		{name: "another user", ctx: accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), wantErr: apperrors.ErrNotFound},
+		{name: "system scope", ctx: accessscope.WithSystemScope(context.Background()), wantErr: apperrors.ErrNotFound},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := coremocks.NewProjectRepository(t)
+			repo.EXPECT().GetByID(mock.Anything, p.ID).Return(p, nil)
+			svc := newTestProjectService(t, service.ProjectServiceDeps{Repository: repo})
+
+			got, err := svc.Get(tt.ctx, p.ID)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				require.Equal(t, model.Project{}, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, p, got)
+		})
+	}
+}
+
+func TestProjectServiceGetReportsAnUnknownProject(t *testing.T) {
+	id := uuid.New()
+	repo := coremocks.NewProjectRepository(t)
+	repo.EXPECT().GetByID(mock.Anything, id).Return(model.Project{}, apperrors.ErrNotFound)
+	svc := newTestProjectService(t, service.ProjectServiceDeps{Repository: repo})
+
+	_, err := svc.Get(accessscope.WithUserScope(context.Background(), uuid.New(), "", ""), id)
+
+	require.ErrorIs(t, err, apperrors.ErrNotFound)
+}
+
 func TestProjectServiceDeleteQueuesLifecycleRequest(t *testing.T) {
 	ownerID := uuid.New()
 	projectID := uuid.New()
