@@ -21,4 +21,6 @@ export const validation = {
   'validation.memoryReservationRange': 'Укажите целое число МБ от 16 до 1048576 (1 ТиБ)',
   'validation.cpuReservationRange': 'Укажите от 0.01 до 1 000 000 ядер',
   'validation.portRange': 'Укажите порт от 1 до 65535',
+  'validation.portRequired': 'Укажите порт, который слушает приложение',
+  'validation.memoryOverQuota': 'Свободно только {free} вашей квоты памяти. Уменьшите резервирование или освободите память.',
 } as const;

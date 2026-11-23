@@ -79,6 +79,8 @@ export function useCreateContainer() {
     mutationFn: createContainerFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: containerKeys.all });
+      // The new container reserves memory against the dashboard's quota.
+      queryClient.invalidateQueries({ queryKey: queryRoots.dashboard });
       notify(t('containers.created'), 'success');
     },
     onError: (error: unknown) => {

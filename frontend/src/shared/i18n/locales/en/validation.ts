@@ -23,4 +23,6 @@ export const validation: Record<keyof typeof ru, string> = {
   'validation.memoryReservationRange': 'Enter a whole number of MB from 16 to 1048576 (1 TiB)',
   'validation.cpuReservationRange': 'Enter from 0.01 to 1,000,000 cores',
   'validation.portRange': 'Enter a port from 1 to 65535',
+  'validation.portRequired': 'Enter the port the app listens on',
+  'validation.memoryOverQuota': 'Only {free} of your memory quota is free. Reserve less, or free some memory first.',
 };

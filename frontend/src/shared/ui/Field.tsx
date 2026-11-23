@@ -26,7 +26,7 @@ export function Field({ label, htmlFor, hint, error, className, children }: Fiel
   const control = cloneElement(children, { 'aria-describedby': describedBy, ...(error ? { 'aria-invalid': true } : {}) });
 
   return (
-    <div className={cn('grid gap-1.5', className)}>
+    <div className={cn('grid grid-cols-[minmax(0,1fr)] gap-1.5', className)}>
       {label && <Label htmlFor={htmlFor}>{label}</Label>}
       {control}
       {hint && <p id={hintId} className="text-xs leading-snug text-label-2">{hint}</p>}

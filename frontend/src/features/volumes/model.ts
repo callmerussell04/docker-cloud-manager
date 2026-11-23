@@ -31,6 +31,12 @@ export interface CreateVolumeDTO {
   size_bytes?: number;
 }
 
+// isVolumeMountable reports whether a new container may mount the volume: any
+// volume not being deleted.
+export function isVolumeMountable(status: string) {
+  return status !== 'deleting';
+}
+
 // isVolumeBusy reports whether a background worker is still creating or
 // deleting the volume; its list keeps polling while it is.
 export function isVolumeBusy(status: string) {

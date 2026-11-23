@@ -17,8 +17,9 @@ import { useShellLayout } from '@/shared/ui/shellLayout';
 import { StateMessage } from '@/shared/ui/StateMessage';
 import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
 import { ContainerRow } from '../components/ContainerRow';
-import { CreateContainerModal } from '../components/CreateContainerModal';
+import { CreateContainerDialog } from '../components/CreateContainerDialog';
 import { containerListLayout } from '../components/listLayout';
+import type { MemoryQuota } from '../createFlow';
 import { useContainerModals } from '../components/useContainerModals';
 import {
   containerFilterCounts,
@@ -54,13 +55,16 @@ interface ContainersPageProps {
   // projectName names a Compose project by its ID, for the tag beside its
   // containers; undefined while the projects are not known.
   projectName?: (projectId: string) => string | undefined;
+  // memory is the user's memory quota and what they reserve, for the create
+  // dialog's quota bar; undefined while it is not known.
+  memory?: MemoryQuota;
 }
 
-export function ContainersPage({ projectName }: ContainersPageProps) {
+export function ContainersPage({ projectName, memory }: ContainersPageProps) {
   const t = useT();
   const navigate = useNavigate();
   const compact = useShellLayout().rowsCompact;
-  const [isCreateModalOpen, setIsCreateModalOpen] = useSearchFlag(createDialogFlag);
+  const [isCreateOpen, setIsCreateOpen] = useSearchFlag(createDialogFlag);
   const { openExpose, modals } = useContainerModals('own');
   const [view, changeView] = useListState(listSpec);
 
@@ -93,7 +97,7 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
         <EmptyState
           title={t('containers.emptyTitle')}
           description={t('containers.emptyDescription')}
-          action={{ label: t('containers.create'), icon: Plus, onClick: () => setIsCreateModalOpen(true) }}
+          action={{ label: t('containers.create'), icon: Plus, onClick: () => setIsCreateOpen(true) }}
         />
       );
     }
@@ -143,7 +147,7 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
             </div>
           }
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateModalOpen(true)} label={t('containers.create')} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('containers.create')} />}
         />
       }
       head={(isLoading || shown.length > 0) && (
@@ -159,7 +163,7 @@ export function ContainersPage({ projectName }: ContainersPageProps) {
       {content()}
       {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <CreateContainerModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
+      <CreateContainerDialog isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} memory={memory} />
 
       {modals}
     </Page>

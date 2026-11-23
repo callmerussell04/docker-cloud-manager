@@ -38,3 +38,22 @@ describe('createContainerSchema reservations', () => {
     expect(result.error?.issues.map(issue => issue.message)).toContain(message);
   });
 });
+
+describe('createContainerSchema publishing', () => {
+  test('a private container sends no subdomain or port, whatever was typed', () => {
+    const parsed = createContainerSchema(t).parse({ ...base, publish: false, domain_prefix: 'shop', internal_port: '3000' });
+    expect(parsed.domain_prefix).toBeUndefined();
+    expect(parsed.internal_port).toBeUndefined();
+  });
+
+  test('a public container sends its subdomain and port', () => {
+    const parsed = createContainerSchema(t).parse({ ...base, publish: true, domain_prefix: 'shop', internal_port: '3000' });
+    expect(parsed.domain_prefix).toBe('shop');
+    expect(parsed.internal_port).toBe(3000);
+  });
+
+  test('a public subdomain keeps the 30 character limit', () => {
+    const result = createContainerSchema(t).safeParse({ ...base, publish: true, domain_prefix: 'a'.repeat(31), internal_port: '80' });
+    expect(result.error?.issues.map((issue) => issue.message)).toEqual(['validation.max30']);
+  });
+});

@@ -59,6 +59,12 @@ export interface CreateBuildGitPayload {
 const activeBuildStatuses = new Set(['pending', 'running']);
 const finishedBuildStatuses = new Set(['success', 'failed', 'failed_timeout', 'failed_quota_exceeded', 'failed_resource_exhausted', 'failed_internal', 'canceled']);
 
+// isImageAvailable reports whether the image is ready to run a container
+// from.
+export function isImageAvailable(status: string) {
+  return status === 'available';
+}
+
 // isImageBusy reports whether the image is still being built or deleted; its
 // list keeps polling while it is.
 export function isImageBusy(status: string) {
