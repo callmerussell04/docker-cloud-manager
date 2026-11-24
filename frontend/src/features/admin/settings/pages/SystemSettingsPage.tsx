@@ -29,6 +29,8 @@ import { CPUSummaryNote, MemorySummaryNote, QuotaSummaryNote } from '../componen
 // The sign-in status is the last section: read-only, set in the environment.
 type PageSection = SectionId | 'auth';
 
+const formId = 'system-settings-form';
+
 const sectionCountLabels = {
   found: 'admin.settings.sectionFound',
   invalid: 'admin.settings.sectionInvalid',
@@ -176,6 +178,22 @@ export function SystemSettingsPage() {
   return (
     <Page
       fill
+      // The save bar floats over the page outside its scroll area, so its
+      // glass refracts the rows beneath it; Save submits the form by its id.
+      overlay={isDirty && (
+        <SaveBar
+          form={formId}
+          label={t('admin.settings.unsavedLabel')}
+          message={invalidNames.length
+            ? t('admin.settings.unsaved.invalid', { count: invalidNames.length })
+            : t('admin.settings.unsaved.count', { count: changedNames.length })}
+          invalid={invalidNames.length > 0}
+          discardLabel={t('admin.settings.discard')}
+          saveLabel={t('common.save')}
+          onDiscard={() => reset(config)}
+          saving={mutation.isPending}
+        />
+      )}
       toolbar={
         <Toolbar
           title={title}
@@ -184,6 +202,7 @@ export function SystemSettingsPage() {
       }
     >
       <form
+        id={formId}
         onSubmit={handleSubmit(onValid, onInvalid)}
         noValidate
         className={cn(
@@ -248,19 +267,6 @@ export function SystemSettingsPage() {
           </div>
         </div>
 
-        {isDirty && (
-          <SaveBar
-            label={t('admin.settings.unsavedLabel')}
-            message={invalidNames.length
-              ? t('admin.settings.unsaved.invalid', { count: invalidNames.length })
-              : t('admin.settings.unsaved.count', { count: changedNames.length })}
-            invalid={invalidNames.length > 0}
-            discardLabel={t('admin.settings.discard')}
-            saveLabel={t('common.save')}
-            onDiscard={() => reset(config)}
-            saving={mutation.isPending}
-          />
-        )}
       </form>
     </Page>
   );

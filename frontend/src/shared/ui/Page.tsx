@@ -12,6 +12,10 @@ interface PageProps {
   // scroll area, for a page whose parts scroll on their own, as the
   // container page's console and side column do.
   fill?: boolean;
+  // overlay floats over the page outside its scroll area, as the toolbar
+  // does, for glass such as a save bar that must refract the content
+  // beneath it rather than sit inside the masked scroll area.
+  overlay?: ReactNode;
   className?: string;
   children: ReactNode;
 }
@@ -20,7 +24,7 @@ interface PageProps {
 // the content scrolls beneath it, fading out as it passes under. The scroll
 // area starts below the toolbar however many rows it has (see .page in
 // app/index.css), and ends above the phone tab bar.
-export function Page({ toolbar, head, fill = false, className, children }: PageProps) {
+export function Page({ toolbar, head, fill = false, overlay, className, children }: PageProps) {
   const { tabBar } = useShellLayout();
   return (
     <div className="page relative h-full">
@@ -35,6 +39,7 @@ export function Page({ toolbar, head, fill = false, className, children }: PageP
       >
         <div className={cn(fill ? 'h-full' : 'space-y-6', className)}>{children}</div>
       </div>
+      {overlay}
     </div>
   );
 }

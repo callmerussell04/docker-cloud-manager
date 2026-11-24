@@ -15,13 +15,16 @@ interface SaveBarProps {
   saving?: boolean;
   // label names the bar for assistive technology.
   label: string;
+  // form is the id of the form Save submits.
+  form: string;
 }
 
 // SaveBar is the floating glass bar of a form with unsaved changes: what is
 // unsaved, Discard and Save. It floats at the bottom centre of the page (above
 // the phone tab bar) and is rendered only while there is something to save,
-// inside the form, whose submit its Save button is.
-export function SaveBar({ message, invalid = false, discardLabel, saveLabel, onDiscard, saving = false, label }: SaveBarProps) {
+// outside the form's scroll area (see Page's overlay); Save submits the form
+// it names.
+export function SaveBar({ message, invalid = false, discardLabel, saveLabel, onDiscard, saving = false, label, form }: SaveBarProps) {
   const { tabBar } = useShellLayout();
   return (
     <div
@@ -60,7 +63,7 @@ export function SaveBar({ message, invalid = false, discardLabel, saveLabel, onD
           <Undo2 aria-hidden className={cn('h-3.5 w-3.5', !tabBar && 'mr-1.5')} />
           {!tabBar && discardLabel}
         </Button>
-        <Button type="submit" isLoading={saving} className="h-9 shrink-0 rounded-full px-4 font-semibold">
+        <Button type="submit" form={form} isLoading={saving} className="h-9 shrink-0 rounded-full px-4 font-semibold">
           {saveLabel}
         </Button>
       </Glass>

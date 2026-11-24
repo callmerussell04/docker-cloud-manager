@@ -217,19 +217,28 @@ function NumberInput({ id, describedBy, invalid, changed, value, onChange, toSho
   const formatted = value === undefined ? '' : String(toShown ? toShown(value) : value);
   const text = draft && draft.value === value ? draft.text : formatted;
 
+  // One box holds the number and its unit a small gap apart, so the number
+  // ends just before the unit whatever the unit's length.
   return (
-    <div className={cn('relative', className)}>
-      <Input
+    <div
+      className={cn(
+        'flex items-center gap-1.5 rounded-xl border bg-fill pr-4 text-sm transition-all',
+        'focus-within:ring-2 focus-within:ring-accent-fill',
+        invalid ? 'border-red focus-within:ring-red' : changed ? 'border-accent-fill' : 'border-transparent',
+        className,
+      )}
+    >
+      <input
         id={id}
         type="number"
         inputMode="decimal"
         step={step}
         aria-describedby={describedBy}
         aria-invalid={invalid}
-        error={invalid}
-        className={cn('text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none', changedOutline(changed, invalid))}
-        // The unit sits inside the field's end, so the number stops before it.
-        style={suffix ? { paddingRight: `calc(${suffix.length}ch + 1.75rem)` } : undefined}
+        className={cn(
+          'min-w-0 flex-1 bg-transparent py-2.5 pl-4 text-right tabular-nums text-label placeholder:text-label-3 focus-visible:outline-none',
+          '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+        )}
         value={text}
         onChange={(event) => {
           const raw = event.target.value;
@@ -240,11 +249,7 @@ function NumberInput({ id, describedBy, invalid, changed, value, onChange, toSho
         }}
         onBlur={() => setDraft((current) => (current && current.value === undefined ? current : null))}
       />
-      {suffix && (
-        <span aria-hidden className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-label-2">
-          {suffix}
-        </span>
-      )}
+      {suffix && <span aria-hidden className="shrink-0 text-label-2">{suffix}</span>}
     </div>
   );
 }
@@ -312,7 +317,9 @@ function Toggle({ id, describedBy, changed, checked, onChange, t }: ControlProps
       >
         <span
           className={cn(
-            'absolute top-[3px] h-5 w-5 rounded-full bg-on-accent shadow-[var(--lift-shadow)] transition-transform',
+            // left-0: a button centres its text, which would move the knob's
+            // start to the middle of the track.
+            'absolute left-0 top-[3px] h-5 w-5 rounded-full bg-on-accent shadow-[var(--lift-shadow)] transition-transform',
             checked ? 'translate-x-[21px]' : 'translate-x-[3px]',
           )}
         />
