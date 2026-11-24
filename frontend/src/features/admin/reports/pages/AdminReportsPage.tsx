@@ -17,12 +17,13 @@ import { Pagination } from '@/shared/ui/Pagination';
 import { Pills } from '@/shared/ui/Pills';
 import { StackedAreaChart } from '@/shared/ui/StackedAreaChart';
 import { Toolbar, ToolbarSearch } from '@/shared/ui/Toolbar';
-import { AuditLog } from '../components/AuditLog';
+import { AuditHead, AuditLog } from '../components/AuditLog';
 import { chartMoment, chartTime, rangeParams } from '../components/reportFormat';
 import { ReportsSide } from '../components/ReportsSide';
 import { UserDetail } from '../components/UserDetail';
 import { UsersTable, usersTableMinWidth } from '../components/UsersTable';
 import {
+  auditLogStart,
   defaultReportRange,
   defaultUsageSort,
   nextUsageSort,
@@ -152,9 +153,10 @@ export function AdminReportsPage() {
   const openRow = usersList.find((user) => user.owner_id === openUser);
   const userActions = useAuditEvents({ ...reportWindow, actor_user_id: openRow?.owner_id, page: 1, limit: userActionsLimit }, usage && Boolean(openRow));
   const auditSearch = useDebouncedValue(auditView.search);
+  // The audit log is the whole log, newest first; it has no range.
   const audit = useAuditEvents(
     {
-      ...reportWindow,
+      from: auditLogStart,
       search: auditSearch.trim() || undefined,
       outcome: auditView.filter === 'failed' ? 'failure' : undefined,
       page: auditView.page,
@@ -206,7 +208,9 @@ export function AdminReportsPage() {
           { id: 'audit', label: t('admin.reports.tab.audit') },
         ]}
       />
-      <Pills label={t('admin.reports.rangeLabel')} value={range} onChange={changeRange} items={reportRanges.map((id) => ({ id, label: t(`admin.reports.range.${id}`) }))} />
+      {tab === 'usage' && (
+        <Pills label={t('admin.reports.rangeLabel')} value={range} onChange={changeRange} items={reportRanges.map((id) => ({ id, label: t(`admin.reports.range.${id}`) }))} />
+      )}
       {tab === 'audit' && (
         <>
           <Pills
@@ -225,6 +229,7 @@ export function AdminReportsPage() {
   );
 
   let content: ReactNode;
+  let head: ReactNode;
   if (tab === 'audit') {
     const events = audit.data?.events ?? [];
     if (audit.isError && !audit.data) {
@@ -238,6 +243,7 @@ export function AdminReportsPage() {
         <EmptyState title={t(auditView.filter === 'failed' ? 'admin.reports.emptyFailed' : 'admin.reports.emptyAudit')} />
       );
     } else {
+      head = <AuditHead />;
       content = (
         <>
           <AuditLog events={events} />
@@ -359,7 +365,7 @@ export function AdminReportsPage() {
   }
 
   return (
-    <Page toolbar={<Toolbar title={t('admin.reports.title')} pills={pills} />}>
+    <Page toolbar={<Toolbar title={t('admin.reports.title')} pills={pills} />} head={head}>
       <div ref={measure}>{content}</div>
     </Page>
   );

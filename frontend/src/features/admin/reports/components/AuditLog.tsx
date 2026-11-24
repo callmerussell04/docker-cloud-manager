@@ -6,14 +6,34 @@ import { auditDetails, auditFailureKey, type AuditEvent } from '../model';
 import { resourceName, useActorName, useAge } from './eventFormat';
 import { auditActionLabel, auditDetailLabel } from './reportFormat';
 
-// The log's grid: when, who, the action, the resource with its details, and
-// the outcome. A compact row is the action and resource over who and when,
-// beside the outcome.
-const template = '80px 90px 160px minmax(0,1fr) minmax(0,1.2fr)';
+// The log's grid, shared by its head and rows: when, who, the action, the
+// resource, the details recorded with it, and the outcome. A compact row is
+// the action and resource over the details and who and when, beside the
+// outcome.
+const template = '92px minmax(80px,0.7fr) minmax(130px,1fr) minmax(110px,1fr) minmax(150px,1.4fr) minmax(130px,1fr)';
 const compactTemplate = 'minmax(0,1fr) auto';
 
+// AuditHead is the log's column labels, for Page's head so they stay under
+// the toolbar. The log is newest first, as the server keeps it, so they do
+// not sort. Compact rows have no columns, so it shows nothing then.
+export function AuditHead() {
+  const t = useT();
+  if (useShellLayout().rowsCompact) return null;
+  const labels = ['time', 'user', 'action', 'resource', 'details', 'outcome'] as const;
+  return (
+    <div className="grid h-[34px] items-center gap-4 px-3.5 shadow-[inset_0_-1px_0_var(--separator)]" style={{ gridTemplateColumns: template }}>
+      {labels.map((label) => (
+        <span key={label} className="truncate text-[11.5px] font-[650] text-label-2">
+          {t(`admin.reports.column.${label}`)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // AuditLog is the audit events, newest first, one row each, parted by
-// hairlines. Under each resource are the details recorded with the action
+// hairlines; details and a failure's reason wrap to two lines. The details
+// column holds what was recorded with the action
 // (the address and port a container was published on, the project and
 // service, what it was before), each by its name; a failure shows its
 // reason.
@@ -37,9 +57,9 @@ export function AuditLog({ events }: { events: readonly AuditEvent[] }) {
           .join(' · ');
         const action = auditActionLabel(t, event.action);
         const outcomeCell = (
-          <span className={cn('inline-flex min-w-0 items-center gap-1.5', failed ? 'text-red-text' : 'text-label-2')}>
-            <Mark aria-hidden className={cn('h-3.5 w-3.5 shrink-0', failed ? 'text-red' : 'text-green')} strokeWidth={2} />
-            <span className="truncate" title={outcome}>
+          <span className={cn('inline-flex min-w-0 items-start gap-1.5', failed ? 'text-red-text' : 'text-label-2')}>
+            <Mark aria-hidden className={cn('mt-[2px] h-3.5 w-3.5 shrink-0', failed ? 'text-red' : 'text-green')} strokeWidth={2} />
+            <span className="line-clamp-2" title={outcome}>
               {outcome}
             </span>
           </span>
@@ -47,7 +67,7 @@ export function AuditLog({ events }: { events: readonly AuditEvent[] }) {
         return (
           <li
             key={event.id}
-            className={cn('grid min-h-11 items-center gap-3.5 px-3.5 py-1', index > 0 && 'border-t border-separator')}
+            className={cn('grid min-h-11 items-center gap-4 px-3.5 py-1', index > 0 && 'border-t border-separator')}
             style={{ gridTemplateColumns: compact ? compactTemplate : template }}
           >
             {compact ? (
@@ -69,16 +89,14 @@ export function AuditLog({ events }: { events: readonly AuditEvent[] }) {
                   {age(event.occurred_at)}
                 </span>
                 <span className="truncate font-semibold text-label">{actorName(event)}</span>
-                <span className="truncate text-label-2" title={action}>
+                <span className="truncate text-label" title={action}>
                   {action}
                 </span>
-                <span className="grid min-w-0 py-1">
-                  <span className="truncate text-label">{resourceName(event)}</span>
-                  {details && (
-                    <span className="truncate text-[12px] text-label-2" title={details}>
-                      {details}
-                    </span>
-                  )}
+                <span className="truncate text-label" title={resourceName(event)}>
+                  {resourceName(event)}
+                </span>
+                <span className="line-clamp-2 text-label-2" title={details || undefined}>
+                  {details}
                 </span>
                 {outcomeCell}
               </>

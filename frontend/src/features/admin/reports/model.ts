@@ -107,7 +107,11 @@ export interface ReportRangeParams {
   to: number;
 }
 
-export interface AuditFilters extends ReportRangeParams {
+// AuditFilters reads audit events. The window is optional: without a `to`
+// the server reads up to now, and auditLogStart as `from` reads the whole
+// log (a `from` of 0 counts as unset, which the server takes as the last
+// 24 hours).
+export interface AuditFilters extends Partial<ReportRangeParams> {
   actor_user_id?: string;
   action?: string;
   outcome?: string;
@@ -116,6 +120,10 @@ export interface AuditFilters extends ReportRangeParams {
   page: number;
   limit: number;
 }
+
+// auditLogStart is the first second of Unix time, the `from` that reads the
+// audit log from its beginning.
+export const auditLogStart = 1;
 
 export interface UserUsageFilters extends ReportRangeParams {
   sort: string;
