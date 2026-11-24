@@ -209,7 +209,7 @@
     box-shadow: var(--glass-shadow);
   }
 
-  /* Menus, dialogs, the search palette and the save bar: dense enough to read
+  /* Menus, dialogs and the search palette: dense enough to read
      long text on. */
   .glass-dense {
     background: var(--glass-dense);

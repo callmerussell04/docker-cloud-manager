@@ -35,17 +35,14 @@ export function SaveBar({ message, invalid = false, discardLabel, saveLabel, onD
         tabBar ? 'bottom-[96px]' : 'bottom-5',
       )}
     >
+      {/* The clear glass of the toolbar's pills and the tab bar, which
+          bends and blurs the rows passing beneath it. */}
       <Glass
-        material="dense"
         className={cn(
           'pointer-events-auto flex max-w-full items-center gap-2 py-1.5 pl-4 pr-1.5 animate-in fade-in slide-in-from-bottom-2',
           tabBar ? 'rounded-[24px]' : 'rounded-full',
         )}
       >
-        {/* Rows pass beneath the bar, so a dense, feathered core keeps it
-            legible inside the clear, refracting rim, whether or not the
-            browser blurs what is behind it. */}
-        <div aria-hidden className="glass-core" />
         <span aria-hidden className={cn('h-[7px] w-[7px] shrink-0 rounded-full', invalid ? 'bg-red' : 'bg-accent-fill')} />
         <p
           aria-live="polite"

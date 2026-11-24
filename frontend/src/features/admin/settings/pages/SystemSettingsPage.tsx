@@ -110,8 +110,10 @@ export function SystemSettingsPage() {
 
   // A newly chosen section starts at its top.
   useEffect(() => {
-    bodyRef.current?.scrollTo({ top: 0 });
-  }, [active]);
+    // On compact content the page itself scrolls, not the content column.
+    const body = bodyRef.current;
+    (compact ? body?.closest('.page-scroll') : body)?.scrollTo({ top: 0 });
+  }, [active, compact]);
 
   const onValid = (data: SystemConfig) => {
     mutation.mutate(data, { onSuccess: () => reset(data) });
@@ -177,7 +179,10 @@ export function SystemSettingsPage() {
 
   return (
     <Page
-      fill
+      // On compact content the page scrolls as a whole, so the rows pass
+      // under the phone tab bar; beside the section list each column
+      // scrolls on its own.
+      fill={!compact}
       // The save bar floats over the page outside its scroll area, so its
       // glass refracts the rows beneath it; Save submits the form by its id.
       overlay={isDirty && (
@@ -206,8 +211,7 @@ export function SystemSettingsPage() {
         onSubmit={handleSubmit(onValid, onInvalid)}
         noValidate
         className={cn(
-          'grid h-full',
-          compact ? 'grid-rows-[auto_minmax(0,1fr)] gap-2' : 'grid-cols-[minmax(10rem,13rem)_minmax(0,1fr)] gap-5',
+          compact ? 'grid gap-2' : 'grid h-full grid-cols-[minmax(10rem,13rem)_minmax(0,1fr)] gap-5',
         )}
       >
         <div
@@ -228,7 +232,10 @@ export function SystemSettingsPage() {
 
         <div
           ref={setBody}
-          className={cn('min-h-0 overflow-y-auto pb-28 [scrollbar-width:thin]', !compact && 'border-l border-separator pl-5')}
+          className={cn(
+            'pb-28',
+            !compact && 'min-h-0 overflow-y-auto border-l border-separator pl-5 [scrollbar-width:thin]',
+          )}
         >
           <div className="grid max-w-[820px] gap-10">
             {shown.map((section) => (

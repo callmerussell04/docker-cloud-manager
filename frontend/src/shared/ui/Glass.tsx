@@ -6,7 +6,7 @@ type GlassMaterial = 'clear' | 'dense' | 'sidebar';
 
 interface GlassProps extends HTMLAttributes<HTMLDivElement> {
   // material picks the fill: clear for controls, dense for menus, dialogs,
-  // the search palette, the save bar and the sign-in card, sidebar for the
+  // the search palette and the sign-in card, sidebar for the
   // sidebar.
   material?: GlassMaterial;
   ref?: Ref<HTMLDivElement>;
