@@ -11,6 +11,8 @@ interface SparklineProps {
   // guides draws quarter lines and a baseline, shown even before there is a
   // line to draw.
   guides?: boolean;
+  // color is the line's colour, a series token; the first series by default.
+  color?: string;
   className?: string;
 }
 
@@ -22,10 +24,10 @@ const quarters = [0.25, 0.5, 0.75];
 
 const yOf = (share: number) => height - share * (height - headroom);
 
-// Sparkline draws a series as a small filled line in the first chart series,
-// scaled from zero to max. It draws no line until there are two points to
+// Sparkline draws a series as a small filled line in a chart series (the
+// first unless given), scaled from zero to max. It draws no line until there are two points to
 // join, so a history that has just started shows no invented line.
-export function Sparkline({ series, max, slots, guides = false, className }: SparklineProps) {
+export function Sparkline({ series, max, slots, guides = false, color = 'var(--series-1)', className }: SparklineProps) {
   const drawn = series.length >= 2 && max > 0;
   if (!drawn && !guides) return null;
   const span = Math.max(slots ?? series.length, series.length, 2) - 1;
@@ -44,8 +46,8 @@ export function Sparkline({ series, max, slots, guides = false, className }: Spa
         ))}
       {drawn && (
         <>
-          <path d={`M${start.toFixed(2)},${height} L${points.join(' L')} L100,${height} Z`} fill="color-mix(in srgb, var(--series-1) 18%, transparent)" />
-          <path d={`M${points.join(' L')}`} fill="none" stroke="var(--series-1)" strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          <path d={`M${start.toFixed(2)},${height} L${points.join(' L')} L100,${height} Z`} fill={`color-mix(in srgb, ${color} 18%, transparent)`} />
+          <path d={`M${points.join(' L')}`} fill="none" stroke={color} strokeWidth={1.6} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         </>
       )}
     </svg>

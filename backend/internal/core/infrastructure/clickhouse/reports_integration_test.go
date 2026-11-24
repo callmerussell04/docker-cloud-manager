@@ -87,6 +87,11 @@ func TestReportsRepositoryInsertUsageSnapshotsLeavesConnectionReusable(t *testin
 	require.Len(t, events, 1)
 	require.Equal(t, auditlog.ActionContainerExpose, events[0].Action)
 
+	// The search also matches the action, so "expose" finds the event.
+	_, total, err = repo.ListAuditEvents(ctx, model.AuditEventFilters{From: from, To: to, Search: "EXPOSE", Limit: 20})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+
 	overview, err := repo.GetReportsOverview(ctx, from, to)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, overview.AuditEventsTotal)

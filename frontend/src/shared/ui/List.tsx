@@ -24,8 +24,10 @@ interface ListHeadProps<K extends string> {
   columns: readonly ListColumn<K>[];
   // template is the grid the rows use, so each label sits over its column.
   template: string;
-  sort: ListSort<K>;
-  onSort: (key: K) => void;
+  // sort and onSort make each label sort the list; without them the labels
+  // are plain, for a list in a fixed order such as a log.
+  sort?: ListSort<K>;
+  onSort?: (key: K) => void;
 }
 
 // ListHead is a list's column labels; each sorts the list, and again reverses
@@ -36,6 +38,16 @@ export function ListHead<K extends string>({ columns, template, sort, onSort }: 
   return (
     <div className="grid h-[34px] items-center gap-[18px] pl-4 pr-2.5 shadow-[inset_0_-1px_0_var(--separator)]" style={{ gridTemplateColumns: template }}>
       {columns.map((column, index) => {
+        if (!sort || !onSort) {
+          return (
+            <span
+              key={column.key}
+              className={cn('truncate text-[11.5px] font-[650] text-label-2', index === 0 && 'pl-[22px]', column.end && 'pr-[38px] text-right')}
+            >
+              {column.label}
+            </span>
+          );
+        }
         const current = sort.key === column.key;
         const Arrow = sort.ascending ? ChevronUp : ChevronDown;
         return (
@@ -84,13 +96,16 @@ interface ListRowProps {
   // onOpen opens the row's item; leave it out for an item with no page, whose
   // row is then not a target and its menu holds everything.
   onOpen?: () => void;
+  // inItem marks a row that its own list item holds together with what it
+  // opens below it, as a row that opens in place; the row is then a group.
+  inItem?: boolean;
   children: ReactNode;
 }
 
 // ListRow is one line of a list. The whole row opens its item, on a click or
 // on Enter while it is focused; links and buttons inside do their own thing.
 // Compact rows grow to fit two lines.
-export function ListRow({ template, onOpen, children }: ListRowProps) {
+export function ListRow({ template, onOpen, inItem = false, children }: ListRowProps) {
   const compact = useShellLayout().rowsCompact;
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!onOpen || event.target !== event.currentTarget) return;
@@ -101,7 +116,7 @@ export function ListRow({ template, onOpen, children }: ListRowProps) {
   };
   return (
     <div
-      role="listitem"
+      role={inItem ? 'group' : 'listitem'}
       tabIndex={onOpen ? 0 : undefined}
       onClick={onOpen}
       onKeyDown={onOpen && onKeyDown}

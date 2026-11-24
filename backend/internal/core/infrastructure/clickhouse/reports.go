@@ -517,8 +517,8 @@ func auditWhere(filters model.AuditEventFilters) (string, []any) {
 		args = append(args, filters.ResourceType)
 	}
 	if filters.Search != "" {
-		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0 OR positionCaseInsensitive(details_json, ?) > 0)")
-		args = append(args, filters.Search, filters.Search, filters.Search, filters.Search)
+		parts = append(parts, "(positionCaseInsensitive(actor_username, ?) > 0 OR positionCaseInsensitive(action, ?) > 0 OR positionCaseInsensitive(resource_name, ?) > 0 OR positionCaseInsensitive(resource_id, ?) > 0 OR positionCaseInsensitive(details_json, ?) > 0)")
+		args = append(args, filters.Search, filters.Search, filters.Search, filters.Search, filters.Search)
 	}
 	return "WHERE " + strings.Join(parts, " AND "), args
 }

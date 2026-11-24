@@ -14,7 +14,9 @@ export interface ApiErrorMessage {
   message: string;
 }
 
-const knownErrorCodes = new Set([
+// The error codes the backend answers with (apperrors.Code), each with its
+// message, `apiError.<code>`.
+export const knownErrorCodes: ReadonlySet<string> = new Set([
   'bad_request',
   'not_found',
   'already_exists',

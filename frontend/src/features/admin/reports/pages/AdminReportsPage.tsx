@@ -1,167 +1,376 @@
-import { useMemo, useState } from 'react';
-import { Boxes, Cpu, Filter, HardDrive, MemoryStick, RefreshCcw, ShieldAlert, Users } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Loader2, RefreshCcw } from 'lucide-react';
 
-import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton } from '@/shared/ui/Toolbar';
-import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { failureReason } from '@/shared/api/apiError';
-import { dateLocale, useLocale, useT } from '@/shared/i18n';
+import { useLocale, useT } from '@/shared/i18n';
+import { ageOf } from '@/shared/lib/age';
+import { useDebouncedValue, useElementWidth, useListState, useNowSeconds } from '@/shared/lib/hooks';
+import type { ListStateSpec } from '@/shared/lib/listState';
 import { formatBytes } from '@/shared/lib/utils';
-import type { UserUsageReportItem } from '../model';
-import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUsageReport, useUserUsageTimeline } from '../queries';
-import { useDebouncedValue, useNowSeconds, usePageOf } from '@/shared/lib/hooks';
-import { auditPageSize, numberValue, percentValue, rangeParams, ranges, userPageSize } from '../components/reportFormat';
-import { ReportMetricCard } from '../components/ReportMetricCard';
+import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
-import { UserUsageTable } from '../components/UserUsageTable';
-import { AuditEventsTable, type AuditFilterValues } from '../components/AuditEventsTable';
-import { UserUsageChartModal } from '../components/UserUsageChartModal';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
+import { Page } from '@/shared/ui/Page';
+import { Pagination } from '@/shared/ui/Pagination';
+import { Pills } from '@/shared/ui/Pills';
+import { StackedAreaChart } from '@/shared/ui/StackedAreaChart';
+import { StatusDot } from '@/shared/ui/StatusDot';
+import { Toolbar, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { AuditHead, AuditLog } from '../components/AuditLog';
+import { chartMoment, chartTime, numberValue, rangeParams } from '../components/reportFormat';
+import { ReportsSide } from '../components/ReportsSide';
+import { UserDetail } from '../components/UserDetail';
+import { UsersTable, usersTableMinWidth } from '../components/UsersTable';
+import {
+  defaultReportRange,
+  defaultUsageSort,
+  nextUsageSort,
+  rangeSeconds,
+  readReportRange,
+  reportRanges,
+  sortUsageUsers,
+  trendChange,
+  usageSeries,
+  usageSlotSeconds,
+  usageSortKeys,
+  userSeries,
+  type ReportRange,
+  type ReportsOverview,
+  type UsageSortKey,
+} from '../model';
+import { useAuditEvents, useRefreshUsageSnapshots, useReportsOverview, useUserUsageReport, useUserUsageTimelines } from '../queries';
+import { useNotificationStore } from '@/shared/ui/notificationStore';
+
+// The page's state in the URL: the report (?tab=audit; Usage is the default
+// and left out), the range (?range=24h; 7 days left out), the user whose
+// usage is open (?user=<id>), and each report's list state.
+type Tab = 'usage' | 'audit';
+const param = { tab: 'tab', range: 'range', user: 'user' } as const;
+
+const usageListSpec: ListStateSpec<'all', UsageSortKey> = { filters: ['all'], sortKeys: usageSortKeys, defaultSort: defaultUsageSort };
+type AuditFilter = 'all' | 'failed';
+const auditListSpec: ListStateSpec<AuditFilter, 'time'> = { filters: ['all', 'failed'], sortKeys: ['time'], defaultSort: { key: 'time', ascending: false } };
+
+// The page reads the first usersLimit users (the server's page maximum), each
+// with their timeline; past that the table says how many it shows.
+const usersLimit = 100;
+const auditPageSize = 50;
+const recentFailuresLimit = 6;
+const userActionsLimit = 8;
+// The side column sits beside the chart once the content leaves the users
+// table its full width beside it (the column, 280 px, and the gap, 48 px).
+const sideColumnWidth = usersTableMinWidth + 280 + 48;
 
 function currentSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 
+// useReportWindow is the range's window. It ends when the range was chosen
+// or usage was last collected, so collecting moves it forward and every
+// report reloads with what happened since, keeping the previous figures on
+// screen meanwhile.
+function useReportWindow(range: ReportRange) {
+  const [held, setHeld] = useState(() => ({ range, end: currentSeconds() }));
+  // Adjusting state while rendering, as React documents for state that
+  // follows a changed input.
+  if (held.range !== range) setHeld({ range, end: currentSeconds() });
+  const params = useMemo(() => rangeParams(rangeSeconds[held.range], held.end), [held]);
+  const moveToNow = () => setHeld({ range, end: currentSeconds() });
+  return [params, moveToNow] as const;
+}
+
+interface FreshnessProps {
+  overview: ReportsOverview;
+  collecting: boolean;
+  onCollect: () => void;
+}
+
+// Freshness says when usage was last collected and how often, marks it gray
+// once it is older than two intervals, and offers to collect it now.
+function Freshness({ overview, collecting, onCollect }: FreshnessProps) {
+  const t = useT();
+  const now = useNowSeconds();
+  const ageText = (seconds: number) => {
+    const age = ageOf(0, seconds);
+    return t(`common.age.${age.unit}`, { count: age.count });
+  };
+  const last = overview.last_usage_snapshot_at;
+  const interval = overview.usage_snapshot_interval_seconds;
+  const stale = last === 0 || (interval > 0 && now - last > 2 * interval);
+  const text = last > 0 ? t('admin.reports.collected', { age: ageText(now - last), interval: ageText(interval) }) : t('admin.reports.notCollected');
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-label-2">
+      <StatusDot tone={stale ? 'idle' : 'ok'}>
+        {text}
+        {stale && last > 0 && ` · ${t('admin.reports.stale')}`}
+      </StatusDot>
+      <button type="button" onClick={onCollect} disabled={collecting} className="inline-flex items-center gap-1 rounded font-medium text-accent hover:underline disabled:opacity-60">
+        {collecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+        {t('admin.reports.collectNow')}
+      </button>
+    </div>
+  );
+}
+
+// AdminReportsPage is two reports behind toolbar pills. Usage: memory
+// reserved by each user over the range as one stacked chart, the users table
+// with a trend per row (a row opens that user's charts and recent actions),
+// and a column with the range's figures, the most frequent actions and the
+// latest failures. Audit log: every action, searchable and filterable to
+// failures, each failure with its reason.
 export function AdminReportsPage() {
   const t = useT();
-  const notify = useNotificationStore((state) => state.notify);
   const locale = useLocale();
-  const [rangeSeconds, setRangeSeconds] = useState(ranges[1].seconds);
-  const [sort, setSort] = useState('disk');
-  const [userSearch, setUserSearch] = useState('');
-  const [selectedUser, setSelectedUser] = useState<UserUsageReportItem | undefined>();
-  const [auditFilters, setAuditFilters] = useState<AuditFilterValues>({ search: '', outcome: '', action: '', resourceType: '' });
-  const debouncedUserSearch = useDebouncedValue(userSearch);
-  const debouncedAuditSearch = useDebouncedValue(auditFilters.search);
-  // The window ends when the range was chosen or usage was last refreshed,
-  // so a refresh moves it forward and shows what happened since.
-  const [windowEnd, setWindowEnd] = useState(currentSeconds);
-  const params = useMemo(() => rangeParams(rangeSeconds, windowEnd), [rangeSeconds, windowEnd]);
-  const [userPage, setUserPage] = usePageOf([debouncedUserSearch, rangeSeconds, sort]);
-  const [auditPage, setAuditPage] = usePageOf([debouncedAuditSearch, auditFilters.outcome, auditFilters.action, auditFilters.resourceType, rangeSeconds]);
+  const notify = useNotificationStore((state) => state.notify);
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get(param.tab) === 'audit' ? 'audit' : 'usage';
+  const range = readReportRange(params.get(param.range));
+  const openUser = params.get(param.user);
+  const [usageView, changeUsage] = useListState(usageListSpec);
+  const [auditView, changeAudit] = useListState(auditListSpec);
+  const [reportWindow, moveWindowToNow] = useReportWindow(range);
+  const [measure, contentWidth] = useElementWidth<HTMLDivElement>(1000);
 
-  const overview = useReportsOverview(params);
-  const users = useUserUsageReport({ ...params, sort, search: debouncedUserSearch, page: userPage, limit: userPageSize });
-  const timeline = useUserUsageTimeline(selectedUser?.owner_id, params, Boolean(selectedUser));
-  const audit = useAuditEvents({
-    ...params,
-    search: debouncedAuditSearch,
-    outcome: auditFilters.outcome,
-    action: auditFilters.action,
-    resource_type: auditFilters.resourceType,
-    page: auditPage,
-    limit: auditPageSize,
-  });
-  const refreshSnapshots = useRefreshUsageSnapshots();
-  const now = useNowSeconds();
+  const usage = tab === 'usage';
+  const overview = useReportsOverview(reportWindow, usage);
+  const users = useUserUsageReport({ ...reportWindow, sort: 'reserved_memory', page: 1, limit: usersLimit }, usage);
+  const usersList = useMemo(() => users.data?.users ?? [], [users.data]);
+  const ownerIds = useMemo(() => usersList.map((user) => user.owner_id), [usersList]);
+  // Colours are numbered over everyone with usage in the last 30 days, not
+  // the range shown, so changing the range never repaints anyone. On the
+  // 30-day range this is the same query as the users'.
+  const colourUsers = useUserUsageReport(
+    { ...rangeParams(rangeSeconds['30d'], reportWindow.to), sort: 'reserved_memory', page: 1, limit: usersLimit },
+    usage,
+  );
+  const timelines = useUserUsageTimelines(ownerIds, reportWindow, usage);
+  const failures = useAuditEvents({ ...reportWindow, outcome: 'failure', page: 1, limit: recentFailuresLimit }, usage);
+  const openRow = usersList.find((user) => user.owner_id === openUser);
+  const userActions = useAuditEvents({ ...reportWindow, actor_user_id: openRow?.owner_id, page: 1, limit: userActionsLimit }, usage && Boolean(openRow));
+  const auditSearch = useDebouncedValue(auditView.search);
+  const audit = useAuditEvents(
+    {
+      ...reportWindow,
+      search: auditSearch.trim() || undefined,
+      outcome: auditView.filter === 'failed' ? 'failure' : undefined,
+      page: auditView.page,
+      limit: auditPageSize,
+    },
+    tab === 'audit',
+  );
+  const refresh = useRefreshUsageSnapshots();
 
-  const lastSnapshotAt = overview.data?.last_usage_snapshot_at ?? 0;
-  const snapshotInterval = overview.data?.usage_snapshot_interval_seconds ?? 0;
-  const snapshotAge = lastSnapshotAt > 0 ? now - lastSnapshotAt : 0;
-  const isUsageStale = lastSnapshotAt === 0 || (snapshotInterval > 0 && snapshotAge > snapshotInterval);
-  const lastSnapshotText = lastSnapshotAt > 0
-    ? new Date(lastSnapshotAt * 1000).toLocaleString(dateLocale(locale))
-    : t('admin.reports.noUsageSnapshot');
+  const setParam = (name: string, value: string | null, also?: (next: URLSearchParams) => void) =>
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (value === null) next.delete(name);
+      else next.set(name, value);
+      also?.(next);
+      return next;
+    }, { replace: true });
 
-  const refetchAll = () => {
-    // Moving the window changes every report's query key, which reloads them.
-    refreshSnapshots.mutate(undefined, {
-      onSuccess: () => setWindowEnd(currentSeconds()),
+  // Switching reports starts the other one fresh, in the same range.
+  const changeTab = (next: Tab) =>
+    setParams(() => {
+      const updated = new URLSearchParams();
+      if (next === 'audit') updated.set(param.tab, 'audit');
+      if (range !== defaultReportRange) updated.set(param.range, range);
+      return updated;
+    }, { replace: true });
+  const changeRange = (next: ReportRange) => setParam(param.range, next === defaultReportRange ? null : next, (updated) => updated.delete('page'));
+  const toggleUser = (ownerId: string) => setParam(param.user, openUser === ownerId ? null : ownerId);
+
+  const collect = () =>
+    refresh.mutate(undefined, {
+      onSuccess: moveWindowToNow,
       onError: (error) => notify(t('admin.reports.refreshFailed'), 'error', failureReason(error, t)),
     });
-  };
-  const retryUsage = () => {
-    overview.refetch();
-    users.refetch();
-    if (selectedUser) {
-      timeline.refetch();
+
+  const rangeLabel = t(`admin.reports.range.${range}`);
+  const formatTime = chartTime(locale, range);
+  const formatMoment = chartMoment(locale);
+  const bytes = (value: number) => formatBytes(value, 1);
+
+  const pills = (
+    <div className="flex items-center gap-2">
+      <Pills
+        label={t('admin.reports.tabsLabel')}
+        value={tab}
+        onChange={changeTab}
+        items={[
+          { id: 'usage', label: t('admin.reports.tab.usage') },
+          { id: 'audit', label: t('admin.reports.tab.audit') },
+        ]}
+      />
+      <Pills label={t('admin.reports.rangeLabel')} value={range} onChange={changeRange} items={reportRanges.map((id) => ({ id, label: t(`admin.reports.range.${id}`) }))} />
+      {tab === 'audit' && (
+        <>
+          <Pills
+            label={t('admin.reports.filterLabel')}
+            value={auditView.filter}
+            onChange={(filter) => changeAudit({ filter, page: 1 })}
+            items={[
+              { id: 'all', label: t('admin.reports.filter.all') },
+              { id: 'failed', label: t('admin.reports.filter.failed') },
+            ]}
+          />
+          <ToolbarSearch value={auditView.search} onChange={(search) => changeAudit({ search, page: 1 })} label={t('admin.reports.searchAudit')} />
+        </>
+      )}
+    </div>
+  );
+
+  let content: ReactNode;
+  let head: ReactNode;
+  if (tab === 'audit') {
+    const events = audit.data?.events ?? [];
+    if (audit.isError && !audit.data) {
+      content = <ErrorState title={t('admin.reports.auditLoadFailed')} message={failureReason(audit.error, t)} onRetry={() => audit.refetch()} isRetrying={audit.isFetching} />;
+    } else if (audit.isLoading) {
+      content = <LoadingRows rows={8} columns={[0.6, 0.8, 1.3, 1, 1.3]} />;
+    } else if (events.length === 0) {
+      content = auditSearch.trim() ? (
+        <NoMatchesState query={auditSearch} onClear={() => changeAudit({ search: '', page: 1 })} description={t('admin.reports.auditNoMatches')} />
+      ) : (
+        <EmptyState title={t(auditView.filter === 'failed' ? 'admin.reports.emptyFailed' : 'admin.reports.emptyAudit')} />
+      );
+    } else {
+      head = <AuditHead />;
+      content = (
+        <>
+          <AuditLog events={events} />
+          <Pagination currentPage={auditView.page} pageSize={auditPageSize} totalItems={audit.data?.total_count ?? 0} onPageChange={(page) => changeAudit({ page })} />
+        </>
+      );
     }
-  };
+  } else if ((overview.isError && !overview.data) || (users.isError && !users.data)) {
+    content = (
+      <ErrorState
+        title={t('admin.reports.usageLoadFailed')}
+        message={failureReason(overview.error ?? users.error, t)}
+        onRetry={() => {
+          void overview.refetch();
+          void users.refetch();
+        }}
+        isRetrying={overview.isFetching || users.isFetching}
+      />
+    );
+  } else if (!overview.data || !users.data || (!colourUsers.data && !colourUsers.isError)) {
+    content = <LoadingRows rows={6} dot={false} columns={[1.5, 1, 0.6, 0.6, 0.6]} />;
+  } else if (usersList.length === 0) {
+    content = (
+      <EmptyState
+        title={t('admin.reports.emptyUsers')}
+        description={t('admin.reports.emptyUsersHint')}
+        action={{ label: t('admin.reports.collectNow'), onClick: collect, icon: RefreshCcw, busy: refresh.isPending }}
+      />
+    );
+  } else {
+    // Each user keeps one colour, by the order of their ids among everyone
+    // with usage in the last 30 days, and the chart stacks them in that same
+    // order whatever the table's sort.
+    const seriesOf = userSeries([...(colourUsers.data?.users.map((user) => user.owner_id) ?? []), ...ownerIds]);
+    const colorOf = (ownerId: string) => `var(--series-${seriesOf.get(ownerId) ?? 1})`;
+    const slotSeconds = usageSlotSeconds(rangeSeconds[range], overview.data.usage_snapshot_interval_seconds);
+    const reserved = usageSeries(timelines.timelines, 'reserved', slotSeconds);
+    const trendOf = (ownerId: string) => reserved.values.get(ownerId) ?? [];
+    const trends = new Map(ownerIds.map((ownerId) => [ownerId, trendChange(trendOf(ownerId))]));
+    const byId = new Map(usersList.map((user) => [user.owner_id, user]));
+    const nameOf = (ownerId: string) => byId.get(ownerId)?.owner_username || ownerId;
+    const stacked = [...seriesOf.keys()]
+      .filter((ownerId) => reserved.values.has(ownerId))
+      .map((ownerId) => ({ id: ownerId, label: nameOf(ownerId), color: colorOf(ownerId), values: reserved.values.get(ownerId) ?? [] }));
+    const side = contentWidth >= sideColumnWidth;
+    const openTimeline = timelines.timelines.find((timeline) => timeline.ownerId === openRow?.owner_id);
+
+    content = (
+      <div className={side ? 'grid grid-cols-[minmax(0,1fr)_280px] gap-12' : 'grid gap-10'}>
+        <div className="grid min-w-0 content-start gap-6">
+          <section aria-labelledby="reports-chart" className="grid min-w-0 gap-3">
+            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+              <div className="min-w-0">
+                <h2 id="reports-chart" className="text-[12px] font-semibold text-label-2">
+                  {t('admin.reports.chartTitle')}
+                </h2>
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-[24px] font-[650] tabular-nums tracking-[-0.02em] text-label">{bytes(overview.data.reserved_memory_bytes)}</span>
+                  <span className="text-label-2">{t('admin.reports.usersCount', { count: numberValue(users.data.total_count) })}</span>
+                </div>
+              </div>
+              <Freshness overview={overview.data} collecting={refresh.isPending} onCollect={collect} />
+            </div>
+            {timelines.failed && (
+              <p className="text-red-text">
+                {t('admin.reports.timelinesFailed')}{' '}
+                <button type="button" onClick={timelines.refetch} className="font-medium text-accent hover:underline">
+                  {t('common.tryAgain')}
+                </button>
+              </p>
+            )}
+            {timelines.isLoading && timelines.timelines.length === 0 ? (
+              <LoadingRows rows={4} dot={false} columns={[1]} />
+            ) : (
+              <StackedAreaChart
+                label={t('admin.reports.chartLabel', { range: rangeLabel })}
+                times={reserved.times}
+                from={reportWindow.from}
+                to={reportWindow.to}
+                series={stacked}
+                format={bytes}
+                scale="bytes"
+                formatTick={(value) => formatBytes(value, 2)}
+                formatTime={formatTime}
+                formatMoment={formatMoment}
+                height={contentWidth < 600 ? 200 : 240}
+                endLabels
+                totalLabel={t('admin.reports.total')}
+                legendValue={(item) => bytes(byId.get(item.id)?.reserved_memory_bytes ?? 0)}
+              />
+            )}
+          </section>
+          {users.data.total_count > usersList.length && (
+            <p className="text-label-2">{t('admin.reports.shownUsers', { shown: usersList.length, total: users.data.total_count })}</p>
+          )}
+          <UsersTable
+            users={sortUsageUsers(usersList, usageView.sort, trends)}
+            sort={usageView.sort}
+            onSort={(key) => changeUsage({ sort: nextUsageSort(usageView.sort, key) })}
+            colorOf={colorOf}
+            trendOf={trendOf}
+            openUser={openRow?.owner_id ?? null}
+            onToggle={toggleUser}
+            detail={
+              openRow && (
+                <UserDetail
+                  name={nameOf(openRow.owner_id)}
+                  color={colorOf(openRow.owner_id)}
+                  timeline={openTimeline}
+                  timelineFailed={timelines.failed && !openTimeline}
+                  onRetry={timelines.refetch}
+                  slotSeconds={slotSeconds}
+                  from={reportWindow.from}
+                  to={reportWindow.to}
+                  rangeLabel={rangeLabel}
+                  formatTime={formatTime}
+                  formatMoment={formatMoment}
+                  actions={userActions}
+                />
+              )
+            }
+          />
+        </div>
+        <aside className="min-w-0">
+          <ReportsSide overview={overview.data} failures={failures} />
+        </aside>
+      </div>
+    );
+  }
 
   return (
-    <Page
-      toolbar={
-        <Toolbar
-          title={t('admin.reports.title')}
-          actions={
-            <ToolbarButton
-              icon={RefreshCcw}
-              label={t('admin.reports.refreshUsage')}
-              busy={refreshSnapshots.isPending || overview.isFetching || users.isFetching || audit.isFetching}
-              onClick={refetchAll}
-            />
-          }
-        />
-      }
-    >
-      <div className="flex justify-end">
-        <div className="flex overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-          {ranges.map((range) => (
-            <button
-              key={range.seconds}
-              type="button"
-              onClick={() => {
-                setRangeSeconds(range.seconds);
-                setWindowEnd(currentSeconds());
-              }}
-              className={`px-3 py-2 text-sm font-medium ${
-                rangeSeconds === range.seconds
-                  ? 'bg-accent-fill text-on-accent'
-                  : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
-              }`}
-            >
-              {range.label}
-            </button>
-          ))}
-      </div>
-      </div>
-
-      {(overview.isError || users.isError) && (
-        <ErrorState
-          title={t('admin.reports.usageLoadFailed')}
-          onRetry={retryUsage}
-          isRetrying={overview.isFetching || users.isFetching || timeline.isFetching}
-        />
-      )}
-
-      {!overview.isError && (
-        <div className={`rounded-lg border px-4 py-3 text-sm ${isUsageStale ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200'}`}>
-          {t(isUsageStale ? 'admin.reports.usageSnapshotStale' : 'admin.reports.usageSnapshotFresh', { value: lastSnapshotText })}
-        </div>
-      )}
-
-      {!overview.isError && (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ReportMetricCard title={t('admin.reports.auditEvents')} value={numberValue(overview.data?.audit_events_total ?? 0)} icon={ShieldAlert} />
-          <ReportMetricCard title={t('admin.reports.failedActions')} value={numberValue(overview.data?.failed_actions_total ?? 0)} icon={Filter} />
-          <ReportMetricCard title={t('admin.reports.activeUsers')} value={numberValue(overview.data?.active_users_total ?? 0)} icon={Users} />
-          <ReportMetricCard title={t('admin.reports.actualMemory')} value={formatBytes(overview.data?.memory_usage_bytes ?? 0)} icon={MemoryStick} />
-          <ReportMetricCard title={t('admin.reports.reservedMemory')} value={formatBytes(overview.data?.reserved_memory_bytes ?? 0)} icon={MemoryStick} />
-          <ReportMetricCard title={t('admin.reports.cpu')} value={percentValue(overview.data?.cpu_percent ?? 0)} icon={Cpu} />
-          <ReportMetricCard title={t('admin.reports.disk')} value={formatBytes(overview.data?.total_disk_bytes ?? 0)} icon={HardDrive} />
-          <ReportMetricCard title={t('admin.reports.resourcesTotal')} value={numberValue(overview.data?.resources_total ?? 0)} icon={Boxes} />
-        </div>
-      )}
-
-      <UserUsageTable
-        query={users}
-        search={userSearch}
-        onSearchChange={setUserSearch}
-        sort={sort}
-        onSortChange={setSort}
-        page={userPage}
-        onPageChange={setUserPage}
-        onSelect={setSelectedUser}
-      />
-
-      <AuditEventsTable
-        query={audit}
-        filters={auditFilters}
-        onFilterChange={(name, value) => setAuditFilters((current) => ({ ...current, [name]: value }))}
-        page={auditPage}
-        onPageChange={setAuditPage}
-      />
-
-      <UserUsageChartModal user={selectedUser} query={timeline} onClose={() => setSelectedUser(undefined)} />
+    <Page toolbar={<Toolbar title={t('admin.reports.title')} pills={pills} />} head={head}>
+      <div ref={measure}>{content}</div>
     </Page>
   );
 }

@@ -1,12 +1,6 @@
-import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
-import { formatBytes } from '@/shared/lib/utils';
-
-export const ranges = [
-  { label: '24h', seconds: 24 * 60 * 60 },
-  { label: '7d', seconds: 7 * 24 * 60 * 60 },
-  { label: '30d', seconds: 30 * 24 * 60 * 60 },
-  { label: '90d', seconds: 90 * 24 * 60 * 60 },
-];
+import { dateLocale, labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
+import type { Locale } from '@/shared/lib/languageStore';
+import type { ReportRange } from '../model';
 
 // auditActionLabels names every action Gateway and Core record, in filter order.
 const auditActionLabels = {
@@ -50,10 +44,6 @@ export function auditActionLabel(t: TFunction, action: string) {
   return labelFor(t, auditActionLabels, action);
 }
 
-export const auditResourceTypes = ['container', 'volume', 'image', 'build', 'project', 'user', 'auth', 'telemetry', 'system'];
-export const userPageSize = 10;
-export const auditPageSize = 20;
-
 // rangeParams is the report window: `seconds` back from `to` (Unix seconds).
 export function rangeParams(seconds: number, to: number) {
   return { from: to - seconds, to };
@@ -67,26 +57,15 @@ export function percentValue(value: number) {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)}%`;
 }
 
-export function chartSeriesLabel(t: TFunction, name: string) {
-  switch (name) {
-    case 'actualMemory':
-      return t('admin.reports.chart.actualMemory');
-    case 'reservedMemory':
-      return t('admin.reports.chart.reservedMemory');
-    case 'disk':
-      return t('admin.reports.chart.disk');
-    case 'cpu':
-      return t('admin.reports.chart.cpu');
-    default:
-      return name;
-  }
+// chartTime writes a time on a chart's axis: the hour over 24 h, the day
+// over longer ranges.
+export function chartTime(locale: Locale, range: ReportRange) {
+  const format = new Intl.DateTimeFormat(dateLocale(locale), range === '24h' ? { hour: '2-digit', minute: '2-digit' } : { day: 'numeric', month: 'short' });
+  return (time: number) => format.format(new Date(time * 1000));
 }
 
-export function chartTooltipValue(value: unknown, name: unknown, item: { dataKey?: unknown }, t: TFunction) {
-  const dataKey = String(item.dataKey ?? name);
-  const numericValue = Number(value);
-  return [
-    dataKey === 'cpu' ? percentValue(numericValue) : formatBytes(numericValue),
-    chartSeriesLabel(t, dataKey),
-  ];
+// chartMoment writes the time under a chart's crosshair, day and hour.
+export function chartMoment(locale: Locale) {
+  const format = new Intl.DateTimeFormat(dateLocale(locale), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return (time: number) => format.format(new Date(time * 1000));
 }
