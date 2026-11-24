@@ -27,7 +27,7 @@ test('unreachableProviders lists enabled providers SSO has not reached', () => {
 describe('callbackResult', () => {
   test('reports success only for login=success', () => {
     expect(callbackResult('?login=success')).toEqual({ ok: true });
-    expect(callbackResult('')).toEqual({ ok: false, message: 'auth.callback.failed' });
+    expect(callbackResult('')).toEqual({ ok: false, message: 'auth.callback.reason.unknown' });
   });
 
   test.each([
@@ -39,8 +39,8 @@ describe('callbackResult', () => {
     ['account_conflict', 'auth.callback.reason.accountConflict'],
     ['provider_unavailable', 'auth.callback.reason.providerUnavailable'],
     ['rate_limited', 'auth.callback.reason.rateLimited'],
-    ['login_failed', 'auth.callback.failed'],
-    ['something_new', 'auth.callback.failed'],
+    ['login_failed', 'auth.callback.reason.unknown'],
+    ['something_new', 'auth.callback.reason.unknown'],
   ] as const)('shows the message for reason %s', (reason, message) => {
     expect(callbackResult(`?login=error&reason=${reason}`)).toEqual({ ok: false, message });
   });

@@ -34,7 +34,7 @@ export function unreachableProviders(config: AuthConfig | undefined): string[] {
 /**
  * Messages for the reasons Gateway gives when a sign-in through the provider
  * fails (`login=error&reason=<code>` on the callback page). A reason not listed
- * here, including `login_failed`, shows the generic failure message.
+ * here, including `login_failed`, shows `auth.callback.reason.unknown`.
  */
 export const loginFailureMessages = {
   access_denied: 'auth.callback.reason.accessDenied',
@@ -68,13 +68,16 @@ export function signOutDestination(providerLogoutUrl: unknown): SignOutDestinati
 
 export type CallbackResult = { ok: true } | { ok: false; message: TranslationKey };
 
-/** Reads the callback page's query: only `login=success` signs in; anything else is a failure with a message. */
+/**
+ * Reads the callback page's query: only `login=success` signs in; anything else
+ * is a failure whose message is the reason line under the failure title.
+ */
 export function callbackResult(search: string): CallbackResult {
   const params = new URLSearchParams(search);
   if (params.get('login') === 'success') return { ok: true };
   const reason = params.get('reason') ?? '';
   const message = Object.hasOwn(loginFailureMessages, reason)
     ? loginFailureMessages[reason as keyof typeof loginFailureMessages]
-    : 'auth.callback.failed';
+    : 'auth.callback.reason.unknown';
   return { ok: false, message };
 }

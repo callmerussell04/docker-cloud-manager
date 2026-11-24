@@ -6,7 +6,8 @@ type GlassMaterial = 'clear' | 'dense' | 'sidebar';
 
 interface GlassProps extends HTMLAttributes<HTMLDivElement> {
   // material picks the fill: clear for controls, dense for menus, dialogs,
-  // the search palette and the save bar, sidebar for the sidebar.
+  // the search palette, the save bar and the sign-in card, sidebar for the
+  // sidebar.
   material?: GlassMaterial;
   ref?: Ref<HTMLDivElement>;
 }
@@ -22,8 +23,9 @@ const materials: Record<GlassMaterial, { className?: string; lens: LensOptions }
 };
 
 // Glass is the refracting surface for controls that float over content: the
-// sidebar, toolbar pills, menus, the search palette, dialogs and notifications.
-// Content never sits on its own Glass, and Glass inside Glass would refract
+// sidebar, toolbar pills, menus, the search palette, dialogs, notifications
+// and the sign-in card (a dialog with no page behind it). Content never sits on
+// its own Glass, and Glass inside Glass would refract
 // nothing. In Chromium the backdrop bends at the rim; elsewhere it is blurred.
 export function Glass({ material = 'clear', className, ref, ...props }: GlassProps) {
   const lensRef = useLens<HTMLDivElement>(materials[material].lens);

@@ -4,8 +4,9 @@ import { refreshSession, retrySessionRefresh } from '@/shared/api/client';
 import { leaveForProviderSignOut, logoutFn } from '@/features/auth/api';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
+import { cn } from '@/shared/lib/utils';
 import { Button } from '@/shared/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/Card';
+import { AuthScreen, AuthState, authButtonClass } from '@/features/auth/components/AuthScreen';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setInitialized, sessionIssue } = useAuthStore();
@@ -42,22 +43,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
     return (
-      <main className="flex min-h-screen items-center justify-center p-6">
-        <Card className="w-full max-w-md" role="alert">
-          <CardHeader>
-            <CardTitle className="text-lg">{t('auth.session.unavailable')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p>{t('auth.session.uncertain')}</p>
-            <div className="flex items-center gap-4">
-              <Button isLoading={retrying} onClick={() => void retry()}>
-                {t(sessionIssue === 'logout' ? 'auth.session.retryLogout' : 'auth.session.retry')}
-              </Button>
-              <a className="px-4 py-2 text-sm underline" href="/login">{t('auth.session.signIn')}</a>
-            </div>
-          </CardContent>
-        </Card>
-      </main>
+      <AuthScreen>
+        <AuthState role="alert" title={t('auth.session.unavailable')} description={t('auth.session.uncertain')}>
+          <Button className={cn(authButtonClass, 'mt-1')} isLoading={retrying} onClick={() => void retry()}>
+            {t(sessionIssue === 'logout' ? 'auth.session.retryLogout' : 'auth.session.retry')}
+          </Button>
+          <a className="font-medium text-accent hover:underline" href="/login">{t('auth.session.signIn')}</a>
+        </AuthState>
+      </AuthScreen>
     );
   }
   return <>{children}</>;
