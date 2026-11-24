@@ -1,83 +1,78 @@
-import { Select } from '@/shared/ui/Select';
-import type { TFunction } from '@/shared/i18n';
+import { useEffect, useRef } from 'react';
 import { cn } from '@/shared/lib/utils';
 
 export interface SectionNavItem<Id extends string> {
   id: Id;
   title: string;
-  /** Settings of the section with unsaved changes. */
-  changed: number;
-  /** Settings of the section whose value was refused. */
-  invalid: number;
+  /** What the count beside the title means: settings changed, refused, or found by a search. */
+  mark?: { kind: 'changed' | 'invalid' | 'found'; count: number; label: string };
 }
 
 /**
- * The sections of the settings page: a list beside the section on a wide
- * screen and a selector above it on a narrow one. Each entry shows how many of
- * its settings are changed or refused, so nothing unsaved is out of sight.
+ * The sections of the settings page as a plain list down the left of the
+ * content, on the frost, one section shown at a time; on compact content a
+ * strip of pills that scrolls sideways. Each entry counts its unsaved or
+ * refused settings, or while searching its matches.
  */
-export function SectionNav<Id extends string>({ items, active, onSelect, t }: {
+export function SectionNav<Id extends string>({ items, active, onSelect, label, compact }: {
   items: Array<SectionNavItem<Id>>;
+  /** The section shown; null while a search shows matches from every section. */
   active: Id | null;
   onSelect: (id: Id) => void;
-  t: TFunction;
+  label: string;
+  compact: boolean;
 }) {
-  const status = (item: SectionNavItem<Id>) => {
-    if (item.invalid) return t('admin.settings.sectionInvalid', { count: item.invalid });
-    if (item.changed) return t('admin.settings.sectionChanged', { count: item.changed });
-    return '';
-  };
+  const currentRef = useRef<HTMLButtonElement>(null);
+  // The strip keeps the shown section in view, as one opened from a link.
+  useEffect(() => {
+    if (compact) currentRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [compact, active]);
 
   return (
-    <nav aria-label={t('admin.settings.sectionsLabel')}>
-      <Select
-        className="lg:hidden"
-        aria-label={t('admin.settings.sectionsLabel')}
-        value={active ?? ''}
-        onChange={(event) => onSelect(event.target.value as Id)}
-      >
-        {active === null && <option value="" />}
-        {items.map((item) => (
-          <option key={item.id} value={item.id}>
-            {status(item) ? `${item.title} (${status(item)})` : item.title}
-          </option>
-        ))}
-      </Select>
-      <ul className="hidden space-y-1 lg:block">
-        {items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              aria-current={item.id === active ? 'page' : undefined}
-              onClick={() => onSelect(item.id)}
-              className={cn(
-                'flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-fill',
-                item.id === active
-                  ? 'bg-accent-fill text-on-accent shadow'
-                  : 'text-slate-700 hover:bg-white/60 dark:text-slate-300 dark:hover:bg-slate-800/60',
-              )}
-            >
-              <span className="truncate">{item.title}</span>
-              {(item.invalid > 0 || item.changed > 0) && (
-                <span
-                  title={status(item)}
-                  aria-label={status(item)}
-                  className={cn(
-                    'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-semibold',
-                    item.invalid
-                      ? 'bg-red-600 text-white'
-                      : item.id === active
-                        ? 'bg-on-accent text-accent'
-                        : 'bg-fill text-label-2',
-                  )}
-                >
-                  {item.invalid || item.changed}
-                </span>
-              )}
-            </button>
-          </li>
-        ))}
+    <nav aria-label={label}>
+      <ul className={cn(compact ? 'flex gap-1' : 'grid gap-px')}>
+        {items.map((item) => {
+          const current = item.id === active;
+          return (
+            <li key={item.id} className={cn(compact && 'shrink-0')}>
+              <button
+                ref={current ? currentRef : undefined}
+                type="button"
+                aria-current={current ? 'true' : undefined}
+                onClick={() => onSelect(item.id)}
+                className={cn(
+                  'flex h-[34px] w-full items-center justify-between gap-2.5 whitespace-nowrap text-left transition-colors',
+                  compact ? 'rounded-full px-3.5' : 'rounded-[10px] px-2.5',
+                  current
+                    ? 'bg-lift font-semibold text-label shadow-[var(--lift-shadow)]'
+                    : 'font-medium text-label-2 hover:bg-fill hover:text-label',
+                )}
+              >
+                <span className="truncate">{item.title}</span>
+                {item.mark && <SectionCount {...item.mark} />}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </nav>
+  );
+}
+
+function SectionCount({ kind, count, label }: NonNullable<SectionNavItem<string>['mark']>) {
+  if (kind === 'found') {
+    return <span aria-label={label} title={label} className="text-xs tabular-nums text-label-3">{count}</span>;
+  }
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      className={cn(
+        'grid h-[18px] min-w-[18px] shrink-0 place-items-center rounded-full px-[5px] text-[11px] font-bold tabular-nums text-on-accent',
+        kind === 'invalid' ? 'bg-red' : 'bg-accent-fill',
+      )}
+    >
+      {count}
+    </span>
   );
 }

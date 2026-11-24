@@ -6,8 +6,8 @@ import { cpuSummary, defaultContainerCapacity, formatBytes, memorySummary, type 
 
 function SummaryNote({ lines }: { lines: string[] }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-separator bg-fill p-3 text-sm text-label-2">
-      <Info className="mt-0.5 h-4 w-4 shrink-0" />
+    <div className="mb-3.5 flex max-w-2xl items-start gap-2 text-label-2">
+      <Info aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0" />
       <p className="leading-relaxed">{lines.join(' ')}</p>
     </div>
   );

@@ -1,10 +1,8 @@
 import { useState, type KeyboardEvent } from 'react';
-import { useController, type Control } from 'react-hook-form';
-import { Plus, X } from 'lucide-react';
+import { useController, useFormState, type Control } from 'react-hook-form';
+import { X } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
 import { Input } from '@/shared/ui/Input';
-import { Label } from '@/shared/ui/Label';
 import { Select } from '@/shared/ui/Select';
 import type { TFunction, TranslationKey } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
@@ -30,29 +28,53 @@ const listPlaceholders: Partial<Record<SettingName, TranslationKey>> = {
   telemetry_allowed_exec_commands: 'admin.settings.placeholder.addCommand',
 };
 
-/** One runtime setting: its name and description beside the control its kind calls for. */
-export function SettingRow({ setting, control, t }: {
+/**
+ * One runtime setting: its label and description beside its field and unit,
+ * or above it on compact content. While its value differs from the saved one
+ * the row is marked with a dot, an outlined field and the saved value.
+ */
+export function SettingRow({ setting, control, compact, t }: {
   setting: SettingDef;
   control: Control<SystemConfig>;
+  compact: boolean;
   t: TFunction;
 }) {
   const { field, fieldState } = useController({ name: setting.name, control, rules: { deps: setting.affects } });
+  const { defaultValues } = useFormState({ control, name: setting.name });
   const error = fieldState.error ? errorText(fieldState.error.message, setting, t) : undefined;
+  const changed = fieldState.isDirty;
   const descriptionId = `${setting.name}-description`;
-  const shared = { id: setting.name, describedBy: descriptionId, invalid: !!error, t };
+  const wasId = `${setting.name}-was`;
+  const shared = {
+    id: setting.name,
+    describedBy: changed ? `${descriptionId} ${wasId}` : descriptionId,
+    invalid: !!error,
+    changed,
+    t,
+  };
+  const wide = setting.kind === 'list';
+  // Lines under a field beside its label follow the field's right edge.
+  const underField = !compact && !wide && 'text-right';
 
   return (
-    <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] md:gap-8">
-      <div className="min-w-0 space-y-1">
+    <div
+      className={cn(
+        'grid gap-x-6 gap-y-2.5 border-t border-separator px-1 py-3.5',
+        !compact && !wide && 'grid-cols-[minmax(0,1fr)_minmax(10rem,16rem)] items-center',
+      )}
+    >
+      <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <Label htmlFor={setting.name}>{t(`admin.settings.field.${setting.name}.label`)}</Label>
-          {fieldState.isDirty && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-accent-fill" />}
+          {changed && <span aria-hidden className="h-[7px] w-[7px] shrink-0 rounded-full bg-accent-fill" />}
+          <label htmlFor={setting.name} className="font-semibold text-label">
+            {t(`admin.settings.field.${setting.name}.label`)}
+          </label>
         </div>
-        <p id={descriptionId} className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+        <p id={descriptionId} className="mt-0.5 text-[12.5px] leading-normal text-label-2">
           {t(`admin.settings.field.${setting.name}.hint`)}
         </p>
       </div>
-      <div className="min-w-0 space-y-2">
+      <div className={cn('min-w-0', setting.kind === 'toggle' && !compact && 'flex flex-col items-end')}>
         {setting.kind === 'toggle' && (
           <Toggle {...shared} checked={field.value === true} onChange={field.onChange} />
         )}
@@ -67,9 +89,10 @@ export function SettingRow({ setting, control, t }: {
         {setting.kind === 'size' && (
           <Input
             id={setting.name}
-            aria-describedby={descriptionId}
+            aria-describedby={shared.describedBy}
             aria-invalid={!!error}
             error={!!error}
+            className={cn('text-right font-mono tabular-nums', changedOutline(changed, !!error))}
             value={typeof field.value === 'string' ? field.value : ''}
             onChange={(event) => field.onChange(event.target.value.trim())}
             onBlur={field.onBlur}
@@ -98,10 +121,31 @@ export function SettingRow({ setting, control, t }: {
             suffix={t('admin.settings.unit.cores')}
           />
         )}
-        {error && <p role="alert" className="text-xs leading-snug text-red-text">{error}</p>}
+        {changed && (
+          <p id={wasId} className={cn('mt-1.5 text-xs font-[550] text-accent', underField)}>
+            {t('admin.settings.was', { value: shownValue(defaultValues?.[setting.name], setting, t) })}
+          </p>
+        )}
+        {error && <p role="alert" className={cn('mt-1.5 text-xs leading-snug text-red-text', underField)}>{error}</p>}
       </div>
     </div>
   );
+}
+
+/** The outline of a changed field; a refused one keeps its red border instead. */
+function changedOutline(changed: boolean, invalid: boolean) {
+  return changed && !invalid ? 'border-accent-fill' : undefined;
+}
+
+/** A saved value as the row shows it, in the unit its field uses. */
+function shownValue(value: unknown, setting: SettingDef, t: TFunction) {
+  if (typeof value === 'boolean') return value ? t('admin.settings.enabled') : t('admin.settings.disabled');
+  if (Array.isArray(value)) return value.length ? value.join(', ') : t('admin.settings.none');
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'number') return t('admin.settings.none');
+  if (setting.kind === 'bytes') return formatBytes(value);
+  if (setting.kind === 'cores') return `${millicoresToCores(value)} ${t('admin.settings.unit.cores')}`;
+  return setting.unit ? `${value} ${t(`admin.settings.unit.${setting.unit}`)}` : String(value);
 }
 
 function numberOrUndefined(value: unknown) {
@@ -149,6 +193,8 @@ interface ControlProps {
   id: string;
   describedBy: string;
   invalid: boolean;
+  /** The value differs from the saved one, so the field is outlined. */
+  changed: boolean;
   t: TFunction;
 }
 
@@ -158,7 +204,7 @@ interface ControlProps {
  * while the form still holds the value it produced, so any other change (a
  * reset, a discard) shows the formatted value again.
  */
-function NumberInput({ id, describedBy, invalid, value, onChange, toShown, fromShown, step, suffix, className }: Omit<ControlProps, 't'> & {
+function NumberInput({ id, describedBy, invalid, changed, value, onChange, toShown, fromShown, step, suffix, className }: Omit<ControlProps, 't'> & {
   value: number | undefined;
   onChange: (value: number | undefined) => void;
   toShown?: (value: number) => number;
@@ -181,7 +227,9 @@ function NumberInput({ id, describedBy, invalid, value, onChange, toShown, fromS
         aria-describedby={describedBy}
         aria-invalid={invalid}
         error={invalid}
-        className={suffix ? 'pr-20' : undefined}
+        className={cn('text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none', changedOutline(changed, invalid))}
+        // The unit sits inside the field's end, so the number stops before it.
+        style={suffix ? { paddingRight: `calc(${suffix.length}ch + 1.75rem)` } : undefined}
         value={text}
         onChange={(event) => {
           const raw = event.target.value;
@@ -193,7 +241,7 @@ function NumberInput({ id, describedBy, invalid, value, onChange, toShown, fromS
         onBlur={() => setDraft((current) => (current && current.value === undefined ? current : null))}
       />
       {suffix && (
-        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-slate-500 dark:text-slate-400">
+        <span aria-hidden className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-label-2">
           {suffix}
         </span>
       )}
@@ -201,7 +249,7 @@ function NumberInput({ id, describedBy, invalid, value, onChange, toShown, fromS
   );
 }
 
-function ByteInput({ id, describedBy, invalid, bytes, onChange, t }: ControlProps & {
+function ByteInput({ id, describedBy, invalid, changed, bytes, onChange, t }: ControlProps & {
   bytes: number | undefined;
   onChange: (value: number | undefined) => void;
 }) {
@@ -210,13 +258,14 @@ function ByteInput({ id, describedBy, invalid, bytes, onChange, t }: ControlProp
   const unit = chosenUnit ?? byteUnitFor(bytes ?? 0);
 
   return (
-    <div className="flex gap-2">
+    <div className="flex gap-1.5">
       <NumberInput
         // A new unit reformats the number, so what was typed is dropped.
         key={unit}
         id={id}
         describedBy={describedBy}
         invalid={invalid}
+        changed={changed}
         value={bytes}
         onChange={onChange}
         toShown={(value) => bytesToUnit(value, unit)}
@@ -227,7 +276,7 @@ function ByteInput({ id, describedBy, invalid, bytes, onChange, t }: ControlProp
       <Select
         value={unit}
         onChange={(event) => setChosenUnit(event.target.value as ByteUnit)}
-        className="w-24 shrink-0"
+        className="w-[4.75rem] shrink-0 px-3 text-label-2"
         aria-label={t('admin.settings.byteUnit')}
       >
         {byteUnits.map((item) => (
@@ -238,7 +287,7 @@ function ByteInput({ id, describedBy, invalid, bytes, onChange, t }: ControlProp
   );
 }
 
-function Toggle({ id, describedBy, checked, onChange, t }: ControlProps & {
+function Toggle({ id, describedBy, changed, checked, onChange, t }: ControlProps & {
   checked: boolean;
   onChange: (value: boolean) => void;
 }) {
@@ -250,22 +299,30 @@ function Toggle({ id, describedBy, checked, onChange, t }: ControlProps & {
       aria-checked={checked}
       aria-describedby={describedBy}
       onClick={() => onChange(!checked)}
-      className={cn(
-        'flex w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-accent-fill',
-        checked
-          ? 'border-separator bg-fill text-accent'
-          : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300',
-      )}
+      className="inline-flex items-center gap-2.5 rounded-full text-label-2"
     >
-      <span className="font-medium">{checked ? t('admin.settings.enabled') : t('admin.settings.disabled')}</span>
-      <span className={cn('relative h-6 w-11 rounded-full transition-colors', checked ? 'bg-accent-fill' : 'bg-fill-hover')}>
-        <span className={cn('absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-6' : 'translate-x-1')} />
+      <span>{checked ? t('admin.settings.enabled') : t('admin.settings.disabled')}</span>
+      <span
+        aria-hidden
+        className={cn(
+          'relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors',
+          checked ? 'bg-accent-fill' : 'bg-fill-hover',
+          changed && 'outline outline-[1.5px] outline-offset-2 outline-accent-fill',
+        )}
+      >
+        <span
+          className={cn(
+            'absolute top-[3px] h-5 w-5 rounded-full bg-on-accent shadow-[var(--lift-shadow)] transition-transform',
+            checked ? 'translate-x-[21px]' : 'translate-x-[3px]',
+          )}
+        />
       </span>
     </button>
   );
 }
 
-function ListInput({ id, describedBy, invalid, items, onChange, placeholder, t }: ControlProps & {
+/** A list edited as chips: each entry removable, new ones typed in after them and added with Enter or a comma. */
+function ListInput({ id, describedBy, invalid, changed, items, onChange, placeholder, t }: ControlProps & {
   items: string[];
   onChange: (items: string[]) => void;
   placeholder: string;
@@ -282,59 +339,54 @@ function ListInput({ id, describedBy, invalid, items, onChange, placeholder, t }
     if (event.key === 'Enter' || event.key === ',') {
       event.preventDefault();
       add(draft);
+    } else if (event.key === 'Backspace' && draft === '' && items.length) {
+      onChange(items.slice(0, -1));
     }
   };
 
   return (
-    <div className={cn(
-      'rounded-xl border bg-white/40 p-3 dark:bg-slate-900/40',
-      invalid ? 'border-red-500 dark:border-red-500/50' : 'border-white/40 dark:border-slate-700/50',
-    )}>
-      <div className="flex min-h-8 flex-wrap gap-2">
-        {items.length ? items.map((item) => (
-          <span key={item} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1 text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-            <span className="truncate">{item}</span>
-            <button
-              type="button"
-              onClick={() => onChange(items.filter((current) => current !== item))}
-              className="rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-red-600 dark:hover:bg-slate-700"
-              title={t('admin.settings.removeListItem', { item })}
-              aria-label={t('admin.settings.removeListItem', { item })}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </span>
-        )) : (
-          <span className="py-1 text-sm text-slate-500 dark:text-slate-400">{t('admin.settings.emptyList')}</span>
-        )}
-      </div>
-      <div className="mt-3 flex gap-2">
-        <Input
-          id={id}
-          aria-describedby={describedBy}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={(event) => {
-            const pasted = event.clipboardData.getData('text');
-            if (pasted.includes('\n') || pasted.includes(',')) {
-              event.preventDefault();
-              add(pasted);
-            }
-          }}
-          placeholder={placeholder}
-        />
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => add(draft)}
-          title={t('admin.settings.addListItem')}
-          aria-label={t('admin.settings.addListItem')}
-          className="shrink-0 px-3"
+    <div
+      className={cn(
+        'flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border bg-fill p-1.5',
+        'has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-accent-fill',
+        invalid ? 'border-red' : changed ? 'border-accent-fill' : 'border-transparent',
+      )}
+    >
+      {items.map((item) => (
+        <span
+          key={item}
+          className="inline-flex h-7 max-w-full items-center gap-1 rounded-full bg-lift pl-2.5 pr-1 font-mono text-xs text-label shadow-[var(--lift-shadow)]"
         >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
+          <span className="truncate">{item}</span>
+          <button
+            type="button"
+            onClick={() => onChange(items.filter((current) => current !== item))}
+            className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-label-2 hover:bg-fill-hover hover:text-label"
+            title={t('admin.settings.removeListItem', { item })}
+            aria-label={t('admin.settings.removeListItem', { item })}
+          >
+            <X className="h-3 w-3" strokeWidth={2.2} />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        aria-describedby={describedBy}
+        aria-invalid={invalid}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={() => add(draft)}
+        onPaste={(event) => {
+          const pasted = event.clipboardData.getData('text');
+          if (pasted.includes('\n') || pasted.includes(',')) {
+            event.preventDefault();
+            add(pasted);
+          }
+        }}
+        placeholder={items.length ? placeholder : `${t('admin.settings.emptyList')} · ${placeholder}`}
+        className="h-7 min-w-[8rem] flex-1 bg-transparent px-1.5 text-label placeholder:text-label-3 focus-visible:outline-none"
+      />
     </div>
   );
 }

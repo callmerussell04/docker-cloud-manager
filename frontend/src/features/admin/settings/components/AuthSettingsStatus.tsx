@@ -1,27 +1,30 @@
 import type { TFunction } from '@/shared/i18n';
-import { cn } from '@/shared/lib/utils';
+import { StatusDot, type StatusTone } from '@/shared/ui/StatusDot';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { ErrorState } from '@/shared/ui/ErrorState';
 import { type AuthConfig, unreachableProviders } from '@/features/auth/model';
 
 /** Shows the sign-in settings, which come from bootstrap configuration and cannot be changed here. */
-export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
+export function AuthSettingsStatus({ authConfig, isLoading, isError, onRetry, isRetrying, t }: {
   authConfig?: AuthConfig;
   isLoading: boolean;
   isError: boolean;
+  onRetry: () => void;
+  isRetrying: boolean;
   t: TFunction;
 }) {
   if (isLoading) {
     return <LoadingRows rows={2} dot={false} columns={[1]} />;
   }
   if (isError) {
-    return <p className="py-5 text-red-text">{t('admin.settings.authStatusUnavailable')}</p>;
+    return <ErrorState title={t('admin.settings.authStatusUnavailable')} onRetry={onRetry} isRetrying={isRetrying} />;
   }
 
   const providers = authConfig?.oidc_providers.map((provider) => provider.name).filter(Boolean) ?? [];
   const unreachable = unreachableProviders(authConfig);
 
   return (
-    <div className="divide-y divide-slate-200/70 dark:divide-slate-700/50">
+    <div>
       <StatusRow
         label={t('admin.settings.field.local_login_enabled.label')}
         description={t('admin.settings.field.local_login_enabled.hint')}
@@ -47,6 +50,7 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
           label={t('admin.settings.field.external_sso_reachable.label')}
           description={t('admin.settings.field.external_sso_reachable.hint')}
           enabled={unreachable.length === 0}
+          tone={unreachable.length === 0 ? 'ok' : 'bad'}
           value={unreachable.length === 0
             ? t('admin.settings.reachable')
             : t('admin.settings.unreachable', { providers: unreachable.join(', ') })}
@@ -57,28 +61,26 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, t }: {
   );
 }
 
-function StatusRow({ label, description, enabled, value, t }: {
+/** One read-only sign-in setting: its label and description beside its state. */
+function StatusRow({ label, description, enabled, tone, value, t }: {
   label: string;
   description: string;
   enabled: boolean;
+  /** Replaces the tone Enabled and Disabled take. */
+  tone?: StatusTone;
   /** Replaces the Enabled/Disabled text. */
   value?: string;
   t: TFunction;
 }) {
   return (
-    <div className="grid gap-3 py-5 md:grid-cols-[minmax(0,1fr)_minmax(0,20rem)] md:gap-8">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium leading-none">{label}</p>
-        <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">{description}</p>
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-separator px-1 py-3.5">
+      <div className="min-w-0 max-w-xl flex-1 basis-64">
+        <p className="font-semibold text-label">{label}</p>
+        <p className="mt-0.5 text-[12.5px] leading-normal text-label-2">{description}</p>
       </div>
-      <p className={cn(
-        'self-start rounded-xl border px-4 py-2.5 text-sm font-medium',
-        enabled
-          ? 'border-separator bg-fill text-accent'
-          : 'border-white/40 bg-white/40 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300',
-      )}>
+      <StatusDot tone={tone ?? (enabled ? 'ok' : 'idle')} className="font-medium text-label-2">
         {value ?? (enabled ? t('admin.settings.enabled') : t('admin.settings.disabled'))}
-      </p>
+      </StatusDot>
     </div>
   );
 }
