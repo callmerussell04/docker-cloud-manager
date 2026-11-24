@@ -433,6 +433,8 @@ func systemMonitoringToDTO(data model.SystemMonitoring) dto.SystemMonitoringDTO 
 		HostMinFreeDiskBytes:          data.HostMinFreeDiskBytes,
 		BuildClaimCap:                 data.BuildClaimCap,
 		MaxConcurrentBuilds:           data.MaxConcurrentBuilds,
+		BuildsActive:                  data.BuildsActive,
+		CPUTotalMillicores:            data.CPUTotalMillicores,
 		AdmissionStatus:               data.AdmissionStatus,
 		AdmissionReasons:              data.AdmissionReasons,
 		ContainersTotal:               data.ContainersTotal,

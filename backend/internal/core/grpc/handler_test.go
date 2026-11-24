@@ -451,7 +451,7 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	projectLogic.EXPECT().Cancel(mock.Anything, projectID).Return(nil)
 	statsLogic.EXPECT().GetUserStats(mock.Anything).Return(model.UserStats{ContainersTotal: 2, ContainersRunning: 1, ContainersQuota: 10, RamUsedBytes: 128, RamQuotaBytes: 256, CPUUsedMillicores: 750, CPUQuotaMillicores: 2000, DiskUsedMB: 3, DiskQuotaMB: 4, VolumesTotal: 5, VolumesQuota: 6, ImagesTotal: 7, ProjectsTotal: 8}, nil)
-	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, DCMReservedCPUMillicores: 750, DCMReservedBuildCPUMillicores: 500, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, VolumeSizeMode: model.VolumeSizeUnavailable, DCMDiskUsedBytes: 20, DCMReservedVolumeBytes: 40, DCMUnusedVolumePromiseBytes: 35, BuildClaimCap: 1, MaxConcurrentBuilds: 2, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
+	statsLogic.EXPECT().GetSystemMonitoring(mock.Anything).Return(model.SystemMonitoring{CPUPercent: 12.5, MemoryTotalBytes: 100, MemoryUsedBytes: 50, MemoryAvailableBytes: 50, DiskTotalBytes: 200, DiskUsedBytes: 125, DiskFreeBytes: 75, DCMReservedMemoryBytes: 10, DCMBorrowedMemoryBytes: 30, DCMReservedCPUMillicores: 750, DCMReservedBuildCPUMillicores: 500, RootfsQuotaStatus: model.RootfsQuotaNotEnforced, VolumeSizeMode: model.VolumeSizeUnavailable, DCMDiskUsedBytes: 20, DCMReservedVolumeBytes: 40, DCMUnusedVolumePromiseBytes: 35, BuildClaimCap: 1, MaxConcurrentBuilds: 2, BuildsActive: 3, CPUTotalMillicores: 4000, ContainersTotal: 2, ContainersRunning: 1, ObservedAt: time.Unix(999, 0)}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterProjectAPI(s, projectLogic, users)
 		coregrpc.RegisterStatsAPI(s, statsLogic)
@@ -483,6 +483,8 @@ func TestProjectAndStatsGRPCHandlersMapResponses(t *testing.T) {
 	require.EqualValues(t, 30, systemStats.GetDcmBorrowedMemoryBytes())
 	require.EqualValues(t, 750, systemStats.GetDcmReservedCpuMillicores())
 	require.EqualValues(t, 500, systemStats.GetDcmReservedBuildCpuMillicores())
+	require.EqualValues(t, 3, systemStats.GetBuildsActive())
+	require.EqualValues(t, 4000, systemStats.GetCpuTotalMillicores())
 	require.Equal(t, "not_enforced", systemStats.GetRootfsQuotaStatus())
 	require.EqualValues(t, 40, systemStats.GetDcmReservedVolumeBytes())
 	require.EqualValues(t, 35, systemStats.GetDcmUnusedVolumePromiseBytes())

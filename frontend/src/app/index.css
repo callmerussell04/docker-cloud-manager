@@ -19,6 +19,8 @@
     --fill-hover: rgba(90, 90, 100, 0.22);
     --accent: #2f5ea8;
     --accent-fill: #3a6cc0;
+    /* A lighter accent fill: a part that follows the accent's part, as builds after containers on a capacity bar. */
+    --accent-soft: color-mix(in srgb, var(--accent-fill) 55%, transparent);
     --on-accent: #ffffff;
     --green: #28a745;
     --orange: #f08c00;
@@ -89,6 +91,7 @@
     --fill-hover: rgba(160, 160, 172, 0.32);
     --accent: #9fb6e0;
     --accent-fill: #4a6db0;
+    --accent-soft: color-mix(in srgb, var(--accent-fill) 55%, transparent);
     --on-accent: #ffffff;
     --green: #30d158;
     --orange: #ff9f0a;

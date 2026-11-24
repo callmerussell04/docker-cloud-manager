@@ -54,20 +54,24 @@ type SystemMonitoring struct {
 	// hold that many build slots.
 	BuildClaimCap       int
 	MaxConcurrentBuilds int
-	AdmissionStatus     string
-	AdmissionReasons    []string
-	RootfsQuotaStatus   RootfsQuotaStatus
-	VolumeSizeMode      VolumeSizeMode
-	ContainersTotal     int
-	ContainersRunning   int
-	ContainersStopped   int
-	ContainersError     int
-	ContainersMissing   int
-	VolumesTotal        int
-	ImagesTotal         int
-	BuildsTotal         int
-	ProjectsTotal       int
-	ObservedAt          time.Time
+	// BuildsActive is the builds pending or running, queued ones included.
+	BuildsActive int
+	// CPUTotalMillicores is the host's logical CPUs in millicores.
+	CPUTotalMillicores int64
+	AdmissionStatus    string
+	AdmissionReasons   []string
+	RootfsQuotaStatus  RootfsQuotaStatus
+	VolumeSizeMode     VolumeSizeMode
+	ContainersTotal    int
+	ContainersRunning  int
+	ContainersStopped  int
+	ContainersError    int
+	ContainersMissing  int
+	VolumesTotal       int
+	ImagesTotal        int
+	BuildsTotal        int
+	ProjectsTotal      int
+	ObservedAt         time.Time
 }
 
 // RootfsQuotaStatus says whether Docker enforces the container root

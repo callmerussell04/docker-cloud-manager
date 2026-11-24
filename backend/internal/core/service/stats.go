@@ -309,6 +309,8 @@ func (s *StatsService) GetSystemMonitoring(ctx context.Context) (model.SystemMon
 		HostMinFreeDiskBytes:          cfg.HostMinFreeDiskBytes,
 		BuildClaimCap:                 buildClaimCap(cfg, disk.FreeBytes),
 		MaxConcurrentBuilds:           cfg.MaxConcurrentBuilds,
+		BuildsActive:                  int(ledger.activeBuilds),
+		CPUTotalMillicores:            ledger.hostLogicalCPUs * 1000,
 		AdmissionStatus:               admissionStatus,
 		AdmissionReasons:              admissionReasons,
 		ContainersTotal:               containerCounts.Total,

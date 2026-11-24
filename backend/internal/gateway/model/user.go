@@ -37,6 +37,8 @@ type SystemMonitoring struct {
 	HostMinFreeDiskBytes          int64
 	BuildClaimCap                 int // the cap the next build claim would get
 	MaxConcurrentBuilds           int
+	BuildsActive                  int   // builds pending or running
+	CPUTotalMillicores            int64 // the host's logical CPUs in millicores
 	AdmissionStatus               string
 	AdmissionReasons              []string
 	ContainersTotal               int32

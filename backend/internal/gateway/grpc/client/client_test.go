@@ -264,6 +264,8 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.EqualValues(t, 512, monitoring.DCMBorrowedMemoryBytes)
 	require.EqualValues(t, 750, monitoring.DCMReservedCPUMillicores)
 	require.EqualValues(t, 500, monitoring.DCMReservedBuildCPUMillicores)
+	require.EqualValues(t, 3, monitoring.BuildsActive)
+	require.EqualValues(t, 4000, monitoring.CPUTotalMillicores)
 	require.Equal(t, "not_enforced", monitoring.RootfsQuotaStatus)
 	require.EqualValues(t, 4096, monitoring.DCMReservedVolumeBytes)
 	require.EqualValues(t, 1024, monitoring.DCMUnusedVolumePromiseBytes)
@@ -580,7 +582,7 @@ func (s *coreStatsServer) GetUserStats(context.Context, *coreapi.Empty) (*coreap
 }
 
 func (s *coreStatsServer) GetSystemMonitoring(context.Context, *coreapi.Empty) (*coreapi.SystemMonitoringResponse, error) {
-	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, DcmReservedCpuMillicores: 750, DcmReservedBuildCpuMillicores: 500, RootfsQuotaStatus: "not_enforced", DcmReservedVolumeBytes: 4096, DcmUnusedVolumePromiseBytes: 1024, BuildClaimCap: 1, MaxConcurrentBuilds: 2, VolumeSizeMode: "enforced"}, nil
+	return &coreapi.SystemMonitoringResponse{CpuPercent: 42.5, DcmBorrowedMemoryBytes: 512, DcmReservedCpuMillicores: 750, DcmReservedBuildCpuMillicores: 500, RootfsQuotaStatus: "not_enforced", DcmReservedVolumeBytes: 4096, DcmUnusedVolumePromiseBytes: 1024, BuildClaimCap: 1, MaxConcurrentBuilds: 2, BuildsActive: 3, CpuTotalMillicores: 4000, VolumeSizeMode: "enforced"}, nil
 }
 
 type coreReportServer struct {

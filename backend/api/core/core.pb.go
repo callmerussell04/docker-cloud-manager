@@ -606,8 +606,13 @@ type SystemMonitoringResponse struct {
 	// the occupied build slots, both in millicores.
 	DcmReservedCpuMillicores      int64 `protobuf:"varint,31,opt,name=dcm_reserved_cpu_millicores,json=dcmReservedCpuMillicores,proto3" json:"dcm_reserved_cpu_millicores,omitempty"`
 	DcmReservedBuildCpuMillicores int64 `protobuf:"varint,32,opt,name=dcm_reserved_build_cpu_millicores,json=dcmReservedBuildCpuMillicores,proto3" json:"dcm_reserved_build_cpu_millicores,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	// Builds pending or running, queued ones included; build slots in use are
+	// min(builds_active, max_concurrent_builds).
+	BuildsActive int32 `protobuf:"varint,33,opt,name=builds_active,json=buildsActive,proto3" json:"builds_active,omitempty"`
+	// The host's logical CPUs in millicores.
+	CpuTotalMillicores int64 `protobuf:"varint,34,opt,name=cpu_total_millicores,json=cpuTotalMillicores,proto3" json:"cpu_total_millicores,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SystemMonitoringResponse) Reset() {
@@ -860,6 +865,20 @@ func (x *SystemMonitoringResponse) GetDcmReservedCpuMillicores() int64 {
 func (x *SystemMonitoringResponse) GetDcmReservedBuildCpuMillicores() int64 {
 	if x != nil {
 		return x.DcmReservedBuildCpuMillicores
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetBuildsActive() int32 {
+	if x != nil {
+		return x.BuildsActive
+	}
+	return 0
+}
+
+func (x *SystemMonitoringResponse) GetCpuTotalMillicores() int64 {
+	if x != nil {
+		return x.CpuTotalMillicores
 	}
 	return 0
 }
@@ -4973,7 +4992,7 @@ const file_api_core_core_proto_rawDesc = "" +
 	" \x01(\x05R\vimagesTotal\x12%\n" +
 	"\x0eprojects_total\x18\v \x01(\x05R\rprojectsTotal\x12.\n" +
 	"\x13cpu_used_millicores\x18\f \x01(\x03R\x11cpuUsedMillicores\x120\n" +
-	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\x96\f\n" +
+	"\x14cpu_quota_millicores\x18\r \x01(\x03R\x12cpuQuotaMillicores\"\xed\f\n" +
 	"\x18SystemMonitoringResponse\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12,\n" +
@@ -5009,7 +5028,9 @@ const file_api_core_core_proto_rawDesc = "" +
 	"\x0fbuild_claim_cap\x18\x1d \x01(\x05R\rbuildClaimCap\x122\n" +
 	"\x15max_concurrent_builds\x18\x1e \x01(\x05R\x13maxConcurrentBuilds\x12=\n" +
 	"\x1bdcm_reserved_cpu_millicores\x18\x1f \x01(\x03R\x18dcmReservedCpuMillicores\x12H\n" +
-	"!dcm_reserved_build_cpu_millicores\x18  \x01(\x03R\x1ddcmReservedBuildCpuMillicores\"\a\n" +
+	"!dcm_reserved_build_cpu_millicores\x18  \x01(\x03R\x1ddcmReservedBuildCpuMillicores\x12#\n" +
+	"\rbuilds_active\x18! \x01(\x05R\fbuildsActive\x120\n" +
+	"\x14cpu_total_millicores\x18\" \x01(\x03R\x12cpuTotalMillicores\"\a\n" +
 	"\x05Empty\"8\n" +
 	"\x12ReportRangeRequest\x12\x12\n" +
 	"\x04from\x18\x01 \x01(\x03R\x04from\x12\x0e\n" +

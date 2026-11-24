@@ -64,6 +64,8 @@ func systemMonitoringFromProto(data *coreapi.SystemMonitoringResponse) model.Sys
 		HostMinFreeDiskBytes:          data.GetHostMinFreeDiskBytes(),
 		BuildClaimCap:                 int(data.GetBuildClaimCap()),
 		MaxConcurrentBuilds:           int(data.GetMaxConcurrentBuilds()),
+		BuildsActive:                  int(data.GetBuildsActive()),
+		CPUTotalMillicores:            data.GetCpuTotalMillicores(),
 		AdmissionStatus:               data.GetAdmissionStatus(),
 		AdmissionReasons:              append([]string(nil), data.GetAdmissionReasons()...),
 		ContainersTotal:               data.GetContainersTotal(),

@@ -18,7 +18,7 @@ export default {
         label: { DEFAULT: 'var(--label)', 2: 'var(--label-2)', 3: 'var(--label-3)' },
         separator: 'var(--separator)',
         fill: { DEFAULT: 'var(--fill)', hover: 'var(--fill-hover)' },
-        accent: { DEFAULT: 'var(--accent)', fill: 'var(--accent-fill)' },
+        accent: { DEFAULT: 'var(--accent)', fill: 'var(--accent-fill)', soft: 'var(--accent-soft)' },
         'on-accent': 'var(--on-accent)',
         green: { ...colors.green, DEFAULT: 'var(--green)' },
         orange: { ...colors.orange, DEFAULT: 'var(--orange)' },

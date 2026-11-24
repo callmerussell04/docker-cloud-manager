@@ -37,6 +37,8 @@ type SystemMonitoringDTO struct {
 	HostMinFreeDiskBytes          int64    `json:"host_min_free_disk_bytes"`
 	BuildClaimCap                 int      `json:"build_claim_cap"`
 	MaxConcurrentBuilds           int      `json:"max_concurrent_builds"`
+	BuildsActive                  int      `json:"builds_active"`
+	CPUTotalMillicores            int64    `json:"cpu_total_millicores"`
 	AdmissionStatus               string   `json:"admission_status"`
 	AdmissionReasons              []string `json:"admission_reasons"`
 	ContainersTotal               int32    `json:"containers_total"`

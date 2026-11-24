@@ -143,6 +143,8 @@ func TestStatsServiceGetSystemMonitoring(t *testing.T) {
 	require.Equal(t, 4, stats.VolumesTotal)
 	require.Equal(t, 5, stats.ImagesTotal)
 	require.Equal(t, 6, stats.BuildsTotal)
+	require.Equal(t, 3, stats.BuildsActive, "pending and running builds, queued ones included")
+	require.EqualValues(t, 4000, stats.CPUTotalMillicores, "four logical CPUs")
 	require.Equal(t, 2, stats.ProjectsTotal)
 	require.False(t, stats.ObservedAt.IsZero())
 }

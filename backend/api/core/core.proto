@@ -191,6 +191,11 @@ message SystemMonitoringResponse {
   // the occupied build slots, both in millicores.
   int64 dcm_reserved_cpu_millicores = 31;
   int64 dcm_reserved_build_cpu_millicores = 32;
+  // Builds pending or running, queued ones included; build slots in use are
+  // min(builds_active, max_concurrent_builds).
+  int32 builds_active = 33;
+  // The host's logical CPUs in millicores.
+  int64 cpu_total_millicores = 34;
 }
 
 message Empty {}

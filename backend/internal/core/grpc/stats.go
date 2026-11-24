@@ -80,6 +80,8 @@ func (h *StatsHandler) GetSystemMonitoring(ctx context.Context, _ *coreapi.Empty
 		HostMinFreeDiskBytes:          stats.HostMinFreeDiskBytes,
 		BuildClaimCap:                 int32(stats.BuildClaimCap),
 		MaxConcurrentBuilds:           int32(stats.MaxConcurrentBuilds),
+		BuildsActive:                  int32(stats.BuildsActive),
+		CpuTotalMillicores:            stats.CPUTotalMillicores,
 		AdmissionStatus:               stats.AdmissionStatus,
 		AdmissionReasons:              stats.AdmissionReasons,
 		ContainersTotal:               int32(stats.ContainersTotal),
