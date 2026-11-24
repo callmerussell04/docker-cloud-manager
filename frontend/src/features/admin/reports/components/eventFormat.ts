@@ -17,9 +17,17 @@ export function resourceName(event: AuditEvent) {
 // useAge writes how long ago a time was, as "12 min ago".
 export function useAge() {
   const t = useT();
+  const short = useShortAge();
+  return (time: number) => t('admin.reports.ago', { age: short(time) });
+}
+
+// useShortAge writes how long ago a time was in its short form, as a list's
+// age column does ("12 min").
+export function useShortAge() {
+  const t = useT();
   const now = useNowSeconds();
   return (time: number) => {
     const age = ageOf(time, now);
-    return t('admin.reports.ago', { age: t(`common.age.${age.unit}`, { count: age.count }) });
+    return t(`common.age.${age.unit}`, { count: age.count });
   };
 }

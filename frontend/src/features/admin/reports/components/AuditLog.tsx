@@ -1,41 +1,22 @@
+import { CheckCircle2, XCircle } from 'lucide-react';
 import { dateLocale, useLocale, useT } from '@/shared/i18n';
-import { List, ListHead, ListRow, type ListColumn } from '@/shared/ui/List';
+import { cn } from '@/shared/lib/utils';
 import { useShellLayout } from '@/shared/ui/shellLayout';
-import { Dot } from '@/shared/ui/StatusDot';
 import { auditDetails, auditFailureKey, type AuditEvent } from '../model';
 import { resourceName, useActorName, useAge } from './eventFormat';
-import { auditActionLabel } from './reportFormat';
+import { auditActionLabel, auditDetailLabel } from './reportFormat';
 
-// The log's grid, shared by its head and rows; on compact content a row is
-// the action over who, what and when.
-const template = 'minmax(84px,0.6fr) minmax(90px,0.8fr) minmax(140px,1.3fr) minmax(110px,1fr) minmax(150px,1.3fr)';
-const compactTemplate = 'minmax(0,1fr)';
+// The log's grid: when, who, the action, the resource with its details, and
+// the outcome. A compact row is the action and resource over who and when,
+// beside the outcome.
+const template = '80px 90px 160px minmax(0,1fr) minmax(0,1.2fr)';
+const compactTemplate = 'minmax(0,1fr) auto';
 
-type AuditColumn = 'time' | 'user' | 'action' | 'resource' | 'outcome';
-
-// AuditHead is the log's column labels. The log is newest first, as the
-// server keeps it, so they do not sort.
-export function AuditHead() {
-  const t = useT();
-  const columns: ListColumn<AuditColumn>[] = [
-    { key: 'time', label: t('admin.reports.column.time') },
-    { key: 'user', label: t('admin.reports.column.user') },
-    { key: 'action', label: t('admin.reports.column.action') },
-    { key: 'resource', label: t('admin.reports.column.resource') },
-    { key: 'outcome', label: t('admin.reports.column.outcome') },
-  ];
-  return <ListHead columns={columns} template={template} />;
-}
-
-// detailsTitle lists an event's recorded details for its tooltip.
-function detailsTitle(event: AuditEvent) {
-  return auditDetails(event)
-    .map((detail) => `${detail.key}: ${detail.value}`)
-    .join('\n');
-}
-
-// AuditLog is the audit events, one row each: when, who, the action by its
-// localized name, the resource, and the outcome, a failure with its reason.
+// AuditLog is the audit events, newest first, one row each, parted by
+// hairlines. Under each resource are the details recorded with the action
+// (the address and port a container was published on, the project and
+// service, what it was before), each by its name; a failure shows its
+// reason.
 export function AuditLog({ events }: { events: readonly AuditEvent[] }) {
   const t = useT();
   const locale = useLocale();
@@ -45,53 +26,66 @@ export function AuditLog({ events }: { events: readonly AuditEvent[] }) {
   const fullTime = new Intl.DateTimeFormat(dateLocale(locale), { dateStyle: 'medium', timeStyle: 'medium' });
 
   return (
-    <List label={t('admin.reports.tab.audit')}>
-      {events.map((event) => {
+    <ul aria-label={t('admin.reports.tab.audit')} className="grid">
+      {events.map((event, index) => {
         const failed = event.outcome === 'failure';
-        const reason = failed ? t(auditFailureKey(event.error_code)) : undefined;
+        const Mark = failed ? XCircle : CheckCircle2;
+        const outcome = failed ? t(auditFailureKey(event.error_code)) : t('admin.reports.outcome.success');
         const when = fullTime.format(new Date(event.occurred_at * 1000));
-        const details = detailsTitle(event);
-        if (compact) {
-          return (
-            <ListRow key={event.id} template={compactTemplate}>
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <Dot tone={failed ? 'bad' : 'ok'} />
-                  <span className="truncate font-semibold text-label">{auditActionLabel(t, event.action)}</span>
-                </div>
-                <div className="truncate pl-4 text-[12px] text-label-2" title={when}>
-                  {actorName(event)} · {resourceName(event)} · {age(event.occurred_at)}
-                </div>
-                {reason && <div className="truncate pl-4 text-[12px] text-red-text">{reason}</div>}
-              </div>
-            </ListRow>
-          );
-        }
+        const details = auditDetails(event)
+          .map((detail) => `${auditDetailLabel(t, detail.key)} ${detail.value}`)
+          .join(' · ');
+        const action = auditActionLabel(t, event.action);
+        const outcomeCell = (
+          <span className={cn('inline-flex min-w-0 items-center gap-1.5', failed ? 'text-red-text' : 'text-label-2')}>
+            <Mark aria-hidden className={cn('h-3.5 w-3.5 shrink-0', failed ? 'text-red' : 'text-green')} strokeWidth={2} />
+            <span className="truncate" title={outcome}>
+              {outcome}
+            </span>
+          </span>
+        );
         return (
-          <ListRow key={event.id} template={template}>
-            <div className="flex min-w-0 items-center gap-3.5">
-              <Dot tone={failed ? 'bad' : 'ok'} />
-              <span className="truncate tabular-nums text-label-2" title={when}>
-                {age(event.occurred_at)}
-              </span>
-            </div>
-            <span className="truncate text-label">{actorName(event)}</span>
-            <span className="truncate font-medium text-label" title={event.action}>
-              {auditActionLabel(t, event.action)}
-            </span>
-            <span className="truncate text-label-2" title={details || undefined}>
-              {resourceName(event)}
-            </span>
-            {reason ? (
-              <span className="truncate text-red-text" title={reason}>
-                {reason}
-              </span>
+          <li
+            key={event.id}
+            className={cn('grid min-h-11 items-center gap-3.5 px-3.5 py-1', index > 0 && 'border-t border-separator')}
+            style={{ gridTemplateColumns: compact ? compactTemplate : template }}
+          >
+            {compact ? (
+              <>
+                <span className="grid min-w-0 py-1">
+                  <span className="truncate">
+                    <span className="text-label-2">{action}</span> <span className="text-label">{resourceName(event)}</span>
+                  </span>
+                  {details && <span className="truncate text-[12px] text-label-2">{details}</span>}
+                  <span className="truncate text-[12px] text-label-2" title={when}>
+                    <b className="font-semibold text-label">{actorName(event)}</b> · {age(event.occurred_at)}
+                  </span>
+                </span>
+                {outcomeCell}
+              </>
             ) : (
-              <span className="truncate text-label-2">{t('admin.reports.outcome.success')}</span>
+              <>
+                <span className="truncate tabular-nums text-label-2" title={when}>
+                  {age(event.occurred_at)}
+                </span>
+                <span className="truncate font-semibold text-label">{actorName(event)}</span>
+                <span className="truncate text-label-2" title={action}>
+                  {action}
+                </span>
+                <span className="grid min-w-0 py-1">
+                  <span className="truncate text-label">{resourceName(event)}</span>
+                  {details && (
+                    <span className="truncate text-[12px] text-label-2" title={details}>
+                      {details}
+                    </span>
+                  )}
+                </span>
+                {outcomeCell}
+              </>
             )}
-          </ListRow>
+          </li>
         );
       })}
-    </List>
+    </ul>
   );
 }

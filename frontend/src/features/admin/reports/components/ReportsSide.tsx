@@ -9,9 +9,10 @@ import { failureRate, type AuditEventsResponse, type ReportsOverview } from '../
 import { EventLines } from './EventLines';
 import { auditActionLabel, numberValue, percentValue } from './reportFormat';
 
-function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+// Tile is one panel of the column: a label over its content.
+function Tile({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section aria-labelledby={id} className="grid min-w-0 content-start gap-3">
+    <section aria-labelledby={id} className="flex min-w-0 flex-col gap-2.5 rounded-[22px] bg-tile p-[18px] shadow-[inset_0_0_0_0.5px_var(--separator)]">
       <h2 id={id} className="text-[12px] font-semibold text-label-2">
         {title}
       </h2>
@@ -20,18 +21,20 @@ function Section({ id, title, children }: { id: string; title: string; children:
   );
 }
 
+// Figure is one of the range's numbers, on a tile of its own: its label, the
+// figure, and what it is of.
 function Figure({ label, value, sub }: { label: string; value: string; sub: ReactNode }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-[12px] text-label-2">{label}</dt>
-      <dd className="text-[20px] font-[650] tabular-nums tracking-[-0.02em] text-label">{value}</dd>
-      <dd className="text-[12px] text-label-2">{sub}</dd>
+    <div className="grid min-w-0 content-start gap-[3px] rounded-[16px] bg-tile px-3 py-2.5 shadow-[inset_0_0_0_0.5px_var(--separator)]">
+      <dt className="truncate text-[12px] font-semibold text-label-2">{label}</dt>
+      <dd className="text-[18px] font-[650] tabular-nums tracking-[-0.02em] text-label">{value}</dd>
+      <dd className="text-[12px] leading-[1.4] text-label-2">{sub}</dd>
     </div>
   );
 }
 
-// TopActions is the range's most frequent actions as bars of one gray, the
-// longest the most frequent, each with its count.
+// TopActions is the range's most frequent actions as bars, the longest the
+// most frequent, each with its count.
 function TopActions({ overview }: { overview: ReportsOverview }) {
   const t = useT();
   const top = overview.top_actions ?? [];
@@ -39,17 +42,18 @@ function TopActions({ overview }: { overview: ReportsOverview }) {
   if (top.length === 0) return <p className="text-label-2">{t('admin.reports.nothingInRange')}</p>;
   return (
     <ul className="grid gap-2">
-      {top.map((item) => (
-        <li key={item.action} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1">
-          <span className="truncate text-label" title={item.action}>
-            {auditActionLabel(t, item.action)}
-          </span>
-          <b className="text-right font-semibold tabular-nums text-label">{numberValue(item.count)}</b>
-          <span aria-hidden className="col-span-2 h-1.5 overflow-hidden rounded-full bg-fill">
-            <span className="block h-full rounded-full bg-label-3" style={{ width: `${(item.count / most) * 100}%` }} />
-          </span>
-        </li>
-      ))}
+      {top.map((item) => {
+        const label = auditActionLabel(t, item.action);
+        return (
+          <li key={item.action} className="grid grid-cols-[110px_minmax(0,1fr)_34px] items-center gap-3 text-[12.5px]" title={`${label}: ${item.count}`}>
+            <span className="truncate text-label">{label}</span>
+            <span aria-hidden className="h-2 overflow-hidden rounded-r bg-fill">
+              <span className="block h-full rounded-r bg-accent-fill" style={{ width: `${(item.count / most) * 100}%` }} />
+            </span>
+            <b className="text-right font-semibold tabular-nums text-label">{numberValue(item.count)}</b>
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -59,26 +63,27 @@ interface ReportsSideProps {
   failures: UseQueryResult<AuditEventsResponse>;
 }
 
-// ReportsSide is the column beside the usage chart: the range's figures, the
-// most frequent actions and the latest failures with their reasons.
+// ReportsSide is the column beside the usage chart, as three tiles: the
+// range's figures, the most frequent actions and the latest failures with
+// their reasons.
 export function ReportsSide({ overview, failures }: ReportsSideProps) {
   const t = useT();
   const bytes = (value: number) => formatBytes(value, 1);
   const rate = failureRate(overview.failed_actions_total, overview.audit_events_total);
   return (
-    <div className="grid content-start gap-8">
-      <Section id="reports-range" title={t('admin.reports.side.range')}>
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+    <div className="grid content-start gap-5">
+      <Tile id="reports-range" title={t('admin.reports.side.range')}>
+        <dl className="grid grid-cols-2 gap-2">
           <Figure
             label={t('admin.reports.figure.actions')}
             value={numberValue(overview.audit_events_total)}
             sub={
-              <span className={overview.failed_actions_total > 0 ? 'text-red-text' : undefined}>
-                {t('admin.reports.figure.actionsSub', {
-                  failed: numberValue(overview.failed_actions_total),
-                  rate: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(rate),
-                })}
-              </span>
+              <>
+                <b className={overview.failed_actions_total > 0 ? 'font-semibold text-red-text' : 'font-normal'}>
+                  {t('admin.reports.figure.failed', { count: numberValue(overview.failed_actions_total) })}
+                </b>
+                {` · ${percentValue(rate)}`}
+              </>
             }
           />
           <Figure label={t('admin.reports.figure.activeUsers')} value={numberValue(overview.active_users_total)} sub={t('admin.reports.figure.activeUsersSub')} />
@@ -101,11 +106,11 @@ export function ReportsSide({ overview, failures }: ReportsSideProps) {
             })}
           />
         </dl>
-      </Section>
-      <Section id="reports-top-actions" title={t('admin.reports.topActions')}>
+      </Tile>
+      <Tile id="reports-top-actions" title={t('admin.reports.topActions')}>
         <TopActions overview={overview} />
-      </Section>
-      <Section id="reports-failures" title={t('admin.reports.recentFailures')}>
+      </Tile>
+      <Tile id="reports-failures" title={t('admin.reports.recentFailures')}>
         {failures.isError ? (
           <ErrorState
             title={t('admin.reports.failuresLoadFailed')}
@@ -118,9 +123,9 @@ export function ReportsSide({ overview, failures }: ReportsSideProps) {
         ) : failures.data.events.length === 0 ? (
           <p className="text-label-2">{t('admin.reports.noFailures')}</p>
         ) : (
-          <EventLines events={failures.data?.events ?? []} />
+          <EventLines events={failures.data.events} />
         )}
-      </Section>
+      </Tile>
     </div>
   );
 }

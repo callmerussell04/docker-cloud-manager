@@ -10,7 +10,7 @@ import { PageFallback } from './PageFallback';
 import { ShellSearch } from './ShellSearch';
 import { Sidebar } from './Sidebar';
 import { TabBar } from './TabBar';
-import { sidebarExpanded, sidebarInset, sidebarWidth, type SidebarChoice } from './shell';
+import { contentGap, sidebarExpanded, sidebarInset, sidebarWidth, type SidebarChoice } from './shell';
 
 // roundedRect is an SVG path around a box with rounded corners.
 function roundedRect(x: number, y: number, width: number, height: number, r: number) {
@@ -77,7 +77,7 @@ export function PageLayout() {
   const [choice, setChoice] = useState<SidebarChoice | null>(null);
   const expanded = sidebarExpanded(sizeClass, choice);
   const { frostRef, sidebarRef } = useSidebarCutout(!phone);
-  const contentLeft = phone ? 0 : sidebarInset + (expanded ? sidebarWidth.expanded : sidebarWidth.rail);
+  const contentLeft = phone ? 0 : sidebarInset + (expanded ? sidebarWidth.expanded : sidebarWidth.rail) + contentGap;
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);

@@ -44,6 +44,30 @@ export function auditActionLabel(t: TFunction, action: string) {
   return labelFor(t, auditActionLabels, action);
 }
 
+// auditDetailLabels names each detail an audit event records (the auditlog
+// allowlist), in the order auditDetails shows them.
+const auditDetailLabels = {
+  full_domain: 'admin.reports.detail.full_domain',
+  domain_prefix: 'admin.reports.detail.domain_prefix',
+  internal_port: 'admin.reports.detail.internal_port',
+  container_name: 'admin.reports.detail.container_name',
+  container_id: 'admin.reports.detail.container_id',
+  project_name: 'admin.reports.detail.project_name',
+  project_id: 'admin.reports.detail.project_id',
+  compose_service: 'admin.reports.detail.compose_service',
+  previous_domain_prefix: 'admin.reports.detail.previous_domain_prefix',
+  previous_internal_port: 'admin.reports.detail.previous_internal_port',
+  source_type: 'admin.reports.detail.source_type',
+} as const satisfies Record<string, TranslationKey>;
+
+export const auditDetailKeys = Object.keys(auditDetailLabels);
+
+// auditDetailLabel names a recorded detail, or shows its key when the page
+// does not know it.
+export function auditDetailLabel(t: TFunction, key: string) {
+  return labelFor(t, auditDetailLabels, key);
+}
+
 // rangeParams is the report window: `seconds` back from `to` (Unix seconds).
 export function rangeParams(seconds: number, to: number) {
   return { from: to - seconds, to };

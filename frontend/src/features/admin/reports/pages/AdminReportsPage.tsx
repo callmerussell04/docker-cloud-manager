@@ -16,10 +16,9 @@ import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
 import { Pills } from '@/shared/ui/Pills';
 import { StackedAreaChart } from '@/shared/ui/StackedAreaChart';
-import { StatusDot } from '@/shared/ui/StatusDot';
 import { Toolbar, ToolbarSearch } from '@/shared/ui/Toolbar';
-import { AuditHead, AuditLog } from '../components/AuditLog';
-import { chartMoment, chartTime, numberValue, rangeParams } from '../components/reportFormat';
+import { AuditLog } from '../components/AuditLog';
+import { chartMoment, chartTime, rangeParams } from '../components/reportFormat';
 import { ReportsSide } from '../components/ReportsSide';
 import { UserDetail } from '../components/UserDetail';
 import { UsersTable, usersTableMinWidth } from '../components/UsersTable';
@@ -59,9 +58,11 @@ const usersLimit = 100;
 const auditPageSize = 50;
 const recentFailuresLimit = 6;
 const userActionsLimit = 8;
-// The side column sits beside the chart once the content leaves the users
-// table its full width beside it (the column, 280 px, and the gap, 48 px).
-const sideColumnWidth = usersTableMinWidth + 280 + 48;
+// The side column, 320 px with a 20 px gap, sits beside the chart once the
+// content leaves the users table its full width beside it.
+const sideColumn = 320;
+const sideGap = 20;
+const sideColumnWidth = usersTableMinWidth + sideColumn + sideGap;
 
 function currentSeconds() {
   return Math.floor(Date.now() / 1000);
@@ -87,8 +88,9 @@ interface FreshnessProps {
   onCollect: () => void;
 }
 
-// Freshness says when usage was last collected and how often, marks it gray
-// once it is older than two intervals, and offers to collect it now.
+// Freshness says when usage was last collected and how often, says it may be
+// out of date once it is older than two intervals, and offers to collect it
+// now.
 function Freshness({ overview, collecting, onCollect }: FreshnessProps) {
   const t = useT();
   const now = useNowSeconds();
@@ -101,12 +103,12 @@ function Freshness({ overview, collecting, onCollect }: FreshnessProps) {
   const stale = last === 0 || (interval > 0 && now - last > 2 * interval);
   const text = last > 0 ? t('admin.reports.collected', { age: ageText(now - last), interval: ageText(interval) }) : t('admin.reports.notCollected');
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-label-2">
-      <StatusDot tone={stale ? 'idle' : 'ok'}>
+    <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3.5 gap-y-1 text-label-2">
+      <span>
         {text}
         {stale && last > 0 && ` · ${t('admin.reports.stale')}`}
-      </StatusDot>
-      <button type="button" onClick={onCollect} disabled={collecting} className="inline-flex items-center gap-1 rounded font-medium text-accent hover:underline disabled:opacity-60">
+      </span>
+      <button type="button" onClick={onCollect} disabled={collecting} className="inline-flex items-center gap-1 whitespace-nowrap rounded font-[550] text-accent hover:underline disabled:opacity-60">
         {collecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
         {t('admin.reports.collectNow')}
       </button>
@@ -223,7 +225,6 @@ export function AdminReportsPage() {
   );
 
   let content: ReactNode;
-  let head: ReactNode;
   if (tab === 'audit') {
     const events = audit.data?.events ?? [];
     if (audit.isError && !audit.data) {
@@ -237,7 +238,6 @@ export function AdminReportsPage() {
         <EmptyState title={t(auditView.filter === 'failed' ? 'admin.reports.emptyFailed' : 'admin.reports.emptyAudit')} />
       );
     } else {
-      head = <AuditHead />;
       content = (
         <>
           <AuditLog events={events} />
@@ -283,53 +283,40 @@ export function AdminReportsPage() {
       .filter((ownerId) => reserved.values.has(ownerId))
       .map((ownerId) => ({ id: ownerId, label: nameOf(ownerId), color: colorOf(ownerId), values: reserved.values.get(ownerId) ?? [] }));
     const side = contentWidth >= sideColumnWidth;
+    const mainWidth = side ? contentWidth - sideColumn - sideGap : contentWidth;
     const openTimeline = timelines.timelines.find((timeline) => timeline.ownerId === openRow?.owner_id);
 
     content = (
-      <div className={side ? 'grid grid-cols-[minmax(0,1fr)_280px] gap-12' : 'grid gap-10'}>
-        <div className="grid min-w-0 content-start gap-6">
-          <section aria-labelledby="reports-chart" className="grid min-w-0 gap-3">
-            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-              <div className="min-w-0">
-                <h2 id="reports-chart" className="text-[12px] font-semibold text-label-2">
-                  {t('admin.reports.chartTitle')}
-                </h2>
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[24px] font-[650] tabular-nums tracking-[-0.02em] text-label">{bytes(overview.data.reserved_memory_bytes)}</span>
-                  <span className="text-label-2">{t('admin.reports.usersCount', { count: numberValue(users.data.total_count) })}</span>
-                </div>
-              </div>
-              <Freshness overview={overview.data} collecting={refresh.isPending} onCollect={collect} />
-            </div>
-            {timelines.failed && (
-              <p className="text-red-text">
-                {t('admin.reports.timelinesFailed')}{' '}
-                <button type="button" onClick={timelines.refetch} className="font-medium text-accent hover:underline">
-                  {t('common.tryAgain')}
-                </button>
-              </p>
-            )}
-            {timelines.isLoading && timelines.timelines.length === 0 ? (
-              <LoadingRows rows={4} dot={false} columns={[1]} />
-            ) : (
-              <StackedAreaChart
-                label={t('admin.reports.chartLabel', { range: rangeLabel })}
-                times={reserved.times}
-                from={reportWindow.from}
-                to={reportWindow.to}
-                series={stacked}
-                format={bytes}
-                scale="bytes"
-                formatTick={(value) => formatBytes(value, 2)}
-                formatTime={formatTime}
-                formatMoment={formatMoment}
-                height={contentWidth < 600 ? 200 : 240}
-                endLabels
-                totalLabel={t('admin.reports.total')}
-                legendValue={(item) => bytes(byId.get(item.id)?.reserved_memory_bytes ?? 0)}
-              />
-            )}
-          </section>
+      <div className={side ? 'grid grid-cols-[minmax(0,1fr)_320px] items-start gap-5' : 'grid gap-5'}>
+        <div className="grid min-w-0 content-start gap-5">
+          <Freshness overview={overview.data} collecting={refresh.isPending} onCollect={collect} />
+          {timelines.failed && (
+            <p className="text-red-text">
+              {t('admin.reports.timelinesFailed')}{' '}
+              <button type="button" onClick={timelines.refetch} className="font-medium text-accent hover:underline">
+                {t('common.tryAgain')}
+              </button>
+            </p>
+          )}
+          {timelines.isLoading && timelines.timelines.length === 0 ? (
+            <LoadingRows rows={4} dot={false} columns={[1]} />
+          ) : (
+            <StackedAreaChart
+              label={t('admin.reports.chartLabel', { range: rangeLabel })}
+              times={reserved.times}
+              from={reportWindow.from}
+              to={reportWindow.to}
+              series={stacked}
+              format={bytes}
+              scale="bytes"
+              formatTick={(value) => formatBytes(value, 2)}
+              formatTime={formatTime}
+              formatMoment={formatMoment}
+              height={mainWidth < 600 ? 200 : 220}
+              endLabels
+              totalLabel={t('admin.reports.total')}
+            />
+          )}
           {users.data.total_count > usersList.length && (
             <p className="text-label-2">{t('admin.reports.shownUsers', { shown: usersList.length, total: users.data.total_count })}</p>
           )}
@@ -337,6 +324,7 @@ export function AdminReportsPage() {
             users={sortUsageUsers(usersList, usageView.sort, trends)}
             sort={usageView.sort}
             onSort={(key) => changeUsage({ sort: nextUsageSort(usageView.sort, key) })}
+            rangeLabel={rangeLabel}
             colorOf={colorOf}
             trendOf={trendOf}
             openUser={openRow?.owner_id ?? null}
@@ -346,6 +334,8 @@ export function AdminReportsPage() {
                 <UserDetail
                   name={nameOf(openRow.owner_id)}
                   color={colorOf(openRow.owner_id)}
+                  actionsTotal={openRow.actions_total}
+                  compact={mainWidth < 560}
                   timeline={openTimeline}
                   timelineFailed={timelines.failed && !openTimeline}
                   onRetry={timelines.refetch}
@@ -369,7 +359,7 @@ export function AdminReportsPage() {
   }
 
   return (
-    <Page toolbar={<Toolbar title={t('admin.reports.title')} pills={pills} />} head={head}>
+    <Page toolbar={<Toolbar title={t('admin.reports.title')} pills={pills} />}>
       <div ref={measure}>{content}</div>
     </Page>
   );

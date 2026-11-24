@@ -47,18 +47,20 @@ describe('niceScale', () => {
 describe('guideShares', () => {
   const GiB = 1024 ** 3;
 
-  test('draws quarters when they fall on round figures', () => {
+  test('draws quarters on a top of 1 or 2, so they fall on round figures', () => {
     expect(guideShares(20 * GiB, 'bytes', true)).toEqual([0, 0.25, 0.5, 0.75, 1]);
     expect(guideShares(100, 'plain', true)).toEqual([0, 0.25, 0.5, 0.75, 1]);
   });
 
-  test('draws halves when quarters would not, as 6.25 GB on a 25 GB scale', () => {
-    expect(guideShares(25 * GiB, 'bytes', true)).toEqual([0, 0.5, 1]);
-    expect(guideShares(50, 'plain', true)).toEqual([0, 0.5, 1]);
+  test('draws fifths on a top of 2.5 or 5, as 5 GB steps up to 25 GB', () => {
+    expect(guideShares(25 * GiB, 'bytes', true)).toEqual([0, 0.2, 0.4, 0.6, 0.8, 1]);
+    expect(guideShares(50, 'plain', true)).toEqual([0, 0.2, 0.4, 0.6, 0.8, 1]);
   });
 
-  test('draws halves on a short chart', () => {
+  test('draws fewer guides on a short chart, still on round figures', () => {
     expect(guideShares(20 * GiB, 'bytes', false)).toEqual([0, 0.5, 1]);
+    expect(guideShares(5 * GiB, 'bytes', false)).toEqual([0, 0.4, 0.8]);
+    expect(guideShares(25 * GiB, 'bytes', false)).toEqual([0, 0.4, 0.8]);
   });
 });
 

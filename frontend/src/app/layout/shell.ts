@@ -4,9 +4,11 @@
 import type { SizeClass } from '@/shared/lib/sizeClass';
 
 // The sidebar's widths, labelled and as an icon rail, and its inset from the
-// window's edge; PageLayout places the content beside it.
+// window's edge; PageLayout places the content beside it, contentGap further
+// on, so a page's title and rows keep clear of the sidebar's glass.
 export const sidebarWidth = { expanded: 240, rail: 64 } as const;
 export const sidebarInset = 14;
+export const contentGap = 14;
 
 // SidebarChoice is the user's last collapse or expand, and the size class the
 // window was in when they made it.

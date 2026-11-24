@@ -54,13 +54,15 @@ function unitOf(value: number, kind: ScaleKind) {
 }
 
 // guideShares are where a chart's guides fall, as shares of its scale's
-// top: quarters on a tall chart when they are round figures of the unit
-// (a top of 1 or 2 times a power of ten), halves otherwise.
+// top, so each falls on a round figure of the unit: quarters on a top of 1
+// or 2 times a power of ten, fifths on 2.5 or 5; a short chart draws every
+// other one.
 export function guideShares(ceiling: number, kind: ScaleKind, tall: boolean) {
   const figure = ceiling / unitOf(ceiling, kind);
   const mantissa = figure / 10 ** Math.floor(Math.log10(figure));
-  const quarters = tall && (Math.abs(mantissa - 1) < 1e-9 || Math.abs(mantissa - 2) < 1e-9);
-  return quarters ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.5, 1];
+  const quarters = Math.abs(mantissa - 1) < 1e-9 || Math.abs(mantissa - 2) < 1e-9;
+  if (quarters) return tall ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.5, 1];
+  return tall ? [0, 0.2, 0.4, 0.6, 0.8, 1] : [0, 0.4, 0.8];
 }
 
 interface Cluster {

@@ -37,18 +37,20 @@ interface StackedAreaChartProps {
   endLabels?: boolean;
   // totalLabel adds a total to the hover, for a stack of several series.
   totalLabel?: string;
-  // legendValue is written after each series' name in the legend.
-  legendValue?: (series: ChartSeries) => string;
+  // legend names each series under the chart; a chart whose title names its
+  // one series leaves it off.
+  legend?: boolean;
   className?: string;
 }
 
-const left = 52;
+const left = 44;
 const top = 8;
 const bottom = 22;
 const labelGap = 13;
 
-// StackedAreaChart draws series stacked over time as bands, with the scale on
-// the left, each band's name at its right end (endLabels), a crosshair that
+// StackedAreaChart draws series stacked over time as solid bands parted by a
+// fine line, with the scale on the left, each band's name at its right end
+// (endLabels), a crosshair that
 // lists every value at the time under the pointer (or chosen with the arrow
 // keys while the chart has focus), and a legend. It takes the width of its
 // container. Series colours are the series tokens; in light mode three of
@@ -68,7 +70,7 @@ export function StackedAreaChart({
   height = 240,
   endLabels = false,
   totalLabel,
-  legendValue,
+  legend = true,
   className,
 }: StackedAreaChartProps) {
   const [measure, width] = useElementWidth<HTMLDivElement>(600);
@@ -83,6 +85,8 @@ export function StackedAreaChart({
   const totals = times.map((_, index) => bands[bands.length - 1]?.upper[index] ?? 0);
   const ceiling = niceScale(Math.max(0, ...totals), scale);
   const y = (value: number) => top + (1 - value / ceiling) * plotHeight;
+  // Four times along the axis: the ends and two between.
+  const timeTicks = [0, 1 / 3, 2 / 3, 1].map((share) => from + share * span);
   const guides = guideShares(ceiling, scale, height >= 180).map((share) => share * ceiling);
 
   // A lone point is drawn a few pixels wide so it shows.
@@ -140,47 +144,42 @@ export function StackedAreaChart({
           {guides.map((value) => (
             <g key={value}>
               <line x1={left} x2={left + plotWidth} y1={y(value)} y2={y(value)} stroke="var(--separator)" strokeWidth={1} />
-              <text x={left - 8} y={y(value) + 4} textAnchor="end" className="fill-label-3 text-[11px] tabular-nums">
+              <text x={left - 8} y={y(value) + 4} textAnchor="end" className="fill-label-2 text-[11px] tabular-nums">
                 {value === 0 ? '0' : formatTick(value)}
               </text>
             </g>
           ))}
-          {[from, from + span / 2, to].map((time, index) => (
+          {timeTicks.map((time, index) => (
             <text
               key={index}
               x={x(time)}
               y={height - 6}
-              textAnchor={index === 0 ? 'start' : index === 2 ? 'end' : 'middle'}
-              className="fill-label-3 text-[11px]"
+              textAnchor={index === 0 ? 'start' : index === timeTicks.length - 1 ? 'end' : 'middle'}
+              className="fill-label-2 text-[11px] tabular-nums"
             >
               {formatTime(time)}
             </text>
           ))}
+          {/* Bands are parted by a line of the window's own colour. */}
           {bands.map((band, index) => (
-            <g key={series[index].id}>
-              <path d={bandPath(band.lower, band.upper)} fill={series[index].color} fillOpacity={0.78} />
-              {xs.length > 1 && (
-                <path
-                  d={`M${xs.map((at, point) => `${at},${y(band.upper[point])}`).join(' L')}`}
-                  fill="none"
-                  stroke={series[index].color}
-                  strokeWidth={1.5}
-                  strokeLinejoin="round"
-                />
-              )}
-            </g>
+            <path
+              key={series[index].id}
+              d={bandPath(band.lower, band.upper)}
+              fill={series[index].color}
+              fillOpacity={0.92}
+              stroke="var(--solid-window)"
+              strokeWidth={series.length > 1 ? 2 : 0}
+              strokeLinejoin="round"
+            />
           ))}
           {endLabels &&
             endLabelOrder.map((seriesIndex, order) => (
-              <g key={series[seriesIndex].id}>
-                <rect x={left + plotWidth + 8} y={labelY[order] - 4} width={8} height={8} rx={2} fill={series[seriesIndex].color} />
-                <text x={left + plotWidth + 20} y={labelY[order] + 4} className="fill-label-2 text-[11.5px] font-medium">
-                  {truncate(series[seriesIndex].label, Math.floor((labelRoom - 22) / 6.5))}
-                </text>
-              </g>
+              <text key={series[seriesIndex].id} x={left + plotWidth + 8} y={labelY[order] + 4} className="fill-label text-[12px] font-semibold">
+                {truncate(series[seriesIndex].label, Math.floor((labelRoom - 8) / 7))}
+              </text>
             ))}
           {hover !== null && (
-            <line x1={xs[hover]} x2={xs[hover]} y1={top} y2={top + plotHeight} stroke="var(--label-2)" strokeWidth={1} strokeDasharray="3 3" />
+            <line x1={xs[hover]} x2={xs[hover]} y1={top} y2={top + plotHeight} stroke="var(--label)" strokeWidth={1} strokeDasharray="3 3" />
           )}
           <rect
             x={left}
@@ -195,19 +194,19 @@ export function StackedAreaChart({
         {hover !== null && (
           <div
             aria-live="polite"
-            className="pointer-events-none absolute top-2 z-[2] w-[200px] rounded-xl bg-glass-dense p-2.5 text-[12px] shadow-[var(--lift-shadow)] backdrop-blur-xl"
+            className="pointer-events-none absolute top-2 z-[2] w-[200px] rounded-xl bg-glass-dense px-3 py-2.5 text-[12.5px] shadow-[var(--lift-shadow)] backdrop-blur-xl"
             style={{ left: tipFlipped ? Math.max(xs[hover] - 212, 0) : tipLeft }}
           >
-            <div className="mb-1.5 font-semibold text-label">{formatMoment(times[hover])}</div>
+            <div className="mb-1.5 font-semibold text-label-2">{formatMoment(times[hover])}</div>
             {endLabelOrder.map((index) => (
-              <div key={series[index].id} className="flex items-center gap-1.5 py-px text-label-2">
-                <span aria-hidden className="h-2 w-2 shrink-0 rounded-sm" style={{ background: series[index].color }} />
+              <div key={series[index].id} className="flex items-center gap-2 py-0.5 text-label">
+                <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: series[index].color }} />
                 <span className="min-w-0 flex-1 truncate">{series[index].label}</span>
-                <span className="tabular-nums text-label">{format(series[index].values[hover] ?? 0)}</span>
+                <b className="font-semibold tabular-nums">{format(series[index].values[hover] ?? 0)}</b>
               </div>
             ))}
             {totalLabel && (
-              <div className="mt-1 flex justify-between border-t border-separator pt-1 font-semibold text-label">
+              <div className="mt-1 flex justify-between border-t border-separator pt-1.5 font-semibold text-label">
                 <span>{totalLabel}</span>
                 <span className="tabular-nums">{format(totals[hover])}</span>
               </div>
@@ -215,15 +214,16 @@ export function StackedAreaChart({
           </div>
         )}
       </div>
-      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-label-2">
-        {series.map((item) => (
-          <li key={item.id} className="inline-flex min-w-0 items-center gap-1.5">
-            <span aria-hidden className="h-2 w-2 shrink-0 rounded-sm" style={{ background: item.color }} />
-            <span className="truncate">{item.label}</span>
-            {legendValue && <span className="tabular-nums text-label">{legendValue(item)}</span>}
-          </li>
-        ))}
-      </ul>
+      {legend && (
+        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5 text-[12.5px] text-label-2" style={{ marginLeft: left }}>
+          {series.map((item) => (
+            <li key={item.id} className="inline-flex min-w-0 items-center gap-1.5">
+              <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: item.color }} />
+              <span className="truncate">{item.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

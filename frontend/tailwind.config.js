@@ -27,6 +27,7 @@ export default {
         frost: 'var(--frost)',
         scrim: 'var(--scrim)',
         lift: 'var(--lift)',
+        tile: 'var(--tile)',
         console: {
           DEFAULT: 'var(--console)',
           label: { DEFAULT: 'var(--console-label)', 2: 'var(--console-label-2)', 3: 'var(--console-label-3)' },

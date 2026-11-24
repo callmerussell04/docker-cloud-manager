@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { translate } from '@/shared/i18n';
-import { auditActionLabel, auditActions } from './reportFormat';
+import { auditActionLabel, auditActions, auditDetailKeys, auditDetailLabel } from './reportFormat';
 
 test('the audit filter offers every action Gateway records, including provider sign-out', () => {
   expect(auditActions).toContain('auth.provider_logout');
@@ -22,4 +22,11 @@ test('provider sign-out is labelled in both locales', () => {
 
 test('an action the page does not know is shown as recorded', () => {
   expect(auditActionLabel((key) => translate('en', key), 'future.action')).toBe('future.action');
+});
+
+test.each(['ru', 'en'] as const)('every recorded audit detail has its own %s label', (locale) => {
+  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
+  const labels = auditDetailKeys.map((key) => auditDetailLabel(t, key));
+  for (const [index, label] of labels.entries()) expect(label, auditDetailKeys[index]).not.toBe(auditDetailKeys[index]);
+  expect(new Set(labels).size).toBe(labels.length);
 });
