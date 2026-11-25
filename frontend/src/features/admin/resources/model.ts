@@ -86,11 +86,16 @@ export function sortOwned<T extends Owned, K extends string>(
 }
 
 // resourceListSpec is an all-users list's URL state: its own columns and
-// Owner, with no filter. A tab that asks the server for its sort and search
-// reads the same state with it.
-export function resourceListSpec<K extends string>(sortKeys: readonly K[], defaultSort: ListSort<K>): ListStateSpec<'all', K | 'owner'> {
+// Owner, and its filters (none but everything, unless the server filters the
+// tab by status). A tab that asks the server for its sort, search or status
+// reads the same state through it.
+export function resourceListSpec<K extends string, F extends string = 'all'>(
+  sortKeys: readonly K[],
+  defaultSort: ListSort<K>,
+  filters: readonly F[] = ['all'] as unknown as readonly F[],
+): ListStateSpec<F, K | 'owner'> {
   return {
-    filters: ['all'] as const,
+    filters,
     sortKeys: [...sortKeys, 'owner'],
     defaultSort: defaultSort as ListSort<K | 'owner'>,
   };

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import type { ListSort } from '@/shared/lib/listState';
+import { readListState, writeListState, type ListSort } from '@/shared/lib/listState';
 import {
   filterByOwner,
+  resourceListSpec,
   ownerName,
   ownerOptions,
   readOwnerFilter,
@@ -97,5 +98,23 @@ describe('sortOwned', () => {
   test('leaves every other column to the resource\'s own sort', () => {
     const sort: ListSort<'name' | 'owner'> = { key: 'name', ascending: true };
     expect(names(sortOwned(rows, sort, byNameDescending, (entry) => entry.name))).toEqual(['web', 'db', 'api']);
+  });
+});
+
+describe('resourceListSpec', () => {
+  const byName: ListSort<'name' | 'size'> = { key: 'name', ascending: true };
+
+  test('adds the Owner column and offers no filter by default', () => {
+    const spec = resourceListSpec(['name', 'size'], byName);
+    expect(spec.sortKeys).toEqual(['name', 'size', 'owner']);
+    expect(readListState(new URLSearchParams('filter=attention'), spec).filter).toBe('all');
+  });
+
+  test('keeps a status filter the server applies in the URL', () => {
+    const spec = resourceListSpec(['name', 'size'], byName, ['all', 'running', 'attention'] as const);
+    const params = new URLSearchParams('filter=attention&owner=u1');
+    const state = readListState(params, spec);
+    expect(state.filter).toBe('attention');
+    expect(writeListState(params, { ...state, search: 'web' }, spec).toString()).toBe('filter=attention&owner=u1&q=web');
   });
 });

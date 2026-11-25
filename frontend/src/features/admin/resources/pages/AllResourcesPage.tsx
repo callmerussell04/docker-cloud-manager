@@ -7,6 +7,7 @@ import { readListPage } from '@/shared/lib/listState';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { containerListLayout } from '@/features/containers/components/listLayout';
 import {
+  containerFilters,
   containerListParams,
   containerPagePath,
   containerSortKeys,
@@ -80,19 +81,24 @@ export function AllResourcesPage() {
   }
 }
 
-const containerListSpec = resourceListSpec(containerSortKeys, defaultContainerSort);
+const containerListSpec = resourceListSpec(containerSortKeys, defaultContainerSort, containerFilters);
+const volumeListSpec = resourceListSpec(volumeSortKeys, defaultVolumeSort);
+const imageListSpec = resourceListSpec(imageSortKeys, defaultImageSort);
+const buildListSpec = resourceListSpec(buildSortKeys, defaultBuildSort);
+const projectListSpec = resourceListSpec(projectSortKeys, defaultProjectSort);
 
 function ContainersTab({ view }: { view: ResourceView }) {
   const t = useT();
   const navigate = useNavigate();
-  // The server sorts and searches every user's containers. It cannot sort by
-  // owner (usernames live in SSO), so that column sorts the page it answers
-  // in its default order.
+  // The server filters, sorts, searches and counts every user's containers.
+  // It cannot sort by owner (usernames live in SSO), so that column sorts the
+  // page it answers in its default order.
   const [listView] = useListState(containerListSpec);
   const search = useDebouncedValue(listView.search);
   const sort = listView.sort.key === 'owner' ? defaultContainerSort : { key: listView.sort.key, ascending: listView.sort.ascending };
-  const list = containerListParams({ filter: 'all', sort, search });
+  const list = containerListParams({ filter: listView.filter, sort, search });
   const query = useContainers('all', listView.page, resourcePageSize, { list });
+  const counts = query.data?.status_counts;
   // Compose projects name the tag beside their containers.
   const projects = useProjects('all', 1, 100);
   const projectNames = useMemo(() => new Map((projects.data?.items ?? []).map((project) => [project.id, project.name])), [projects.data]);
@@ -112,8 +118,16 @@ function ContainersTab({ view }: { view: ResourceView }) {
       ]}
       template={containerListLayout.owned}
       loadingColumns={[1.5, 0.8, 1.2, 1, 0.4, 0.5]}
-      sortKeys={containerSortKeys}
-      defaultSort={defaultContainerSort}
+      spec={containerListSpec}
+      count={counts?.all}
+      statusFilter={{
+        label: t('admin.resources.statusFilter'),
+        options: containerFilters.map((filter) => ({ id: filter, label: t(`containers.filter.${filter}`), count: counts?.[filter] })),
+        alert: counts ? { count: counts.attention, label: t('admin.resources.attentionCount', { count: counts.attention }) } : undefined,
+        emptyTitle: t('containers.filterEmpty'),
+        emptyDescription: t('admin.resources.statusEmptyDescription'),
+        showAll: t('containers.showAll'),
+      }}
       nameOf={(container) => container.name}
       searchLabel={t('containers.searchLabel')}
       loadFailed={t('containers.loadFailed')}
@@ -151,8 +165,7 @@ function VolumesTab({ view }: { view: ResourceView }) {
       ]}
       template={volumeListLayout.owned}
       loadingColumns={[1.3, 0.8, 0.9, 0.9, 1, 0.5]}
-      sortKeys={volumeSortKeys}
-      defaultSort={defaultVolumeSort}
+      spec={volumeListSpec}
       sort={sortVolumes}
       matches={matchesVolumeSearch}
       nameOf={(volume) => volume.name}
@@ -183,8 +196,7 @@ function ImagesTab({ view }: { view: ResourceView }) {
       ]}
       template={imageListLayout.owned}
       loadingColumns={[1.4, 0.8, 0.9, 1, 0.6, 0.5]}
-      sortKeys={imageSortKeys}
-      defaultSort={defaultImageSort}
+      spec={imageListSpec}
       sort={sortImages}
       matches={matchesImageSearch}
       nameOf={(image) => image.tag}
@@ -216,8 +228,7 @@ function BuildsTab({ view }: { view: ResourceView }) {
       ]}
       template={buildListLayout.owned}
       loadingColumns={[1.2, 0.8, 1.2, 1, 0.6, 0.5]}
-      sortKeys={buildSortKeys}
-      defaultSort={defaultBuildSort}
+      spec={buildListSpec}
       // Sorting by how long a build took counts a running one up to now.
       sort={(rows, sort) => sortBuilds(rows, sort, Math.floor(Date.now() / 1000))}
       matches={matchesBuildSearch}
@@ -272,8 +283,7 @@ function ProjectsTab({ view }: { view: ResourceView }) {
       ]}
       template={projectListLayout.owned}
       loadingColumns={[1.4, 0.8, 1.3, 1, 0.5, 0.5]}
-      sortKeys={projectSortKeys}
-      defaultSort={defaultProjectSort}
+      spec={projectListSpec}
       sort={sortProjects}
       matches={matchesProjectSearch}
       nameOf={(item) => item.project.name}

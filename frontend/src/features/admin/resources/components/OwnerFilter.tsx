@@ -1,9 +1,7 @@
-import { ChevronDown, UserRound } from 'lucide-react';
+import { UserRound } from 'lucide-react';
 import { useT } from '@/shared/i18n';
-import { cn } from '@/shared/lib/utils';
-import { Glass } from '@/shared/ui/Glass';
-import { Menu, MenuGroup, MenuItem } from '@/shared/ui/Menu';
 import type { OwnerOption } from '../model';
+import { FilterMenu } from './FilterMenu';
 
 interface OwnerFilterProps {
   // owner is the chosen owner's user ID; empty for everyone.
@@ -20,38 +18,17 @@ interface OwnerFilterProps {
 // or everyone's: a menu of choices, the chosen one marked.
 export function OwnerFilter({ owner, options, onChange, round = false }: OwnerFilterProps) {
   const t = useT();
-  const chosen = owner ? (options.find((option) => option.id === owner)?.name ?? owner) : t('admin.resources.everyone');
-  const label = t('admin.resources.ownerFilter');
-  const trigger = round ? (
-    <UserRound aria-hidden className={cn('h-[17px] w-[17px]', owner ? 'text-accent' : 'text-label')} strokeWidth={owner ? 2.3 : 1.9} />
-  ) : (
-    <>
-      <UserRound aria-hidden className="h-[15px] w-[15px] shrink-0 text-label-2" strokeWidth={1.9} />
-      <span className="sr-only">{label}: </span>
-      <span className="max-w-[140px] truncate">{chosen}</span>
-      <ChevronDown aria-hidden className="h-[14px] w-[14px] shrink-0 text-label-2" strokeWidth={2.2} />
-    </>
-  );
+  const everyone = t('admin.resources.everyone');
   return (
-    <Glass className="shrink-0 rounded-full">
-      <Menu
-        label={round ? `${label}: ${chosen}` : label}
-        iconOnly={round}
-        sheetTitle={label}
-        side="below-end"
-        trigger={trigger}
-        triggerClassName={cn(
-          'flex h-10 items-center rounded-full font-medium text-label transition-colors hover:bg-lift aria-expanded:bg-lift',
-          round ? 'w-10 justify-center' : 'gap-1.5 pl-3 pr-2.5',
-        )}
-      >
-        <MenuGroup label={label}>
-          <MenuItem checked={owner === ''} onSelect={() => onChange('')}>{t('admin.resources.everyone')}</MenuItem>
-          {options.map((option) => (
-            <MenuItem key={option.id} checked={owner === option.id} onSelect={() => onChange(option.id)}>{option.name}</MenuItem>
-          ))}
-        </MenuGroup>
-      </Menu>
-    </Glass>
+    <FilterMenu
+      label={t('admin.resources.ownerFilter')}
+      icon={UserRound}
+      value={owner}
+      chosen={owner ? (options.find((option) => option.id === owner)?.name ?? owner) : everyone}
+      options={[{ id: '', label: everyone }, ...options.map((option) => ({ id: option.id, label: option.name }))]}
+      onChange={onChange}
+      narrowed={owner !== ''}
+      round={round}
+    />
   );
 }
