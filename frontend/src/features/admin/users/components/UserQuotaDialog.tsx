@@ -13,6 +13,11 @@ import { quotaStepIssues, quotaSteps } from '../userFlow';
 
 const MIB = 1024 * 1024;
 
+// Unit gives every field's unit one width, so the three fields line up.
+function Unit({ children }: { children: string }) {
+  return <span className="inline-block w-11">{children}</span>;
+}
+
 interface UserQuotaDialogProps {
   // user is the account whose quota is edited; null keeps the dialog closed.
   user: AdminUser | null;
@@ -101,13 +106,13 @@ function UserQuotaFlow({ user, onClose }: { user: AdminUser; onClose: () => void
             )}
           </p>
           <Field label={t('admin.users.cpuQuota')} htmlFor="quota-cpu" error={errors.quota_cpu?.message}>
-            <Input id="quota-cpu" type="number" step="0.001" inputMode="decimal" suffix={t('admin.users.cores')} error={!!errors.quota_cpu} {...register('quota_cpu', number)} />
+            <Input id="quota-cpu" type="number" step="0.001" inputMode="decimal" suffix={<Unit>{t('admin.users.cores')}</Unit>} error={!!errors.quota_cpu} {...register('quota_cpu', number)} />
           </Field>
           <Field label={t('admin.users.ramQuota')} htmlFor="quota-ram" error={errors.quota_ram_mb?.message}>
-            <Input id="quota-ram" type="number" inputMode="numeric" suffix={t('admin.users.megabytes')} error={!!errors.quota_ram_mb} {...register('quota_ram_mb', number)} />
+            <Input id="quota-ram" type="number" inputMode="numeric" suffix={<Unit>{t('admin.users.megabytes')}</Unit>} error={!!errors.quota_ram_mb} {...register('quota_ram_mb', number)} />
           </Field>
           <Field label={t('admin.users.diskQuota')} htmlFor="quota-disk" error={errors.quota_disk_mb?.message}>
-            <Input id="quota-disk" type="number" inputMode="numeric" suffix={t('admin.users.megabytes')} error={!!errors.quota_disk_mb} {...register('quota_disk_mb', number)} />
+            <Input id="quota-disk" type="number" inputMode="numeric" suffix={<Unit>{t('admin.users.megabytes')}</Unit>} error={!!errors.quota_disk_mb} {...register('quota_disk_mb', number)} />
           </Field>
         </div>
       )}
