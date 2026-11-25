@@ -15,7 +15,6 @@ export const validation = {
   'validation.prefixRequired': 'Префикс обязателен',
   'validation.max30': 'Максимум 30 символов',
   'validation.fileRequired': 'Пожалуйста, выберите файл',
-  'validation.archiveRequired': 'Пожалуйста, выберите архив с кодом',
   'validation.gitUrlRequired': 'Укажите URL Git-репозитория',
   'validation.projectFileType': 'Допустимы только архивы (.zip, .tar.gz) или файлы .yml',
   'validation.buildFileType': 'Допустимы только архивы .zip, .tar, .tar.gz',

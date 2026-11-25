@@ -5,7 +5,6 @@ export const projects: Record<keyof typeof ru, string> = {
   'projects.deploy': 'Deploy',
   'projects.project': 'Project',
   'projects.services': 'Services',
-  'projects.createdAt': 'Created at',
   'projects.emptyTitle': 'No projects',
   'projects.emptyDescription': 'Deploy a Compose project from a file, archive, or Git repository.',
   'projects.loadFailed': 'Failed to load projects',

@@ -31,7 +31,6 @@ export const containers: Record<keyof typeof ru, string> = {
   'containers.deleteConsequence': 'It is stopped and removed. Its volumes and their data are kept.',
   'containers.autoStopIn': 'Auto-stop in {time}',
   'containers.autoStopSoon': 'Stopping soon',
-  'containers.autoStopDisabled': 'Auto-stop disabled',
   'containers.stats': 'Statistics',
   'containers.terminal': 'Terminal',
   'containers.logs': 'Logs',

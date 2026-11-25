@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { Scope } from '@/shared/api/scope';
 import type { ContainerData } from '../model';
-import { ExposeContainerModal } from './ExposeContainerModal';
+import { ExposeContainerDialog } from './ExposeContainerDialog';
 
 // useContainerModals owns which container the routing settings dialog shows,
 // and renders it; place `modals` once in the page. Routing is changed only on
@@ -11,7 +11,7 @@ export function useContainerModals(scope: Scope) {
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
   const closeExpose = useCallback(() => setExposeContainer(null), []);
 
-  const modals = scope === 'own' ? <ExposeContainerModal container={exposeContainer} onClose={closeExpose} /> : null;
+  const modals = scope === 'own' ? <ExposeContainerDialog container={exposeContainer} onClose={closeExpose} /> : null;
 
   return { openExpose: setExposeContainer, modals };
 }

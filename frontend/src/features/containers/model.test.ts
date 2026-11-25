@@ -1,29 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, holdsMemoryReservation, borrowedMemoryBytes, containerBadgeVariant, containerFilterCounts, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, filterContainers, sortContainers, formatCores, isContainerBusy, appendUsageSample, consoleViewOf, consoleViewSearch, containerPagePath, usageHistoryLength, type ContainerData, type UsageSample } from './model';
+import { blockedContainerActions, holdsMemoryReservation, borrowedMemoryBytes, containerFilterCounts, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, filterContainers, sortContainers, formatCores, isContainerBusy, appendUsageSample, consoleViewOf, consoleViewSearch, containerPagePath, usageHistoryLength, type ContainerData, type UsageSample } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
   return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0, memory_reservation_bytes: 256 * 1024 ** 2, cpu_reservation_millicores: 250 };
 }
-
-describe('containerBadgeVariant', () => {
-  test.each([
-    ['running', 'success'],
-    ['pending', 'info'],
-    ['created', 'default'],
-    ['creating', 'warning'],
-    ['starting', 'info'],
-    ['stopping', 'warning'],
-    ['exposing', 'info'],
-    ['exited', 'default'],
-    ['deleting', 'warning'],
-    ['missing', 'error'],
-    ['reconciling', 'warning'],
-    ['error', 'error'],
-    ['something-new', 'info'],
-  ])('%s shows a %s badge', (status, variant) => {
-    expect(containerBadgeVariant(status)).toBe(variant);
-  });
-});
 
 describe('isContainerBusy', () => {
   test.each([

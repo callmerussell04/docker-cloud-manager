@@ -1,5 +1,7 @@
 import { type KeyboardEvent as ReactKeyboardEvent, type ReactNode, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
+import { useT } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
 import { Glass } from './Glass';
 
@@ -99,4 +101,36 @@ export function Dialog({ isOpen, onClose, label, describedBy, role = 'dialog', c
     </div>,
     document.body,
   );
+}
+
+interface DialogHeaderProps {
+  title: string;
+  // titleId lets the dialog's form be labelled by the title.
+  titleId?: string;
+  onClose: () => void;
+}
+
+// DialogHeader is a form dialog's title with a round close button.
+export function DialogHeader({ title, titleId, onClose }: DialogHeaderProps) {
+  const t = useT();
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-3 px-6 pb-2 pt-5">
+      <h2 id={titleId} className="truncate text-lg font-bold tracking-tight">{title}</h2>
+      <button
+        type="button"
+        onClick={onClose}
+        className="-mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-2 transition-colors hover:bg-fill hover:text-label"
+        aria-label={t('common.close')}
+        title={t('common.close')}
+      >
+        <X aria-hidden className="h-[18px] w-[18px]" />
+      </button>
+    </div>
+  );
+}
+
+// DialogFooter is a form dialog's row of buttons under a hairline, ending
+// with its action.
+export function DialogFooter({ children }: { children: ReactNode }) {
+  return <div className="flex shrink-0 items-center gap-2 border-t border-separator px-6 py-4">{children}</div>;
 }

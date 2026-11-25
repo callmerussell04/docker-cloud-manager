@@ -1,5 +1,4 @@
 import type { Scope } from '@/shared/api/scope';
-import type { BadgeVariant } from '@/shared/ui/Badge';
 import type { StatusTone } from '@/shared/ui/StatusDot';
 import { sortRows, type ListSort } from '@/shared/lib/listState';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
@@ -69,26 +68,6 @@ export interface CreateContainerDTO {
 export interface ExposeContainerDTO {
   domain_prefix: string;
   internal_port: number;
-}
-
-const badgeVariants: Record<string, BadgeVariant> = {
-  running: 'success',
-  pending: 'info',
-  created: 'default',
-  creating: 'warning',
-  starting: 'info',
-  stopping: 'warning',
-  exposing: 'info',
-  exited: 'default',
-  deleting: 'warning',
-  missing: 'error',
-  reconciling: 'warning',
-  error: 'error',
-};
-
-// containerBadgeVariant is the badge a container status shows on every screen.
-export function containerBadgeVariant(status: string): BadgeVariant {
-  return badgeVariants[status] ?? 'info';
 }
 
 // Transitional statuses: a background worker is still changing the container,

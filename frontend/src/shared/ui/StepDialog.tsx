@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useT } from '@/shared/i18n';
 import { cn } from '@/shared/lib/utils';
 import { Button } from './Button';
-import { Dialog } from './Dialog';
+import { Dialog, DialogFooter, DialogHeader } from './Dialog';
 
 interface StepDialogProps {
   isOpen: boolean;
@@ -53,18 +53,7 @@ export function StepDialog({ isOpen, onClose, title, steps, current, reached, on
 
   return (
     <Dialog isOpen={isOpen} onClose={onClose} label={title} className="max-w-[600px] rounded-3xl">
-      <div className="flex shrink-0 items-center justify-between gap-3 px-6 pb-2 pt-5">
-        <h2 id={titleId} className="truncate text-lg font-bold tracking-tight">{title}</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          className="-mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-label-2 transition-colors hover:bg-fill hover:text-label"
-          aria-label={t('common.close')}
-          title={t('common.close')}
-        >
-          <X aria-hidden className="h-[18px] w-[18px]" />
-        </button>
-      </div>
+      <DialogHeader title={title} titleId={titleId} onClose={onClose} />
       <Steps labels={steps} current={current} reached={Math.max(reached, current)} onStep={onStep} />
       <form
         noValidate
@@ -78,14 +67,14 @@ export function StepDialog({ isOpen, onClose, title, steps, current, reached, on
         <div ref={bodyRef} className="min-h-[340px] flex-1 overflow-y-auto px-6 pb-6 pt-4">
           {children}
         </div>
-        <div className="flex shrink-0 items-center gap-2 border-t border-separator px-6 py-4">
+        <DialogFooter>
           {current > 0 && (
             <Button type="button" variant="ghost" className="rounded-full" onClick={() => onStep(current - 1)}>{t('common.back')}</Button>
           )}
           <div className="flex-1" />
           <Button type="button" variant="secondary" className="rounded-full" onClick={onClose}>{t('common.cancel')}</Button>
           <Button ref={submitRef} type="submit" className="rounded-full" isLoading={isSubmitting}>{last ? finishLabel : t('common.continue')}</Button>
-        </div>
+        </DialogFooter>
       </form>
     </Dialog>
   );

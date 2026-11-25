@@ -17,7 +17,6 @@ export const validation: Record<keyof typeof ru, string> = {
   'validation.prefixRequired': 'Prefix is required',
   'validation.max30': 'Maximum 30 characters',
   'validation.fileRequired': 'Please choose a file',
-  'validation.archiveRequired': 'Please choose a source archive',
   'validation.gitUrlRequired': 'Enter a Git repository URL',
   'validation.projectFileType': 'Only archives (.zip, .tar.gz) or .yml files are allowed',
   'validation.buildFileType': 'Only .zip, .tar, .tar.gz archives are allowed',

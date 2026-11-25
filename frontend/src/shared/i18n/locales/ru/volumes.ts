@@ -17,7 +17,6 @@ export const volumes = {
   'volumes.sizeHint': 'Резервируется из вашей дисковой квоты при создании и потом не меняется. Оставьте пустым для размера по умолчанию.',
   'volumes.sizeInvalid': 'Введите целое число MiB, не меньше 1',
   'volumes.usageOfSize': '{used} из {size}',
-  'volumes.sizeMeasured': 'Проверяется периодически',
   'volumes.sizeMeasuredHint': 'Размер проверяется периодически, поэтому занятое место может ненадолго его превысить. Контейнеры, пишущие в том, выросший сверх размера, останавливаются.',
   'volumes.column.volume': 'Том',
   'volumes.column.size': 'Размер',

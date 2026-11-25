@@ -19,7 +19,6 @@ export const volumes: Record<keyof typeof ru, string> = {
   'volumes.sizeHint': 'Reserved from your disk quota at creation and cannot be changed later. Leave empty for the default size.',
   'volumes.sizeInvalid': 'Enter a whole number of MiB, at least 1',
   'volumes.usageOfSize': '{used} of {size}',
-  'volumes.sizeMeasured': 'Checked periodically',
   'volumes.sizeMeasuredHint': 'The size is checked periodically, so usage can briefly go past it. Containers that write to a volume grown beyond its size are stopped.',
   'volumes.column.volume': 'Volume',
   'volumes.column.size': 'Size',

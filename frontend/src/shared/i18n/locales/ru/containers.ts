@@ -29,7 +29,6 @@ export const containers = {
   'containers.deleteConsequence': 'Контейнер будет остановлен и удалён. Его тома и их данные сохранятся.',
   'containers.autoStopIn': 'Автоостановка через {time}',
   'containers.autoStopSoon': 'Скоро остановится',
-  'containers.autoStopDisabled': 'Автоостановка отключена',
   'containers.stats': 'Статистика',
   'containers.terminal': 'Терминал',
   'containers.logs': 'Логи',

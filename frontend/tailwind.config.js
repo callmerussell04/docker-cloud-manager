@@ -4,7 +4,7 @@ import colors from 'tailwindcss/colors';
 // Design tokens from src/app/index.css, exposed as theme colours so classes
 // name them (text-label-2, bg-accent-fill, border-separator) instead of
 // carrying literals. green, orange and red keep Tailwind's own shades beside
-// the token (bg-red, text-red-text) until the old pages are rewritten.
+// the token (bg-red, text-red-text) only for the dev prototype route (#190).
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [

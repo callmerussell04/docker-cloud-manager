@@ -3,7 +3,6 @@ export const projects = {
   'projects.deploy': 'Развернуть',
   'projects.project': 'Проект',
   'projects.services': 'Сервисы',
-  'projects.createdAt': 'Дата создания',
   'projects.emptyTitle': 'Нет проектов',
   'projects.emptyDescription': 'Разверните Compose проект из файла, архива или Git-репозитория.',
   'projects.loadFailed': 'Не удалось загрузить проекты',
