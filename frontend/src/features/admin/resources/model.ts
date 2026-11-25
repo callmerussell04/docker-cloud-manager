@@ -1,4 +1,4 @@
-import { sortRows, type ListSort } from '@/shared/lib/listState';
+import { sortRows, type ListSort, type ListStateSpec } from '@/shared/lib/listState';
 
 // The all-users view's tabs, switched by the toolbar's pills and kept in the
 // URL as ?tab= (containers is the default and left out), and its owner filter,
@@ -83,4 +83,15 @@ export function sortOwned<T extends Owned, K extends string>(
 ): T[] {
   if (sort.key === 'owner') return sortRows(rows, (resource) => [ownerName(resource), nameOf(resource)], sort.ascending);
   return sortOwn(rows, sort as ListSort<K>);
+}
+
+// resourceListSpec is an all-users list's URL state: its own columns and
+// Owner, with no filter. A tab that asks the server for its sort and search
+// reads the same state with it.
+export function resourceListSpec<K extends string>(sortKeys: readonly K[], defaultSort: ListSort<K>): ListStateSpec<'all', K | 'owner'> {
+  return {
+    filters: ['all'] as const,
+    sortKeys: [...sortKeys, 'owner'],
+    defaultSort: defaultSort as ListSort<K | 'owner'>,
+  };
 }

@@ -142,18 +142,21 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	createOutbox := mustContainerOutbox(t, repos.DB)
 	require.Len(t, createOutbox, 1)
 
-	userContainers, total, err := containers.List(ownerCtx, 20, 0, nil)
+	userContainersPage, err := containers.List(ownerCtx, model.ContainerListQuery{Limit: 20})
 	require.NoError(t, err)
+	userContainers, total := userContainersPage.Containers, userContainersPage.Total
 	require.Equal(t, 1, total)
 	require.Len(t, userContainers, 1)
 
-	otherContainers, total, err := containers.List(coretest.UserContext(otherOwnerID), 20, 0, nil)
+	otherContainersPage, err := containers.List(coretest.UserContext(otherOwnerID), model.ContainerListQuery{Limit: 20})
 	require.NoError(t, err)
+	otherContainers, total := otherContainersPage.Containers, otherContainersPage.Total
 	require.Zero(t, total)
 	require.Empty(t, otherContainers)
 
-	adminContainers, total, err := containers.List(coretest.AdminContext(adminID), 20, 0, nil)
+	adminContainersPage, err := containers.List(coretest.AdminContext(adminID), model.ContainerListQuery{Limit: 20})
 	require.NoError(t, err)
+	adminContainers, total := adminContainersPage.Containers, adminContainersPage.Total
 	require.Equal(t, 1, total)
 	require.Len(t, adminContainers, 1)
 
@@ -212,7 +215,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	client := coreapi.NewContainerAPIClient(conn)
 	grpcCtx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
 
-	listResp, err := client.ListContainers(grpcCtx, &coreapi.PaginationRequest{Limit: 10})
+	listResp, err := client.ListContainers(grpcCtx, &coreapi.ListContainersRequest{Limit: 10})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), listResp.TotalCount)
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
@@ -222,7 +225,7 @@ func TestResourceFlowUsesScopeAndPersistsLifecycleOutbox(t *testing.T) {
 	require.Equal(t, ownerID, target.OwnerID)
 	require.NotEmpty(t, target.DockerID)
 
-	_, err = client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 10})
+	_, err = client.ListContainers(context.Background(), &coreapi.ListContainersRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 }
 

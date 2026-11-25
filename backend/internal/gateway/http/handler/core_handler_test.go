@@ -7,7 +7,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/callmerussell04/docker-cloud-manager/backend/internal/gateway/http/handler"
@@ -74,7 +76,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.True(t, createInput.VolumeMounts[0].IsReadOnly)
 
 	projectID := uuid.NewString()
-	svc.EXPECT().ListContainers(mock.Anything, 2, 10, projectID).Return(model.PaginatedContainers{
+	svc.EXPECT().ListContainers(mock.Anything, model.ContainerListParams{Page: 2, Limit: 10, ProjectID: projectID}).Return(model.PaginatedContainers{
 		Containers: []model.Container{{ID: containerID, DockerID: "docker-id", ProjectID: projectID, Name: "web", OwnerID: "owner-id", OwnerUsername: "alice"}},
 		TotalCount: 1,
 	}, nil)
@@ -83,7 +85,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	require.Contains(t, resp.Body.String(), `"project_id":"`+projectID+`"`)
 	require.NotContains(t, resp.Body.String(), "docker_id")
 	require.NotContains(t, resp.Body.String(), "owner_id")
-	svc.EXPECT().ListContainers(mock.Anything, 2, 10, "").Return(model.PaginatedContainers{
+	svc.EXPECT().ListContainers(mock.Anything, model.ContainerListParams{Page: 2, Limit: 10}).Return(model.PaginatedContainers{
 		Containers: []model.Container{{ID: containerID, DockerID: "docker-id", Name: "web", OwnerID: "owner-id", OwnerUsername: "alice"}},
 		TotalCount: 1,
 	}, nil)
@@ -155,6 +157,89 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	svc.EXPECT().DeleteVolume(mock.Anything, volumeID).Return(nil)
 	resp = perform(router, http.MethodDelete, "/volumes/"+volumeID, ``, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
+}
+
+// The containers list forwards its status filter, sort, order and search,
+// leaves out what is omitted, and answers the count of every status filter.
+func TestCoreHandlerListsContainersFilteredSortedAndSearched(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	counts := model.ContainerStatusCounts{All: 9, Running: 4, Stopped: 3, Attention: 2}
+	for _, tc := range []struct {
+		name  string
+		path  string
+		query string
+		want  model.ContainerListParams
+	}{
+		{name: "defaults when omitted", path: "/containers", query: "", want: model.ContainerListParams{Page: 1, Limit: 20}},
+		{
+			name:  "every parameter",
+			path:  "/containers",
+			query: "?page=3&limit=50&status=attention&sort=memory&order=desc&q=%20web%20",
+			want:  model.ContainerListParams{Page: 3, Limit: 50, Status: "attention", Sort: "memory", Order: "desc", Query: "web"},
+		},
+		{
+			name:  "admin view",
+			path:  "/admin/containers",
+			query: "?status=running&sort=created&order=asc&q=nginx",
+			want:  model.ContainerListParams{Page: 1, Limit: 20, Status: "running", Sort: "created", Order: "asc", Query: "nginx"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newCoreServiceMock(t)
+			svc.EXPECT().ListContainers(mock.Anything, tc.want).Return(model.PaginatedContainers{TotalCount: 2, StatusCounts: counts}, nil)
+
+			resp := perform(coreRouter(svc), http.MethodGet, tc.path+tc.query, ``, nil)
+
+			require.Equal(t, http.StatusOK, resp.Code)
+			var body struct {
+				Containers   []any          `json:"containers"`
+				TotalCount   int            `json:"total_count"`
+				StatusCounts map[string]int `json:"status_counts"`
+			}
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &body))
+			require.Equal(t, 2, body.TotalCount)
+			require.Equal(t, map[string]int{"all": 9, "running": 4, "stopped": 3, "attention": 2}, body.StatusCounts)
+		})
+	}
+}
+
+// An unknown status filter, sort key or order, or an overlong search, is a
+// 400 that does not repeat the value, and never reaches Core.
+func TestCoreHandlerRejectsInvalidContainerListParameters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	long := strings.Repeat("x", 101)
+	for _, tc := range []struct {
+		name  string
+		query string
+		value string
+	}{
+		{name: "status", query: "status=failing", value: "failing"},
+		{name: "sort", query: "sort=owner", value: "owner"},
+		{name: "order", query: "order=up", value: "up"},
+		{name: "search", query: "q=" + long, value: long},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newCoreServiceMock(t)
+
+			resp := perform(coreRouter(svc), http.MethodGet, "/containers?"+tc.query, ``, nil)
+
+			require.Equal(t, http.StatusBadRequest, resp.Code)
+			require.NotContains(t, resp.Body.String(), tc.value)
+		})
+	}
+}
+
+// A search of 100 characters after trimming is allowed, counted in
+// characters rather than bytes.
+func TestCoreHandlerAllowsAContainerSearchAtTheLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	search := strings.Repeat("ж", 100)
+	svc := newCoreServiceMock(t)
+	svc.EXPECT().ListContainers(mock.Anything, model.ContainerListParams{Page: 1, Limit: 20, Query: search}).Return(model.PaginatedContainers{}, nil)
+
+	resp := perform(coreRouter(svc), http.MethodGet, "/containers?q="+url.QueryEscape("  "+search+"  "), ``, nil)
+
+	require.Equal(t, http.StatusOK, resp.Code)
 }
 
 func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {

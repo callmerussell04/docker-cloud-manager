@@ -372,52 +372,160 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *ContainerRepository) List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error) {
-	var args []any
-	var conditions []string
-	if opts.OwnerID != nil {
-		args = append(args, *opts.OwnerID)
-		conditions = append(conditions, fmt.Sprintf("owner_id = $%d", len(args)))
+// List reads one page of the containers list and the count of every status
+// filter. Counts cover the owner, the project and the search but not the
+// status filter; the total is the counts of the filter's classes. It expects
+// a normalized filter (model.ContainerListFilter.Normalize).
+func (r *ContainerRepository) List(ctx context.Context, opts model.ContainerListOptions) (model.ContainerPage, error) {
+	counted := &sqlArgs{}
+	countQuery := `SELECT ` + containerClassExpr(counted) + ` AS class, COUNT(*) FROM containers` +
+		whereClause(containerListConditions(counted, opts)) + ` GROUP BY class`
+
+	var page model.ContainerPage
+	countRows, err := r.db.Query(ctx, countQuery, counted.args...)
+	if err != nil {
+		return model.ContainerPage{}, err
 	}
-	if opts.ProjectID != nil {
-		args = append(args, *opts.ProjectID)
-		conditions = append(conditions, fmt.Sprintf("project_id = $%d", len(args)))
+	defer countRows.Close()
+	for countRows.Next() {
+		var class, n int
+		if err := countRows.Scan(&class, &n); err != nil {
+			return model.ContainerPage{}, err
+		}
+		page.Counts.Add(model.ContainerStatusClass(class), n)
+		if opts.Status.Shows(model.ContainerStatusClass(class)) {
+			page.Total += n
+		}
+	}
+	if err := countRows.Err(); err != nil {
+		return model.ContainerPage{}, err
+	}
+	if page.Total == 0 {
+		return page, nil
 	}
 
-	where := ""
-	if len(conditions) > 0 {
-		where = " WHERE " + strings.Join(conditions, " AND ")
+	q := &sqlArgs{}
+	conditions := containerListConditions(q, opts)
+	if condition := containerStatusCondition(q, opts.Status); condition != "" {
+		conditions = append(conditions, condition)
 	}
-
-	var total int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM containers`+where, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
 	query := `
 		SELECT id, owner_id, project_id, docker_id, name, image_tag, internal_port, domain_prefix,
 			status, desired_status, ttl_deadline, base_memory_reservation, base_cpu_millicores, last_observed_at, last_error, last_exit_code, docker_generation, created_at
-		FROM containers` + where + ` ORDER BY created_at DESC`
+		FROM containers` + whereClause(conditions) + ` ORDER BY ` + containerOrderBy(q, opts.ContainerListFilter)
 	if opts.Limit > 0 {
-		args = append(args, opts.Limit, opts.Offset)
-		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", len(args)-1, len(args))
+		query += fmt.Sprintf(" LIMIT %s OFFSET %s", q.add(opts.Limit), q.add(opts.Offset))
 	}
 
-	rows, err := r.db.Query(ctx, query, args...)
+	rows, err := r.db.Query(ctx, query, q.args...)
 	if err != nil {
-		return nil, 0, err
+		return model.ContainerPage{}, err
 	}
 	defer rows.Close()
-
-	var containers []model.Container
 	for rows.Next() {
 		c, err := scanContainerListItem(rows)
 		if err != nil {
-			return nil, 0, err
+			return model.ContainerPage{}, err
 		}
-		containers = append(containers, c)
+		page.Containers = append(page.Containers, c)
 	}
-	return containers, total, rows.Err()
+	return page, rows.Err()
+}
+
+// sqlArgs collects a statement's parameters and names their placeholders.
+type sqlArgs struct {
+	args []any
+}
+
+func (q *sqlArgs) add(value any) string {
+	q.args = append(q.args, value)
+	return fmt.Sprintf("$%d", len(q.args))
+}
+
+func whereClause(conditions []string) string {
+	if len(conditions) == 0 {
+		return ""
+	}
+	return " WHERE " + strings.Join(conditions, " AND ")
+}
+
+// containerListConditions narrows the list to the owner, the project and
+// the search; the status filter is added only for the page.
+func containerListConditions(q *sqlArgs, opts model.ContainerListOptions) []string {
+	var conditions []string
+	if opts.OwnerID != nil {
+		conditions = append(conditions, "owner_id = "+q.add(*opts.OwnerID))
+	}
+	if opts.ProjectID != nil {
+		conditions = append(conditions, "project_id = "+q.add(*opts.ProjectID))
+	}
+	if opts.Search != "" {
+		pattern := q.add("%" + likeEscaper.Replace(opts.Search) + "%")
+		conditions = append(conditions, fmt.Sprintf(`(name ILIKE %[1]s ESCAPE '\' OR image_tag ILIKE %[1]s ESCAPE '\')`, pattern))
+	}
+	return conditions
+}
+
+// likeEscaper makes a search literal text in a LIKE pattern.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// containerClassExpr is a container's status class (model.ContainerStatusClass)
+// in SQL, from the model's own lists: busy is every status no class lists.
+func containerClassExpr(q *sqlArgs) string {
+	var b strings.Builder
+	b.WriteString("CASE")
+	for _, class := range model.ContainerStatusClasses {
+		if statuses := model.ContainerClassStatuses(class); statuses != nil {
+			fmt.Fprintf(&b, " WHEN status = ANY(%s) THEN %d", q.add(statuses), class)
+		}
+	}
+	fmt.Fprintf(&b, " ELSE %d END", model.ContainerClassBusy)
+	return b.String()
+}
+
+// containerStatusCondition keeps the classes a status filter shows, by
+// status so the status index serves it. A filter showing busy containers
+// keeps every status the other classes do not list.
+func containerStatusCondition(q *sqlArgs, filter model.ContainerStatusFilter) string {
+	showsBusy := filter.Shows(model.ContainerClassBusy)
+	var statuses []string
+	for _, class := range model.ContainerStatusClasses {
+		if class != model.ContainerClassBusy && filter.Shows(class) != showsBusy {
+			statuses = append(statuses, model.ContainerClassStatuses(class)...)
+		}
+	}
+	switch {
+	case showsBusy && len(statuses) == 0:
+		return ""
+	case showsBusy:
+		return "NOT (status = ANY(" + q.add(statuses) + "))"
+	default:
+		return "status = ANY(" + q.add(statuses) + ")"
+	}
+}
+
+// containerOrderBy orders the list by one column, then by name (natural and
+// case-insensitive) and id, which never reverse, so equal rows keep one order
+// across pages. Ascending status is failing first; ascending creation is the
+// newest first; ascending address puts unrouted containers last.
+func containerOrderBy(q *sqlArgs, filter model.ContainerListFilter) string {
+	dir, reverse := "ASC", "DESC"
+	if filter.Order == model.SortDescending {
+		dir, reverse = reverse, dir
+	}
+	const byName = "name COLLATE natural_order ASC, id ASC"
+	switch filter.Sort {
+	case model.ContainerSortName:
+		return "name COLLATE natural_order " + dir + ", id ASC"
+	case model.ContainerSortAddress:
+		return "(domain_prefix = '') " + dir + ", domain_prefix COLLATE natural_order " + dir + ", " + byName
+	case model.ContainerSortMemory:
+		return "base_memory_reservation " + dir + ", " + byName
+	case model.ContainerSortCreated:
+		return "created_at " + reverse + ", " + byName
+	default:
+		return containerClassExpr(q) + " " + dir + ", " + byName
+	}
 }
 
 func (r *ContainerRepository) GetByProjectID(ctx context.Context, projectID uuid.UUID) ([]model.Container, error) {

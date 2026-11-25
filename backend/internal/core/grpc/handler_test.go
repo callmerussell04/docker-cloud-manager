@@ -39,16 +39,30 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 			createParams = params
 		}).
 		Return(containerID, nil)
-	logic.EXPECT().List(mock.Anything, 50, 50, &projectID).Return([]model.Container{{
-		ID:           containerID,
-		OwnerID:      ownerID,
-		ProjectID:    &projectID,
-		Name:         "web",
-		ImageTag:     "nginx:latest",
-		InternalPort: 8080,
-		Status:       model.ContainerStatusRunning,
-		CreatedAt:    time.Unix(123, 0),
-	}}, 1, nil)
+	logic.EXPECT().List(mock.Anything, model.ContainerListQuery{
+		ProjectID: &projectID,
+		Limit:     50,
+		Offset:    50,
+		ContainerListFilter: model.ContainerListFilter{
+			Status: model.ContainerFilterRunning,
+			Sort:   model.ContainerSortMemory,
+			Order:  model.SortDescending,
+			Search: "web",
+		},
+	}).Return(model.ContainerPage{
+		Containers: []model.Container{{
+			ID:           containerID,
+			OwnerID:      ownerID,
+			ProjectID:    &projectID,
+			Name:         "web",
+			ImageTag:     "nginx:latest",
+			InternalPort: 8080,
+			Status:       model.ContainerStatusRunning,
+			CreatedAt:    time.Unix(123, 0),
+		}},
+		Total:  1,
+		Counts: model.ContainerFilterCounts{All: 4, Running: 1, Stopped: 2, Attention: 1},
+	}, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	conn := newCoreGRPCConn(t, func(s *grpc.Server) {
 		coregrpc.RegisterContainerAPI(s, logic, users)
@@ -69,12 +83,17 @@ func TestContainerGRPCHandlerMapsCreateListAndRuntimeTarget(t *testing.T) {
 	require.Len(t, createParams.VolumeMounts, 1)
 	require.True(t, createParams.VolumeMounts[0].IsReadOnly)
 
-	listResp, err := client.ListContainers(ctx, &coreapi.PaginationRequest{Limit: 50, Page: 2, ProjectId: projectID.String()})
+	listResp, err := client.ListContainers(ctx, &coreapi.ListContainersRequest{
+		Limit: 50, Page: 2, ProjectId: projectID.String(),
+		Status: "running", Sort: "memory", Order: "desc", Query: "web",
+	})
 	require.NoError(t, err)
 	require.Len(t, listResp.Containers, 1)
 	require.Equal(t, "alice", listResp.Containers[0].OwnerUsername)
 	require.Equal(t, projectID.String(), listResp.Containers[0].ProjectId)
 	require.Equal(t, int32(1), listResp.TotalCount)
+	counts := listResp.GetStatusCounts()
+	require.Equal(t, []int32{4, 1, 2, 1}, []int32{counts.GetAll(), counts.GetRunning(), counts.GetStopped(), counts.GetAttention()})
 }
 
 func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
@@ -90,7 +109,7 @@ func TestContainerGRPCHandlerRejectsInvalidInputs(t *testing.T) {
 	_, err = client.StartContainer(ctx, &coreapi.ContainerActionRequest{ContainerId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
-	_, err = client.ListContainers(ctx, &coreapi.PaginationRequest{ProjectId: "bad"})
+	_, err = client.ListContainers(ctx, &coreapi.ListContainersRequest{ProjectId: "bad"})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	_, err = client.ExposeContainer(ctx, &coreapi.ExposeRequest{ContainerId: uuid.NewString(), DomainPrefix: "", InternalPort: 0})
@@ -108,7 +127,7 @@ func TestCoreResourceGRPCHandlersRejectSystemScope(t *testing.T) {
 	system := coreapi.NewSystemAPIClient(conn)
 	ctx := systemScopeContext()
 
-	_, err := containers.ListContainers(ctx, &coreapi.PaginationRequest{})
+	_, err := containers.ListContainers(ctx, &coreapi.ListContainersRequest{})
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	_, err = volumes.CreateVolume(ctx, &coreapi.CreateVolumeRequest{Name: "data"})

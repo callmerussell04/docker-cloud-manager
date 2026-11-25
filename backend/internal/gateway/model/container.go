@@ -44,7 +44,29 @@ type ContainerStats struct {
 	NetworkTxBytes           int64
 }
 
+// ContainerListParams is a page of the containers list: the page, the
+// project, and the status filter, sort, order and search, each empty when
+// omitted.
+type ContainerListParams struct {
+	Page      int
+	Limit     int
+	ProjectID string
+	Status    string
+	Sort      string
+	Order     string
+	Query     string
+}
+
+// ContainerStatusCounts is how many containers each status filter shows.
+type ContainerStatusCounts struct {
+	All       int32
+	Running   int32
+	Stopped   int32
+	Attention int32
+}
+
 type PaginatedContainers struct {
-	Containers []Container
-	TotalCount int32
+	Containers   []Container
+	TotalCount   int32
+	StatusCounts ContainerStatusCounts
 }

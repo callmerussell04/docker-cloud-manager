@@ -88,10 +88,10 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	})
 	client := coreapi.NewContainerAPIClient(conn)
 
-	_, err = client.ListContainers(context.Background(), &coreapi.PaginationRequest{Limit: 10})
+	_, err = client.ListContainers(context.Background(), &coreapi.ListContainersRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 	wrongTokenCtx := coretest.InternalGRPCContext(context.Background(), "wrong", accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID})
-	_, err = client.ListContainers(wrongTokenCtx, &coreapi.PaginationRequest{Limit: 10})
+	_, err = client.ListContainers(wrongTokenCtx, &coreapi.ListContainersRequest{Limit: 10})
 	require.Equal(t, codes.Unauthenticated, status.Code(err))
 
 	userCtx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: ownerID, Username: "alice", Role: "user"})
@@ -99,7 +99,7 @@ func TestCoreGRPCInternalAuthScopeAndRuntimeTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, createResp.ContainerId)
 
-	listResp, err := client.ListContainers(userCtx, &coreapi.PaginationRequest{Limit: 20})
+	listResp, err := client.ListContainers(userCtx, &coreapi.ListContainersRequest{Limit: 20})
 	require.NoError(t, err)
 	require.Equal(t, int32(2), listResp.TotalCount)
 

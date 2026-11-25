@@ -40,7 +40,7 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, w
 	imgRepo := coremocks.NewStatsImageRepository(t)
 	buildRepo := coremocks.NewStatsBuildRepository(t)
 	projRepo := coremocks.NewStatsProjectRepository(t)
-	var containerListOpts model.ListOptions
+	var containerListOpts model.ContainerListOptions
 
 	cfgValue := testSystemConfig()
 	cfgValue.DefaultUserQuotaRAMMB, cfgValue.DefaultUserQuotaDiskMB = 768, 200
@@ -54,15 +54,11 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, w
 	contRepo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(750), nil)
 	contRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(3, nil)
 	contRepo.EXPECT().
-		List(mock.Anything, mock.AnythingOfType("model.ListOptions")).
-		Run(func(ctx context.Context, opts model.ListOptions) {
+		List(mock.Anything, mock.AnythingOfType("model.ContainerListOptions")).
+		Run(func(ctx context.Context, opts model.ContainerListOptions) {
 			containerListOpts = opts
 		}).
-		Return([]model.Container{
-			{Status: model.ContainerStatusRunning},
-			{Status: model.ContainerStatusExited},
-			{Status: model.ContainerStatusRunning},
-		}, 3, nil)
+		Return(model.ContainerPage{Counts: model.ContainerFilterCounts{All: 3, Running: 2, Stopped: 1}}, nil)
 	imgRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(10<<20), nil)
 	volRepo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(1024*1024+1), nil)
 	imgRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 4, nil)

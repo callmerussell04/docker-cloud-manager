@@ -19,17 +19,17 @@ import (
 
 func TestCoreGRPCConnBoundsCallsWithoutCallerDeadline(t *testing.T) {
 	containers := coregrpcmocks.NewMockContainerLogic(t)
-	containers.EXPECT().List(mock.Anything, 10, 0, (*uuid.UUID)(nil)).
-		RunAndReturn(func(ctx context.Context, _, _ int, _ *uuid.UUID) ([]model.Container, int, error) {
+	containers.EXPECT().List(mock.Anything, model.ContainerListQuery{Limit: 10}).
+		RunAndReturn(func(ctx context.Context, _ model.ContainerListQuery) (model.ContainerPage, error) {
 			if _, ok := ctx.Deadline(); !ok {
-				return nil, 0, apperrors.ErrInternal
+				return model.ContainerPage{}, apperrors.ErrInternal
 			}
 			<-ctx.Done()
-			return nil, 0, apperrors.ErrTimeout
+			return model.ContainerPage{}, apperrors.ErrTimeout
 		}).Once()
 	conn := coretest.NewCoreGRPCConn(t, coretest.CoreGRPCRegistration{Containers: containers})
 	ctx := coretest.InternalGRPCContext(context.Background(), coretest.GatewayCredential, accessscope.Scope{Kind: accessscope.KindUser, UserID: uuid.New()})
 
-	_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.PaginationRequest{Limit: 10})
+	_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.ListContainersRequest{Limit: 10})
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 }

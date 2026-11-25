@@ -70,3 +70,12 @@ type PaginatedContainers struct {
 	Containers []ContainerDTO `json:"containers"`
 	TotalCount int32          `json:"total_count"`
 }
+
+// ContainerStatusCountsDTO is how many containers each status filter of the
+// containers list shows.
+type ContainerStatusCountsDTO struct {
+	All       int32 `json:"all"`
+	Running   int32 `json:"running"`
+	Stopped   int32 `json:"stopped"`
+	Attention int32 `json:"attention"`
+}

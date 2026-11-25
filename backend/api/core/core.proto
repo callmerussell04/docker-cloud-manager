@@ -9,7 +9,7 @@ service ContainerAPI {
   rpc StartContainer (ContainerActionRequest) returns (Empty);
   rpc StopContainer (ContainerActionRequest) returns (Empty);
   rpc DeleteContainer (ContainerActionRequest) returns (Empty);
-  rpc ListContainers (PaginationRequest) returns (PaginatedContainerResponse);
+  rpc ListContainers (ListContainersRequest) returns (PaginatedContainerResponse);
   rpc GetContainer (ContainerActionRequest) returns (ContainerData);
   rpc ExposeContainer (ExposeRequest) returns (Empty);
   rpc GetContainerStats (ContainerActionRequest) returns (ContainerStatsResponse);
@@ -562,9 +562,32 @@ message PaginationRequest {
   string project_id = 3;
 }
 
+// ListContainersRequest reads a page of the containers list. Empty status,
+// sort and order mean all, status (failing first) and asc; query is a
+// literal, case-insensitive substring of the name or image tag.
+message ListContainersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+  string project_id = 3;
+  string status = 4;
+  string sort = 5;
+  string order = 6;
+  string query = 7;
+}
+
+// ContainerStatusCounts is how many containers each status filter shows,
+// under the owner, the project and the query but not the status filter.
+message ContainerStatusCounts {
+  int32 all = 1;
+  int32 running = 2;
+  int32 stopped = 3;
+  int32 attention = 4;
+}
+
 message PaginatedContainerResponse {
   repeated ContainerData containers = 1;
   int32 total_count = 2;
+  ContainerStatusCounts status_counts = 3;
 }
 
 message PaginatedVolumeResponse {

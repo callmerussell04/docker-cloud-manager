@@ -37,7 +37,7 @@ type ContainerAPIClient interface {
 	StartContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	StopContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
 	DeleteContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*Empty, error)
-	ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
+	ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error)
 	GetContainer(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerData, error)
 	ExposeContainer(ctx context.Context, in *ExposeRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetContainerStats(ctx context.Context, in *ContainerActionRequest, opts ...grpc.CallOption) (*ContainerStatsResponse, error)
@@ -91,7 +91,7 @@ func (c *containerAPIClient) DeleteContainer(ctx context.Context, in *ContainerA
 	return out, nil
 }
 
-func (c *containerAPIClient) ListContainers(ctx context.Context, in *PaginationRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error) {
+func (c *containerAPIClient) ListContainers(ctx context.Context, in *ListContainersRequest, opts ...grpc.CallOption) (*PaginatedContainerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(PaginatedContainerResponse)
 	err := c.cc.Invoke(ctx, ContainerAPI_ListContainers_FullMethodName, in, out, cOpts...)
@@ -139,7 +139,7 @@ type ContainerAPIServer interface {
 	StartContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	StopContainer(context.Context, *ContainerActionRequest) (*Empty, error)
 	DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error)
-	ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error)
+	ListContainers(context.Context, *ListContainersRequest) (*PaginatedContainerResponse, error)
 	GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error)
 	ExposeContainer(context.Context, *ExposeRequest) (*Empty, error)
 	GetContainerStats(context.Context, *ContainerActionRequest) (*ContainerStatsResponse, error)
@@ -165,7 +165,7 @@ func (UnimplementedContainerAPIServer) StopContainer(context.Context, *Container
 func (UnimplementedContainerAPIServer) DeleteContainer(context.Context, *ContainerActionRequest) (*Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteContainer not implemented")
 }
-func (UnimplementedContainerAPIServer) ListContainers(context.Context, *PaginationRequest) (*PaginatedContainerResponse, error) {
+func (UnimplementedContainerAPIServer) ListContainers(context.Context, *ListContainersRequest) (*PaginatedContainerResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListContainers not implemented")
 }
 func (UnimplementedContainerAPIServer) GetContainer(context.Context, *ContainerActionRequest) (*ContainerData, error) {
@@ -271,7 +271,7 @@ func _ContainerAPI_DeleteContainer_Handler(srv interface{}, ctx context.Context,
 }
 
 func _ContainerAPI_ListContainers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PaginationRequest)
+	in := new(ListContainersRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -283,7 +283,7 @@ func _ContainerAPI_ListContainers_Handler(srv interface{}, ctx context.Context, 
 		FullMethod: ContainerAPI_ListContainers_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ContainerAPIServer).ListContainers(ctx, req.(*PaginationRequest))
+		return srv.(ContainerAPIServer).ListContainers(ctx, req.(*ListContainersRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

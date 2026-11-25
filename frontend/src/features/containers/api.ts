@@ -1,10 +1,12 @@
 import { privateApi } from '@/shared/api/client';
-import type { PaginatedResponse } from '@/shared/api/pagination';
 import { scopedPath, type Scope } from '@/shared/api/scope';
 import type {
   ContainerAction,
+  ContainerListParams,
   ContainerOf,
+  ContainerPage,
   ContainerStats,
+  ContainerStatusCounts,
   CreateContainerDTO,
   ExposeContainerDTO,
   TelemetryTicketResponse,
@@ -15,11 +17,12 @@ export const getContainersFn = async <S extends Scope>(
   page = 1,
   limit = 20,
   projectId?: string,
-): Promise<PaginatedResponse<ContainerOf<S>>> => {
-  const response = await privateApi.get<{ containers: ContainerOf<S>[]; total_count: number }>(scopedPath(scope, '/containers'), {
-    params: { page, limit, project_id: projectId || undefined },
+  list: ContainerListParams = {},
+): Promise<ContainerPage<ContainerOf<S>>> => {
+  const response = await privateApi.get<{ containers: ContainerOf<S>[]; total_count: number; status_counts: ContainerStatusCounts }>(scopedPath(scope, '/containers'), {
+    params: { page, limit, project_id: projectId || undefined, ...list },
   });
-  return { items: response.data.containers || [], total_count: response.data.total_count || 0 };
+  return { items: response.data.containers || [], total_count: response.data.total_count || 0, status_counts: response.data.status_counts };
 };
 
 export const getContainerFn = async <S extends Scope>(scope: S, id: string): Promise<ContainerOf<S>> => {

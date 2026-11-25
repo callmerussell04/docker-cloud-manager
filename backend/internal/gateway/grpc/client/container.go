@@ -75,15 +75,30 @@ func (c *CoreClient) ExposeContainer(ctx context.Context, containerID, domainPre
 	return nil
 }
 
-func (c *CoreClient) ListContainers(ctx context.Context, page, limit int, projectID string) (model.PaginatedContainers, error) {
-	req := &coreapi.PaginationRequest{Page: int32(page), Limit: int32(limit), ProjectId: projectID}
+func (c *CoreClient) ListContainers(ctx context.Context, params model.ContainerListParams) (model.PaginatedContainers, error) {
+	req := &coreapi.ListContainersRequest{
+		Page:      int32(params.Page),
+		Limit:     int32(params.Limit),
+		ProjectId: params.ProjectID,
+		Status:    params.Status,
+		Sort:      params.Sort,
+		Order:     params.Order,
+		Query:     params.Query,
+	}
 	resp, err := c.containerAPI.ListContainers(ctx, req)
 	if err != nil {
 		return model.PaginatedContainers{}, grpcerrors.FromGRPC(err)
 	}
+	counts := resp.GetStatusCounts()
 	return model.PaginatedContainers{
 		Containers: containersFromProto(resp.GetContainers()),
 		TotalCount: resp.GetTotalCount(),
+		StatusCounts: model.ContainerStatusCounts{
+			All:       counts.GetAll(),
+			Running:   counts.GetRunning(),
+			Stopped:   counts.GetStopped(),
+			Attention: counts.GetAttention(),
+		},
 	}, nil
 }
 

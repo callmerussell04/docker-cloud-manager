@@ -356,10 +356,19 @@ paths:
   /containers:
     get:
       summary: Get all containers for current user
+      description: >
+        Filtered by status, sorted and searched on the server. `total_count` counts the containers
+        matching every filter, status included; `status_counts` follows the project and the search
+        but not the status filter.
       tags: [Containers]
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/ContainerProjectParam'
+        - $ref: '#/components/parameters/ContainerStatusParam'
+        - $ref: '#/components/parameters/ContainerSortParam'
+        - $ref: '#/components/parameters/ContainerOrderParam'
+        - $ref: '#/components/parameters/ContainerSearchParam'
       responses:
         '200':
           description: Paginated list of containers
@@ -375,6 +384,10 @@ paths:
                   total_count:
                     type: integer
                     format: int64
+                  status_counts:
+                    $ref: '#/components/schemas/ContainerStatusCounts'
+        '400':
+          description: Unknown status, sort or order, or a search over 100 characters
     post:
       summary: Create a new container
       tags: [Containers]
@@ -1380,10 +1393,16 @@ paths:
   /admin/containers:
     get:
       summary: Get paginated list of all containers (all users)
+      description: Filtered, sorted, searched and counted across every user, as `GET /containers` is for one.
       tags: [Admin]
       parameters:
         - $ref: '#/components/parameters/PageParam'
         - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/ContainerProjectParam'
+        - $ref: '#/components/parameters/ContainerStatusParam'
+        - $ref: '#/components/parameters/ContainerSortParam'
+        - $ref: '#/components/parameters/ContainerOrderParam'
+        - $ref: '#/components/parameters/ContainerSearchParam'
       responses:
         '200':
           description: Paginated containers
@@ -1398,6 +1417,10 @@ paths:
                       $ref: '#/components/schemas/Container'
                   total_count:
                     type: integer
+                  status_counts:
+                    $ref: '#/components/schemas/ContainerStatusCounts'
+        '400':
+          description: Unknown status, sort or order, or a search over 100 characters
 
   /admin/containers/{id}:
     get:
@@ -1808,6 +1831,48 @@ components:
       description: Short-lived, opaque, single-use ticket issued by the matching ticket endpoint.
 
   parameters:
+    ContainerProjectParam:
+      name: project_id
+      in: query
+      description: Only the containers of this Compose project.
+      schema:
+        type: string
+        format: uuid
+    ContainerStatusParam:
+      name: status
+      in: query
+      description: >
+        Status filter. `running` is running; `stopped` is exited and created; `attention` is failing
+        (error, missing) and busy (every other status). Omitted is `all`.
+      schema:
+        type: string
+        enum: [all, running, stopped, attention]
+        default: all
+    ContainerSortParam:
+      name: sort
+      in: query
+      description: >
+        Column to sort by. `status` ascending is failing, busy, running, created, exited. `address`
+        ascending puts unpublished containers last. `memory` is the reservation. `created` ascending
+        is the newest first. Ties are ordered by name, then id, in either direction.
+      schema:
+        type: string
+        enum: [name, status, address, memory, created]
+        default: status
+    ContainerOrderParam:
+      name: order
+      in: query
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+    ContainerSearchParam:
+      name: q
+      in: query
+      description: Case-insensitive substring of the name or image tag, taken literally; trimmed, at most 100 characters.
+      schema:
+        type: string
+        maxLength: 100
     CookieOrigin:
       in: header
       name: Origin
@@ -1984,6 +2049,19 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    ContainerStatusCounts:
+      type: object
+      description: How many containers each status filter shows.
+      required: [all, running, stopped, attention]
+      properties:
+        all:
+          type: integer
+        running:
+          type: integer
+        stopped:
+          type: integer
+        attention:
+          type: integer
     ErrorResponse:
       type: object
       properties:

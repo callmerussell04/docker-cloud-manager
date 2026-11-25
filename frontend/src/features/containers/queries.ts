@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PageParams } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import { queryRoots } from '@/shared/api/queryRoots';
@@ -13,26 +13,38 @@ import {
   getContainerStatsFn,
   getContainersFn,
 } from './api';
-import { containerNeedsPolling, containerNeedsWatching, type ContainerAction, type ContainerData } from './model';
+import { containerNeedsPolling, containerNeedsWatching, type ContainerAction, type ContainerData, type ContainerListParams } from './model';
 
 // Keys include the scope so that own and all-users data never share a cache
 // entry; invalidating containerKeys.all covers both scopes.
 export const containerKeys = {
   all: queryRoots.containers,
   lists: (scope: Scope) => [...containerKeys.all, scope, 'list'] as const,
-  list: (scope: Scope, params: PageParams & { projectId?: string }) => [...containerKeys.lists(scope), params] as const,
+  list: (scope: Scope, params: PageParams & { projectId?: string } & ContainerListParams) => [...containerKeys.lists(scope), params] as const,
   detail: (scope: Scope, id: string) => [...containerKeys.all, scope, 'detail', id] as const,
   stats: (scope: Scope, id: string) => [...containerKeys.all, scope, 'stats', id] as const,
 };
 
-// useContainers polls while a listed container needs it. `polling` also keeps
-// it polling when the caller knows the list is about to change, as a project's
-// containers do while the project deploys.
-export function useContainers<S extends Scope>(scope: S, page: number, limit: number, { projectId, enabled = true, polling = false }: { projectId?: string; enabled?: boolean; polling?: boolean } = {}) {
+// useContainers reads a page of the containers list, filtered, sorted and
+// searched on the server by `list`, and polls while a container on the page
+// needs it. `polling` also keeps it polling when the caller knows the list is
+// about to change, as a project's containers do while the project deploys.
+// While another filter, sort or search loads, the last page stays shown.
+export function useContainers<S extends Scope>(
+  scope: S,
+  page: number,
+  limit: number,
+  { projectId, enabled = true, polling = false, list = {} }: { projectId?: string; enabled?: boolean; polling?: boolean; list?: ContainerListParams } = {},
+) {
   return useQuery({
-    queryKey: containerKeys.list(scope, { page, limit, projectId }),
-    queryFn: () => getContainersFn(scope, page, limit, projectId),
+    queryKey: containerKeys.list(scope, { page, limit, projectId, ...list }),
+    queryFn: () => getContainersFn(scope, page, limit, projectId, list),
     enabled,
+    // Only the same project's list stands in, never another project's.
+    placeholderData: (previous, previousQuery) => {
+      const params = previousQuery?.queryKey.at(-1) as { projectId?: string } | undefined;
+      return params?.projectId === projectId ? keepPreviousData(previous) : undefined;
+    },
     refetchInterval: (query) => {
       if (!enabled) return false;
       const containers = query.state.data?.items || [];

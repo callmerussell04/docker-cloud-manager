@@ -19,7 +19,7 @@ type StatsContainerRepository interface {
 	GetUserReservedMemory(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	GetUserReservedCPU(ctx context.Context, ownerID uuid.UUID) (int64, error)
 	CountByOwnerID(ctx context.Context, ownerID uuid.UUID) (int, error)
-	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
+	List(ctx context.Context, opts model.ContainerListOptions) (model.ContainerPage, error)
 	GetTotalSystemReservedMemory(ctx context.Context) (int64, error)
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 	GetSystemStatusCounts(ctx context.Context) (model.ContainerStatusCounts, error)
@@ -187,15 +187,14 @@ func (s *StatsService) GetUserStats(ctx context.Context) (model.UserStats, error
 	if err != nil {
 		return model.UserStats{}, err
 	}
-	containers, _, err := s.contRepo.List(ctx, model.ListOptions{OwnerID: &ownerID})
+	containers, err := s.contRepo.List(ctx, model.ContainerListOptions{
+		ListOptions:         model.ListOptions{OwnerID: &ownerID, Limit: 1},
+		ContainerListFilter: model.ContainerListFilter{Status: model.ContainerFilterRunning, Sort: model.ContainerSortStatus, Order: model.SortAscending},
+	})
 	if err != nil {
 		return model.UserStats{}, err
 	}
-	for _, c := range containers {
-		if c.Status == model.ContainerStatusRunning {
-			stats.ContainersRunning++
-		}
-	}
+	stats.ContainersRunning = containers.Counts.Running
 
 	stats.DiskQuotaMB = int(quota.DiskMB)
 	diskReserved, err := reservedDiskBytes(ctx, ownerID, s.imgRepo, s.volRepo)

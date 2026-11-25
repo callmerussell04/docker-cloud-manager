@@ -18,7 +18,7 @@ type ContainerLogic interface {
 	Start(ctx context.Context, containerID uuid.UUID) error
 	Stop(ctx context.Context, containerID uuid.UUID) error
 	Delete(ctx context.Context, containerID uuid.UUID) error
-	List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error)
+	List(ctx context.Context, query model.ContainerListQuery) (model.ContainerPage, error)
 	Get(ctx context.Context, containerID uuid.UUID) (model.Container, error)
 	Expose(ctx context.Context, containerID uuid.UUID, domainPrefix string, internalPort int) error
 	Action(ctx context.Context, containerID uuid.UUID, action string) error
@@ -133,7 +133,7 @@ func (h *ContainerHandler) DeleteContainer(ctx context.Context, req *coreapi.Con
 	return &coreapi.Empty{}, nil
 }
 
-func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
+func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.ListContainersRequest) (*coreapi.PaginatedContainerResponse, error) {
 	if err := requireUserOrAdminScope(ctx); err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
@@ -146,20 +146,36 @@ func (h *ContainerHandler) ListContainers(ctx context.Context, req *coreapi.Pagi
 		projectID = &parsed
 	}
 	limit, offset := pagination(req)
-	containers, total, err := h.logic.List(ctx, limit, offset, projectID)
+	page, err := h.logic.List(ctx, model.ContainerListQuery{
+		ProjectID: projectID,
+		Limit:     limit,
+		Offset:    offset,
+		ContainerListFilter: model.ContainerListFilter{
+			Status: model.ContainerStatusFilter(req.GetStatus()),
+			Sort:   model.ContainerSortKey(req.GetSort()),
+			Order:  model.SortOrder(req.GetOrder()),
+			Search: req.GetQuery(),
+		},
+	})
 	if err != nil {
 		return nil, grpcerrors.ToGRPC(err)
 	}
 
-	var pbContainers []*coreapi.ContainerData
-	usernames := h.usernamesByOwner(ctx, containers)
-	for _, c := range containers {
+	pbContainers := make([]*coreapi.ContainerData, 0, len(page.Containers))
+	usernames := h.usernamesByOwner(ctx, page.Containers)
+	for _, c := range page.Containers {
 		pbContainers = append(pbContainers, containerToProto(c, usernames[c.OwnerID]))
 	}
 
 	return &coreapi.PaginatedContainerResponse{
 		Containers: pbContainers,
-		TotalCount: int32(total),
+		TotalCount: int32(page.Total),
+		StatusCounts: &coreapi.ContainerStatusCounts{
+			All:       int32(page.Counts.All),
+			Running:   int32(page.Counts.Running),
+			Stopped:   int32(page.Counts.Stopped),
+			Attention: int32(page.Counts.Attention),
+		},
 	}, nil
 }
 

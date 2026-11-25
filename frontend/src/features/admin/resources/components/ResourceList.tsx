@@ -3,7 +3,7 @@ import { RefreshCcw } from 'lucide-react';
 import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { useListState } from '@/shared/lib/hooks';
-import { toggleSort, type ListSort } from '@/shared/lib/listState';
+import { toggleSort, type ListSort, type ListState } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { List, ListHead, type ListColumn } from '@/shared/ui/List';
@@ -15,11 +15,12 @@ import { Pills } from '@/shared/ui/Pills';
 import { useShellLayout } from '@/shared/ui/shellLayout';
 import { StateMessage } from '@/shared/ui/StateMessage';
 import { Toolbar, ToolbarButton, ToolbarSearch } from '@/shared/ui/Toolbar';
-import { filterByOwner, ownerName, ownerOptions, resourceTabs, sortOwned, type Owned, type ResourceTab } from '../model';
+import { filterByOwner, ownerName, ownerOptions, resourceListSpec, resourceTabs, sortOwned, type Owned, type ResourceTab } from '../model';
 import { OwnerFilter } from './OwnerFilter';
 
-// Every all-users list reads the server's largest page; the owner filter,
-// the sort and the search apply to the page shown.
+// Every all-users list reads the server's largest page; the owner filter
+// applies to the page shown, and so do the sort and the search unless the
+// server applies them (the containers list).
 export const resourcePageSize = 100;
 
 interface ListQuery<T> {
@@ -52,8 +53,12 @@ export interface ResourceListProps<T extends Owned, K extends string> {
   loadingColumns: number[];
   sortKeys: readonly K[];
   defaultSort: ListSort<K>;
-  sort: (rows: readonly T[], sort: ListSort<K>) => T[];
-  matches: (row: T, search: string) => boolean;
+  // sort and matches order and search the page shown. Without them the
+  // server has sorted and searched it, by the same URL state: rows keep its
+  // order (the Owner column still sorts the page), and changing the sort or
+  // the search returns to the first page.
+  sort?: (rows: readonly T[], sort: ListSort<K>) => T[];
+  matches?: (row: T, search: string) => boolean;
   nameOf: (row: T) => string;
   searchLabel: string;
   loadFailed: string;
@@ -72,12 +77,11 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const { sortKeys, defaultSort } = props;
-  const spec = useMemo(() => ({
-    filters: ['all'] as const,
-    sortKeys: [...sortKeys, 'owner'] as readonly (K | 'owner')[],
-    defaultSort: defaultSort as ListSort<K | 'owner'>,
-  }), [sortKeys, defaultSort]);
-  const [view, changeView] = useListState(spec);
+  const spec = useMemo(() => resourceListSpec(sortKeys, defaultSort), [sortKeys, defaultSort]);
+  const [view, setView] = useListState(spec);
+  const serverSide = !props.matches;
+  const changeView = (change: Partial<ListState<'all', K | 'owner'>>) =>
+    setView(serverSide && change.page === undefined && (change.sort || change.search !== undefined) ? { ...change, page: 1 } : change);
   const { data, isLoading, isError, isFetching, error } = props.query;
   // A narrow toolbar stacks its pills on a second row that the five tabs
   // already fill, so the owner filter (as a round button) and the search
@@ -87,8 +91,9 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
   const { owner } = props.view;
   const owners = ownerOptions(rows, props.view.accounts);
   const owned = filterByOwner(rows, owner);
-  const searched = owned.filter((row) => props.matches(row, view.search));
-  const shown = sortOwned(searched, view.sort, props.sort, props.nameOf);
+  const { matches, sort } = props;
+  const searched = matches ? owned.filter((row) => matches(row, view.search)) : owned;
+  const shown = sortOwned(searched, view.sort, sort ?? ((rows) => [...rows]), props.nameOf);
   const ownerLabel = (row: T) => ownerName(row) || t('admin.resources.ownerUnknown');
 
   const [first, ...rest] = props.columns;
@@ -97,6 +102,7 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
   const content = () => {
     if (isLoading) return <LoadingRows columns={compact ? [1] : props.loadingColumns} />;
     if (isError) return <ErrorState title={props.loadFailed} message={failureReason(error, t)} onRetry={props.onRefresh} isRetrying={isFetching} />;
+    if (rows.length === 0 && serverSide && view.search.trim()) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     if (rows.length === 0) return <EmptyState title={props.emptyTitle} description={t('admin.resources.emptyDescription')} />;
     if (owned.length === 0) {
       const name = owners.find((option) => option.id === owner)?.name ?? owner;

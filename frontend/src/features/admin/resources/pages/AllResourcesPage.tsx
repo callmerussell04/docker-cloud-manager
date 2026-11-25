@@ -2,15 +2,15 @@ import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useT } from '@/shared/i18n';
+import { useDebouncedValue, useListState } from '@/shared/lib/hooks';
 import { readListPage } from '@/shared/lib/listState';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
 import { containerListLayout } from '@/features/containers/components/listLayout';
 import {
+  containerListParams,
   containerPagePath,
   containerSortKeys,
   defaultContainerSort,
-  matchesContainerSearch,
-  sortContainers,
   type ContainerData,
   type ConsoleView,
 } from '@/features/containers/model';
@@ -46,7 +46,7 @@ import {
 import { useProjects } from '@/features/projects/queries';
 import { useAdminUsers } from '../../users/queries';
 import { ResourceList, resourcePageSize, type ResourceView } from '../components/ResourceList';
-import { readOwnerFilter, readResourceTab, withOwnerFilter, withResourceTab } from '../model';
+import { readOwnerFilter, readResourceTab, resourceListSpec, withOwnerFilter, withResourceTab } from '../model';
 
 // AllResourcesPage is every user's containers, volumes, images, builds and
 // projects behind toolbar pills, each list with an Owner column and the
@@ -80,11 +80,19 @@ export function AllResourcesPage() {
   }
 }
 
+const containerListSpec = resourceListSpec(containerSortKeys, defaultContainerSort);
+
 function ContainersTab({ view }: { view: ResourceView }) {
   const t = useT();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const query = useContainers('all', readListPage(params), resourcePageSize);
+  // The server sorts and searches every user's containers. It cannot sort by
+  // owner (usernames live in SSO), so that column sorts the page it answers
+  // in its default order.
+  const [listView] = useListState(containerListSpec);
+  const search = useDebouncedValue(listView.search);
+  const sort = listView.sort.key === 'owner' ? defaultContainerSort : { key: listView.sort.key, ascending: listView.sort.ascending };
+  const list = containerListParams({ filter: 'all', sort, search });
+  const query = useContainers('all', listView.page, resourcePageSize, { list });
   // Compose projects name the tag beside their containers.
   const projects = useProjects('all', 1, 100);
   const projectNames = useMemo(() => new Map((projects.data?.items ?? []).map((project) => [project.id, project.name])), [projects.data]);
@@ -106,8 +114,6 @@ function ContainersTab({ view }: { view: ResourceView }) {
       loadingColumns={[1.5, 0.8, 1.2, 1, 0.4, 0.5]}
       sortKeys={containerSortKeys}
       defaultSort={defaultContainerSort}
-      sort={sortContainers}
-      matches={matchesContainerSearch}
       nameOf={(container) => container.name}
       searchLabel={t('containers.searchLabel')}
       loadFailed={t('containers.loadFailed')}

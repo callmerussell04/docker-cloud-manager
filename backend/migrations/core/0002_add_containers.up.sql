@@ -1,3 +1,7 @@
+-- Natural, case-insensitive order for names in the containers list: web-2
+-- before web-10, Api beside api.
+CREATE COLLATION natural_order (provider = icu, locale = 'und-u-kn-true');
+
 CREATE TABLE containers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     owner_id UUID NOT NULL,

@@ -68,7 +68,7 @@ func TestBuilderCredentialMakesOnlyItsFourCalls(t *testing.T) {
 	t.Run("refused every other call", func(t *testing.T) {
 		for name, call := range map[string]func(context.Context) error{
 			"list containers": func(ctx context.Context) error {
-				_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.PaginationRequest{})
+				_, err := coreapi.NewContainerAPIClient(conn).ListContainers(ctx, &coreapi.ListContainersRequest{})
 				return err
 			},
 			"list volumes": func(ctx context.Context) error {

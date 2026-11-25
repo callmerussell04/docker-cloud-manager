@@ -1,8 +1,12 @@
 package grpc
 
-import coreapi "github.com/callmerussell04/docker-cloud-manager/backend/api/core"
+// pageRequest is a list request's page and page size.
+type pageRequest interface {
+	GetPage() int32
+	GetLimit() int32
+}
 
-func pagination(req *coreapi.PaginationRequest) (int, int) {
+func pagination(req pageRequest) (int, int) {
 	limit := int(req.GetLimit())
 	if limit <= 0 || limit > 100 {
 		limit = 20

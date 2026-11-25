@@ -1,6 +1,7 @@
+import type { PaginatedResponse } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
 import type { StatusTone } from '@/shared/ui/StatusDot';
-import { sortRows, type ListSort } from '@/shared/lib/listState';
+import type { ListSort, ListState } from '@/shared/lib/listState';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface ContainerData {
@@ -116,66 +117,63 @@ export type ContainerFilter = 'all' | 'running' | 'stopped' | 'attention';
 
 export const containerFilters: readonly ContainerFilter[] = ['all', 'running', 'stopped', 'attention'];
 
-const filterTones: Record<ContainerFilter, readonly StatusTone[]> = {
-  all: ['ok', 'bad', 'busy', 'idle'],
-  running: ['ok'],
-  stopped: ['idle'],
-  attention: ['bad', 'busy'],
-};
-
-// filterContainers keeps the containers a status filter shows: Running the
-// running ones, Stopped those at rest, Attention those failing or changing.
-export function filterContainers<C extends ContainerData>(containers: readonly C[], filter: ContainerFilter): C[] {
-  return containers.filter((container) => filterTones[filter].includes(containerTone(container.status)));
-}
-
-// containerFilterCounts is how many containers each status filter shows.
-export function containerFilterCounts(containers: readonly ContainerData[]): Record<ContainerFilter, number> {
-  const counts: Record<ContainerFilter, number> = { all: 0, running: 0, stopped: 0, attention: 0 };
-  for (const filter of containerFilters) {
-    counts[filter] = filterContainers(containers, filter).length;
-  }
-  return counts;
-}
-
 // ContainerSortKey is a containers list column.
 export type ContainerSortKey = 'name' | 'status' | 'address' | 'memory' | 'created';
 
-// matchesContainerSearch finds a container by name or image, without case.
-export function matchesContainerSearch(container: ContainerData, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || container.name.toLowerCase().includes(query) || container.image_tag.toLowerCase().includes(query);
-}
-
 export const containerSortKeys: readonly ContainerSortKey[] = ['name', 'status', 'address', 'memory', 'created'];
 
-// The list starts with failing containers first.
+// The list starts with failing containers first. The server filters, sorts,
+// searches and counts the list (its status groups and order are Core's, the
+// same as containerTone's), so it is exact at any size.
 export const defaultContainerSort: ListSort<ContainerSortKey> = { key: 'status', ascending: true };
 
-const toneRank: Record<StatusTone, number> = { bad: 0, busy: 1, ok: 2, idle: 3 };
+// containerSearchMaxLength is the longest search the server accepts, in
+// characters.
+export const containerSearchMaxLength = 100;
 
-function containerSortValue(container: ContainerData, key: ContainerSortKey): string | number {
-  switch (key) {
-    case 'name':
-      return container.name;
-    case 'status':
-      return toneRank[containerTone(container.status)];
-    case 'address':
-      // Published addresses first, by name; an unpublished container after them.
-      return container.domain_prefix ? `0${container.domain_prefix}` : '1';
-    case 'memory':
-      return container.memory_reservation_bytes;
-    case 'created':
-      // The column reads as an age, so ascending is the youngest first.
-      return -container.created_at;
-  }
+// ContainerListParams is the containers list's view as the API's query:
+// each default is left out.
+export interface ContainerListParams {
+  status?: ContainerFilter;
+  sort?: ContainerSortKey;
+  order?: 'desc';
+  q?: string;
 }
 
-// sortContainers orders a containers list by one column. Ascending status is
-// failing first, then changing, running, and at rest. Containers that tie
-// keep name order, whichever way the column sorts.
-export function sortContainers<C extends ContainerData>(containers: readonly C[], sort: ListSort<ContainerSortKey>): C[] {
-  return sortRows(containers, (container) => [containerSortValue(container, sort.key), container.name, container.id], sort.ascending);
+// ContainerStatusCounts is how many containers each status filter shows,
+// over the user's whole list (and the search), whatever the filter.
+export type ContainerStatusCounts = Record<ContainerFilter, number>;
+
+// ContainerPage is a page of the containers list with the count of every
+// status filter.
+export interface ContainerPage<C extends ContainerData> extends PaginatedResponse<C> {
+  status_counts: ContainerStatusCounts;
+}
+
+// containerListParams turns the list's view into the query the server
+// filters, sorts and searches by, leaving out All, the failing-first sort and
+// a blank search; the search is trimmed and kept within what the server
+// accepts.
+export function containerListParams(view: { filter: ContainerFilter; sort: ListSort<ContainerSortKey>; search: string }): ContainerListParams {
+  const params: ContainerListParams = {};
+  if (view.filter !== 'all') params.status = view.filter;
+  const isDefault = view.sort.key === defaultContainerSort.key && view.sort.ascending === defaultContainerSort.ascending;
+  if (!isDefault) {
+    params.sort = view.sort.key;
+    if (!view.sort.ascending) params.order = 'desc';
+  }
+  const q = Array.from(view.search.trim()).slice(0, containerSearchMaxLength).join('');
+  if (q) params.q = q;
+  return params;
+}
+
+// containerViewChange is a change to the list's view, returning to the first
+// page when the filter, sort or search changes: the server pages the list
+// they shape, so the old page may no longer exist.
+export function containerViewChange<C extends Partial<ListState<ContainerFilter, ContainerSortKey>>>(change: C): C {
+  if (change.page !== undefined) return change;
+  if (change.filter === undefined && change.sort === undefined && change.search === undefined) return change;
+  return { ...change, page: 1 };
 }
 
 export interface BlockedContainerActions {

@@ -41,7 +41,7 @@ type ContainerRepository interface {
 	GetTotalSystemReservedCPU(ctx context.Context) (int64, error)
 	GetNonExited(ctx context.Context) ([]model.Container, error)
 	CheckDomainPrefixExists(ctx context.Context, prefix string) (bool, error)
-	List(ctx context.Context, opts model.ListOptions) ([]model.Container, int, error)
+	List(ctx context.Context, opts model.ContainerListOptions) (model.ContainerPage, error)
 }
 
 type containerCreateRepository interface {
@@ -662,19 +662,30 @@ func userNetworkName(ownerID uuid.UUID) string {
 	return fmt.Sprintf("net_user_%s", ownerID.String())
 }
 
-func (s *ContainerService) List(ctx context.Context, limit, offset int, projectID *uuid.UUID) ([]model.Container, int, error) {
+// List reads one page of the containers list in the request's scope: a
+// user's own containers, or every container for an admin. It refuses an
+// unknown status filter, sort key or order and an overlong search as a bad
+// request.
+func (s *ContainerService) List(ctx context.Context, query model.ContainerListQuery) (model.ContainerPage, error) {
 	scope, err := accessscope.RequireScope(ctx)
 	if err != nil {
-		return nil, 0, err
+		return model.ContainerPage{}, err
 	}
 	if scope.Kind != accessscope.KindUser && scope.Kind != accessscope.KindAdmin {
-		return nil, 0, apperrors.ErrForbidden
+		return model.ContainerPage{}, apperrors.ErrForbidden
 	}
-	return s.repo.List(ctx, model.ListOptions{
-		OwnerID:   scope.OwnerFilter(),
-		ProjectID: projectID,
-		Limit:     limit,
-		Offset:    offset,
+	filter, err := query.Normalize()
+	if err != nil {
+		return model.ContainerPage{}, fmt.Errorf("%w: %v", apperrors.ErrBadRequest, err)
+	}
+	return s.repo.List(ctx, model.ContainerListOptions{
+		ListOptions: model.ListOptions{
+			OwnerID:   scope.OwnerFilter(),
+			ProjectID: query.ProjectID,
+			Limit:     query.Limit,
+			Offset:    query.Offset,
+		},
+		ContainerListFilter: filter,
 	})
 }
 

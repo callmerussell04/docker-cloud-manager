@@ -212,7 +212,9 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, "container-id", containerSrv.startedID)
 	require.ErrorIs(t, coreClient.ActionContainer(context.Background(), "container-id", "restart"), apperrors.ErrBadRequest)
 
-	containers, err := coreClient.ListContainers(context.Background(), 2, 10, "project-id")
+	containers, err := coreClient.ListContainers(context.Background(), model.ContainerListParams{
+		Page: 2, Limit: 10, ProjectID: "project-id", Status: "attention", Sort: "memory", Order: "desc", Query: "web",
+	})
 	require.NoError(t, err)
 	require.Equal(t, int32(1), containers.TotalCount)
 	require.Equal(t, "docker-id", containers.Containers[0].DockerID)
@@ -221,9 +223,10 @@ func TestCoreClientMapsContainersStatsSystemAndReports(t *testing.T) {
 	require.Equal(t, 137, *containers.Containers[0].LastExitCode)
 	require.EqualValues(t, 512<<20, containers.Containers[0].MemoryReservationBytes)
 	require.EqualValues(t, 750, containers.Containers[0].CPUReservationMillicores)
-	require.Equal(t, int32(2), containerSrv.page)
-	require.Equal(t, int32(10), containerSrv.limit)
-	require.Equal(t, "project-id", containerSrv.projectID)
+	require.Equal(t, model.ContainerStatusCounts{All: 5, Running: 2, Stopped: 1, Attention: 2}, containers.StatusCounts)
+	list := containerSrv.list
+	require.Equal(t, []any{int32(2), int32(10), "project-id", "attention", "memory", "desc", "web"},
+		[]any{list.GetPage(), list.GetLimit(), list.GetProjectId(), list.GetStatus(), list.GetSort(), list.GetOrder(), list.GetQuery()})
 
 	container, err := coreClient.GetContainer(context.Background(), "container-id")
 	require.NoError(t, err)
@@ -452,9 +455,7 @@ type coreContainerServer struct {
 	createErr error
 	startedID string
 	gotID     string
-	page      int32
-	limit     int32
-	projectID string
+	list      *coreapi.ListContainersRequest
 }
 
 func (s *coreContainerServer) CreateContainer(_ context.Context, req *coreapi.CreateContainerRequest) (*coreapi.CreateContainerResponse, error) {
@@ -482,14 +483,13 @@ func (s *coreContainerServer) ExposeContainer(context.Context, *coreapi.ExposeRe
 	return &coreapi.Empty{}, nil
 }
 
-func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.PaginationRequest) (*coreapi.PaginatedContainerResponse, error) {
-	s.page = req.Page
-	s.limit = req.Limit
-	s.projectID = req.ProjectId
+func (s *coreContainerServer) ListContainers(_ context.Context, req *coreapi.ListContainersRequest) (*coreapi.PaginatedContainerResponse, error) {
+	s.list = req
 	exitCode := int32(137)
 	return &coreapi.PaginatedContainerResponse{
-		Containers: []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice", MemoryReservationBytes: 512 << 20, CpuReservationMillicores: 750}},
-		TotalCount: 1,
+		Containers:   []*coreapi.ContainerData{{Id: "container-id", DockerId: "docker-id", ProjectId: req.ProjectId, Name: "web", LastExitCode: &exitCode, OwnerId: "owner-id", OwnerUsername: "alice", MemoryReservationBytes: 512 << 20, CpuReservationMillicores: 750}},
+		TotalCount:   1,
+		StatusCounts: &coreapi.ContainerStatusCounts{All: 5, Running: 2, Stopped: 1, Attention: 2},
 	}, nil
 }
 
