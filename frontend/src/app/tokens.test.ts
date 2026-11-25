@@ -12,25 +12,25 @@ const spec: Record<string, [light: string, dark: string]> = {
   label: ['#1d1d1f', '#f5f5f7'],
   'label-2': ['#5f5f66', '#b0b0b8'],
   'label-3': ['#8e8e96', '#7c7c85'],
-  separator: ['rgba(0,0,0,.09)', 'rgba(255,255,255,.10)'],
-  fill: ['rgba(90,90,100,.13)', 'rgba(160,160,172,.20)'],
-  'fill-hover': ['rgba(90,90,100,.22)', 'rgba(160,160,172,.32)'],
+  separator: ['rgba(0,0,0,.08)', 'rgba(200,215,255,.08)'],
+  fill: ['rgba(90,90,100,.115)', 'rgba(140,155,185,.16)'],
+  'fill-hover': ['rgba(90,90,100,.20)', 'rgba(140,155,185,.26)'],
   accent: ['#2f5ea8', '#9fb6e0'],
   'accent-fill': ['#3a6cc0', '#4a6db0'],
   green: ['#28a745', '#30d158'],
   orange: ['#f08c00', '#ff9f0a'],
   red: ['#ff3b30', '#ff453a'],
   'red-text': ['#c9241b', '#ff7a70'],
-  glass: ['rgba(255,255,255,.40)', 'rgba(90,90,98,.34)'],
-  'glass-dense': ['rgba(250,250,252,.78)', 'rgba(40,40,44,.76)'],
-  frost: ['rgba(255,255,255,.56)', 'rgba(26,26,29,.40)'],
-  'glass-sidebar': ['rgba(255,255,255,.36)', 'rgba(40,40,44,.30)'],
+  glass: ['rgba(255,255,255,.45)', 'rgba(40,50,70,.38)'],
+  'glass-dense': ['rgba(253,253,254,.81)', 'rgba(12,16,26,.86)'],
+  frost: ['rgba(255,255,255,.59)', 'rgba(5,8,15,.60)'],
+  'glass-sidebar': ['rgba(255,255,255,.40)', 'rgba(10,14,24,.45)'],
   console: ['#17191d', '#0d0e10'],
-  'wallpaper-0': ['#eef3f9', '#08090b'],
-  'wallpaper-3': ['#d8e3f1', '#12161d'],
-  'wallpaper-1': ['#a9bfdc', '#1f2733'],
-  'wallpaper-2': ['#5f82b8', '#33425a'],
-  'wallpaper-highlight': ['#ffffff', '#8ea2c4'],
+  'wallpaper-0': ['#f2f5fa', '#020308'],
+  'wallpaper-3': ['#e1e8f3', '#060a14'],
+  'wallpaper-1': ['#bccce3', '#0d1526'],
+  'wallpaper-2': ['#819dc7', '#1a2a48'],
+  'wallpaper-highlight': ['#ffffff', '#4a6aa8'],
   'series-1': ['#2a78d6', '#3987e5'],
   'series-2': ['#eb6834', '#d95926'],
   'series-3': ['#1baf7a', '#199e70'],
@@ -90,6 +90,6 @@ describe('design tokens', () => {
     expect(light['frost-blur']).toBe('28px');
     expect(light['frost-saturate']).toBe('125%');
     expect(dark['frost-blur']).toBe('28px');
-    expect(dark['frost-saturate']).toBe('100%');
+    expect(dark['frost-saturate']).toBe('115%');
   });
 });

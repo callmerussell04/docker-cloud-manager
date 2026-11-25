@@ -14,9 +14,9 @@
     --label: #1d1d1f;
     --label-2: #5f5f66;
     --label-3: #8e8e96;
-    --separator: rgba(0, 0, 0, 0.09);
-    --fill: rgba(90, 90, 100, 0.13);
-    --fill-hover: rgba(90, 90, 100, 0.22);
+    --separator: rgba(0, 0, 0, 0.08);
+    --fill: rgba(90, 90, 100, 0.115);
+    --fill-hover: rgba(90, 90, 100, 0.2);
     --accent: #2f5ea8;
     --accent-fill: #3a6cc0;
     /* A lighter accent fill: a part that follows the accent's part, as builds after containers on a capacity bar. */
@@ -26,12 +26,12 @@
     --orange: #f08c00;
     --red: #ff3b30;
     --red-text: #c9241b;
-    --glass: rgba(255, 255, 255, 0.4);
-    --glass-dense: rgba(250, 250, 252, 0.78);
-    --frost: rgba(255, 255, 255, 0.56);
+    --glass: rgba(255, 255, 255, 0.45);
+    --glass-dense: rgba(253, 253, 254, 0.81);
+    --frost: rgba(255, 255, 255, 0.59);
     --frost-blur: 28px;
     --frost-saturate: 125%;
-    --glass-sidebar: rgba(255, 255, 255, 0.36);
+    --glass-sidebar: rgba(255, 255, 255, 0.4);
     --console: #17191d;
     /* The console is dark in both themes, so the text and controls on it
        keep one set of values. */
@@ -41,10 +41,10 @@
     --console-fill: rgba(255, 255, 255, 0.08);
     --console-fill-hover: rgba(255, 255, 255, 0.14);
     --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
-    --wallpaper-0: #eef3f9;
-    --wallpaper-3: #d8e3f1;
-    --wallpaper-1: #a9bfdc;
-    --wallpaper-2: #5f82b8;
+    --wallpaper-0: #f2f5fa;
+    --wallpaper-3: #e1e8f3;
+    --wallpaper-1: #bccce3;
+    --wallpaper-2: #819dc7;
     --wallpaper-highlight: #ffffff;
     --series-1: #2a78d6;
     --series-2: #eb6834;
@@ -65,17 +65,17 @@
       0 2px 6px rgba(0, 0, 0, 0.06),
       0 18px 44px -12px rgba(0, 0, 0, 0.28),
       inset 0 -10px 14px -12px rgba(0, 0, 0, 0.1);
-    --wallpaper-shadow: rgba(0, 0, 0, 0.18);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.14);
     --scrim: rgba(0, 0, 0, 0.18);
     /* The lift: the raised fill of the selected item in a glass group, such
        as the current page in the sidebar or the chosen pill. */
     --lift: rgba(255, 255, 255, 0.92);
-    --tile: rgba(255, 255, 255, 0.55);
+    --tile: rgba(255, 255, 255, 0.62);
     --lift-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1), 0 4px 10px -3px rgba(0, 0, 0, 0.14);
     /* The primary button's bevel and its glow in the accent. */
     --primary-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.14), 0 6px 16px -6px var(--accent-fill);
-    --solid: #f5f6f8;
-    --solid-window: #fbfbfc;
+    --solid: #f6f7f9;
+    --solid-window: #fdfdfe;
 
     --font-sans: -apple-system, BlinkMacSystemFont, 'Inter Variable', 'Segoe UI', sans-serif;
     --font-mono: 'SF Mono', 'Geist Mono Variable', ui-monospace, Menlo, monospace;
@@ -87,9 +87,9 @@
     --label: #f5f5f7;
     --label-2: #b0b0b8;
     --label-3: #7c7c85;
-    --separator: rgba(255, 255, 255, 0.1);
-    --fill: rgba(160, 160, 172, 0.2);
-    --fill-hover: rgba(160, 160, 172, 0.32);
+    --separator: rgba(200, 215, 255, 0.08);
+    --fill: rgba(140, 155, 185, 0.16);
+    --fill-hover: rgba(140, 155, 185, 0.26);
     --accent: #9fb6e0;
     --accent-fill: #4a6db0;
     --accent-soft: color-mix(in srgb, var(--accent-fill) 55%, transparent);
@@ -98,12 +98,12 @@
     --orange: #ff9f0a;
     --red: #ff453a;
     --red-text: #ff7a70;
-    --glass: rgba(90, 90, 98, 0.34);
-    --glass-dense: rgba(40, 40, 44, 0.76);
-    --frost: rgba(26, 26, 29, 0.4);
+    --glass: rgba(40, 50, 70, 0.38);
+    --glass-dense: rgba(12, 16, 26, 0.86);
+    --frost: rgba(5, 8, 15, 0.6);
     --frost-blur: 28px;
-    --frost-saturate: 100%;
-    --glass-sidebar: rgba(40, 40, 44, 0.3);
+    --frost-saturate: 115%;
+    --glass-sidebar: rgba(10, 14, 24, 0.45);
     --console: #0d0e10;
     /* The console is dark in both themes, so the text and controls on it
        keep one set of values. */
@@ -113,11 +113,11 @@
     --console-fill: rgba(255, 255, 255, 0.08);
     --console-fill-hover: rgba(255, 255, 255, 0.14);
     --console-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.45), 0 14px 34px -16px rgba(0, 0, 0, 0.45);
-    --wallpaper-0: #08090b;
-    --wallpaper-3: #12161d;
-    --wallpaper-1: #1f2733;
-    --wallpaper-2: #33425a;
-    --wallpaper-highlight: #8ea2c4;
+    --wallpaper-0: #020308;
+    --wallpaper-3: #060a14;
+    --wallpaper-1: #0d1526;
+    --wallpaper-2: #1a2a48;
+    --wallpaper-highlight: #4a6aa8;
     --series-1: #3987e5;
     --series-2: #d95926;
     --series-3: #199e70;
@@ -132,13 +132,13 @@
       0 0 0 0.5px rgba(0, 0, 0, 0.8),
       0 20px 50px -12px rgba(0, 0, 0, 0.7),
       inset 0 -10px 14px -12px rgba(0, 0, 0, 0.4);
-    --wallpaper-shadow: rgba(0, 0, 0, 0.45);
+    --wallpaper-shadow: rgba(0, 0, 0, 0.6);
     --scrim: rgba(0, 0, 0, 0.4);
-    --lift: rgba(255, 255, 255, 0.2);
-    --tile: rgba(255, 255, 255, 0.045);
+    --lift: rgba(200, 215, 255, 0.16);
+    --tile: rgba(200, 215, 255, 0.035);
     --lift-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
-    --solid: #2a2a2e;
-    --solid-window: #161618;
+    --solid: #121621;
+    --solid-window: #070a12;
 
     color-scheme: dark;
   }
