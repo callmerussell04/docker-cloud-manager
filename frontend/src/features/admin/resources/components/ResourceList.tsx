@@ -79,6 +79,10 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
   }), [sortKeys, defaultSort]);
   const [view, changeView] = useListState(spec);
   const { data, isLoading, isError, isFetching, error } = props.query;
+  // A narrow toolbar stacks its pills on a second row that the five tabs
+  // already fill, so the owner filter (as a round button) and the search
+  // join the refresh button in the top row instead.
+  const narrow = useShellLayout().toolbarStacked;
   const rows = data?.items ?? [];
   const { owner } = props.view;
   const owners = ownerOptions(rows, props.view.accounts);
@@ -109,6 +113,18 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
     return <List label={props.label}>{shown.map((row) => props.row(row, ownerLabel(row)))}</List>;
   };
 
+  const tabs = (
+    <Pills
+      label={t('admin.resources.tabsLabel')}
+      value={props.view.tab}
+      onChange={props.view.onTab}
+      dense={narrow}
+      items={resourceTabs.map((id) => ({ id, label: t(`admin.resources.tab.${id}`) }))}
+    />
+  );
+  const ownerFilter = <OwnerFilter owner={owner} options={owners} onChange={props.view.onOwner} round={narrow} />;
+  const search = <ToolbarSearch label={props.searchLabel} value={view.search} onChange={(search) => changeView({ search })} />;
+
   return (
     <Page
       toolbar={
@@ -118,17 +134,18 @@ export function ResourceList<T extends Owned, K extends string>(props: ResourceL
           count={owner && data ? owned.length : data?.total_count}
           pills={
             <div className="flex items-center gap-2">
-              <Pills
-                label={t('admin.resources.tabsLabel')}
-                value={props.view.tab}
-                onChange={props.view.onTab}
-                items={resourceTabs.map((id) => ({ id, label: t(`admin.resources.tab.${id}`) }))}
-              />
-              <OwnerFilter owner={owner} options={owners} onChange={props.view.onOwner} />
-              <ToolbarSearch label={props.searchLabel} value={view.search} onChange={(search) => changeView({ search })} />
+              {tabs}
+              {!narrow && ownerFilter}
+              {!narrow && search}
             </div>
           }
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching || props.refreshing} onClick={props.onRefresh} />}
+          actions={
+            <>
+              {narrow && ownerFilter}
+              {narrow && search}
+              <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching || props.refreshing} onClick={props.onRefresh} />
+            </>
+          }
         />
       }
       head={(isLoading || shown.length > 0) && (

@@ -14,12 +14,15 @@ interface PillsProps<T extends string> {
   items: readonly PillItem<T>[];
   value: T;
   onChange: (value: T) => void;
+  // dense spaces the pills tighter, so a group of many fits a narrow
+  // toolbar's row.
+  dense?: boolean;
 }
 
 // Pills is a glass group of buttons of which one is chosen, for a toolbar's
 // filters or tabs. The chosen pill is lifted; each pill is a toggle button,
 // pressed while chosen.
-export function Pills<T extends string>({ label, items, value, onChange }: PillsProps<T>) {
+export function Pills<T extends string>({ label, items, value, onChange, dense = false }: PillsProps<T>) {
   return (
     <Glass role="group" aria-label={label} className="inline-flex h-10 shrink-0 gap-0.5 rounded-full p-1">
       {items.map((item) => {
@@ -31,7 +34,8 @@ export function Pills<T extends string>({ label, items, value, onChange }: Pills
             aria-pressed={chosen}
             onClick={() => onChange(item.id)}
             className={cn(
-              'inline-flex h-8 items-center whitespace-nowrap rounded-full px-3.5 transition-colors',
+              'inline-flex h-8 items-center whitespace-nowrap rounded-full transition-colors',
+              dense ? 'px-2.5' : 'px-3.5',
               chosen ? 'bg-lift font-semibold text-label shadow-[var(--lift-shadow)]' : 'font-medium text-label-2 hover:text-label',
             )}
           >
