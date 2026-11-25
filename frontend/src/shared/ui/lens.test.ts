@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lensDisplacement, supportsLensRefraction } from './lens';
+import { lensDisplacement, rimWeight, supportsLensRefraction } from './lens';
 
 describe('lensDisplacement', () => {
   // A 200 × 100 rectangle with 20 px corners and a 10 px bezel.
@@ -39,6 +39,25 @@ describe('lensDisplacement', () => {
 
   it('leaves the backdrop outside the rounded corner alone', () => {
     expect(lensDisplacement(0, 0, box)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('rimWeight', () => {
+  // A 200 × 100 rectangle with 20 px corners and a 10 px bezel.
+  const box = { width: 200, height: 100, radius: 20, bezel: 10 };
+
+  it('shows the sharp rim across the whole bezel', () => {
+    expect(rimWeight(0, 50, box)).toBe(1);
+    expect(rimWeight(9, 50, box)).toBe(1);
+    expect(rimWeight(100, 0, box)).toBe(1);
+  });
+
+  it('fades into the blurred middle just past the bezel', () => {
+    const fading = rimWeight(12, 50, box);
+    expect(fading).toBeGreaterThan(0);
+    expect(fading).toBeLessThan(1);
+    expect(rimWeight(40, 50, box)).toBe(0);
+    expect(rimWeight(100, 50, box)).toBe(0);
   });
 });
 

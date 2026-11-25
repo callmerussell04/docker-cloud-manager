@@ -28,6 +28,12 @@
     --red-text: #c9241b;
     --glass: rgba(255, 255, 255, 0.45);
     --glass-dense: rgba(253, 253, 254, 0.81);
+    /* Menus, dialogs and the search palette: a lighter fill than the
+       controls' glass in light, over a backdrop toned up (contrast lowered,
+       brightness raised) so dark content behind, such as the console, comes
+       through light while its shapes still show. */
+    --glass-float: rgba(255, 255, 255, 0.62);
+    --glass-float-tone: contrast(0.35) brightness(1.7);
     --frost: rgba(255, 255, 255, 0.59);
     --frost-blur: 28px;
     --frost-saturate: 125%;
@@ -100,6 +106,8 @@
     --red-text: #ff7a70;
     --glass: rgba(40, 50, 70, 0.38);
     --glass-dense: rgba(12, 16, 26, 0.86);
+    --glass-float: rgba(40, 50, 70, 0.38);
+    --glass-float-tone: brightness(1);
     --frost: rgba(5, 8, 15, 0.6);
     --frost-blur: 28px;
     --frost-saturate: 115%;
@@ -214,12 +222,13 @@
     box-shadow: var(--glass-shadow);
   }
 
-  /* Menus, dialogs and the search palette: dense enough to read
-     long text on. */
+  /* Menus, dialogs and the search palette: the float fill and tone with a
+     heavier blur, so the backdrop shows through as soft shapes while long
+     text stays readable. */
   .glass-dense {
-    background: var(--glass-dense);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    backdrop-filter: blur(24px) saturate(180%);
+    background: var(--glass-float);
+    -webkit-backdrop-filter: blur(12px) saturate(180%) var(--glass-float-tone);
+    backdrop-filter: blur(12px) saturate(180%) var(--glass-float-tone);
   }
 
   /* The sidebar: clearer glass over the wallpaper itself. */

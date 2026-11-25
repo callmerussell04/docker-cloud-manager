@@ -15,10 +15,12 @@ interface GlassProps extends HTMLAttributes<HTMLDivElement> {
 // Each material's class, and the blur and saturation its lens keeps in
 // Chromium, where the lens replaces the class's backdrop filter: the same
 // values as the class, so a dense surface stays dense when it refracts. Clear
-// controls keep a light blur so the bent backdrop stays visible.
+// controls keep a light blur so the bent backdrop stays visible; dense glass
+// blurs its middle more, for long text, and keeps the clear controls' light
+// blur on its rim, so it still bends visibly at the edge.
 const materials: Record<GlassMaterial, { className?: string; lens: LensOptions }> = {
   clear: { lens: { blur: 3, saturate: 170 } },
-  dense: { className: 'glass-dense', lens: { blur: 24, saturate: 180 } },
+  dense: { className: 'glass-dense', lens: { blur: 12, rimBlur: 3, saturate: 180, tone: 'var(--glass-float-tone)' } },
   sidebar: { className: 'glass-sidebar', lens: { blur: 10, saturate: 170 } },
 };
 

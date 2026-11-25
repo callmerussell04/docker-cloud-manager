@@ -20,15 +20,9 @@ export interface LensBox {
 // which direction and how far (0 to 1 of the full depth) the backdrop is
 // sampled. Positive x samples from the right, positive y from below. Pixels in
 // the flat middle and outside the rounded corners are not moved.
-export function lensDisplacement(x: number, y: number, { width, height, radius, bezel }: LensBox) {
-  const halfX = width / 2;
-  const halfY = height / 2;
-  const px = x + 0.5 - halfX;
-  const py = y + 0.5 - halfY;
-  const qx = Math.abs(px) - (halfX - radius);
-  const qy = Math.abs(py) - (halfY - radius);
-  // Distance inside the rounded rectangle's edge; negative outside it.
-  const inside = radius - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
+export function lensDisplacement(x: number, y: number, box: LensBox) {
+  const { bezel } = box;
+  const { px, py, qx, qy, inside } = edgeDistance(x, y, box);
   if (inside < 0 || inside >= bezel) return { x: 0, y: 0 };
 
   // The outward normal of the nearest edge.
@@ -50,6 +44,33 @@ export function lensDisplacement(x: number, y: number, { width, height, radius, 
   return { x: -nx * amount || 0, y: -ny * amount || 0 };
 }
 
+// edgeDistance places the pixel at (x, y) in a rounded rectangle: its offset
+// from the centre, how far it lies past the straight edges, and its distance
+// inside the rounded edge (negative outside it).
+function edgeDistance(x: number, y: number, { width, height, radius }: LensBox) {
+  const halfX = width / 2;
+  const halfY = height / 2;
+  const px = x + 0.5 - halfX;
+  const py = y + 0.5 - halfY;
+  const qx = Math.abs(px) - (halfX - radius);
+  const qy = Math.abs(py) - (halfY - radius);
+  const inside = radius - Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) - Math.min(Math.max(qx, qy), 0);
+  return { px, py, qx, qy, inside };
+}
+
+// rimFeather is how far, in pixels, the sharp rim fades into the blurred
+// middle past the bezel.
+const rimFeather = 6;
+
+// rimWeight says how much of the pixel at (x, y) shows the sharp, bent rim
+// rather than the blurred middle: 1 across the bezel (and outside the shape,
+// which the element clips), fading to 0 over rimFeather pixels past it.
+export function rimWeight(x: number, y: number, box: LensBox) {
+  const { inside } = edgeDistance(x, y, box);
+  if (inside < box.bezel) return 1;
+  return Math.max(0, 1 - (inside - box.bezel) / rimFeather);
+}
+
 // supportsLensRefraction reports whether the browser is Chromium, the only
 // engine that applies an SVG filter as a backdrop filter, headless included.
 // Chrome on iOS is WebKit and names itself CriOS, so it is refused.
@@ -58,7 +79,8 @@ export function supportsLensRefraction(userAgent: string) {
 }
 
 // displacementMap draws lensDisplacement into an image the SVG filter reads:
-// red is x, green is y, 128 is no displacement.
+// red is x, green is y, 128 is no displacement. Blue is rimWeight, the mask a
+// sharp-rim lens blends its bent rim with its blurred middle by.
 function displacementMap(box: LensBox) {
   const canvas = document.createElement('canvas');
   canvas.width = box.width;
@@ -72,7 +94,7 @@ function displacementMap(box: LensBox) {
       const index = (y * box.width + x) * 4;
       image.data[index] = 128 + shift.x * 127;
       image.data[index + 1] = 128 + shift.y * 127;
-      image.data[index + 2] = 128;
+      image.data[index + 2] = rimWeight(x, y, box) * 255;
       image.data[index + 3] = 255;
     }
   }
@@ -104,13 +126,20 @@ export interface LensOptions {
   bezel?: number;
   // depth is how far, in pixels, the backdrop is pulled in at the rim.
   depth?: number;
+  // blur is the blur across the glass; rimBlur, when given, is a lighter one
+  // for the bezel alone, so dense glass keeps a blurred middle to read on
+  // while its rim still shows the backdrop bending.
   blur?: number;
+  rimBlur?: number;
   saturate?: number;
+  // tone is CSS filter functions applied to the backdrop after the lens, such
+  // as a custom property that lifts it in one theme.
+  tone?: string;
 }
 
 // useLens returns a ref that gives its element edge refraction in Chromium.
 // The map follows the element's size and corner radius as they change.
-export function useLens<T extends HTMLElement>({ bezel = 14, depth = 22, blur = 3, saturate = 170 }: LensOptions = {}) {
+export function useLens<T extends HTMLElement>({ bezel = 14, depth = 22, blur = 3, rimBlur, saturate = 170, tone }: LensOptions = {}) {
   const ref = useRef<T>(null);
 
   useLayoutEffect(() => {
@@ -137,6 +166,23 @@ export function useLens<T extends HTMLElement>({ bezel = 14, depth = 22, blur = 
     displace.setAttribute('yChannelSelector', 'G');
     displace.setAttribute('scale', String(depth * 2));
     filter.append(map, displace);
+    // A sharp rim: the bent backdrop under the light rim blur across the
+    // bezel (the map's blue channel), over the backdrop under the full blur.
+    // The blur is then part of the filter rather than the CSS chain.
+    const sharpRim = rimBlur !== undefined && rimBlur !== blur;
+    if (sharpRim) {
+      displace.setAttribute('result', 'bent');
+      const primitive = (name: string, attributes: Record<string, string>) => {
+        const node = document.createElementNS(svgNamespace, name);
+        for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, value);
+        filter.append(node);
+      };
+      primitive('feGaussianBlur', { in: 'bent', stdDeviation: String(rimBlur), edgeMode: 'duplicate', result: 'rim' });
+      primitive('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: String(blur), edgeMode: 'duplicate', result: 'middle' });
+      primitive('feColorMatrix', { in: 'map', type: 'matrix', values: '0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 1 0 0', result: 'mask' });
+      primitive('feComposite', { in: 'rim', in2: 'mask', operator: 'in', result: 'edge' });
+      primitive('feComposite', { in: 'edge', in2: 'middle', operator: 'over' });
+    }
     filterDefs().appendChild(filter);
 
     const apply = () => {
@@ -149,7 +195,7 @@ export function useLens<T extends HTMLElement>({ bezel = 14, depth = 22, blur = 
         node.setAttribute('height', String(height));
       }
       map.setAttribute('href', displacementMap({ width, height, radius, bezel: Math.min(bezel, Math.max(radius, 4)) }));
-      const value = `url(#${id}) blur(${blur}px) saturate(${saturate}%)`;
+      const value = `url(#${id})${sharpRim ? '' : ` blur(${blur}px)`} saturate(${saturate}%)${tone ? ` ${tone}` : ''}`;
       element.style.setProperty('-webkit-backdrop-filter', value);
       element.style.setProperty('backdrop-filter', value);
     };
@@ -163,7 +209,7 @@ export function useLens<T extends HTMLElement>({ bezel = 14, depth = 22, blur = 
       element.style.removeProperty('-webkit-backdrop-filter');
       element.style.removeProperty('backdrop-filter');
     };
-  }, [bezel, depth, blur, saturate]);
+  }, [bezel, depth, blur, rimBlur, saturate, tone]);
 
   return ref;
 }
