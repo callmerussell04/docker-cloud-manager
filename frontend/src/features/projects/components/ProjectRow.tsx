@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { BASE_DOMAIN } from '@/shared/lib/config';
@@ -17,6 +18,12 @@ import { useProjectActions } from './useProjectActions';
 interface ProjectRowProps {
   item: ProjectListItem;
   onOpen: () => void;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
 // ProjectRow is a project's line in the list: its name and source (when the
@@ -25,12 +32,12 @@ interface ProjectRowProps {
 // its services reserve, and its age. The row opens the project; its menu
 // holds Start or Stop, Cancel deployment while that is possible, and Delete.
 // Compact rows are the name, then the state line and age.
-export function ProjectRow({ item, onOpen }: ProjectRowProps) {
+export function ProjectRow({ item, onOpen, scope = 'own', owner }: ProjectRowProps) {
   const { project, services } = item;
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const now = useNowSeconds(60_000);
-  const actions = useProjectActions('own', project);
+  const actions = useProjectActions(scope, project);
 
   const summary = serviceSummary(services);
   const state = projectSummary(t, project, services);
@@ -54,7 +61,7 @@ export function ProjectRow({ item, onOpen }: ProjectRowProps) {
   );
 
   return (
-    <ListRow template={compact ? projectListLayout.compact : projectListLayout.wide} onOpen={onOpen}>
+    <ListRow template={compact ? projectListLayout.compact : owner !== undefined ? projectListLayout.owned : projectListLayout.wide} onOpen={onOpen}>
       <div className="flex min-w-0 items-center gap-3.5">
         <Dot tone={projectTone(project.status, services)} />
         <div className="min-w-0 flex-1">
@@ -64,6 +71,7 @@ export function ProjectRow({ item, onOpen }: ProjectRowProps) {
           {compact ? (
             <div className="mt-0.5 truncate text-[12.5px] text-label-2">
               {stateLine}
+              {owner && ` · ${owner}`}
               {' · '}
               {ageLabel}
             </div>
@@ -78,6 +86,7 @@ export function ProjectRow({ item, onOpen }: ProjectRowProps) {
       </div>
       {!compact && (
         <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
           <div className="flex min-w-0 items-center gap-2">
             {services.length > 0 && (
               <span aria-hidden className="flex shrink-0 items-center gap-[3px]">

@@ -162,6 +162,12 @@ export function containerFilterCounts(containers: readonly ContainerData[]): Rec
 // ContainerSortKey is a containers list column.
 export type ContainerSortKey = 'name' | 'status' | 'address' | 'memory' | 'created';
 
+// matchesContainerSearch finds a container by name or image, without case.
+export function matchesContainerSearch(container: ContainerData, search: string) {
+  const query = search.trim().toLowerCase();
+  return !query || container.name.toLowerCase().includes(query) || container.image_tag.toLowerCase().includes(query);
+}
+
 export const containerSortKeys: readonly ContainerSortKey[] = ['name', 'status', 'address', 'memory', 'created'];
 
 // The list starts with failing containers first.

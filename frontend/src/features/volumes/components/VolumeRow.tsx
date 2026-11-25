@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { getServerErrorMessage } from '@/shared/api/apiError';
+import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
@@ -24,6 +25,12 @@ import { volumeListLayout } from './listLayout';
 
 interface VolumeRowProps {
   volume: VolumeData;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
 // VolumeRow is a volume's line in the list: its name, its status with the
@@ -32,12 +39,12 @@ interface VolumeRowProps {
 // Delete, disabled with the reason while containers use the volume or a
 // worker is still creating or deleting it. Compact rows are the name, then
 // status, size and age.
-export function VolumeRow({ volume }: VolumeRowProps) {
+export function VolumeRow({ volume, scope = 'own', owner }: VolumeRowProps) {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const now = useNowSeconds(60_000);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const deleteMutation = useDeleteVolume('own');
+  const deleteMutation = useDeleteVolume(scope);
 
   const failure = getServerErrorMessage(volume.last_error, t);
   const statusLabel = volumeStatusLabel(t, volume.status);
@@ -86,7 +93,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
   );
 
   return (
-    <ListRow template={compact ? volumeListLayout.compact : volumeListLayout.wide}>
+    <ListRow template={compact ? volumeListLayout.compact : owner !== undefined ? volumeListLayout.owned : volumeListLayout.wide}>
       <div className="flex min-w-0 items-center gap-3.5">
         <Dot tone={volumeTone(volume.status)} />
         <div className="min-w-0 flex-1">
@@ -97,6 +104,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
             <div className="mt-0.5 truncate text-[12.5px] text-label-2">
               <span className="text-label">{statusLabel}</span>
               {detail && <> · {detail}</>}
+              {owner && ` · ${owner}`}
               {' · '}
               {size}
               {' · '}
@@ -107,6 +115,7 @@ export function VolumeRow({ volume }: VolumeRowProps) {
       </div>
       {!compact && (
         <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
           <div className="truncate" title={failure || statusLabel}>
             {statusLabel}
             {detail && <> · {detail}</>}

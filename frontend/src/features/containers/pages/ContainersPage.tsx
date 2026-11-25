@@ -28,6 +28,7 @@ import {
   containerPagePath,
   defaultContainerSort,
   filterContainers,
+  matchesContainerSearch,
   sortContainers,
   type ConsoleView,
   type ContainerData,
@@ -45,11 +46,6 @@ const listSpec: ListStateSpec<ContainerFilter, ContainerSortKey> = {
 // One page holds a user's whole list as the quota usually allows it; the
 // filter, its counts, the sort and the search apply to the page shown.
 const pageSize = 100;
-
-function matchesSearch(container: ContainerData, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || container.name.toLowerCase().includes(query) || container.image_tag.toLowerCase().includes(query);
-}
 
 interface ContainersPageProps {
   // projectName names a Compose project by its ID, for the tag beside its
@@ -83,7 +79,7 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
 
   const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', view.page, pageSize);
   const containers = data?.items ?? [];
-  const searched = containers.filter((container) => matchesSearch(container, view.search));
+  const searched = containers.filter((container) => matchesContainerSearch(container, view.search));
   const counts = containerFilterCounts(searched);
   const shown = sortContainers(filterContainers(searched, view.filter), view.sort);
 

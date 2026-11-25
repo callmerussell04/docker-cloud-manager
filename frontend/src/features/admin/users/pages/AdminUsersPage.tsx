@@ -1,39 +1,96 @@
 import { useState } from 'react';
-import { Edit, Gauge, Plus, PowerOff, RefreshCcw, RotateCcw, UserX } from 'lucide-react';
+import { Plus, RefreshCcw } from 'lucide-react';
 
-import { Button } from '@/shared/ui/Button';
-import { Pagination } from '@/shared/ui/Pagination';
-import { Badge } from '@/shared/ui/Badge';
-import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
-import { ErrorState } from '@/shared/ui/ErrorState';
-import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { failureReason } from '@/shared/api/apiError';
-import { cn } from '@/shared/lib/utils';
 import { useT } from '@/shared/i18n';
-import { userStatusLabel, type AdminUser } from '../model';
-import { userTableLayout } from '../components/tableLayout';
-import { UserFormModal } from '../components/UserFormModal';
-import { UserQuotaModal } from '../components/UserQuotaModal';
-import { useAdminUsers, useDeactivateAdminUser, useReactivateAdminUser } from '../queries';
+import { useListState } from '@/shared/lib/hooks';
+import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
+import { EmptyState } from '@/shared/ui/EmptyState';
+import { ErrorState } from '@/shared/ui/ErrorState';
+import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { LoadingRows } from '@/shared/ui/LoadingRows';
+import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Page } from '@/shared/ui/Page';
-import { Toolbar, ToolbarButton, ToolbarPrimary } from '@/shared/ui/Toolbar';
+import { Pagination } from '@/shared/ui/Pagination';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { userListLayout } from '../components/listLayout';
+import { UserFormDialog } from '../components/UserFormDialog';
+import { UserQuotaDialog } from '../components/UserQuotaDialog';
+import { UserRow } from '../components/UserRow';
+import { defaultUserSort, matchesUserSearch, sortUsers, userSortKeys, type AdminUser, type UserSortKey } from '../model';
+import { useAdminUsers, useDeactivateAdminUser, useReactivateAdminUser } from '../queries';
+
+// The users list has no filter; its one filter value keeps the URL state
+// shape every list shares.
+const listSpec: ListStateSpec<'all', UserSortKey> = {
+  filters: ['all'],
+  sortKeys: userSortKeys,
+  defaultSort: defaultUserSort,
+};
+
+// The server's largest page; the sort and the search apply to the page shown.
+const pageSize = 100;
+
+// The user dialog shows a new account, or the one being edited.
+type FormTarget = { user: AdminUser | null } | null;
 
 export function AdminUsersPage() {
-  const [page, setPage] = useState(1);
-  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [deactivateUser, setDeactivateUser] = useState<AdminUser | null>(null);
-  const [quotaUser, setQuotaUser] = useState<AdminUser | null>(null);
-  const limit = 20;
   const t = useT();
+  const compact = useShellLayout().rowsCompact;
+  const [view, changeView] = useListState(listSpec);
+  const [form, setForm] = useState<FormTarget>(null);
+  const [quotaUser, setQuotaUser] = useState<AdminUser | null>(null);
+  const [deactivateUser, setDeactivateUser] = useState<AdminUser | null>(null);
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useAdminUsers(page, limit);
+  const { data, isLoading, isFetching, isError, error, refetch } = useAdminUsers(view.page, pageSize);
   const deactivateMutation = useDeactivateAdminUser();
+  const reactivateMutation = useReactivateAdminUser();
   // Deactivating an already deactivated user stops the workloads that remain.
   const stopWorkloadsOnly = deactivateUser?.status === 'deactivated';
-  const reactivateMutation = useReactivateAdminUser();
 
-  const users = data?.items || [];
+  const users = data?.items ?? [];
+  const shown = sortUsers(users.filter((user) => matchesUserSearch(user, view.search)), view.sort);
+
+  const columns: ListColumn<UserSortKey>[] = [
+    { key: 'name', label: t('admin.users.column.user') },
+    { key: 'role', label: t('admin.users.role') },
+    { key: 'status', label: t('common.status') },
+    { key: 'quota', label: t('admin.users.column.quota') },
+  ];
+
+  const content = () => {
+    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.6, 0.6, 0.7, 1.5, 0.4]} />;
+    if (isError) {
+      return <ErrorState title={t('admin.users.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    }
+    if (users.length === 0) {
+      return (
+        <EmptyState
+          title={t('admin.users.notFound')}
+          description={t('admin.users.emptyDescription')}
+          action={{ label: t('admin.users.create'), icon: Plus, onClick: () => setForm({ user: null }) }}
+        />
+      );
+    }
+    if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
+    return (
+      <List label={t('admin.users.title')}>
+        {shown.map((user) => (
+          <UserRow
+            key={user.user_id}
+            user={user}
+            busy={deactivateMutation.isPending || reactivateMutation.isPending}
+            onEdit={(target) => setForm({ user: target })}
+            onQuota={setQuotaUser}
+            onDeactivate={setDeactivateUser}
+            onActivate={(target) => reactivateMutation.mutate(target.user_id)}
+          />
+        ))}
+      </List>
+    );
+  };
 
   return (
     <Page
@@ -41,111 +98,21 @@ export function AdminUsersPage() {
         <Toolbar
           title={t('admin.users.title')}
           count={data?.total_count}
+          pills={<ToolbarSearch label={t('admin.users.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
           actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('admin.users.create')} />}
+          primary={<ToolbarPrimary icon={Plus} onClick={() => setForm({ user: null })} label={t('admin.users.create')} />}
         />
       }
+      head={(isLoading || shown.length > 0) && (
+        <ListHead columns={columns} template={userListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
+      )}
+      className="space-y-2"
     >
+      {content()}
+      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
 
-      <div className="bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl border border-white/50 dark:border-slate-700/50 rounded-2xl overflow-hidden flex-1 flex flex-col">
-        <div className="overflow-x-auto flex-1">
-          <div className={userTableLayout.minWidth}>
-            <div className={cn("grid items-center gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 bg-slate-50/50 dark:bg-slate-800/50 text-sm font-medium text-slate-500", userTableLayout.grid)}>
-              <div>{t('admin.users.username')}</div>
-              <div>{t('admin.users.emailId')}</div>
-              <div>{t('admin.users.role')}</div>
-              <div>{t('common.status')}</div>
-              <div>{t('admin.users.quotas')}</div>
-              <div className="flex justify-end">{t('admin.users.management')}</div>
-            </div>
-
-            {isLoading ? (
-              <LoadingRows columns={[1, 1.2, 0.5, 0.5, 0.7, 0.6]} />
-            ) : isError ? (
-              <div className="p-4">
-                <ErrorState
-                  title={t('admin.users.loadFailed')}
-                  message={failureReason(error, t)}
-                  onRetry={() => refetch()}
-                  isRetrying={isFetching}
-                />
-              </div>
-            ) : users.length > 0 ? (
-              users.map((user) => (
-                <div key={user.user_id} className={cn("grid gap-4 p-4 border-b border-white/20 dark:border-slate-700/50 hover:bg-white/20 dark:hover:bg-slate-800/30 items-center", userTableLayout.grid)}>
-                  <div className="min-w-0">
-                    <div className="font-medium truncate">{user.username}</div>
-                    <Badge variant={user.auth_source === 'oidc' ? 'info' : 'default'} title={t('admin.users.source')}>
-                      {user.auth_source === 'oidc' ? t('admin.users.sourceOidc') : t('admin.users.sourceLocal')}
-                    </Badge>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate">{user.email}</div>
-                    <div className="text-xs font-mono text-slate-500 truncate">{user.user_id}</div>
-                  </div>
-                  <div><Badge variant={user.role === 'admin' ? 'error' : 'default'}>{user.role}</Badge></div>
-                  <div><Badge variant={user.status === 'active' ? 'success' : 'default'}>{userStatusLabel(t, user.status)}</Badge></div>
-                  <div className="text-xs text-slate-500 space-y-1">
-                    <Badge variant={user.quota_custom ? 'warning' : 'default'}>
-                      {user.quota_custom ? t('admin.users.quotaCustom') : t('admin.users.quotaDefault')}
-                    </Badge>
-                    <div>CPU: {user.quota_cpu}</div>
-                    <div>RAM: {user.quota_ram_mb} MB</div>
-                    <div>Disk: {user.quota_disk_mb} MB</div>
-                  </div>
-                  <div className="flex gap-2 justify-end shrink-0">
-                    <Button variant="secondary" className="h-8 px-2" title={t('admin.users.editQuota')} aria-label={t('admin.users.editQuota')} onClick={() => setQuotaUser(user)}>
-                      <Gauge className="w-4 h-4" />
-                    </Button>
-                    <Button title={t('common.edit')} aria-label={t('common.edit')} variant="secondary" className="h-8 px-2" onClick={() => setEditingUser(user)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    {user.status === 'active' ? (
-                      <Button title={t('admin.users.deactivate')} aria-label={t('admin.users.deactivate')}
-                        variant="danger"
-                        className="h-8 px-2"
-                        disabled={deactivateMutation.isPending}
-                        onClick={() => setDeactivateUser(user)}
-                      >
-                        <UserX className="w-4 h-4" />
-                      </Button>
-                    ) : (
-                      <>
-                        <Button
-                          variant="danger"
-                          className="h-8 px-2"
-                          title={t('admin.users.stopWorkloads')}
-                          aria-label={t('admin.users.stopWorkloads')}
-                          disabled={deactivateMutation.isPending}
-                          onClick={() => setDeactivateUser(user)}
-                        >
-                          <PowerOff className="w-4 h-4" />
-                        </Button>
-                        <Button title={t('admin.users.activate')} aria-label={t('admin.users.activate')} variant="secondary" className="h-8 px-2" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate(user.user_id)}>
-                          <RotateCcw className="w-4 h-4" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="p-12 text-center text-slate-500">{t('admin.users.notFound')}</div>
-            )}
-          </div>
-        </div>
-        {data && <Pagination currentPage={page} pageSize={limit} totalItems={data.total_count} onPageChange={setPage} />}
-      </div>
-
-      <UserFormModal
-        isOpen={isCreateOpen || !!editingUser}
-        user={editingUser}
-        onClose={() => {
-          setIsCreateOpen(false);
-          setEditingUser(null);
-        }}
-      />
-      <UserQuotaModal user={quotaUser} onClose={() => setQuotaUser(null)} />
+      <UserFormDialog isOpen={form !== null} user={form?.user ?? null} onClose={() => setForm(null)} />
+      <UserQuotaDialog user={quotaUser} onClose={() => setQuotaUser(null)} />
       <ConfirmDialog
         isOpen={!!deactivateUser}
         title={

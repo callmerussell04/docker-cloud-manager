@@ -1,4 +1,5 @@
 import { FileText, Trash2, XCircle } from 'lucide-react';
+import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
@@ -15,6 +16,12 @@ import { useBuildActions } from './useBuildActions';
 interface BuildRowProps {
   build: BuildData;
   onOpen: () => void;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
 // BuildRow is a build's line in the list: its tag, what it was for, its
@@ -22,13 +29,13 @@ interface BuildRowProps {
 // and when it was queued. The row opens the build's page; its menu holds the
 // log, Cancel while it is active and Delete once it has finished. Compact
 // rows are the tag, then the state and age.
-export function BuildRow({ build, onOpen }: BuildRowProps) {
+export function BuildRow({ build, onOpen, scope = 'own', owner }: BuildRowProps) {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const active = isBuildActive(build.status);
   // A queued or running build counts its time live.
   const now = useNowSeconds(active ? 1_000 : 60_000);
-  const actions = useBuildActions('own', build);
+  const actions = useBuildActions(scope, build);
 
   const tone = buildTone(build.status);
   const timing = buildTiming(build, now);
@@ -61,7 +68,7 @@ export function BuildRow({ build, onOpen }: BuildRowProps) {
   );
 
   return (
-    <ListRow template={compact ? buildListLayout.compact : buildListLayout.wide} onOpen={onOpen}>
+    <ListRow template={compact ? buildListLayout.compact : owner !== undefined ? buildListLayout.owned : buildListLayout.wide} onOpen={onOpen}>
       <div className="flex min-w-0 items-center gap-3.5">
         <Dot tone={tone} />
         <div className="min-w-0 flex-1">
@@ -69,6 +76,7 @@ export function BuildRow({ build, onOpen }: BuildRowProps) {
           {compact && (
             <div className="mt-0.5 truncate text-[12.5px] text-label-2">
               {status}
+              {owner && ` · ${owner}`}
               {' · '}
               {ageLabel}
             </div>
@@ -77,6 +85,7 @@ export function BuildRow({ build, onOpen }: BuildRowProps) {
       </div>
       {!compact && (
         <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
           <div className="min-w-0 truncate"><BuildPurposeLine purpose={buildPurpose(build)} /></div>
           <div className="truncate" title={statusText}>{status}</div>
           <div className="truncate tabular-nums text-label-2">{took}</div>

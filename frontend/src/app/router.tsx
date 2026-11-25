@@ -67,6 +67,8 @@ export const router = createBrowserRouter([
           { path: 'users', element: <AdminUsersPage /> },
           { path: 'settings', element: <SystemSettingsPage /> },
           { path: 'containers/:id', element: <ContainerRoute scope="all" backTo="/admin/resources" backLabel="nav.adminResources" /> },
+          { path: 'builds/:id', element: <BuildPage scope="all" backTo="/admin/resources?tab=builds" backLabel="nav.adminResources" /> },
+          { path: 'projects/:id', element: <ProjectPage scope="all" backTo="/admin/resources?tab=projects" backLabel="nav.adminResources" containersPath="/admin/containers" /> },
         ],
       },
     ]),

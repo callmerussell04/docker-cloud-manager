@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Copy, Hammer, Play, Trash2 } from 'lucide-react';
 import { getServerErrorMessage } from '@/shared/api/apiError';
+import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
@@ -26,11 +27,18 @@ import { imageListLayout } from './listLayout';
 
 interface ImageRowProps {
   image: ImageData;
-  // onRun opens the create container dialog with the image.
-  onRun: (image: ImageData) => void;
+  // onRun opens the create container dialog with the image; left out where
+  // the image is not the user's own to run.
+  onRun?: (image: ImageData) => void;
   // onBuildAgain opens the build dialog for the image's tag; left out while
   // builds are off.
   onBuildAgain?: (image: ImageData) => void;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
 // ImageRow is an image's line in the list: its repository and tag with the
@@ -39,13 +47,13 @@ interface ImageRowProps {
 // row opens nothing; its menu holds Run a container, Build again, Copy the
 // tag and Delete, disabled with the reason while a container uses the image
 // or it is not ready. Compact rows are the name, then status, size and age.
-export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
+export function ImageRow({ image, onRun, onBuildAgain, scope = 'own', owner }: ImageRowProps) {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const now = useNowSeconds(60_000);
   const notify = useNotificationStore((state) => state.notify);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
-  const deleteMutation = useDeleteImage('own');
+  const deleteMutation = useDeleteImage(scope);
 
   const { name, path } = imageNameLines(image.tag);
   const failure = getServerErrorMessage(image.last_error, t);
@@ -75,7 +83,7 @@ export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
 
   const menu = (
     <RowMenu label={t('images.rowActions', { name: image.tag })} sheetTitle={name}>
-      <MenuItem icon={Play} disabled={!available} onSelect={() => onRun(image)}>{t('images.run')}</MenuItem>
+      {onRun && <MenuItem icon={Play} disabled={!available} onSelect={() => onRun(image)}>{t('images.run')}</MenuItem>}
       {onBuildAgain && <MenuItem icon={Hammer} onSelect={() => onBuildAgain(image)}>{t('images.buildAgain')}</MenuItem>}
       <MenuItem icon={Copy} onSelect={copyTag}>{t('images.copyTag')}</MenuItem>
       <MenuSeparator />
@@ -98,10 +106,10 @@ export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
     />
   );
 
-  const quick = <RowQuickAction icon={Play} label={t('images.run')} disabled={!available} onClick={() => onRun(image)} />;
+  const quick = onRun && <RowQuickAction icon={Play} label={t('images.run')} disabled={!available} onClick={() => onRun(image)} />;
 
   return (
-    <ListRow template={compact ? imageListLayout.compact : imageListLayout.wide}>
+    <ListRow template={compact ? imageListLayout.compact : owner !== undefined ? imageListLayout.owned : imageListLayout.wide}>
       <div className="flex min-w-0 items-center gap-3.5">
         <Dot tone={imageTone(image.status)} />
         <div className="min-w-0 flex-1">
@@ -112,6 +120,7 @@ export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
             <div className="mt-0.5 truncate text-[12.5px] text-label-2">
               <span className="text-label">{statusLabel}</span>
               {detail && <> · {detail}</>}
+              {owner && ` · ${owner}`}
               {size && ` · ${size}`}
               {' · '}
               {ageLabel}
@@ -123,6 +132,7 @@ export function ImageRow({ image, onRun, onBuildAgain }: ImageRowProps) {
       </div>
       {!compact && (
         <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
           <div className="truncate" title={failure || statusLabel}>
             {statusLabel}
             {detail && <> · {detail}</>}

@@ -203,6 +203,7 @@ function ProjectView({ scope, project, back, containersPath, onDeleted }: Projec
                 container={service}
                 onOpen={(opened, view) => navigate(containerPagePath(containersPath, opened.id, view), { state: { container: opened } })}
                 onExpose={scope === 'own' ? openExpose : undefined}
+                scope={scope}
               />
             ))}
           </List>

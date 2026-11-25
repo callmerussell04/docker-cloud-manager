@@ -69,6 +69,12 @@ function readSort<K extends string>(value: string | null, spec: ListStateSpec<st
   return key ? { key, ascending } : spec.defaultSort;
 }
 
+// readListPage is the list page a URL asks for; anything but a whole number
+// from 1 is the first page.
+export function readListPage(params: URLSearchParams) {
+  return readPage(params.get(param.page));
+}
+
 function readPage(value: string | null) {
   const page = Number(value);
   return Number.isInteger(page) && page >= 1 ? page : 1;

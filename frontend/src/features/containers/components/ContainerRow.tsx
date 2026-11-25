@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ExternalLink, Globe, Layers, Play, ScrollText, Square, Terminal, Trash2 } from 'lucide-react';
 import { getServerErrorMessage } from '@/shared/api/apiError';
+import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { BASE_DOMAIN } from '@/shared/lib/config';
@@ -26,6 +27,12 @@ interface ContainerRowProps {
   onOpen: (container: ContainerData, view?: ConsoleView) => void;
   // onExpose opens routing settings; only the user's own containers have it.
   onExpose?: (container: ContainerData) => void;
+  // scope is whose list the row is in: the user's own (the default) or every
+  // user's, which the admin view shows with each row's owner.
+  scope?: Scope;
+  // owner names the row's owner, in a column after the name; given only in
+  // the admin view.
+  owner?: string;
 }
 
 // ContainerRow is a container's line in a list: its name and image (and its
@@ -33,12 +40,12 @@ interface ContainerRowProps {
 // its memory reservation and its age. The row opens the container; its menu
 // holds every action, and a wide window shows logs, terminal and start or
 // stop on the hovered row. Compact rows are the name, then status and age.
-export function ContainerRow({ container, project, onOpen, onExpose }: ContainerRowProps) {
+export function ContainerRow({ container, project, onOpen, onExpose, scope = 'own', owner }: ContainerRowProps) {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const now = useNowSeconds(60_000);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const actionMutation = useContainerAction('own');
+  const actionMutation = useContainerAction(scope);
   const autoStop = useAutoStopLabel(container.status, container.ttl_deadline);
 
   const running = container.status === 'running';
@@ -114,7 +121,7 @@ export function ContainerRow({ container, project, onOpen, onExpose }: Container
   );
 
   return (
-    <ListRow template={compact ? containerListLayout.compact : containerListLayout.wide} onOpen={() => onOpen(container)}>
+    <ListRow template={compact ? containerListLayout.compact : owner !== undefined ? containerListLayout.owned : containerListLayout.wide} onOpen={() => onOpen(container)}>
       <div className="flex min-w-0 items-center gap-3.5">
         <Dot tone={containerTone(container.status)} />
         <div className="min-w-0 flex-1">
@@ -123,6 +130,7 @@ export function ContainerRow({ container, project, onOpen, onExpose }: Container
             <div className="mt-0.5 truncate text-[12.5px] text-label-2">
               <span className="text-label">{statusLabel}</span>
               {detail && <> · {detail}</>}
+              {owner && ` · ${owner}`}
               {' · '}
               {ageLabel}
             </div>
@@ -133,6 +141,7 @@ export function ContainerRow({ container, project, onOpen, onExpose }: Container
       </div>
       {!compact && (
         <>
+          {owner !== undefined && <div className="truncate text-label-2" title={owner}>{owner}</div>}
           <div className="truncate" title={failure || autoStop || statusLabel}>
             {statusLabel}
             {detail && <> · {detail}</>}
