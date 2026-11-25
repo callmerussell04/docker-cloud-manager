@@ -1,9 +1,8 @@
-import { useEffect, useRef, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { NavLink } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useAuthStore } from '@/shared/api/sessionStore';
 import { useT } from '@/shared/i18n';
-import { BASE_DOMAIN } from '@/shared/lib/config';
 import { cn } from '@/shared/lib/utils';
 import { Glass } from '@/shared/ui/Glass';
 import { Kbd } from '@/shared/ui/Kbd';
@@ -11,6 +10,37 @@ import { paletteShortcut } from '@/shared/ui/searchPalette';
 import { AccountMenu } from './AccountMenu';
 import { adminNavigation, navigation, type NavEntry } from './navigation';
 import { sidebarInset, sidebarWidth } from './shell';
+
+// The product's initials, shown where its name (app.name) does not fit.
+const productShortName = 'DCM';
+
+// Brand is the product's name in the sidebar's brand row: in full when it
+// fits beside the collapse button, otherwise its initials. The full name is
+// measured in a hidden copy, so the choice does not flip as it changes.
+function Brand() {
+  const productName = useT()('app.name');
+  const boxRef = useRef<HTMLSpanElement>(null);
+  const fullRef = useRef<HTMLSpanElement>(null);
+  const [fits, setFits] = useState(true);
+
+  useLayoutEffect(() => {
+    const box = boxRef.current;
+    const full = fullRef.current;
+    if (!box || !full) return;
+    const measure = () => setFits(full.offsetWidth <= box.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <span ref={boxRef} className="relative min-w-0 flex-1 overflow-hidden whitespace-nowrap text-[14.5px] font-bold tracking-[-0.02em] text-label" title={fits ? undefined : productName}>
+      {fits ? productName : <><span aria-hidden>{productShortName}</span><span className="sr-only">{productName}</span></>}
+      <span ref={fullRef} aria-hidden className="invisible absolute left-0 top-0">{productName}</span>
+    </span>
+  );
+}
 
 function NavGroup({ items, compact }: { items: NavEntry[]; compact: boolean }) {
   const t = useT();
@@ -54,6 +84,7 @@ export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
   const t = useT();
   const isAdmin = useAuthStore((state) => state.role) === 'admin';
   const compact = !expanded;
+  const productName = t('app.name');
   const toggleLabel = expanded ? t('shell.collapseSidebar') : t('shell.expandSidebar');
 
   // The toggle button moves between the brand row and the rail when it is
@@ -116,8 +147,14 @@ export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
     >
       <nav aria-label={t('shell.navigation')} className={cn('flex h-full flex-col overflow-y-auto', compact ? 'px-2 py-3.5' : 'p-3.5')}>
         <div className={cn('flex items-center gap-2', compact ? 'justify-center pb-2.5 pt-1' : 'px-2 pb-3 pt-1')}>
-          <span className={cn('font-bold tracking-[-0.02em] text-label', compact ? 'text-[13px]' : 'text-[15px]')}>DCM</span>
-          {expanded && <span className="min-w-0 flex-1 truncate text-[11.5px] text-label-2">{BASE_DOMAIN}</span>}
+          {compact ? (
+            <span className="text-[13px] font-bold tracking-[-0.02em] text-label" title={productName}>
+              <span aria-hidden>{productShortName}</span>
+              <span className="sr-only">{productName}</span>
+            </span>
+          ) : (
+            <Brand />
+          )}
           {expanded && toggle}
         </div>
         {compact && <div className="mb-2.5">{toggle}</div>}

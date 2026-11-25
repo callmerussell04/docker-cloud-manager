@@ -16,10 +16,7 @@ export function AuthScreen({ children }: { children: ReactNode }) {
     <div className="relative isolate flex min-h-screen flex-col">
       <div aria-hidden className="frost-veil fixed inset-0 -z-10" />
       <main className="flex flex-1 flex-col items-center justify-center gap-[18px] px-4 pb-10 pt-20">
-        <div className="flex items-baseline gap-2">
-          <span className="text-xl font-bold tracking-[-0.02em] text-label">DCM</span>
-          <span className="text-label-2">{t('app.name')}</span>
-        </div>
+        <div className="text-xl font-bold tracking-[-0.02em] text-label">{t('app.name')}</div>
         <Glass material="dense" className="w-full max-w-[420px] rounded-[28px] px-[30px] pb-[26px] pt-[30px] max-[420px]:px-5">
           {children}
         </Glass>
