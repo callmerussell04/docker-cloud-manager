@@ -191,10 +191,11 @@ interface ToolbarSearchProps {
   label: string;
 }
 
-// ToolbarSearch is a glass search field for the toolbar's middle, beside its
-// pills. While it is empty and not in use it is a round button, so it takes
-// little room; it opens when pressed and while it holds a query, with a
-// button that clears it. Escape clears it too.
+// ToolbarSearch is a glass search field: in the toolbar's middle beside its
+// pills, or, on a page with no other pills, first among the actions, where
+// it opens toward the title. While it is empty and not in use it is a round
+// button, so it takes little room; it opens when pressed and while it holds a
+// query, with a button that clears it. Escape clears it too.
 export function ToolbarSearch({ value, onChange, label }: ToolbarSearchProps) {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);

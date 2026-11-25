@@ -86,8 +86,12 @@ export function VolumesPage({ disk }: VolumesPageProps) {
         <Toolbar
           title={t('volumes.title')}
           count={data?.total_count}
-          pills={<ToolbarSearch label={t('volumes.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          actions={
+            <>
+              <ToolbarSearch label={t('volumes.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+              <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />
+            </>
+          }
           primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('volumes.create')} />}
         />
       }

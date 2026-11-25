@@ -98,8 +98,12 @@ export function AdminUsersPage() {
         <Toolbar
           title={t('admin.users.title')}
           count={data?.total_count}
-          pills={<ToolbarSearch label={t('admin.users.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
+          actions={
+            <>
+              <ToolbarSearch label={t('admin.users.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+              <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />
+            </>
+          }
           primary={<ToolbarPrimary icon={Plus} onClick={() => setForm({ user: null })} label={t('admin.users.create')} />}
         />
       }

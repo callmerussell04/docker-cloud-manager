@@ -106,17 +106,19 @@ export function ProjectsPage() {
         <Toolbar
           title={t('projects.title')}
           count={data?.total_count}
-          pills={<ToolbarSearch label={t('projects.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />}
           actions={
-            <ToolbarButton
-              icon={RefreshCcw}
-              label={t('common.refresh')}
-              busy={isFetching || containers.isFetching}
-              onClick={() => {
-                void refetch();
-                void containers.refetch();
-              }}
-            />
+            <>
+              <ToolbarSearch label={t('projects.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
+              <ToolbarButton
+                icon={RefreshCcw}
+                label={t('common.refresh')}
+                busy={isFetching || containers.isFetching}
+                onClick={() => {
+                  void refetch();
+                  void containers.refetch();
+                }}
+              />
+            </>
           }
           primary={<ToolbarPrimary icon={Plus} onClick={() => setIsDeployOpen(true)} label={t('projects.deployTitle')} />}
         />
