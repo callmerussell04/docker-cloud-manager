@@ -26,6 +26,10 @@
     --orange: #f08c00;
     --red: #ff3b30;
     --red-text: #c9241b;
+    /* A failure's panel behind its red text: red at 10%. Tailwind cannot put
+       an opacity on a colour given as a custom property (bg-red/10 makes no
+       CSS), so the tint is its own token. */
+    --red-soft: color-mix(in srgb, var(--red) 10%, transparent);
     --glass: rgba(255, 255, 255, 0.45);
     --glass-dense: rgba(253, 253, 254, 0.81);
     /* Menus, dialogs and the search palette: a lighter fill than the
@@ -104,6 +108,7 @@
     --orange: #ff9f0a;
     --red: #ff453a;
     --red-text: #ff7a70;
+    --red-soft: color-mix(in srgb, var(--red) 10%, transparent);
     --glass: rgba(40, 50, 70, 0.38);
     --glass-dense: rgba(12, 16, 26, 0.86);
     --glass-float: rgba(40, 50, 70, 0.38);
@@ -415,6 +420,24 @@
   .list-row[tabindex]:hover::before,
   .list-row[tabindex]:hover + .list-row::before {
     opacity: 0;
+  }
+
+  /* A loading list's placeholder bars: a light sweeping across each one.
+     Reduced motion stops it with every other animation. */
+  .ghost-shimmer {
+    background-image: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--label) 9%, transparent) 50%, transparent 100%);
+    background-size: 220% 100%;
+    background-repeat: no-repeat;
+    animation: ghost-shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes ghost-shimmer {
+    from {
+      background-position: 160% 0;
+    }
+    to {
+      background-position: -60% 0;
+    }
   }
 
   /* The memory map's blocks take their project's colour from --tint; the

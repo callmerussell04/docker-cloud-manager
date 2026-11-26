@@ -1,5 +1,6 @@
+import { X } from 'lucide-react';
 import { useT } from '@/shared/i18n';
-import { StateMessage } from './StateMessage';
+import { ListMessageBelowHead } from './ListMessage';
 
 interface NoMatchesStateProps {
   query: string;
@@ -10,15 +11,16 @@ interface NoMatchesStateProps {
 }
 
 // NoMatchesState is shown when a list has rows but the search hides all of
-// them, so it is not mistaken for an empty list. It offers Clear the search.
+// them, so it is not mistaken for an empty list: centred under the list's
+// column labels, it names the search and offers Clear the search.
 export function NoMatchesState({ query, onClear, description }: NoMatchesStateProps) {
   const t = useT();
   return (
-    <StateMessage
+    <ListMessageBelowHead
       role="status"
       title={query.trim() ? t('common.noMatchesFor', { query: query.trim() }) : t('common.noMatches')}
       description={description ?? t('common.noMatchesDescription')}
-      action={{ label: t('common.clearSearch'), onClick: onClear }}
+      action={{ label: t('common.clearSearch'), onClick: onClear, icon: X }}
     />
   );
 }

@@ -17,7 +17,7 @@ export function AuthSettingsStatus({ authConfig, isLoading, isError, onRetry, is
     return <LoadingRows rows={2} dot={false} columns={[1]} />;
   }
   if (isError) {
-    return <ErrorState title={t('admin.settings.authStatusUnavailable')} onRetry={onRetry} isRetrying={isRetrying} />;
+    return <ErrorState compact title={t('admin.settings.authStatusUnavailable')} onRetry={onRetry} isRetrying={isRetrying} />;
   }
 
   const providers = authConfig?.oidc_providers.map((provider) => provider.name).filter(Boolean) ?? [];

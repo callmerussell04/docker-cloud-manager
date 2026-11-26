@@ -95,7 +95,7 @@ export function AuthNotice({ tone = 'plain', children }: { tone?: 'plain' | 'bad
       role={tone === 'bad' ? 'alert' : 'note'}
       className={cn(
         'rounded-xl px-3.5 py-2.5 leading-[1.45]',
-        tone === 'bad' ? 'bg-red/10 text-red-text' : 'bg-fill text-label-2',
+        tone === 'bad' ? 'bg-red-soft text-red-text' : 'bg-fill text-label-2',
       )}
     >
       {children}

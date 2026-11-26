@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import type { UseQueryResult } from '@tanstack/react-query';
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -113,8 +112,9 @@ export function ReportsSide({ overview, failures }: ReportsSideProps) {
       <Tile id="reports-failures" title={t('admin.reports.recentFailures')}>
         {failures.isError ? (
           <ErrorState
+            compact
             title={t('admin.reports.failuresLoadFailed')}
-            message={failureReason(failures.error, t)}
+            error={failures.error}
             onRetry={() => failures.refetch()}
             isRetrying={failures.isFetching}
           />

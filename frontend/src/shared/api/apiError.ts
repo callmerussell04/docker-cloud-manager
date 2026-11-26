@@ -132,6 +132,12 @@ export function failureReason(error: unknown, t: TFunction): string | undefined 
   return getApiErrorMessage(error, '', t).message || undefined;
 }
 
+// isConnectionError reports whether a request got no answer at all: the
+// server could not be reached, or it did not respond in time.
+export function isConnectionError(error: unknown) {
+  return axios.isAxiosError(error) && !error.response && (!!error.request || error.code === 'ECONNABORTED');
+}
+
 // isNotFoundError reports whether a request failed because the resource does
 // not exist, or is not the caller's to see.
 export function isNotFoundError(error: unknown) {

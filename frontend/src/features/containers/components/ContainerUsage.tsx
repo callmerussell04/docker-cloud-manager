@@ -37,7 +37,7 @@ export function ContainerUsage({ running, stats, history, loading, error }: Cont
   const t = useT();
   if (!running) return <p className="text-label-2">{t('containers.usageNotRunning')}</p>;
   if (error) {
-    return <ErrorState title={t('containers.statsLoadFailed')} message={error.message} onRetry={error.retry} isRetrying={error.retrying} />;
+    return <ErrorState compact title={t('containers.statsLoadFailed')} message={error.message} onRetry={error.retry} isRetrying={error.retrying} />;
   }
   if (!stats) return loading ? <LoadingRows rows={3} dot={false} columns={[1]} /> : null;
 

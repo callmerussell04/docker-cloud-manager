@@ -10,7 +10,6 @@ import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { useShellLayout } from '@/shared/ui/shellLayout';
-import { failureReason } from '@/shared/api/apiError';
 import { cn } from '@/shared/lib/utils';
 import { useElementWidth } from '@/shared/lib/hooks';
 import { rowsCompact } from '@/shared/lib/sizeClass';
@@ -138,7 +137,7 @@ export function SystemSettingsPage() {
       <Page toolbar={<Toolbar title={title} />}>
         <ErrorState
           title={t('admin.settings.loadFailed')}
-          message={failureReason(error, t)}
+          error={error}
           onRetry={() => refetch()}
           isRetrying={isFetching}
         />

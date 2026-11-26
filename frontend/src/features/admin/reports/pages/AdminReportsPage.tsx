@@ -57,6 +57,8 @@ const auditListSpec: ListStateSpec<AuditFilter, 'time'> = { filters: ['all', 'fa
 // with their timeline; past that the table says how many it shows.
 const usersLimit = 100;
 const auditPageSize = 50;
+// The audit log's placeholder rows: when, who, what, the resource and its details.
+const auditShape = [0.6, 0.8, 1.3, 1, 1.3];
 const recentFailuresLimit = 6;
 const userActionsLimit = 8;
 // The side column, 320 px with a 20 px gap, sits beside the chart once the
@@ -233,14 +235,14 @@ export function AdminReportsPage() {
   if (tab === 'audit') {
     const events = audit.data?.events ?? [];
     if (audit.isError && !audit.data) {
-      content = <ErrorState title={t('admin.reports.auditLoadFailed')} message={failureReason(audit.error, t)} onRetry={() => audit.refetch()} isRetrying={audit.isFetching} />;
+      content = <ErrorState columns={auditShape} title={t('admin.reports.auditLoadFailed')} error={audit.error} onRetry={() => audit.refetch()} isRetrying={audit.isFetching} />;
     } else if (audit.isLoading) {
-      content = <LoadingRows rows={8} columns={[0.6, 0.8, 1.3, 1, 1.3]} />;
+      content = <LoadingRows rows={8} columns={auditShape} />;
     } else if (events.length === 0) {
       content = auditSearch.trim() ? (
         <NoMatchesState query={auditSearch} onClear={() => changeAudit({ search: '', page: 1 })} description={t('admin.reports.auditNoMatches')} />
       ) : (
-        <EmptyState title={t(auditView.filter === 'failed' ? 'admin.reports.emptyFailed' : 'admin.reports.emptyAudit')} />
+        <EmptyState columns={auditShape} title={t(auditView.filter === 'failed' ? 'admin.reports.emptyFailed' : 'admin.reports.emptyAudit')} />
       );
     } else {
       head = <AuditHead />;
@@ -255,7 +257,7 @@ export function AdminReportsPage() {
     content = (
       <ErrorState
         title={t('admin.reports.usageLoadFailed')}
-        message={failureReason(overview.error ?? users.error, t)}
+        error={overview.error ?? users.error}
         onRetry={() => {
           void overview.refetch();
           void users.refetch();

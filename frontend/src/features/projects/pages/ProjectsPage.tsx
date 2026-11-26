@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCcw } from 'lucide-react';
 
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { createDialogFlag, useListState, useSearchFlag } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
@@ -13,7 +12,7 @@ import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
-import { useShellLayout } from '@/shared/ui/shellLayout';
+import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
 import { useContainers } from '@/features/containers/queries';
 import { DeployProjectDialog } from '../components/DeployProjectDialog';
@@ -48,11 +47,13 @@ const pageSize = 100;
 export function ProjectsPage() {
   const t = useT();
   const navigate = useNavigate();
-  const compact = useShellLayout().rowsCompact;
   const [isDeployOpen, setIsDeployOpen] = useSearchFlag(createDialogFlag);
   const [view, changeView] = useListState(listSpec);
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useProjects('own', view.page, pageSize);
+  const query = useProjects('own', view.page, pageSize);
+  const { data, isLoading, isError, error, refetch, isFetching } = query;
+  const stale = useRefreshFailure(query, t('common.refreshFailed'));
+  const shape = { template: projectListLayout.wide, compactTemplate: projectListLayout.compact };
   const projects = useMemo(() => data?.items ?? [], [data]);
   // A project that deploys, starts or stops changes its containers, so they
   // keep refreshing with it.
@@ -71,13 +72,14 @@ export function ProjectsPage() {
   ];
 
   const content = () => {
-    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.4, 1.3, 1, 0.5, 0.5]} />;
-    if (isError) {
-      return <ErrorState title={t('projects.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (isLoading) return <LoadingRows {...shape} />;
+    if (isError && !data) {
+      return <ErrorState {...shape} title={t('projects.loadFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
     }
     if (projects.length === 0) {
       return (
         <EmptyState
+          {...shape}
           title={t('projects.emptyTitle')}
           description={t('projects.emptyDescription')}
           action={{ label: t('projects.deployTitle'), icon: Plus, onClick: () => setIsDeployOpen(true) }}
@@ -88,7 +90,7 @@ export function ProjectsPage() {
       return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     }
     return (
-      <List label={t('projects.title')}>
+      <List label={t('projects.title')} stale={stale}>
         {shown.map((item) => (
           <ProjectRow
             key={item.project.id}
@@ -123,14 +125,14 @@ export function ProjectsPage() {
           primary={<ToolbarPrimary icon={Plus} onClick={() => setIsDeployOpen(true)} label={t('projects.deployTitle')} />}
         />
       }
-      head={(isLoading || shown.length > 0) && (
+      head={
         <ListHead
           columns={columns}
           template={projectListLayout.wide}
           sort={view.sort}
           onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })}
         />
-      )}
+      }
       className="space-y-2"
     >
       {content()}

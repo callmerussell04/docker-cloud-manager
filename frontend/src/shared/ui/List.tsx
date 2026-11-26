@@ -67,12 +67,15 @@ export function ListHead<K extends string>({ columns, template, sort, onSort }: 
 interface ListProps {
   label: string;
   children: ReactNode;
+  // stale dims the rows while they are out of date: the last refresh failed
+  // and they are what was loaded before (useRefreshFailure).
+  stale?: boolean;
 }
 
 // List holds a list's rows.
-export function List({ label, children }: ListProps) {
+export function List({ label, children, stale = false }: ListProps) {
   return (
-    <div role="list" aria-label={label} className="flex flex-col">
+    <div role="list" aria-label={label} className={cn('flex flex-col transition-opacity', stale && 'opacity-55')}>
       {children}
     </div>
   );

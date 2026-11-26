@@ -4,7 +4,7 @@ import { ChevronRight, Disc, Layers, type LucideIcon } from 'lucide-react';
 import { useT, type TFunction } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import { useSizeClass } from '@/shared/lib/useSizeClass';
-import { failureReason, getServerErrorMessage } from '@/shared/api/apiError';
+import { getServerErrorMessage } from '@/shared/api/apiError';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { Page } from '@/shared/ui/Page';
 import { useShellLayout } from '@/shared/ui/shellLayout';
@@ -154,7 +154,7 @@ export function DashboardPage() {
     content = (
       <ErrorState
         title={t('dashboard.loadFailed')}
-        message={failureReason(failed.error, t)}
+        error={failed.error}
         onRetry={retry}
         isRetrying={stats.isFetching || containers.isFetching}
       />

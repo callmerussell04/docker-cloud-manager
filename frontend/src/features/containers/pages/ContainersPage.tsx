@@ -1,21 +1,20 @@
-import { Plus, RefreshCcw } from 'lucide-react';
+import { CheckCircle2, Plus, RefreshCcw } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { createDialogFlag, createWithImageParam, useDebouncedValue, useListState } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { List, ListHead, type ListColumn } from '@/shared/ui/List';
+import { ListMessageBelowHead } from '@/shared/ui/ListMessage';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
 import { Pills } from '@/shared/ui/Pills';
-import { useShellLayout } from '@/shared/ui/shellLayout';
-import { StateMessage } from '@/shared/ui/StateMessage';
 import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { ContainerRow } from '../components/ContainerRow';
 import { CreateContainerDialog } from '../components/CreateContainerDialog';
 import { containerListLayout } from '../components/listLayout';
@@ -57,7 +56,6 @@ interface ContainersPageProps {
 export function ContainersPage({ projectName, memory }: ContainersPageProps) {
   const t = useT();
   const navigate = useNavigate();
-  const compact = useShellLayout().rowsCompact;
   // ?new opens the create dialog, and ?image (from an image's Run a
   // container) is the image it starts with; closing it drops both.
   const [params, setParams] = useSearchParams();
@@ -79,7 +77,9 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
   const search = useDebouncedValue(view.search);
   const list = containerListParams({ filter: view.filter, sort: view.sort, search });
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useContainers('own', view.page, pageSize, { list });
+  const query = useContainers('own', view.page, pageSize, { list });
+  const { data, isLoading, isError, error, refetch, isFetching } = query;
+  const stale = useRefreshFailure(query, t('common.refreshFailed'));
   const shown = data?.items ?? [];
   const counts = data?.status_counts;
 
@@ -96,15 +96,17 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
   const projectOf = (container: ContainerData) =>
     container.project_id ? (projectName?.(container.project_id) ?? t('containers.composeTag')) : undefined;
 
-  const loading = <LoadingRows columns={compact ? [1] : [1.5, 1.2, 1, 0.4, 0.5]} />;
+  const shape = { template: containerListLayout.wide, compactTemplate: containerListLayout.compact };
+  const loading = <LoadingRows {...shape} />;
   const content = () => {
     if (isLoading) return loading;
-    if (isError) {
-      return <ErrorState title={t('containers.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (isError && !data) {
+      return <ErrorState {...shape} title={t('containers.loadFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
     }
     if (counts?.all === 0 && !list.q) {
       return (
         <EmptyState
+          {...shape}
           title={t('containers.emptyTitle')}
           description={t('containers.emptyDescription')}
           action={{ label: t('containers.create'), icon: Plus, onClick: () => setIsCreateOpen(true) }}
@@ -117,17 +119,20 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
     // A page past the end returns to the last page (Pagination) and loads.
     if (shown.length === 0 && data && data.total_count > 0) return loading;
     if (shown.length === 0) {
+      // Attention showing nothing is good news; another filter, only empty.
+      const attention = view.filter === 'attention';
       return (
-        <StateMessage
+        <ListMessageBelowHead
           role="status"
-          title={t('containers.filterEmpty')}
-          description={t('containers.filterEmptyDescription')}
+          icon={attention ? <CheckCircle2 aria-hidden className="mb-1 h-7 w-7 text-green" strokeWidth={1.8} /> : undefined}
+          title={t(attention ? 'containers.attentionEmpty' : 'containers.filterEmpty')}
+          description={t(attention ? 'containers.attentionEmptyDescription' : 'containers.filterEmptyDescription')}
           action={{ label: t('containers.showAll'), onClick: () => changeView({ filter: 'all' }) }}
         />
       );
     }
     return (
-      <List label={t('containers.title')}>
+      <List label={t('containers.title')} stale={stale}>
         {shown.map((container) => (
           <ContainerRow
             key={container.id}
@@ -162,14 +167,14 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
           primary={<ToolbarPrimary icon={Plus} onClick={() => setIsCreateOpen(true)} label={t('containers.create')} />}
         />
       }
-      head={(isLoading || shown.length > 0) && (
+      head={
         <ListHead
           columns={columns}
           template={containerListLayout.wide}
           sort={view.sort}
           onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })}
         />
-      )}
+      }
       className="space-y-2"
     >
       {content()}

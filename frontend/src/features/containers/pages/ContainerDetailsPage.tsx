@@ -114,7 +114,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel, projectName }: 
         {containerQuery.isError ? (
           <ErrorState
             title={t('containers.detailsLoadFailed')}
-            message={failureReason(containerQuery.error, t)}
+            error={containerQuery.error}
             onRetry={isNotFoundError(containerQuery.error) ? undefined : () => containerQuery.refetch()}
             isRetrying={containerQuery.isFetching}
           />
@@ -168,7 +168,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel, projectName }: 
   const failure = tone === 'bad' && (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-2xl bg-red/10 px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
+      className="flex items-start gap-3 rounded-2xl bg-red-soft px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
     >
       <Dot tone="bad" className="mt-1.5" />
       <div className="min-w-0">

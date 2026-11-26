@@ -1,18 +1,18 @@
 import type { ReactNode } from 'react';
 import { ListFilter, RefreshCcw } from 'lucide-react';
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { useListState } from '@/shared/lib/hooks';
 import { toggleSort, type ListSort, type ListState, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { ListMessageBelowHead } from '@/shared/ui/ListMessage';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { List, ListHead, type ListColumn } from '@/shared/ui/List';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Pagination } from '@/shared/ui/Pagination';
 import { useShellLayout } from '@/shared/ui/shellLayout';
-import { StateMessage } from '@/shared/ui/StateMessage';
 import { ToolbarButton, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { filterByOwner, ownerName, ownerOptions, sortOwned, type Owned } from '../model';
 import { FilterMenu, type FilterAlert, type FilterOption } from './FilterMenu';
 import { OwnerFilter } from './OwnerFilter';
@@ -28,6 +28,10 @@ interface ListQuery<T> {
   isError: boolean;
   isFetching: boolean;
   error: unknown;
+  // A refresh that failed while the rows shown are from before.
+  isRefetchError: boolean;
+  errorUpdatedAt: number;
+  dataUpdatedAt: number;
 }
 
 // ResourceView is what every tab shares: the owner from the URL, with its
@@ -59,8 +63,9 @@ export interface ResourceListProps<T extends Owned, K extends string, F extends 
   label: string;
   columns: readonly ListColumn<K>[];
   template: string;
-  // loadingColumns shapes the placeholder rows on the first load.
-  loadingColumns: number[];
+  // compactTemplate is the grid of the compact rows, which the placeholder
+  // rows take on compact content.
+  compactTemplate: string;
   // spec is the list's URL state (resourceListSpec), the same the tab reads
   // when it asks the server for its sort, search or status.
   spec: ListStateSpec<F, K | 'owner'>;
@@ -103,7 +108,6 @@ export interface ResourceListParts {
 // is hidden (active false).
 export function useResourceList<T extends Owned, K extends string, F extends string = 'all'>(props: ResourceListProps<T, K, F>, active: boolean): ResourceListParts | null {
   const t = useT();
-  const compact = useShellLayout().rowsCompact;
   const { spec, statusFilter } = props;
   const [view, setView] = useListState(spec);
   const serverSide = !props.matches;
@@ -113,6 +117,7 @@ export function useResourceList<T extends Owned, K extends string, F extends str
     setView(serverSide && change.page === undefined && (change.filter !== undefined || change.sort || change.search !== undefined) ? { ...change, page: 1 } : change);
   const everything = spec.filters[0];
   const { data, isLoading, isError, isFetching, error } = props.query;
+  const stale = useRefreshFailure(props.query, t('common.refreshFailed'));
   // On narrow content the filters become round buttons, so the top row keeps
   // room for the title.
   const narrow = useShellLayout().toolbarStacked;
@@ -130,15 +135,16 @@ export function useResourceList<T extends Owned, K extends string, F extends str
   const columns: ListColumn<K | 'owner'>[] = [first, { key: 'owner', label: t('admin.resources.owner') }, ...rest];
 
   const content = () => {
-    if (isLoading) return <LoadingRows columns={compact ? [1] : props.loadingColumns} />;
-    if (isError) return <ErrorState title={props.loadFailed} message={failureReason(error, t)} onRetry={props.onRefresh} isRetrying={isFetching} />;
+    const shape = { template: props.template, compactTemplate: props.compactTemplate };
+    if (isLoading) return <LoadingRows {...shape} />;
+    if (isError && !data) return <ErrorState {...shape} title={props.loadFailed} error={error} onRetry={props.onRefresh} isRetrying={isFetching} />;
     if (rows.length === 0 && serverSide) {
       const searched = view.search.trim() !== '';
       const nothingMatches = statusFilter?.options.find((option) => option.id === everything)?.count === 0;
       if (searched && (!statusFilter || nothingMatches)) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
       if (statusFilter && view.filter !== everything) {
         return (
-          <StateMessage
+          <ListMessageBelowHead
             role="status"
             title={statusFilter.emptyTitle}
             description={statusFilter.emptyDescription}
@@ -148,11 +154,11 @@ export function useResourceList<T extends Owned, K extends string, F extends str
       }
       if (searched) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     }
-    if (rows.length === 0) return <EmptyState title={props.emptyTitle} description={t('admin.resources.emptyDescription')} />;
+    if (rows.length === 0) return <EmptyState {...shape} title={props.emptyTitle} description={t('admin.resources.emptyDescription')} />;
     if (owned.length === 0) {
       const name = owners.find((option) => option.id === owner)?.name ?? owner;
       return (
-        <StateMessage
+        <ListMessageBelowHead
           role="status"
           title={t('admin.resources.ownerEmpty', { name })}
           description={t('admin.resources.ownerEmptyDescription')}
@@ -161,7 +167,7 @@ export function useResourceList<T extends Owned, K extends string, F extends str
       );
     }
     if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
-    return <List label={props.label}>{shown.map((row) => props.row(row, ownerLabel(row)))}</List>;
+    return <List label={props.label} stale={stale}>{shown.map((row) => props.row(row, ownerLabel(row)))}</List>;
   };
 
   const ownerFilter = <OwnerFilter owner={owner} options={owners} onChange={props.view.onOwner} round={narrow} />;
@@ -196,9 +202,7 @@ export function useResourceList<T extends Owned, K extends string, F extends str
         <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching || props.refreshing} onClick={props.onRefresh} />
       </>
     ),
-    head: (isLoading || shown.length > 0) && (
-      <ListHead columns={columns} template={props.template} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-    ),
+    head: <ListHead columns={columns} template={props.template} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />,
     body: (
       <>
         {content()}

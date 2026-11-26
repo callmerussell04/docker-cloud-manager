@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw } from 'lucide-react';
 
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { createDialogFlag, createWithImageParam, useListState, useNowSeconds, useSearchFlag } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
@@ -14,7 +13,7 @@ import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
 import { Pills } from '@/shared/ui/Pills';
-import { useShellLayout } from '@/shared/ui/shellLayout';
+import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
 import { BuildImageDialog } from '../components/BuildImageDialog';
 import { BuildRow } from '../components/BuildRow';
@@ -195,10 +194,12 @@ interface ImagesListProps {
 // searched as the URL says; nothing while the tab is hidden.
 function useImagesList({ active, onRun, onBuildAgain, onBuild }: ImagesListProps): ListParts | null {
   const t = useT();
-  const compact = useShellLayout().rowsCompact;
   const [view, changeView] = useListState(imageListSpec);
-  const { data, isLoading, isError, error, refetch, isFetching } = useImages('own', view.page, pageSize, active);
+  const query = useImages('own', view.page, pageSize, active);
+  const { data, isLoading, isError, error, refetch, isFetching } = query;
+  const stale = useRefreshFailure(query, t('common.refreshFailed'));
   if (!active) return null;
+  const shape = { template: imageListLayout.wide, compactTemplate: imageListLayout.compact };
   const images = data?.items ?? [];
   const shown = sortImages(images.filter((image) => matchesImageSearch(image, view.search)), view.sort);
 
@@ -211,11 +212,12 @@ function useImagesList({ active, onRun, onBuildAgain, onBuild }: ImagesListProps
   ];
 
   const content = () => {
-    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.4, 0.9, 1, 0.6, 0.5]} />;
-    if (isError) return <ErrorState title={t('images.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (isLoading) return <LoadingRows {...shape} />;
+    if (isError && !data) return <ErrorState {...shape} title={t('images.loadFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
     if (images.length === 0) {
       return (
         <EmptyState
+          {...shape}
           title={t('images.noImages')}
           description={t('images.noImagesDescription')}
           action={onBuild ? { label: t('images.buildFirst'), icon: Plus, onClick: onBuild } : undefined}
@@ -224,7 +226,7 @@ function useImagesList({ active, onRun, onBuildAgain, onBuild }: ImagesListProps
     }
     if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     return (
-      <List label={t('images.tab.images')}>
+      <List label={t('images.tab.images')} stale={stale}>
         {shown.map((image) => <ImageRow key={image.id} image={image} onRun={onRun} onBuildAgain={onBuildAgain} />)}
       </List>
     );
@@ -234,9 +236,7 @@ function useImagesList({ active, onRun, onBuildAgain, onBuild }: ImagesListProps
     count: data?.total_count,
     search: <ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />,
     refresh: <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />,
-    head: (isLoading || shown.length > 0) && (
-      <ListHead columns={columns} template={imageListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-    ),
+    head: <ListHead columns={columns} template={imageListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />,
     body: (
       <>
         {content()}
@@ -259,12 +259,13 @@ interface BuildsListProps {
 // says; nothing while the tab is hidden.
 function useBuildsList({ active, query, onOpen, onBuild }: BuildsListProps): ListParts | null {
   const t = useT();
-  const compact = useShellLayout().rowsCompact;
   const [view, changeView] = useListState(buildListSpec);
   // Sorting by how long a build has taken counts a running one up to now.
   const now = useNowSeconds(10_000);
   const { data, isLoading, isError, error, refetch, isFetching } = query;
+  const stale = useRefreshFailure(query, t('common.refreshFailed'));
   if (!active) return null;
+  const shape = { template: buildListLayout.wide, compactTemplate: buildListLayout.compact };
   const builds = data?.items ?? [];
   const shown = sortBuilds(builds.filter((build) => matchesBuildSearch(build, view.search)), view.sort, now);
 
@@ -277,11 +278,12 @@ function useBuildsList({ active, query, onOpen, onBuild }: BuildsListProps): Lis
   ];
 
   const content = () => {
-    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.2, 1.2, 1, 0.6, 0.5]} />;
-    if (isError) return <ErrorState title={t('images.loadBuildsFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (isLoading) return <LoadingRows {...shape} />;
+    if (isError && !data) return <ErrorState {...shape} title={t('images.loadBuildsFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
     if (builds.length === 0) {
       return (
         <EmptyState
+          {...shape}
           title={t('images.emptyBuilds')}
           description={t('images.emptyBuildsDescription')}
           action={onBuild ? { label: t('images.buildFirst'), icon: Plus, onClick: onBuild } : undefined}
@@ -290,7 +292,7 @@ function useBuildsList({ active, query, onOpen, onBuild }: BuildsListProps): Lis
     }
     if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     return (
-      <List label={t('images.tab.builds')}>
+      <List label={t('images.tab.builds')} stale={stale}>
         {shown.map((build) => <BuildRow key={build.id} build={build} onOpen={() => onOpen(build)} />)}
       </List>
     );
@@ -300,9 +302,7 @@ function useBuildsList({ active, query, onOpen, onBuild }: BuildsListProps): Lis
     count: data?.total_count,
     search: <ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} />,
     refresh: <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />,
-    head: (isLoading || shown.length > 0) && (
-      <ListHead columns={columns} template={buildListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-    ),
+    head: <ListHead columns={columns} template={buildListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />,
     body: (
       <>
         {content()}

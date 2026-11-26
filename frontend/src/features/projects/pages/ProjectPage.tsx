@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { MoreHorizontal, Trash2 } from 'lucide-react';
 import type { Scope } from '@/shared/api/scope';
-import { failureReason, isNotFoundError } from '@/shared/api/apiError';
+import { isNotFoundError } from '@/shared/api/apiError';
 import { dateLocale, useLocale, useT, type TranslationKey } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useElementWidth, useNowSeconds } from '@/shared/lib/hooks';
@@ -71,7 +71,7 @@ export function ProjectPage({ scope, backTo, backLabel, containersPath }: Projec
         {projectQuery.isError ? (
           <ErrorState
             title={t('projects.detailsLoadFailed')}
-            message={failureReason(projectQuery.error, t)}
+            error={projectQuery.error}
             onRetry={isNotFoundError(projectQuery.error) ? undefined : () => projectQuery.refetch()}
             isRetrying={projectQuery.isFetching}
           />
@@ -167,7 +167,7 @@ function ProjectView({ scope, project, back, containersPath, onDeleted }: Projec
   const failure = project.status === 'failed' && (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-2xl bg-red/10 px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
+      className="flex items-start gap-3 rounded-2xl bg-red-soft px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
     >
       <Dot tone="bad" className="mt-1.5" />
       <div className="min-w-0">
@@ -189,8 +189,9 @@ function ProjectView({ scope, project, back, containersPath, onDeleted }: Projec
         <LoadingRows rows={2} columns={servicesLayout.rowsCompact ? [1] : [1.5, 1.2, 1, 0.5, 0.5]} />
       ) : containersQuery.isError ? (
         <ErrorState
+          compact
           title={t('containers.loadFailed')}
-          message={failureReason(containersQuery.error, t)}
+          error={containersQuery.error}
           onRetry={() => containersQuery.refetch()}
           isRetrying={containersQuery.isFetching}
         />

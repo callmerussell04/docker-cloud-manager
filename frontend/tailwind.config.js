@@ -22,7 +22,7 @@ export default {
         'on-accent': 'var(--on-accent)',
         green: { ...colors.green, DEFAULT: 'var(--green)' },
         orange: { ...colors.orange, DEFAULT: 'var(--orange)' },
-        red: { ...colors.red, DEFAULT: 'var(--red)', text: 'var(--red-text)' },
+        red: { ...colors.red, DEFAULT: 'var(--red)', text: 'var(--red-text)', soft: 'var(--red-soft)' },
         glass: { DEFAULT: 'var(--glass)', dense: 'var(--glass-dense)', sidebar: 'var(--glass-sidebar)' },
         frost: 'var(--frost)',
         scrim: 'var(--scrim)',

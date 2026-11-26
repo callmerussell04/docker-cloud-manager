@@ -1,6 +1,5 @@
 import { useState, type ReactNode } from 'react';
 
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { formatBytes } from '@/shared/lib/utils';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -125,7 +124,7 @@ export function AdminMonitoringPage() {
   } else if (isLoading) {
     content = <LoadingRows rows={6} dot={false} columns={[1, 1]} />;
   } else {
-    content = <ErrorState title={t('admin.monitoring.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    content = <ErrorState title={t('admin.monitoring.loadFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
   }
 
   // A reading keeps its figures on screen when a later poll fails; the

@@ -3,7 +3,7 @@ import { expect, test } from 'vitest';
 import type { TFunction } from '@/shared/i18n';
 import { en } from '@/shared/i18n/locales/en';
 import { ru } from '@/shared/i18n/locales/ru';
-import { getApiErrorMessage, knownLimits, type ApiErrorResponse } from './apiError';
+import { getApiErrorMessage, isConnectionError, knownLimits, type ApiErrorResponse } from './apiError';
 
 // The translator answers with the key, so a test sees which message was chosen.
 const t = ((key: string) => key) as TFunction;
@@ -62,4 +62,15 @@ test.each([
 ])('SSO\'s refusal of a provider-managed edit shows its own message: %s', (message, key) => {
   const error = rejection(400, { error: message, error_code: 'bad_request' });
   expect(getApiErrorMessage(error, 'fallback', t).message).toBe(key);
+});
+
+test('a request that got no answer is a connection error; one the server answered is not', () => {
+  const config = { headers: new AxiosHeaders() };
+  const unreachable = new AxiosError('Network Error', 'ERR_NETWORK', config, {});
+  const timedOut = new AxiosError('timeout', 'ECONNABORTED', config);
+
+  expect(isConnectionError(unreachable)).toBe(true);
+  expect(isConnectionError(timedOut)).toBe(true);
+  expect(isConnectionError(rejection(500, { error: 'internal' }))).toBe(false);
+  expect(isConnectionError(new Error('boom'))).toBe(false);
 });

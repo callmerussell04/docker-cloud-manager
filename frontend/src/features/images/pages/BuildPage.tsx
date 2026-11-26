@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { MoreHorizontal, Trash2, XCircle } from 'lucide-react';
 import type { Scope } from '@/shared/api/scope';
-import { failureReason, isNotFoundError } from '@/shared/api/apiError';
+import { isNotFoundError } from '@/shared/api/apiError';
 import { dateLocale, useLocale, useT, type TranslationKey } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
@@ -53,7 +53,7 @@ export function BuildPage({ scope, backTo, backLabel }: BuildPageProps) {
         {buildQuery.isError ? (
           <ErrorState
             title={t('images.buildLoadFailed')}
-            message={failureReason(buildQuery.error, t)}
+            error={buildQuery.error}
             onRetry={isNotFoundError(buildQuery.error) ? undefined : () => buildQuery.refetch()}
             isRetrying={buildQuery.isFetching}
           />
@@ -121,7 +121,7 @@ function BuildView({ scope, build, back, onDeleted }: BuildViewProps) {
   const failure = tone === 'bad' && (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-2xl bg-red/10 px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
+      className="flex items-start gap-3 rounded-2xl bg-red-soft px-4 py-3 text-red-text shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--red)_35%,transparent)]"
     >
       <Dot tone="bad" className="mt-1.5" />
       <div className="min-w-0">

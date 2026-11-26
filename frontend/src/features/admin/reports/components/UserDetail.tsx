@@ -1,5 +1,4 @@
 import type { UseQueryResult } from '@tanstack/react-query';
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -72,7 +71,7 @@ export function UserDetail(props: UserDetailProps) {
           })}
         </div>
       ) : timelineFailed ? (
-        <ErrorState title={t('admin.reports.usageLoadFailed')} onRetry={onRetry} />
+        <ErrorState compact title={t('admin.reports.usageLoadFailed')} onRetry={onRetry} />
       ) : (
         <LoadingRows rows={2} dot={false} columns={[1, 1]} />
       )}
@@ -84,7 +83,7 @@ export function UserDetail(props: UserDetailProps) {
           <span className="text-label-2">{t('admin.reports.inRange', { count: numberValue(actionsTotal) })}</span>
         </div>
         {actions.isError ? (
-          <ErrorState title={t('admin.reports.auditLoadFailed')} message={failureReason(actions.error, t)} onRetry={() => actions.refetch()} isRetrying={actions.isFetching} />
+          <ErrorState compact title={t('admin.reports.auditLoadFailed')} error={actions.error} onRetry={() => actions.refetch()} isRetrying={actions.isFetching} />
         ) : actions.isLoading ? (
           <LoadingRows rows={3} dot={false} columns={[1]} />
         ) : (

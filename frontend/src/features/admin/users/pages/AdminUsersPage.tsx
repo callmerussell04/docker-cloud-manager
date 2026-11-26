@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Plus, RefreshCcw } from 'lucide-react';
 
-import { failureReason } from '@/shared/api/apiError';
 import { useT } from '@/shared/i18n';
 import { useListState } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
@@ -13,7 +12,7 @@ import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
 import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
-import { useShellLayout } from '@/shared/ui/shellLayout';
+import { useRefreshFailure } from '@/shared/ui/useRefreshFailure';
 import { Toolbar, ToolbarButton, ToolbarPrimary, ToolbarSearch } from '@/shared/ui/Toolbar';
 import { userListLayout } from '../components/listLayout';
 import { UserFormDialog } from '../components/UserFormDialog';
@@ -38,13 +37,15 @@ type FormTarget = { user: AdminUser | null } | null;
 
 export function AdminUsersPage() {
   const t = useT();
-  const compact = useShellLayout().rowsCompact;
   const [view, changeView] = useListState(listSpec);
   const [form, setForm] = useState<FormTarget>(null);
   const [quotaUser, setQuotaUser] = useState<AdminUser | null>(null);
   const [deactivateUser, setDeactivateUser] = useState<AdminUser | null>(null);
 
-  const { data, isLoading, isFetching, isError, error, refetch } = useAdminUsers(view.page, pageSize);
+  const query = useAdminUsers(view.page, pageSize);
+  const { data, isLoading, isFetching, isError, error, refetch } = query;
+  const stale = useRefreshFailure(query, t('common.refreshFailed'));
+  const shape = { template: userListLayout.wide, compactTemplate: userListLayout.compact };
   const deactivateMutation = useDeactivateAdminUser();
   const reactivateMutation = useReactivateAdminUser();
   // Deactivating an already deactivated user stops the workloads that remain.
@@ -61,13 +62,14 @@ export function AdminUsersPage() {
   ];
 
   const content = () => {
-    if (isLoading) return <LoadingRows columns={compact ? [1] : [1.6, 0.6, 0.7, 1.5, 0.4]} />;
-    if (isError) {
-      return <ErrorState title={t('admin.users.loadFailed')} message={failureReason(error, t)} onRetry={() => refetch()} isRetrying={isFetching} />;
+    if (isLoading) return <LoadingRows {...shape} />;
+    if (isError && !data) {
+      return <ErrorState {...shape} title={t('admin.users.loadFailed')} error={error} onRetry={() => refetch()} isRetrying={isFetching} />;
     }
     if (users.length === 0) {
       return (
         <EmptyState
+          {...shape}
           title={t('admin.users.notFound')}
           description={t('admin.users.emptyDescription')}
           action={{ label: t('admin.users.create'), icon: Plus, onClick: () => setForm({ user: null }) }}
@@ -76,7 +78,7 @@ export function AdminUsersPage() {
     }
     if (shown.length === 0) return <NoMatchesState query={view.search} onClear={() => changeView({ search: '' })} />;
     return (
-      <List label={t('admin.users.title')}>
+      <List label={t('admin.users.title')} stale={stale}>
         {shown.map((user) => (
           <UserRow
             key={user.user_id}
@@ -107,9 +109,9 @@ export function AdminUsersPage() {
           primary={<ToolbarPrimary icon={Plus} onClick={() => setForm({ user: null })} label={t('admin.users.create')} />}
         />
       }
-      head={(isLoading || shown.length > 0) && (
+      head={
         <ListHead columns={columns} template={userListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-      )}
+      }
       className="space-y-2"
     >
       {content()}
