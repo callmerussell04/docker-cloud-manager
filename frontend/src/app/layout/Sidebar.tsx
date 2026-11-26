@@ -7,7 +7,7 @@ import { cn } from '@/shared/lib/utils';
 import { Glass } from '@/shared/ui/Glass';
 import { Kbd } from '@/shared/ui/Kbd';
 import { paletteShortcut } from '@/shared/ui/searchPalette';
-import { AccountMenu } from './AccountMenu';
+import { AccountMenu, PreferenceButtons } from './AccountMenu';
 import { adminNavigation, navigation, type NavEntry } from './navigation';
 import { sidebarInset, sidebarWidth } from './shell';
 
@@ -174,7 +174,17 @@ export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
         )}
 
         <div className="min-h-4 flex-1" />
-        <AccountMenu compact={compact} />
+        {compact ? (
+          <div className="flex flex-col items-center gap-1">
+            <PreferenceButtons />
+            <AccountMenu compact />
+          </div>
+        ) : (
+          <div className="flex items-center gap-0.5">
+            <div className="min-w-0 flex-1"><AccountMenu compact={false} /></div>
+            <PreferenceButtons />
+          </div>
+        )}
       </nav>
     </Glass>
   );

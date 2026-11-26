@@ -11,14 +11,10 @@ import { Menu, MenuGroup, MenuItem, MenuSeparator } from '@/shared/ui/Menu';
 import { useNotificationStore } from '@/shared/ui/notificationStore';
 import { useAccountName } from './useAccountName';
 
-// AccountMenuItems are the account's choices: the appearance, the language
-// and logging out. The sidebar's AccountMenu and the phone tab bar's More
-// sheet both hold them.
-export function AccountMenuItems() {
+// LogoutMenuItem signs out, or says why it could not.
+function LogoutMenuItem() {
   const t = useT();
   const navigate = useNavigate();
-  const { theme, setTheme } = useThemeStore();
-  const { language, setLanguage } = useLanguageStore();
   const logout = useAuthStore((state) => state.logout);
   const notify = useNotificationStore((state) => state.notify);
 
@@ -32,6 +28,17 @@ export function AccountMenuItems() {
     }
   };
 
+  return <MenuItem icon={LogOut} onSelect={handleLogout}>{t('shell.logout')}</MenuItem>;
+}
+
+// AccountMenuItems are the account's choices on a phone, in the tab bar's
+// More sheet: the appearance, the language and logging out. The sidebar shows
+// the appearance and language as PreferenceButtons instead.
+export function AccountMenuItems() {
+  const t = useT();
+  const { theme, setTheme } = useThemeStore();
+  const { language, setLanguage } = useLanguageStore();
+
   return (
     <>
       <MenuGroup label={t('shell.appearance')}>
@@ -44,13 +51,41 @@ export function AccountMenuItems() {
         <MenuItem icon={Languages} checked={language === 'en'} onSelect={() => setLanguage('en')}>{t('language.enName')}</MenuItem>
       </MenuGroup>
       <MenuSeparator />
-      <MenuItem icon={LogOut} onSelect={handleLogout}>{t('shell.logout')}</MenuItem>
+      <LogoutMenuItem />
+    </>
+  );
+}
+
+const preferenceButtonClass = 'grid h-8 w-8 shrink-0 place-items-center rounded-[10px] text-label-2 transition-colors hover:bg-fill hover:text-label';
+
+// PreferenceButtons are the appearance and language toggles beside the
+// account at the sidebar's foot, always in view: the sun or moon switches to
+// the other theme, and the language's short name to the other language.
+export function PreferenceButtons() {
+  const t = useT();
+  const { theme, toggleTheme } = useThemeStore();
+  const { language, setLanguage } = useLanguageStore();
+  const languageName = t(language === 'ru' ? 'language.ruName' : 'language.enName');
+  return (
+    <>
+      <button type="button" className={preferenceButtonClass} aria-label={t('theme.switch')} title={t('theme.switch')} onClick={toggleTheme}>
+        {theme === 'dark' ? <Sun className="h-4 w-4" strokeWidth={1.9} /> : <Moon className="h-4 w-4" strokeWidth={1.9} />}
+      </button>
+      <button
+        type="button"
+        className={cn(preferenceButtonClass, 'text-[11.5px] font-semibold')}
+        aria-label={`${t('language.switch')}: ${languageName}`}
+        title={t('language.switch')}
+        onClick={() => setLanguage(language === 'ru' ? 'en' : 'ru')}
+      >
+        <span aria-hidden>{t(language === 'ru' ? 'language.ru' : 'language.en')}</span>
+      </button>
     </>
   );
 }
 
 // AccountMenu sits at the foot of the sidebar: the signed-in user, and in its
-// menu the appearance, the language and logging out.
+// menu logging out.
 export function AccountMenu({ compact }: { compact: boolean }) {
   const t = useT();
   const name = useAccountName();
@@ -71,7 +106,7 @@ export function AccountMenu({ compact }: { compact: boolean }) {
         </>
       }
     >
-      <AccountMenuItems />
+      <LogoutMenuItem />
     </Menu>
   );
 }
