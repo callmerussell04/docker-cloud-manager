@@ -10,7 +10,7 @@ import { PageFallback } from './PageFallback';
 import { ShellSearch } from './ShellSearch';
 import { Sidebar } from './Sidebar';
 import { TabBar } from './TabBar';
-import { contentGap, sidebarExpanded, sidebarInset, sidebarWidth, type SidebarChoice } from './shell';
+import { clampSidebarWidth, contentGap, sidebarExpanded, sidebarInset, sidebarWidth, type SidebarChoice } from './shell';
 
 // roundedRect is an SVG path around a box with rounded corners.
 function roundedRect(x: number, y: number, width: number, height: number, r: number) {
@@ -51,6 +51,31 @@ function useSidebarCutout(hasSidebar: boolean) {
   return { frostRef, sidebarRef };
 }
 
+// The labelled sidebar's width the user dragged it to, kept in this browser.
+const sidebarWidthKey = 'dcm-sidebar-width';
+
+// useSidebarWidth is the labelled sidebar's width: the one stored, or the
+// default, changed while it is dragged and stored once the drag ends.
+function useSidebarWidth() {
+  const [width, setWidth] = useState(() => {
+    try {
+      const stored = localStorage.getItem(sidebarWidthKey);
+      return stored === null ? sidebarWidth.expanded : clampSidebarWidth(Number(stored));
+    } catch {
+      return sidebarWidth.expanded;
+    }
+  });
+  const resize = useCallback((next: number) => setWidth(clampSidebarWidth(next)), []);
+  const store = useCallback((next: number) => {
+    try {
+      localStorage.setItem(sidebarWidthKey, String(clampSidebarWidth(next)));
+    } catch {
+      // The width holds for this visit only.
+    }
+  }, []);
+  return { width, resize, store };
+}
+
 // useSearchShortcut opens and closes the search palette with Ctrl K (Cmd K on
 // a Mac) from anywhere on a signed-in page, the browser's own use of it aside.
 function useSearchShortcut(toggle: () => void) {
@@ -77,7 +102,8 @@ export function PageLayout() {
   const [choice, setChoice] = useState<SidebarChoice | null>(null);
   const expanded = sidebarExpanded(sizeClass, choice);
   const { frostRef, sidebarRef } = useSidebarCutout(!phone);
-  const contentLeft = phone ? 0 : sidebarInset + (expanded ? sidebarWidth.expanded : sidebarWidth.rail) + contentGap;
+  const sidebar = useSidebarWidth();
+  const contentLeft = phone ? 0 : sidebarInset + (expanded ? sidebar.width : sidebarWidth.rail) + contentGap;
   const [searchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const closeSearch = useCallback(() => setSearchOpen(false), []);
@@ -91,7 +117,17 @@ export function PageLayout() {
   return (
     <div className="relative isolate h-screen w-full overflow-hidden">
       <FrostWindow ref={frostRef} className="absolute inset-0 -z-10" />
-      {!phone && <Sidebar ref={sidebarRef} expanded={expanded} onToggle={() => setChoice({ sizeClass, expanded: !expanded })} onSearch={openSearch} />}
+      {!phone && (
+        <Sidebar
+          ref={sidebarRef}
+          expanded={expanded}
+          width={sidebar.width}
+          onResize={sidebar.resize}
+          onResizeEnd={sidebar.store}
+          onToggle={() => setChoice({ sizeClass, expanded: !expanded })}
+          onSearch={openSearch}
+        />
+      )}
       <main ref={mainRef} className="absolute inset-y-0 right-0" style={{ left: contentLeft }}>
         <ShellLayoutContext.Provider value={layout}>
           <Suspense fallback={<PageFallback />}>

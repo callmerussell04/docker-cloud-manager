@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type Ref } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type Ref } from 'react';
 import { NavLink } from 'react-router-dom';
 import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { useAuthStore } from '@/shared/api/sessionStore';
@@ -9,7 +9,7 @@ import { Kbd } from '@/shared/ui/Kbd';
 import { paletteShortcut } from '@/shared/ui/searchPalette';
 import { AccountMenu, PreferenceButtons } from './AccountMenu';
 import { adminNavigation, navigation, type NavEntry } from './navigation';
-import { sidebarInset, sidebarWidth } from './shell';
+import { clampSidebarWidth, sidebarInset, sidebarWidth, sidebarWidthRange, sidebarWidthStep } from './shell';
 
 // The product's initials, shown where its name (app.name) does not fit.
 const productShortName = 'DCM';
@@ -67,8 +67,99 @@ function NavGroup({ items, compact }: { items: NavEntry[]; compact: boolean }) {
   );
 }
 
+// ResizeHandle is the labelled sidebar's right edge: dragged, it sets the
+// sidebar's width within its range; arrow keys move it a step, Home and End
+// to either end, and a double click returns it to the default.
+function ResizeHandle({ width, onResize, onResizeEnd }: Pick<SidebarProps, 'width' | 'onResize' | 'onResizeEnd'>) {
+  const t = useT();
+  const drag = useRef<{ startX: number; startWidth: number; width: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { startX: event.clientX, startWidth: width, width };
+    setDragging(true);
+  };
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!drag.current) return;
+    drag.current.width = clampSidebarWidth(drag.current.startWidth + event.clientX - drag.current.startX);
+    onResize(drag.current.width);
+  };
+  const endDrag = () => {
+    if (!drag.current) return;
+    onResizeEnd(drag.current.width);
+    drag.current = null;
+    setDragging(false);
+  };
+  const set = (next: number) => {
+    const clamped = clampSidebarWidth(next);
+    onResize(clamped);
+    onResizeEnd(clamped);
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = {
+      ArrowLeft: width - sidebarWidthStep,
+      ArrowRight: width + sidebarWidthStep,
+      Home: sidebarWidthRange.min,
+      End: sidebarWidthRange.max,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    set(next);
+  };
+
+  // While dragging, the whole window keeps the resize cursor and no text is
+  // selected as the pointer passes over it.
+  useEffect(() => {
+    if (!dragging) return;
+    const { cursor, userSelect } = document.body.style;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.body.style.cursor = cursor;
+      document.body.style.userSelect = userSelect;
+    };
+  }, [dragging]);
+
+  const label = t('shell.resizeSidebar');
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      title={label}
+      aria-valuemin={sidebarWidthRange.min}
+      aria-valuemax={sidebarWidthRange.max}
+      aria-valuenow={width}
+      tabIndex={0}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onDoubleClick={() => set(sidebarWidth.expanded)}
+      onKeyDown={onKeyDown}
+      className="group absolute -right-[7px] bottom-6 top-6 z-10 flex w-3.5 cursor-col-resize touch-none items-center justify-center outline-none"
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'h-10 w-[3px] rounded-full bg-label-3 transition-opacity',
+          dragging ? 'opacity-70' : 'opacity-0 group-hover:opacity-50 group-focus-visible:opacity-70',
+        )}
+      />
+    </div>
+  );
+}
+
 interface SidebarProps {
   expanded: boolean;
+  // width is the labelled sidebar's width; onResize follows a drag of its
+  // edge, and onResizeEnd takes the width the drag ended on.
+  width: number;
+  onResize: (width: number) => void;
+  onResizeEnd: (width: number) => void;
   onToggle: () => void;
   // onSearch opens the search palette.
   onSearch: () => void;
@@ -78,9 +169,10 @@ interface SidebarProps {
 // Sidebar floats as clearer glass through a cut-out in the window's frost:
 // a search field that opens the search palette, the pages, then
 // Administration for admins, and the account at its foot.
-// Labelled, it has a collapse button that turns it into an icon rail, whose
-// expand button turns it back.
-export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
+// Labelled, it has a collapse button that turns it into an icon rail, and an
+// edge that is dragged to widen or narrow it; the rail's expand button turns
+// it back.
+export function Sidebar({ expanded, width, onResize, onResizeEnd, onToggle, onSearch, ref }: SidebarProps) {
   const t = useT();
   const isAdmin = useAuthStore((state) => state.role) === 'admin';
   const compact = !expanded;
@@ -143,7 +235,7 @@ export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
       ref={ref}
       material="sidebar"
       className="absolute z-20 rounded-[24px]"
-      style={{ top: sidebarInset, bottom: sidebarInset, left: sidebarInset, width: expanded ? sidebarWidth.expanded : sidebarWidth.rail }}
+      style={{ top: sidebarInset, bottom: sidebarInset, left: sidebarInset, width: expanded ? width : sidebarWidth.rail }}
     >
       <nav aria-label={t('shell.navigation')} className={cn('flex h-full flex-col overflow-y-auto', compact ? 'px-2 py-3.5' : 'p-3.5')}>
         <div className={cn('flex items-center gap-2', compact ? 'justify-center pb-2.5 pt-1' : 'px-2 pb-3 pt-1')}>
@@ -186,6 +278,7 @@ export function Sidebar({ expanded, onToggle, onSearch, ref }: SidebarProps) {
           </div>
         )}
       </nav>
+      {expanded && <ResizeHandle width={width} onResize={onResize} onResizeEnd={onResizeEnd} />}
     </Glass>
   );
 }

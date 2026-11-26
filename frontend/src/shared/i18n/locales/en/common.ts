@@ -33,6 +33,7 @@ export const common: Record<keyof typeof ru, string> = {
   'language.enName': 'English',
   'shell.navigation': 'Pages',
   'shell.collapseSidebar': 'Collapse sidebar',
+  'shell.resizeSidebar': 'Resize sidebar',
   'shell.expandSidebar': 'Expand sidebar',
   'shell.account': 'Account {name}',
   'shell.appearance': 'Appearance',

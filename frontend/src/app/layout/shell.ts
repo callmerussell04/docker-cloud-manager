@@ -10,6 +10,18 @@ export const sidebarWidth = { expanded: 240, rail: 64 } as const;
 export const sidebarInset = 14;
 export const contentGap = 14;
 
+// The labelled sidebar's width can be dragged between these bounds; the rail
+// keeps its own. sidebarWidthStep is how far an arrow key moves it.
+export const sidebarWidthRange = { min: 200, max: 360 } as const;
+export const sidebarWidthStep = 16;
+
+// clampSidebarWidth keeps a dragged or stored width within the range, as a
+// whole number of pixels; anything that is not a number is the default.
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return sidebarWidth.expanded;
+  return Math.round(Math.min(Math.max(width, sidebarWidthRange.min), sidebarWidthRange.max));
+}
+
 // SidebarChoice is the user's last collapse or expand, and the size class the
 // window was in when they made it.
 export interface SidebarChoice {

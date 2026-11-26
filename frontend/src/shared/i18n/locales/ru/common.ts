@@ -31,6 +31,7 @@ export const common = {
   'language.enName': 'English',
   'shell.navigation': 'Разделы',
   'shell.collapseSidebar': 'Свернуть боковую панель',
+  'shell.resizeSidebar': 'Изменить ширину боковой панели',
   'shell.expandSidebar': 'Развернуть боковую панель',
   'shell.account': 'Учётная запись {name}',
   'shell.appearance': 'Оформление',
