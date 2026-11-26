@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
 
 import { useT } from '@/shared/i18n';
-import { formatBytes } from '@/shared/lib/utils';
+import { cn, formatBytes } from '@/shared/lib/utils';
 import { ErrorState } from '@/shared/ui/ErrorState';
+import { Glass } from '@/shared/ui/Glass';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { Page } from '@/shared/ui/Page';
 import { StatusDot } from '@/shared/ui/StatusDot';
@@ -29,29 +30,38 @@ function useVitals(stats: SystemMonitoring | undefined, updatedAt: number) {
   return record.samples;
 }
 
-// The page's rows, each as many columns as fit at their least width. The
+// The page's rows, each as many cards as fit at their least width. The
 // classes are written out whole so Tailwind finds them.
 const grids = {
-  charts: 'grid gap-x-8 gap-y-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]',
-  panels: 'grid gap-x-8 gap-y-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]',
-  sections: 'grid gap-x-8 gap-y-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))]',
+  charts: 'grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))]',
+  panels: 'grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))]',
+  sections: 'grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))]',
 };
+
+// Card is one chart, panel or section on clear Glass, the material of the
+// toolbar's pills: this page's figures float over the wallpaper as cards,
+// the one place content gets glass of its own.
+function Card({ className, children }: { className?: string; children: ReactNode }) {
+  return <Glass className={cn('min-w-0 rounded-[22px] p-[18px]', className)}>{children}</Glass>;
+}
 
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section aria-labelledby={id} className="grid min-w-0 content-start gap-3">
-      <h2 id={id} className="text-[17px] font-semibold tracking-[-0.01em] text-label">
-        {title}
-      </h2>
-      {children}
-    </section>
+    <Card>
+      <section aria-labelledby={id} className="grid min-w-0 content-start gap-3">
+        <h2 id={id} className="text-[17px] font-semibold tracking-[-0.01em] text-label">
+          {title}
+        </h2>
+        {children}
+      </section>
+    </Card>
   );
 }
 
-// AdminMonitoringPage is the host at a glance: live CPU and memory charts
-// sampled every 2 s while the page is open, then memory, CPU and disk as
-// capacity bars of what holds each, then the health checks and the host's
-// counts.
+// AdminMonitoringPage is the host at a glance, each part a glass card: live
+// CPU and memory charts sampled every 2 s while the page is open, then
+// memory, CPU and disk as capacity bars of what holds each, then the health
+// checks and the host's counts.
 export function AdminMonitoringPage() {
   const t = useT();
   const { data, dataUpdatedAt, isLoading, isError, isFetching, error, refetch } = useSystemMonitoring();
@@ -74,42 +84,52 @@ export function AdminMonitoringPage() {
       <>
         <p className="text-label-2">{t('admin.monitoring.liveHint')}</p>
         <div className={grids.charts}>
-          <VitalChart
-            label={t('admin.monitoring.cpuBusy')}
-            value={`${stats.cpu_percent.toFixed(1)}%`}
-            series={samples.map((sample) => sample.cpu)}
-            max={100}
-          />
-          <VitalChart
-            label={t('admin.monitoring.memoryInUse')}
-            value={bytes(stats.memory_used_bytes)}
-            sub={t('admin.monitoring.of', { total: bytes(stats.memory_total_bytes) })}
-            series={samples.map((sample) => sample.memory)}
-            max={stats.memory_total_bytes}
-          />
+          <Card>
+            <VitalChart
+              label={t('admin.monitoring.cpuBusy')}
+              value={`${stats.cpu_percent.toFixed(1)}%`}
+              series={samples.map((sample) => sample.cpu)}
+              max={100}
+            />
+          </Card>
+          <Card>
+            <VitalChart
+              label={t('admin.monitoring.memoryInUse')}
+              value={bytes(stats.memory_used_bytes)}
+              sub={t('admin.monitoring.of', { total: bytes(stats.memory_total_bytes) })}
+              series={samples.map((sample) => sample.memory)}
+              max={stats.memory_total_bytes}
+            />
+          </Card>
         </div>
         <div className={grids.panels}>
-          <CapacityPanel
-            title={t('admin.monitoring.memoryReserved')}
-            headline={bytes(memory.total - memory.free)}
-            sub={t('admin.monitoring.of', { total: bytes(memory.total) })}
-            capacity={memory}
-            format={bytes}
-          />
-          <CapacityPanel
-            title={t('admin.monitoring.cpuReserved')}
-            headline={cores(cpu.total - cpu.free)}
-            sub={t('admin.monitoring.of', { total: cores(cpu.total) })}
-            capacity={cpu}
-            format={cores}
-          />
-          <CapacityPanel
-            title={t('admin.monitoring.disk')}
-            headline={bytes(disk.total - disk.free)}
-            sub={t('admin.monitoring.of', { total: bytes(disk.total) })}
-            capacity={disk}
-            format={bytes}
-          />
+          <Card>
+            <CapacityPanel
+              title={t('admin.monitoring.memoryReserved')}
+              headline={bytes(memory.total - memory.free)}
+              sub={t('admin.monitoring.of', { total: bytes(memory.total) })}
+              capacity={memory}
+              format={bytes}
+            />
+          </Card>
+          <Card>
+            <CapacityPanel
+              title={t('admin.monitoring.cpuReserved')}
+              headline={cores(cpu.total - cpu.free)}
+              sub={t('admin.monitoring.of', { total: cores(cpu.total) })}
+              capacity={cpu}
+              format={cores}
+            />
+          </Card>
+          <Card>
+            <CapacityPanel
+              title={t('admin.monitoring.disk')}
+              headline={bytes(disk.total - disk.free)}
+              sub={t('admin.monitoring.of', { total: bytes(disk.total) })}
+              capacity={disk}
+              format={bytes}
+            />
+          </Card>
         </div>
         <div className={grids.sections}>
           <Section id="monitoring-health" title={t('admin.monitoring.health')}>

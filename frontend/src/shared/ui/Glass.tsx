@@ -26,9 +26,10 @@ const materials: Record<GlassMaterial, { className?: string; lens: LensOptions }
 
 // Glass is the refracting surface for controls that float over content: the
 // sidebar, toolbar pills, menus, the search palette, dialogs, notifications
-// and the sign-in card (a dialog with no page behind it). Content never sits on
-// its own Glass, and Glass inside Glass would refract
-// nothing. In Chromium the backdrop bends at the rim; elsewhere it is blurred.
+// and the sign-in card (a dialog with no page behind it). Content sits on
+// Glass of its own only as the monitoring page's cards, and Glass inside
+// Glass would refract nothing. In Chromium the backdrop bends at the rim;
+// elsewhere it is blurred.
 export function Glass({ material = 'clear', className, ref, ...props }: GlassProps) {
   const lensRef = useLens<HTMLDivElement>(materials[material].lens);
   // The lens and a caller's ref both see the element.
