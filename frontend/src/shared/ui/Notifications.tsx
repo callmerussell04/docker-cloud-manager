@@ -38,7 +38,10 @@ export function Notifications() {
             material="dense"
             role={notification.kind === 'error' ? 'alert' : 'status'}
             className={cn(
-              'pointer-events-auto flex max-w-full gap-2.5 py-1.5 pl-3.5 pr-1.5 text-label animate-in fade-in slide-in-from-bottom-2',
+              // will-change keeps the pill on one layer of its own from the
+              // start: Chromium otherwise drops the layer the slide-in gave it
+              // when the animation ends and leaves the bottom rim dark.
+              'pointer-events-auto flex max-w-full gap-2.5 py-1.5 pl-3.5 pr-1.5 text-label will-change-transform animate-in fade-in slide-in-from-bottom-2',
               notification.reason ? 'items-start rounded-[18px] py-2.5' : 'min-h-[44px] items-center rounded-full',
             )}
           >
