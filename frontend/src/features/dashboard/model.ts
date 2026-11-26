@@ -1,3 +1,5 @@
+import { treemap, type Rect } from '@/shared/lib/treemap';
+
 export interface DashboardStats {
   containers_total: number;
   containers_running: number;
@@ -93,4 +95,52 @@ const seriesCount = 5;
 export function projectSeries(projectIds: readonly string[]): Map<string, number> {
   const ordered = [...new Set(projectIds)].sort();
   return new Map(ordered.map((id, index) => [id, (index % seriesCount) + 1]));
+}
+
+// The memory map's layout limits: the containers' region is never narrower
+// than mapMinRegion px across, and no block thinner than mapMinThickness px,
+// so the smallest reservation stays visible and clickable (its tooltip says
+// its real amount).
+const mapMinRegion = 96;
+const mapMinThickness = 20;
+
+// memoryMapRects lays out the memory map's blocks (one per part, in the
+// parts' order) in a width-by-height rectangle. The free part takes its own
+// region along the longer side, so it never squeezes a block beside it; the
+// other blocks fill the rest as a squarified treemap, each given at least
+// enough area to be mapMinThickness thick.
+export function memoryMapRects(bytes: readonly number[], freeIndex: number, width: number, height: number): Rect[] {
+  const rects: Rect[] = bytes.map(() => ({ x: 0, y: 0, width: 0, height: 0 }));
+  if (width <= 0 || height <= 0) return rects;
+  const free = freeIndex >= 0 ? Math.max(bytes[freeIndex], 0) : 0;
+  const held = bytes.reduce((sum, value, index) => (index === freeIndex ? sum : sum + Math.max(value, 0)), 0);
+  if (held <= 0) {
+    if (freeIndex >= 0 && free > 0) rects[freeIndex] = { x: 0, y: 0, width, height };
+    return rects;
+  }
+
+  const across = width >= height;
+  const long = across ? width : height;
+  const share = free > 0 ? (long * held) / (held + free) : long;
+  const heldLong = Math.min(long, Math.max(share, Math.min(mapMinRegion, long)));
+  const region = across ? { width: heldLong, height } : { width, height: heldLong };
+  if (freeIndex >= 0 && free > 0 && heldLong < long) {
+    rects[freeIndex] = across
+      ? { x: heldLong, y: 0, width: width - heldLong, height }
+      : { x: 0, y: heldLong, width, height: height - heldLong };
+  }
+
+  // Each block gets at least the area that makes it mapMinThickness thick
+  // along the region's shorter side; the larger blocks give up the rest.
+  const indexes = bytes.flatMap((value, index) => (index !== freeIndex && value > 0 ? [index] : []));
+  const area = region.width * region.height;
+  const minArea = Math.min(mapMinThickness * Math.min(region.width, region.height), area / indexes.length);
+  let sizes = indexes.map((index) => bytes[index]);
+  for (let pass = 0; pass < 3; pass++) {
+    const scale = area / sizes.reduce((sum, value) => sum + value, 0);
+    sizes = sizes.map((value) => Math.max(value, minArea / scale));
+  }
+  const placed = treemap(sizes, region.width, region.height);
+  indexes.forEach((index, at) => { rects[index] = placed[at]; });
+  return rects;
 }

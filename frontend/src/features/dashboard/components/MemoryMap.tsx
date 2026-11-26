@@ -1,9 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '@/shared/i18n';
-import { treemap } from '@/shared/lib/treemap';
 import { cn, formatBytes } from '@/shared/lib/utils';
-import { blockContent, type MemoryHolder, type MemoryMapPart } from '../model';
+import { blockContent, memoryMapRects, type BlockContent, type MemoryHolder, type MemoryMapPart } from '../model';
 
 // MapHolder is a container on the map: what it holds, its name, the page it
 // opens, and its project's series colour (none for a standalone container).
@@ -80,13 +79,17 @@ export function MemoryMapHead({ usedBytes, quotaBytes, legend, other }: { usedBy
 // MemoryMap shows the memory quota as a treemap: a block per container that
 // holds memory, sized by its reservation and coloured by its Compose project
 // (standalone ones in gray), then what the map does not list, then the free
-// part, hatched. A block opens its container; a block too small for its name
+// part, hatched, in a region of its own (memoryMapRects keeps every block
+// visible). A block opens its container; a block too small for its name
 // shows its amount alone, and its tooltip and accessible name say both.
 // The parts come from memoryMapParts.
 export function MemoryMap({ parts }: { parts: readonly MemoryMapPart<MapHolder>[] }) {
   const t = useT();
   const { ref, size } = useSize();
-  const rects = useMemo(() => treemap(parts.map((part) => part.bytes), size.width, size.height), [parts, size]);
+  const rects = useMemo(
+    () => memoryMapRects(parts.map((part) => part.bytes), parts.findIndex((part) => part.kind === 'free'), size.width, size.height),
+    [parts, size],
+  );
 
   return (
     <div ref={ref} role="group" aria-label={t('dashboard.memory.map')} className="relative h-[min(52vh,440px)] min-h-[240px]">
@@ -100,7 +103,13 @@ export function MemoryMap({ parts }: { parts: readonly MemoryMapPart<MapHolder>[
           height: Math.max(rect.height - gap, 0),
         };
         const amount = formatBytes(part.bytes, part.kind === 'holder' ? 0 : 1);
-        const blockClass = 'absolute flex flex-col justify-end gap-0.5 overflow-hidden rounded-[16px] px-3 py-2.5 text-left';
+        // A block with room for text is padded around it. One too small for
+        // any text has none, so it is drawn at its rectangle's size: padding
+        // would make the browser draw it wider or taller than its rectangle,
+        // over its neighbours (a sliver of memory became a 24 px block over
+        // the free part).
+        const blockClass = (content: BlockContent) =>
+          cn('absolute flex flex-col justify-end gap-0.5 overflow-hidden rounded-[16px] text-left', content === 'none' ? 'p-0' : 'px-3 py-2.5');
 
         if (part.kind === 'holder') {
           const { holder } = part;
@@ -112,7 +121,7 @@ export function MemoryMap({ parts }: { parts: readonly MemoryMapPart<MapHolder>[
               to={holder.to}
               aria-label={blockLabel}
               title={blockLabel}
-              className={cn(blockClass, 'memory-block font-semibold text-on-accent')}
+              className={cn(blockClass(content), 'memory-block font-semibold text-on-accent')}
               style={{ ...place, ['--tint' as string]: tint(holder.series) }}
             >
               {content === 'name' && <span className="truncate">{holder.name}</span>}
@@ -128,7 +137,7 @@ export function MemoryMap({ parts }: { parts: readonly MemoryMapPart<MapHolder>[
             key={part.kind}
             title={label}
             className={cn(
-              blockClass,
+              blockClass(content),
               'font-[550] text-label-2',
               part.kind === 'free' ? 'memory-free items-center justify-center' : 'bg-fill-hover',
             )}

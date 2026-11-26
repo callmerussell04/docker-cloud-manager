@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockContent, memoryMapParts, projectSeries, quotaLevel } from './model';
+import { blockContent, memoryMapParts, memoryMapRects, projectSeries, quotaLevel } from './model';
 
 describe('quotaLevel', () => {
   it('is ok below three quarters of the quota', () => {
@@ -89,5 +89,47 @@ describe('projectSeries', () => {
     const series = projectSeries(['1', '2', '3', '4', '5', '6']);
     expect(series.get('5')).toBe(5);
     expect(series.get('6')).toBe(1);
+  });
+});
+
+describe('memoryMapRects', () => {
+  const MiB = 1024 * 1024;
+  // The dashboard's map: containers from 1 GiB down to 64 MiB, then 12.3 GiB free.
+  const bytes = [1024, 768, 512, 512, 384, 256, 256, 64, 12595].map((value) => value * MiB);
+  const free = bytes.length - 1;
+  const overlap = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
+    Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 0.01 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 0.01;
+
+  it.each([[1100, 440], [800, 440], [420, 440], [1600, 300]])('keeps every block apart, inside the map and at least 20 px thick at %i × %i', (width, height) => {
+    const rects = memoryMapRects(bytes, free, width, height);
+    for (let i = 0; i < rects.length; i++) {
+      const rect = rects[i];
+      expect(rect.x).toBeGreaterThanOrEqual(-0.01);
+      expect(rect.y).toBeGreaterThanOrEqual(-0.01);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(width + 0.01);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(height + 0.01);
+      if (i !== free) expect(Math.min(rect.width, rect.height)).toBeGreaterThanOrEqual(19.99);
+      for (let j = i + 1; j < rects.length; j++) expect(overlap(rect, rects[j])).toBe(false);
+    }
+  });
+
+  it('gives the free part its own region along the longer side', () => {
+    const rects = memoryMapRects(bytes, free, 1100, 440);
+    const heldRight = Math.max(...rects.slice(0, free).map((rect) => rect.x + rect.width));
+    expect(rects[free].x).toBeCloseTo(heldRight, 5);
+    expect(rects[free].height).toBe(440);
+  });
+
+  it('keeps larger reservations larger', () => {
+    const rects = memoryMapRects(bytes, free, 1100, 440);
+    const area = (index: number) => rects[index].width * rects[index].height;
+    expect(area(0)).toBeGreaterThan(area(1));
+    expect(area(1)).toBeGreaterThan(area(4));
+  });
+
+  it('fills the map with the blocks when nothing is free, and with the free part when nothing is held', () => {
+    const full = memoryMapRects([300, 100], -1, 400, 200);
+    expect(full[0].width * full[0].height + full[1].width * full[1].height).toBeCloseTo(400 * 200, 3);
+    expect(memoryMapRects([0, 500], 1, 400, 200)[1]).toEqual({ x: 0, y: 0, width: 400, height: 200 });
   });
 });
