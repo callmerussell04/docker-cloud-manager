@@ -104,16 +104,21 @@ func TestRegistryAdapterPreservesCallerCancellation(t *testing.T) {
 		for _, cancellation := range []string{"deadline", "cancel"} {
 			t.Run(scenario.method+"/"+scenario.phase+"/"+cancellation, func(t *testing.T) {
 				entered := make(chan struct{})
-				server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// The handler holds the request until the adapter has returned. Waiting on the
+				// request context instead lets the server answer once it sees the client hang up,
+				// and the client can still read that implicit 200 while its connection closes.
+				release := make(chan struct{})
+				server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 					if scenario.phase == "body" {
 						w.Header().Set("Docker-Content-Digest", "sha256:slow")
 						_, _ = io.WriteString(w, `{"config":`)
 						w.(http.Flusher).Flush()
 					}
 					close(entered)
-					<-r.Context().Done()
+					<-release
 				}))
 				defer server.Close()
+				defer close(release) // runs first, so Close does not wait on a held handler
 				tokens := func(context.Context, string, model.RegistryTrustedAccess) (string, error) {
 					return "trusted-token", nil
 				}
