@@ -95,7 +95,11 @@ export function Toolbar({ title, count, status, leading, pills, actions, primary
       ) : (
         <div className="pointer-events-auto col-start-2 min-w-0">{pills != null && pillsContent}</div>
       )}
-      <div ref={endRef} className={cn('pointer-events-auto flex items-center justify-end gap-2', stacked ? 'col-start-2 row-start-1' : 'col-start-3')}>
+      {/* The end keeps its content's width (justify-self-end) rather than
+          stretching over its column, so useCrowded measures the same width
+          on one row and on two; measured stretched, it read wider on one
+          row than on two, and the toolbar flipped between them. */}
+      <div ref={endRef} className={cn('pointer-events-auto flex items-center justify-end gap-2 justify-self-end', stacked ? 'col-start-2 row-start-1' : 'col-start-3')}>
         {actions}
         {primary}
       </div>
