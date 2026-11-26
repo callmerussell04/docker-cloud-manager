@@ -1,10 +1,8 @@
 import animate from 'tailwindcss-animate';
-import colors from 'tailwindcss/colors';
 
 // Design tokens from src/app/index.css, exposed as theme colours so classes
 // name them (text-label-2, bg-accent-fill, border-separator) instead of
-// carrying literals. green, orange and red keep Tailwind's own shades beside
-// the token (bg-red, text-red-text) only for the dev prototype route (#190).
+// carrying literals.
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -20,9 +18,9 @@ export default {
         fill: { DEFAULT: 'var(--fill)', hover: 'var(--fill-hover)' },
         accent: { DEFAULT: 'var(--accent)', fill: 'var(--accent-fill)', soft: 'var(--accent-soft)' },
         'on-accent': 'var(--on-accent)',
-        green: { ...colors.green, DEFAULT: 'var(--green)' },
-        orange: { ...colors.orange, DEFAULT: 'var(--orange)' },
-        red: { ...colors.red, DEFAULT: 'var(--red)', text: 'var(--red-text)', soft: 'var(--red-soft)' },
+        green: 'var(--green)',
+        orange: 'var(--orange)',
+        red: { DEFAULT: 'var(--red)', text: 'var(--red-text)', soft: 'var(--red-soft)' },
         glass: { DEFAULT: 'var(--glass)', dense: 'var(--glass-dense)', sidebar: 'var(--glass-sidebar)' },
         frost: 'var(--frost)',
         scrim: 'var(--scrim)',
