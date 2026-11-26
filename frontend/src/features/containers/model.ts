@@ -1,7 +1,8 @@
 import type { PaginatedResponse } from '@/shared/api/pagination';
 import type { Scope } from '@/shared/api/scope';
-import type { StatusTone } from '@/shared/ui/StatusDot';
-import type { ListSort, ListState } from '@/shared/lib/listState';
+import type { StatusTone } from '@/shared/ui/statusTone';
+import { createDialogFlag } from '@/shared/lib/hooks';
+import type { ListSort } from '@/shared/lib/listState';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 
 export interface ContainerData {
@@ -167,15 +168,6 @@ export function containerListParams(view: { filter: ContainerFilter; sort: ListS
   return params;
 }
 
-// containerViewChange is a change to the list's view, returning to the first
-// page when the filter, sort or search changes: the server pages the list
-// they shape, so the old page may no longer exist.
-export function containerViewChange<C extends Partial<ListState<ContainerFilter, ContainerSortKey>>>(change: C): C {
-  if (change.page !== undefined) return change;
-  if (change.filter === undefined && change.sort === undefined && change.search === undefined) return change;
-  return { ...change, page: 1 };
-}
-
 export interface BlockedContainerActions {
   start: boolean;
   stop: boolean;
@@ -269,6 +261,20 @@ export function consoleViewOf(params: URLSearchParams): ConsoleView {
 // page on a view; the logs are the default and need none.
 export function consoleViewSearch(view: ConsoleView): string {
   return view === 'logs' ? '' : `?${consoleViewParam}=${view}`;
+}
+
+// createWithImageParam names, beside createDialogFlag, the image the create
+// container dialog starts with.
+export const createWithImageParam = 'image';
+
+// newContainerPath opens the create container dialog over the containers
+// list, starting with an image, as an image's Run a container does:
+// /containers?new=&image=shop%3Av1.
+export function newContainerPath(image: string): string {
+  const search = new URLSearchParams();
+  search.set(createDialogFlag, '');
+  search.set(createWithImageParam, image);
+  return `/containers?${search.toString()}`;
 }
 
 // containerPagePath is the link to a container's page under the list path

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, RefreshCcw } from 'lucide-react';
 
 import { useT } from '@/shared/i18n';
-import { createDialogFlag, createWithImageParam, useListState, useNowSeconds, useSearchFlag } from '@/shared/lib/hooks';
+import { createDialogFlag, useListState, useNowSeconds, useSearchFlag } from '@/shared/lib/hooks';
 import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -52,7 +52,12 @@ const buildListSpec: ListStateSpec<'all', BuildSortKey> = { filters: ['all'], so
 // search apply to the page shown.
 const pageSize = 100;
 
-export function ImagesPage() {
+interface ImagesPageProps {
+  // onRun opens the create container dialog with an image.
+  onRun: (image: ImageData) => void;
+}
+
+export function ImagesPage({ onRun }: ImagesPageProps) {
   const t = useT();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -88,13 +93,6 @@ export function ImagesPage() {
     setIsBuildOpen(true);
   };
 
-  const runImage = (image: ImageData) => {
-    const search = new URLSearchParams();
-    search.set(createDialogFlag, '');
-    search.set(createWithImageParam, image.tag);
-    navigate(`/containers?${search.toString()}`);
-  };
-
   const openBuildPage = (build: BuildData) => navigate(`/images/builds/${build.id}`, { state: { build } });
 
   const pills = (
@@ -124,7 +122,7 @@ export function ImagesPage() {
   // gives its count, search, refresh, column labels and rows.
   const imagesList = useImagesList({
     active: tab === 'images',
-    onRun: runImage,
+    onRun,
     onBuildAgain: buildsOff ? undefined : (image) => openBuild(buildAgainFrom(image, firstBuilds.data?.items ?? [])),
     onBuild: buildsOff ? undefined : () => openBuild(),
   });

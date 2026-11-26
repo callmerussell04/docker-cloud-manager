@@ -1,7 +1,8 @@
 import type { Scope } from '@/shared/api/scope';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 import { sortRows, type ListSort } from '@/shared/lib/listState';
-import type { StatusTone } from '@/shared/ui/StatusDot';
+import { matchesSearch, shortNames } from '@/shared/lib/names';
+import { statusToneRank, type StatusTone } from '@/shared/ui/statusTone';
 
 // ImageUser is a container created from an image.
 export interface ImageUser {
@@ -147,17 +148,10 @@ export function imageDeleteBlock(image: Pick<ImageData, 'status' | 'used_by'>): 
   return image.status === 'error' ? 'failed' : 'busy';
 }
 
-// imageUserNames lists the containers using an image by name.
-export function imageUserNames(users: readonly ImageUser[]) {
-  return users.map((user) => user.name).join(', ');
-}
-
 // imageUsersLabel names the containers using an image: up to two by name,
 // then how many more; nothing when none does.
 export function imageUsersLabel(t: TFunction, users: readonly ImageUser[]) {
-  if (users.length === 0) return undefined;
-  const names = users.slice(0, 2).map((user) => user.name).join(', ');
-  return users.length > 2 ? t('images.usedByMore', { names, count: users.length - 2 }) : names;
+  return shortNames(users, (names, count) => t('images.usedByMore', { names, count }));
 }
 
 // imageNameLines splits an image tag into the part a user recognises, its
@@ -172,8 +166,7 @@ export function imageNameLines(tag: string): { name: string; path?: string } {
 // matchesImageSearch reports whether an image's tag, or the name of a
 // container using it, contains the search, ignoring case.
 export function matchesImageSearch(image: Pick<ImageData, 'tag' | 'used_by'>, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || image.tag.toLowerCase().includes(query) || image.used_by.some((user) => user.name.toLowerCase().includes(query));
+  return matchesSearch(search, [image.tag, ...image.used_by.map((user) => user.name)]);
 }
 
 // ImageSortKey is an images list column.
@@ -184,14 +177,12 @@ export const imageSortKeys: readonly ImageSortKey[] = ['name', 'status', 'usedBy
 // The list starts with failing images first.
 export const defaultImageSort: ListSort<ImageSortKey> = { key: 'status', ascending: true };
 
-const toneRank: Record<StatusTone, number> = { bad: 0, busy: 1, ok: 2, idle: 3 };
-
 function imageSortValue(image: ImageData, key: ImageSortKey): string | number {
   switch (key) {
     case 'name':
       return imageNameLines(image.tag).name;
     case 'status':
-      return toneRank[imageTone(image.status)];
+      return statusToneRank[imageTone(image.status)];
     case 'usedBy':
       return image.used_by.length;
     case 'size':
@@ -267,10 +258,7 @@ export function formatDuration(t: TFunction, seconds: number) {
 // matchesBuildSearch reports whether a build's tag, its service or its
 // source contains the search, ignoring case.
 export function matchesBuildSearch(build: BuildData, search: string) {
-  const query = search.trim().toLowerCase();
-  if (!query) return true;
-  return [build.tag, build.project_service_name, build.source_location, build.source_ref]
-    .some((value) => value?.toLowerCase().includes(query));
+  return matchesSearch(search, [build.tag, build.project_service_name, build.source_location, build.source_ref]);
 }
 
 // BuildSortKey is a builds list column.
@@ -297,7 +285,7 @@ function buildSortValue(build: BuildData, key: BuildSortKey, now: number): strin
     case 'purpose':
       return purposeText(buildPurpose(build));
     case 'status':
-      return toneRank[buildTone(build.status)];
+      return statusToneRank[buildTone(build.status)];
     case 'duration': {
       const timing = buildTiming(build, now);
       return timing.phase === 'none' ? -1 : timing.seconds;

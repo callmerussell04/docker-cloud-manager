@@ -1,6 +1,7 @@
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 import { sortRows, type ListSort } from '@/shared/lib/listState';
-import type { StatusTone } from '@/shared/ui/StatusDot';
+import { matchesSearch } from '@/shared/lib/names';
+import type { StatusTone } from '@/shared/ui/statusTone';
 
 export interface AdminUserAccount {
   user_id: string;
@@ -97,6 +98,5 @@ export function sortUsers(users: readonly AdminUser[], sort: ListSort<UserSortKe
 
 // matchesUserSearch finds a user by username or email, without case.
 export function matchesUserSearch(user: AdminUserAccount, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || user.username.toLowerCase().includes(query) || user.email.toLowerCase().includes(query);
+  return matchesSearch(search, [user.username, user.email]);
 }

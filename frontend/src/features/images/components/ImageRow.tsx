@@ -5,6 +5,7 @@ import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
+import { joinNames } from '@/shared/lib/names';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { ListRow, RowEnd, RowMenu, RowQuickAction } from '@/shared/ui/List';
@@ -17,7 +18,6 @@ import {
   imageNameLines,
   imageStatusLabel,
   imageTone,
-  imageUserNames,
   imageUsersLabel,
   isImageAvailable,
   type ImageData,
@@ -63,7 +63,7 @@ export function ImageRow({ image, onRun, onBuildAgain, scope = 'own', owner }: I
   const users = imageUsersLabel(t, image.used_by);
   const deleteBlock = imageDeleteBlock(image);
   const deleteReason = deleteBlock === 'inUse'
-    ? t('images.deleteBlockedInUse', { names: imageUserNames(image.used_by) })
+    ? t('images.deleteBlockedInUse', { names: joinNames(image.used_by) })
     : deleteBlock === 'failed' ? t('images.deleteBlockedFailed')
       : deleteBlock === 'busy' ? t('images.deleteBlockedBusy') : undefined;
   const available = isImageAvailable(image.status);
@@ -137,7 +137,7 @@ export function ImageRow({ image, onRun, onBuildAgain, scope = 'own', owner }: I
             {statusLabel}
             {detail && <> · {detail}</>}
           </div>
-          <div className={cn('truncate', !users && 'text-label-3')} title={imageUserNames(image.used_by) || undefined}>
+          <div className={cn('truncate', !users && 'text-label-3')} title={joinNames(image.used_by) || undefined}>
             {users ?? t('images.notUsed')}
           </div>
           <div className="truncate tabular-nums">{size}</div>

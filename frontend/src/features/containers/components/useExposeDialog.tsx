@@ -3,15 +3,14 @@ import type { Scope } from '@/shared/api/scope';
 import type { ContainerData } from '../model';
 import { ExposeContainerDialog } from './ExposeContainerDialog';
 
-// useContainerModals owns which container the routing settings dialog shows,
-// and renders it; place `modals` once in the page. Routing is changed only on
-// the user's own containers. Logs and the terminal live on the container
-// page, not in dialogs.
-export function useContainerModals(scope: Scope) {
+// useExposeDialog owns which container the routing settings dialog shows,
+// and renders it; place `exposeDialog` once in the page. Routing is changed
+// only on the user's own containers.
+export function useExposeDialog(scope: Scope) {
   const [exposeContainer, setExposeContainer] = useState<ContainerData | null>(null);
   const closeExpose = useCallback(() => setExposeContainer(null), []);
 
-  const modals = scope === 'own' ? <ExposeContainerDialog container={exposeContainer} onClose={closeExpose} /> : null;
+  const exposeDialog = scope === 'own' ? <ExposeContainerDialog container={exposeContainer} onClose={closeExpose} /> : null;
 
-  return { openExpose: setExposeContainer, modals };
+  return { openExpose: setExposeContainer, exposeDialog };
 }

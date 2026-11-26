@@ -2,8 +2,8 @@ import { CheckCircle2, Plus, RefreshCcw } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useT } from '@/shared/i18n';
-import { createDialogFlag, createWithImageParam, useDebouncedValue, useListState } from '@/shared/lib/hooks';
-import { toggleSort, type ListStateSpec } from '@/shared/lib/listState';
+import { createDialogFlag, useDebouncedValue, useListState } from '@/shared/lib/hooks';
+import { serverViewChange, toggleSort, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { List, ListHead, type ListColumn } from '@/shared/ui/List';
@@ -19,13 +19,13 @@ import { ContainerRow } from '../components/ContainerRow';
 import { CreateContainerDialog } from '../components/CreateContainerDialog';
 import { containerListLayout } from '../components/listLayout';
 import type { MemoryQuota } from '../createFlow';
-import { useContainerModals } from '../components/useContainerModals';
+import { useExposeDialog } from '../components/useExposeDialog';
 import {
   containerFilters,
   containerListParams,
   containerSortKeys,
   containerPagePath,
-  containerViewChange,
+  createWithImageParam,
   defaultContainerSort,
   type ConsoleView,
   type ContainerData,
@@ -70,9 +70,9 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
     }
     return updated;
   }, { replace: true });
-  const { openExpose, modals } = useContainerModals('own');
+  const { openExpose, exposeDialog } = useExposeDialog('own');
   const [view, setView] = useListState(listSpec);
-  const changeView = (change: Parameters<typeof setView>[0]) => setView(containerViewChange(change));
+  const changeView = (change: Parameters<typeof setView>[0]) => setView(serverViewChange(change));
   // The URL follows each keystroke; the server is asked once typing pauses.
   const search = useDebouncedValue(view.search);
   const list = containerListParams({ filter: view.filter, sort: view.sort, search });
@@ -182,7 +182,7 @@ export function ContainersPage({ projectName, memory }: ContainersPageProps) {
 
       <CreateContainerDialog isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} memory={memory} initialImage={initialImage} />
 
-      {modals}
+      {exposeDialog}
     </Page>
   );
 }

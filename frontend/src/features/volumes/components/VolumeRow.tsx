@@ -5,6 +5,7 @@ import type { Scope } from '@/shared/api/scope';
 import { useT } from '@/shared/i18n';
 import { ageOf } from '@/shared/lib/age';
 import { useNowSeconds } from '@/shared/lib/hooks';
+import { joinNames } from '@/shared/lib/names';
 import { cn, formatBytes } from '@/shared/lib/utils';
 import { ConfirmDialog } from '@/shared/ui/ConfirmDialog';
 import { ListRow, RowEnd, RowMenu } from '@/shared/ui/List';
@@ -16,7 +17,6 @@ import {
   volumeDeleteConsequence,
   volumeStatusLabel,
   volumeTone,
-  volumeUserNames,
   volumeUsersLabel,
   type VolumeData,
 } from '../model';
@@ -74,7 +74,7 @@ export function VolumeRow({ volume, scope = 'own', owner }: VolumeRowProps) {
         {t('common.delete')}
       </MenuItem>
       {deleteBlock === 'inUse' && (
-        <MenuNote>{t('volumes.deleteBlockedInUse', { names: volumeUserNames(volume.used_by) })}</MenuNote>
+        <MenuNote>{t('volumes.deleteBlockedInUse', { names: joinNames(volume.used_by) })}</MenuNote>
       )}
       {deleteBlock === 'busy' && <MenuNote>{t('volumes.deleteBlockedBusy')}</MenuNote>}
     </RowMenu>
@@ -121,7 +121,7 @@ export function VolumeRow({ volume, scope = 'own', owner }: VolumeRowProps) {
             {detail && <> · {detail}</>}
           </div>
           <div className="truncate">{size}</div>
-          <div className={cn('truncate', !users && 'text-label-3')} title={volumeUserNames(volume.used_by) || undefined}>
+          <div className={cn('truncate', !users && 'text-label-3')} title={joinNames(volume.used_by) || undefined}>
             {users ?? t('volumes.notUsed')}
           </div>
         </>

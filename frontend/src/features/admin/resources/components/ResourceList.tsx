@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { ListFilter, RefreshCcw } from 'lucide-react';
 import { useT } from '@/shared/i18n';
 import { useListState } from '@/shared/lib/hooks';
-import { toggleSort, type ListSort, type ListState, type ListStateSpec } from '@/shared/lib/listState';
+import { serverViewChange, toggleSort, type ListSort, type ListState, type ListStateSpec } from '@/shared/lib/listState';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ListMessageBelowHead } from '@/shared/ui/ListMessage';
 import { ErrorState } from '@/shared/ui/ErrorState';
@@ -54,6 +54,13 @@ export interface StatusFilter<F extends string> {
   showAll: string;
 }
 
+// PageShaping is how a tab sorts and searches the page shown, when the server
+// does not.
+export interface PageShaping<T, K extends string> {
+  sort: (rows: readonly T[], sort: ListSort<K>) => T[];
+  matches: (row: T, search: string) => boolean;
+}
+
 export interface ResourceListProps<T extends Owned, K extends string, F extends string = 'all'> {
   view: ResourceView;
   // label names the list; columns are the resource's own, Owner goes after
@@ -72,12 +79,11 @@ export interface ResourceListProps<T extends Owned, K extends string, F extends 
   // count is the toolbar's count when no owner is chosen; the page's total
   // by default.
   count?: number;
-  // sort and matches order and search the page shown. Without them the
-  // server has sorted and searched it, by the same URL state: rows keep its
-  // order (the Owner column still sorts the page), and changing the sort or
-  // the search returns to the first page.
-  sort?: (rows: readonly T[], sort: ListSort<K>) => T[];
-  matches?: (row: T, search: string) => boolean;
+  // shapePage sorts and searches the page shown. Without it the server has
+  // sorted and searched it, by the same URL state: rows keep its order (the
+  // Owner column still sorts the page), and changing the sort or the search
+  // returns to the first page.
+  shapePage?: PageShaping<T, K>;
   nameOf: (row: T) => string;
   searchLabel: string;
   loadFailed: string;
@@ -108,11 +114,11 @@ export function useResourceList<T extends Owned, K extends string, F extends str
   const t = useT();
   const { spec, statusFilter } = props;
   const [view, setView] = useListState(spec);
-  const serverSide = !props.matches;
+  const { shapePage } = props;
+  const serverSide = !shapePage;
   // The server pages what the status, sort and search leave, so changing
   // them returns to the first page.
-  const changeView = (change: Partial<ListState<F, K | 'owner'>>) =>
-    setView(serverSide && change.page === undefined && (change.filter !== undefined || change.sort || change.search !== undefined) ? { ...change, page: 1 } : change);
+  const changeView = (change: Partial<ListState<F, K | 'owner'>>) => setView(serverSide ? serverViewChange(change) : change);
   const everything = spec.filters[0];
   const { data, isLoading, isError, isFetching, error } = props.query;
   const stale = useRefreshFailure(props.query, t('common.refreshFailed'));
@@ -124,9 +130,8 @@ export function useResourceList<T extends Owned, K extends string, F extends str
   const { owner } = props.view;
   const owners = ownerOptions(rows, props.view.accounts);
   const owned = filterByOwner(rows, owner);
-  const { matches, sort } = props;
-  const searched = matches ? owned.filter((row) => matches(row, view.search)) : owned;
-  const shown = sortOwned(searched, view.sort, sort ?? ((rows) => [...rows]), props.nameOf);
+  const searched = shapePage ? owned.filter((row) => shapePage.matches(row, view.search)) : owned;
+  const shown = sortOwned(searched, view.sort, shapePage?.sort ?? ((rows) => [...rows]), props.nameOf);
   const ownerLabel = (row: T) => ownerName(row) || t('admin.resources.ownerUnknown');
 
   const [first, ...rest] = props.columns;

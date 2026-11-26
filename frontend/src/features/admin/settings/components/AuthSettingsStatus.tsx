@@ -1,5 +1,6 @@
 import type { TFunction } from '@/shared/i18n';
-import { StatusDot, type StatusTone } from '@/shared/ui/StatusDot';
+import { StatusDot } from '@/shared/ui/StatusDot';
+import type { StatusTone } from '@/shared/ui/statusTone';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { ErrorState } from '@/shared/ui/ErrorState';
 import { type AuthConfig, unreachableProviders } from '@/features/auth/model';

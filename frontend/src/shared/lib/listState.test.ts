@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { readListState, sortRows, toggleSort, writeListState, type ListStateSpec } from './listState';
+import { readListState, serverViewChange, sortRows, toggleSort, writeListState, type ListStateSpec } from './listState';
 
 describe('toggleSort', () => {
   test('a new column sorts ascending', () => {
@@ -79,3 +79,17 @@ describe('list state in the URL', () => {
   });
 });
 
+describe('serverViewChange', () => {
+  test('returns to the first page when the filter, sort or search changes', () => {
+    expect(serverViewChange({ filter: 'running' })).toEqual({ filter: 'running', page: 1 });
+    expect(serverViewChange({ sort: { key: 'name', ascending: true } })).toEqual({ sort: { key: 'name', ascending: true }, page: 1 });
+    expect(serverViewChange({ search: 'web' })).toEqual({ search: 'web', page: 1 });
+    expect(serverViewChange({ search: '' })).toEqual({ search: '', page: 1 });
+  });
+
+  test('keeps a page change, or a change of nothing, as asked', () => {
+    expect(serverViewChange({ page: 3 })).toEqual({ page: 3 });
+    expect(serverViewChange({ filter: 'all', page: 2 })).toEqual({ filter: 'all', page: 2 });
+    expect(serverViewChange({})).toEqual({});
+  });
+});

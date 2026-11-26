@@ -17,7 +17,7 @@ const AuthCallbackPage = page(() => import('@/features/auth/pages/AuthCallbackPa
 const DashboardPage = page(() => import('@/features/dashboard/pages/DashboardPage'), 'DashboardPage');
 const ContainersRoute = page(() => import('@/app/routes/ContainersRoute'), 'ContainersRoute');
 const ContainerRoute = page(() => import('@/app/routes/ContainerRoute'), 'ContainerRoute');
-const ImagesPage = page(() => import('@/features/images/pages/ImagesPage'), 'ImagesPage');
+const ImagesRoute = page(() => import('@/app/routes/ImagesRoute'), 'ImagesRoute');
 const BuildPage = page(() => import('@/features/images/pages/BuildPage'), 'BuildPage');
 const VolumesRoute = page(() => import('@/app/routes/VolumesRoute'), 'VolumesRoute');
 const ProjectsPage = page(() => import('@/features/projects/pages/ProjectsPage'), 'ProjectsPage');
@@ -52,7 +52,7 @@ export const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'containers', element: <ContainersRoute /> },
       { path: 'containers/:id', element: <ContainerRoute scope="own" backTo="/containers" backLabel="nav.containers" /> },
-      { path: 'images', element: <ImagesPage /> },
+      { path: 'images', element: <ImagesRoute /> },
       { path: 'images/builds/:id', element: <BuildPage scope="own" backTo="/images?tab=builds" backLabel="images.backToBuilds" /> },
       { path: 'volumes', element: <VolumesRoute /> },
       { path: 'projects', element: <ProjectsPage /> },

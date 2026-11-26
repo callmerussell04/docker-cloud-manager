@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { blockedContainerActions, holdsMemoryReservation, borrowedMemoryBytes, containerListParams, containerNeedsPolling, containerNeedsWatching, containerTone, containerViewChange, defaultContainerSort, formatCores, isContainerBusy, appendUsageSample, consoleViewOf, consoleViewSearch, containerPagePath, usageHistoryLength, type ContainerData, type UsageSample } from './model';
+import { blockedContainerActions, holdsMemoryReservation, borrowedMemoryBytes, containerListParams, containerNeedsPolling, containerNeedsWatching, containerTone, defaultContainerSort, formatCores, isContainerBusy, appendUsageSample, consoleViewOf, consoleViewSearch, containerPagePath, createWithImageParam, newContainerPath, usageHistoryLength, type ContainerData, type UsageSample } from './model';
 
 function container(status: string, ttlDeadline?: number): ContainerData {
   return { id: 'c1', name: 'web', image_tag: 'nginx', internal_port: 80, domain_prefix: '', status, last_error: '', ttl_deadline: ttlDeadline, created_at: 0, memory_reservation_bytes: 256 * 1024 ** 2, cpu_reservation_millicores: 250 };
@@ -163,18 +163,6 @@ describe('containerListParams', () => {
   });
 });
 
-describe('containerViewChange', () => {
-  test('returns to the first page when the filter, sort or search changes', () => {
-    expect(containerViewChange({ filter: 'running' })).toEqual({ filter: 'running', page: 1 });
-    expect(containerViewChange({ sort: { key: 'name', ascending: true } })).toEqual({ sort: { key: 'name', ascending: true }, page: 1 });
-    expect(containerViewChange({ search: 'web' })).toEqual({ search: 'web', page: 1 });
-  });
-
-  test('keeps a page change as asked', () => {
-    expect(containerViewChange({ page: 3 })).toEqual({ page: 3 });
-  });
-});
-
 describe('appendUsageSample', () => {
   const sample = (cpu: number): UsageSample => ({ cpu, memory: cpu * 1024 });
 
@@ -214,6 +202,16 @@ describe('consoleViewOf', () => {
   test('links to a container page under its list, on the logs unless asked', () => {
     expect(containerPagePath('/containers', 'c1')).toBe('/containers/c1');
     expect(containerPagePath('/admin/containers', 'c1', 'terminal')).toBe('/admin/containers/c1?view=terminal');
+  });
+});
+
+describe('newContainerPath', () => {
+  test('opens the create dialog over the containers list with the image', () => {
+    const path = newContainerPath('registry.example.com/shop:v1');
+    const url = new URL(path, 'http://dcm.test');
+    expect(url.pathname).toBe('/containers');
+    expect(url.searchParams.has('new')).toBe(true);
+    expect(url.searchParams.get(createWithImageParam)).toBe('registry.example.com/shop:v1');
   });
 });
 

@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { ChevronRight } from 'lucide-react';
 import { useT } from '@/shared/i18n';
-import { Dot, type StatusTone } from '@/shared/ui/StatusDot';
+import { Dot } from '@/shared/ui/StatusDot';
+import type { StatusTone } from '@/shared/ui/statusTone';
 import { cn } from '@/shared/lib/utils';
 
 // AttentionItem is a container that needs the user: its name, the line under

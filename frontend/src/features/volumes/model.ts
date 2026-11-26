@@ -1,8 +1,9 @@
 import type { Scope } from '@/shared/api/scope';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 import { sortRows, type ListSort } from '@/shared/lib/listState';
+import { joinNames, matchesSearch, shortNames } from '@/shared/lib/names';
 import { formatBytes } from '@/shared/lib/utils';
-import type { StatusTone } from '@/shared/ui/StatusDot';
+import { statusToneRank, type StatusTone } from '@/shared/ui/statusTone';
 
 // VolumeUser is a container that mounts a volume.
 export interface VolumeUser {
@@ -75,17 +76,10 @@ export function volumeTone(status: string): StatusTone {
   return 'busy';
 }
 
-// volumeUserNames lists the containers using a volume by name.
-export function volumeUserNames(users: readonly VolumeUser[]) {
-  return users.map((user) => user.name).join(', ');
-}
-
 // volumeUsersLabel names the containers using a volume: up to two by name,
 // then how many more; nothing when none does.
 export function volumeUsersLabel(t: TFunction, users: readonly VolumeUser[]) {
-  if (users.length === 0) return undefined;
-  const names = users.slice(0, 2).map((user) => user.name).join(', ');
-  return users.length > 2 ? t('volumes.usedByMore', { names, count: users.length - 2 }) : names;
+  return shortNames(users, (names, count) => t('volumes.usedByMore', { names, count }));
 }
 
 // VolumeDeleteBlock is why a volume cannot be deleted now: a container mounts
@@ -106,7 +100,7 @@ export function volumeDeleteConsequence(t: TFunction, volume: Pick<VolumeData, '
     ? t('volumes.deleteConsequence', { size: formatBytes(volume.used_bytes) })
     : t('volumes.deleteConsequenceUnmeasured', { size: formatBytes(volume.size_bytes) });
   const users = volume.used_by.length > 0
-    ? t('volumes.deleteUsedBy', { names: volumeUserNames(volume.used_by) })
+    ? t('volumes.deleteUsedBy', { names: joinNames(volume.used_by) })
     : t('volumes.deleteUnused');
   return `${data} ${users}`;
 }
@@ -114,8 +108,7 @@ export function volumeDeleteConsequence(t: TFunction, volume: Pick<VolumeData, '
 // matchesVolumeSearch reports whether a volume's name, or the name of a
 // container using it, contains the search, ignoring case.
 export function matchesVolumeSearch(volume: Pick<VolumeData, 'name' | 'used_by'>, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || volume.name.toLowerCase().includes(query) || volume.used_by.some((user) => user.name.toLowerCase().includes(query));
+  return matchesSearch(search, [volume.name, ...volume.used_by.map((user) => user.name)]);
 }
 
 // VolumeSortKey is a volumes list column.
@@ -126,14 +119,12 @@ export const volumeSortKeys: readonly VolumeSortKey[] = ['name', 'status', 'size
 // The list starts with failing volumes first.
 export const defaultVolumeSort: ListSort<VolumeSortKey> = { key: 'status', ascending: true };
 
-const toneRank: Record<StatusTone, number> = { bad: 0, busy: 1, ok: 2, idle: 3 };
-
 function volumeSortValue(volume: VolumeData, key: VolumeSortKey): string | number {
   switch (key) {
     case 'name':
       return volume.name;
     case 'status':
-      return toneRank[volumeTone(volume.status)];
+      return statusToneRank[volumeTone(volume.status)];
     case 'size':
       // The space the volume takes; unmeasured reads as nothing yet.
       return volume.usage_observed_at > 0 ? volume.used_bytes : 0;

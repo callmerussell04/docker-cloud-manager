@@ -3,7 +3,8 @@ import { getServerErrorMessage } from '@/shared/api/apiError';
 import type { Scope } from '@/shared/api/scope';
 import { labelFor, type TFunction, type TranslationKey } from '@/shared/i18n';
 import { sortRows, type ListSort } from '@/shared/lib/listState';
-import type { StatusTone } from '@/shared/ui/StatusDot';
+import { matchesSearch } from '@/shared/lib/names';
+import { statusToneRank, type StatusTone } from '@/shared/ui/statusTone';
 
 // ProjectSource is where a project was deployed from: an uploaded archive, a
 // raw Compose YAML file, or a Git repository at a ref.
@@ -193,14 +194,12 @@ export const projectSortKeys: readonly ProjectSortKey[] = ['name', 'services', '
 // The list starts with failing projects first.
 export const defaultProjectSort: ListSort<ProjectSortKey> = { key: 'services', ascending: true };
 
-const toneRank: Record<StatusTone, number> = { bad: 0, busy: 1, ok: 2, idle: 3 };
-
 function projectSortValue({ project, services }: ProjectListItem, key: ProjectSortKey): string | number {
   switch (key) {
     case 'name':
       return project.name;
     case 'services':
-      return toneRank[projectTone(project.status, services)];
+      return statusToneRank[projectTone(project.status, services)];
     case 'address': {
       // Published projects first, by their first address; the rest after.
       const first = serviceSummary(services).addresses[0];
@@ -224,8 +223,7 @@ export function sortProjects<I extends ProjectListItem>(items: readonly I[], sor
 // matchesProjectSearch reports whether a project's name, or the name of one
 // of its services, contains the search, ignoring case.
 export function matchesProjectSearch({ project, services }: ProjectListItem, search: string) {
-  const query = search.trim().toLowerCase();
-  return !query || project.name.toLowerCase().includes(query) || services.some((service) => service.name.toLowerCase().includes(query));
+  return matchesSearch(search, [project.name, ...services.map((service) => service.name)]);
 }
 
 // canCancelProject reports whether a project's deployment can be canceled.

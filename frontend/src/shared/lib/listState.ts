@@ -50,6 +50,15 @@ export interface ListState<F extends string, K extends string> {
   search: string;
 }
 
+// serverViewChange is a change to the view of a list the server pages,
+// returning to the first page when the filter, sort or search changes: the
+// server pages the rows they shape, so the old page may no longer exist.
+export function serverViewChange<C extends Partial<ListState<string, string>>>(change: C): C {
+  if (change.page !== undefined) return change;
+  if (change.filter === undefined && change.sort === undefined && change.search === undefined) return change;
+  return { ...change, page: 1 };
+}
+
 // ListStateSpec names a list's filters (the first is the default) and its
 // sortable columns.
 export interface ListStateSpec<F extends string, K extends string> {

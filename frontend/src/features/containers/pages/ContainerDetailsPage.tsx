@@ -30,7 +30,7 @@ import {
 } from '../model';
 import { ContainerFacts } from '../components/ContainerFacts';
 import { ContainerUsage } from '../components/ContainerUsage';
-import { useContainerModals } from '../components/useContainerModals';
+import { useExposeDialog } from '../components/useExposeDialog';
 import { useContainer, useContainerAction, useContainerStats } from '../queries';
 import { ContainerLogs } from '../streams/ContainerLogs';
 import { LazyContainerTerminal } from '../streams/LazyContainerTerminal';
@@ -92,7 +92,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel, projectName }: 
   const history = useUsageHistory(stats, statsQuery.dataUpdatedAt, running);
 
   const actionMutation = useContainerAction(scope);
-  const { openExpose, modals } = useContainerModals(scope);
+  const { openExpose, exposeDialog } = useExposeDialog(scope);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
 
   const changeView = (next: ConsoleView) =>
@@ -265,7 +265,7 @@ export function ContainerDetailsPage({ scope, backTo, backLabel, projectName }: 
         </div>
       )}
 
-      {modals}
+      {exposeDialog}
 
       <ConfirmDialog
         isOpen={isDeleteConfirmOpen}

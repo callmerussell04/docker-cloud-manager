@@ -19,7 +19,7 @@ import { ShellLayoutContext, useShellLayout } from '@/shared/ui/shellLayout';
 import { Dot, StatusDot } from '@/shared/ui/StatusDot';
 import { Toolbar, ToolbarBack } from '@/shared/ui/Toolbar';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
-import { useContainerModals } from '@/features/containers/components/useContainerModals';
+import { useExposeDialog } from '@/features/containers/components/useExposeDialog';
 import { containerPagePath } from '@/features/containers/model';
 import { useContainers } from '@/features/containers/queries';
 import { ProjectSourceLine } from '../components/ProjectSourceLine';
@@ -116,7 +116,7 @@ function ProjectView({ scope, project, back, containersPath, onDeleted }: Projec
     () => ({ ...shellLayout, rowsCompact: compact || rowsCompact(mainWidth) }),
     [shellLayout, compact, mainWidth],
   );
-  const { openExpose, modals } = useContainerModals(scope);
+  const { openExpose, exposeDialog } = useExposeDialog(scope);
 
   // A deploying, starting or stopping project changes its containers, so the
   // list keeps refreshing even while it is still empty.
@@ -258,7 +258,7 @@ function ProjectView({ scope, project, back, containersPath, onDeleted }: Projec
       )}
 
       {actions.dialogs}
-      {modals}
+      {exposeDialog}
     </Page>
   );
 }

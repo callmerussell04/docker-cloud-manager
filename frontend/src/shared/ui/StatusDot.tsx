@@ -1,9 +1,6 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/shared/lib/utils';
-
-// StatusTone is what a state means to the user: working, failing, changing,
-// or at rest.
-export type StatusTone = 'ok' | 'bad' | 'busy' | 'idle';
+import type { StatusTone } from './statusTone';
 
 const dotClass: Record<StatusTone, string> = {
   ok: 'bg-green',
