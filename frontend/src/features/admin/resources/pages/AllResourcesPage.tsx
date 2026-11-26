@@ -2,6 +2,10 @@ import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useT } from '@/shared/i18n';
+import { Page } from '@/shared/ui/Page';
+import { Pills } from '@/shared/ui/Pills';
+import { useShellLayout } from '@/shared/ui/shellLayout';
+import { Toolbar } from '@/shared/ui/Toolbar';
 import { useDebouncedValue, useListState } from '@/shared/lib/hooks';
 import { readListPage } from '@/shared/lib/listState';
 import { ContainerRow } from '@/features/containers/components/ContainerRow';
@@ -46,39 +50,65 @@ import {
 } from '@/features/projects/model';
 import { useProjects } from '@/features/projects/queries';
 import { useAdminUsers } from '../../users/queries';
-import { ResourceList, resourcePageSize, type ResourceView } from '../components/ResourceList';
-import { readOwnerFilter, readResourceTab, resourceListSpec, withOwnerFilter, withResourceTab } from '../model';
+import { resourcePageSize, useResourceList, type ResourceListParts, type ResourceView } from '../components/ResourceList';
+import { readOwnerFilter, readResourceTab, resourceListSpec, resourceTabs, withOwnerFilter, withResourceTab, type ResourceTab } from '../model';
 
 // AllResourcesPage is every user's containers, volumes, images, builds and
-// projects behind toolbar pills, each list with an Owner column and the
-// owner filter beside the pills; the tab and the owner are in the URL.
+// projects behind toolbar pills, each list with an Owner column and the owner
+// filter beside the pills; the tab and the owner are in the URL. One page and
+// one toolbar hold every tab, so switching tabs keeps them and the tabs'
+// pills, whose lift slides to the new tab; the tab shown gives its count,
+// toolbar actions, column labels and rows (useResourceList).
 export function AllResourcesPage() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const tab = readResourceTab(params);
+  // On narrow content the tabs are spaced tighter.
+  const narrow = useShellLayout().toolbarStacked;
   // The accounts the owner filter offers, beside the owners on the page.
   const users = useAdminUsers(1, 100);
   const accounts = useMemo(() => users.data?.items ?? [], [users.data]);
 
   const view: ResourceView = {
-    tab,
-    onTab: (next) => setParams((current) => withResourceTab(current, next), { replace: true }),
     owner: readOwnerFilter(params),
     onOwner: (next) => setParams((current) => withOwnerFilter(current, next), { replace: true }),
     accounts,
   };
 
-  switch (tab) {
-    case 'containers':
-      return <ContainersTab key={tab} view={view} />;
-    case 'volumes':
-      return <VolumesTab key={tab} view={view} />;
-    case 'images':
-      return <ImagesTab key={tab} view={view} />;
-    case 'builds':
-      return <BuildsTab key={tab} view={view} />;
-    case 'projects':
-      return <ProjectsTab key={tab} view={view} />;
-  }
+  // Each tab reads its list only while it is shown.
+  const lists: Record<ResourceTab, ResourceListParts | null> = {
+    containers: useContainersTab(view, tab === 'containers'),
+    volumes: useVolumesTab(view, tab === 'volumes'),
+    images: useImagesTab(view, tab === 'images'),
+    builds: useBuildsTab(view, tab === 'builds'),
+    projects: useProjectsTab(view, tab === 'projects'),
+  };
+  const list = lists[tab];
+
+  return (
+    <Page
+      toolbar={
+        <Toolbar
+          title={t('admin.resources.title')}
+          count={list?.count}
+          pills={
+            <Pills
+              label={t('admin.resources.tabsLabel')}
+              value={tab}
+              onChange={(next) => setParams((current) => withResourceTab(current, next), { replace: true })}
+              dense={narrow}
+              items={resourceTabs.map((id) => ({ id, label: t(`admin.resources.tab.${id}`) }))}
+            />
+          }
+          actions={list?.actions}
+        />
+      }
+      head={list?.head}
+      className="space-y-2"
+    >
+      {list?.body}
+    </Page>
+  );
 }
 
 const containerListSpec = resourceListSpec(containerSortKeys, defaultContainerSort, containerFilters);
@@ -87,7 +117,7 @@ const imageListSpec = resourceListSpec(imageSortKeys, defaultImageSort);
 const buildListSpec = resourceListSpec(buildSortKeys, defaultBuildSort);
 const projectListSpec = resourceListSpec(projectSortKeys, defaultProjectSort);
 
-function ContainersTab({ view }: { view: ResourceView }) {
+function useContainersTab(view: ResourceView, active: boolean) {
   const t = useT();
   const navigate = useNavigate();
   // The server filters, sorts, searches and counts every user's containers.
@@ -97,44 +127,44 @@ function ContainersTab({ view }: { view: ResourceView }) {
   const search = useDebouncedValue(listView.search);
   const sort = listView.sort.key === 'owner' ? defaultContainerSort : { key: listView.sort.key, ascending: listView.sort.ascending };
   const list = containerListParams({ filter: listView.filter, sort, search });
-  const query = useContainers('all', listView.page, resourcePageSize, { list });
+  const query = useContainers('all', listView.page, resourcePageSize, { list, enabled: active });
   const counts = query.data?.status_counts;
   // Compose projects name the tag beside their containers.
-  const projects = useProjects('all', 1, 100);
+  const projects = useProjects('all', 1, 100, { enabled: active });
   const projectNames = useMemo(() => new Map((projects.data?.items ?? []).map((project) => [project.id, project.name])), [projects.data]);
   const open = (container: ContainerData, view?: ConsoleView) =>
     navigate(containerPagePath('/admin/containers', container.id, view), { state: { container } });
 
-  return (
-    <ResourceList
-      view={view}
-      label={t('admin.resources.tab.containers')}
-      columns={[
+  return useResourceList(
+    {
+      view,
+      label: t('admin.resources.tab.containers'),
+      columns: [
         { key: 'name', label: t('containers.name') },
         { key: 'status', label: t('common.status') },
         { key: 'address', label: t('containers.column.address') },
         { key: 'memory', label: t('containers.column.memory') },
         { key: 'created', label: t('containers.column.created'), end: true },
-      ]}
-      template={containerListLayout.owned}
-      loadingColumns={[1.5, 0.8, 1.2, 1, 0.4, 0.5]}
-      spec={containerListSpec}
-      count={counts?.all}
-      statusFilter={{
+      ],
+      template: containerListLayout.owned,
+      loadingColumns: [1.5, 0.8, 1.2, 1, 0.4, 0.5],
+      spec: containerListSpec,
+      count: counts?.all,
+      statusFilter: {
         label: t('admin.resources.statusFilter'),
         options: containerFilters.map((filter) => ({ id: filter, label: t(`containers.filter.${filter}`), count: counts?.[filter] })),
         alert: counts ? { count: counts.attention, label: t('admin.resources.attentionCount', { count: counts.attention }) } : undefined,
         emptyTitle: t('containers.filterEmpty'),
         emptyDescription: t('admin.resources.statusEmptyDescription'),
         showAll: t('containers.showAll'),
-      }}
-      nameOf={(container) => container.name}
-      searchLabel={t('containers.searchLabel')}
-      loadFailed={t('containers.loadFailed')}
-      emptyTitle={t('admin.resources.empty.containers')}
-      query={query}
-      onRefresh={() => void query.refetch()}
-      row={(container, owner) => (
+      },
+      nameOf: (container) => container.name,
+      searchLabel: t('containers.searchLabel'),
+      loadFailed: t('containers.loadFailed'),
+      emptyTitle: t('admin.resources.empty.containers'),
+      query,
+      onRefresh: () => void query.refetch(),
+      row: (container, owner) => (
         <ContainerRow
           key={container.id}
           container={container}
@@ -143,102 +173,105 @@ function ContainersTab({ view }: { view: ResourceView }) {
           project={container.project_id ? (projectNames.get(container.project_id) ?? t('containers.composeTag')) : undefined}
           onOpen={open}
         />
-      )}
-    />
+      ),
+    },
+    active,
   );
 }
 
-function VolumesTab({ view }: { view: ResourceView }) {
+function useVolumesTab(view: ResourceView, active: boolean) {
   const t = useT();
   const [params] = useSearchParams();
-  const query = useVolumes('all', readListPage(params), resourcePageSize);
-  return (
-    <ResourceList
-      view={view}
-      label={t('admin.resources.tab.volumes')}
-      columns={[
+  const query = useVolumes('all', readListPage(params), resourcePageSize, active);
+  return useResourceList(
+    {
+      view,
+      label: t('admin.resources.tab.volumes'),
+      columns: [
         { key: 'name', label: t('volumes.column.volume') },
         { key: 'status', label: t('common.status') },
         { key: 'size', label: t('volumes.column.size') },
         { key: 'usedBy', label: t('volumes.column.usedBy') },
         { key: 'created', label: t('volumes.column.created'), end: true },
-      ]}
-      template={volumeListLayout.owned}
-      loadingColumns={[1.3, 0.8, 0.9, 0.9, 1, 0.5]}
-      spec={volumeListSpec}
-      sort={sortVolumes}
-      matches={matchesVolumeSearch}
-      nameOf={(volume) => volume.name}
-      searchLabel={t('volumes.searchLabel')}
-      loadFailed={t('volumes.loadFailed')}
-      emptyTitle={t('admin.resources.empty.volumes')}
-      query={query}
-      onRefresh={() => void query.refetch()}
-      row={(volume, owner) => <VolumeRow key={volume.id} volume={volume} scope="all" owner={owner} />}
-    />
+      ],
+      template: volumeListLayout.owned,
+      loadingColumns: [1.3, 0.8, 0.9, 0.9, 1, 0.5],
+      spec: volumeListSpec,
+      sort: sortVolumes,
+      matches: matchesVolumeSearch,
+      nameOf: (volume) => volume.name,
+      searchLabel: t('volumes.searchLabel'),
+      loadFailed: t('volumes.loadFailed'),
+      emptyTitle: t('admin.resources.empty.volumes'),
+      query,
+      onRefresh: () => void query.refetch(),
+      row: (volume, owner) => <VolumeRow key={volume.id} volume={volume} scope="all" owner={owner} />,
+    },
+    active,
   );
 }
 
-function ImagesTab({ view }: { view: ResourceView }) {
+function useImagesTab(view: ResourceView, active: boolean) {
   const t = useT();
   const [params] = useSearchParams();
-  const query = useImages('all', readListPage(params), resourcePageSize);
-  return (
-    <ResourceList
-      view={view}
-      label={t('admin.resources.tab.images')}
-      columns={[
+  const query = useImages('all', readListPage(params), resourcePageSize, active);
+  return useResourceList(
+    {
+      view,
+      label: t('admin.resources.tab.images'),
+      columns: [
         { key: 'name', label: t('images.column.image') },
         { key: 'status', label: t('common.status') },
         { key: 'usedBy', label: t('images.column.usedBy') },
         { key: 'size', label: t('images.column.size') },
         { key: 'created', label: t('images.column.created'), end: true },
-      ]}
-      template={imageListLayout.owned}
-      loadingColumns={[1.4, 0.8, 0.9, 1, 0.6, 0.5]}
-      spec={imageListSpec}
-      sort={sortImages}
-      matches={matchesImageSearch}
-      nameOf={(image) => image.tag}
-      searchLabel={t('images.searchLabel')}
-      loadFailed={t('images.loadFailed')}
-      emptyTitle={t('admin.resources.empty.images')}
-      query={query}
-      onRefresh={() => void query.refetch()}
-      row={(image, owner) => <ImageRow key={image.id} image={image} scope="all" owner={owner} />}
-    />
+      ],
+      template: imageListLayout.owned,
+      loadingColumns: [1.4, 0.8, 0.9, 1, 0.6, 0.5],
+      spec: imageListSpec,
+      sort: sortImages,
+      matches: matchesImageSearch,
+      nameOf: (image) => image.tag,
+      searchLabel: t('images.searchLabel'),
+      loadFailed: t('images.loadFailed'),
+      emptyTitle: t('admin.resources.empty.images'),
+      query,
+      onRefresh: () => void query.refetch(),
+      row: (image, owner) => <ImageRow key={image.id} image={image} scope="all" owner={owner} />,
+    },
+    active,
   );
 }
 
-function BuildsTab({ view }: { view: ResourceView }) {
+function useBuildsTab(view: ResourceView, active: boolean) {
   const t = useT();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const query = useBuilds('all', readListPage(params), resourcePageSize);
-  return (
-    <ResourceList
-      view={view}
-      label={t('admin.resources.tab.builds')}
-      columns={[
+  const query = useBuilds('all', readListPage(params), resourcePageSize, { enabled: active });
+  return useResourceList(
+    {
+      view,
+      label: t('admin.resources.tab.builds'),
+      columns: [
         { key: 'tag', label: t('images.column.build') },
         { key: 'purpose', label: t('images.column.for') },
         { key: 'status', label: t('common.status') },
         { key: 'duration', label: t('images.column.took') },
         { key: 'queued', label: t('images.column.queued'), end: true },
-      ]}
-      template={buildListLayout.owned}
-      loadingColumns={[1.2, 0.8, 1.2, 1, 0.6, 0.5]}
-      spec={buildListSpec}
+      ],
+      template: buildListLayout.owned,
+      loadingColumns: [1.2, 0.8, 1.2, 1, 0.6, 0.5],
+      spec: buildListSpec,
       // Sorting by how long a build took counts a running one up to now.
-      sort={(rows, sort) => sortBuilds(rows, sort, Math.floor(Date.now() / 1000))}
-      matches={matchesBuildSearch}
-      nameOf={(build) => build.tag || build.id}
-      searchLabel={t('images.searchBuildsLabel')}
-      loadFailed={t('images.loadBuildsFailed')}
-      emptyTitle={t('admin.resources.empty.builds')}
-      query={query}
-      onRefresh={() => void query.refetch()}
-      row={(build, owner) => (
+      sort: (rows, sort) => sortBuilds(rows, sort, Math.floor(Date.now() / 1000)),
+      matches: matchesBuildSearch,
+      nameOf: (build) => build.tag || build.id,
+      searchLabel: t('images.searchBuildsLabel'),
+      loadFailed: t('images.loadBuildsFailed'),
+      emptyTitle: t('admin.resources.empty.builds'),
+      query,
+      onRefresh: () => void query.refetch(),
+      row: (build, owner) => (
         <BuildRow
           key={build.id}
           build={build}
@@ -246,20 +279,21 @@ function BuildsTab({ view }: { view: ResourceView }) {
           owner={owner}
           onOpen={() => navigate(`/admin/builds/${build.id}`, { state: { build } })}
         />
-      )}
-    />
+      ),
+    },
+    active,
   );
 }
 
-function ProjectsTab({ view }: { view: ResourceView }) {
+function useProjectsTab(view: ResourceView, active: boolean) {
   const t = useT();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const query = useProjects('all', readListPage(params), resourcePageSize);
+  const query = useProjects('all', readListPage(params), resourcePageSize, { enabled: active });
   const projects = useMemo(() => query.data?.items ?? [], [query.data]);
   // A project's services are its containers among every user's first 100,
   // refreshing while a project deploys, starts or stops.
-  const containers = useContainers('all', 1, 100, { polling: projects.some((project) => isProjectBusy(project.status)) });
+  const containers = useContainers('all', 1, 100, { enabled: active, polling: projects.some((project) => isProjectBusy(project.status)) });
   const services = useMemo(() => servicesByProject(containers.data?.items ?? []), [containers.data]);
   // Each item carries its project's owner, for the Owner column and filter.
   const items = projects.map((project) => ({
@@ -270,33 +304,33 @@ function ProjectsTab({ view }: { view: ResourceView }) {
   }));
   const itemsQuery = { ...query, data: query.data && { items, total_count: query.data.total_count } };
 
-  return (
-    <ResourceList
-      view={view}
-      label={t('admin.resources.tab.projects')}
-      columns={[
+  return useResourceList(
+    {
+      view,
+      label: t('admin.resources.tab.projects'),
+      columns: [
         { key: 'name', label: t('projects.project') },
         { key: 'services', label: t('projects.services') },
         { key: 'address', label: t('projects.column.address') },
         { key: 'memory', label: t('projects.column.memory') },
         { key: 'created', label: t('projects.column.created'), end: true },
-      ]}
-      template={projectListLayout.owned}
-      loadingColumns={[1.4, 0.8, 1.3, 1, 0.5, 0.5]}
-      spec={projectListSpec}
-      sort={sortProjects}
-      matches={matchesProjectSearch}
-      nameOf={(item) => item.project.name}
-      searchLabel={t('projects.searchLabel')}
-      loadFailed={t('projects.loadFailed')}
-      emptyTitle={t('admin.resources.empty.projects')}
-      query={itemsQuery}
-      onRefresh={() => {
+      ],
+      template: projectListLayout.owned,
+      loadingColumns: [1.4, 0.8, 1.3, 1, 0.5, 0.5],
+      spec: projectListSpec,
+      sort: sortProjects,
+      matches: matchesProjectSearch,
+      nameOf: (item) => item.project.name,
+      searchLabel: t('projects.searchLabel'),
+      loadFailed: t('projects.loadFailed'),
+      emptyTitle: t('admin.resources.empty.projects'),
+      query: itemsQuery,
+      onRefresh: () => {
         void query.refetch();
         void containers.refetch();
-      }}
-      refreshing={containers.isFetching}
-      row={(item, owner) => (
+      },
+      refreshing: containers.isFetching,
+      row: (item, owner) => (
         <ProjectRow
           key={item.project.id}
           item={item}
@@ -304,7 +338,8 @@ function ProjectsTab({ view }: { view: ResourceView }) {
           owner={owner}
           onOpen={() => navigate(`/admin/projects/${item.project.id}`, { state: { project: item.project } })}
         />
-      )}
-    />
+      ),
+    },
+    active,
   );
 }

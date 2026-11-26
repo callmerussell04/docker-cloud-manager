@@ -120,19 +120,40 @@ export function ImagesPage() {
     />
   );
 
+  // One page and one toolbar hold both lists, so switching tabs keeps them,
+  // and the tabs' pills, whose lift slides to the new tab; the tab shown
+  // gives its count, search, refresh, column labels and rows.
+  const imagesList = useImagesList({
+    active: tab === 'images',
+    onRun: runImage,
+    onBuildAgain: buildsOff ? undefined : (image) => openBuild(buildAgainFrom(image, firstBuilds.data?.items ?? [])),
+    onBuild: buildsOff ? undefined : () => openBuild(),
+  });
+  const buildsList = useBuildsList({ active: tab === 'builds', query: buildsQuery, onOpen: openBuildPage, onBuild: buildsOff ? undefined : () => openBuild() });
+  const list = tab === 'images' ? imagesList : buildsList;
+
   return (
     <>
-      {tab === 'images' ? (
-        <ImagesList
-          pills={pills}
-          primary={primary}
-          onRun={runImage}
-          onBuildAgain={buildsOff ? undefined : (image) => openBuild(buildAgainFrom(image, firstBuilds.data?.items ?? []))}
-          onBuild={buildsOff ? undefined : () => openBuild()}
-        />
-      ) : (
-        <BuildsList pills={pills} primary={primary} query={buildsQuery} onOpen={openBuildPage} onBuild={buildsOff ? undefined : () => openBuild()} />
-      )}
+      <Page
+        toolbar={
+          <Toolbar
+            title={t('images.title')}
+            count={list?.count}
+            pills={
+              <div className="flex items-center gap-2">
+                {pills}
+                {list?.search}
+              </div>
+            }
+            actions={list?.refresh}
+            primary={primary}
+          />
+        }
+        head={list?.head}
+        className="space-y-2"
+      >
+        {list?.body}
+      </Page>
       <BuildImageDialog
         isOpen={isBuildOpen && !buildsOff}
         initial={buildAgain}
@@ -146,24 +167,38 @@ export function ImagesPage() {
   );
 }
 
+// ListParts is what a tab gives the page: the toolbar's count, its search
+// and refresh, the list's column labels, and its rows with their pages.
+interface ListParts {
+  count?: number;
+  search: ReactNode;
+  refresh: ReactNode;
+  head: ReactNode;
+  body: ReactNode;
+}
+
 function readPage(params: URLSearchParams) {
   const page = Number(params.get('page'));
   return Number.isInteger(page) && page >= 1 ? page : 1;
 }
 
 interface ImagesListProps {
-  pills: ReactNode;
-  primary: ReactNode;
+  // active is whether the Images tab is shown; its list is read and its
+  // parts made only then.
+  active: boolean;
   onRun: (image: ImageData) => void;
   onBuildAgain?: (image: ImageData) => void;
   onBuild?: () => void;
 }
 
-function ImagesList({ pills, primary, onRun, onBuildAgain, onBuild }: ImagesListProps) {
+// useImagesList is the Images tab's parts: the user's images, sorted and
+// searched as the URL says; nothing while the tab is hidden.
+function useImagesList({ active, onRun, onBuildAgain, onBuild }: ImagesListProps): ListParts | null {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const [view, changeView] = useListState(imageListSpec);
-  const { data, isLoading, isError, error, refetch, isFetching } = useImages('own', view.page, pageSize);
+  const { data, isLoading, isError, error, refetch, isFetching } = useImages('own', view.page, pageSize, active);
+  if (!active) return null;
   const images = data?.items ?? [];
   const shown = sortImages(images.filter((image) => matchesImageSearch(image, view.search)), view.sort);
 
@@ -195,48 +230,41 @@ function ImagesList({ pills, primary, onRun, onBuildAgain, onBuild }: ImagesList
     );
   };
 
-  return (
-    <Page
-      toolbar={
-        <Toolbar
-          title={t('images.title')}
-          count={data?.total_count}
-          pills={
-            <div className="flex items-center gap-2">
-              {pills}
-              <ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />
-            </div>
-          }
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={primary}
-        />
-      }
-      head={(isLoading || shown.length > 0) && (
-        <ListHead columns={columns} template={imageListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-      )}
-      className="space-y-2"
-    >
-      {content()}
-      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
-    </Page>
-  );
+  return {
+    count: data?.total_count,
+    search: <ToolbarSearch label={t('images.searchLabel')} value={view.search} onChange={(search) => changeView({ search })} />,
+    refresh: <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />,
+    head: (isLoading || shown.length > 0) && (
+      <ListHead columns={columns} template={imageListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
+    ),
+    body: (
+      <>
+        {content()}
+        {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
+      </>
+    ),
+  };
 }
 
 interface BuildsListProps {
-  pills: ReactNode;
-  primary: ReactNode;
+  // active is whether the Builds tab is shown; its parts are made only then.
+  active: boolean;
   query: ReturnType<typeof useBuilds<'own'>>;
   onOpen: (build: BuildData) => void;
   onBuild?: () => void;
 }
 
-function BuildsList({ pills, primary, query, onOpen, onBuild }: BuildsListProps) {
+// useBuildsList is the Builds tab's parts: the user's builds the page's
+// query reads (only while the tab is shown), sorted and searched as the URL
+// says; nothing while the tab is hidden.
+function useBuildsList({ active, query, onOpen, onBuild }: BuildsListProps): ListParts | null {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const [view, changeView] = useListState(buildListSpec);
   // Sorting by how long a build has taken counts a running one up to now.
   const now = useNowSeconds(10_000);
   const { data, isLoading, isError, error, refetch, isFetching } = query;
+  if (!active) return null;
   const builds = data?.items ?? [];
   const shown = sortBuilds(builds.filter((build) => matchesBuildSearch(build, view.search)), view.sort, now);
 
@@ -268,29 +296,18 @@ function BuildsList({ pills, primary, query, onOpen, onBuild }: BuildsListProps)
     );
   };
 
-  return (
-    <Page
-      toolbar={
-        <Toolbar
-          title={t('images.title')}
-          count={data?.total_count}
-          pills={
-            <div className="flex items-center gap-2">
-              {pills}
-              <ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} />
-            </div>
-          }
-          actions={<ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />}
-          primary={primary}
-        />
-      }
-      head={(isLoading || shown.length > 0) && (
-        <ListHead columns={columns} template={buildListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-      )}
-      className="space-y-2"
-    >
-      {content()}
-      {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
-    </Page>
-  );
+  return {
+    count: data?.total_count,
+    search: <ToolbarSearch label={t('images.searchBuildsLabel')} value={view.search} onChange={(search) => changeView({ search })} />,
+    refresh: <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching} onClick={() => refetch()} />,
+    head: (isLoading || shown.length > 0) && (
+      <ListHead columns={columns} template={buildListLayout.wide} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
+    ),
+    body: (
+      <>
+        {content()}
+        {data && <Pagination currentPage={view.page} pageSize={pageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
+      </>
+    ),
+  };
 }

@@ -9,13 +9,11 @@ import { ErrorState } from '@/shared/ui/ErrorState';
 import { List, ListHead, type ListColumn } from '@/shared/ui/List';
 import { LoadingRows } from '@/shared/ui/LoadingRows';
 import { NoMatchesState } from '@/shared/ui/NoMatchesState';
-import { Page } from '@/shared/ui/Page';
 import { Pagination } from '@/shared/ui/Pagination';
-import { Pills } from '@/shared/ui/Pills';
 import { useShellLayout } from '@/shared/ui/shellLayout';
 import { StateMessage } from '@/shared/ui/StateMessage';
-import { Toolbar, ToolbarButton, ToolbarSearch } from '@/shared/ui/Toolbar';
-import { filterByOwner, ownerName, ownerOptions, resourceTabs, sortOwned, type Owned, type ResourceTab } from '../model';
+import { ToolbarButton, ToolbarSearch } from '@/shared/ui/Toolbar';
+import { filterByOwner, ownerName, ownerOptions, sortOwned, type Owned } from '../model';
 import { FilterMenu, type FilterAlert, type FilterOption } from './FilterMenu';
 import { OwnerFilter } from './OwnerFilter';
 
@@ -32,11 +30,9 @@ interface ListQuery<T> {
   error: unknown;
 }
 
-// ResourceView is what every tab shares: the tab and the owner from the URL,
-// with their changes, and the accounts the owner filter offers.
+// ResourceView is what every tab shares: the owner from the URL, with its
+// change, and the accounts the owner filter offers.
 export interface ResourceView {
-  tab: ResourceTab;
-  onTab: (tab: ResourceTab) => void;
   // owner is the chosen owner's user ID; empty for everyone.
   owner: string;
   onOwner: (owner: string) => void;
@@ -90,11 +86,22 @@ export interface ResourceListProps<T extends Owned, K extends string, F extends 
   row: (row: T, owner: string) => ReactNode;
 }
 
-// ResourceList is one tab of the all-users view: a list of every user's
+// ResourceListParts is what a tab gives the all-users page: the toolbar's
+// count and its actions (the filters, the search and refresh), the list's
+// column labels, and its rows with their pages.
+export interface ResourceListParts {
+  count?: number;
+  actions: ReactNode;
+  head: ReactNode;
+  body: ReactNode;
+}
+
+// useResourceList is one tab of the all-users view: a list of every user's
 // resources of one kind with an Owner column, sorted, searched and narrowed
 // to one owner (and, for a tab the server filters, to one status), all kept
-// in the URL.
-export function ResourceList<T extends Owned, K extends string, F extends string = 'all'>(props: ResourceListProps<T, K, F>) {
+// in the URL. It gives the parts the page shows, and nothing while the tab
+// is hidden (active false).
+export function useResourceList<T extends Owned, K extends string, F extends string = 'all'>(props: ResourceListProps<T, K, F>, active: boolean): ResourceListParts | null {
   const t = useT();
   const compact = useShellLayout().rowsCompact;
   const { spec, statusFilter } = props;
@@ -109,6 +116,7 @@ export function ResourceList<T extends Owned, K extends string, F extends string
   // On narrow content the filters become round buttons, so the top row keeps
   // room for the title.
   const narrow = useShellLayout().toolbarStacked;
+  if (!active) return null;
   const rows = data?.items ?? [];
   const { owner } = props.view;
   const owners = ownerOptions(rows, props.view.accounts);
@@ -156,15 +164,6 @@ export function ResourceList<T extends Owned, K extends string, F extends string
     return <List label={props.label}>{shown.map((row) => props.row(row, ownerLabel(row)))}</List>;
   };
 
-  const tabs = (
-    <Pills
-      label={t('admin.resources.tabsLabel')}
-      value={props.view.tab}
-      onChange={props.view.onTab}
-      dense={narrow}
-      items={resourceTabs.map((id) => ({ id, label: t(`admin.resources.tab.${id}`) }))}
-    />
-  );
   const ownerFilter = <OwnerFilter owner={owner} options={owners} onChange={props.view.onOwner} round={narrow} />;
   const chosenStatus = statusFilter?.options.find((option) => option.id === view.filter);
   const statusCapsule = statusFilter && (
@@ -184,34 +183,27 @@ export function ResourceList<T extends Owned, K extends string, F extends string
   );
   const search = <ToolbarSearch label={props.searchLabel} value={view.search} onChange={(search) => changeView({ search })} />;
 
-  return (
-    <Page
-      toolbar={
-        <Toolbar
-          title={t('admin.resources.title')}
-          // With an owner chosen, the count is theirs on the page shown.
-          count={owner && data ? owned.length : (props.count ?? data?.total_count)}
-          // The tabs are the pills; the filters and the search sit with the
-          // actions, so they stay in the top row when the tabs move to a
-          // second one and never crowd it.
-          pills={tabs}
-          actions={
-            <>
-              {statusCapsule}
-              {ownerFilter}
-              {search}
-              <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching || props.refreshing} onClick={props.onRefresh} />
-            </>
-          }
-        />
-      }
-      head={(isLoading || shown.length > 0) && (
-        <ListHead columns={columns} template={props.template} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
-      )}
-      className="space-y-2"
-    >
-      {content()}
-      {data && <Pagination currentPage={view.page} pageSize={resourcePageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
-    </Page>
-  );
+  return {
+    // With an owner chosen, the count is theirs on the page shown.
+    count: owner && data ? owned.length : (props.count ?? data?.total_count),
+    // The filters and the search sit with the actions, so they stay in the
+    // top row when the tabs move to a second one and never crowd it.
+    actions: (
+      <>
+        {statusCapsule}
+        {ownerFilter}
+        {search}
+        <ToolbarButton icon={RefreshCcw} label={t('common.refresh')} busy={isFetching || props.refreshing} onClick={props.onRefresh} />
+      </>
+    ),
+    head: (isLoading || shown.length > 0) && (
+      <ListHead columns={columns} template={props.template} sort={view.sort} onSort={(key) => changeView({ sort: toggleSort(view.sort, key) })} />
+    ),
+    body: (
+      <>
+        {content()}
+        {data && <Pagination currentPage={view.page} pageSize={resourcePageSize} totalItems={data.total_count} onPageChange={(page) => changeView({ page })} />}
+      </>
+    ),
+  };
 }
