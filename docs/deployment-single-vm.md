@@ -541,7 +541,8 @@ Network modules are pinned at these versions:
 | `github.com/quic-go/quic-go` | 0.59.1 | HTTP/3 trailer validation security backport |
 
 The gRPC and x/net module requirements also determine the x/crypto, x/sys, x/text,
-x/sync, OpenTelemetry API/metric/trace and genproto RPC versions. Protobuf is
+x/sync and genproto RPC versions; OpenTelemetry is raised separately (see
+[raised indirect modules](#raised-indirect-modules)). Protobuf is
 1.36.11, matching the pinned code generator. These modules support the pinned
 Go 1.26.11 toolchain.
 
@@ -588,42 +589,48 @@ Review these upstream notes when updating:
 - Gin imports HTTP/3 support, but DCM starts ordinary HTTP servers, proxies
   HTTP/SSE/WebSocket and uses native gRPC; it does not start a QUIC listener or
   use an HTTP/3 client transport. The pinned quic-go backport patches
-  GO-2026-5676 regardless. Gorilla WebSocket 1.5.3 already contains the reported
-  masking fix.
+  GO-2026-5676 regardless.
+- Gorilla WebSocket is pinned to the pseudo-version
+  `v1.5.4-0.20240701034025-d67f41855da4`, the fix commit one past v1.5.3, because
+  no tagged release fixes [GO-2026-6278](https://pkg.go.dev/vuln/GO-2026-6278)
+  (math/rand mask keys, reintroduced in v1.5.3). Core only upgrades server-side
+  connections, which never generate mask keys, but the symbols are linked and the
+  gate fails on them. Move to a tagged release once one includes the fix.
 
 ### Raised indirect modules
 
-`backend/go.mod` requires two indirect compression modules above what any
-dependency asks for, because the versions the dependencies select carry
-reachable advisories:
+`backend/go.mod` requires these indirect modules above what any dependency asks
+for, because the versions the dependencies select carry reachable advisories:
 
 | Module | Version | Fixes | Reached through |
 | --- | --- | --- | --- |
 | `github.com/andybalholm/brotli` | 1.2.7 | [GO-2026-6888](https://pkg.go.dev/vuln/GO-2026-6888), excessive allocation on crafted streams | `clickhouse-go` (reports) |
 | `github.com/klauspost/compress` | 1.20.2 | [GO-2026-6865](https://pkg.go.dev/vuln/GO-2026-6865), panic on two-block frames | `minio-go` (object storage) |
+| `go.opentelemetry.io/otel`, `/trace`, `/metric` | 1.47.0 | [GO-2026-6974](https://pkg.go.dev/vuln/GO-2026-6974), attribute length limit bypass | Docker SDK client (Builder, Core) |
 
 Several modules require them at lower versions (`clickhouse-go`, `ch-go`,
 `minio-go`, `moby/go-archive` and `golang-migrate` for compress; `clickhouse-go`
-and `golang-migrate` for brotli), so `go mod tidy` keeps these requirements only
-because they are the highest. Do not lower them when a dependency changes;
-`make vulncheck` fails if one falls below its fix.
+and `golang-migrate` for brotli; gRPC, `clickhouse-go`, `ch-go` and
+`golang-migrate` for OpenTelemetry), so `go mod tidy` keeps these requirements only because they are
+the highest. OpenTelemetry 1.47 in turn raises `testify` to 1.12.1. Do not lower
+them when a dependency changes; `make vulncheck` fails if one falls below its fix.
 
 ### Accepted and residual advisories
 
-`make vulncheck` passes only because GO-2026-4883 and GO-2026-4887 are recorded as
-reviewed acceptances in `backend/vulncheck/policy.json`, scoped to the scans that
-report them: production roots and the Builder and Core binaries. Any
-other symbol-level finding fails it. Gateway and SSO have no symbol-level findings;
-their module-only reports still require applicability review.
+`backend/vulncheck/policy.json` currently accepts no advisories: no scan
+reports a symbol-level finding, and any new one fails `make vulncheck`. Module-only
+reports still require applicability review.
 
 Residual applicability is deliberately narrower than a blanket module exclusion:
 
 - GO-2026-4883 concerns Docker daemon plugin-install privilege validation;
-  GO-2026-4887 concerns daemon AuthZ plugins and oversized bodies. DCM links the
-  Docker client/types, not the daemon plugin authorization handlers, and does
-  not expose plugin installation. Module-wide unreviewed reports flag client
-  symbols too. This excludes those server operations from DCM binaries, not the
-  independently installed host daemon from assessment. No Docker SDK release
+  GO-2026-4887 concerns daemon AuthZ plugins and oversized bodies. They were
+  accepted while the database reported them module-wide; the reviewed entries now
+  name only the daemon `plugin` and `pkg/authorization` packages, which DCM does
+  not import, so the scans no longer report them and the acceptances were
+  removed. DCM links the Docker client/types and does not expose plugin
+  installation. This keeps those server operations out of DCM binaries, not the
+  independently installed host daemon out of assessment. No Docker SDK release
   carries a fix; patch the host Engine separately. See the upstream
   [plugin privilege advisory](https://github.com/moby/moby/security/advisories/GHSA-pxq6-2prw-chj9)
   and [AuthZ advisory](https://github.com/moby/moby/security/advisories/GHSA-x744-4wpc-v9h2).
