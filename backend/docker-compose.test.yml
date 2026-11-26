@@ -44,6 +44,11 @@ services:
 
   rabbitmq_test:
     image: rabbitmq:4.3.1-management
+    # The image runs as root with HOME=/var/lib/rabbitmq. A root healthcheck that
+    # lands after the entrypoint's chown but before the broker reads its Erlang
+    # cookie creates the cookie root-only, and the broker fails to boot (eacces).
+    # Running as rabbitmq gives the healthcheck the broker's own user.
+    user: rabbitmq
     ports:
       - "127.0.0.1:15692:5672"
       - "127.0.0.1:15693:15672"
