@@ -31,6 +31,14 @@ func createVolumeInputFromDTO(req dto.CreateVolumeDTO) model.CreateVolumeInput {
 	return model.CreateVolumeInput{Name: req.Name, SizeBytes: req.SizeBytes}
 }
 
+func containerRefsToDTO(items []model.ContainerRef) []dto.ContainerRefDTO {
+	result := make([]dto.ContainerRefDTO, 0, len(items))
+	for _, item := range items {
+		result = append(result, dto.ContainerRefDTO{ID: item.ContainerID, Name: item.Name})
+	}
+	return result
+}
+
 func containersToDTO(items []model.Container) []dto.ContainerDTO {
 	result := make([]dto.ContainerDTO, 0, len(items))
 	for _, item := range items {
@@ -117,16 +125,8 @@ func volumesToDTO(items []model.Volume) []dto.VolumeDTO {
 			CreatedAt:       item.CreatedAt,
 			OwnerID:         item.OwnerID,
 			OwnerUsername:   item.OwnerUsername,
-			UsedBy:          volumeUsersToDTO(item.UsedBy),
+			UsedBy:          containerRefsToDTO(item.UsedBy),
 		})
-	}
-	return result
-}
-
-func volumeUsersToDTO(items []model.VolumeUser) []dto.VolumeUserDTO {
-	result := make([]dto.VolumeUserDTO, 0, len(items))
-	for _, item := range items {
-		result = append(result, dto.VolumeUserDTO{ID: item.ContainerID, Name: item.Name})
 	}
 	return result
 }
@@ -144,7 +144,7 @@ func volumesToUserDTO(items []model.Volume) []dto.UserVolumeDTO {
 			SizeBytes:       item.SizeBytes,
 			SizeEnforced:    item.SizeEnforced,
 			CreatedAt:       item.CreatedAt,
-			UsedBy:          volumeUsersToDTO(item.UsedBy),
+			UsedBy:          containerRefsToDTO(item.UsedBy),
 		})
 	}
 	return result
@@ -162,7 +162,7 @@ func imagesToDTO(items []model.Image) []dto.ImageDTO {
 			CreatedAt:     item.CreatedAt,
 			OwnerID:       item.OwnerID,
 			OwnerUsername: item.OwnerUsername,
-			UsedBy:        imageUsersToDTO(item.UsedBy),
+			UsedBy:        containerRefsToDTO(item.UsedBy),
 		})
 	}
 	return result
@@ -178,16 +178,8 @@ func imagesToUserDTO(items []model.Image) []dto.UserImageDTO {
 			Status:    item.Status,
 			LastError: item.LastError,
 			CreatedAt: item.CreatedAt,
-			UsedBy:    imageUsersToDTO(item.UsedBy),
+			UsedBy:    containerRefsToDTO(item.UsedBy),
 		})
-	}
-	return result
-}
-
-func imageUsersToDTO(items []model.ImageUser) []dto.ImageUserDTO {
-	result := make([]dto.ImageUserDTO, 0, len(items))
-	for _, item := range items {
-		result = append(result, dto.ImageUserDTO{ID: item.ContainerID, Name: item.Name})
 	}
 	return result
 }

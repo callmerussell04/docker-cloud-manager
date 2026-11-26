@@ -57,16 +57,8 @@ func volumesFromProto(items []*coreapi.VolumeData) []model.Volume {
 			CreatedAt:       item.GetCreatedAt(),
 			OwnerID:         item.GetOwnerId(),
 			OwnerUsername:   item.GetOwnerUsername(),
-			UsedBy:          volumeUsersFromProto(item.GetUsedBy()),
+			UsedBy:          containerRefsFromProto(item.GetUsedBy()),
 		})
-	}
-	return result
-}
-
-func volumeUsersFromProto(items []*coreapi.VolumeUser) []model.VolumeUser {
-	result := make([]model.VolumeUser, 0, len(items))
-	for _, item := range items {
-		result = append(result, model.VolumeUser{ContainerID: item.GetContainerId(), Name: item.GetName()})
 	}
 	return result
 }

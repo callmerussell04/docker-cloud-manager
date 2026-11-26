@@ -10,13 +10,7 @@ type Image struct {
 	OwnerID       string
 	OwnerUsername string
 	// UsedBy names the containers created from the image.
-	UsedBy []ImageUser
-}
-
-// ImageUser is a container created from an image.
-type ImageUser struct {
-	ContainerID string
-	Name        string
+	UsedBy []ContainerRef
 }
 
 type PaginatedImages struct {

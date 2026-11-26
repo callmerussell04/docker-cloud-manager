@@ -121,6 +121,14 @@ func (c *CoreClient) GetContainerStats(ctx context.Context, containerID string) 
 	return containerStatsFromProto(resp), nil
 }
 
+func containerRefsFromProto(items []*coreapi.ContainerRef) []model.ContainerRef {
+	result := make([]model.ContainerRef, 0, len(items))
+	for _, item := range items {
+		result = append(result, model.ContainerRef{ContainerID: item.GetContainerId(), Name: item.GetName()})
+	}
+	return result
+}
+
 func containersFromProto(items []*coreapi.ContainerData) []model.Container {
 	result := make([]model.Container, 0, len(items))
 	for _, item := range items {

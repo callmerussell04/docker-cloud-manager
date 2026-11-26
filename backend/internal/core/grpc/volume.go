@@ -95,7 +95,7 @@ func (h *VolumeHandler) ListVolumes(ctx context.Context, req *coreapi.Pagination
 			UsageObservedAt: timePtrUnix(v.UsageObservedAt),
 			SizeBytes:       v.SizeBytes,
 			SizeEnforced:    v.SizeEnforced,
-			UsedBy:          volumeUsersToProto(v.UsedBy),
+			UsedBy:          containerRefsToProto(v.UsedBy),
 		})
 	}
 
@@ -116,12 +116,4 @@ func (h *VolumeHandler) usernamesByOwner(ctx context.Context, volumes []model.Vo
 		ids = append(ids, v.OwnerID)
 	}
 	return usernamesByID(ctx, h.users, ids)
-}
-
-func volumeUsersToProto(users []model.VolumeUser) []*coreapi.VolumeUser {
-	result := make([]*coreapi.VolumeUser, 0, len(users))
-	for _, user := range users {
-		result = append(result, &coreapi.VolumeUser{ContainerId: user.ContainerID.String(), Name: user.Name})
-	}
-	return result
 }

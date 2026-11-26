@@ -197,6 +197,14 @@ func (h *ContainerHandler) GetContainer(ctx context.Context, req *coreapi.Contai
 	return containerToProto(c, usernames[c.OwnerID]), nil
 }
 
+func containerRefsToProto(refs []model.ContainerRef) []*coreapi.ContainerRef {
+	result := make([]*coreapi.ContainerRef, 0, len(refs))
+	for _, ref := range refs {
+		result = append(result, &coreapi.ContainerRef{ContainerId: ref.ContainerID.String(), Name: ref.Name})
+	}
+	return result
+}
+
 func containerToProto(c model.Container, ownerUsername string) *coreapi.ContainerData {
 	var lastExitCode *int32
 	if c.LastExitCode != nil {

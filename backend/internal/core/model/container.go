@@ -21,6 +21,13 @@ const (
 	ContainerStatusReconciling = "reconciling"
 )
 
+// ContainerRef names a container another resource lists: one that uses an
+// image or mounts a volume.
+type ContainerRef struct {
+	ContainerID uuid.UUID
+	Name        string
+}
+
 type Container struct {
 	ID                    uuid.UUID
 	OwnerID               uuid.UUID

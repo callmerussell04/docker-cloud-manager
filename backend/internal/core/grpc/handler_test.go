@@ -273,7 +273,7 @@ func TestVolumeGRPCHandlerMapsCreateListDelete(t *testing.T) {
 		CreatedAt:  time.Unix(321, 0),
 		UsedBytes:  128,
 		SizeBytes:  64 << 20,
-		UsedBy:     []model.VolumeUser{{ContainerID: containerID, Name: "web"}},
+		UsedBy:     []model.ContainerRef{{ContainerID: containerID, Name: "web"}},
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil)
 	logic.EXPECT().Delete(mock.Anything, volumeID).Return(nil)
@@ -396,7 +396,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 		SizeBytes: 12<<20 + 1,
 		Status:    model.ImageStatusAvailable,
 		CreatedAt: time.Unix(100, 0),
-		UsedBy:    []model.ImageUser{{ContainerID: imageUserID, Name: "web"}},
+		UsedBy:    []model.ContainerRef{{ContainerID: imageUserID, Name: "web"}},
 	}}, 1, nil)
 	users.EXPECT().GetUsers(mock.Anything, []uuid.UUID{ownerID}).Return(map[uuid.UUID]model.UserInfo{ownerID: {ID: ownerID, Username: "alice"}}, nil).Maybe()
 	buildLogic.EXPECT().StartBuildRecord(mock.Anything, buildID).Return(build, true, nil)
@@ -435,7 +435,7 @@ func TestImageAndBuildGRPCHandlerMapsResources(t *testing.T) {
 	buildResp, err := client.GetBuild(userCtx, &coreapi.BuildActionRequest{BuildId: buildID.String()})
 	require.NoError(t, err)
 	require.Equal(t, "build-logs/demo.log", buildResp.LogObjectKey)
-	require.Equal(t, model.BuildSourceGit, buildResp.SourceKind)
+	require.Equal(t, string(model.BuildSourceGit), buildResp.SourceKind)
 	require.Equal(t, "https://github.com/acme/app.git", buildResp.SourceLocation)
 	require.Equal(t, "main", buildResp.SourceRef)
 	require.Equal(t, finishedAt.Unix(), buildResp.FinishedAt)

@@ -438,11 +438,11 @@ message ImageData {
   int64 size_bytes = 10;
   // The containers created from the image, by name. Core refuses to delete
   // an image while any container uses it.
-  repeated ImageUser used_by = 11;
+  repeated ContainerRef used_by = 11;
 }
 
-// ImageUser is a container created from an image.
-message ImageUser {
+// ContainerRef names a container: one that uses an image or mounts a volume.
+message ContainerRef {
   string container_id = 1;
   string name = 2;
 }
@@ -489,13 +489,7 @@ message VolumeData {
   bool size_enforced = 12;
   // The containers that mount the volume, by name. Core refuses to delete a
   // volume while any container mounts it.
-  repeated VolumeUser used_by = 13;
-}
-
-// VolumeUser is a container that mounts a volume.
-message VolumeUser {
-  string container_id = 1;
-  string name = 2;
+  repeated ContainerRef used_by = 13;
 }
 
 message VolumeListResponse {

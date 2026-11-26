@@ -99,6 +99,20 @@ func (c *ContainerFilterCounts) Add(class ContainerStatusClass, n int) {
 	}
 }
 
+// Shown is how many containers a filter shows; an unknown filter shows all.
+func (c ContainerFilterCounts) Shown(f ContainerStatusFilter) int {
+	switch f {
+	case ContainerFilterRunning:
+		return c.Running
+	case ContainerFilterStopped:
+		return c.Stopped
+	case ContainerFilterAttention:
+		return c.Attention
+	default:
+		return c.All
+	}
+}
+
 // ContainerSortKey is a containers list column.
 type ContainerSortKey string
 

@@ -96,14 +96,6 @@ func imageToProto(img model.Image, ownerUsername string) *coreapi.ImageData {
 		OwnerUsername: ownerUsername,
 		Status:        img.Status,
 		LastError:     stringValue(img.LastError),
-		UsedBy:        imageUsersToProto(img.UsedBy),
+		UsedBy:        containerRefsToProto(img.UsedBy),
 	}
-}
-
-func imageUsersToProto(users []model.ImageUser) []*coreapi.ImageUser {
-	result := make([]*coreapi.ImageUser, 0, len(users))
-	for _, user := range users {
-		result = append(result, &coreapi.ImageUser{ContainerId: user.ContainerID.String(), Name: user.Name})
-	}
-	return result
 }

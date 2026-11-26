@@ -43,16 +43,8 @@ func imagesFromProto(items []*coreapi.ImageData) []model.Image {
 			CreatedAt:     item.GetCreatedAt(),
 			OwnerID:       item.GetOwnerId(),
 			OwnerUsername: item.GetOwnerUsername(),
-			UsedBy:        imageUsersFromProto(item.GetUsedBy()),
+			UsedBy:        containerRefsFromProto(item.GetUsedBy()),
 		})
-	}
-	return result
-}
-
-func imageUsersFromProto(items []*coreapi.ImageUser) []model.ImageUser {
-	result := make([]model.ImageUser, 0, len(items))
-	for _, item := range items {
-		result = append(result, model.ImageUser{ContainerID: item.GetContainerId(), Name: item.GetName()})
 	}
 	return result
 }

@@ -166,12 +166,10 @@ func (r *ImageRepository) fillUsedBy(ctx context.Context, images []model.Image) 
 		return nil
 	}
 	ids := make([]uuid.UUID, len(images))
-	index := make(map[uuid.UUID]int, len(images))
 	for i, img := range images {
 		ids[i] = img.ID
-		index[img.ID] = i
 	}
-	rows, err := r.db.Query(ctx, `
+	users, err := containerRefsByKey(ctx, r.db, `
 		SELECT i.id, c.id, c.name
 		FROM images i
 		JOIN containers c ON c.owner_id = i.owner_id AND c.image_tag = i.tag
@@ -181,17 +179,10 @@ func (r *ImageRepository) fillUsedBy(ctx context.Context, images []model.Image) 
 	if err != nil {
 		return fmt.Errorf("list image users: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var imageID uuid.UUID
-		var user model.ImageUser
-		if err := rows.Scan(&imageID, &user.ContainerID, &user.Name); err != nil {
-			return fmt.Errorf("scan image user: %w", err)
-		}
-		i := index[imageID]
-		images[i].UsedBy = append(images[i].UsedBy, user)
+	for i := range images {
+		images[i].UsedBy = users[images[i].ID]
 	}
-	return rows.Err()
+	return nil
 }
 
 func (r *ImageRepository) CountAll(ctx context.Context) (int, error) {

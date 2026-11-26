@@ -73,17 +73,19 @@ type Build struct {
 	FinishedAt       *time.Time
 }
 
-// Build source kinds.
+// BuildSourceKind is what a build's context came from; empty for a Compose
+// project's build.
+type BuildSourceKind string
+
 const (
-	BuildSourceArchive = "archive"
-	BuildSourceGit     = "git"
+	BuildSourceArchive BuildSourceKind = "archive"
+	BuildSourceGit     BuildSourceKind = "git"
 )
 
 // BuildSource is where a build's context came from: an uploaded archive or a
 // Git repository.
 type BuildSource struct {
-	// Kind is BuildSourceArchive or BuildSourceGit.
-	Kind string
+	Kind BuildSourceKind
 	// Location is the archive's file name or the repository URL.
 	Location string
 	// Ref is the Git ref asked for; empty for an archive or the default

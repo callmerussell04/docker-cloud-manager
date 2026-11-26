@@ -377,29 +377,11 @@ func (r *ContainerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // status filter; the total is the counts of the filter's classes. It expects
 // a normalized filter (model.ContainerListFilter.Normalize).
 func (r *ContainerRepository) List(ctx context.Context, opts model.ContainerListOptions) (model.ContainerPage, error) {
-	counted := &sqlArgs{}
-	countQuery := `SELECT ` + containerClassExpr(counted) + ` AS class, COUNT(*) FROM containers` +
-		whereClause(containerListConditions(counted, opts)) + ` GROUP BY class`
-
-	var page model.ContainerPage
-	countRows, err := r.db.Query(ctx, countQuery, counted.args...)
+	counts, err := r.countFilters(ctx, opts)
 	if err != nil {
 		return model.ContainerPage{}, err
 	}
-	defer countRows.Close()
-	for countRows.Next() {
-		var class, n int
-		if err := countRows.Scan(&class, &n); err != nil {
-			return model.ContainerPage{}, err
-		}
-		page.Counts.Add(model.ContainerStatusClass(class), n)
-		if opts.Status.Shows(model.ContainerStatusClass(class)) {
-			page.Total += n
-		}
-	}
-	if err := countRows.Err(); err != nil {
-		return model.ContainerPage{}, err
-	}
+	page := model.ContainerPage{Counts: counts, Total: counts.Shown(opts.Status)}
 	if page.Total == 0 {
 		return page, nil
 	}
@@ -419,17 +401,77 @@ func (r *ContainerRepository) List(ctx context.Context, opts model.ContainerList
 
 	rows, err := r.db.Query(ctx, query, q.args...)
 	if err != nil {
-		return model.ContainerPage{}, err
+		return model.ContainerPage{}, fmt.Errorf("list containers: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		c, err := scanContainerListItem(rows)
 		if err != nil {
-			return model.ContainerPage{}, err
+			return model.ContainerPage{}, fmt.Errorf("scan container list item: %w", err)
 		}
 		page.Containers = append(page.Containers, c)
 	}
-	return page, rows.Err()
+	if err := rows.Err(); err != nil {
+		return model.ContainerPage{}, fmt.Errorf("list containers: %w", err)
+	}
+	return page, nil
+}
+
+// CountFiltersByOwnerID counts the owner's containers under every status
+// filter.
+func (r *ContainerRepository) CountFiltersByOwnerID(ctx context.Context, ownerID uuid.UUID) (model.ContainerFilterCounts, error) {
+	return r.countFilters(ctx, model.ContainerListOptions{ListOptions: model.ListOptions{OwnerID: &ownerID}})
+}
+
+// containerRefsByKey runs query, which takes an array of IDs as $1 and
+// selects a key ID, a container ID and the container's name, and groups the
+// containers by key, in the query's order.
+func containerRefsByKey(ctx context.Context, db *pgxpool.Pool, query string, keys []uuid.UUID) (map[uuid.UUID][]model.ContainerRef, error) {
+	rows, err := db.Query(ctx, query, keys)
+	if err != nil {
+		return nil, fmt.Errorf("query container refs: %w", err)
+	}
+	defer rows.Close()
+	refs := make(map[uuid.UUID][]model.ContainerRef, len(keys))
+	for rows.Next() {
+		var key uuid.UUID
+		var ref model.ContainerRef
+		if err := rows.Scan(&key, &ref.ContainerID, &ref.Name); err != nil {
+			return nil, fmt.Errorf("scan container ref: %w", err)
+		}
+		refs[key] = append(refs[key], ref)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("query container refs: %w", err)
+	}
+	return refs, nil
+}
+
+// countFilters counts the containers under every status filter, within the
+// owner, the project and the search; it ignores the status filter, the sort
+// and the page.
+func (r *ContainerRepository) countFilters(ctx context.Context, opts model.ContainerListOptions) (model.ContainerFilterCounts, error) {
+	q := &sqlArgs{}
+	query := `SELECT ` + containerClassExpr(q) + ` AS class, COUNT(*) FROM containers` +
+		whereClause(containerListConditions(q, opts)) + ` GROUP BY class`
+
+	rows, err := r.db.Query(ctx, query, q.args...)
+	if err != nil {
+		return model.ContainerFilterCounts{}, fmt.Errorf("count containers by status: %w", err)
+	}
+	defer rows.Close()
+	var counts model.ContainerFilterCounts
+	for rows.Next() {
+		var class, n int
+		if err := rows.Scan(&class, &n); err != nil {
+			return model.ContainerFilterCounts{}, fmt.Errorf("scan container status count: %w", err)
+		}
+		counts.Add(model.ContainerStatusClass(class), n)
+	}
+	if err := rows.Err(); err != nil {
+		return model.ContainerFilterCounts{}, fmt.Errorf("count containers by status: %w", err)
+	}
+	return counts, nil
 }
 
 // sqlArgs collects a statement's parameters and names their placeholders.

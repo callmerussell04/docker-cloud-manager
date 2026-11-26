@@ -1,5 +1,12 @@
 package model
 
+// ContainerRef names a container another resource lists: one that uses an
+// image or mounts a volume.
+type ContainerRef struct {
+	ContainerID string
+	Name        string
+}
+
 type Container struct {
 	ID            string
 	DockerID      string

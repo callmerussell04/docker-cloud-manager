@@ -10,13 +10,7 @@ type ImageDTO struct {
 	OwnerID       string `json:"owner_id"`
 	OwnerUsername string `json:"owner_username"`
 	// UsedBy names the containers created from the image; never null.
-	UsedBy []ImageUserDTO `json:"used_by"`
-}
-
-// ImageUserDTO is a container created from an image.
-type ImageUserDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type UserImageDTO struct {
@@ -27,7 +21,7 @@ type UserImageDTO struct {
 	LastError string `json:"last_error"`
 	CreatedAt int64  `json:"created_at"`
 	// UsedBy names the containers created from the image; never null.
-	UsedBy []ImageUserDTO `json:"used_by"`
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type PaginatedImages struct {

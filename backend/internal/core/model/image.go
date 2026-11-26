@@ -27,13 +27,7 @@ type Image struct {
 	// UsedBy names the containers created from the image, by name. Only an
 	// image list fills it; Core refuses to delete an image while it is
 	// non-empty.
-	UsedBy []ImageUser
-}
-
-// ImageUser is a container created from an image.
-type ImageUser struct {
-	ContainerID uuid.UUID
-	Name        string
+	UsedBy []ContainerRef
 }
 
 const (

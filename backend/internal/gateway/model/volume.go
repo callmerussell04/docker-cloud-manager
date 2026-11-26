@@ -14,13 +14,7 @@ type Volume struct {
 	OwnerID         string
 	OwnerUsername   string
 	// UsedBy names the containers that mount the volume.
-	UsedBy []VolumeUser
-}
-
-// VolumeUser is a container that mounts a volume.
-type VolumeUser struct {
-	ContainerID string
-	Name        string
+	UsedBy []ContainerRef
 }
 
 type CreateVolumeInput struct {

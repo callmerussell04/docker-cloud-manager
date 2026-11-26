@@ -14,7 +14,7 @@ type VolumeDTO struct {
 	OwnerID         string `json:"owner_id"`
 	OwnerUsername   string `json:"owner_username"`
 	// UsedBy names the containers that mount the volume; never null.
-	UsedBy []VolumeUserDTO `json:"used_by"`
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type UserVolumeDTO struct {
@@ -28,13 +28,7 @@ type UserVolumeDTO struct {
 	SizeEnforced    bool   `json:"size_enforced"`
 	CreatedAt       int64  `json:"created_at"`
 	// UsedBy names the containers that mount the volume; never null.
-	UsedBy []VolumeUserDTO `json:"used_by"`
-}
-
-// VolumeUserDTO is a container that mounts a volume.
-type VolumeUserDTO struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	UsedBy []ContainerRefDTO `json:"used_by"`
 }
 
 type CreateVolumeDTO struct {

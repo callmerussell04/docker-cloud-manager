@@ -40,7 +40,6 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, w
 	imgRepo := coremocks.NewStatsImageRepository(t)
 	buildRepo := coremocks.NewStatsBuildRepository(t)
 	projRepo := coremocks.NewStatsProjectRepository(t)
-	var containerListOpts model.ContainerListOptions
 
 	cfgValue := testSystemConfig()
 	cfgValue.DefaultUserQuotaRAMMB, cfgValue.DefaultUserQuotaDiskMB = 768, 200
@@ -52,13 +51,7 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, w
 	}
 	contRepo.EXPECT().GetUserReservedMemory(mock.Anything, ownerID).Return(int64(256), nil)
 	contRepo.EXPECT().GetUserReservedCPU(mock.Anything, ownerID).Return(int64(750), nil)
-	contRepo.EXPECT().CountByOwnerID(mock.Anything, ownerID).Return(3, nil)
-	contRepo.EXPECT().
-		List(mock.Anything, mock.AnythingOfType("model.ContainerListOptions")).
-		Run(func(ctx context.Context, opts model.ContainerListOptions) {
-			containerListOpts = opts
-		}).
-		Return(model.ContainerPage{Counts: model.ContainerFilterCounts{All: 3, Running: 2, Stopped: 1}}, nil)
+	contRepo.EXPECT().CountFiltersByOwnerID(mock.Anything, ownerID).Return(model.ContainerFilterCounts{All: 3, Running: 2, Stopped: 1}, nil)
 	imgRepo.EXPECT().GetUserImageBytes(mock.Anything, ownerID).Return(int64(10<<20), nil)
 	volRepo.EXPECT().GetUserReservedVolumeBytes(mock.Anything, ownerID).Return(int64(1024*1024+1), nil)
 	imgRepo.EXPECT().List(mock.Anything, mock.AnythingOfType("model.ListOptions")).Return([]model.Image(nil), 4, nil)
@@ -85,6 +78,4 @@ func testUserStats(t *testing.T, custom bool, wantRAMQuotaMB, wantDiskQuotaMB, w
 	require.Equal(t, testSystemConfig().MaxVolumesPerUser, stats.VolumesQuota)
 	require.Equal(t, 4, stats.ImagesTotal)
 	require.Equal(t, 5, stats.ProjectsTotal)
-	require.NotNil(t, containerListOpts.OwnerID)
-	require.Equal(t, ownerID, *containerListOpts.OwnerID)
 }

@@ -171,11 +171,11 @@ func TestVolumeRepositoryMountUsageAndProjectFilters(t *testing.T) {
 	listed, total, err := volumeRepo.List(ctx, model.ListOptions{OwnerID: &ownerID, Limit: 10})
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
-	usedBy := map[string][]model.VolumeUser{}
+	usedBy := map[string][]model.ContainerRef{}
 	for _, v := range listed {
 		usedBy[v.Name] = v.UsedBy
 	}
-	require.Equal(t, []model.VolumeUser{{ContainerID: containerID, Name: "web"}}, usedBy["data"], "a listed volume names the containers mounting it")
+	require.Equal(t, []model.ContainerRef{{ContainerID: containerID, Name: "web"}}, usedBy["data"], "a listed volume names the containers mounting it")
 	require.Empty(t, usedBy["free"], "a volume no container mounts names none")
 	volumes, err := volumeRepo.GetByProjectID(ctx, projectID)
 	require.NoError(t, err)

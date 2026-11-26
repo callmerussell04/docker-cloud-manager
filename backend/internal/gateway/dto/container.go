@@ -1,5 +1,12 @@
 package dto
 
+// ContainerRefDTO names a container another resource lists: one that uses
+// an image or mounts a volume.
+type ContainerRefDTO struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type ContainerDTO struct {
 	ID            string `json:"id"`
 	DockerID      string `json:"docker_id"`

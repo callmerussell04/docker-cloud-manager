@@ -61,11 +61,11 @@ func TestImageListNamesTheContainersUsingEachImage(t *testing.T) {
 
 	listed, _, err := images.List(ctx, model.ListOptions{OwnerID: &owner, Limit: 10})
 	require.NoError(t, err)
-	usedBy := map[string][]model.ImageUser{}
+	usedBy := map[string][]model.ContainerRef{}
 	for _, img := range listed {
 		usedBy[img.Tag] = img.UsedBy
 	}
-	require.Equal(t, []model.ImageUser{{ContainerID: api, Name: "api"}, {ContainerID: web, Name: "web"}}, usedBy["shop:v1"],
+	require.Equal(t, []model.ContainerRef{{ContainerID: api, Name: "api"}, {ContainerID: web, Name: "web"}}, usedBy["shop:v1"],
 		"an image names its owner's containers created from its tag, in name order, and not another user's")
 	require.Empty(t, usedBy["shop:v2"], "an image no container uses names none")
 }

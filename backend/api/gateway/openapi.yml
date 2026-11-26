@@ -2602,10 +2602,11 @@ components:
           type: array
           description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
           items:
-            $ref: '#/components/schemas/VolumeUser'
+            $ref: '#/components/schemas/ContainerRef'
 
-    VolumeUser:
+    ContainerRef:
       type: object
+      description: A container another resource lists, one that uses an image or mounts a volume.
       properties:
         id:
           type: string
@@ -2647,7 +2648,7 @@ components:
           type: array
           description: The containers that mount the volume, by name; empty when none does. A volume in use cannot be deleted (409).
           items:
-            $ref: '#/components/schemas/VolumeUser'
+            $ref: '#/components/schemas/ContainerRef'
 
     # IMAGES
     UserImage:
@@ -2673,7 +2674,7 @@ components:
           type: array
           description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
           items:
-            $ref: '#/components/schemas/ImageUser'
+            $ref: '#/components/schemas/ContainerRef'
 
     Image:
       type: object
@@ -2703,18 +2704,7 @@ components:
           type: array
           description: The containers created from the image, by name; empty when none is. An image in use cannot be deleted (409).
           items:
-            $ref: '#/components/schemas/ImageUser'
-
-    ImageUser:
-      type: object
-      properties:
-        id:
-          type: string
-          format: uuid
-          description: The container's ID.
-        name:
-          type: string
-          description: The container's name.
+            $ref: '#/components/schemas/ContainerRef'
 
     # BUILDS
     BuildImageGitRequest:

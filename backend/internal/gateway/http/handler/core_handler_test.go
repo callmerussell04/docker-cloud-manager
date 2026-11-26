@@ -137,7 +137,7 @@ func TestCoreHandlerContainerVolumeAndStatsEndpoints(t *testing.T) {
 	resp = perform(router, http.MethodPost, "/volumes", `{"name":"sized","size_bytes":33554432}`, nil)
 	require.Equal(t, http.StatusAccepted, resp.Code)
 
-	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id", SizeBytes: 1073741824, SizeEnforced: true, UsedBy: []model.VolumeUser{{ContainerID: "container-id", Name: "web"}}}, {ID: "free-id", Name: "free"}}, TotalCount: 2}, nil).Twice()
+	svc.EXPECT().ListVolumes(mock.Anything, 1, 20).Return(model.PaginatedVolumes{Volumes: []model.Volume{{ID: volumeID, Name: "data", DockerName: "vol_data", OwnerID: "owner-id", SizeBytes: 1073741824, SizeEnforced: true, UsedBy: []model.ContainerRef{{ContainerID: "container-id", Name: "web"}}}, {ID: "free-id", Name: "free"}}, TotalCount: 2}, nil).Twice()
 	resp = perform(router, http.MethodGet, "/volumes", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.Contains(t, resp.Body.String(), `"name":"data"`)
@@ -251,7 +251,7 @@ func TestCoreHandlerImagesBuildsProjectsSystemStatsAndReports(t *testing.T) {
 	projectID := uuid.NewString()
 	ownerID := uuid.NewString()
 
-	svc.EXPECT().ListImages(mock.Anything, 1, 20).Return(model.PaginatedImages{Images: []model.Image{{ID: imageID, OwnerID: ownerID, OwnerUsername: "alice", Tag: "demo:latest", SizeBytes: 2<<20 + 123, UsedBy: []model.ImageUser{{ContainerID: "container-id", Name: "web"}}}, {ID: uuid.NewString(), Tag: "free:latest"}}, TotalCount: 2}, nil)
+	svc.EXPECT().ListImages(mock.Anything, 1, 20).Return(model.PaginatedImages{Images: []model.Image{{ID: imageID, OwnerID: ownerID, OwnerUsername: "alice", Tag: "demo:latest", SizeBytes: 2<<20 + 123, UsedBy: []model.ContainerRef{{ContainerID: "container-id", Name: "web"}}}, {ID: uuid.NewString(), Tag: "free:latest"}}, TotalCount: 2}, nil)
 	resp := perform(router, http.MethodGet, "/images", ``, nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	require.NotContains(t, resp.Body.String(), "owner_id")

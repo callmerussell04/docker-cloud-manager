@@ -131,7 +131,7 @@ func TestCoreClientMapsVolumeSizes(t *testing.T) {
 	require.EqualValues(t, 1<<30, volumes.Volumes[0].SizeBytes)
 	require.False(t, volumes.Volumes[0].SizeEnforced)
 	require.True(t, volumes.Volumes[1].SizeEnforced)
-	require.Equal(t, []model.VolumeUser{{ContainerID: "container-id", Name: "web"}}, volumes.Volumes[0].UsedBy)
+	require.Equal(t, []model.ContainerRef{{ContainerID: "container-id", Name: "web"}}, volumes.Volumes[0].UsedBy)
 	require.Empty(t, volumes.Volumes[1].UsedBy)
 }
 
@@ -166,7 +166,7 @@ func TestCoreClientMapsImageUsersAndBuildSource(t *testing.T) {
 	images, err := coreClient.ListImages(context.Background(), 1, 20)
 	require.NoError(t, err)
 	require.Len(t, images.Images, 2)
-	require.Equal(t, []model.ImageUser{{ContainerID: "container-id", Name: "web"}}, images.Images[0].UsedBy)
+	require.Equal(t, []model.ContainerRef{{ContainerID: "container-id", Name: "web"}}, images.Images[0].UsedBy)
 	require.Empty(t, images.Images[1].UsedBy)
 
 	build, err := coreClient.GetBuild(context.Background(), "build-id")
@@ -510,7 +510,7 @@ type coreImageServer struct {
 
 func (s *coreImageServer) ListImages(context.Context, *coreapi.PaginationRequest) (*coreapi.PaginatedImageResponse, error) {
 	return &coreapi.PaginatedImageResponse{Images: []*coreapi.ImageData{
-		{Id: "used", Tag: "shop:v1", UsedBy: []*coreapi.ImageUser{{ContainerId: "container-id", Name: "web"}}},
+		{Id: "used", Tag: "shop:v1", UsedBy: []*coreapi.ContainerRef{{ContainerId: "container-id", Name: "web"}}},
 		{Id: "free", Tag: "shop:v2"},
 	}, TotalCount: 2}, nil
 }
@@ -549,7 +549,7 @@ func (s *coreVolumeServer) CreateVolume(_ context.Context, req *coreapi.CreateVo
 
 func (s *coreVolumeServer) ListVolumes(context.Context, *coreapi.PaginationRequest) (*coreapi.PaginatedVolumeResponse, error) {
 	return &coreapi.PaginatedVolumeResponse{Volumes: []*coreapi.VolumeData{
-		{Id: "measured", Name: "data", SizeBytes: 1 << 30, UsedBytes: 10, UsedBy: []*coreapi.VolumeUser{{ContainerId: "container-id", Name: "web"}}},
+		{Id: "measured", Name: "data", SizeBytes: 1 << 30, UsedBytes: 10, UsedBy: []*coreapi.ContainerRef{{ContainerId: "container-id", Name: "web"}}},
 		{Id: "enforced", Name: "logs", SizeBytes: 2 << 30, SizeEnforced: true},
 	}, TotalCount: 2}, nil
 }
